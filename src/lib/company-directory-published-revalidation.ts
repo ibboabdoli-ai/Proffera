@@ -148,7 +148,12 @@ async function selectCandidates(limit: number) {
           when jsonb_typeof(scb.conflicts) = 'array' then jsonb_array_length(scb.conflicts) > 0
           else true
         end
-        or jsonb_array_length(coalesce(scb.workplaces, '[]'::jsonb)) <> 1
+        or jsonb_array_length(
+          case
+            when jsonb_typeof(scb.workplaces) = 'array' then scb.workplaces
+            else '[]'::jsonb
+          end
+        ) <> 1
         or nullif(btrim(scb.workplaces->0->'visitingAddress'->>'addressLine'), '') is null
         or nullif(btrim(scb.workplaces->0->'visitingAddress'->>'postalCode'), '') is null
         or nullif(btrim(scb.workplaces->0->'visitingAddress'->>'city'), '') is null
@@ -197,7 +202,12 @@ async function backlogCount() {
           when jsonb_typeof(scb.conflicts) = 'array' then jsonb_array_length(scb.conflicts) > 0
           else true
         end
-        or jsonb_array_length(coalesce(scb.workplaces, '[]'::jsonb)) <> 1
+        or jsonb_array_length(
+          case
+            when jsonb_typeof(scb.workplaces) = 'array' then scb.workplaces
+            else '[]'::jsonb
+          end
+        ) <> 1
         or nullif(btrim(scb.workplaces->0->'visitingAddress'->>'addressLine'), '') is null
         or nullif(btrim(scb.workplaces->0->'visitingAddress'->>'postalCode'), '') is null
         or nullif(btrim(scb.workplaces->0->'visitingAddress'->>'city'), '') is null
