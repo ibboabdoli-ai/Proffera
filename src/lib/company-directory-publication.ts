@@ -215,7 +215,13 @@ export async function publishCompanyDirectoryProfileIfSafe(
           and f.source_payload_hash = ${factsSourcePayloadHash}
           and f.deregistration_date is null
           and coalesce(f.advertising_blocked, false) = false
-          and jsonb_array_length(coalesce(f.ongoing_procedures, '[]'::jsonb)) = 0
+          and (
+            case
+              when jsonb_typeof(f.ongoing_procedures) = 'array'
+                then jsonb_array_length(f.ongoing_procedures)
+              else 1
+            end
+          ) = 0
           and exists (
             select 1
             from company_directory_scb_enrichment scb
