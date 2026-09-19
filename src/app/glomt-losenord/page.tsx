@@ -69,6 +69,6 @@ export default async function ForgotPasswordPage({
           </section>
         </div>
       </section>
-    </main>
+    </div>
   );
 }
