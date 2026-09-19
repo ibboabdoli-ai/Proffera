@@ -310,8 +310,35 @@ describe("full Company Directory revalidation", () => {
     expect(recovery?.query).toContain("profile.claimed_workspace_id is null");
     expect(recovery?.query).toContain("company_directory_discovery_queue queue");
     expect(recovery?.query).toContain("queue.state = 'failed'");
-    expect(recovery?.query).toContain("jsonb_array_length(coalesce(scb.conflicts, '[]'::jsonb)) = 0");
+    expect(recovery?.query).toContain("when jsonb_typeof(scb.conflicts) = 'array'");
+    expect(recovery?.query).toContain("then jsonb_array_length(scb.conflicts)");
+    expect(recovery?.query).toContain("else 1");
     expect(recovery?.query).not.toContain("set publication_status = 'published'");
+  });
+
+  it("treats malformed SCB conflicts as fail-closed revalidation work", async () => {
+    responder = async (query) => {
+      if (query.includes("started_at < now() - interval '10 minutes'")) return [];
+      if (query.includes("insert into company_directory_sync_runs")) return [{ id: RUN_ID }];
+      if (query.includes("select profile.id::text, profile.organization_number, profile.display_name, profile.publication_status")) {
+        expect(query).toContain("jsonb_typeof(scb.conflicts) is distinct from 'array'");
+        expect(query).toContain("when jsonb_typeof(scb.conflicts) = 'array'");
+        return [];
+      }
+      if (query.includes("update company_directory_sync_runs") && query.includes("where id =")) return [];
+      if (query.includes("select count(*)::int as count")) {
+        expect(query).toContain("jsonb_typeof(scb.conflicts) is distinct from 'array'");
+        expect(query).toContain("when jsonb_typeof(scb.conflicts) = 'array'");
+        return [{ count: 0 }];
+      }
+      throw new Error(`Unexpected SQL in malformed-conflicts guard test: ${query}`);
+    };
+
+    await expect(revalidateAllCompanyDirectoryBatch(10)).resolves.toMatchObject({
+      selected: 0,
+      errors: 0,
+      remaining: 0,
+    });
   });
 
   it("keeps a failed discovery-queue Review profile out of recovery work and backlog", async () => {

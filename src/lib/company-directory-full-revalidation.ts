@@ -342,6 +342,7 @@ async function selectCandidates(limit: number, cursorValue: string) {
               or scb.last_synced_at < now() - interval '7 days'
               or scb.provenance #>> '{comparisonSnapshot,profileUpdatedToken}' is distinct from profile.updated_at::text
               or scb.provenance #>> '{comparisonSnapshot,officialFactsLastSyncedToken}' is distinct from facts.last_synced_at::text
+              or jsonb_typeof(scb.conflicts) is distinct from 'array'
               or (
                 profile.publication_status = 'review'
                 and profile.is_active = true
@@ -375,7 +376,13 @@ async function selectCandidates(limit: number, cursorValue: string) {
                 and scb.profile_id is not null
                 and scb.source_payload_hash <> ''
                 and scb.last_synced_at >= now() - interval '7 days'
-                and jsonb_array_length(coalesce(scb.conflicts, '[]'::jsonb)) = 0
+                and (
+                  case
+                    when jsonb_typeof(scb.conflicts) = 'array'
+                      then jsonb_array_length(scb.conflicts)
+                    else 1
+                  end
+                ) = 0
                 and scb.provenance #>> '{comparisonSnapshot,profileUpdatedToken}' = profile.updated_at::text
                 and scb.provenance #>> '{comparisonSnapshot,officialFactsLastSyncedToken}' = facts.last_synced_at::text
                 and (
@@ -492,6 +499,7 @@ async function backlogCount() {
             or scb.last_synced_at < now() - interval '7 days'
             or scb.provenance #>> '{comparisonSnapshot,profileUpdatedToken}' is distinct from profile.updated_at::text
             or scb.provenance #>> '{comparisonSnapshot,officialFactsLastSyncedToken}' is distinct from facts.last_synced_at::text
+              or jsonb_typeof(scb.conflicts) is distinct from 'array'
             or (
               profile.publication_status = 'review'
               and profile.is_active = true
@@ -525,7 +533,13 @@ async function backlogCount() {
               and scb.profile_id is not null
               and scb.source_payload_hash <> ''
               and scb.last_synced_at >= now() - interval '7 days'
-              and jsonb_array_length(coalesce(scb.conflicts, '[]'::jsonb)) = 0
+              and (
+                  case
+                    when jsonb_typeof(scb.conflicts) = 'array'
+                      then jsonb_array_length(scb.conflicts)
+                    else 1
+                  end
+                ) = 0
               and scb.provenance #>> '{comparisonSnapshot,profileUpdatedToken}' = profile.updated_at::text
               and scb.provenance #>> '{comparisonSnapshot,officialFactsLastSyncedToken}' = facts.last_synced_at::text
               and (
@@ -575,7 +589,13 @@ async function loadFreshEvaluation(profileId: string) {
       facts.source_payload_hash as facts_source_payload_hash,
       scb.workplaces as scb_workplaces,
       scb.source_payload_hash as scb_source_payload_hash,
-      coalesce(jsonb_array_length(scb.conflicts), 0)::int as scb_conflict_count,
+      (
+        case
+          when jsonb_typeof(scb.conflicts) = 'array'
+            then jsonb_array_length(scb.conflicts)
+          else 1
+        end
+      )::int as scb_conflict_count,
       (
         facts.profile_id is not null
         and facts.last_synced_at >= profile.last_synced_at
@@ -922,7 +942,13 @@ async function restoreSafeReviewProfileToReady(input: {
         where scb.profile_id = profile.id
           and scb.source_payload_hash = ${input.scbSourcePayloadHash}
           and scb.last_synced_at >= now() - interval '7 days'
-          and jsonb_array_length(coalesce(scb.conflicts, '[]'::jsonb)) = 0
+          and (
+                  case
+                    when jsonb_typeof(scb.conflicts) = 'array'
+                      then jsonb_array_length(scb.conflicts)
+                    else 1
+                  end
+                ) = 0
           and scb.provenance #>> '{comparisonSnapshot,profileUpdatedToken}' = profile.updated_at::text
           and scb.provenance #>> '{comparisonSnapshot,officialFactsLastSyncedToken}' = ${input.factsLastSyncedToken}
       )

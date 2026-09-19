@@ -417,6 +417,28 @@ function postgresSql(client: Client) {
       expect(mocks.assessConfidence).not.toHaveBeenCalled();
     }, 30_000);
 
+    it("fails closed on malformed SCB conflicts without aborting published revalidation", async () => {
+      await seedActiveProfile();
+      await seedFreshFacts(ACTIVE_PROFILE_ID);
+      await seedStaleScb(ACTIVE_PROFILE_ID, ACTIVE_ORGANIZATION_NUMBER);
+      await client!.query(
+        "update company_directory_scb_enrichment set conflicts = '{}'::jsonb where profile_id = $1::uuid",
+        [ACTIVE_PROFILE_ID],
+      );
+
+      const result = await revalidateAllCompanyDirectoryBatch(10);
+
+      expect(result).toMatchObject({
+        selected: 1,
+        errors: 0,
+      });
+      expect(mocks.enrichScb).toHaveBeenCalledWith(
+        ACTIVE_PROFILE_ID,
+        transport,
+        { allowWhenDisabledWithExplicitTransport: true },
+      );
+    }, 30_000);
+
     it("keeps stale-SCB revalidation active for published profiles while excluding inactive profiles", async () => {
       await seedInactiveProfile();
       await seedFreshFacts(PROFILE_ID);
