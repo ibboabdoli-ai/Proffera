@@ -107,6 +107,40 @@ describe("signup entry runtime behavior", () => {
     expect(navigate).toHaveBeenCalledWith("/dashboard/onboarding?new=1");
   });
 
+  it("keeps account-ready state when provisioning throws and retries without duplicate signup", async () => {
+    const signUpEmail = vi.fn().mockResolvedValue({ error: null });
+    const provision = vi.fn()
+      .mockRejectedValueOnce(new Error("network down"))
+      .mockResolvedValueOnce({ ok: true, redirectPath: "/dashboard" });
+    const persistLocale = vi.fn();
+    const navigate = vi.fn();
+
+    const input = {
+      locale: "sv" as const,
+      accountReady: false,
+      contactName: "Owner",
+      companyName: "Acme AB",
+      email: "owner@example.com",
+      password: "password123",
+      city: "Stockholm",
+      phone: "",
+      plan: "starter" as const,
+    };
+
+    const first = await submitSignup(input, { signUpEmail, provision, persistLocale, navigate });
+    expect(first).toEqual({ accountReady: true, error: "recovery" });
+
+    const second = await submitSignup(
+      { ...input, accountReady: first.accountReady },
+      { signUpEmail, provision, persistLocale, navigate },
+    );
+
+    expect(second).toEqual({ accountReady: true, error: null });
+    expect(signUpEmail).toHaveBeenCalledTimes(1);
+    expect(provision).toHaveBeenCalledTimes(2);
+    expect(navigate).toHaveBeenCalledWith("/dashboard");
+  });
+
   it("keeps account-ready retry state and does not create the account twice", async () => {
     const signUpEmail = vi.fn().mockResolvedValue({ error: null });
     const provision = vi.fn()
