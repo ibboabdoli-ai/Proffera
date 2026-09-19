@@ -20,10 +20,6 @@ describe("auth and signup human-designed UX contract", () => {
     expect(form).toContain("rememberMe: true");
     expect(form).toContain("/glomt-losenord?lang=en");
     expect(form).toContain("authStyles.primaryButton");
-    expect(form).toContain('const safeLocale: SignupLocale = locale === "en" ? "en" : "sv";');
-    expect(form).toContain('const safePlan: CheckoutPlanKey = plan === "professional" ? "professional" : "starter";');
-    expect(form).toContain("<a href={loginHref}");
-    expect(form).not.toContain('import Link from "next/link"');
   });
 
   it("keeps signup account/workspace creation semantics while aligning presentation", () => {
@@ -37,6 +33,10 @@ describe("auth and signup human-designed UX contract", () => {
     expect(form).toContain("initialPlan");
     expect(form).toContain("accountReady");
     expect(form).toContain("authStyles.primaryButton");
+    expect(form).toContain('const safeLocale: SignupLocale = locale === "en" ? "en" : "sv";');
+    expect(form).toContain('const safePlan: CheckoutPlanKey = plan === "professional" ? "professional" : "starter";');
+    expect(form).toContain("<a href={loginHref}");
+    expect(form).not.toContain('import Link from "next/link"');
   });
 
   it("keeps password reset privacy, token scrubbing, and session revocation messaging", () => {
