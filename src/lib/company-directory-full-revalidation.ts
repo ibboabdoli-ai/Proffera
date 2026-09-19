@@ -2,6 +2,7 @@ import "server-only";
 
 import { assessCompanyDirectoryCategoryConfidence } from "@/lib/company-directory-category-confidence";
 import { enrichCompanyDirectoryOfficialFactsForProfile } from "@/lib/company-directory-official-facts";
+import { assessCompanyDirectoryPilotWorkplace } from "@/lib/company-directory-pilot-location";
 import { isBolagsverketOrganizationNotFoundError } from "@/lib/company-directory-official-facts-errors";
 import {
   SCB_COMPANY_REGISTRY_MATCH_COUNT_FAILURE_CODE as DETERMINISTIC_SCB_FAILURE_CODE,
@@ -48,6 +49,18 @@ function jsonArray(value: unknown): unknown[] {
     }
   }
   return [];
+}
+
+function hasSafePilotWorkplace(row: Record<string, unknown>) {
+  return assessCompanyDirectoryPilotWorkplace(
+    {
+      addressLine1: text(row.address_line1),
+      postalCode: text(row.postal_code),
+      city: text(row.city),
+      municipality: text(row.municipality),
+    },
+    jsonArray(row.scb_workplaces),
+  ).eligible;
 }
 
 function hardOfficialFactsBlock(row: Record<string, unknown> | null | undefined) {
@@ -482,6 +495,10 @@ async function loadFreshEvaluation(profileId: string) {
       profile.legal_name,
       profile.display_name,
       profile.activity_description,
+      profile.address_line1,
+      profile.postal_code,
+      profile.city,
+      profile.municipality,
       profile.is_active,
       profile.privacy_blocked,
       profile.auto_public_eligible,
@@ -494,6 +511,7 @@ async function loadFreshEvaluation(profileId: string) {
       facts.ongoing_procedures,
       facts.last_synced_at::text as facts_last_synced_token,
       facts.source_payload_hash as facts_source_payload_hash,
+      scb.workplaces as scb_workplaces,
       scb.source_payload_hash as scb_source_payload_hash,
       coalesce(jsonb_array_length(scb.conflicts), 0)::int as scb_conflict_count,
       (
@@ -1106,6 +1124,7 @@ export async function revalidateAllCompanyDirectoryBatch(
         refreshed += 1;
         const status = text(row.publication_status);
         const claimed = Boolean(row.claimed_workspace_id);
+        const pilotWorkplaceSafe = hasSafePilotWorkplace(row);
         const unsafe = text(row.country_code) !== "SE"
           || text(row.organization_kind) !== "juridical_person"
           || !Boolean(row.is_active)
@@ -1113,7 +1132,8 @@ export async function revalidateAllCompanyDirectoryBatch(
           || !Boolean(row.auto_public_eligible)
           || Boolean(row.deregistration_date)
           || Boolean(row.advertising_blocked)
-          || jsonArray(row.ongoing_procedures).length > 0;
+          || jsonArray(row.ongoing_procedures).length > 0
+          || !pilotWorkplaceSafe;
         const scbConflictCount = Math.max(0, number(row.scb_conflict_count));
         const shouldReview = unsafe
           || !confidence.officialFactsReady
@@ -1167,7 +1187,9 @@ export async function revalidateAllCompanyDirectoryBatch(
           const finalEvaluation = await loadFreshEvaluation(profileId);
           const finalScbSafe = finalScb.status === "saved"
             && Boolean(finalEvaluation?.scb_snapshot_fresh)
-            && Math.max(0, number(finalEvaluation?.scb_conflict_count)) === 0;
+            && Math.max(0, number(finalEvaluation?.scb_conflict_count)) === 0
+            && Boolean(finalEvaluation)
+            && hasSafePilotWorkplace(finalEvaluation as Record<string, unknown>);
           if (!finalScbSafe) {
             const reverted = await restoreUnsafeRecoveredProfileToReview({
               profileId,

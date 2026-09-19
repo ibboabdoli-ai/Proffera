@@ -57,6 +57,18 @@ function candidate(status = "ready") {
   };
 }
 
+function workplace(city = "Stockholm", municipality = "Stockholm") {
+  return {
+    cfarNumber: "12345678",
+    municipality,
+    visitingAddress: {
+      addressLine: "Arbetsplatsgatan 2",
+      postalCode: "11122",
+      city,
+    },
+  };
+}
+
 function evaluation(status = "ready", overrides: Record<string, unknown> = {}) {
   return {
     id: PROFILE_ID,
@@ -68,6 +80,10 @@ function evaluation(status = "ready", overrides: Record<string, unknown> = {}) {
     legal_name: "Exempel El AB",
     display_name: "Exempel El AB",
     activity_description: "Elinstallation och service",
+    address_line1: "Registrerad gata 1",
+    postal_code: "11122",
+    city: "Stockholm",
+    municipality: "Stockholm",
     is_active: true,
     privacy_blocked: false,
     auto_public_eligible: true,
@@ -80,6 +96,7 @@ function evaluation(status = "ready", overrides: Record<string, unknown> = {}) {
     ongoing_procedures: [],
     facts_last_synced_token: FACTS_TOKEN,
     facts_source_payload_hash: FACTS_HASH,
+    scb_workplaces: [workplace()],
     scb_source_payload_hash: SCB_HASH,
     scb_conflict_count: 0,
     official_facts_fresh: true,
@@ -164,6 +181,46 @@ describe("full Company Directory revalidation", () => {
     });
     expect(mocks.enrichOfficialFacts).not.toHaveBeenCalled();
     expect(mocks.enrichScb).not.toHaveBeenCalled();
+  });
+
+  it("moves a published profile to Review when the refreshed canonical workplace is outside the pilot", async () => {
+    configureWorker({
+      status: "published",
+      evaluation: evaluation("published", {
+        scb_workplaces: [workplace("Uppsala", "Uppsala")],
+      }),
+    });
+
+    const result = await revalidateAllCompanyDirectoryBatch(10);
+
+    expect(result).toMatchObject({
+      selected: 1,
+      refreshed: 1,
+      movedToReview: 1,
+      errors: 0,
+    });
+    expect(sqlCalls.some((call) => call.query.includes("set publication_status = 'review'"))).toBe(true);
+  });
+
+  it("keeps an outside-pilot Review profile in Review instead of recovering it to Ready", async () => {
+    configureWorker({
+      status: "review",
+      evaluation: evaluation("review", {
+        scb_workplaces: [workplace("Uppsala", "Uppsala")],
+      }),
+    });
+
+    const result = await revalidateAllCompanyDirectoryBatch(10);
+
+    expect(result).toMatchObject({
+      selected: 1,
+      refreshed: 1,
+      recoveredToReady: 0,
+      movedToReview: 0,
+      kept: 1,
+      errors: 0,
+    });
+    expect(sqlCalls.some((call) => call.query.includes("set publication_status = 'ready'"))).toBe(false);
   });
 
   it("refreshes a low-confidence Ready profile and moves it to Review", async () => {
