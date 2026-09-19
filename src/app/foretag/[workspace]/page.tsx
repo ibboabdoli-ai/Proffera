@@ -327,7 +327,7 @@ export default async function PublicBusinessPage({ params, searchParams }: Props
                   </PublicBusinessTrackedLink>
                 ) : null}
                 {bookingHref ? (
-                  <PublicBusinessTrackedLink workspaceId={business.id} eventKey="book_clicked" href={bookingHref} className={styles.headerBook}>
+                  <PublicBusinessTrackedLink workspaceId={business.id} eventKey="book_clicked" href={bookingHref} className={styles.directBook}>
                     {companyCopy.bookOnline}
                   </PublicBusinessTrackedLink>
                 ) : null}
