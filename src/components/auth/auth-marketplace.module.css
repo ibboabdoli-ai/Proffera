@@ -197,10 +197,6 @@
   position: relative;
 }
 
-.passwordInput {
-  padding-right: 72px;
-}
-
 .passwordToggle {
   position: absolute;
   top: 50%;
@@ -248,6 +244,10 @@
   outline: none;
   font-size: 1rem;
   transition: border-color 160ms ease, box-shadow 160ms ease, background 160ms ease;
+}
+
+.input.passwordInput {
+  padding-right: 72px;
 }
 
 .input:focus,
