@@ -267,19 +267,19 @@ export default async function MarketplaceActivationPage({
                 <input type="hidden" name="lang" value={locale} />
                 <label className="grid gap-2 text-sm font-bold text-ink">
                   {t.workspaceService}
-                  <select name="serviceId" required className="min-h-12 rounded-xl border border-line bg-surface px-3 text-sm">
+                  <select name="serviceId" required className="min-h-12 rounded-xl border border-line bg-surface px-3 text-base sm:text-sm">
                     {activatableWorkspaceServices.map((service) => <option key={service.id} value={service.id}>{service.name}</option>)}
                   </select>
                 </label>
                 <label className="grid gap-2 text-sm font-bold text-ink">
                   {t.marketplaceService}
-                  <select name="directoryServiceSlug" required className="min-h-12 rounded-xl border border-line bg-surface px-3 text-sm">
+                  <select name="directoryServiceSlug" required className="min-h-12 rounded-xl border border-line bg-surface px-3 text-base sm:text-sm">
                     {state.directoryServices.map((service) => <option key={service.slug} value={service.slug}>{service.label}</option>)}
                   </select>
                 </label>
                 <label className="grid gap-2 text-sm font-bold text-ink">
                   {t.action}
-                  <select name="conversionMode" defaultValue="book" className="min-h-12 rounded-xl border border-line bg-surface px-3 text-sm">
+                  <select name="conversionMode" defaultValue="book" className="min-h-12 rounded-xl border border-line bg-surface px-3 text-base sm:text-sm">
                     <option value="book">{t.book}</option>
                     <option value="quote">{t.quote}</option>
                     <option value="book_or_quote">{t.both}</option>
@@ -290,7 +290,7 @@ export default async function MarketplaceActivationPage({
                   {t.radius}
                   <div className="relative">
                     <MapPin className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-muted" />
-                    <input name="radiusKm" type="number" min="1" max="300" step="0.1" defaultValue="25" required className="min-h-12 w-full rounded-xl border border-line bg-surface pl-10 pr-3 text-sm" />
+                    <input name="radiusKm" type="number" min="1" max="300" step="0.1" defaultValue="25" required className="min-h-12 w-full rounded-xl border border-line bg-surface pl-10 pr-3 text-base sm:text-sm" />
                   </div>
                 </label>
                 <button type="submit" className="inline-flex min-h-12 items-center justify-center gap-2 rounded-control bg-brand-deep px-6 text-sm font-black text-white md:col-span-2">
