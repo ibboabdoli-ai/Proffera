@@ -212,6 +212,10 @@ function postgresSql(client: Client) {
           category_slug text not null,
           primary_sni_code text not null,
           activity_description text not null default '',
+          address_line1 text not null default '',
+          postal_code text not null default '',
+          city text not null default '',
+          municipality text not null default '',
           is_active boolean not null default true,
           privacy_blocked boolean not null default false,
           auto_public_eligible boolean not null default true,
@@ -235,6 +239,7 @@ function postgresSql(client: Client) {
           source_payload_hash text not null default '',
           last_synced_at timestamptz,
           provenance jsonb not null default '{}'::jsonb,
+          workplaces jsonb not null default '[]'::jsonb,
           conflicts jsonb not null default '[]'::jsonb,
           updated_at timestamptz not null default now()
         );

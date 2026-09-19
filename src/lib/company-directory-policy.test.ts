@@ -145,13 +145,25 @@ describe("company directory policy", () => {
     expect(assessment.publicationStatus).toBe("ready");
   });
 
-  it("keeps otherwise valid companies outside Stockholm and Södertälje out of auto-publication", () => {
+  it("keeps profile location advisory while leaving pilot authority to canonical workplace evidence", () => {
     const outside = candidate({ city: "Malmö", municipality: "Malmö" });
     const assessment = assessDirectoryCandidate(outside);
     expect(isDirectoryPilotLocation(outside)).toBe(false);
     expect(assessment.reasons).toContain("outside_pilot_area");
-    expect(assessment.autoPublicEligible).toBe(false);
-    expect(assessment.publicationStatus).toBe("review");
+    expect(assessment.autoPublicEligible).toBe(true);
+    expect(assessment.publicationStatus).toBe("ready");
+  });
+
+  it("keeps missing profile location advisory without blocking canonical workplace eligibility", () => {
+    const missingProfileLocation = candidate({ city: "", municipality: "" });
+    const assessment = assessDirectoryCandidate(missingProfileLocation);
+
+    expect(isDirectoryPilotLocation(missingProfileLocation)).toBe(false);
+    expect(assessment.reasons).toContain("missing_city");
+    expect(assessment.reasons).toContain("outside_pilot_area");
+    expect(assessment.score).toBeGreaterThanOrEqual(80);
+    expect(assessment.autoPublicEligible).toBe(true);
+    expect(assessment.publicationStatus).toBe("ready");
   });
 
   it("does not award tax quality points when explicit registration details are all negative", () => {

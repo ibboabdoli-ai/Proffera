@@ -4,6 +4,8 @@ import { revalidateTag, unstable_cache } from "next/cache";
 
 import { getSql } from "@/lib/db/server";
 
+// v3 intentionally retires the pre-0068 cache generation after the controlled
+// workplace-authority reconciliation so demoted profiles cannot survive in v2.
 // Safe published + unclaimed juridical Directory projections are explicitly
 // invalidated on publication, claim, revalidation, and profile mutations. Keep
 // a 24-hour TTL only as a fallback so crawler repeats do not wake Neon every
@@ -15,12 +17,12 @@ export const PUBLIC_DIRECTORY_CACHE_TTL_SECONDS = 24 * 60 * 60;
 // request-fresh. The normal profile invalidation tag also evicts these misses.
 export const PUBLIC_DIRECTORY_MISS_CACHE_TTL_SECONDS = 30 * 60;
 
-const PUBLIC_DIRECTORY_PROFILE_CACHE_NAMESPACE = "public-directory-published-juridical-v2";
-const PUBLIC_DIRECTORY_EXTRAS_CACHE_NAMESPACE = "public-directory-profile-extras-v2";
-const PUBLIC_DIRECTORY_MISS_CACHE_NAMESPACE = "public-directory-miss-v1";
-const PUBLIC_DIRECTORY_ROUTING_MISS_CACHE_NAMESPACE = "public-directory-routing-miss-v1";
-const PUBLIC_DIRECTORY_PROFILE_GLOBAL_TAG = "public-directory-profile:v2:all";
-const PUBLIC_DIRECTORY_EXTRAS_GLOBAL_TAG = "public-directory-extras:v2:all";
+const PUBLIC_DIRECTORY_PROFILE_CACHE_NAMESPACE = "public-directory-published-juridical-v3";
+const PUBLIC_DIRECTORY_EXTRAS_CACHE_NAMESPACE = "public-directory-profile-extras-v3";
+const PUBLIC_DIRECTORY_MISS_CACHE_NAMESPACE = "public-directory-miss-v2";
+const PUBLIC_DIRECTORY_ROUTING_MISS_CACHE_NAMESPACE = "public-directory-routing-miss-v2";
+const PUBLIC_DIRECTORY_PROFILE_GLOBAL_TAG = "public-directory-profile:v3:all";
+const PUBLIC_DIRECTORY_EXTRAS_GLOBAL_TAG = "public-directory-extras:v3:all";
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 export type PublicDirectoryCacheDecision<T> = {
@@ -97,11 +99,11 @@ function tagToken(value: unknown) {
 }
 
 export function publicDirectoryProfileCacheTag(slug: string) {
-  return `public-directory-profile:v2:${tagToken(slug)}`;
+  return `public-directory-profile:v3:${tagToken(slug)}`;
 }
 
 export function publicDirectoryExtrasCacheTag(profileId: string) {
-  return `public-directory-extras:v2:${tagToken(profileId)}`;
+  return `public-directory-extras:v3:${tagToken(profileId)}`;
 }
 
 function publicDirectoryProfileTags(slug: string) {

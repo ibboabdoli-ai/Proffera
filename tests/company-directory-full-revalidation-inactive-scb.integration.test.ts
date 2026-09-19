@@ -95,12 +95,14 @@ function postgresSql(client: Client) {
         insert into company_directory_profiles (
           id, organization_number, legal_name, display_name, public_slug, publication_status,
           country_code, organization_kind, category_slug, primary_sni_code,
-          activity_description, is_active, privacy_blocked, auto_public_eligible,
+          activity_description, address_line1, postal_code, city, municipality,
+          is_active, privacy_blocked, auto_public_eligible,
           claimed_workspace_id, last_synced_at, updated_at
         ) values (
           $1::uuid, $2, $3, $3, $4, $5,
           'SE', 'juridical_person', 'elektriker', '43.210',
-          'Elinstallation och service', $6, false, $7,
+          'Elinstallation och service', 'Registrerad gata 1', '11122', 'Stockholm', 'Stockholm',
+          $6, false, $7,
           null, now() - interval '1 day', now() - interval '1 day'
         )
       `, [
@@ -200,6 +202,10 @@ function postgresSql(client: Client) {
           category_slug text not null,
           primary_sni_code text not null,
           activity_description text not null default '',
+          address_line1 text not null default '',
+          postal_code text not null default '',
+          city text not null default '',
+          municipality text not null default '',
           is_active boolean not null default true,
           privacy_blocked boolean not null default false,
           auto_public_eligible boolean not null default true,
@@ -224,6 +230,7 @@ function postgresSql(client: Client) {
           source_payload_hash text not null default '',
           last_synced_at timestamptz not null default now(),
           provenance jsonb not null default '{}'::jsonb,
+          workplaces jsonb not null default '[]'::jsonb,
           conflicts jsonb not null default '[]'::jsonb,
           updated_at timestamptz not null default now()
         );
@@ -274,6 +281,17 @@ function postgresSql(client: Client) {
           update company_directory_scb_enrichment scb
           set source_payload_hash = 'fresh-scb',
               last_synced_at = now(),
+              workplaces = jsonb_build_array(
+                jsonb_build_object(
+                  'cfarNumber', '12345678',
+                  'municipality', 'Stockholm',
+                  'visitingAddress', jsonb_build_object(
+                    'addressLine', 'Arbetsplatsgatan 2',
+                    'postalCode', '11122',
+                    'city', 'Stockholm'
+                  )
+                )
+              ),
               provenance = jsonb_build_object(
                 'comparisonSnapshot',
                 jsonb_build_object(
@@ -397,6 +415,28 @@ function postgresSql(client: Client) {
       expect(mocks.enrichOfficialFacts).not.toHaveBeenCalled();
       expect(mocks.enrichScb).not.toHaveBeenCalled();
       expect(mocks.assessConfidence).not.toHaveBeenCalled();
+    }, 30_000);
+
+    it("fails closed on malformed SCB conflicts without aborting published revalidation", async () => {
+      await seedActiveProfile();
+      await seedFreshFacts(ACTIVE_PROFILE_ID);
+      await seedStaleScb(ACTIVE_PROFILE_ID, ACTIVE_ORGANIZATION_NUMBER);
+      await client!.query(
+        "update company_directory_scb_enrichment set conflicts = '{}'::jsonb where profile_id = $1::uuid",
+        [ACTIVE_PROFILE_ID],
+      );
+
+      const result = await revalidateAllCompanyDirectoryBatch(10);
+
+      expect(result).toMatchObject({
+        selected: 1,
+        errors: 0,
+      });
+      expect(mocks.enrichScb).toHaveBeenCalledWith(
+        ACTIVE_PROFILE_ID,
+        transport,
+        { allowWhenDisabledWithExplicitTransport: true },
+      );
     }, 30_000);
 
     it("keeps stale-SCB revalidation active for published profiles while excluding inactive profiles", async () => {

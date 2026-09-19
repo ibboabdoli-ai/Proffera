@@ -13,6 +13,7 @@ const mocks = vi.hoisted(() => ({
   fullBatch: vi.fn(),
   assessDirectoryCandidate: vi.fn(),
   buildDirectoryPublicSlug: vi.fn(),
+  isDirectoryPilotLocation: vi.fn(),
   mapPrimarySni: vi.fn(),
   fetchDirectoryBatch: vi.fn(),
   verifyDirectoryCandidate: vi.fn(),
@@ -53,8 +54,10 @@ vi.mock("@/lib/company-directory-full-revalidation", () => ({
   revalidateAllCompanyDirectoryBatch: mocks.fullBatch,
 }));
 vi.mock("@/lib/company-directory-policy", () => ({
+  DIRECTORY_PILOT_LOCATIONS: ["stockholm", "södertälje"],
   assessDirectoryCandidate: mocks.assessDirectoryCandidate,
   buildDirectoryPublicSlug: mocks.buildDirectoryPublicSlug,
+  isDirectoryPilotLocation: mocks.isDirectoryPilotLocation,
 }));
 vi.mock("@/lib/company-directory-service-taxonomy", () => ({
   mapPrimarySniToDirectorySearchService: mocks.mapPrimarySni,
@@ -109,6 +112,16 @@ function publicationSql(slug = "safe-company-ab") {
         ongoing_procedures: [],
         facts_last_synced_token: "facts-v1",
         facts_source_payload_hash: "facts-hash",
+        scb_workplaces: [{
+          cfarNumber: "12345678",
+          municipality: "Stockholm",
+          visitingAddress: {
+            addressLine: "Arbetsplatsgatan 2",
+            postalCode: "11122",
+            city: "Stockholm",
+          },
+        }],
+        scb_source_payload_hash: "scb-hash",
         scb_conflict_count: 0,
         official_facts_fresh: true,
         scb_snapshot_fresh: true,
@@ -222,8 +235,13 @@ function publishedRevalidationSql() {
     if (query.includes("insert into company_directory_sync_runs")) {
       return [{ id: RUN_ID }];
     }
-    if (query.includes("select profile.id::text, profile.organization_number")) {
-      return [{ id: PROFILE_ID, organization_number: "5560000000", display_name: "Safe Company AB" }];
+    if (query.includes("profile.id::text") && query.includes("normalized_organization_number")) {
+      return [{
+        id: PROFILE_ID,
+        organization_number: "5560000000",
+        normalized_organization_number: "5560000000",
+        display_name: "Safe Company AB",
+      }];
     }
     if (query.includes("profile.updated_at::text as profile_updated_token")) {
       return [{
@@ -279,6 +297,7 @@ beforeEach(() => {
     autoPublicEligible: false,
   });
   mocks.buildDirectoryPublicSlug.mockReturnValue("new-computed-slug");
+  mocks.isDirectoryPilotLocation.mockReturnValue(true);
   mocks.mapPrimarySni.mockReturnValue(null);
   mocks.createWorkspaceSlug.mockReturnValue("safe-company");
   mocks.getPlatformAdmin.mockResolvedValue({ role: "super_admin", userId: "admin-1" });
