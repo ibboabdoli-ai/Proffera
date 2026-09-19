@@ -108,8 +108,10 @@ describe("mobile PWA and auth language contract", () => {
 
     const shell = renderToStaticMarkup(React.createElement(
       AppShell,
-      { localeHint: "en" },
-      React.createElement("div", null, "Auth content"),
+      {
+        localeHint: "en",
+        children: React.createElement("div", null, "Auth content"),
+      },
     ));
 
     expect(shell).toContain("Find businesses");
