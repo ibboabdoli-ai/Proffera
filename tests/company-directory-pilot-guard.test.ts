@@ -59,7 +59,9 @@ describe("company directory pilot database guard", () => {
     expect(sql).toContain("facts.last_synced_at >= profile.last_synced_at");
     expect(sql).toContain("facts.deregistration_date is null");
     expect(sql).toContain("coalesce(facts.advertising_blocked, false) = false");
-    expect(sql).toContain("ongoing_procedures");
+    expect(sql).toContain("jsonb_typeof(facts.ongoing_procedures) = 'array'");
+    expect(sql).toContain("then jsonb_array_length(facts.ongoing_procedures)");
+    expect(sql).toContain("else 1");
     expect(sql).toContain("scb.last_synced_at >= now() - interval '7 days'");
     expect(sql).toContain("comparisonsnapshot,profileupdatedtoken");
     expect(sql).toContain("comparisonsnapshot,officialfactslastsyncedtoken");
