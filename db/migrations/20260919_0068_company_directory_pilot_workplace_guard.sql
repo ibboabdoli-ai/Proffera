@@ -7,8 +7,9 @@
 --   conflict-free, fresh SCB workplace in Stockholm/Södertälje, bound to the current
 --   profile/Official Facts evidence snapshot.
 --
--- The trigger validates publication transitions only. Later SCB changes are handled by
--- the published revalidation worker, which refreshes evidence and demotes unsafe rows.
+-- The trigger validates transitions into published only. Updates that preserve an
+-- already-published row are not blocked; later SCB/profile changes are handled by the
+-- published revalidation worker, which refreshes evidence and demotes unsafe rows.
 
 begin;
 
@@ -61,7 +62,8 @@ declare
   evidence_profile_updated_token text;
   evidence_profile_last_synced_at timestamptz;
 begin
-  if new.publication_status <> 'published' then
+  if new.publication_status <> 'published'
+     or (tg_op = 'UPDATE' and old.publication_status = 'published') then
     return new;
   end if;
 

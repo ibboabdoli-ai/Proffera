@@ -23,6 +23,7 @@ describe("company directory pilot database guard", () => {
     expect(sql).toContain("drop constraint if exists company_directory_profiles_pilot_location_guard");
     expect(sql).toContain("company_directory_enforce_pilot_workplace_publication");
     expect(sql).toContain("create trigger company_directory_profiles_pilot_workplace_guard");
+    expect(sql).toContain("old.publication_status = 'published'");
     expect(sql).toContain("company_directory_scb_enrichment");
     expect(sql).toContain("company_directory_official_facts");
     expect(sql).toContain("scb.last_synced_at >= now() - interval '7 days'");
