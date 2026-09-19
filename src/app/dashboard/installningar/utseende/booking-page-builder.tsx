@@ -167,13 +167,13 @@ export function BookingPageBuilder({
             ["content", "Innehåll"],
             ["domain", "Domän"],
           ] as const).map(([key, label]) => (
-            <button key={key} type="button" onClick={() => setTab(key)} className={`rounded-control px-4 py-2.5 text-sm font-bold ${tab === key ? "bg-brand-deep text-white" : "text-brand-deep hover:bg-surface-subtle"}`}>{label}</button>
+            <button key={key} type="button" aria-pressed={tab === key} onClick={() => setTab(key)} className={`rounded-control px-4 py-2.5 text-sm font-bold ${tab === key ? "bg-brand-deep text-white" : "text-brand-deep hover:bg-surface-subtle"}`}>{label}</button>
           ))}
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <div className="flex rounded-control bg-surface-subtle p-1" aria-label="Preview size">
             {(["desktop", "tablet", "mobile"] as const).map((value) => (
-              <button key={value} type="button" onClick={() => setDevice(value)} className={`rounded-control px-3 py-2 text-xs font-bold capitalize ${device === value ? "bg-surface text-brand-deep shadow-card" : "text-ink-muted"}`}>{value}</button>
+              <button key={value} type="button" aria-pressed={device === value} onClick={() => setDevice(value)} className={`rounded-control px-3 py-2 text-xs font-bold capitalize ${device === value ? "bg-surface text-brand-deep shadow-card" : "text-ink-muted"}`}>{value}</button>
             ))}
           </div>
           {publicBookingUrl ? <a href={publicBookingUrl} target="_blank" rel="noreferrer" className="rounded-control border border-line bg-surface px-4 py-2.5 text-sm font-bold text-brand-deep">Öppna bokningssidan</a> : null}
