@@ -2,7 +2,7 @@ import type { Breadcrumb, ErrorEvent } from "@sentry/nextjs";
 
 type TransactionEvent = Omit<ErrorEvent, "type"> & { type: "transaction" };
 
-const PRIVATE_PATH_SEGMENT = /^(?:[0-9a-f]{8}-[0-9a-f-]{27,}|[A-Za-z0-9._~-]{24,})$/iu;
+const PRIVATE_PATH_SEGMENT = /^(?:[0-9a-f]{8}-[0-9a-f-]{27,}|\d{6,}|[A-Za-z0-9._~-]{24,})$/iu;
 const HTTP_TRANSACTION_NAME = /^(CONNECT|DELETE|GET|HEAD|OPTIONS|PATCH|POST|PUT|TRACE)\s+(.+)$/u;
 
 function scrubPath(pathname: string) {
