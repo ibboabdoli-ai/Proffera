@@ -24,6 +24,8 @@ describe("dashboard workflow human-designed UX contract", () => {
     expect(job).toContain('name="evidence"');
     expect(job).toContain('name="staffId"');
     expect(job).toContain("bg-brand-deep");
+    expect(job).toContain("rounded-control border border-line bg-surface-subtle p-3 text-sm");
+    expect(job).not.toContain("rounded-control bg-surface/10 p-3 text-sm");
   });
 
   it("keeps booking creation, detail, reschedule and blocking safeguards", () => {
@@ -40,6 +42,8 @@ describe("dashboard workflow human-designed UX contract", () => {
     expect(detail).toContain("sendBookingCustomerSms");
     expect(detail).toContain("DashboardActionFeedback");
     expect(detail).toContain('text-[#bcd5ff]');
+    expect(detail).toContain("rounded-card border border-line bg-surface-subtle p-4");
+    expect(detail).not.toContain("rounded-card bg-surface/10 p-4");
     expect(blocks).toContain("createDashboardAvailabilityBlock");
     expect(blocks).toContain("createDashboardRecurringAvailabilityBlocks");
     expect(blocks).toContain("deleteDashboardAvailabilityBlock");
