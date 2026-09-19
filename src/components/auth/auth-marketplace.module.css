@@ -209,7 +209,7 @@
   padding: 0 12px;
   color: #11213b;
   outline: none;
-  font-size: .82rem;
+  font-size: 1rem;
   transition: border-color 160ms ease, box-shadow 160ms ease, background 160ms ease;
 }
 
