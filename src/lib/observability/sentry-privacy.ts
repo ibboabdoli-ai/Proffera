@@ -51,6 +51,11 @@ function scrubSentryEnvelope<T extends ErrorEvent | TransactionEvent>(event: T):
 
   event.breadcrumbs = event.breadcrumbs?.map(scrubSentryBreadcrumb);
 
+  const nextJsContext = event.contexts?.nextjs;
+  if (nextJsContext && typeof nextJsContext.request_path === "string") {
+    nextJsContext.request_path = withoutQueryOrFragment(nextJsContext.request_path) as string;
+  }
+
   return event;
 }
 
