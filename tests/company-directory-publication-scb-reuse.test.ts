@@ -118,7 +118,8 @@ describe("Directory publication SCB evidence reuse", () => {
     expect(sql).toHaveBeenCalledTimes(2);
 
     const finalQuery = executedQuery(sql.mock.calls[1]);
-    expect(finalQuery).toContain("jsonb_array_length(coalesce(scb.conflicts, '[]'::jsonb)) = 0");
+    expect(finalQuery).toContain("jsonb_typeof(scb.conflicts) = 'array'");
+    expect(finalQuery).toContain("jsonb_array_length(scb.conflicts) = 0");
     expect(finalQuery).toContain("scb.source_payload_hash = ?");
     expect(finalQuery).toContain("scb.last_synced_at >= now() - interval '7 days'");
     expect(finalQuery).toContain("{comparisonSnapshot,profileUpdatedToken}");
