@@ -48,6 +48,7 @@ import {
   localizedHref,
   mobileLanguageLinkStyle,
 } from "../src/components/dashboard/dashboard-shell";
+import { AppShell } from "../src/components/layout/app-shell";
 import { Header } from "../src/components/layout/header";
 import {
   authLocaleHref,
@@ -55,6 +56,11 @@ import {
   authRedirectQuery,
   resolveAuthLocale,
 } from "../src/lib/auth-locale";
+import {
+  isAuthQueryLocalePath,
+  isAuthSurfacePath,
+  resolvePublicRequestLocale,
+} from "../src/lib/public-locale";
 
 function source(path: string) {
   return readFileSync(resolve(process.cwd(), path), "utf8");
@@ -84,6 +90,34 @@ describe("mobile PWA and auth language contract", () => {
 
     expect(publicHeader).toContain("padding-top:calc(0.75rem + env(safe-area-inset-top))");
     expect(dashboard).toContain("padding-top:calc(0.75rem + env(safe-area-inset-top))");
+  });
+
+  it("resolves query-localized auth routes without changing normal route locale semantics", () => {
+    expect(isAuthQueryLocalePath("/logga-in")).toBe(true);
+    expect(isAuthQueryLocalePath("/aktivera/token-123")).toBe(true);
+    expect(isAuthSurfacePath("/en/create-account")).toBe(true);
+    expect(resolvePublicRequestLocale("/logga-in", "en")).toBe("en");
+    expect(resolvePublicRequestLocale("/logga-in", "sv")).toBe("sv");
+    expect(resolvePublicRequestLocale("/en/demo", null)).toBe("en");
+    expect(resolvePublicRequestLocale("/demo", "en")).toBe("sv");
+  });
+
+  it("uses the current marketplace header and English footer on English auth surfaces", () => {
+    navigationState.pathname = "/logga-in";
+    navigationState.search = "lang=en";
+
+    const shell = renderToStaticMarkup(React.createElement(
+      AppShell,
+      { localeHint: "en" },
+      React.createElement("div", null, "Auth content"),
+    ));
+
+    expect(shell).toContain("Find businesses");
+    expect(shell).toContain("Popular services");
+    expect(shell).toContain("For businesses");
+    expect(shell).toContain("All rights reserved.");
+    expect(shell).not.toContain(">Features<");
+    expect(shell).not.toContain(">Funktioner<");
   });
 
   it("preserves unrelated auth query params while changing only locale", () => {
