@@ -234,6 +234,7 @@ describe("safe company directory auto publication contract", () => {
   });
 
   it.each([
+    ["well-shaped Official Facts procedures", "jsonb_typeof(f.ongoing_procedures) = 'array'"],
     ["an SCB row with array-shaped no-conflict evidence", "jsonb_typeof(scb.conflicts) = 'array'"],
     ["an SCB row with no conflicts", "jsonb_array_length(scb.conflicts) = 0"],
     ["the exact refreshed SCB source hash", "scb.source_payload_hash = ?"],
@@ -294,11 +295,27 @@ describe("safe company directory auto publication contract", () => {
       if (query.includes("select count(*)::int as count")) {
         expect(query).toContain("company_directory_discovery_queue queue");
         expect(query).toContain("queue.state = 'failed'");
+        expect(query).toContain("company_directory_scb_enrichment scb");
+        expect(query).toContain("jsonb_typeof(facts.ongoing_procedures) = 'array'");
+        expect(query).toContain("scb.last_synced_at >= now() - interval '7 days'");
+        expect(query).toContain("{comparisonSnapshot,profileUpdatedToken}");
+        expect(query).toContain("{comparisonSnapshot,officialFactsLastSyncedToken}");
+        expect(query).toContain("jsonb_typeof(scb.conflicts) = 'array'");
+        expect(query).toContain("jsonb_array_length(scb.workplaces) = 1");
+        expect(query).toContain("string_to_array(?, ',')");
         return [{ count: 1 }];
       }
       if (query.includes("from company_directory_profiles profile") && query.includes("offset ?")) {
         expect(query).toContain("company_directory_discovery_queue queue");
         expect(query).toContain("queue.state = 'failed'");
+        expect(query).toContain("company_directory_scb_enrichment scb");
+        expect(query).toContain("jsonb_typeof(facts.ongoing_procedures) = 'array'");
+        expect(query).toContain("scb.last_synced_at >= now() - interval '7 days'");
+        expect(query).toContain("{comparisonSnapshot,profileUpdatedToken}");
+        expect(query).toContain("{comparisonSnapshot,officialFactsLastSyncedToken}");
+        expect(query).toContain("jsonb_typeof(scb.conflicts) = 'array'");
+        expect(query).toContain("jsonb_array_length(scb.workplaces) = 1");
+        expect(query).toContain("string_to_array(?, ',')");
         return [];
       }
       throw new Error(`Unexpected automatic-publication SQL: ${query}`);
