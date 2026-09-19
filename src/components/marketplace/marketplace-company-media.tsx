@@ -120,7 +120,7 @@ export function MarketplaceCompanyCover({
       <div
         className="relative grid h-full min-h-40 place-items-center overflow-hidden bg-[#eef5ff]"
         role="img"
-        aria-label={`Illustration för ${name}`}
+        aria-label={`Illustration: ${name}`}
       >
         <div className="absolute inset-x-0 top-0 h-px bg-[#d7e4f3]" aria-hidden="true" />
         <div className="absolute -right-10 -top-12 size-36 rounded-full border border-[#c8d9ec] bg-white/55" aria-hidden="true" />
