@@ -50,6 +50,13 @@ describe("public company directory search contract", () => {
     expect(searchSource).toContain("owner_location.visibility = 'approximate'");
     expect(searchSource).toContain("owner_location.owner_exact_public");
     expect(searchSource).toContain("claimed_workspace.status in ('active', 'trial')");
+    expect(searchSource).toContain("claimed_facts.last_synced_at >= profile.last_synced_at");
+    expect(searchSource).toContain("claimed_scb.last_synced_at >= now() - interval '7 days'");
+    expect(searchSource).toContain("comparisonSnapshot,profileUpdatedToken");
+    expect(searchSource).toContain("comparisonSnapshot,officialFactsLastSyncedToken");
+    expect(searchSource).toContain("jsonb_typeof(claimed_scb.conflicts) = 'array'");
+    expect(searchSource).toContain("jsonb_typeof(claimed_scb.workplaces) = 'array'");
+    expect(searchSource).toContain("DIRECTORY_PILOT_LOCATIONS");
     expect(searchSource).toContain("or lower(public_location.city) = ${normalizedLocation}");
     expect(searchSource).toContain("or lower(public_location.municipality) = ${normalizedLocation}");
     expect(searchSource).toContain("${nearbyEnabled} = false");
