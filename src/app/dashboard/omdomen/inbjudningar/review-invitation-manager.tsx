@@ -139,7 +139,7 @@ export function ReviewInvitationManager({
             <input
               readOnly
               value={created.reviewUrl}
-              className="min-w-0 flex-1 rounded-control border border-[#cfe8d6] bg-surface px-3 py-2 text-sm text-brand-deep"
+              className="min-w-0 flex-1 rounded-control border border-[#cfe8d6] bg-surface px-3 py-2 text-base text-brand-deep sm:text-sm"
               aria-label={isEnglish ? "Review link" : "Omdömeslänk"}
             />
             <button
