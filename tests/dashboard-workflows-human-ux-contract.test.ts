@@ -33,8 +33,12 @@ describe("dashboard workflow human-designed UX contract", () => {
     expect(job).toContain("bg-brand-deep");
     expect(job).toContain('aria-label={text.notes}');
     expect(job).toContain('aria-label={text.assignment}');
-    expect(job).toContain("px-3 py-2 text-base sm:text-sm");
-    expect(job).toContain("px-3 text-base sm:text-sm");
+    const evidenceControl = between(job, 'name="evidence"', "</label>");
+    const noteControl = between(job, 'name="body"', '<button type="submit"');
+    const assignmentControl = between(job, 'name="staffId"', '<button type="submit"');
+    expect(evidenceControl).toContain("px-3 py-2 text-base sm:text-sm");
+    expect(noteControl).toContain("px-3 py-2 text-base sm:text-sm");
+    expect(assignmentControl).toContain("px-3 text-base sm:text-sm");
     expect(job).toContain("rounded-control border border-line bg-surface-subtle p-3 text-sm");
     expect(job).not.toContain("rounded-control bg-surface/10 p-3 text-sm");
   });
@@ -161,7 +165,7 @@ describe("dashboard workflow human-designed UX contract", () => {
     expect(themeEditor).toContain("bg-brand-deep");
     expect(themeEditor).toContain("savedPreviewImageUrl");
     expect(themeEditor).toContain("src={savedPreviewImageUrl}");
-    expect(themeEditor).not.toContain("src={draft.heroImageUrl || template.heroImageUrl}");
+    expect(themeEditor).not.toMatch(/src=\{[^}]*draft\.heroImageUrl[^}]*\}/);
 
     const customer = source("src/app/dashboard/kunder/[id]/page.tsx");
     const marketplace = source("src/app/dashboard/marknadsplats/page.tsx");
