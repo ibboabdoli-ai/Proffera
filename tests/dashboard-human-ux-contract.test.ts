@@ -41,7 +41,8 @@ describe("dashboard human-designed UX contract", () => {
     const settings = source("src/app/dashboard/installningar/page.tsx");
     const shared = source("src/components/dashboard/dashboard-page-ui.tsx");
 
-    expect(shared).toContain("divide-y divide-line");
+    expect(shared).toContain("grid gap-px bg-line sm:grid-cols-2 xl:grid-cols-4");
+    expect(shared).not.toContain('aria-label="Sidöversikt"');
     expect(customers).toContain("md:divide-x");
     expect(bookings).toContain("md:divide-x");
     expect(settings).toContain("Status för konfiguration");
