@@ -2,7 +2,12 @@ import { ImageResponse } from "next/og";
 
 export const runtime = "edge";
 
-export async function GET() {
+export async function GET(request: Request) {
+  const isEnglish = new URL(request.url).searchParams.get("lang") === "en";
+  const strapline = isEnglish
+    ? "Booking, CRM and AI assistant for service businesses"
+    : "Bokning, CRM och AI-assistent för tjänsteföretag";
+
   return new ImageResponse(
     (
       <div
@@ -81,7 +86,7 @@ export async function GET() {
                 maxWidth: 600,
               }}
             >
-              Bokning, CRM och AI-assistent för tjänsteföretag
+              {strapline}
             </div>
             <div
               style={{
