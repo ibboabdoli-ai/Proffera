@@ -71,5 +71,8 @@ describe("marketing homepage contract", () => {
     expect(locale).toContain('{ label: "Features", href: "/en/services" }');
     expect(header).toContain("const marketplaceHome = pathname === \"/\" || pathname === \"/en\"");
     expect(header).toContain('locale === "en" ? "For businesses" : "För företag"');
+    expect(header).toContain('className="hidden items-center gap-3 lg:flex"');
+    expect(header).not.toContain('className="hidden items-center gap-3 sm:flex"');
+    expect(header).toContain('className="relative lg:hidden"');
   });
 });
