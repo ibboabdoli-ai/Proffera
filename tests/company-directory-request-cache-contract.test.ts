@@ -151,7 +151,7 @@ describe("company directory shared-cache route contract", () => {
       expect(candidate).toContain("comparisonSnapshot,officialFactsLastSyncedToken");
       expect(candidate).toContain("claimed_facts.deregistration_date is null");
       expect(candidate).toContain("coalesce(claimed_facts.advertising_blocked, false) = false");
-      expect(candidate).toContain("ongoing_procedures");
+      expect(candidate).toContain("jsonb_typeof(claimed_facts.ongoing_procedures) = 'array'");
       expect(candidate).toContain("jsonb_typeof(claimed_scb.conflicts) = 'array'");
       expect(candidate).toContain("jsonb_typeof(claimed_scb.workplaces) = 'array'");
       expect(candidate).toContain("DIRECTORY_PILOT_LOCATIONS");
