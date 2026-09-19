@@ -1,6 +1,5 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import { execFileSync } from "node:child_process";
-import { readFileSync } from "node:fs";
 import { setTimeout as delay } from "node:timers/promises";
 
 import { Client } from "pg";
@@ -34,6 +33,7 @@ import {
 } from "../src/lib/company-directory-claim-email";
 import { POST as resetOrSendClaimEmail } from "../src/app/api/public-directory/claim-email/send/route";
 import { POST as verifyClaimEmail } from "../src/app/api/public-directory/claim-email/verify/route";
+import { applyCanonicalProfferaMigrations } from "./helpers/postgres-canonical-schema";
 
 const RUN_POSTGRES_INTEGRATION = process.env.PROFFERA_POSTGRES_INTEGRATION === "1";
 
@@ -211,7 +211,7 @@ function wrongCodeFor(code: string) {
         "-e", "POSTGRES_USER=postgres",
         "-e", "POSTGRES_DB=proffera_test",
         "-p", "127.0.0.1::5432",
-        "postgres:16-alpine",
+        "postgis/postgis:16-3.5-alpine",
       ]);
 
       const portLine = docker(["port", containerName, "5432/tcp"]).split(/\r?\n/u)[0] ?? "";
@@ -222,23 +222,7 @@ function wrongCodeFor(code: string) {
       await waitForPostgres();
       control = await requestClient("proffera-claim-email-race-control");
 
-      await control.query(`
-        create table workspaces (
-          id uuid primary key
-        );
-        create table "user" (
-          id text primary key,
-          email text not null
-        );
-      `);
-      await control.query(readFileSync(
-        new URL("../db/migrations/20260809_0037_company_profile_engine_foundation.sql", import.meta.url),
-        "utf8",
-      ));
-      await control.query(readFileSync(
-        new URL("../db/migrations/20260809_0040_company_profile_claim_reservation.sql", import.meta.url),
-        "utf8",
-      ));
+      await applyCanonicalProfferaMigrations(control);
     }, 120_000);
 
     afterAll(async () => {
@@ -262,7 +246,7 @@ function wrongCodeFor(code: string) {
       mocks.canManageWorkspaceSettings.mockReturnValue(false);
 
       await control!.query("truncate table company_directory_claims, company_directory_profiles, \"user\" cascade");
-      await control!.query("insert into \"user\" (id, email) values ($1, $2)", [USER_ID, ACCOUNT_EMAIL]);
+      await control!.query("insert into \"user\" (id, name, email) values ($1, $2, $3)", [USER_ID, "Race Owner", ACCOUNT_EMAIL]);
       await control!.query(`
         insert into company_directory_profiles (
           id, country_code, organization_number, organization_kind, legal_name, display_name,
