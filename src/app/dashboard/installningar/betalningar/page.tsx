@@ -48,14 +48,14 @@ export default async function PaymentsSettingsPage({ searchParams }: { searchPar
   return (
     <div className="grid gap-6" lang={locale}>
       <DashboardPageHeader eyebrow={text.eyebrow} title={text.title} description={text.description} icon={CreditCard} />
-      {stateMessage ? <p className="rounded-2xl bg-[#fff5f2] p-4 text-sm font-semibold text-[#8f2f1b] ring-1 ring-[#f4c7ba]">{stateMessage}</p> : null}
+      {stateMessage ? <p className="rounded-card border border-[#f4c7ba] bg-[#fff5f2] p-4 text-sm font-semibold text-danger ring-1 ring-[#f4c7ba]">{stateMessage}</p> : null}
       <section className="grid gap-6 lg:grid-cols-[1.2fr_0.8fr]">
-        <article className="rounded-[24px] border border-[#dfe6df] bg-white p-5 shadow-sm sm:p-6">
-          <div className="flex items-start gap-4"><span className={`rounded-2xl p-3 ${ready ? "bg-[#e9f2ec] text-[#17452f]" : "bg-[#fff4df] text-[#8a6722]"}`}><StatusIcon className="h-6 w-6" /></span><div><h2 className="text-xl font-black text-[#17201a]">{statusTitle}</h2><p className="mt-2 text-sm leading-6 text-[#5c675f]">{statusBody}</p></div></div>
-          <div className="mt-6 grid gap-3 sm:grid-cols-3">{[[text.submitted, account?.detailsSubmitted], [text.charges, account?.chargesEnabled], [text.payouts, account?.payoutsEnabled]].map(([label, value]) => <div key={String(label)} className="rounded-2xl border border-[#e2e7e1] bg-[#f8faf7] p-4"><p className="text-xs font-black uppercase tracking-wide text-[#788279]">{String(label)}</p><p className="mt-2 font-bold text-[#17201a]">{value ? text.yes : text.no}</p></div>)}</div>
-          {featureEnabled && canManage && !ready ? <form method="post" action="/api/stripe/connect/onboard" className="mt-6"><input type="hidden" name="lang" value={locale} /><button type="submit" className="min-h-11 rounded-xl bg-[#173e2b] px-5 py-2.5 text-sm font-bold text-white hover:bg-[#0f3020]">{account ? text.continue : text.connect}</button></form> : null}
+        <article className="rounded-card border border-line bg-surface p-5 shadow-card sm:p-6">
+          <div className="flex items-start gap-4"><span className={`rounded-control p-3 ${ready ? "bg-[#eaf8f2] text-[#087754]" : "bg-[#fff7df] text-[#805d14]"}`}><StatusIcon className="h-6 w-6" /></span><div><h2 className="text-xl font-black text-ink">{statusTitle}</h2><p className="mt-2 text-sm leading-6 text-ink-muted">{statusBody}</p></div></div>
+          <div className="mt-6 grid gap-3 sm:grid-cols-3">{[[text.submitted, account?.detailsSubmitted], [text.charges, account?.chargesEnabled], [text.payouts, account?.payoutsEnabled]].map(([label, value]) => <div key={String(label)} className="rounded-control border border-line bg-surface-subtle p-4"><p className="text-xs font-black uppercase tracking-wide text-ink-muted">{String(label)}</p><p className="mt-2 font-bold text-ink">{value ? text.yes : text.no}</p></div>)}</div>
+          {featureEnabled && canManage && !ready ? <form method="post" action="/api/stripe/connect/onboard" className="mt-6"><input type="hidden" name="lang" value={locale} /><button type="submit" className="min-h-11 rounded-control bg-brand-deep px-5 py-2.5 text-sm font-bold text-white hover:bg-brand-hover">{account ? text.continue : text.connect}</button></form> : null}
         </article>
-        <aside className="rounded-[24px] bg-[#173e2b] p-5 text-white shadow-sm sm:p-6"><Landmark className="h-7 w-7" /><h2 className="mt-4 text-lg font-black">Stripe Connect</h2><p className="mt-3 text-sm leading-6 text-white/80">{text.note}</p></aside>
+        <aside className="rounded-card border border-line bg-surface p-5 shadow-card sm:p-6"><Landmark className="h-6 w-6 text-brand" /><h2 className="mt-4 text-lg font-black text-ink">Stripe Connect</h2><p className="mt-3 text-sm leading-6 text-ink-muted">{text.note}</p></aside>
       </section>
       {featureEnabled && ready && canManage ? <PaymentLinkCreator jobs={jobs} locale={locale} /> : null}
     </div>

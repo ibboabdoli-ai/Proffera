@@ -10,9 +10,9 @@ export default async function GalleryLayout({ children }: Readonly<{ children: R
 
   return <DashboardModuleGuard featureKey="media_gallery">
     <div className={`${styles.scope} grid gap-6`}>
-      {publicHref ? <section className="flex flex-wrap items-center justify-between gap-4 rounded-[22px] border border-[#dfe6df] bg-white p-5 shadow-sm">
-        <div><p className="text-xs font-black uppercase tracking-[.16em] text-[#68736b]">Publik gallerilänk</p><p className="mt-2 break-all text-sm font-semibold text-[#17201a]">{publicHref}</p><p className="mt-1 text-xs text-[#667168]">Publicerade medier visas här och på bokningssidan när Galleri är aktiverat under Utseende.</p></div>
-        <a href={publicHref} target="_blank" rel="noreferrer" className="rounded-xl bg-[#173e2b] px-4 py-3 text-sm font-black text-white">Öppna publikt galleri</a>
+      {publicHref ? <section className="flex flex-wrap items-center justify-between gap-4 rounded-card border border-line bg-surface p-5 shadow-card">
+        <div><p className="text-xs font-black uppercase tracking-[.16em] text-ink-muted">Publik gallerilänk</p><p className="mt-2 break-all text-sm font-semibold text-ink">{publicHref}</p><p className="mt-1 text-xs text-ink-muted">Publicerade medier visas här och på bokningssidan när Galleri är aktiverat under Utseende.</p></div>
+        <a href={publicHref} target="_blank" rel="noreferrer" className="rounded-control bg-brand-deep px-4 py-3 text-sm font-black text-white">Öppna publikt galleri</a>
       </section> : null}
       {children}
     </div>
