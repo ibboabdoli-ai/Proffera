@@ -92,6 +92,6 @@ export async function SignupPage({ locale, initialPlan }: SignupPageProps) {
           <SignupForm locale={locale} initialPlan={initialPlan} sessionUser={sessionUser} />
         </div>
       </section>
-    </main>
+    </div>
   );
 }
