@@ -223,6 +223,9 @@ describe("published Directory revalidation worker", () => {
     expect(mocks.enrichScb).not.toHaveBeenCalled();
     const backlog = sqlCalls.find((call) => call.query.includes("select count(*)::int as count"));
     expect(backlog?.query).toContain("scb.last_synced_at < now() - interval '7 days'");
+    expect(backlog?.query).toContain("jsonb_typeof(scb.workplaces) = 'array'");
+    expect(backlog?.query).toContain("then scb.workplaces");
+    expect(backlog?.query).toContain("else '[]'::jsonb");
     expect(backlog?.query).toContain("jsonb_typeof(scb.conflicts) = 'array'");
     expect(backlog?.query).toContain("jsonb_array_length(scb.conflicts) > 0");
     expect(backlog?.query).toContain("else true");
@@ -278,7 +281,9 @@ describe("published Directory revalidation worker", () => {
     ));
     expect(selection?.query).toContain("profile.publication_status = 'published'");
     expect(selection?.query).toContain("profile.claimed_workspace_id is null");
-    expect(selection?.query).toContain("jsonb_array_length(coalesce(scb.workplaces, '[]'::jsonb)) <> 1");
+    expect(selection?.query).toContain("jsonb_typeof(scb.workplaces) = 'array'");
+    expect(selection?.query).toContain("then scb.workplaces");
+    expect(selection?.query).toContain("else '[]'::jsonb");
     expect(selection?.query).toContain("visitingAddress");
     expect(selection?.query).toContain("scb.last_synced_at < now() - interval '7 days'");
     expect(selection?.query).toContain("jsonb_typeof(scb.conflicts) = 'array'");
