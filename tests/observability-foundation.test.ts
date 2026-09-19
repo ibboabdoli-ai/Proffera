@@ -225,6 +225,27 @@ describe("observability foundation", () => {
     expect(event.exception?.values?.[0]?.stacktrace?.frames?.[0]?.vars).toBeUndefined();
   });
 
+  it("scrubs Next.js request_path context from Sentry error envelopes", () => {
+    const bearerToken = `${"signed-payload".repeat(3)}.${"signature".repeat(4)}`;
+    const rawPath = `/mina-bokningar/${bearerToken}?email=private@example.com#secret`;
+    const event = scrubSentryEvent({
+      type: undefined,
+      contexts: {
+        nextjs: {
+          request_path: rawPath,
+          route_path: "/mina-bokningar/[token]",
+        },
+      },
+    });
+
+    expect(event.contexts?.nextjs?.request_path).toBe("/mina-bokningar/[redacted]");
+    expect(event.contexts?.nextjs?.route_path).toBe("/mina-bokningar/[token]");
+    const serialized = JSON.stringify(event);
+    expect(serialized).not.toContain(bearerToken);
+    expect(serialized).not.toContain("private@example.com");
+    expect(serialized).not.toContain("#secret");
+  });
+
   it("scrubs active trace context from Sentry error envelopes", () => {
     const bearerToken = `${"signed-payload".repeat(3)}.${"signature".repeat(4)}`;
     const privateUrl = `https://proffera.se/mina-bokningar/${bearerToken}?email=private@example.com#secret`;
