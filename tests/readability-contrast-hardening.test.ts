@@ -11,12 +11,25 @@ describe("Readability and contrast hardening", () => {
   it("publishes the semantic color aliases used by public directory and workspace UI", () => {
     const css = source("src/app/globals.css");
 
-    expect(css).toContain("--pf-body: #455249");
-    expect(css).toContain("--pf-ink-muted: #4f5c53");
+    expect(css).toContain("--pf-body: #4f6178");
+    expect(css).toContain("--pf-ink-muted: #617085");
     expect(css).toContain("--color-body: var(--pf-body)");
     expect(css).toContain("--color-muted: var(--pf-ink-muted)");
     expect(css).toContain("--color-brand-strong: var(--pf-brand-hover)");
     expect(css).toContain("--shadow-panel: var(--pf-shadow-lift)");
+  });
+
+  it("keeps dark blue public CTAs readable when global anchor inheritance wins over utility layers", () => {
+    const css = source("src/app/globals.css");
+    const header = source("src/components/layout/header.tsx");
+
+    expect(css).toContain('[class~="bg-[#0a2e63]"]');
+    expect(css).toContain('[class~="bg-[#0a3c8f]"]');
+    expect(css).toContain('[class~="bg-[#1469d8]"]');
+    expect(css).toContain('[class~="bg-[#1769c2]"]');
+    expect(css).toContain('[class~="bg-[#2f80ed]"]');
+    expect(header).toContain('bg-[#0a2e63] px-4 text-sm font-black !text-white');
+    expect(header).toContain("hover:!text-white");
   });
 
   it("prevents light CTAs inside dark cards from inheriting white WebKit text fill", () => {
@@ -34,11 +47,11 @@ describe("Readability and contrast hardening", () => {
   it("raises secondary-copy contrast on dark Proffera surfaces and disabled primary actions", () => {
     const css = source("src/app/globals.css");
 
-    expect(css).toContain("--pf-on-brand-muted: #d9e3dd");
+    expect(css).toContain("--pf-on-brand-muted: #dce8f7");
     expect(css).toContain('[class*="text-white/65"]');
     expect(css).toContain('[class*="text-white/70"]');
     expect(css).toContain("color: var(--pf-on-brand-muted) !important");
-    expect(css).toContain("--pf-disabled-bg: #667168");
+    expect(css).toContain("--pf-disabled-bg: #7c8ca1");
     expect(css).toContain("background: var(--pf-disabled-bg) !important");
   });
 

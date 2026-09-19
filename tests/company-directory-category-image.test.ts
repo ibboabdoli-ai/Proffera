@@ -56,8 +56,8 @@ describe("Company Directory category image", () => {
     expect(markup).toContain('aria-hidden="true"');
     expect(markup).toContain("width:92px");
     expect(markup).toContain("height:92px");
-    expect(markup).toContain("border-radius:28px");
-    expect(markup).toContain("background:rgba(255,255,255,.14)");
+    expect(markup).toContain("border-radius:18px");
+    expect(markup).toContain("background:rgba(255,255,255,.12)");
     expect(markup).toContain("width:42px");
     expect(markup).toContain("height:42px");
     expect(markup).toContain("border:8px solid rgba(255,255,255,.92)");
