@@ -3,12 +3,29 @@ import type { Breadcrumb, ErrorEvent } from "@sentry/nextjs";
 type TransactionEvent = Omit<ErrorEvent, "type"> & { type: "transaction" };
 
 const PRIVATE_PATH_SEGMENT = /^(?:[0-9a-f]{8}-[0-9a-f-]{27,}|\d{6,}|[A-Za-z0-9._~-]{24,})$/iu;
+const FORMATTED_SWEDISH_IDENTIFIER = /^\d{6,8}[-+]\d{4}$/u;
+const EMAIL_PATH_SEGMENT = /^[^@\s/]+@[^@\s/]+\.[^@\s/]+$/u;
 const HTTP_TRANSACTION_NAME = /^(CONNECT|DELETE|GET|HEAD|OPTIONS|PATCH|POST|PUT|TRACE)\s+(.+)$/u;
+
+function decodedPathSegment(segment: string) {
+  try {
+    return decodeURIComponent(segment);
+  } catch {
+    return segment;
+  }
+}
+
+function isPrivatePathSegment(segment: string) {
+  const decoded = decodedPathSegment(segment);
+  return PRIVATE_PATH_SEGMENT.test(decoded)
+    || FORMATTED_SWEDISH_IDENTIFIER.test(decoded)
+    || EMAIL_PATH_SEGMENT.test(decoded);
+}
 
 function scrubPath(pathname: string) {
   return pathname
     .split("/")
-    .map((segment) => PRIVATE_PATH_SEGMENT.test(segment) ? "[redacted]" : segment)
+    .map((segment) => isPrivatePathSegment(segment) ? "[redacted]" : segment)
     .join("/");
 }
 
