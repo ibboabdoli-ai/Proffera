@@ -137,23 +137,35 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
     ? `https://www.proffera.se/boka/${workspaceSettings.publicBookingSlug}`
     : null;
 
-  const settings = [
-    { label: "Företagsprofil", value: "Namn, kontaktuppgifter, ort och standard CTA", status: "Aktiv" },
-    {
-      label: "Tjänstekatalog",
-      value: hasServices ? `${activeServices} aktiva av ${workspaceServices.length} tjänster` : "Lägg in tjänster, priser och serviceområden",
-      status: hasServices ? "Aktiv" : "Redo att fyllas i",
-    },
-    { label: "Notiser", value: "E-post, interna aviseringar och påminnelser", status: "Kommande" },
-    { label: "AI-svar", value: "Ton, följdfrågor, svarsmallar och företagskunskap", status: "Kommande" },
-  ] as const;
+  const settings = isEnglish
+    ? [
+        { label: "Company profile", value: "Name, contact details, city and default CTA", status: "Active" },
+        {
+          label: "Service catalog",
+          value: hasServices ? `${activeServices} active of ${workspaceServices.length} services` : "Add services, prices and service areas",
+          status: hasServices ? "Active" : "Ready to configure",
+        },
+        { label: "Notifications", value: "Email, internal notifications and reminders", status: "Coming soon" },
+        { label: "AI responses", value: "Tone, follow-up questions, reply templates and company knowledge", status: "Coming soon" },
+      ] as const
+    : [
+        { label: "Företagsprofil", value: "Namn, kontaktuppgifter, ort och standard CTA", status: "Aktiv" },
+        {
+          label: "Tjänstekatalog",
+          value: hasServices ? `${activeServices} aktiva av ${workspaceServices.length} tjänster` : "Lägg in tjänster, priser och serviceområden",
+          status: hasServices ? "Aktiv" : "Redo att fyllas i",
+        },
+        { label: "Notiser", value: "E-post, interna aviseringar och påminnelser", status: "Kommande" },
+        { label: "AI-svar", value: "Ton, följdfrågor, svarsmallar och företagskunskap", status: "Kommande" },
+      ] as const;
 
+  const missingProfileValue = isEnglish ? "Not specified" : "Ej angivet";
   const profileSummary = [
-    { label: "Företag", value: workspaceSettings.companyName || "Ej angivet" },
-    { label: "Primär ort", value: workspaceSettings.primaryCity || "Ej angivet" },
-    { label: "Svarstid", value: workspaceSettings.responseTimeGoal || "Ej angivet" },
-    { label: "Standard CTA", value: workspaceSettings.defaultCta || "Ej angivet" },
-    { label: "Marknad", value: `${getWorkspaceMarketLabel(workspaceSettings.billingCountryCode, isEnglish ? "en" : "sv")} · ${workspaceSettings.timeZone} · ${workspaceSettings.billingCurrency}` },
+    { label: isEnglish ? "Company" : "Företag", value: workspaceSettings.companyName || missingProfileValue },
+    { label: isEnglish ? "Primary city" : "Primär ort", value: workspaceSettings.primaryCity || missingProfileValue },
+    { label: isEnglish ? "Response time" : "Svarstid", value: workspaceSettings.responseTimeGoal || missingProfileValue },
+    { label: "Standard CTA", value: workspaceSettings.defaultCta || missingProfileValue },
+    { label: isEnglish ? "Market" : "Marknad", value: `${getWorkspaceMarketLabel(workspaceSettings.billingCountryCode, isEnglish ? "en" : "sv")} · ${workspaceSettings.timeZone} · ${workspaceSettings.billingCurrency}` },
   ] as const;
 
   return (
