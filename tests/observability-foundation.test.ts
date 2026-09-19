@@ -8,6 +8,11 @@ import {
   captureServerRequestError,
   requestIdFromHeaders,
 } from "@/lib/observability/server";
+import {
+  scrubSentryBreadcrumb,
+  scrubSentryEvent,
+  scrubSentrySpan,
+} from "@/lib/observability/sentry-privacy";
 
 const requestId = "123e4567-e89b-42d3-a456-426614174000";
 const endpoint = "https://proffera.se/api/observability/client-error";
@@ -175,5 +180,63 @@ describe("observability foundation", () => {
     expect(markup).toContain("Något gick fel");
     expect(markup).toContain("Försök igen");
     expect(markup).not.toContain("Something went wrong");
+  });
+
+  it("removes request PII and query values before Sentry delivery", () => {
+    const event = scrubSentryEvent({
+      type: undefined,
+      user: { id: "private-user", email: "private@example.com" },
+      request: {
+        url: `https://proffera.se/review/${"a".repeat(40)}?email=private@example.com#secret`,
+        cookies: { session: "private-cookie" },
+        data: "private-body",
+        headers: { authorization: "Bearer private-token" },
+        query_string: "email=private@example.com",
+      },
+    });
+
+    expect(event.user).toBeUndefined();
+    expect(event.request).toEqual({
+      url: "https://proffera.se/review/[redacted]",
+      cookies: undefined,
+      data: undefined,
+      headers: undefined,
+      query_string: undefined,
+    });
+  });
+
+  it("removes query values from Sentry HTTP breadcrumbs", () => {
+    const breadcrumb = scrubSentryBreadcrumb({
+      category: "fetch",
+      data: {
+        method: "GET",
+        status_code: 200,
+        url: `/api/customer/${"b".repeat(40)}?token=private-token#secret`,
+      },
+    });
+
+    expect(breadcrumb.data).toEqual({
+      method: "GET",
+      status_code: 200,
+      url: "/api/customer/[redacted]",
+    });
+  });
+
+  it("removes URL attributes and sensitive path segments from Sentry spans", () => {
+    const span = scrubSentrySpan({
+      data: {
+        "http.method": "GET",
+        "http.url": `https://proffera.se/review/${"c".repeat(40)}?token=secret`,
+        "url.full": "https://proffera.se/private?token=secret",
+        "url.query": "token=secret",
+      },
+      description: `https://proffera.se/review/${"c".repeat(40)}?token=secret`,
+      span_id: "1234567890abcdef",
+      start_timestamp: 1,
+      trace_id: "1234567890abcdef1234567890abcdef",
+    });
+
+    expect(span.data).toEqual({ "http.method": "GET" });
+    expect(span.description).toBe("https://proffera.se/review/[redacted]");
   });
 });
