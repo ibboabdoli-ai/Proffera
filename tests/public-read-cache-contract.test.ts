@@ -10,15 +10,16 @@ const mocks = vi.hoisted(() => ({
     results: [{ id: `company-${limit}` }],
     totalCount: 1,
   })),
+  revalidateTag: vi.fn(),
   unstableCache: vi.fn((
     loader: (...args: never[]) => Promise<unknown>,
     _keyParts: string[],
-    _options: { revalidate: number },
+    _options: { revalidate: number; tags?: string[] },
   ) => loader),
 }));
 
 vi.mock("server-only", () => ({}));
-vi.mock("next/cache", () => ({ unstable_cache: mocks.unstableCache }));
+vi.mock("next/cache", () => ({ revalidateTag: mocks.revalidateTag, unstable_cache: mocks.unstableCache }));
 vi.mock("@/lib/business-profile-search", () => ({
   searchPublishedBusinessProfiles: mocks.marketplaceHomeCompanies,
 }));
@@ -32,6 +33,8 @@ vi.mock("@/lib/public-business-seo", () => ({
 import {
   getCachedMarketplaceHomeCompanies,
   getCachedPublishedDirectoryLocationSuggestions,
+  invalidateMarketplaceHomeCompaniesCache,
+  MARKETPLACE_HOME_COMPANIES_CACHE_TAG,
   getCachedPublicBusinessSitemapEntries,
 } from "../src/lib/public-read-cache";
 
@@ -47,7 +50,10 @@ describe("public read cache contract", () => {
     expect(locationCall?.[2]).toEqual({ revalidate: 24 * 60 * 60 });
 
     const marketplaceCall = mocks.unstableCache.mock.calls.find(([, keyParts]) => keyParts[0] === "marketplace-home-companies-v2");
-    expect(marketplaceCall?.[2]).toEqual({ revalidate: 30 * 60 });
+    expect(marketplaceCall?.[2]).toEqual({
+      revalidate: 30 * 60,
+      tags: [MARKETPLACE_HOME_COMPANIES_CACHE_TAG],
+    });
 
     const sitemapCall = mocks.unstableCache.mock.calls.find(([, keyParts]) => keyParts[0] === "platform-public-business-sitemap-v1");
     expect(sitemapCall?.[2]).toEqual({ revalidate: 30 * 60 });
@@ -66,6 +72,9 @@ describe("public read cache contract", () => {
 
     await expect(getCachedPublicBusinessSitemapEntries()).resolves.toEqual([{ workspaceSlug: "example-ab", serviceSlug: null }]);
     expect(mocks.publicBusinessSitemapEntries).toHaveBeenCalledTimes(1);
+
+    invalidateMarketplaceHomeCompaniesCache();
+    expect(mocks.revalidateTag).toHaveBeenCalledWith(MARKETPLACE_HOME_COMPANIES_CACHE_TAG, { expire: 0 });
   });
 
   it("keeps generic caches separate while Directory profile caching stays behind its audited boundary", () => {
@@ -75,6 +84,8 @@ describe("public read cache contract", () => {
     const requestCache = source("src/lib/company-directory-public-data.ts");
     const profileResolver = source("src/lib/business-profile-public.ts");
     const directoryCacheBoundary = source("src/lib/company-directory-public-cache.ts");
+    const fullRevalidation = source("src/lib/company-directory-full-revalidation.ts");
+    const publishedRevalidation = source("src/lib/company-directory-published-revalidation.ts");
 
     expect(homepage).toContain("getCachedPublishedDirectoryLocationSuggestions(24)");
     expect(homepage).toContain("getCachedMarketplaceHomeCompanies(4)");
@@ -95,5 +106,7 @@ describe("public read cache contract", () => {
     expect(directoryCacheBoundary).toContain('"public-directory-routing-miss-v2"');
     expect(directoryCacheBoundary).not.toContain('"public-directory-miss-v1"');
     expect(directoryCacheBoundary).not.toContain('"public-directory-routing-miss-v1"');
+    expect(fullRevalidation).toContain("invalidateMarketplaceHomeCompaniesCache");
+    expect(publishedRevalidation).toContain("invalidateMarketplaceHomeCompaniesCache");
   });
 });
