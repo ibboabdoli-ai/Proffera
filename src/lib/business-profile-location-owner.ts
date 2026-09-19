@@ -6,6 +6,7 @@ import {
   verifyCustomerAddress,
 } from "@/lib/lantmateriet-address-verification";
 import { getPlatformAdmin } from "@/lib/platform-admin";
+import { invalidatePublicDirectoryPublicProjectionByProfileId } from "@/lib/company-directory-public-cache";
 import { invalidateMarketplaceHomeCompaniesCache } from "@/lib/public-read-cache";
 import { canManageWorkspaceSettings, getUserWorkspaceAccess } from "@/lib/workspace-access";
 
@@ -474,6 +475,17 @@ async function writeOwnerBusinessProfileLocation(input: WriteBusinessProfileLoca
   if (!id) {
     throw new Error("Business Profile location is not owned by the currently claimed Workspace");
   }
+  const profileId = String(profileRows[0]?.id ?? "");
+
+  try {
+    await invalidatePublicDirectoryPublicProjectionByProfileId(profileId);
+  } catch (error) {
+    console.error("Failed to invalidate public Directory cache after committed owner-location mutation", {
+      profileId,
+      locationId: id,
+      error,
+    });
+  }
 
   try {
     invalidateMarketplaceHomeCompaniesCache();
@@ -536,6 +548,17 @@ export async function deactivateOwnerBusinessProfileLocation(locationId: string)
     throw new Error("The active Workspace does not own an eligible claimed Business Profile");
   }
   if (!rows?.[0]?.id) throw new Error("Business Profile location is not editable by the active Workspace");
+  const profileId = String(profileRows[0]?.id ?? "");
+
+  try {
+    await invalidatePublicDirectoryPublicProjectionByProfileId(profileId);
+  } catch (error) {
+    console.error("Failed to invalidate public Directory cache after committed owner-location deactivation", {
+      profileId,
+      locationId: id,
+      error,
+    });
+  }
 
   try {
     invalidateMarketplaceHomeCompaniesCache();
