@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 
+import providerStyles from "@/components/provider-lifecycle/provider-lifecycle.module.css";
 import { getMarketplaceGuestQuoteView } from "@/lib/marketplace-guest-quote-human-view";
 import { getMarketplaceServiceJobForGuestToken } from "@/lib/marketplace-service-jobs";
 
@@ -111,20 +112,35 @@ export default async function MarketplaceProviderJobPage({
     getMarketplaceGuestQuoteView(token),
   ]);
 
+  const rawJobAction = query?.job;
+  const jobAction = Array.isArray(rawJobAction) ? rawJobAction[0] : rawJobAction;
+  const hrefFor = (nextLocale: Locale) => {
+    const search = new URLSearchParams();
+    if (nextLocale === "en") search.set("lang", "en");
+    if (jobAction) search.set("job", jobAction);
+    const suffix = search.toString();
+    return `/offert/jobb/${encodeURIComponent(token)}${suffix ? `?${suffix}` : ""}`;
+  };
+  const languageNav = (
+    <nav className={providerStyles.languageNav} aria-label={locale === "en" ? "Language" : "Språk"}>
+      <Link href={hrefFor("sv")} className={locale === "sv" ? providerStyles.languageActive : providerStyles.languageLink}>SV</Link>
+      <Link href={hrefFor("en")} className={locale === "en" ? providerStyles.languageActive : providerStyles.languageLink}>EN</Link>
+    </nav>
+  );
+
   if (!job || !quoteView?.customerContact) {
-    return <main lang={locale} className="min-h-screen bg-[#f7f7f4] px-4 py-16"><p className="mx-auto max-w-xl rounded-2xl bg-white p-8 text-center">{text.unavailable}</p></main>;
+    return (
+      <main lang={locale} className={providerStyles.page}>
+        <section className={providerStyles.unavailable}>
+          {languageNav}
+          <h1>{text.unavailable}</h1>
+        </section>
+      </main>
+    );
   }
 
   const contact = quoteView.customerContact;
   const address = [contact.addressLine1, contact.postalCode, contact.city].filter(Boolean).join(", ");
-  const alternative = locale === "en" ? "sv" : "en";
-  const rawJobAction = query?.job;
-  const jobAction = Array.isArray(rawJobAction) ? rawJobAction[0] : rawJobAction;
-  const languageParams = new URLSearchParams();
-  if (alternative === "en") languageParams.set("lang", "en");
-  if (jobAction) languageParams.set("job", jobAction);
-  const languageQuery = languageParams.toString();
-  const languageHref = `/offert/jobb/${encodeURIComponent(token)}${languageQuery ? `?${languageQuery}` : ""}`;
   const feedback = actionMessage(jobAction, locale);
   const canStart = job.status === "accepted" || job.status === "problem";
   const canComplete = job.status === "in_progress" || job.status === "problem";
@@ -134,48 +150,102 @@ export default async function MarketplaceProviderJobPage({
   const action = `/api/marketplace/service-job/${encodeURIComponent(token)}`;
 
   return (
-    <main lang={locale} className="min-h-screen bg-[#f7f7f4] px-4 py-8 text-[#17201a] sm:px-6 sm:py-12">
-      <section className="mx-auto max-w-3xl overflow-hidden rounded-[1.75rem] bg-white shadow-sm ring-1 ring-[#dfe5dd]">
-        <header className="bg-[#102a1c] px-6 py-7 text-white sm:px-10">
-          <div className="flex items-start justify-between gap-4">
-            <div><p className="text-xs font-bold uppercase tracking-[0.16em] text-[#a9dbb9]">{text.eyebrow}</p><h1 className="mt-3 text-3xl font-bold">{text.title}</h1></div>
-            <Link href={languageHref} className="rounded-lg border border-white/35 px-3 py-2 text-xs font-bold text-white">{text.language}</Link>
+    <main lang={locale} className={providerStyles.page}>
+      <div className={providerStyles.shell}>
+        <div className={providerStyles.topbar}>
+          <div>
+            <p className={providerStyles.eyebrow}>{text.eyebrow}</p>
+            <h1 className={providerStyles.title}>{text.title}</h1>
           </div>
-        </header>
-
-        <div className="grid gap-6 p-6 sm:p-10">
-          {feedback ? <p role={feedback.severity === "error" ? "alert" : "status"} className={feedback.severity === "error" ? "rounded-xl border border-[#efc2bb] bg-[#fff1ef] px-4 py-3 text-sm font-semibold text-[#8a2b20]" : "rounded-xl border border-[#a9cdb2] bg-[#edf8ef] px-4 py-3 text-sm font-semibold text-[#17452f]"}>{feedback.text}</p> : null}
-
-          <dl className="grid gap-4 rounded-2xl bg-[#f7f9f7] p-5 sm:grid-cols-2">
-            <div><dt className="text-xs font-bold uppercase text-[#6b776d]">{text.status}</dt><dd className="mt-1 font-bold">{job.status}</dd></div>
-            <div><dt className="text-xs font-bold uppercase text-[#6b776d]">{text.service}</dt><dd className="mt-1 font-semibold">{job.serviceName}</dd></div>
-            <div><dt className="text-xs font-bold uppercase text-[#6b776d]">{text.date}</dt><dd className="mt-1 font-semibold">{job.scheduledDate || "—"}</dd></div>
-            <div><dt className="text-xs font-bold uppercase text-[#6b776d]">{text.price}</dt><dd className="mt-1 font-semibold">{formatMoney(job.amountMinor, job.currency, locale)}</dd></div>
-          </dl>
-
-          <section className="rounded-2xl border border-[#a9cdb2] bg-[#edf8ef] p-5 text-[#17452f]">
-            <h2 className="font-bold">{text.customer}</h2>
-            <dl className="mt-4 grid gap-3 text-sm sm:grid-cols-2">
-              <div><dt className="font-bold">{text.name}</dt><dd>{contact.name || "—"}</dd></div>
-              <div><dt className="font-bold">{text.email}</dt><dd>{contact.email ? <a className="underline" href={`mailto:${contact.email}`}>{contact.email}</a> : "—"}</dd></div>
-              <div><dt className="font-bold">{text.phone}</dt><dd>{contact.phone ? <a className="underline" href={`tel:${contact.phone}`}>{contact.phone}</a> : "—"}</dd></div>
-              <div><dt className="font-bold">{text.address}</dt><dd>{address || "—"}</dd></div>
-            </dl>
-          </section>
-
-          {canStart ? <form action={action} method="post"><input type="hidden" name="lang" value={locale} /><input type="hidden" name="nextStatus" value="in_progress" /><button className="min-h-12 w-full rounded-xl bg-[#17452f] px-5 py-3 font-bold text-white" type="submit">{text.start}</button></form> : null}
-
-          {canComplete ? <form action={action} method="post" className="grid gap-3 rounded-2xl border border-[#dce5da] p-5"><input type="hidden" name="lang" value={locale} /><input type="hidden" name="nextStatus" value="completed" /><label className="grid gap-2 text-sm font-bold">{text.completion}<textarea name="completionSummary" minLength={3} maxLength={4000} required rows={4} className="rounded-xl border p-3 font-normal" /></label><p className="text-xs text-[#6b776d]">{text.completionHint}</p><button className="min-h-12 rounded-xl bg-[#17452f] px-5 py-3 font-bold text-white" type="submit">{text.complete}</button></form> : null}
-
-          {canReportProblem ? <form action={action} method="post" className="grid gap-3 rounded-2xl border p-5"><input type="hidden" name="lang" value={locale} /><input type="hidden" name="nextStatus" value="problem" /><label className="grid gap-2 text-sm font-bold">{text.problemReason}<textarea name="reason" minLength={3} maxLength={1000} required rows={3} className="rounded-xl border p-3 font-normal" /></label><button className="min-h-11 rounded-xl border border-[#8a5b00] px-4 py-2 font-bold text-[#8a5b00]" type="submit">{text.problem}</button></form> : null}
-
-          {canCancel ? <form action={action} method="post" className="grid gap-3 rounded-2xl border border-[#efd0cb] p-5"><input type="hidden" name="lang" value={locale} /><input type="hidden" name="nextStatus" value="provider_cancelled" /><label className="grid gap-2 text-sm font-bold">{text.cancelReason}<textarea name="reason" minLength={3} maxLength={1000} required rows={3} className="rounded-xl border p-3 font-normal" /></label><button className="min-h-11 rounded-xl bg-[#8a2b20] px-4 py-2 font-bold text-white" type="submit">{text.cancel}</button></form> : null}
-
-          {canNoShow ? <form action={action} method="post" className="grid gap-3"><input type="hidden" name="lang" value={locale} /><input type="hidden" name="nextStatus" value="no_show" /><input type="hidden" name="reason" value="Customer no-show" /><button className="min-h-11 rounded-xl border border-[#8a2b20] px-4 py-2 font-bold text-[#8a2b20]" type="submit">{text.noShow}</button></form> : null}
-
-          <section className="rounded-2xl bg-[#f7f9f7] p-5"><p className="text-sm leading-6 text-[#5b665f]">{text.claimBody}</p><Link href={`/foretag/claim/${encodeURIComponent(quoteView.profileSlug)}`} className="mt-3 inline-flex font-bold text-[#17452f] underline">{text.claim}</Link></section>
+          {languageNav}
         </div>
-      </section>
+
+        {feedback ? (
+          <p role={feedback.severity === "error" ? "alert" : "status"} className={feedback.severity === "error" ? providerStyles.noticeError : providerStyles.noticeSuccess}>
+            {feedback.text}
+          </p>
+        ) : null}
+
+        <section className={providerStyles.panel}>
+          <div className={providerStyles.panelBody}>
+            <dl className={providerStyles.jobInfo}>
+              <div><dt>{text.status}</dt><dd>{job.status}</dd></div>
+              <div><dt>{text.service}</dt><dd>{job.serviceName}</dd></div>
+              <div><dt>{text.date}</dt><dd>{job.scheduledDate || "—"}</dd></div>
+              <div><dt>{text.price}</dt><dd>{formatMoney(job.amountMinor, job.currency, locale)}</dd></div>
+            </dl>
+
+            <section className={providerStyles.noticeSuccess}>
+              <strong>{text.customer}</strong>
+              <div className={providerStyles.contactGrid}>
+                <div className={providerStyles.contactCell}><small>{text.name}</small><p>{contact.name || "—"}</p></div>
+                <div className={providerStyles.contactCell}><small>{text.email}</small><p>{contact.email ? <a className="underline" href={`mailto:${contact.email}`}>{contact.email}</a> : "—"}</p></div>
+                <div className={providerStyles.contactCell}><small>{text.phone}</small><p>{contact.phone ? <a className="underline" href={`tel:${contact.phone}`}>{contact.phone}</a> : "—"}</p></div>
+                <div className={providerStyles.contactCell}><small>{text.address}</small><p>{address || "—"}</p></div>
+              </div>
+            </section>
+
+            {canStart ? (
+              <form action={action} method="post" className={providerStyles.actionBlock}>
+                <input type="hidden" name="lang" value={locale} />
+                <input type="hidden" name="nextStatus" value="in_progress" />
+                <button className={providerStyles.primary} type="submit">{text.start}</button>
+              </form>
+            ) : null}
+
+            {canComplete ? (
+              <form action={action} method="post" className={providerStyles.actionBlock}>
+                <input type="hidden" name="lang" value={locale} />
+                <input type="hidden" name="nextStatus" value="completed" />
+                <div className={providerStyles.field}>
+                  <label>{text.completion}</label>
+                  <textarea name="completionSummary" minLength={3} maxLength={4000} required rows={4} className={providerStyles.textarea} />
+                  <span className={providerStyles.helper}>{text.completionHint}</span>
+                </div>
+                <button className={providerStyles.primary} type="submit">{text.complete}</button>
+              </form>
+            ) : null}
+
+            {canReportProblem ? (
+              <form action={action} method="post" className={providerStyles.actionBlock}>
+                <input type="hidden" name="lang" value={locale} />
+                <input type="hidden" name="nextStatus" value="problem" />
+                <div className={providerStyles.field}>
+                  <label>{text.problemReason}</label>
+                  <textarea name="reason" minLength={3} maxLength={1000} required rows={3} className={providerStyles.textarea} />
+                </div>
+                <button className={providerStyles.secondary} type="submit">{text.problem}</button>
+              </form>
+            ) : null}
+
+            {canCancel ? (
+              <form action={action} method="post" className={providerStyles.actionBlock}>
+                <input type="hidden" name="lang" value={locale} />
+                <input type="hidden" name="nextStatus" value="provider_cancelled" />
+                <div className={providerStyles.field}>
+                  <label>{text.cancelReason}</label>
+                  <textarea name="reason" minLength={3} maxLength={1000} required rows={3} className={providerStyles.textarea} />
+                </div>
+                <button className={providerStyles.danger} type="submit">{text.cancel}</button>
+              </form>
+            ) : null}
+
+            {canNoShow ? (
+              <form action={action} method="post" className={providerStyles.actionBlock}>
+                <input type="hidden" name="lang" value={locale} />
+                <input type="hidden" name="nextStatus" value="no_show" />
+                <input type="hidden" name="reason" value="Customer no-show" />
+                <button className={providerStyles.danger} type="submit">{text.noShow}</button>
+              </form>
+            ) : null}
+
+            <section className={providerStyles.noticeInfo}>
+              <p>{text.claimBody}</p>
+              <Link href={`/foretag/claim/${encodeURIComponent(quoteView.profileSlug)}`} className="mt-2 inline-flex font-bold underline">{text.claim}</Link>
+            </section>
+          </div>
+        </section>
+      </div>
     </main>
   );
 }
