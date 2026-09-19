@@ -20,28 +20,31 @@ export function AppShell({
   const pathLocale = getPublicLocale(pathname);
   const queryLocalizedAuth = isAuthQueryLocalePath(pathname);
   const hintedLocale = queryLocalizedAuth && localeHint ? localeHint : pathLocale;
-  const [authLocale, setAuthLocale] = useState<PublicLocale>(hintedLocale);
-  const locale = queryLocalizedAuth ? authLocale : pathLocale;
+  const [authLocaleOverride, setAuthLocaleOverride] = useState<{
+    pathname: string;
+    locale: PublicLocale;
+  } | null>(null);
+  const locale = queryLocalizedAuth && authLocaleOverride?.pathname === pathname
+    ? authLocaleOverride.locale
+    : hintedLocale;
   const authSurface = isAuthSurfacePath(pathname);
   const marketplaceHome = pathname === "/" || pathname === "/en";
   const directorySearchRoute = pathname === "/foretag/listad" || pathname === "/en/companies";
   const directoryProfileRoute = pathname?.startsWith("/foretag/listad/")
     || pathname?.startsWith("/en/companies/");
   useEffect(() => {
-    setAuthLocale(hintedLocale);
-  }, [hintedLocale, pathname]);
-
-  useEffect(() => {
     if (!queryLocalizedAuth) return;
 
     function handleLocaleChange(event: Event) {
       const nextLocale = (event as CustomEvent<PublicLocale>).detail;
-      if (nextLocale === "sv" || nextLocale === "en") setAuthLocale(nextLocale);
+      if (nextLocale === "sv" || nextLocale === "en") {
+        setAuthLocaleOverride({ pathname: pathname ?? "", locale: nextLocale });
+      }
     }
 
     window.addEventListener(PUBLIC_LOCALE_CHANGE_EVENT, handleLocaleChange);
     return () => window.removeEventListener(PUBLIC_LOCALE_CHANGE_EVENT, handleLocaleChange);
-  }, [queryLocalizedAuth]);
+  }, [pathname, queryLocalizedAuth]);
 
   useEffect(() => {
     document.documentElement.lang = locale === "en" ? "en" : "sv";
