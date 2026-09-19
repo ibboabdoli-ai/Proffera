@@ -134,7 +134,7 @@ const publicExperience = {
         "-e", "POSTGRES_USER=postgres",
         "-e", "POSTGRES_DB=proffera_test",
         "-p", "127.0.0.1::5432",
-        "postgres:16-alpine",
+        "postgis/postgis:16-3.5-alpine",
       ]);
 
       const portLine = docker(["port", containerName, "5432/tcp"]).split(/\r?\n/u)[0] ?? "";
