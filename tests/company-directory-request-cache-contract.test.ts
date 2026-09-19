@@ -141,6 +141,20 @@ afterEach(() => {
 });
 
 describe("company directory shared-cache route contract", () => {
+  it("fails claimed public fallback and routing closed on fresh snapshot-bound pilot workplace authority", () => {
+    const publicDataSource = source("src/lib/company-directory-public-data.ts");
+    const routingSource = source("src/lib/company-directory-routing.ts");
+    for (const candidate of [publicDataSource, routingSource]) {
+      expect(candidate).toContain("claimed_facts.last_synced_at >= profile.last_synced_at");
+      expect(candidate).toContain("claimed_scb.last_synced_at >= now() - interval '7 days'");
+      expect(candidate).toContain("comparisonSnapshot,profileUpdatedToken");
+      expect(candidate).toContain("comparisonSnapshot,officialFactsLastSyncedToken");
+      expect(candidate).toContain("jsonb_typeof(claimed_scb.conflicts) = 'array'");
+      expect(candidate).toContain("jsonb_typeof(claimed_scb.workplaces) = 'array'");
+      expect(candidate).toContain("DIRECTORY_PILOT_LOCATIONS");
+    }
+  });
+
   it("keeps both public routes dynamic and on the common resolver path", () => {
     const swedishRoute = source("src/app/foretag/listad/[slug]/page.tsx");
     const englishRoute = source("src/app/en/companies/[slug]/page.tsx");
