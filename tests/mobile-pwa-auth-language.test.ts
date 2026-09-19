@@ -61,6 +61,7 @@ import {
   isAuthQueryLocalePath,
   isAuthSurfacePath,
   isPublicQueryLocalePath,
+  isRouteResolvedPublicLocalePath,
   resolvePublicRequestLocale,
 } from "../src/lib/public-locale";
 
@@ -94,24 +95,34 @@ describe("mobile PWA and auth language contract", () => {
     expect(dashboard).toContain("padding-top:calc(0.75rem + env(safe-area-inset-top))");
   });
 
-  it("resolves query-localized auth and standalone public routes without changing normal route semantics", () => {
+  it("keeps tenant-resolved routes out of raw query locale inference", () => {
     expect(isAuthQueryLocalePath("/logga-in")).toBe(true);
     expect(isAuthQueryLocalePath("/aktivera/token-123")).toBe(true);
     expect(isAuthSurfacePath("/en/create-account")).toBe(true);
-    expect(isPublicQueryLocalePath("/foretag/acme-ab")).toBe(true);
-    expect(isPublicQueryLocalePath("/foretag/acme-ab/tjanster/fonsterputs")).toBe(true);
-    expect(isPublicQueryLocalePath("/boka/acme-ab")).toBe(true);
+    expect(isRouteResolvedPublicLocalePath("/foretag/acme-ab")).toBe(true);
+    expect(isRouteResolvedPublicLocalePath("/foretag/acme-ab/tjanster/fonsterputs")).toBe(true);
+    expect(isRouteResolvedPublicLocalePath("/boka/acme-ab")).toBe(true);
+    expect(isRouteResolvedPublicLocalePath("/foretag/listad")).toBe(false);
     expect(isPublicQueryLocalePath("/offert/token-123")).toBe(true);
     expect(resolvePublicRequestLocale("/logga-in", "en")).toBe("en");
     expect(resolvePublicRequestLocale("/logga-in", "sv")).toBe("sv");
-    expect(resolvePublicRequestLocale("/foretag/acme-ab", "en")).toBe("en");
-    expect(resolvePublicRequestLocale("/foretag/acme-ab/tjanster/fonsterputs", "en")).toBe("en");
-    expect(resolvePublicRequestLocale("/boka/acme-ab", "en")).toBe("en");
+    expect(resolvePublicRequestLocale("/foretag/acme-ab", "en")).toBe("sv");
+    expect(resolvePublicRequestLocale("/boka/acme-ab", "en")).toBe("sv");
     expect(resolvePublicRequestLocale("/offert/token-123", "en")).toBe("en");
-    expect(resolvePublicRequestLocale("/foretag/listad", "en")).toBe("sv");
-    expect(resolvePublicRequestLocale("/foretag/listad/acme-ab", "en")).toBe("sv");
     expect(resolvePublicRequestLocale("/en/demo", null)).toBe("en");
     expect(resolvePublicRequestLocale("/demo", "en")).toBe("sv");
+  });
+
+  it("syncs document language from the resolved workspace locale", () => {
+    const sync = source("src/components/layout/document-language-sync.tsx");
+    const company = source("src/app/foretag/[workspace]/page.tsx");
+    const service = source("src/app/foretag/[workspace]/tjanster/[service]/page.tsx");
+    const booking = source("src/app/boka/[slug]/page.tsx");
+
+    expect(sync).toContain("document.documentElement.lang = locale");
+    expect(company).toContain("<DocumentLanguageSync locale={locale} />");
+    expect(service).toContain("<DocumentLanguageSync locale={locale} />");
+    expect(booking).toContain("<DocumentLanguageSync locale={locale} />");
   });
 
   it("uses the current marketplace header and English footer on English auth surfaces", () => {
