@@ -27,7 +27,13 @@ where scb.profile_id = profile.id
   and facts.last_synced_at >= profile.last_synced_at
   and facts.deregistration_date is null
   and coalesce(facts.advertising_blocked, false) = false
-  and jsonb_array_length(coalesce(facts.ongoing_procedures, '[]'::jsonb)) = 0
+  and (
+    case
+      when jsonb_typeof(facts.ongoing_procedures) = 'array'
+        then jsonb_array_length(facts.ongoing_procedures)
+      else 1
+    end
+  ) = 0
   and scb.source_payload_hash <> ''
   and scb.last_synced_at >= now() - interval '7 days'
   and scb.provenance #>> '{comparisonSnapshot,profileUpdatedToken}' = profile.updated_at::text
