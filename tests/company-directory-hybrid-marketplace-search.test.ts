@@ -91,7 +91,7 @@ describe("hybrid directory marketplace search", () => {
     expect(searchSource).toContain("comparisonSnapshot,profileUpdatedToken");
     expect(searchSource).toContain("claimed_facts.deregistration_date is null");
     expect(searchSource).toContain("coalesce(claimed_facts.advertising_blocked, false) = false");
-    expect(searchSource).toContain("ongoing_procedures");
+    expect(searchSource).toContain("jsonb_typeof(claimed_facts.ongoing_procedures) = 'array'");
     expect(searchSource).toContain("profile.is_active = true");
     expect(searchSource).toContain("profile.privacy_blocked = false");
   });
@@ -107,7 +107,7 @@ describe("hybrid directory marketplace search", () => {
     expect(publicDataSource).toContain("comparisonSnapshot,profileUpdatedToken");
     expect(publicDataSource).toContain("claimed_facts.deregistration_date is null");
     expect(publicDataSource).toContain("coalesce(claimed_facts.advertising_blocked, false) = false");
-    expect(publicDataSource).toContain("ongoing_procedures");
+    expect(publicDataSource).toContain("jsonb_typeof(claimed_facts.ongoing_procedures) = 'array'");
   });
 
   it("only upgrades a claimed result to Marketplace actions with an exact published workspace-service mapping", () => {
