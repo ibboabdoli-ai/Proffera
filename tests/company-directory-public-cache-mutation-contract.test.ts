@@ -235,8 +235,13 @@ function publishedRevalidationSql() {
     if (query.includes("insert into company_directory_sync_runs")) {
       return [{ id: RUN_ID }];
     }
-    if (query.includes("select profile.id::text, profile.organization_number")) {
-      return [{ id: PROFILE_ID, organization_number: "5560000000", display_name: "Safe Company AB" }];
+    if (query.includes("profile.id::text") && query.includes("normalized_organization_number")) {
+      return [{
+        id: PROFILE_ID,
+        organization_number: "5560000000",
+        normalized_organization_number: "5560000000",
+        display_name: "Safe Company AB",
+      }];
     }
     if (query.includes("profile.updated_at::text as profile_updated_token")) {
       return [{
