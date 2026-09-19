@@ -78,9 +78,10 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
   }
   const locale = resolveAuthLocale(params);
   const text = copy[locale];
-  const signupHref = locale === "en" ? "/en/create-account" : "/skapa-konto";
-  const demoHref = locale === "en" ? "/en/demo" : "/demo";
   const selectedPlan = isCheckoutPlanKey(planValue) ? planValue : null;
+  const signupBaseHref = locale === "en" ? "/en/create-account" : "/skapa-konto";
+  const signupHref = selectedPlan ? `${signupBaseHref}?plan=${selectedPlan}` : signupBaseHref;
+  const demoHref = locale === "en" ? "/en/demo" : "/demo";
   const afterLoginPath = nextValue ?? resolveOwnerPostLoginPath({
     locale,
     accountCreated: createdValue === "1",
