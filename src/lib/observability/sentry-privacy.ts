@@ -56,6 +56,7 @@ function scrubSentryEnvelope<T extends ErrorEvent | TransactionEvent>(event: T):
 
 export function scrubSentryEvent(event: ErrorEvent) {
   scrubSentryEnvelope(event);
+  scrubSentryTraceContext(event);
 
   if (event.exception?.values) {
     event.exception.values = event.exception.values.map((exception) => ({
@@ -74,15 +75,18 @@ export function scrubSentryEvent(event: ErrorEvent) {
   return event;
 }
 
-export function scrubSentryTransaction(event: TransactionEvent) {
-  scrubSentryEnvelope(event);
-  event.spans = event.spans?.map(scrubSentrySpan);
-
+function scrubSentryTraceContext(event: ErrorEvent | TransactionEvent) {
   if (event.contexts?.trace?.data) {
     event.contexts.trace.data = scrubSentrySpan({
       data: event.contexts.trace.data,
     }).data;
   }
+}
+
+export function scrubSentryTransaction(event: TransactionEvent) {
+  scrubSentryEnvelope(event);
+  event.spans = event.spans?.map(scrubSentrySpan);
+  scrubSentryTraceContext(event);
 
   return event;
 }

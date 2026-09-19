@@ -225,6 +225,33 @@ describe("observability foundation", () => {
     expect(event.exception?.values?.[0]?.stacktrace?.frames?.[0]?.vars).toBeUndefined();
   });
 
+  it("scrubs active trace context from Sentry error envelopes", () => {
+    const bearerToken = `${"signed-payload".repeat(3)}.${"signature".repeat(4)}`;
+    const privateUrl = `https://proffera.se/mina-bokningar/${bearerToken}?email=private@example.com#secret`;
+    const event = scrubSentryEvent({
+      type: undefined,
+      contexts: {
+        trace: {
+          trace_id: "1234567890abcdef1234567890abcdef",
+          span_id: "1234567890abcdef",
+          data: {
+            "http.method": "GET",
+            "http.url": privateUrl,
+            "url.full": privateUrl,
+            "url.query": "email=private@example.com",
+            customerEmail: "private@example.com",
+          },
+        },
+      },
+    });
+
+    expect(event.contexts?.trace?.data).toEqual({ "http.method": "GET" });
+    const serialized = JSON.stringify(event);
+    expect(serialized).not.toContain(bearerToken);
+    expect(serialized).not.toContain("private@example.com");
+    expect(serialized).not.toContain("#secret");
+  });
+
   it("removes query values from Sentry HTTP breadcrumbs", () => {
     const breadcrumb = scrubSentryBreadcrumb({
       category: "fetch",
