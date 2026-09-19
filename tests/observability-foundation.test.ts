@@ -132,6 +132,14 @@ describe("observability foundation", () => {
     expect(serialized).not.toContain("SECRET-789");
   });
 
+  it("preserves request IDs from record headers case-insensitively", () => {
+    const preserved = requestIdFromHeaders({
+      "X-Proffera-Request-Id": requestId,
+    });
+
+    expect(preserved).toBe(requestId);
+  });
+
   it("generates a UUID when an incoming correlation value is invalid", () => {
     const generated = requestIdFromHeaders(new Headers({
       "x-proffera-request-id": "not-a-valid-request-id",
