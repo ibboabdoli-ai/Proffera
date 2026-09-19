@@ -16,6 +16,12 @@ const authSurfaceRoutes = [
   "/en/create-account",
 ] as const;
 
+const queryLocalizedPublicPrefixes = [
+  "/foretag/",
+  "/boka/",
+  "/offert/",
+] as const;
+
 type LocalizedRoute = {
   sv: string;
   en: string;
@@ -134,10 +140,16 @@ export function isAuthSurfacePath(pathname: string | null | undefined) {
     || pathname.startsWith("/bjud-in/");
 }
 
+export function isPublicQueryLocalePath(pathname: string | null | undefined) {
+  if (!pathname) return false;
+  return isAuthQueryLocalePath(pathname)
+    || queryLocalizedPublicPrefixes.some((prefix) => pathname.startsWith(prefix));
+}
+
 export function resolvePublicRequestLocale(
   pathname: string | null | undefined,
   queryLocale?: string | null,
 ): PublicLocale {
   if (getPublicLocale(pathname) === "en") return "en";
-  return isAuthQueryLocalePath(pathname) && queryLocale === "en" ? "en" : "sv";
+  return isPublicQueryLocalePath(pathname) && queryLocale === "en" ? "en" : "sv";
 }
