@@ -46,7 +46,7 @@ describe("public read cache contract", () => {
     const locationCall = mocks.unstableCache.mock.calls.find(([, keyParts]) => keyParts[0] === "public-directory-location-suggestions-v3");
     expect(locationCall?.[2]).toEqual({ revalidate: 24 * 60 * 60 });
 
-    const marketplaceCall = mocks.unstableCache.mock.calls.find(([, keyParts]) => keyParts[0] === "marketplace-home-companies-v1");
+    const marketplaceCall = mocks.unstableCache.mock.calls.find(([, keyParts]) => keyParts[0] === "marketplace-home-companies-v2");
     expect(marketplaceCall?.[2]).toEqual({ revalidate: 30 * 60 });
 
     const sitemapCall = mocks.unstableCache.mock.calls.find(([, keyParts]) => keyParts[0] === "platform-public-business-sitemap-v1");
@@ -91,5 +91,9 @@ describe("public read cache contract", () => {
     expect(requestCache).toContain("readPublicDirectoryProfileCache");
     expect(profileResolver).toContain("readPublicDirectoryExtrasCache");
     expect(directoryCacheBoundary).toContain('from "next/cache"');
+    expect(directoryCacheBoundary).toContain('"public-directory-miss-v2"');
+    expect(directoryCacheBoundary).toContain('"public-directory-routing-miss-v2"');
+    expect(directoryCacheBoundary).not.toContain('"public-directory-miss-v1"');
+    expect(directoryCacheBoundary).not.toContain('"public-directory-routing-miss-v1"');
   });
 });
