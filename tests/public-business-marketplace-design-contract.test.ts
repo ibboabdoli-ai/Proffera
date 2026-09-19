@@ -84,7 +84,7 @@ const baseExperience = {
   themeContentOverrides: {},
 };
 
-function hubFixture() {
+function hubFixture(experienceOverrides: Partial<typeof baseExperience> = {}) {
   return {
     workspace: {
       id: "workspace-1",
@@ -98,7 +98,7 @@ function hubFixture() {
       billingCurrency: "SEK",
       businessIntro: "Renovering med tydlig plan och lokal närvaro.",
       bookingEnabled: true,
-      experience: { ...baseExperience },
+      experience: { ...baseExperience, ...experienceOverrides },
     },
     services: [
       {
@@ -147,8 +147,8 @@ function serviceResultFixture() {
   return { ...hub, service: hub.services[0] };
 }
 
-async function renderCompany(locale: "sv" | "en") {
-  mocks.getPublicBusinessHub.mockResolvedValue(hubFixture());
+async function renderCompany(locale: "sv" | "en", experienceOverrides: Partial<typeof baseExperience> = {}) {
+  mocks.getPublicBusinessHub.mockResolvedValue(hubFixture(experienceOverrides));
   return renderToStaticMarkup(await PublicBusinessPage({
     params: Promise.resolve({ workspace: "nordic-fix" }),
     searchParams: Promise.resolve({ lang: locale }),
@@ -210,6 +210,16 @@ describe("public business marketplace visual contract", () => {
     expect(html).toContain('href="/foretag/nordic-fix/tjanster/badrumsrenovering?lang=en"');
     expect(html).toContain('href="/boka/nordic-fix?lang=en"');
     expect(html).toContain('aria-label="contact-form-en"');
+  });
+
+  it("renders the media-free company hero in its solo layout without hero media", async () => {
+    const html = await renderCompany("sv", { heroImageUrl: "", heroVideoUrl: "" });
+
+    expect(html).toContain(`class="${companyStyles.heroGrid} ${companyStyles.heroSolo}"`);
+    expect(html).not.toContain('src="https://cdn.example.test/hero.jpg"');
+    expect(html).not.toContain("<video");
+    expect(html).toContain("Vad kan vi hjälpa dig med?");
+    expect(html).toContain('href="/boka/nordic-fix?lang=sv"');
   });
 
   it("renders service conversion controls on desktop and the mobile sticky action bar", async () => {
