@@ -35,6 +35,7 @@ import {
   getCachedPublishedDirectoryLocationSuggestions,
   invalidateMarketplaceHomeCompaniesCache,
   MARKETPLACE_HOME_COMPANIES_CACHE_TAG,
+  PUBLIC_DIRECTORY_LOCATION_SUGGESTIONS_CACHE_TAG,
   getCachedPublicBusinessSitemapEntries,
 } from "../src/lib/public-read-cache";
 
@@ -47,7 +48,10 @@ describe("public read cache contract", () => {
     expect(mocks.unstableCache).toHaveBeenCalledTimes(3);
 
     const locationCall = mocks.unstableCache.mock.calls.find(([, keyParts]) => keyParts[0] === "public-directory-location-suggestions-v3");
-    expect(locationCall?.[2]).toEqual({ revalidate: 24 * 60 * 60 });
+    expect(locationCall?.[2]).toEqual({
+      revalidate: 24 * 60 * 60,
+      tags: [PUBLIC_DIRECTORY_LOCATION_SUGGESTIONS_CACHE_TAG],
+    });
 
     const marketplaceCall = mocks.unstableCache.mock.calls.find(([, keyParts]) => keyParts[0] === "marketplace-home-companies-v2");
     expect(marketplaceCall?.[2]).toEqual({
@@ -86,6 +90,7 @@ describe("public read cache contract", () => {
     const directoryCacheBoundary = source("src/lib/company-directory-public-cache.ts");
     const fullRevalidation = source("src/lib/company-directory-full-revalidation.ts");
     const publishedRevalidation = source("src/lib/company-directory-published-revalidation.ts");
+    const revalidationRoute = source("src/app/api/cron/company-directory-revalidation/route.ts");
 
     expect(homepage).toContain("getCachedPublishedDirectoryLocationSuggestions(24)");
     expect(homepage).toContain("getCachedMarketplaceHomeCompanies(4)");
@@ -106,7 +111,11 @@ describe("public read cache contract", () => {
     expect(directoryCacheBoundary).toContain('"public-directory-routing-miss-v2"');
     expect(directoryCacheBoundary).not.toContain('"public-directory-miss-v1"');
     expect(directoryCacheBoundary).not.toContain('"public-directory-routing-miss-v1"');
+    expect(directoryCacheBoundary).toContain("PUBLIC_DIRECTORY_LOCATION_SUGGESTIONS_CACHE_TAG");
+    expect(directoryCacheBoundary).toContain("invalidatePublishedDirectoryLocationSuggestionsCache");
     expect(fullRevalidation).toContain("invalidateMarketplaceHomeCompaniesCache");
     expect(publishedRevalidation).toContain("invalidateMarketplaceHomeCompaniesCache");
+    expect(revalidationRoute).toContain("invalidateMarketplaceCacheBestEffort(\"full_revalidation_batch_success\")");
+    expect(revalidationRoute).toContain("invalidateMarketplaceCacheBestEffort(\"full_revalidation_batch_failure\")");
   });
 });
