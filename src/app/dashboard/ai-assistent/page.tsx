@@ -51,21 +51,49 @@ export default async function AiAssistantPage({ searchParams }: AiAssistantPageP
     : { databaseReady: false, tenantId: null, clientId: null, lifecycle: null, lastErrorCode: null };
   const canManage = canManageWorkspaceSettings(access);
   const active = eligible && integration.lifecycle === "active" && Boolean(integration.tenantId);
+  const bridgeConfigured = isServiceAiChatBridgeConfigured();
   const errors = isEnglish ? errorMessages.en : errorMessages.sv;
 
-  const statusLabel = active
-    ? isEnglish ? "Active" : "Aktiv"
-    : eligible
-      ? isEnglish ? "Ready to activate" : "Redo att aktiveras"
-      : isEnglish ? "Not included in the plan" : "Ingår inte i planen";
-
-  const statusHelp = active
-    ? isEnglish
-      ? "AI Chat is connected to your workspace and appears automatically on your public booking page."
-      : "AI Chat är kopplad till din workspace och visas automatiskt på din publika bokningssida."
-    : isEnglish
-      ? "AI Chat becomes available when a Professional subscription is active."
-      : "AI Chat aktiveras först när en Professional-prenumeration är aktiv.";
+  const { statusLabel, statusHelp } = (() => {
+    if (!access.ok) {
+      return {
+        statusLabel: isEnglish ? "Select a workspace" : "Välj en workspace",
+        statusHelp: isEnglish
+          ? "AI Chat is managed per workspace and requires an active sign-in."
+          : "AI Chat hanteras per workspace och kräver en aktiv inloggning.",
+      };
+    }
+    if (!eligible) {
+      return {
+        statusLabel: isEnglish ? "Included in Professional" : "Ingår i Professional",
+        statusHelp: isEnglish
+          ? "When Professional is active, a dedicated tenant, inbox and installation code are created for your workspace."
+          : "När Professional är aktiv skapas en egen tenant, inkorg och installationskod för din workspace.",
+      };
+    }
+    if (!bridgeConfigured) {
+      return {
+        statusLabel: isEnglish ? "AI Chat is being prepared" : "AI Chat förbereds",
+        statusHelp: isEnglish
+          ? "The connection to the AI Chat service is not configured in this environment yet."
+          : "Kopplingen till AI Chat-tjänsten är inte konfigurerad i den här miljön ännu.",
+      };
+    }
+    if (active) {
+      return {
+        statusLabel: isEnglish ? "Active" : "Aktiv",
+        statusHelp: isEnglish
+          ? "AI Chat is connected to your workspace and appears automatically on your public booking page."
+          : "AI Chat är kopplad till din workspace och visas automatiskt på din publika bokningssida.",
+      };
+    }
+    return {
+      statusLabel: isEnglish ? "Ready to activate" : "Redo att aktiveras",
+      statusHelp: isEnglish
+        ? "We create a separate tenant and secure account for your workspace. After activation, your own inbox opens."
+        : "Vi skapar en separat tenant och ett säkert konto för din workspace. Efter aktivering öppnas din egen inkorg.",
+    };
+  })();
 
   return (
     <div className="grid gap-6">
@@ -122,7 +150,7 @@ export default async function AiAssistantPage({ searchParams }: AiAssistantPageP
           <p className="mt-2 text-sm leading-6 text-ink-muted">{isEnglish ? "When Professional is active, a dedicated tenant, inbox and installation code are created for your workspace." : "När Professional är aktiv skapas en egen tenant, inkorg och installationskod för din workspace."}</p>
           <Link href={localizedHref("/dashboard/installningar?plan=professional", isEnglish)} className="mt-4 inline-flex min-h-10 items-center rounded-control bg-brand-deep px-4 text-sm font-bold text-white">{isEnglish ? "View plan and billing" : "Se plan och betalning"}</Link>
         </section>
-      ) : !isServiceAiChatBridgeConfigured() ? (
+      ) : !bridgeConfigured ? (
         <section className="rounded-card border border-line bg-surface p-5 shadow-card sm:p-6">
           <h3 className="text-lg font-bold text-ink">{isEnglish ? "AI Chat is being prepared" : "AI Chat förbereds"}</h3>
           <p className="mt-2 text-sm leading-6 text-ink-muted">{isEnglish ? "The connection to the AI Chat service is not configured in this environment yet." : "Kopplingen till AI Chat-tjänsten är inte konfigurerad i den här miljön ännu."}</p>
