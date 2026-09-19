@@ -39,7 +39,7 @@
   place-items: center;
   border-radius: 9px;
   background: var(--booking-primary);
-  color: #fff;
+  color: var(--booking-primary-text, #fff);
   font-weight: 950;
 }
 
@@ -90,7 +90,7 @@
 .languageActive {
   border: 1px solid var(--booking-primary);
   background: var(--booking-primary);
-  color: #fff;
+  color: var(--booking-primary-text, #fff);
 }
 
 .hero {
@@ -178,7 +178,7 @@
   border-radius: 8px;
   background: var(--booking-primary);
   padding: 0 13px;
-  color: #fff;
+  color: var(--booking-primary-text, #fff);
   font-size: .72rem;
   font-weight: 900;
   text-decoration: none;
@@ -270,7 +270,7 @@
   border-radius: 8px;
   background: var(--booking-primary);
   padding: 0 13px;
-  color: #fff;
+  color: var(--booking-primary-text, #fff);
   font-size: .72rem;
   font-weight: 900;
   text-decoration: none;
@@ -410,7 +410,7 @@
   border-radius: 8px !important;
   background: var(--booking-primary) !important;
   padding: 0 14px !important;
-  color: #fff !important;
+  color: var(--booking-primary-text, #fff) !important;
   font-size: .75rem !important;
   font-weight: 900 !important;
 }

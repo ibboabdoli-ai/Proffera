@@ -7,6 +7,7 @@ import { headers } from "next/headers";
 import { notFound, redirect } from "next/navigation";
 import { CalendarClock, CalendarDays, Clock3, History, MapPin, XCircle } from "lucide-react";
 
+import { readableBookingTextColor } from "@/lib/booking-theme-contract";
 import { cancelCustomerCalendarBooking, getCustomerCalendar, type CustomerCalendarBooking } from "@/lib/customer-calendar";
 import { getCustomerPortalPresentation, type CustomerPortalLanguage } from "@/lib/customer-portal-language";
 import { isPrimeViewHost } from "@/lib/public-site-domains";
@@ -168,7 +169,11 @@ export default async function Page({ params, searchParams }: PageProps) {
   );
 
   const companyName = presentation?.companyName || (isPrimeView ? "PrimeView Window Care" : "Proffera");
-  const style = { "--portal-primary": presentation?.primaryColor || (isPrimeView ? "#1769c2" : "#0a2e63") } as CSSProperties;
+  const portalPrimary = presentation?.primaryColor || (isPrimeView ? "#1769c2" : "#0a2e63");
+  const style = {
+    "--portal-primary": portalPrimary,
+    "--portal-primary-text": readableBookingTextColor(portalPrimary),
+  } as CSSProperties;
   const switchQuery = { changed: first(query?.changed), cancelled: first(query?.cancelled), error: first(query?.error) };
   const showLanguageSwitch = presentation ? presentation.swedishEnabled && presentation.englishEnabled : true;
 

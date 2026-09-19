@@ -4,6 +4,7 @@ import { headers } from "next/headers";
 import { notFound, redirect } from "next/navigation";
 import { CalendarClock, Clock3, UserRound } from "lucide-react";
 
+import { readableBookingTextColor } from "@/lib/booking-theme-contract";
 import { getRescheduleBooking, rescheduleCustomerBooking } from "@/lib/customer-booking-reschedule";
 import { getCustomerPortalPresentation, type CustomerPortalLanguage } from "@/lib/customer-portal-language";
 import { getAvailableRescheduleSlots, getUpcomingRescheduleDays } from "@/lib/customer-reschedule-slots";
@@ -117,7 +118,11 @@ export default async function ReschedulePage({ params, searchParams }: PageProps
   const errors = isEnglish ? errorsEn : errorsSv;
   const errorKey = first(query?.error);
   const showLanguageSwitch = presentation ? presentation.swedishEnabled && presentation.englishEnabled : true;
-  const style = { "--portal-primary": presentation?.primaryColor || (isPrimeView ? "#1769c2" : "#0a2e63") } as CSSProperties;
+  const portalPrimary = presentation?.primaryColor || (isPrimeView ? "#1769c2" : "#0a2e63");
+  const style = {
+    "--portal-primary": portalPrimary,
+    "--portal-primary-text": readableBookingTextColor(portalPrimary),
+  } as CSSProperties;
 
   return (
     <main className={styles.page} lang={language} style={style}>

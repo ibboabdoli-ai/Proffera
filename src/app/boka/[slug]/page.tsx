@@ -6,6 +6,7 @@ import { redirect } from "next/navigation";
 import { BookingAiChatWidget } from "@/components/service-ai-chat-widget";
 import { JuliusBookingDemo } from "@/components/salon/julius-booking-demo";
 import { resolveBookingThemeContent } from "@/lib/booking-theme-templates";
+import { readableBookingTextColor } from "@/lib/booking-theme-contract";
 import { getSql } from "@/lib/db/server";
 import { allowPublicSubmission } from "@/lib/public-form-protection";
 import { parseLocalDateTime, resolveBookingTimeZone, validatePublicBookingPolicy } from "@/lib/public-booking-policy";
@@ -300,6 +301,7 @@ export default async function PublicBookingPage({ params, searchParams }: PagePr
   const lineColor = dark ? "rgba(255,255,255,.16)" : "#dce4ee";
   const themeStyles = {
     "--booking-primary": experience.primaryColor,
+    "--booking-primary-text": readableBookingTextColor(experience.primaryColor),
     "--booking-accent": experience.accentColor,
     "--booking-bg": pageBackground,
     "--booking-card": cardBackground,

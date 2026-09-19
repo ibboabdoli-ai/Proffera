@@ -66,6 +66,23 @@ describe("public booking human-designed UX contract", () => {
     expect(page).toContain("publishedHours");
   });
 
+  it("derives readable action text from tenant primary colors", () => {
+    const bookingPage = source("src/app/boka/[slug]/page.tsx");
+    const bookingStyles = source("src/app/boka/[slug]/public-booking-marketplace.module.css");
+    const portalPage = source("src/app/mina-bokningar/[token]/page.tsx");
+    const reschedulePage = source("src/app/mina-bokningar/[token]/[bookingId]/boka-om/page.tsx");
+    const portalStyles = source("src/app/mina-bokningar/customer-portal.module.css");
+
+    expect(bookingPage).toContain("readableBookingTextColor(experience.primaryColor)");
+    expect(bookingPage).toContain("--booking-primary-text");
+    expect(bookingStyles).toContain("var(--booking-primary-text, #fff)");
+    expect(portalPage).toContain("readableBookingTextColor(portalPrimary)");
+    expect(reschedulePage).toContain("readableBookingTextColor(portalPrimary)");
+    expect(portalPage).toContain("--portal-primary-text");
+    expect(reschedulePage).toContain("--portal-primary-text");
+    expect(portalStyles).toContain("var(--portal-primary-text, #fff)");
+  });
+
   it("extends Swedish and English through customer self-service and rescheduling", () => {
     const portalLanguage = source("src/lib/customer-portal-language.ts");
     const portal = source("src/app/mina-bokningar/[token]/page.tsx");
