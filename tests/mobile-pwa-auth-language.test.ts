@@ -60,6 +60,7 @@ import {
 import {
   isAuthQueryLocalePath,
   isAuthSurfacePath,
+  isPublicQueryLocalePath,
   resolvePublicRequestLocale,
 } from "../src/lib/public-locale";
 
@@ -93,12 +94,20 @@ describe("mobile PWA and auth language contract", () => {
     expect(dashboard).toContain("padding-top:calc(0.75rem + env(safe-area-inset-top))");
   });
 
-  it("resolves query-localized auth routes without changing normal route locale semantics", () => {
+  it("resolves query-localized auth and standalone public routes without changing normal route semantics", () => {
     expect(isAuthQueryLocalePath("/logga-in")).toBe(true);
     expect(isAuthQueryLocalePath("/aktivera/token-123")).toBe(true);
     expect(isAuthSurfacePath("/en/create-account")).toBe(true);
+    expect(isPublicQueryLocalePath("/foretag/acme-ab")).toBe(true);
+    expect(isPublicQueryLocalePath("/foretag/acme-ab/tjanster/fonsterputs")).toBe(true);
+    expect(isPublicQueryLocalePath("/boka/acme-ab")).toBe(true);
+    expect(isPublicQueryLocalePath("/offert/token-123")).toBe(true);
     expect(resolvePublicRequestLocale("/logga-in", "en")).toBe("en");
     expect(resolvePublicRequestLocale("/logga-in", "sv")).toBe("sv");
+    expect(resolvePublicRequestLocale("/foretag/acme-ab", "en")).toBe("en");
+    expect(resolvePublicRequestLocale("/foretag/acme-ab/tjanster/fonsterputs", "en")).toBe("en");
+    expect(resolvePublicRequestLocale("/boka/acme-ab", "en")).toBe("en");
+    expect(resolvePublicRequestLocale("/offert/token-123", "en")).toBe("en");
     expect(resolvePublicRequestLocale("/en/demo", null)).toBe("en");
     expect(resolvePublicRequestLocale("/demo", "en")).toBe("sv");
   });
