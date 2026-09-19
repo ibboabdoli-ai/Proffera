@@ -21,6 +21,8 @@ describe("public locale routing", () => {
     expect(getLocalizedRoute("/demo", "en")).toBe("/en/demo");
     expect(getLocalizedRoute("/demo", "sv")).toBe("/demo");
     expect(getAlternateLocalePath("/priser")).toBe("/en/pricing");
+    expect(getAlternateLocalePath("/hur-det-fungerar")).toBe("/en/how-it-works");
+    expect(getAlternateLocalePath("/en/categories")).toBe("/kategorier");
     expect(getAlternateLocalePath("/en/join-business/register")).toBe("/anslut-foretag/registrera");
     expect(getAlternateLocalePath("/en/")).toBe("/");
   });

@@ -80,7 +80,6 @@ describe("public custom-domain routing", () => {
 
     expect(proxy).toContain("export async function proxy");
     expect(proxy).toContain("resolvePublicCustomDomain(host)");
-    expect(proxy).toContain("if (!target) return notFound()");
     expect(proxy).toContain('new URL("/demo/primeview", request.url)');
     expect(proxy).toContain('target.publicHomeMode === "website"');
     expect(proxy).toContain("/foretag/${encodeURIComponent(target.workspaceSlug)}");

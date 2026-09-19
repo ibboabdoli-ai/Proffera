@@ -30,6 +30,24 @@ describe("bilingual quote request contract", () => {
     expect(en).toContain('/fa-offert');
   });
 
+
+  it("uses the approved marketplace visual system on both quote pages without changing the shared form flow", () => {
+    const sv = source("src/app/fa-offert/page.tsx");
+    const en = source("src/app/en/get-quote/page.tsx");
+    const form = source("src/features/quote-request/localized-quote-request-form.tsx");
+    const styles = source("src/features/quote-request/quote-request-marketplace.module.css");
+
+    expect(sv).toContain("quote-request-marketplace.module.css");
+    expect(en).toContain("quote-request-marketplace.module.css");
+    expect(sv).not.toContain("PageShell");
+    expect(en).not.toContain("PageShell");
+    expect(form).toContain("styles.progressBar");
+    expect(form).toContain("styles.nextButton");
+    expect(styles).toContain("background: #0a2e63");
+    expect(styles).toContain("border-color: #1469d8");
+    expect(styles).toContain("prefers-reduced-motion");
+  });
+
   it("keeps the directory CTA honest about generic matching", () => {
     const results = source("src/components/company-directory/public-directory-results.tsx");
     const copy = source("src/components/company-directory/public-directory-copy.ts");

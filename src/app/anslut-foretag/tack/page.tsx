@@ -1,39 +1,31 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { CheckCircle2 } from "lucide-react";
 
-export const metadata: Metadata = {
-  title: "Tack för ansökan",
-  description: "Bekräftelse efter företagsregistrering hos Proffera.",
-};
+import styles from "@/app/remaining-public-experience.module.css";
 
-type PageProps = {
-  searchParams: Promise<{ ref?: string }>;
-};
+export const metadata: Metadata = { title: "Tack för ansökan", description: "Bekräftelse efter företagsregistrering hos Proffera." };
+
+type PageProps = { searchParams: Promise<{ ref?: string }> };
 
 export default async function ThanksPage({ searchParams }: PageProps) {
   const params = await searchParams;
   const reference = params.ref ?? "";
+  const enHref = `/en/join-business/thank-you${reference ? `?ref=${encodeURIComponent(reference)}` : ""}`;
 
   return (
-    <main className="min-h-screen bg-[#f7f7f4] px-4 py-16 sm:px-6 lg:px-8">
-      <section className="mx-auto max-w-2xl rounded-3xl bg-white p-8 shadow-sm ring-1 ring-[#dfe5dd]">
-        <p className="text-sm font-semibold uppercase tracking-[0.2em] text-[#17452f]">Företag</p>
-        <h1 className="mt-4 text-4xl font-bold text-[#17201a]">Tack! Ansökan är mottagen.</h1>
-        <p className="mt-4 text-[#5b665f]">
-          Vi har tagit emot uppgifterna och återkommer om nästa steg för demo eller installation.
-        </p>
-        {reference ? (
-          <p className="mt-6 rounded-2xl bg-[#eef5ef] p-4 font-semibold text-[#17452f]">
-            Referensnummer: {reference}
-          </p>
-        ) : null}
-        <div className="mt-8 flex flex-wrap gap-3">
-          <Link className="rounded-full bg-[#17452f] px-5 py-3 text-sm font-semibold text-white" href="/">
-            Till startsidan
-          </Link>
-          <Link className="rounded-full border border-[#17452f] px-5 py-3 text-sm font-semibold text-[#17452f]" href="/anslut-foretag">
-            Skicka en till ansökan
-          </Link>
+    <main className={styles.page}>
+      <section className={[styles.shell, styles.narrow].join(" ")}>
+        <header className={styles.header}>
+          <div className={styles.headerRow}>
+            <div className={styles.headerCopy}><p className={styles.eyebrow}>Företag</p><h1 className={styles.title}>Tack! Ansökan är mottagen.</h1></div>
+            <Link href={enHref} className={styles.languageLink}>English</Link>
+          </div>
+        </header>
+        <div className={styles.content}>
+          <p className={styles.sectionCopy}>Vi har tagit emot uppgifterna och återkommer om nästa steg för demo eller installation.</p>
+          {reference ? <p className={[styles.notice, styles.success].join(" ")}><CheckCircle2 className="mr-2 inline h-5 w-5" aria-hidden="true" />Referensnummer: {reference}</p> : null}
+          <div className={styles.actions}><Link className={styles.primaryButton} href="/">Till startsidan</Link><Link className={styles.secondaryButton} href="/anslut-foretag">Ny förfrågan</Link></div>
         </div>
       </section>
     </main>
