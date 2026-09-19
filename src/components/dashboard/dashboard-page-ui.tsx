@@ -45,10 +45,10 @@ export type DashboardMetric = {
 
 export function DashboardMetricGrid({ items }: { items: readonly DashboardMetric[] }) {
   return (
-    <section className="overflow-hidden rounded-card border border-line bg-surface shadow-card" aria-label="Sidöversikt">
-      <div className="grid divide-y divide-line sm:grid-cols-2 sm:divide-x sm:divide-y-0 xl:grid-cols-4">
+    <section className="overflow-hidden rounded-card border border-line bg-surface shadow-card">
+      <div className="grid gap-px bg-line sm:grid-cols-2 xl:grid-cols-4">
         {items.map((item) => (
-          <article key={item.label} className="min-w-0 p-5">
+          <article key={item.label} className="min-w-0 bg-surface p-5">
             <div className="flex items-center justify-between gap-4">
               <p className="text-[11px] font-bold uppercase tracking-[0.1em] text-ink-muted">{item.label}</p>
               <span className={`flex h-8 w-8 items-center justify-center rounded-control ${item.tone}`}>
