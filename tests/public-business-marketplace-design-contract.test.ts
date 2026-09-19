@@ -192,6 +192,8 @@ describe("public business marketplace visual contract", () => {
     expect(html).toContain('href="#kontakt"');
     expect(html).toContain('href="/foretag/nordic-fix/tjanster/badrumsrenovering?lang=sv"');
     expect(html).toContain('href="/boka/nordic-fix?lang=sv"');
+    expect(html).toContain(`class="${companyStyles.headerBook}"`);
+    expect(html).toContain(`class="${companyStyles.directBook}"`);
     expect(html).toContain('href="tel:+4681234567"');
     expect(html).toContain('href="mailto:hej@nordic-fix.test"');
     expect(html).toContain('aria-label="contact-form-sv"');
