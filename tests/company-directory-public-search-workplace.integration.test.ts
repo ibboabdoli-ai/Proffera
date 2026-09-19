@@ -176,7 +176,9 @@ function postgresSql(client: Client) {
           published_at timestamptz,
           auto_public_eligible boolean not null default true,
           is_active boolean not null default true,
-          privacy_blocked boolean not null default false
+          privacy_blocked boolean not null default false,
+          last_synced_at timestamptz not null default now(),
+          updated_at timestamptz not null default now()
         );
         create table company_directory_services (
           slug text primary key,
@@ -214,10 +216,21 @@ function postgresSql(client: Client) {
           longitude numeric,
           confirmed_at timestamptz
         );
+        create table company_directory_official_facts (
+          profile_id uuid primary key,
+          source_payload_hash text not null default 'facts-hash',
+          last_synced_at timestamptz not null default now(),
+          deregistration_date date,
+          advertising_blocked boolean not null default false,
+          ongoing_procedures jsonb not null default '[]'::jsonb
+        );
         create table company_directory_scb_enrichment (
           profile_id uuid primary key,
           workplaces jsonb not null default '[]'::jsonb,
-          conflicts jsonb not null default '[]'::jsonb
+          conflicts jsonb not null default '[]'::jsonb,
+          source_payload_hash text not null default 'scb-hash',
+          last_synced_at timestamptz not null default now(),
+          provenance jsonb not null default '{}'::jsonb
         );
         create table workspace_services (
           id uuid primary key,
@@ -257,7 +270,7 @@ function postgresSql(client: Client) {
 
       await client!.query(`
         truncate table company_directory_service_areas, workspace_services,
-          company_directory_scb_enrichment, company_directory_profile_locations,
+          company_directory_scb_enrichment, company_directory_official_facts, company_directory_profile_locations,
           company_directory_business_locations, company_directory_profile_services,
           company_directory_services, company_directory_profiles, workspaces
       `);
@@ -286,6 +299,25 @@ function postgresSql(client: Client) {
           '[{"cfarNumber":"12345678","municipality":"Södertälje","visitingAddress":{"addressLine":"NYA VÄGEN 2","postalCode":"151 00","city":"SÖDERTÄLJE"}}]'::jsonb,
           '[]'::jsonb
         )
+      `, [profileId]);
+      await client!.query(
+        "insert into company_directory_official_facts (profile_id) values ($1)",
+        [profileId],
+      );
+      await client!.query(`
+        update company_directory_scb_enrichment scb
+        set provenance = jsonb_build_object(
+          'comparisonSnapshot',
+          jsonb_build_object(
+            'profileUpdatedToken', profile.updated_at::text,
+            'officialFactsLastSyncedToken', facts.last_synced_at::text
+          )
+        )
+        from company_directory_profiles profile,
+             company_directory_official_facts facts
+        where scb.profile_id = $1
+          and profile.id = scb.profile_id
+          and facts.profile_id = scb.profile_id
       `, [profileId]);
     });
 
