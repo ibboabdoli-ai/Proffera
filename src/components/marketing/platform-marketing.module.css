@@ -415,6 +415,7 @@
   display: flex;
   align-items: center;
   gap: .65rem;
+  margin: 0;
   color: var(--navy);
   font-weight: 900;
 }
