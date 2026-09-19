@@ -1,6 +1,9 @@
 import type { Breadcrumb, ErrorEvent } from "@sentry/nextjs";
 
+type TransactionEvent = Omit<ErrorEvent, "type"> & { type: "transaction" };
+
 const PRIVATE_PATH_SEGMENT = /^(?:[0-9a-f]{8}-[0-9a-f-]{27,}|[A-Za-z0-9._~-]{24,})$/iu;
+const HTTP_TRANSACTION_NAME = /^(CONNECT|DELETE|GET|HEAD|OPTIONS|PATCH|POST|PUT|TRACE)\s+(.+)$/u;
 
 function scrubPath(pathname: string) {
   return pathname
@@ -9,8 +12,13 @@ function scrubPath(pathname: string) {
     .join("/");
 }
 
-function withoutQueryOrFragment(value: unknown) {
+function withoutQueryOrFragment(value: unknown): unknown {
   if (typeof value !== "string" || !value) return value;
+
+  const transactionName = value.match(HTTP_TRANSACTION_NAME);
+  if (transactionName) {
+    return `${transactionName[1]} ${withoutQueryOrFragment(transactionName[2])}`;
+  }
 
   try {
     const url = new URL(value, "https://proffera.invalid");
@@ -23,7 +31,7 @@ function withoutQueryOrFragment(value: unknown) {
   }
 }
 
-export function scrubSentryEvent(event: ErrorEvent) {
+function scrubSentryEnvelope<T extends ErrorEvent | TransactionEvent>(event: T): T {
   event.user = undefined;
   event.message = undefined;
   event.logentry = undefined;
@@ -41,6 +49,14 @@ export function scrubSentryEvent(event: ErrorEvent) {
     };
   }
 
+  event.breadcrumbs = event.breadcrumbs?.map(scrubSentryBreadcrumb);
+
+  return event;
+}
+
+export function scrubSentryEvent(event: ErrorEvent) {
+  scrubSentryEnvelope(event);
+
   if (event.exception?.values) {
     event.exception.values = event.exception.values.map((exception) => ({
       ...exception,
@@ -55,7 +71,18 @@ export function scrubSentryEvent(event: ErrorEvent) {
     }));
   }
 
-  event.breadcrumbs = event.breadcrumbs?.map(scrubSentryBreadcrumb);
+  return event;
+}
+
+export function scrubSentryTransaction(event: TransactionEvent) {
+  scrubSentryEnvelope(event);
+  event.spans = event.spans?.map(scrubSentrySpan);
+
+  if (event.contexts?.trace?.data) {
+    event.contexts.trace.data = scrubSentrySpan({
+      data: event.contexts.trace.data,
+    }).data;
+  }
 
   return event;
 }

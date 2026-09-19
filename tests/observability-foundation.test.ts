@@ -12,6 +12,7 @@ import {
   scrubSentryBreadcrumb,
   scrubSentryEvent,
   scrubSentrySpan,
+  scrubSentryTransaction,
 } from "@/lib/observability/sentry-privacy";
 
 const requestId = "123e4567-e89b-42d3-a456-426614174000";
@@ -275,5 +276,56 @@ describe("observability foundation", () => {
 
     expect(span.data).toEqual({ "http.method": "GET" });
     expect(span.description).toBe("https://proffera.se/review/[redacted]");
+  });
+
+  it("scrubs signed bearer routes from Sentry transaction envelopes", () => {
+    const bearerToken = `${"signed-payload".repeat(3)}.${"signature".repeat(4)}`;
+    const privateUrl = `https://proffera.se/mina-bokningar/${bearerToken}?email=private@example.com#secret`;
+    const transaction = scrubSentryTransaction({
+      type: "transaction",
+      transaction: `GET /mina-bokningar/${bearerToken}?email=private@example.com#secret`,
+      request: {
+        url: privateUrl,
+        query_string: "email=private@example.com",
+        headers: { authorization: `Bearer ${bearerToken}` },
+      },
+      contexts: {
+        trace: {
+          trace_id: "1234567890abcdef1234567890abcdef",
+          span_id: "1234567890abcdef",
+          data: {
+            "http.method": "GET",
+            "http.url": privateUrl,
+            "url.query": "email=private@example.com",
+          },
+        },
+      },
+      spans: [{
+        data: {
+          "http.method": "GET",
+          "http.url": privateUrl,
+          "url.full": privateUrl,
+        },
+        description: `GET /mina-bokningar/${bearerToken}?email=private@example.com#secret`,
+        span_id: "abcdef1234567890",
+        start_timestamp: 1,
+        trace_id: "1234567890abcdef1234567890abcdef",
+      }],
+    });
+
+    expect(transaction.transaction).toBe("GET /mina-bokningar/[redacted]");
+    expect(transaction.request).toEqual({
+      url: "https://proffera.se/mina-bokningar/[redacted]",
+      query_string: undefined,
+      headers: undefined,
+      cookies: undefined,
+      data: undefined,
+    });
+    expect(transaction.contexts?.trace?.data).toEqual({ "http.method": "GET" });
+    expect(transaction.spans?.[0]?.data).toEqual({ "http.method": "GET" });
+    expect(transaction.spans?.[0]?.description).toBe("GET /mina-bokningar/[redacted]");
+    expect(JSON.stringify(transaction)).not.toContain(bearerToken);
+    expect(JSON.stringify(transaction)).not.toContain("private@example.com");
+    expect(JSON.stringify(transaction)).not.toContain("#secret");
   });
 });
