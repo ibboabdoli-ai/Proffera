@@ -36,13 +36,13 @@ export function createEnglishMetadata({
       siteName: "Proffera",
       locale: "en_US",
       type: "website",
-      images: ["/og"],
+      images: ["/og?lang=en"],
     },
     twitter: {
       card: "summary_large_image",
       title: `${title} | Proffera`,
       description,
-      images: ["/og"],
+      images: ["/og?lang=en"],
     },
   };
 }
