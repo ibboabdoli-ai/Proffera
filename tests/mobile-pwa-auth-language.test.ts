@@ -108,6 +108,8 @@ describe("mobile PWA and auth language contract", () => {
     expect(resolvePublicRequestLocale("/foretag/acme-ab/tjanster/fonsterputs", "en")).toBe("en");
     expect(resolvePublicRequestLocale("/boka/acme-ab", "en")).toBe("en");
     expect(resolvePublicRequestLocale("/offert/token-123", "en")).toBe("en");
+    expect(resolvePublicRequestLocale("/foretag/listad", "en")).toBe("sv");
+    expect(resolvePublicRequestLocale("/foretag/listad/acme-ab", "en")).toBe("sv");
     expect(resolvePublicRequestLocale("/en/demo", null)).toBe("en");
     expect(resolvePublicRequestLocale("/demo", "en")).toBe("sv");
   });
