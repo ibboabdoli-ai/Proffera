@@ -1,3 +1,6 @@
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
+
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const sentryMocks = vi.hoisted(() => ({
@@ -42,5 +45,25 @@ describe("Sentry request instrumentation", () => {
     expect(sentryMocks.captureRequestError).toHaveBeenCalledWith(error, request, context);
 
     errorSpy.mockRestore();
+  });
+});
+
+
+describe("Sentry browser environment labeling", () => {
+  it("maps the Vercel deployment environment into the browser SDK at build time", () => {
+    const nextConfig = readFileSync(resolve(process.cwd(), "next.config.ts"), "utf8");
+    const clientInstrumentation = readFileSync(
+      resolve(process.cwd(), "src/instrumentation-client.ts"),
+      "utf8",
+    );
+
+    expect(nextConfig).toContain(
+      'const sentryEnvironment = process.env.VERCEL_ENV ?? process.env.NODE_ENV ?? "development";',
+    );
+    expect(nextConfig).toContain("NEXT_PUBLIC_SENTRY_ENVIRONMENT: sentryEnvironment");
+    expect(clientInstrumentation).toContain(
+      "environment: process.env.NEXT_PUBLIC_SENTRY_ENVIRONMENT ?? process.env.NODE_ENV",
+    );
+    expect(clientInstrumentation).not.toContain("NEXT_PUBLIC_VERCEL_ENV");
   });
 });
