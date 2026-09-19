@@ -8,8 +8,10 @@
 --   profile/Official Facts evidence snapshot.
 --
 -- The trigger validates transitions into published only. Updates that preserve an
--- already-published row are not blocked; later SCB/profile changes are handled by the
--- published revalidation worker, which refreshes evidence and demotes unsafe rows.
+-- already-published row are not blocked; a transition into Published may only change
+-- publication metadata, so evidence bound to the pre-transition profile cannot authorize
+-- simultaneously-mutated identity/synchronization fields. Later SCB/profile changes are
+-- handled by the published revalidation worker, which refreshes evidence and demotes unsafe rows.
 
 begin;
 
@@ -65,6 +67,18 @@ begin
   if new.publication_status <> 'published'
      or (tg_op = 'UPDATE' and old.publication_status = 'published') then
     return new;
+  end if;
+
+  if tg_op = 'UPDATE'
+     and (
+       to_jsonb(new) - array['publication_status', 'published_at', 'updated_at']::text[]
+       is distinct from
+       to_jsonb(old) - array['publication_status', 'published_at', 'updated_at']::text[]
+     ) then
+    raise exception using
+      errcode = '23514',
+      constraint = 'company_directory_profiles_pilot_workplace_guard',
+      message = 'publishing a Directory profile cannot simultaneously change evidence-relevant profile fields';
   end if;
 
   if tg_op = 'UPDATE' then

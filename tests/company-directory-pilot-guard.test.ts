@@ -3,6 +3,8 @@ import { resolve } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
+import { DIRECTORY_PILOT_LOCATIONS } from "../src/lib/company-directory-policy";
+
 function source(path: string) {
   return readFileSync(resolve(process.cwd(), path), "utf8").toLocaleLowerCase("sv-SE");
 }
@@ -24,6 +26,8 @@ describe("company directory pilot database guard", () => {
     expect(sql).toContain("company_directory_enforce_pilot_workplace_publication");
     expect(sql).toContain("create trigger company_directory_profiles_pilot_workplace_guard");
     expect(sql).toContain("old.publication_status = 'published'");
+    expect(sql).toContain("to_jsonb(new) - array['publication_status', 'published_at', 'updated_at']::text[]");
+    expect(sql).toContain("to_jsonb(old) - array['publication_status', 'published_at', 'updated_at']::text[]");
     expect(sql).toContain("company_directory_scb_enrichment");
     expect(sql).toContain("company_directory_official_facts");
     expect(sql).toContain("scb.last_synced_at >= now() - interval '7 days'");
@@ -36,5 +40,17 @@ describe("company directory pilot database guard", () => {
     expect(sql).toContain("set publication_status = 'review'");
     expect(sql).toContain("'20260919_0068'");
     expect(sql).toContain("insert into proffera_schema_migrations");
+  });
+
+  it("keeps every database pilot-location list synchronized with the canonical policy", () => {
+    const sql = source("db/migrations/20260919_0068_company_directory_pilot_workplace_guard.sql");
+    const lists = [...sql.matchAll(/\bin\s*\(([^)]+)\)/gu)]
+      .map((match) => [...(match[1] ?? "").matchAll(/'([^']+)'/gu)].map((item) => item[1]))
+      .filter((items) => items.length > 0);
+
+    expect(lists).toHaveLength(4);
+    for (const locations of lists) {
+      expect(locations).toEqual([...DIRECTORY_PILOT_LOCATIONS]);
+    }
   });
 });
