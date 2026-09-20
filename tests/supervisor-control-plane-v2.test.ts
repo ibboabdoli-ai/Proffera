@@ -107,6 +107,8 @@ describe("Supervisor control-plane v2", () => {
     expect(preflight).toContain("Atomically reserve writable Worker slot");
     expect(preflight).toContain("Persist trusted Worker dispatch-start evidence");
     expect(preflight).toContain("issues: write");
+    expect(preflight).not.toContain("needs.preflight.outputs.");
+    expect(preflight).toContain("steps.evaluate.outputs.state_comment_id");
 
     const plannerHeader = planner.slice(0, planner.indexOf("jobs:"));
     expect(plannerHeader).not.toContain("concurrency:");

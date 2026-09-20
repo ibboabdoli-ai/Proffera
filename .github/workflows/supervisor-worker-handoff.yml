@@ -749,7 +749,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           REPOSITORY: ${{ github.repository }}
           PACKET_B64: ${{ steps.evaluate.outputs.packet_b64 }}
-          STATE_COMMENT_ID: ${{ needs.preflight.outputs.state_comment_id }}
+          STATE_COMMENT_ID: ${{ steps.evaluate.outputs.state_comment_id }}
           RUN_ID: ${{ github.run_id }}
         shell: bash
         run: |
