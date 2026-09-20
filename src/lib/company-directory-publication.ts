@@ -185,8 +185,7 @@ export async function publishCompanyDirectoryProfileIfSafe(
   const updated = await sql`
     update company_directory_profiles p
     set publication_status = 'published',
-        published_at = coalesce(p.published_at, now()),
-        updated_at = now()
+        published_at = coalesce(p.published_at, now())
     where p.id = ${profileId}::uuid
       and p.publication_status = 'ready'
       and p.is_active = true
