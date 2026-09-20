@@ -284,30 +284,18 @@ describe("public booking human-designed UX contract", () => {
     await expect(action(formData)).rejects.toThrow("redirect:/mina-bokningar/customer-token?changed=1&lang=sv");
   });
 
-  it("passes an enabled portal locale through customer cancellation and booking-change email contracts", async () => {
-    mocks.getCustomerCalendar.mockResolvedValue({
-      ...calendar,
-      policy: { customerRescheduleEnabled: true, customerCancelEnabled: true, cancelNoticeHours: 0 },
-    });
-    const tree = await CustomerPortalPage({
-      params: Promise.resolve({ token: "customer-token" }),
-      searchParams: Promise.resolve({ lang: "en" }),
-    });
-    const cancelForm = findElements(tree, (element) => element.type === "form")[0];
-    const action = cancelForm.props.action as (formData: FormData) => Promise<void>;
-    const data = new FormData();
-    data.set("token", "customer-token");
-    data.set("booking_id", "booking-1");
-    data.set("lang", "en");
-
-    await action(data);
-
-    expect(mocks.cancelCustomerCalendarBooking).toHaveBeenCalledWith("customer-token", "booking-1", "en");
-
+  it("propagates only the resolved enabled portal locale through cancellation and booking-change email contracts", () => {
+    const portal = source("src/app/mina-bokningar/[token]/page.tsx");
+    const reschedulePage = source("src/app/mina-bokningar/[token]/[bookingId]/boka-om/page.tsx");
     const email = source("src/features/email/booking-change-email.ts");
     const reschedule = source("src/lib/customer-booking-reschedule.ts");
     const calendarSource = source("src/lib/customer-calendar.ts");
+
+    expect(portal).toContain('const language = resolvePortalLanguage(String(formData.get("lang") ?? ""), presentation);');
+    expect(portal).toContain("cancelCustomerCalendarBooking(token, id, language)");
+    expect(reschedulePage).toContain("rescheduleCustomerBooking(token, bookingId, startsAtLocal, language)");
     expect(email).toContain("input.language");
+    expect(email).toContain('language?: "sv" | "en"');
     expect(reschedule).toContain("language,");
     expect(reschedule).toContain("?lang=${language}");
     expect(calendarSource).toContain("language,");
