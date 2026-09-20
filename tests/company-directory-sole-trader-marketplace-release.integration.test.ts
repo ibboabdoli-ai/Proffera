@@ -599,6 +599,23 @@ function postgresSql(client: Client) {
           now() - interval '1 day'
         )
       `, [CLAIMED_PROFILE_ID, WORKSPACE_ID]);
+      await client!.query(`
+        insert into company_directory_official_facts (profile_id)
+        values ($1::uuid)
+      `, [CLAIMED_PROFILE_ID]);
+      await client!.query(`
+        insert into company_directory_scb_enrichment (profile_id, workplaces, conflicts, provenance)
+        select profile.id,
+          '[{"cfarNumber":"12345678","municipality":"Södertälje","visitingAddress":{"addressLine":"Industrivägen 2","postalCode":"151 00","city":"Södertälje"}}]'::jsonb,
+          '[]'::jsonb,
+          jsonb_build_object('comparisonSnapshot', jsonb_build_object(
+            'profileUpdatedToken', profile.updated_at::text,
+            'officialFactsLastSyncedToken', facts.last_synced_at::text
+          ))
+        from company_directory_profiles profile
+        join company_directory_official_facts facts on facts.profile_id = profile.id
+        where profile.id = $1::uuid
+      `, [CLAIMED_PROFILE_ID]);
 
       await expect(activateProviderMarketplaceService({
         serviceId: SERVICE_ID,
