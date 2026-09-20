@@ -54,7 +54,20 @@ export async function getCustomerPortalPresentation(token: string): Promise<Cust
   };
 }
 
+export function resolveCustomerPortalLanguage(
+  requested: string | undefined,
+  presentation: CustomerPortalPresentation | null,
+): CustomerPortalLanguage {
+  if (requested === "en" && presentation?.englishEnabled) return "en";
+  if (requested === "sv" && presentation?.swedishEnabled) return "sv";
+  if (presentation?.defaultLanguage === "en" && presentation.englishEnabled) return "en";
+  if (presentation?.defaultLanguage === "sv" && presentation.swedishEnabled) return "sv";
+  if (presentation?.swedishEnabled) return "sv";
+  if (presentation?.englishEnabled) return "en";
+  return "sv";
+}
+
 export async function getCustomerPortalLanguage(token: string): Promise<CustomerPortalLanguage> {
   const presentation = await getCustomerPortalPresentation(token);
-  return presentation?.defaultLanguage ?? "sv";
+  return resolveCustomerPortalLanguage(undefined, presentation);
 }
