@@ -251,7 +251,7 @@ jobs:
                 current_body="$(jq -r '.[0].body // ""' <<< "$task_matches")"
                 binding_error="$(mktemp)"
                 set +e
-                binding="$(PROFFERA_PACKET_JSON="$packet" PROFFERA_STATE_BODY="$current_body" PROFFERA_EXPECTED_PR="$PR_NUMBER" PROFFERA_EXPECTED_RUN="$reserved_run" node "$helper" validate-state-env 2>"$binding_error")"
+                binding="$(node "$helper" validate-state-args "$(printf '%s' "$packet" | base64 -w0)" "$(printf '%s' "$current_body" | base64 -w0)" "$PR_NUMBER" "$reserved_run" 2>"$binding_error")"
                 binding_status=$?
                 set -e
                 if [ "$binding_status" -ne 0 ] || [ "$(jq -r '.ok == true' <<< "${binding:-{}}" 2>/dev/null || echo false)" != "true" ]; then
@@ -296,7 +296,7 @@ jobs:
                 fi
                 confirm_task_body="$(jq -r '.[0].body // ""' <<< "$confirm_task_matches")"
                 set +e
-                confirm_binding="$(PROFFERA_PACKET_JSON="$packet" PROFFERA_STATE_BODY="$confirm_task_body" PROFFERA_EXPECTED_PR="$PR_NUMBER" PROFFERA_EXPECTED_RUN="$reserved_run" node "$helper" validate-state-env 2>/dev/null)"
+                confirm_binding="$(node "$helper" validate-state-args "$(printf '%s' "$packet" | base64 -w0)" "$(printf '%s' "$confirm_task_body" | base64 -w0)" "$PR_NUMBER" "$reserved_run" 2>/dev/null)"
                 confirm_binding_status=$?
                 set -e
                 if [ "$confirm_binding_status" -ne 0 ] || [ "$(jq -r '.ok == true' <<< "${confirm_binding:-{}}" 2>/dev/null || echo false)" != "true" ]; then
@@ -595,7 +595,7 @@ jobs:
             current_body="$(jq -r '.[0].body // ""' <<< "$task_matches")"
             binding_error="$(mktemp)"
             set +e
-            binding="$(PROFFERA_PACKET_JSON="$packet" PROFFERA_STATE_BODY="$current_body" PROFFERA_EXPECTED_PR="$pr_number" PROFFERA_EXPECTED_RUN="$reserved_run" node "$helper" validate-state-env 2>"$binding_error")"
+            binding="$(node "$helper" validate-state-args "$(printf '%s' "$packet" | base64 -w0)" "$(printf '%s' "$current_body" | base64 -w0)" "$pr_number" "$reserved_run" 2>"$binding_error")"
             binding_status=$?
             set -e
             if [ "$binding_status" -ne 0 ] || [ "$(jq -r '.ok == true' <<< "${binding:-{}}" 2>/dev/null || echo false)" != "true" ]; then
@@ -640,7 +640,7 @@ jobs:
             fi
             confirm_task_body="$(jq -r '.[0].body // ""' <<< "$confirm_task_matches")"
             set +e
-            confirm_binding="$(PROFFERA_PACKET_JSON="$packet" PROFFERA_STATE_BODY="$confirm_task_body" PROFFERA_EXPECTED_PR="$pr_number" PROFFERA_EXPECTED_RUN="$reserved_run" node "$helper" validate-state-env 2>/dev/null)"
+            confirm_binding="$(node "$helper" validate-state-args "$(printf '%s' "$packet" | base64 -w0)" "$(printf '%s' "$confirm_task_body" | base64 -w0)" "$pr_number" "$reserved_run" 2>/dev/null)"
             confirm_binding_status=$?
             set -e
             if [ "$confirm_binding_status" -ne 0 ] || [ "$(jq -r '.ok == true' <<< "${confirm_binding:-{}}" 2>/dev/null || echo false)" != "true" ]; then

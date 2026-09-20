@@ -1684,6 +1684,7 @@ function stateBody(state: string, headSha = sha) {
     "- Run ID: `9001`",
     "- PR: #900",
     `- Head: \`${headSha}\``,
+    "- Reason: Behavior-test state.",
     "- Production mutation: `false`",
     "- Merge allowed: `false`",
     "- Auto-merge allowed: `false`",

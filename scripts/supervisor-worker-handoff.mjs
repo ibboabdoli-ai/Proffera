@@ -2487,6 +2487,31 @@ async function main() {
     process.stdout.write(`${JSON.stringify(validateTaskStateBinding(validationInput))}\n`);
     return;
   }
+  if (mode === "validate-state-args") {
+    const decode = (value, field) => {
+      const text = String(value ?? "");
+      if (!text || text.length % 4 !== 0) throw new Error(`${field} is missing or malformed`);
+      const bytes = Buffer.from(text, "base64");
+      if (bytes.toString("base64") !== text) throw new Error(`${field} is not canonical base64`);
+      return bytes.toString("utf8");
+    };
+    let packet;
+    try {
+      packet = JSON.parse(decode(process.argv[3], "task packet"));
+    } catch (error) {
+      throw new Error(error instanceof Error ? error.message : "task packet argument is malformed");
+    }
+    const body = decode(process.argv[4], "task state");
+    const prText = String(process.argv[5] ?? "");
+    const runId = String(process.argv[6] ?? "");
+    const validationInput = { packet, body, run_id: runId };
+    if (prText) {
+      if (!/^[1-9][0-9]*$/u.test(prText)) throw new Error("task state expected PR argument binding is malformed");
+      validationInput.pr_number = Number(prText);
+    }
+    process.stdout.write(`${JSON.stringify(validateTaskStateBinding(validationInput))}\n`);
+    return;
+  }
   if (mode === "state-body") {
     process.stdout.write(taskStateBody(parsed));
     return;
