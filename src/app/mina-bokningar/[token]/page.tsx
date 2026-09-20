@@ -51,7 +51,7 @@ function resolvePortalLanguage(
 
 function portalHref(token: string, locale: CustomerPortalLanguage, query?: { changed?: string; cancelled?: string; error?: string }) {
   const params = new URLSearchParams();
-  if (locale === "en") params.set("lang", "en");
+  params.set("lang", locale);
   if (query?.changed) params.set("changed", query.changed);
   if (query?.cancelled) params.set("cancelled", query.cancelled);
   if (query?.error) params.set("error", query.error);
@@ -94,7 +94,7 @@ function BookingCard({
     : ["cancelled", "no_show"].includes(booking.status) || isPast
       ? styles.statusMuted
       : styles.statusNeutral;
-  const rescheduleHref = `/mina-bokningar/${encodeURIComponent(token)}/${booking.id}/boka-om${isEnglish ? "?lang=en" : ""}`;
+  const rescheduleHref = `/mina-bokningar/${encodeURIComponent(token)}/${booking.id}/boka-om?lang=${language}`;
 
   return (
     <article className={styles.bookingCard}>
@@ -145,7 +145,7 @@ export default async function Page({ params, searchParams }: PageProps) {
 
   if (isPrimeView && !isPrimeViewHost(requestHeaders.get("host"))) {
     const url = new URL(`https://www.primeviewwindowcare.co.uk/mina-bokningar/${encodeURIComponent(token)}`);
-    if (isEnglish) url.searchParams.set("lang", "en");
+    url.searchParams.set("lang", language);
     if (first(query?.changed)) url.searchParams.set("changed", first(query?.changed)!);
     if (first(query?.cancelled)) url.searchParams.set("cancelled", first(query?.cancelled)!);
     if (first(query?.error)) url.searchParams.set("error", first(query?.error)!);

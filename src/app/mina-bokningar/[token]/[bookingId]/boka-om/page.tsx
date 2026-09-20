@@ -61,7 +61,7 @@ function formatDay(date: string, timeZone: string, isEnglish: boolean, short: bo
 
 function rescheduleHref(token: string, bookingId: string, language: CustomerPortalLanguage, date?: string) {
   const query = new URLSearchParams();
-  if (language === "en") query.set("lang", "en");
+  query.set("lang", language);
   if (date) query.set("date", date);
   const suffix = query.toString();
   return `/mina-bokningar/${encodeURIComponent(token)}/${bookingId}/boka-om${suffix ? `?${suffix}` : ""}`;
@@ -80,7 +80,7 @@ export default async function ReschedulePage({ params, searchParams }: PageProps
 
   if (isPrimeView && !isPrimeViewHost(requestHeaders.get("host"))) {
     const url = new URL(`https://www.primeviewwindowcare.co.uk/mina-bokningar/${encodeURIComponent(token)}/${encodeURIComponent(bookingId)}/boka-om`);
-    if (isEnglish) url.searchParams.set("lang", "en");
+    url.searchParams.set("lang", language);
     if (first(query?.date)) url.searchParams.set("date", first(query?.date)!);
     if (first(query?.error)) url.searchParams.set("error", first(query?.error)!);
     redirect(url.toString());
@@ -107,7 +107,7 @@ export default async function ReschedulePage({ params, searchParams }: PageProps
     "use server";
     const startsAtLocal = String(formData.get("startsAtLocal") ?? "");
     const result = await rescheduleCustomerBooking(token, bookingId, startsAtLocal);
-    const langSuffix = language === "en" ? "&lang=en" : "";
+    const langSuffix = `&lang=${language}`;
     if (!result.ok) {
       const date = startsAtLocal.slice(0, 10);
       redirect(`/mina-bokningar/${encodeURIComponent(token)}/${bookingId}/boka-om?date=${encodeURIComponent(date)}&error=${result.error}${langSuffix}`);
@@ -128,7 +128,7 @@ export default async function ReschedulePage({ params, searchParams }: PageProps
     <main className={styles.page} lang={language} style={style}>
       <div className={styles.shell}>
         <div className={styles.topbar}>
-          <Link href={`/mina-bokningar/${encodeURIComponent(token)}${isEnglish ? "?lang=en" : ""}`} className={styles.backLink}>
+          <Link href={`/mina-bokningar/${encodeURIComponent(token)}?lang=${language}`} className={styles.backLink}>
             ← {isEnglish ? "Back to my bookings" : "Till mina bokningar"}
           </Link>
           {showLanguageSwitch ? (

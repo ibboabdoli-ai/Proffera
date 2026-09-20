@@ -468,6 +468,11 @@
   transition: border-color 150ms ease, background 150ms ease, color 150ms ease;
 }
 
+.slotInput:focus-visible + .slotOption {
+  outline: 2px solid #0a2e63;
+  outline-offset: 2px;
+}
+
 .slotLabel:hover .slotOption {
   border-color: #aac8ea;
   background: #eef5ff;
