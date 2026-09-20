@@ -28,12 +28,17 @@ function workflowStepScript(name: string) {
   const stepStart = workflow.indexOf(`      - name: ${name}`);
   expect(stepStart).toBeGreaterThanOrEqual(0);
   const runStart = workflow.indexOf("        run: |\n", stepStart);
-  const nextStep = workflow.indexOf("\n      - name:", runStart + 1);
+  const scriptStart = runStart + "        run: |\n".length;
+  const nextStep = workflow.indexOf("\n      - name:", scriptStart);
+  const nextJobOffset = workflow.slice(scriptStart).search(/\n  [A-Za-z0-9_-]+:\n/u);
+  const nextJob = nextJobOffset >= 0 ? scriptStart + nextJobOffset : -1;
+  const boundaries = [nextStep, nextJob].filter((index) => index > scriptStart);
+  const scriptEnd = boundaries.length > 0 ? Math.min(...boundaries) : workflow.length;
   expect(runStart).toBeGreaterThan(stepStart);
-  expect(nextStep).toBeGreaterThan(runStart);
+  expect(scriptEnd).toBeGreaterThan(scriptStart);
 
   return workflow
-    .slice(runStart + "        run: |\n".length, nextStep)
+    .slice(scriptStart, scriptEnd)
     .split("\n")
     .map((line) => line.replace(/^ {10}/, ""))
     .join("\n");
