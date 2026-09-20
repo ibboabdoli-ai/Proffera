@@ -222,7 +222,7 @@ describe("SCB company directory enrichment guards", () => {
     expect(mocks.fetchScbCompanyRegistryEnrichment).toHaveBeenCalledWith("5563115707", undefined);
     expect(sql).toHaveBeenCalledTimes(2);
 
-    const provenanceValue = sql.mock.calls[1]?.[10];
+    const provenanceValue = sql.mock.calls[1]?.[11];
     expect(JSON.parse(String(provenanceValue))).toMatchObject({
       comparisonSnapshot: {
         profileUpdatedToken,

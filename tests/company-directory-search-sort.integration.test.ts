@@ -254,6 +254,25 @@ function postgresSql(client: Client) {
             city: "Stockholm",
           },
         }])]);
+        await client!.query(`
+          insert into company_directory_official_facts (profile_id)
+          values ($1)
+        `, [id]);
+        await client!.query(`
+          update company_directory_scb_enrichment scb
+          set provenance = jsonb_build_object(
+            'comparisonSnapshot',
+            jsonb_build_object(
+              'profileUpdatedToken', profile.updated_at::text,
+              'officialFactsLastSyncedToken', facts.last_synced_at::text
+            )
+          )
+          from company_directory_profiles profile,
+               company_directory_official_facts facts
+          where scb.profile_id = $1
+            and profile.id = scb.profile_id
+            and facts.profile_id = scb.profile_id
+        `, [id]);
       }
     });
 

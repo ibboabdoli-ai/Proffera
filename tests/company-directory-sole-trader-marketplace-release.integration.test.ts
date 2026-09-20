@@ -135,9 +135,26 @@ function postgresSql(client: Client) {
           auto_public_eligible boolean not null default true,
           official_source text not null default '',
           published_at timestamptz,
+          last_synced_at timestamptz not null default now(),
           quality_reasons jsonb not null default '[]'::jsonb,
           created_at timestamptz not null default now(),
           updated_at timestamptz not null default now()
+        );
+        create table company_directory_official_facts (
+          profile_id uuid primary key,
+          source_payload_hash text not null default 'facts-hash',
+          last_synced_at timestamptz not null default now(),
+          deregistration_date date,
+          advertising_blocked boolean not null default false,
+          ongoing_procedures jsonb not null default '[]'::jsonb
+        );
+        create table company_directory_scb_enrichment (
+          profile_id uuid primary key,
+          workplaces jsonb not null default '[]'::jsonb,
+          conflicts jsonb not null default '[]'::jsonb,
+          source_payload_hash text not null default 'scb-hash',
+          last_synced_at timestamptz not null default now(),
+          provenance jsonb not null default '{}'::jsonb
         );
         create table company_directory_claims (
           id uuid primary key,
@@ -239,6 +256,8 @@ function postgresSql(client: Client) {
 
       await client!.query(`
         truncate table company_directory_service_areas,
+          company_directory_scb_enrichment,
+          company_directory_official_facts,
           company_directory_profile_locations,
           company_directory_profile_services,
           company_directory_claims,

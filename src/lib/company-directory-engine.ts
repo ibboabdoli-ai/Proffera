@@ -14,6 +14,7 @@ import {
   type NormalizedDirectoryCandidate,
 } from "@/lib/company-directory-policy";
 import { mapPrimarySniToDirectorySearchService } from "@/lib/company-directory-service-taxonomy";
+import { invalidateMarketplaceHomeCompaniesCache } from "@/lib/public-read-cache";
 import {
   fetchOfficialCompanyDirectoryBatch,
   verifyOfficialCompanyCandidate,
@@ -316,6 +317,14 @@ export async function upsertCompanyDirectoryCandidate(candidate: NormalizedDirec
     profileId,
     persistedPublicSlug: rows[0]?.public_slug,
   });
+  try {
+    invalidateMarketplaceHomeCompaniesCache();
+  } catch (error) {
+    console.error("Failed to invalidate Marketplace cache after committed candidate upsert", {
+      profileId,
+      error,
+    });
+  }
   return {
     profileId,
     publicationStatus: String(rows[0]?.publication_status ?? desiredStatus),

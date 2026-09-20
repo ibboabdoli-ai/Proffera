@@ -395,9 +395,14 @@ describe("public Directory safety mutation invalidation", () => {
       slug: "new-computed-slug",
       profileId: PROFILE_ID,
     });
+    expect(mocks.invalidateMarketplace).toHaveBeenCalledTimes(1);
   });
 
   it("fails closed with global invalidation when persisted public_slug is unavailable", async () => {
+    mocks.invalidateMarketplace.mockImplementationOnce(() => {
+      throw new Error("Marketplace cache unavailable");
+    });
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
     const sql = vi.fn(async (strings: TemplateStringsArray) => {
       const query = strings.join(" ");
       if (query.includes("insert into company_directory_profiles")) {
@@ -435,6 +440,7 @@ describe("public Directory safety mutation invalidation", () => {
 
     expect(mocks.invalidateAll).toHaveBeenCalledTimes(1);
     expect(mocks.invalidateProjection).not.toHaveBeenCalled();
+    expect(mocks.invalidateMarketplace).toHaveBeenCalledTimes(1);
   });
 
   it("keeps publication success after post-commit cache invalidation fails", async () => {

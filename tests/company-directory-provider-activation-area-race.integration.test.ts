@@ -136,7 +136,24 @@ function postgresSql(client: Client) {
           official_source text not null default '',
           published_at timestamptz,
           quality_reasons jsonb not null default '[]'::jsonb,
+          last_synced_at timestamptz not null default now(),
           updated_at timestamptz not null default now()
+        );
+        create table company_directory_official_facts (
+          profile_id uuid primary key,
+          source_payload_hash text not null default 'facts-hash',
+          last_synced_at timestamptz not null default now(),
+          deregistration_date date,
+          advertising_blocked boolean not null default false,
+          ongoing_procedures jsonb not null default '[]'::jsonb
+        );
+        create table company_directory_scb_enrichment (
+          profile_id uuid primary key,
+          workplaces jsonb not null default '[]'::jsonb,
+          conflicts jsonb not null default '[]'::jsonb,
+          source_payload_hash text not null default 'scb-hash',
+          last_synced_at timestamptz not null default now(),
+          provenance jsonb not null default '{}'::jsonb
         );
         create table company_directory_claims (
           id uuid primary key default gen_random_uuid(),
@@ -228,6 +245,8 @@ function postgresSql(client: Client) {
 
       await client!.query(`
         truncate table company_directory_service_areas,
+          company_directory_scb_enrichment,
+          company_directory_official_facts,
           company_directory_profile_locations,
           company_directory_profile_services,
           company_directory_claims,
@@ -251,6 +270,23 @@ function postgresSql(client: Client) {
           'claimed', true, false, true, 'bolagsverket_vardefulla_datamangder:company', now(), '[]'::jsonb
         )
       `, [PROFILE_ID, WORKSPACE_ID]);
+      await client!.query(`
+        insert into company_directory_official_facts (profile_id)
+        values ($1::uuid)
+      `, [PROFILE_ID]);
+      await client!.query(`
+        insert into company_directory_scb_enrichment (profile_id, workplaces, conflicts, provenance)
+        select profile.id,
+          '[{"cfarNumber":"12345678","municipality":"Södertälje","visitingAddress":{"addressLine":"Industrivägen 2","postalCode":"151 00","city":"Södertälje"}}]'::jsonb,
+          '[]'::jsonb,
+          jsonb_build_object('comparisonSnapshot', jsonb_build_object(
+            'profileUpdatedToken', profile.updated_at::text,
+            'officialFactsLastSyncedToken', facts.last_synced_at::text
+          ))
+        from company_directory_profiles profile
+        join company_directory_official_facts facts on facts.profile_id = profile.id
+        where profile.id = $1::uuid
+      `, [PROFILE_ID]);
       await client!.query(`
         insert into workspace_services (
           id, workspace_id, name, is_active, public_status, conversion_mode

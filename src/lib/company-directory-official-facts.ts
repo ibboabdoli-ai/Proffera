@@ -16,6 +16,7 @@ import {
   resolveBolagsverketOrganizationRecord,
 } from "@/lib/company-directory-official-facts-errors";
 import { getSql } from "@/lib/db/server";
+import { invalidateCompanyDirectoryAuthorityCachesBestEffort } from "@/lib/company-directory-authority-cache";
 
 type AnyRecord = Record<string, unknown>;
 
@@ -422,6 +423,12 @@ async function saveOfficialFacts(profileId: string, facts: OfficialFacts) {
       last_synced_at = now(),
       updated_at = now()
   `;
+  // A committed replacement advances the Official Facts token used by the SCB
+  // comparison snapshot, so cached authority is no longer provable.
+  await invalidateCompanyDirectoryAuthorityCachesBestEffort(
+    profileId,
+    "committed Official Facts authority change",
+  );
 }
 
 function boundedLimit(value: unknown) {

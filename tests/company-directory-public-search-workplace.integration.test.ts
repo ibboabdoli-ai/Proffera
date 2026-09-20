@@ -69,14 +69,8 @@ function postgresSql(client: Client) {
 
     async function expectUnclaimedPhysicalLocationUnavailable() {
       const unfiltered = await searchPublishedCompanyDirectory();
-      expect(unfiltered.totalCount).toBe(1);
-      expect(unfiltered.results).toHaveLength(1);
-      expect(unfiltered.results[0]).toMatchObject({
-        slug: "canonical-workplace-ab",
-        postalCode: "",
-        city: "",
-        municipality: "",
-      });
+      expect(unfiltered.totalCount).toBe(0);
+      expect(unfiltered.results).toEqual([]);
 
       const stockholm = await searchPublishedCompanyDirectory({ location: "Stockholm" });
       expect(stockholm.totalCount).toBe(0);
