@@ -176,6 +176,27 @@ function postgresSql(client: Client) {
         create unique index company_directory_service_areas_service_unique_idx
           on company_directory_service_areas (profile_id, service_slug)
           where service_slug is not null;
+        create table company_directory_profile_locations (
+          id uuid primary key default gen_random_uuid(),
+          profile_id uuid not null,
+          owner_workspace_id uuid,
+          purpose text not null,
+          visibility text not null default 'private',
+          is_visitable boolean not null default false,
+          is_primary boolean not null default false,
+          is_active boolean not null default true,
+          source_type text not null,
+          address_line1 text not null default '',
+          postal_code text not null default '',
+          city text not null default '',
+          municipality text not null default '',
+          latitude numeric(9,6),
+          longitude numeric(9,6),
+          geocode_source text not null default '',
+          geocode_precision text not null default 'unknown',
+          confirmed_at timestamptz,
+          updated_at timestamptz not null default now()
+        );
       `);
     }, 120_000);
 
@@ -207,6 +228,7 @@ function postgresSql(client: Client) {
 
       await client!.query(`
         truncate table company_directory_service_areas,
+          company_directory_profile_locations,
           company_directory_profile_services,
           company_directory_claims,
           workspace_services,
