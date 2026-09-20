@@ -13,10 +13,12 @@ import {
   getDirectoryServiceDefinition,
   resolveDirectoryServiceQuery,
 } from "@/lib/company-directory-service-taxonomy";
+import { DIRECTORY_PILOT_LOCATIONS } from "@/lib/company-directory-policy";
 
 const SOLE_TRADER_OWNER_SOURCE = "bolagsverket_vardefulla_datamangder:sole_trader_owner";
 const SOLE_TRADER_SURROGATE_IDENTITY_PATTERN = "^sole-trader-[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$";
 const SOLE_TRADER_SURROGATE_IDENTITY = new RegExp(SOLE_TRADER_SURROGATE_IDENTITY_PATTERN);
+const PILOT_LOCATION_CSV = DIRECTORY_PILOT_LOCATIONS.join(",");
 
 export type ProviderActivationDirectoryService = {
   slug: string;
@@ -32,6 +34,7 @@ export type ProviderActivationState = {
     companyName: string;
     organizationNumber: string;
     city: string;
+    requiresPrivacyRelease: boolean;
   };
   pendingClaim: null | {
     status: string;
@@ -257,6 +260,7 @@ export async function getProviderActivationState(): Promise<ProviderActivationSt
         companyName: String(profile.display_name ?? ""),
         organizationNumber: ownerVisibleDirectoryOrganizationNumber(profile.organization_kind, profile.organization_number),
         city: String(profile.city ?? ""),
+        requiresPrivacyRelease: soleTraderCanRelease,
       }
     : null;
 
@@ -426,6 +430,23 @@ export async function activateProviderMarketplaceService(input: {
              and owner_claim.status = 'claimed'
              and owner_claim.verification_method = 'manual_review'
          )
+         and exists (
+           select 1
+           from company_directory_profile_locations owner_base
+           where owner_base.profile_id = profile.id
+             and owner_base.owner_workspace_id = ${access.workspaceId}::uuid
+             and owner_base.source_type = 'owner'
+             and owner_base.purpose = 'service_base'
+             and owner_base.visibility = 'private'
+             and owner_base.is_primary = true
+             and owner_base.is_active = true
+             and owner_base.confirmed_at is not null
+             and owner_base.geocode_source = 'lantmateriet_belagenhetsadress_v4_2'
+             and owner_base.geocode_precision = 'address'
+             and owner_base.latitude is not null and owner_base.longitude is not null
+             and not (owner_base.latitude = 0 and owner_base.longitude = 0)
+             and lower(btrim(owner_base.city)) = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
+         )
        )
      )
     join company_directory_services directory_service
@@ -523,6 +544,24 @@ export async function activateProviderMarketplaceService(input: {
                 and owner_claim.requested_workspace_id = ${access.workspaceId}::uuid
                 and owner_claim.status = 'claimed'
                 and owner_claim.verification_method = 'manual_review'
+            )
+            and exists (
+              select 1
+              from company_directory_profile_locations owner_base
+              where owner_base.profile_id = profile.id
+                and owner_base.owner_workspace_id = ${access.workspaceId}::uuid
+                and owner_base.source_type = 'owner'
+                and owner_base.purpose = 'service_base'
+                and owner_base.visibility = 'private'
+                and owner_base.is_primary = true
+                and owner_base.is_active = true
+                and owner_base.confirmed_at is not null
+                and owner_base.geocode_source = 'lantmateriet_belagenhetsadress_v4_2'
+                and owner_base.geocode_precision = 'address'
+                and owner_base.latitude is not null and owner_base.longitude is not null
+                and not (owner_base.latitude = 0 and owner_base.longitude = 0)
+                and lower(btrim(owner_base.city)) = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
+              for update
             )
           )
         )
