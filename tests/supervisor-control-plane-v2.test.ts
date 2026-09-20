@@ -46,11 +46,17 @@ describe("Supervisor control-plane v2", () => {
     expect(planner).toContain('cron: "17 * * * *"');
     expect(planner).toContain("planner_packet_b64");
     expect(planner).toContain("supervisor-worker-handoff.yml");
+    expect(planner).toContain("active_state_ids");
+    expect(planner).toContain("active_pr_ids");
+    expect(planner).toContain("sort -u");
     expect(planner).not.toContain("PROFFERA_AUTOFIX_PUSH_TOKEN");
     expect(planner).not.toContain('POST "repos/${REPOSITORY}/issues/548/comments"');
 
     expect(handoff).toContain("trusted_internal_dispatch");
     expect(handoff).toContain("supervisor-autopilot-enabled");
+    expect(handoff).toContain("validate-state");
+    expect(handoff).toContain("Refused read-only: existing canonical task-state binding is invalid");
+    expect(handoff).toContain("Refused read-only: task $task_id has duplicate canonical task-state records");
   });
 
   it("qualifies current-head repair before any Codex repair call", () => {

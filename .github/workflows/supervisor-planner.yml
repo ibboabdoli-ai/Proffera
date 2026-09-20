@@ -82,26 +82,51 @@ jobs:
       - name: Skip model call when writable capacity is already full
         if: steps.gate.outputs.enabled == 'yes'
         id: cheap
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
         shell: bash
         run: |
           set -euo pipefail
-          active_pr_tasks="$(
+
+          active_pr_ids="$(
             jq -r '
-              [
-                .open_prs[]
-                | select(.head_repo == "ibboabdoli-ai/Proffera")
-                | select(.author == "ibboabdoli-ai")
-                | select(.head_ref | startswith("work/proffera-"))
-                | select(.body | contains("<!-- proffera-worker-task-packet:v1 -->"))
-                | (.body | capture("(?mi)^Task ID:[[:space:]]*(?<id>[A-Z][A-Z0-9-]{1,63})[[:space:]]*$").id? // empty)
-              ]
-              | unique
-              | length
+              .open_prs[]
+              | select(.head_repo == "ibboabdoli-ai/Proffera")
+              | select(.author == "ibboabdoli-ai")
+              | select(.head_ref | startswith("work/proffera-"))
+              | select(.body | contains("<!-- proffera-worker-task-packet:v1 -->"))
+              | (.body | try capture("(?mi)^Task ID:[[:space:]]*(?<id>[A-Z][A-Z0-9-]{1,63})[[:space:]]*$").id catch "")
+              | select(length > 0)
             ' supervisor-context.json
           )"
-          if [ "$active_pr_tasks" -ge 2 ]; then
+
+          active_state_ids="$(
+            gh api --paginate "repos/${REPOSITORY}/issues/548/comments?per_page=100" --jq '.[]' \
+              | jq -s -r '
+                  .[]
+                  | select(.user.login == "github-actions[bot]")
+                  | (.body // "") as $body
+                  | select($body | contains("<!-- proffera-worker-task-state:"))
+                  | ($body | try capture("<!-- proffera-worker-task-state:(?<id>[A-Z][A-Z0-9-]{1,63}) -->").id catch "") as $id
+                  | ($body | try capture("^- State:[[:space:]]*`(?<state>[A-Z][A-Z0-9_]{2,39})`[[:space:]]*$"; "m").state catch "") as $state
+                  | select($id != "")
+                  | select(["TASK_CREATED","TASK_DISPATCHED","WORKER_PR_OPENED","CHECKS_PENDING","REVIEW_PENDING","READY_FOR_SUPERVISOR"] | index($state))
+                  | $id
+                '
+          )"
+
+          active_count="$(
+            printf '%s\n%s\n' "$active_pr_ids" "$active_state_ids" \
+              | sed '/^$/d' \
+              | sort -u \
+              | wc -l \
+              | tr -d ' '
+          )"
+
+          if [ "$active_count" -ge 2 ]; then
             echo "proceed=no" >> "$GITHUB_OUTPUT"
-            echo "Planner skipped before model call: writable PR capacity is already full."
+            echo "Planner skipped before model call: writable Worker capacity is full ($active_count/2)."
             exit 0
           fi
           echo "proceed=yes" >> "$GITHUB_OUTPUT"

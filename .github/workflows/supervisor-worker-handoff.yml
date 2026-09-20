@@ -157,6 +157,25 @@ jobs:
               | jq -s '[.[] | select(.user.login == "github-actions[bot]" and ((.body // "") | contains("<!-- proffera-worker-task-state:")))]'
           )"
           comments_json="$(jq --arg marker "$state_marker" '[.[] | select(((.body // "") | contains($marker)))]' <<< "$all_comments_json")"
+          state_match_count="$(jq 'length' <<< "$comments_json")"
+          if [ "$state_match_count" -gt 1 ]; then
+            echo "proceed=no" >> "$GITHUB_OUTPUT"
+            echo "Refused read-only: task $task_id has duplicate canonical task-state records." >&2
+            exit 0
+          fi
+          if [ "$state_match_count" -eq 1 ]; then
+            existing_state_body="$(jq -r '.[0].body // ""' <<< "$comments_json")"
+            binding_error="$(mktemp)"
+            set +e
+            binding_json="$(jq -n --argjson packet "$packet" --arg body "$existing_state_body" '{packet:$packet,body:$body}' | node "$helper" validate-state 2>"$binding_error")"
+            binding_status=$?
+            set -e
+            if [ "$binding_status" -ne 0 ] || [ "$(jq -r '.ok == true' <<< "${binding_json:-{}}" 2>/dev/null || echo false)" != "true" ]; then
+              echo "proceed=no" >> "$GITHUB_OUTPUT"
+              echo "Refused read-only: existing canonical task-state binding is invalid: $(tr '\n' ' ' < "$binding_error" | head -c 300)" >&2
+              exit 0
+            fi
+          fi
 
           pulls_json="$(gh api --paginate "repos/${REPOSITORY}/pulls?state=open&base=main&per_page=100" --jq '.[]' | jq -s '.')"
           enriched_prs='[]'
@@ -208,11 +227,6 @@ jobs:
 
           state_input="$(jq -n --argjson packet "$packet" --arg state "$state" --arg reason "$decision_reason" --arg run_id "$RUN_ID" '{packet:$packet,state:$state,reason:$reason,run_id:$run_id}')"
           state_body="$(printf '%s' "$state_input" | node "$helper" state-body)"
-          state_match_count="$(jq 'length' <<< "$comments_json")"
-          if [ "$state_match_count" -gt 1 ]; then
-            echo "Refused: task $task_id has duplicate canonical task-state records." >&2
-            exit 1
-          fi
           state_comment_id="$(jq -r '.[0].id // empty' <<< "$comments_json")"
           if [ -n "$state_comment_id" ]; then
             gh api --method PATCH "repos/${REPOSITORY}/issues/comments/${state_comment_id}" -f body="$state_body" >/dev/null
