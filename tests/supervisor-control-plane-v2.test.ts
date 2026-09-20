@@ -63,7 +63,9 @@ describe("Supervisor control-plane v2", () => {
     expect(planner).toContain("sort -u");
     expect(planner).not.toContain("PROFFERA_AUTOFIX_PUSH_TOKEN");
     expect(planner).not.toContain('POST "repos/${REPOSITORY}/issues/548/comments"');
-    const plannerValidation = planner.slice(planner.indexOf("Validate planner output against live state"), planner.indexOf("  dispatch:"));
+    const plannerValidationStart = planner.indexOf("Validate planner output against live state");
+    const plannerDispatchStart = planner.indexOf("\n  dispatch:", plannerValidationStart);
+    const plannerValidation = planner.slice(plannerValidationStart, plannerDispatchStart);
     expect(plannerValidation).toContain("PLANNER_RUN_ID: ${{ github.run_id }}");
     expect(plannerValidation).toContain("PLANNER_WORKFLOW_REF: ${{ github.workflow_ref }}");
 
