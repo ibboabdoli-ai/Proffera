@@ -9,7 +9,7 @@ import { CalendarClock, CalendarDays, Clock3, History, MapPin, XCircle } from "l
 
 import { readableBookingTextColor } from "@/lib/booking-theme-contract";
 import { cancelCustomerCalendarBooking, getCustomerCalendar, type CustomerCalendarBooking } from "@/lib/customer-calendar";
-import { getCustomerPortalPresentation, type CustomerPortalLanguage } from "@/lib/customer-portal-language";
+import { getCustomerPortalPresentation, resolveCustomerPortalLanguage, type CustomerPortalLanguage } from "@/lib/customer-portal-language";
 import { isPrimeViewHost } from "@/lib/public-site-domains";
 import type { WorkspaceTimeZone } from "@/lib/workspace-market";
 import styles from "../customer-portal.module.css";
@@ -38,17 +38,6 @@ function first(value: string | string[] | undefined) {
   return Array.isArray(value) ? value[0] : value;
 }
 
-function resolvePortalLanguage(
-  requested: string | undefined,
-  presentation: Awaited<ReturnType<typeof getCustomerPortalPresentation>>,
-): CustomerPortalLanguage {
-  if (requested === "en" && presentation?.englishEnabled) return "en";
-  if (requested === "sv" && presentation?.swedishEnabled) return "sv";
-  if (presentation?.defaultLanguage === "en" && presentation.englishEnabled) return "en";
-  if (presentation?.swedishEnabled !== false) return "sv";
-  return "en";
-}
-
 function portalHref(token: string, locale: CustomerPortalLanguage, query?: { changed?: string; cancelled?: string; error?: string }) {
   const params = new URLSearchParams();
   params.set("lang", locale);
@@ -64,7 +53,7 @@ async function cancelBooking(formData: FormData) {
   const token = String(formData.get("token") ?? "");
   const id = String(formData.get("booking_id") ?? "");
   const presentation = await getCustomerPortalPresentation(token);
-  const language = resolvePortalLanguage(String(formData.get("lang") ?? ""), presentation);
+  const language = resolveCustomerPortalLanguage(String(formData.get("lang") ?? ""), presentation);
   const result = await cancelCustomerCalendarBooking(token, id, language);
   if (result.ok) revalidatePath(`/mina-bokningar/${token}`);
 }
@@ -141,7 +130,7 @@ export default async function Page({ params, searchParams }: PageProps) {
     getCustomerPortalPresentation(token),
     headers(),
   ]);
-  const language = resolvePortalLanguage(first(query?.lang), presentation);
+  const language = resolveCustomerPortalLanguage(first(query?.lang), presentation);
   const isEnglish = language === "en";
   const isPrimeView = presentation?.publicBookingSlug === "primeview";
 
