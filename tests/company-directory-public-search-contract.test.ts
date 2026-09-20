@@ -20,9 +20,17 @@ describe("public company directory search contract", () => {
   const formSource = source("src/components/company-directory/public-directory-search-form.tsx");
   const copySource = source("src/components/company-directory/public-directory-copy.ts");
 
-  it("never exposes ready directory profiles through the public search", () => {
+  it("never exposes ready or authority-stale published profiles through public search", () => {
     expect(searchSource).toContain("profile.publication_status = 'published'");
     expect(searchSource).not.toContain("profile.publication_status in ('ready', 'published')");
+    expect(searchSource).toContain("profile.organization_kind = 'juridical_person'");
+    expect(searchSource).toContain("published_facts.source_payload_hash <> ''");
+    expect(searchSource).toContain("published_facts.last_synced_at >= profile.last_synced_at");
+    expect(searchSource).toContain("published_scb.last_synced_at >= now() - interval '7 days'");
+    expect(searchSource).toContain("published_scb.provenance #>> '{comparisonSnapshot,profileUpdatedToken}' = profile.updated_at::text");
+    expect(searchSource).toContain("published_scb.provenance #>> '{comparisonSnapshot,officialFactsLastSyncedToken}' = published_facts.last_synced_at::text");
+    expect(searchSource).toContain("jsonb_array_length(published_scb.conflicts) = 0");
+    expect(searchSource).toContain("jsonb_array_length(published_scb.workplaces) = 1");
     expect(searchSource).toContain("profile.is_active = true");
     expect(searchSource).toContain("profile.privacy_blocked = false");
   });
