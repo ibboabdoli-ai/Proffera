@@ -1,4 +1,6 @@
 import { execFileSync } from "node:child_process";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 
 import { Client } from "pg";
@@ -92,6 +94,9 @@ function postgresSql(client: Client) {
       await client.connect();
 
       await client.query(`
+        create table workspaces (
+          id uuid primary key
+        );
         create table workspace_services (
           id uuid primary key default gen_random_uuid(),
           workspace_id uuid not null,
@@ -134,22 +139,6 @@ function postgresSql(client: Client) {
           verification_method text not null,
           requested_at timestamptz not null default now()
         );
-        create table company_directory_profile_locations (
-          id uuid primary key default gen_random_uuid(),
-          profile_id uuid not null,
-          owner_workspace_id uuid,
-          source_type text not null default 'official',
-          purpose text not null default 'registered',
-          visibility text not null default 'private',
-          is_primary boolean not null default false,
-          is_active boolean not null default true,
-          confirmed_at timestamptz,
-          geocode_source text,
-          geocode_precision text,
-          latitude double precision,
-          longitude double precision,
-          city text not null default ''
-        );
         create table company_directory_services (
           slug text primary key,
           label text not null,
@@ -162,7 +151,23 @@ function postgresSql(client: Client) {
           public_visible boolean not null default true,
           primary key (profile_id, service_slug)
         );
+        create table proffera_schema_migrations (
+          migration_key text primary key,
+          filename text not null unique,
+          checksum text,
+          git_sha text,
+          applied_at timestamptz not null default now(),
+          applied_by text not null,
+          execution_mode text not null,
+          notes text
+        );
       `);
+
+      const locationMigration = readFileSync(
+        resolve(process.cwd(), "db/migrations/20260824_0067_business_profile_location_foundation.sql"),
+        "utf8",
+      );
+      await client.query(locationMigration);
     }, 120_000);
 
     afterAll(async () => {
