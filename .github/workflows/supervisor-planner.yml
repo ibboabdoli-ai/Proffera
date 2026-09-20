@@ -112,23 +112,40 @@ jobs:
             ' supervisor-context.json
           )"
 
+          control_comments="$(gh api --paginate "repos/${REPOSITORY}/issues/548/comments?per_page=100" --jq '.[]' | jq -s '.')"
+
           active_state_ids="$(
-            gh api --paginate "repos/${REPOSITORY}/issues/548/comments?per_page=100" --jq '.[]' \
-              | jq -s -r '
-                  .[]
-                  | select(.user.login == "github-actions[bot]")
-                  | (.body // "") as $body
-                  | select($body | contains("<!-- proffera-worker-task-state:"))
-                  | ($body | try capture("<!-- proffera-worker-task-state:(?<id>[A-Z][A-Z0-9-]{1,63}) -->").id catch "") as $id
-                  | ($body | try capture("^- State:[[:space:]]*`(?<state>[A-Z][A-Z0-9_]{2,39})`[[:space:]]*$"; "m").state catch "") as $state
-                  | select($id != "")
-                  | select(["TASK_CREATED","TASK_DISPATCHED","WORKER_PR_OPENED","CHECKS_PENDING","REVIEW_PENDING","READY_FOR_SUPERVISOR"] | index($state))
-                  | $id
-                '
+            jq -r '
+              .[]
+              | select(.user.login == "github-actions[bot]")
+              | (.body // "") as $body
+              | select($body | contains("<!-- proffera-worker-task-state:"))
+              | ($body | try capture("<!-- proffera-worker-task-state:(?<id>[A-Z][A-Z0-9-]{1,63}) -->").id catch "") as $id
+              | ($body | try capture("^- State:[[:space:]]*`(?<state>[A-Z][A-Z0-9_]{2,39})`[[:space:]]*$"; "m").state catch "") as $state
+              | select($id != "")
+              | select(["TASK_DISPATCHED","WORKER_PR_OPENED","CHECKS_PENDING","REVIEW_PENDING","READY_FOR_SUPERVISOR"] | index($state))
+              | $id
+            ' <<< "$control_comments"
           )"
 
+          active_reservation_ids="$(
+            jq -r '
+              .[]
+              | select(.user.login == "github-actions[bot]")
+              | (.body // "") as $body
+              | select($body | contains("<!-- proffera-worker-slot-reservation:"))
+              | ($body | try capture("<!-- proffera-worker-slot-reservation:(?<id>[A-Z][A-Z0-9-]{1,63}) -->").id catch "") as $id
+              | ($body | try capture("^- State:[[:space:]]*`(?<state>RESERVED|PUBLISHED|RECOVERABLE)`[[:space:]]*$"; "m").state catch "") as $state
+              | select($id != "" and $state != "")
+              | $id
+            ' <<< "$control_comments"
+          )"
+
+          # Bare TASK_CREATED is pre-reservation persistence, not slot ownership.
+          # The exact task is reconciled on resubmission; durable reservations,
+          # dispatch/lifecycle state, and open Worker PRs own writable capacity.
           active_count="$(
-            printf '%s\n%s\n' "$active_pr_ids" "$active_state_ids" \
+            printf '%s\n%s\n%s\n' "$active_pr_ids" "$active_state_ids" "$active_reservation_ids" \
               | sed '/^$/d' \
               | sort -u \
               | wc -l \

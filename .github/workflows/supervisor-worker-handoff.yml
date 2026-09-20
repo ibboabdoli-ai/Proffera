@@ -1332,6 +1332,8 @@ jobs:
           diff -u "$snapshot_file" "$current_snapshot"
           changed_json="$(printf '%s\n' "$changed_files" | jq -R -s 'split("\n") | map(select(length > 0))')"
           head_sha="$(git rev-parse HEAD)"
+          target_tree_sha="$(git rev-parse HEAD^{tree})"
+          [[ "$target_tree_sha" =~ ^[0-9a-f]{40}$ ]]
 
           comment="$(gh api "repos/${REPOSITORY}/issues/comments/${RESERVATION_COMMENT_ID}")"
           test "$(jq -r '.user.login // ""' <<< "$comment")" = "github-actions[bot]"
@@ -1344,6 +1346,7 @@ jobs:
             && [ "$(jq -r '.task_id // ""' <<< "$payload")" = "$task_id" ] \
             && [ "$(jq -r '.run_id // ""' <<< "$payload")" = "$RUN_ID" ] \
             && [ "$(jq -r '.head_sha // ""' <<< "$payload")" = "$head_sha" ] \
+            && [ "$(jq -r '.target_tree_sha // ""' <<< "$payload")" = "$target_tree_sha" ] \
             && [ "$(jq -c '.changed_files // []' <<< "$payload")" = "$changed_json" ] \
             && [ "$(jq -r '.snapshot_finalized == true' <<< "$payload")" = "true" ]; then
             echo "Exact finalized reservation snapshot is idempotently reused."
@@ -1358,6 +1361,7 @@ jobs:
           test "$(jq -c '.allowed_paths // []' <<< "$payload")" = "$allowed_paths"
           test "$(jq -r '.packet_digest // ""' <<< "$payload")" = "$packet_digest"
           test "$(jq -r '.head_sha // ""' <<< "$payload")" = "$BASE_SHA"
+          test "$(jq -r '.target_tree_sha // empty' <<< "$payload")" = ""
           test "$(jq -c '.changed_files // []' <<< "$payload")" = '[]'
           test "$(jq -r '.snapshot_finalized == false' <<< "$payload")" = "true"
           test "$(jq -r '.pr_number // empty' <<< "$payload")" = ""
@@ -1365,7 +1369,7 @@ jobs:
           confirm_body="$(gh api "repos/${REPOSITORY}/issues/comments/${RESERVATION_COMMENT_ID}" --jq '.body // ""')"
           test "$confirm_body" = "$body"
 
-          payload="$(jq -c --arg head "$head_sha" --argjson changed_files "$changed_json" '.head_sha=$head | .changed_files=$changed_files | .snapshot_finalized=true' <<< "$payload")"
+          payload="$(jq -c --arg head "$head_sha" --arg target_tree_sha "$target_tree_sha" --argjson changed_files "$changed_json" '.head_sha=$head | .target_tree_sha=$target_tree_sha | .changed_files=$changed_files | .snapshot_finalized=true' <<< "$payload")"
           payload_b64="$(printf '%s' "$payload" | base64 -w0)"
           new_body="$(printf '%s\n' "<!-- proffera-worker-slot-reservation:${task_id} -->" "### Worker slot reservation: ${task_id}" '- State: `RESERVED`' "- Reservation payload: \`${payload_b64}\`")"
           gh api --method PATCH "repos/${REPOSITORY}/issues/comments/${RESERVATION_COMMENT_ID}" -f body="$new_body" >/dev/null
@@ -1415,11 +1419,12 @@ jobs:
           else
             # Build and validate deterministic publication artifact only after normal publication fails.
             target_head="$(git rev-parse HEAD)"
+            target_tree_sha="$(git rev-parse HEAD^{tree})"
             jq -n --argjson packet "$packet" --arg source_head "$BASE_SHA" --arg target_head "$target_head" --arg run_id "$RUN_ID" \
               '{packet:$packet,source_head:$source_head,target_head:$target_head,run_id:$run_id}' \
               | node "$helper" build-publication > "$artifact"
             live_source="$(gh api "repos/${REPOSITORY}/git/ref/heads/main" --jq '.object.sha')"
-            validation="$(jq -n --argjson packet "$packet" --arg current_source_head "$live_source" --arg expected_target_head "$target_head" --arg expected_run_id "$RUN_ID" --slurpfile artifact "$artifact" '{packet:$packet,current_source_head:$current_source_head,expected_target_head:$expected_target_head,expected_run_id:$expected_run_id,artifact:$artifact[0]}' | node "$helper" validate-publication)"
+            validation="$(jq -n --argjson packet "$packet" --arg current_source_head "$live_source" --arg expected_target_head "$target_head" --arg expected_target_tree_sha "$target_tree_sha" --arg expected_run_id "$RUN_ID" --slurpfile artifact "$artifact" '{packet:$packet,current_source_head:$current_source_head,expected_target_head:$expected_target_head,expected_target_tree_sha:$expected_target_tree_sha,expected_run_id:$expected_run_id,artifact:$artifact[0]}' | node "$helper" validate-publication)"
             test "$(jq -r '.ok' <<< "$validation")" = "true"
             test -s "$artifact"
             digest="$(sha256sum "$artifact" | cut -d' ' -f1)"
@@ -1492,10 +1497,17 @@ jobs:
           TASK_ID: ${{ needs.preflight.outputs.task_id }}
           RUN_ID: ${{ github.run_id }}
           HEAD_SHA: ${{ steps.publish.outputs.head_sha }}
+          BASE_SHA: ${{ needs.preflight.outputs.base_sha }}
+          PACKET_B64: ${{ needs.preflight.outputs.packet_b64 }}
           RECOVERY_DIGEST: ${{ steps.publish.outputs.recovery_digest }}
         shell: bash
         run: |
           set -euo pipefail
+          helper="$RUNNER_TEMP/proffera-trusted-publish/supervisor-worker-handoff.mjs"
+          manifest="$RUNNER_TEMP/proffera-trusted-publish/supervisor-worker-handoff.sha256"
+          artifact="$RUNNER_TEMP/proffera-publication-artifact.json"
+          test -f "$helper" -a -f "$manifest" -a -s "$artifact"
+          sha256sum --check --status "$manifest"
           comment="$(gh api "repos/${REPOSITORY}/issues/comments/${RESERVATION_COMMENT_ID}")"
           body="$(jq -r '.body // ""' <<< "$comment")"
           payload_b64="$(sed -n 's/^- Reservation payload: `\([^`]*\)`$/\1/p' <<< "$body")"
@@ -1503,6 +1515,22 @@ jobs:
           test "$(jq -r '.task_id' <<< "$payload")" = "$TASK_ID"
           test "$(jq -r '.run_id' <<< "$payload")" = "$RUN_ID"
           test "$(jq -r '.head_sha' <<< "$payload")" = "$HEAD_SHA"
+          test "$(jq -r '.state' <<< "$payload")" = "RESERVED"
+          test "$(jq -r '.snapshot_finalized == true' <<< "$payload")" = "true"
+          target_tree_sha="$(jq -r '.target_tree_sha // ""' <<< "$payload")"
+          [[ "$target_tree_sha" =~ ^[0-9a-f]{40}$ ]]
+          test "$HEAD_SHA" != "$BASE_SHA"
+          reserved_paths="$(jq -c '.changed_files // [] | sort' <<< "$payload")"
+          test "$(jq 'length' <<< "$reserved_paths")" -gt 0
+          test "$(sha256sum "$artifact" | cut -d' ' -f1)" = "$RECOVERY_DIGEST"
+          test "$(jq -r '.target_head // ""' "$artifact")" = "$HEAD_SHA"
+          test "$(jq -r '.target_tree_sha // ""' "$artifact")" = "$target_tree_sha"
+          packet="$(printf '%s' "$PACKET_B64" | base64 --decode)"
+          live_source="$(gh api "repos/${REPOSITORY}/git/ref/heads/main" --jq '.object.sha')"
+          test "$live_source" = "$BASE_SHA"
+          validation="$(jq -n --argjson packet "$packet" --arg current_source_head "$live_source" --arg expected_target_head "$HEAD_SHA" --arg expected_target_tree_sha "$target_tree_sha" --arg expected_run_id "$RUN_ID" --slurpfile artifact "$artifact" '{packet:$packet,current_source_head:$current_source_head,expected_target_head:$expected_target_head,expected_target_tree_sha:$expected_target_tree_sha,expected_run_id:$expected_run_id,artifact:$artifact[0]}' | node "$helper" validate-publication)"
+          test "$(jq -r '.ok // false' <<< "$validation")" = "true"
+          test "$(jq -c '.paths | sort' <<< "$validation")" = "$reserved_paths"
           recovery_expires_at="$(date -u -d '+6 days' +%Y-%m-%dT%H:%M:%SZ)"
           payload="$(jq -c --arg state RECOVERABLE --arg digest "$RECOVERY_DIGEST" --arg expires "$recovery_expires_at" '.state=$state | .recovery={kind:"artifact",digest:$digest,expires_at:$expires}' <<< "$payload")"
           payload_b64="$(printf '%s' "$payload" | base64 -w0)"
@@ -1697,8 +1725,6 @@ jobs:
           RUN_ID: ${{ github.run_id }}
           PACKET_B64: ${{ needs.preflight.outputs.packet_b64 }}
           ARTIFACT_UPLOADED: ${{ steps.recovery_upload.outcome == 'success' }}
-          RECOVERY_DIGEST: ${{ steps.publish.outputs.recovery_digest }}
-          HEAD_SHA: ${{ steps.publish.outputs.head_sha }}
         shell: bash
         run: |
           set -euo pipefail
@@ -1730,9 +1756,8 @@ jobs:
             payload="$(jq -c --arg state PUBLISHED --argjson pr_number "$pr_number" '.state=$state | .pr_number=$pr_number | .recovery=null' <<< "$payload")"
             label=PUBLISHED
           elif [ "$ARTIFACT_UPLOADED" = "true" ]; then
-            recovery_expires_at="$(date -u -d '+6 days' +%Y-%m-%dT%H:%M:%SZ)"
-            payload="$(jq -c --arg state RECOVERABLE --arg digest "$RECOVERY_DIGEST" --arg head "$HEAD_SHA" --arg expires "$recovery_expires_at" '.state=$state | .head_sha=$head | .recovery={kind:"artifact",digest:$digest,expires_at:$expires}' <<< "$payload")"
-            label=RECOVERABLE
+            echo "Artifact upload succeeded, but artifact-backed recovery is deferred to the independent exact-artifact cleanup validator."
+            exit 0
           elif gh api "repos/${REPOSITORY}/git/ref/heads/${BRANCH}" >/dev/null 2>&1; then
             recovery_expires_at="$(date -u -d '+6 days' +%Y-%m-%dT%H:%M:%SZ)"
             payload="$(jq -c --arg state RECOVERABLE --arg expires "$recovery_expires_at" '.state=$state | .recovery={kind:"branch",expires_at:$expires}' <<< "$payload")"
@@ -1917,6 +1942,9 @@ jobs:
 
           head_sha="$(jq -r '.head_sha // ""' <<< "$payload")"
           test "$head_sha" != ""
+          snapshot_finalized="$(jq -r '.snapshot_finalized == true' <<< "$payload")"
+          target_tree_sha="$(jq -r '.target_tree_sha // ""' <<< "$payload")"
+          reserved_paths="$(jq -c '.changed_files // [] | sort' <<< "$payload")"
           repository_owner="${REPOSITORY%%/*}"
           prs="$(gh api --paginate "repos/${REPOSITORY}/pulls?state=open&base=main&per_page=100" --jq '.[]' | jq -s --arg branch "$BRANCH" --arg head "$head_sha" --arg repo "$REPOSITORY" --arg owner "$repository_owner" '[.[] | select(.head.ref == $branch and .head.sha == $head and .head.repo.full_name == $repo and .user.login == $owner)]')"
           pr_number=""
@@ -1952,6 +1980,10 @@ jobs:
                 exit 1
               fi
               if [ "$artifact_count" -eq 1 ]; then
+                test "$snapshot_finalized" = "true"
+                [[ "$target_tree_sha" =~ ^[0-9a-f]{40}$ ]]
+                test "$head_sha" != "$BASE_SHA"
+                test "$(jq 'length' <<< "$reserved_paths")" -gt 0
                 artifact_id="$(jq -r '.[0].id // ""' <<< "$artifact_matches")"
                 artifact_name="$(jq -r '.[0].name // ""' <<< "$artifact_matches")"
                 artifact_expired="$(jq -r '.[0].expired // true' <<< "$artifact_matches")"
@@ -1976,10 +2008,12 @@ jobs:
                 test "$actual_recovery_digest" = "$recovery_digest"
                 live_source="$(gh api "repos/${REPOSITORY}/git/ref/heads/main" --jq '.object.sha')"
                 test "$live_source" = "$BASE_SHA"
-                recovery_validation="$(jq -n --argjson packet "$packet" --arg current_source_head "$live_source" --arg expected_target_head "$head_sha" --arg expected_run_id "$RUN_ID" --slurpfile artifact "$recovery_artifact" '{packet:$packet,current_source_head:$current_source_head,expected_target_head:$expected_target_head,expected_run_id:$expected_run_id,artifact:$artifact[0]}' | node "$helper" validate-publication)"
+                recovery_validation="$(jq -n --argjson packet "$packet" --arg current_source_head "$live_source" --arg expected_target_head "$head_sha" --arg expected_target_tree_sha "$target_tree_sha" --arg expected_run_id "$RUN_ID" --slurpfile artifact "$recovery_artifact" '{packet:$packet,current_source_head:$current_source_head,expected_target_head:$expected_target_head,expected_target_tree_sha:$expected_target_tree_sha,expected_run_id:$expected_run_id,artifact:$artifact[0]}' | node "$helper" validate-publication)"
                 test "$(jq -r '.ok // false' <<< "$recovery_validation")" = "true"
                 test "$(jq -r '.target_head // ""' <<< "$recovery_validation")" = "$head_sha"
+                test "$(jq -r '.target_tree_sha // ""' <<< "$recovery_validation")" = "$target_tree_sha"
                 test "$(jq -r '.run_id // ""' <<< "$recovery_validation")" = "$RUN_ID"
+                test "$(jq -c '.paths | sort' <<< "$recovery_validation")" = "$reserved_paths"
 
                 recovery_expires_at="$(date -u -d '+6 days' +%Y-%m-%dT%H:%M:%SZ)"
                 payload="$(jq -c --arg state RECOVERABLE --arg digest "$recovery_digest" --arg expires "$recovery_expires_at" '.state=$state | .recovery={kind:"artifact",digest:$digest,expires_at:$expires}' <<< "$payload")"

@@ -2528,6 +2528,36 @@ describe("Supervisor ↔ Worker Phase-1 handoff", () => {
     expect(evaluate(baseContext({ open_prs: [workerPr()] })).status).toBe("TASK_CREATED");
   });
 
+  it("does not let bare interrupted TASK_CREATED records consume writable capacity", () => {
+    const orphan = (taskId: string, id: number) => ({
+      id,
+      created_at: "2026-09-20T18:00:00Z",
+      user: { login: "github-actions[bot]" },
+      body: [
+        `<!-- proffera-worker-task-state:${taskId} -->`,
+        `### Supervisor task: ${taskId}`,
+        "- State: `TASK_CREATED`",
+        "- Run ID: `7001`",
+      ].join("\n"),
+    });
+    expect(evaluate(baseContext({ comments: [orphan("OTHER-1", 7001), orphan("OTHER-2", 7002)] })).status).toBe("TASK_CREATED");
+  });
+
+  it("still counts a durable reservation when its task record is only TASK_CREATED", () => {
+    const orphanTask = {
+      id: 7001,
+      created_at: "2026-09-20T18:00:00Z",
+      user: { login: "github-actions[bot]" },
+      body: "<!-- proffera-worker-task-state:OTHER-2 -->\n### Supervisor task: OTHER-2\n- State: `TASK_CREATED`\n- Run ID: `7001`",
+    };
+    const durableReservation = {
+      id: 7002,
+      user: { login: "github-actions[bot]" },
+      body: "<!-- proffera-worker-slot-reservation:OTHER-2 -->\n### Worker slot reservation: OTHER-2\n- State: `RESERVED`",
+    };
+    expect(evaluate(baseContext({ comments: [orphanTask, durableReservation], open_prs: [workerPr()] })).code).toBe("writable_worker_limit");
+  });
+
   it("rejects hierarchical graph overlap for a second writable Worker", () => {
     const existing = workerPr({
       body: 'Task ID: OTHER-1\nGraph path: feature/test/subpath\nAllowed paths: ["src/features/other/"]',
@@ -4092,21 +4122,39 @@ esac
     expect(reconcile).toContain('actual_recovery_digest="$(sha256sum "$recovery_artifact"');
     expect(reconcile).toContain('node "$helper" validate-publication');
     expect(reconcile).toContain('--arg expected_target_head "$head_sha"');
+    expect(reconcile).toContain('--arg expected_target_tree_sha "$target_tree_sha"');
     expect(reconcile).toContain('--arg expected_run_id "$RUN_ID"');
+    expect(reconcile).toContain('test "$snapshot_finalized" = "true"');
+    expect(reconcile).toContain('test "$head_sha" != "$BASE_SHA"');
+    expect(reconcile).toContain('test "$(jq -c '.paths | sort' <<< "$recovery_validation")" = "$reserved_paths"');
     const digestCheck = reconcile.indexOf('test "$actual_recovery_digest" = "$recovery_digest"');
     const validation = reconcile.indexOf('node "$helper" validate-publication');
     const recoverableArtifact = reconcile.indexOf('.recovery={kind:"artifact",digest:$digest,expires_at:$expires}');
     expect(digestCheck).toBeGreaterThanOrEqual(0);
     expect(validation).toBeGreaterThan(digestCheck);
     expect(recoverableArtifact).toBeGreaterThan(validation);
+
+    const markRecoverable = workflowRunStep(workflow, "Mark reservation recoverable after durable artifact upload");
+    expect(markRecoverable).toContain("snapshot_finalized == true");
+    expect(markRecoverable).toContain("target_tree_sha");
+    expect(markRecoverable).toContain('node "$helper" validate-publication');
+    expect(markRecoverable).toContain('test "$(jq -c '.paths | sort' <<< "$validation")" = "$reserved_paths"');
+    const finalize = workflowRunStep(workflow, "Finalize reserved Worker snapshot before publication");
+    expect(finalize).toContain('target_tree_sha="$(git rev-parse HEAD^{tree})"');
+    expect(finalize).toContain(".target_tree_sha=$target_tree_sha");
   });
 
-  it("keeps uploaded fallback evidence recoverable and expires it before artifact deletion", () => {
+  it("defers uploaded failure artifacts to independent trusted cleanup validation", () => {
     const workflow = source(".github/workflows/supervisor-worker-handoff.yml");
     const recovery = workflowRunStep(workflow, "Release or recover reservation on dispatch failure");
     expect(workflow).toContain("id: recovery_upload");
     expect(recovery).toContain('ARTIFACT_UPLOADED" = "true"');
-    expect(recovery).toContain("date -u -d '+6 days'");
+    expect(recovery).toContain("artifact-backed recovery is deferred");
+    expect(recovery).not.toContain('.recovery={kind:"artifact"');
+    const deferred = runReservationRecovery({ artifactUploaded: true, branchExists: false });
+    expect(deferred.status, deferred.stderr).toBe(0);
+    expect(commentPatchCalls(deferred.calls, 101)).toHaveLength(0);
+    expect(String(deferred.comments.find((comment) => comment.id === 101)?.body ?? "")).toContain("- State: `RESERVED`");
     expect(source("scripts/supervisor-worker-handoff.mjs")).toContain("payload.recovery?.expires_at");
     expect(source("scripts/supervisor-worker-handoff.mjs")).toContain("retryable: true");
     expect(workflow).toContain("retention-days: 7");
@@ -5008,6 +5056,9 @@ process.stdout.write(JSON.stringify({
     expect(run("validate-publication", { ...input, artifact: { ...artifact, packet_sha256: "0".repeat(64) } }).code).toBe("artifact_binding_mismatch");
     expect(run("validate-publication", { ...input, expected_target_head: otherSha }).code).toBe("target_head_mismatch");
     expect(run("validate-publication", { ...input, artifact: { ...artifact, target_head: "bad" } }).code).toBe("artifact_malformed");
+    expect(source("scripts/supervisor-worker-handoff.mjs")).toContain("reconstructPublicationTargetTree");
+    expect(source("scripts/supervisor-worker-handoff.mjs")).toContain("write-tree");
+    expect(source("scripts/supervisor-worker-handoff.mjs")).toContain("target_tree_mismatch");
   });
 
   it("rejects missing or discontinuous publication chunks", () => {

@@ -2,7 +2,9 @@
 
 import { createHash, randomUUID } from "node:crypto";
 import { execFileSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 
 export const TASK_PACKET_MARKER = "<!-- proffera-worker-task-packet:v1 -->";
@@ -311,11 +313,18 @@ function parseTrustedTaskState(comments, taskId) {
 function collectWritableTaskIds(comments, excludeTaskId = "") {
   if (!Array.isArray(comments)) return new Set();
   const latest = new Map();
+  const durableOwners = new Set();
   for (const comment of comments) {
     if (comment?.user?.login !== "github-actions[bot]" || typeof comment.body !== "string") continue;
+    const reservationTaskId = comment.body.match(/<!-- proffera-worker-slot-reservation:([A-Z][A-Z0-9-]{1,63}) -->/)?.[1] ?? "";
+    const reservationState = comment.body.match(/^- State:\s*`(RESERVED|PUBLISHED|RECOVERABLE)`\s*$/mi)?.[1] ?? "";
+    if (reservationTaskId && reservationState) durableOwners.add(reservationTaskId);
+    const dispatchTaskId = comment.body.match(/<!-- proffera-worker-dispatch-start:([A-Z][A-Z0-9-]{1,63}):[0-9]+ -->/)?.[1] ?? "";
+    if (dispatchTaskId) durableOwners.add(dispatchTaskId);
+
     const taskId = comment.body.match(/<!-- proffera-worker-task-state:([A-Z][A-Z0-9-]{1,63}) -->/)?.[1] ?? "";
     const state = comment.body.match(/^- State:\s*`([A-Z][A-Z0-9_]{2,39})`\s*$/mi)?.[1] ?? "";
-    if (!taskId || taskId === excludeTaskId || !STATE_RE.test(state)) continue;
+    if (!taskId || !STATE_RE.test(state)) continue;
     const id = Number(comment.id) || 0;
     const createdAt = String(comment.created_at ?? "");
     const previous = latest.get(taskId);
@@ -323,11 +332,15 @@ function collectWritableTaskIds(comments, excludeTaskId = "") {
       latest.set(taskId, { state, id, created_at: createdAt });
     }
   }
-  return new Set(
+  const writable = new Set(
     [...latest.entries()]
-      .filter(([, entry]) => WRITABLE_TASK_STATES.has(entry.state))
+      .filter(([taskId, entry]) => WRITABLE_TASK_STATES.has(entry.state)
+        && (entry.state !== "TASK_CREATED" || durableOwners.has(taskId)))
       .map(([taskId]) => taskId),
   );
+  for (const taskId of durableOwners) writable.add(taskId);
+  if (excludeTaskId) writable.delete(excludeTaskId);
+  return writable;
 }
 
 function normalizePr(pr) {
@@ -825,6 +838,31 @@ function replacementLineCount(content) {
   return content.split("\n").length - (content.endsWith("\n") ? 1 : 0);
 }
 
+function reconstructPublicationTargetTree(sourceHead, replacements) {
+  const root = mkdtempSync(join(tmpdir(), "proffera-publication-tree-"));
+  const index = join(root, "index");
+  const env = { ...process.env, GIT_INDEX_FILE: index };
+  try {
+    gitOutput(["read-tree", sourceHead], { env });
+    for (const replacement of replacements) {
+      const path = assertSafeScope(replacement.path, "replacement path");
+      if (replacement.deleted === true) {
+        gitOutput(["update-index", "--force-remove", "--", path], { env });
+        continue;
+      }
+      const content = replacementContent(replacement);
+      const bytes = Buffer.from(content, "utf8");
+      const blob = createHash("sha1").update(`blob ${bytes.length}\0`).update(bytes).digest("hex");
+      gitOutput(["update-index", "--add", "--cacheinfo", `100644,${blob},${path}`], { env });
+    }
+    const tree = gitOutput(["write-tree", "--missing-ok"], { env }).trim().toLowerCase();
+    if (!SHA_RE.test(tree)) publicationFailure("target_tree_mismatch", "reconstructed publication tree is malformed");
+    return tree;
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+}
+
 export function validatePublicationArtifact(input) {
   try {
     if (!input || typeof input !== "object" || Array.isArray(input)) publicationFailure("artifact_malformed", "publication validation input must be an object");
@@ -838,16 +876,28 @@ export function validatePublicationArtifact(input) {
     if (!/^[1-9][0-9]*$/.test(expectedRunId)) publicationFailure("artifact_malformed", "expected_run_id must be a positive workflow run ID");
     const expectedTargetHead = assertPlainString(input.expected_target_head, "expected_target_head", 40).toLowerCase();
     if (!SHA_RE.test(expectedTargetHead)) publicationFailure("artifact_malformed", "expected_target_head must be a 40-character commit SHA");
+    const expectedTargetTreeSha = input.expected_target_tree_sha == null || input.expected_target_tree_sha === ""
+      ? ""
+      : assertPlainString(input.expected_target_tree_sha, "expected_target_tree_sha", 40).toLowerCase();
+    if (expectedTargetTreeSha && !SHA_RE.test(expectedTargetTreeSha)) publicationFailure("artifact_malformed", "expected_target_tree_sha must be a 40-character Git tree SHA");
     const artifactTaskId = assertPlainString(artifact.task_id, "artifact.task_id", 64).toUpperCase();
     const artifactRunId = assertPlainString(String(artifact.run_id ?? ""), "artifact.run_id", 30);
     const artifactPacketSha256 = assertPlainString(artifact.packet_sha256, "artifact.packet_sha256", 64).toLowerCase();
     const sourceHead = assertPlainString(artifact.source_head, "artifact.source_head", 40).toLowerCase();
     const targetHead = assertPlainString(artifact.target_head, "artifact.target_head", 40).toLowerCase();
-    if (!SHA_RE.test(sourceHead) || !SHA_RE.test(targetHead)) publicationFailure("artifact_malformed", "artifact source/target heads must be 40-character commit SHAs");
+    const targetTreeSha = artifact.target_tree_sha == null || artifact.target_tree_sha === ""
+      ? ""
+      : assertPlainString(artifact.target_tree_sha, "artifact.target_tree_sha", 40).toLowerCase();
+    if (!SHA_RE.test(sourceHead) || !SHA_RE.test(targetHead) || (targetTreeSha && !SHA_RE.test(targetTreeSha))) {
+      publicationFailure("artifact_malformed", "artifact source/target heads and target tree must be Git object SHAs");
+    }
     if (artifactTaskId !== packet.task_id || artifactRunId !== expectedRunId || artifactPacketSha256 !== packetDigest(packet)) {
       publicationFailure("artifact_binding_mismatch", "publication artifact task, run, or Task Packet digest does not match trusted recovery context");
     }
     if (targetHead !== expectedTargetHead) publicationFailure("target_head_mismatch", "publication artifact target head does not match the exact reserved Worker head");
+    if (expectedTargetTreeSha && targetTreeSha !== expectedTargetTreeSha) {
+      publicationFailure("target_tree_mismatch", "publication artifact target tree does not match the finalized reserved Worker tree");
+    }
     if (sourceHead !== currentSourceHead || packet.base_sha !== sourceHead) publicationFailure("stale_source_head", "publication source must equal the live head and Task Packet baseline");
     if (artifact.artifact_set_complete !== "YES") publicationFailure("artifact_incomplete", "ARTIFACT_SET_COMPLETE must be exactly YES");
     if (Buffer.byteLength(String(artifact.unified_diff ?? ""), "utf8") > MAX_PUBLICATION_BYTES) publicationFailure("artifact_oversized", "unified diff exceeds the publication limit");
@@ -896,7 +946,13 @@ export function validatePublicationArtifact(input) {
       if (sourceBytes.length + aggregateBytes > MAX_PUBLICATION_BYTES || (!sourceIsAdded && sourceBlob !== diff.old_blob_sha)) publicationFailure("diff_source_mismatch", `unified diff old blob does not match exact source for '${path}'`);
       if (applyUnifiedDiffSection(source, diff) !== content) publicationFailure("diff_replacement_mismatch", `unified diff result diverges from replacement '${path}'`);
     }
-    return { ok: true, status: "VALID", code: "publication_artifact_valid", reason: "publication artifact is exact task/run/head bound, Task Packet scoped, and exact-source/diff/replacement verified", source_head: sourceHead, target_head: targetHead, run_id: artifactRunId, paths };
+    if (expectedTargetTreeSha) {
+      const reconstructedTree = reconstructPublicationTargetTree(sourceHead, artifact.replacements);
+      if (reconstructedTree !== expectedTargetTreeSha) {
+        publicationFailure("target_tree_mismatch", "publication replacements do not reconstruct the finalized reserved Worker tree");
+      }
+    }
+    return { ok: true, status: "VALID", code: "publication_artifact_valid", reason: "publication artifact is exact task/run/head/tree bound, Task Packet scoped, and exact-source/diff/replacement verified", source_head: sourceHead, target_head: targetHead, target_tree_sha: targetTreeSha || null, run_id: artifactRunId, paths };
   } catch (error) {
     return publicationInvalid(error?.code ?? "artifact_malformed", error instanceof Error ? error.message : "publication artifact is malformed");
   }
@@ -909,6 +965,8 @@ export function buildPublicationArtifact({ packet: packetInput, source_head, tar
   const runId = assertPlainString(String(run_id ?? ""), "run_id", 30);
   if (!SHA_RE.test(sourceHead) || !SHA_RE.test(targetHead) || packet.base_sha !== sourceHead) throw new Error("publication heads are malformed or do not match Task Packet baseline");
   if (!/^[1-9][0-9]*$/.test(runId)) throw new Error("publication run_id must be a positive workflow run ID");
+  const targetTreeSha = gitOutput(["rev-parse", `${targetHead}^{tree}`]).trim().toLowerCase();
+  if (!SHA_RE.test(targetTreeSha)) throw new Error("publication target tree is malformed");
   const unifiedDiff = gitOutput(["diff", "--full-index", "--no-renames", "--no-ext-diff", `${sourceHead}..${targetHead}`]);
   const paths = gitOutput(["diff", "--name-only", "--no-renames", `${sourceHead}..${targetHead}`]).trim().split("\n").filter(Boolean);
   const bounded = validateChangedFiles(packet, paths);
@@ -927,6 +985,7 @@ export function buildPublicationArtifact({ packet: packetInput, source_head, tar
     packet_sha256: packetDigest(packet),
     source_head: sourceHead,
     target_head: targetHead,
+    target_tree_sha: targetTreeSha,
     artifact_set_complete: "YES",
     paths,
     unified_diff: unifiedDiff,
@@ -937,6 +996,7 @@ export function buildPublicationArtifact({ packet: packetInput, source_head, tar
     packet,
     current_source_head: sourceHead,
     expected_target_head: targetHead,
+    expected_target_tree_sha: targetTreeSha,
     expected_run_id: runId,
     artifact,
   });

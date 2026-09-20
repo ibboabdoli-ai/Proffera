@@ -117,6 +117,12 @@ describe("Supervisor control-plane v2", () => {
     expect(plannerJob).toContain("cancel-in-progress: true");
     expect(plannerJob).toContain("issues: read");
     expect(plannerJob).not.toContain("issues: write");
+    const cheapStart = planner.indexOf("Skip model call when writable capacity is already full");
+    const modelStart = planner.indexOf("Ask Codex for exactly one next bounded task", cheapStart);
+    const cheapCapacity = planner.slice(cheapStart, modelStart);
+    expect(cheapCapacity).toContain("active_reservation_ids");
+    expect(cheapCapacity).toContain('"TASK_DISPATCHED","WORKER_PR_OPENED"');
+    expect(cheapCapacity).not.toContain('"TASK_CREATED"');
     const plannerDispatchJob = planner.slice(planner.indexOf("  dispatch:"));
     expect(plannerDispatchJob).toContain("issues: write");
     expect(handoff).not.toContain("needs.dispatch.outputs.reservation_comment_id");
