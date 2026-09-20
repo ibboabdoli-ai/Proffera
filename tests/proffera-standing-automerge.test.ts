@@ -540,7 +540,7 @@ describe("Proffera standing automerge authorization", () => {
     expect(workflow).toContain("commit_id == $sha");
     expect(workflow).toContain("CodeRabbit changes remain requested on the current PR head; Codex fallback can never clear them.");
     expect(ci).toContain("Final exact-head review is complete for");
-    expect(ci).toContain("I found no issues.");
+    expect(ci).toContain("I found no issues\\\\.");
     expect(ci).toContain("CodeRabbit review command invocation: v2:[0-9a-f]{64}");
     expect(workflow).not.toContain("updated_at");
     expect(workflow).toContain('workflow_run:');

@@ -169,8 +169,8 @@ describe("Supervisor Worker handoff large-state safety", () => {
       workflow.indexOf("packet=\"$(cat \"$packet_file\")\""),
       workflow.indexOf("  dispatch:"),
     );
-    const preflightFilter = preflight.indexOf('--arg marker "$state_marker"');
-    const preflightContext = preflight.indexOf('--argjson comments "$comments_json"');
+    const preflightFilter = preflight.indexOf(stateOnlyFilter);
+    const preflightContext = preflight.indexOf('--argjson comments "$all_comments_json"');
     expect(preflightFilter).toBeGreaterThanOrEqual(0);
     expect(preflightContext).toBeGreaterThan(preflightFilter);
 
@@ -178,7 +178,7 @@ describe("Supervisor Worker handoff large-state safety", () => {
       workflow.indexOf("Reconcile live state again immediately before publication"),
       workflow.indexOf("Commit bounded Worker result locally"),
     );
-    const reconcileFilter = reconcile.indexOf('--arg marker "$state_marker"');
+    const reconcileFilter = reconcile.indexOf(stateOnlyFilter);
     const reconcileContext = reconcile.indexOf('--argjson comments "$comments_json"');
     expect(reconcileFilter).toBeGreaterThanOrEqual(0);
     expect(reconcileContext).toBeGreaterThan(reconcileFilter);

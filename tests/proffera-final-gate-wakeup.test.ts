@@ -280,7 +280,7 @@ describe("event-driven final review gate", () => {
     expect(wakeup).toContain("<!-- CodeRabbit review command invocation: v2:");
     expect(wakeup).toContain("[0-9a-f]{64}");
     expect(wakeup).toContain("Final exact-head review is complete for");
-    expect(wakeup).toContain("I found no issues.");
+    expect(wakeup).toContain("I found no issues\\\\.");
     expect(wakeup).toContain("Untrusted issue-comment actor cannot wake the final gate.");
     expect(wakeup).toContain('"coderabbitai[bot]"|"chatgpt-codex-connector[bot]"|"$TRUSTED_CODEX_REQUESTER"');
     expect(wakeup).toContain("TRUSTED_CODEX_REQUESTER: ibboabdoli-ai");

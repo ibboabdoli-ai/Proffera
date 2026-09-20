@@ -845,7 +845,7 @@ describe("tooling safety contract", () => {
     expect(ci).toContain("issues/comments/${codex_request_id}/reactions?per_page=100");
     expect(ci).toContain("CodeRabbit changes remain requested for current head; Codex fallback cannot clear them.");
     expect(ci).toContain("Final exact-head review is complete for");
-    expect(ci).toContain("I found no issues.");
+    expect(ci).toContain("I found no issues\\\\.");
     expect(ci).toContain("src/app/privacy/*|src/app/privacy/**|*/privacy/*");
     expect(ci).toContain("package-lock.json|pnpm-lock.yaml|yarn.lock|*/package-lock.json|*/pnpm-lock.yaml|*/yarn.lock");
     expect(automerge).toContain("workflow_run:");
