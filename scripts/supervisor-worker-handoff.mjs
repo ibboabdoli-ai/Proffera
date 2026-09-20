@@ -2,6 +2,7 @@
 
 import { createHash, randomUUID } from "node:crypto";
 import { execFileSync } from "node:child_process";
+import { readFileSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 
 export const TASK_PACKET_MARKER = "<!-- proffera-worker-task-packet:v1 -->";
@@ -2507,6 +2508,27 @@ async function main() {
     const validationInput = { packet, body, run_id: runId };
     if (prText) {
       if (!/^[1-9][0-9]*$/u.test(prText)) throw new Error("task state expected PR argument binding is malformed");
+      validationInput.pr_number = Number(prText);
+    }
+    process.stdout.write(`${JSON.stringify(validateTaskStateBinding(validationInput))}\n`);
+    return;
+  }
+  if (mode === "validate-state-files") {
+    const packetPath = String(process.argv[3] ?? "");
+    const bodyPath = String(process.argv[4] ?? "");
+    const prText = String(process.argv[5] ?? "");
+    const runId = String(process.argv[6] ?? "");
+    if (!packetPath || !bodyPath) throw new Error("task state validation files are required");
+    let packet;
+    try {
+      packet = JSON.parse(readFileSync(packetPath, "utf8"));
+    } catch {
+      throw new Error("task state packet file is malformed");
+    }
+    const body = readFileSync(bodyPath, "utf8");
+    const validationInput = { packet, body, run_id: runId };
+    if (prText) {
+      if (!/^[1-9][0-9]*$/u.test(prText)) throw new Error("task state expected PR file binding is malformed");
       validationInput.pr_number = Number(prText);
     }
     process.stdout.write(`${JSON.stringify(validateTaskStateBinding(validationInput))}\n`);

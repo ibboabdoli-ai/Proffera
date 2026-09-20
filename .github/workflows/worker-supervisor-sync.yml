@@ -249,9 +249,21 @@ jobs:
                 fi
                 comment_id="$(jq -r '.[0].id' <<< "$task_matches")"
                 current_body="$(jq -r '.[0].body // ""' <<< "$task_matches")"
+                validate_canonical_task_state() {
+                  local body_value="$1" expected_pr="$2" expected_run="$3"
+                  local packet_file body_file status
+                  packet_file="$(mktemp)"
+                  body_file="$(mktemp)"
+                  printf '%s' "$packet" > "$packet_file"
+                  printf '%s' "$body_value" > "$body_file"
+                  node "$helper" validate-state-files "$packet_file" "$body_file" "$expected_pr" "$expected_run"
+                  status=$?
+                  rm -f "$packet_file" "$body_file"
+                  return "$status"
+                }
                 binding_error="$(mktemp)"
                 set +e
-                binding="$(node "$helper" validate-state-args "$(printf '%s' "$packet" | base64 -w0)" "$(printf '%s' "$current_body" | base64 -w0)" "$PR_NUMBER" "$reserved_run" 2>"$binding_error")"
+                binding="$(validate_canonical_task_state "$current_body" "$PR_NUMBER" "$reserved_run" 2>"$binding_error")"
                 binding_status=$?
                 set -e
                 if [ "$binding_status" -ne 0 ] || [ "$(jq -r '.ok == true' <<< "${binding:-{}}" 2>/dev/null || echo false)" != "true" ]; then
@@ -296,7 +308,7 @@ jobs:
                 fi
                 confirm_task_body="$(jq -r '.[0].body // ""' <<< "$confirm_task_matches")"
                 set +e
-                confirm_binding="$(node "$helper" validate-state-args "$(printf '%s' "$packet" | base64 -w0)" "$(printf '%s' "$confirm_task_body" | base64 -w0)" "$PR_NUMBER" "$reserved_run" 2>/dev/null)"
+                confirm_binding="$(validate_canonical_task_state "$confirm_task_body" "$PR_NUMBER" "$reserved_run" 2>/dev/null)"
                 confirm_binding_status=$?
                 set -e
                 if [ "$confirm_binding_status" -ne 0 ] || [ "$(jq -r '.ok == true' <<< "${confirm_binding:-{}}" 2>/dev/null || echo false)" != "true" ]; then
@@ -593,9 +605,21 @@ jobs:
             fi
             comment_id="$(jq -r '.[0].id' <<< "$task_matches")"
             current_body="$(jq -r '.[0].body // ""' <<< "$task_matches")"
+            validate_canonical_task_state() {
+              local body_value="$1" expected_pr="$2" expected_run="$3"
+              local packet_file body_file status
+              packet_file="$(mktemp)"
+              body_file="$(mktemp)"
+              printf '%s' "$packet" > "$packet_file"
+              printf '%s' "$body_value" > "$body_file"
+              node "$helper" validate-state-files "$packet_file" "$body_file" "$expected_pr" "$expected_run"
+              status=$?
+              rm -f "$packet_file" "$body_file"
+              return "$status"
+            }
             binding_error="$(mktemp)"
             set +e
-            binding="$(node "$helper" validate-state-args "$(printf '%s' "$packet" | base64 -w0)" "$(printf '%s' "$current_body" | base64 -w0)" "$pr_number" "$reserved_run" 2>"$binding_error")"
+            binding="$(validate_canonical_task_state "$current_body" "$pr_number" "$reserved_run" 2>"$binding_error")"
             binding_status=$?
             set -e
             if [ "$binding_status" -ne 0 ] || [ "$(jq -r '.ok == true' <<< "${binding:-{}}" 2>/dev/null || echo false)" != "true" ]; then
@@ -640,7 +664,7 @@ jobs:
             fi
             confirm_task_body="$(jq -r '.[0].body // ""' <<< "$confirm_task_matches")"
             set +e
-            confirm_binding="$(node "$helper" validate-state-args "$(printf '%s' "$packet" | base64 -w0)" "$(printf '%s' "$confirm_task_body" | base64 -w0)" "$pr_number" "$reserved_run" 2>/dev/null)"
+            confirm_binding="$(validate_canonical_task_state "$confirm_task_body" "$pr_number" "$reserved_run" 2>/dev/null)"
             confirm_binding_status=$?
             set -e
             if [ "$confirm_binding_status" -ne 0 ] || [ "$(jq -r '.ok == true' <<< "${confirm_binding:-{}}" 2>/dev/null || echo false)" != "true" ]; then
