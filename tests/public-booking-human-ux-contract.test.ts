@@ -312,7 +312,7 @@ describe("public booking human-designed UX contract", () => {
     const anchors = findElements(tree, (element) => element.type === "a").map((element) => element.props.href);
     const forms = findElements(tree, (element) => element.type === "form");
 
-    expect(anchors).toContain(`/boka/verifiera/${verificationId}?channel=sms`);
+    expect(anchors).toContain(`/boka/verifiera/${verificationId}?lang=sv&channel=sms`);
     expect(anchors).toContain(`/boka/verifiera/${verificationId}?lang=en&channel=sms`);
 
     const verifyAction = forms[0].props.action as (formData: FormData) => Promise<void>;
@@ -390,7 +390,7 @@ describe("public booking human-designed UX contract", () => {
     const forms = findElements(tree, (element) => element.type === "form");
 
     expect(markup).toContain('lang="sv"');
-    expect(anchors.map((element) => element.props.href)).toEqual([`/boka/verifiera/${verificationId}?channel=sms`]);
+    expect(anchors.map((element) => element.props.href)).toEqual([`/boka/verifiera/${verificationId}?lang=sv&channel=sms`]);
 
     const verifyData = new FormData();
     verifyData.set("id", verificationId);
@@ -422,6 +422,6 @@ describe("public booking human-designed UX contract", () => {
 
     expect(markup).toContain('lang="sv"');
     expect(markup).toContain('--booking-primary:#17452f');
-    expect(anchors.map((element) => element.props.href)).toEqual([`/boka/verifiera/${verificationId}?channel=email`]);
+    expect(anchors.map((element) => element.props.href)).toEqual([`/boka/verifiera/${verificationId}?lang=sv&channel=email`]);
   });
 });
