@@ -51,5 +51,7 @@ describe("booking change email locale", () => {
     expect(body.subject).toContain(subject);
     expect(body.textContent).toContain(content);
     expect(body.textContent).toContain(`?lang=${language}`);
+    expect(body.htmlContent).toContain("Nordic Fix AB");
+    expect(body.htmlContent).not.toContain("PrimeView");
   });
 });
