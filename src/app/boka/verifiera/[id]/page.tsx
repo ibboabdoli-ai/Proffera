@@ -44,7 +44,7 @@ function first(value: string | string[] | undefined) { return Array.isArray(valu
 function channelSuffix(channel: string) { return channel ? `&channel=${encodeURIComponent(channel)}` : ""; }
 function verificationHref(id: string, locale: Locale, channel: string) {
   const query = new URLSearchParams();
-  if (locale === "en") query.set("lang", "en");
+  query.set("lang", locale);
   if (channel) query.set("channel", channel);
   const suffix = query.toString();
   return `/boka/verifiera/${id}${suffix ? `?${suffix}` : ""}`;
@@ -90,7 +90,7 @@ async function verify(formData: FormData) {
   const locale = resolvePublicBusinessLocale(experience, String(formData.get("lang") ?? ""));
   const channel = String(formData.get("channel") ?? "");
   const result = await verifyPublicBookingCode(id, code);
-  if (!result.ok) redirect(`/boka/verifiera/${id}?error=${result.error}${locale === "en" ? "&lang=en" : ""}${channelSuffix(channel)}`);
+  if (!result.ok) redirect(`/boka/verifiera/${id}?error=${result.error}&lang=${locale}${channelSuffix(channel)}`);
   redirect(publicBookingSuccessRedirect(result.slug, locale));
 }
 
@@ -100,8 +100,8 @@ async function resend(formData: FormData) {
   const experience = await getVerificationExperience(id);
   const locale = resolvePublicBusinessLocale(experience, String(formData.get("lang") ?? ""));
   const result = await resendPublicBookingCode(id, locale);
-  if (!result.ok) redirect(`/boka/verifiera/${id}?error=${result.error}${locale === "en" ? "&lang=en" : ""}`);
-  redirect(`/boka/verifiera/${id}?resent=1${locale === "en" ? "&lang=en" : ""}&channel=${encodeURIComponent(result.delivery)}`);
+  if (!result.ok) redirect(`/boka/verifiera/${id}?error=${result.error}&lang=${locale}`);
+  redirect(`/boka/verifiera/${id}?resent=1&lang=${locale}&channel=${encodeURIComponent(result.delivery)}`);
 }
 
 export default async function VerifyBookingPage({ params, searchParams }: PageProps) {
