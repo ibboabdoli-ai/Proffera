@@ -1977,7 +1977,7 @@ jobs:
           fi
 
           payload_b64="$(printf '%s' "$payload" | base64 -w0)"
-          new_body="$(printf '%s\n' "<!-- proffera-worker-slot-reservation:${TASK_ID} -->" "### Worker slot reservation: ${TASK_ID}" "- State: `${label}`" "- Reservation payload: `${payload_b64}`")"
+          new_body="$(printf '%s\n' "<!-- proffera-worker-slot-reservation:${TASK_ID} -->" "### Worker slot reservation: ${TASK_ID}" "- State: \`${label}\`" "- Reservation payload: \`${payload_b64}\`")"
           test "$(gh api "repos/${REPOSITORY}/issues/comments/${RESERVATION_COMMENT_ID}" --jq '.body // ""')" = "$reservation_body"
           gh api --method PATCH "repos/${REPOSITORY}/issues/comments/${RESERVATION_COMMENT_ID}" -f body="$new_body" >/dev/null
 
