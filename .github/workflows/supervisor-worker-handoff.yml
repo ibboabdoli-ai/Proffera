@@ -751,6 +751,11 @@ jobs:
       cancel-in-progress: false
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    outputs:
+      reservation_comment_id: ${{ steps.reserve.outputs.reservation_comment_id }}
+      capacity_blocked: ${{ steps.reserve.outputs.capacity_blocked }}
+      candidate_ready: ${{ steps.capture_candidate.outputs.ready }}
+      candidate_patch_sha256: ${{ steps.capture_candidate.outputs.patch_sha256 }}
     permissions:
       actions: read
       contents: read
@@ -1011,6 +1016,153 @@ jobs:
 
             Do not commit, push, open/approve/merge a PR, enable auto-merge, apply ibbo-approved, deploy, mutate Production, access Production databases/providers, rotate/configure secrets, or perform outreach. Do not install new packages. You may inspect the checked-out repository and run already-installed targeted checks. If the task cannot be completed safely within its exact scope, leave the checkout unchanged and explain the blocker.
 
+      - name: Capture untrusted Worker candidate patch
+        id: capture_candidate
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -f "$RUNNER_TEMP/proffera-task-packet.json"
+          git add --all --intent-to-add
+          if git diff --quiet HEAD; then
+            echo "Worker produced no repository change." >&2
+            exit 1
+          fi
+          git diff --check HEAD
+          artifact_dir="$RUNNER_TEMP/proffera-worker-candidate"
+          rm -rf "$artifact_dir"
+          mkdir -p "$artifact_dir"
+          patch="$artifact_dir/worker.patch"
+          git diff --binary --full-index HEAD > "$patch"
+          test -s "$patch"
+          patch_sha256="$(sha256sum "$patch" | cut -d' ' -f1)"
+          printf '%s  %s\n' "$patch_sha256" "worker.patch" > "$artifact_dir/worker.patch.sha256"
+          echo "ready=yes" >> "$GITHUB_OUTPUT"
+          echo "patch_sha256=$patch_sha256" >> "$GITHUB_OUTPUT"
+
+      - name: Upload exact Worker candidate patch
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: proffera-worker-candidate-${{ github.run_id }}-${{ needs.preflight.outputs.task_id }}
+          path: ${{ runner.temp }}/proffera-worker-candidate
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 0
+          overwrite: false
+
+      - name: Run full pre-publish validation for sensitive dispatch path
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm run lint
+          npm run typecheck
+          npm test
+          npm run build
+          git diff --check HEAD
+
+      - name: Confirm validated Worker tree matches uploaded candidate
+        env:
+          EXPECTED_PATCH_SHA256: ${{ steps.capture_candidate.outputs.patch_sha256 }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          git add --all --intent-to-add
+          current_patch="$(mktemp)"
+          git diff --binary --full-index HEAD > "$current_patch"
+          current_sha256="$(sha256sum "$current_patch" | cut -d' ' -f1)"
+          test "$current_sha256" = "$EXPECTED_PATCH_SHA256"
+          git diff --check HEAD
+
+  publish:
+    name: Verify and publish bounded Worker result
+    needs: [preflight, dispatch]
+    if: always() && needs.preflight.outputs.proceed == 'yes'
+    concurrency:
+      group: proffera-worker-task-state-${{ needs.preflight.outputs.branch }}
+      cancel-in-progress: false
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    permissions:
+      actions: read
+      contents: read
+      issues: write
+      pull-requests: read
+
+    steps:
+      - name: Checkout exact Task Packet baseline for trusted publication
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ needs.preflight.outputs.base_sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Setup Node for trusted publication
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 22
+
+      - name: Materialize trusted publication helper in isolated job
+        env:
+          BASE_SHA: ${{ needs.preflight.outputs.base_sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          source_helper="scripts/supervisor-worker-handoff.mjs"
+          trusted_dir="$RUNNER_TEMP/proffera-trusted-publish"
+          trusted_helper="$trusted_dir/supervisor-worker-handoff.mjs"
+          trusted_manifest="$trusted_dir/supervisor-worker-handoff.sha256"
+          test "$(git rev-parse HEAD)" = "$BASE_SHA"
+          expected_blob="$(git rev-parse "${BASE_SHA}:scripts/supervisor-worker-handoff.mjs")"
+          test -f "$source_helper"
+          rm -rf "$trusted_dir"
+          mkdir -p "$trusted_dir"
+          cp -- "$source_helper" "$trusted_helper"
+          test "$(git hash-object "$trusted_helper")" = "$expected_blob"
+          sha256sum "$trusted_helper" > "$trusted_manifest"
+          chmod 0444 "$trusted_helper" "$trusted_manifest"
+          chmod 0555 "$trusted_dir"
+          sha256sum --check --status "$trusted_manifest"
+          node --check "$trusted_helper"
+
+      - name: Refuse failed or unvalidated Worker candidate
+        if: needs.dispatch.result != 'success' || needs.dispatch.outputs.candidate_ready != 'yes'
+        shell: bash
+        run: |
+          echo "Builder job did not produce one fully validated candidate patch; trusted publication is refused." >&2
+          exit 1
+
+      - name: Download exact Worker candidate patch
+        if: needs.dispatch.result == 'success' && needs.dispatch.outputs.candidate_ready == 'yes'
+        uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5
+        with:
+          name: proffera-worker-candidate-${{ github.run_id }}-${{ needs.preflight.outputs.task_id }}
+          path: ${{ runner.temp }}/proffera-worker-candidate
+
+      - name: Verify Worker candidate artifact integrity
+        if: needs.dispatch.result == 'success' && needs.dispatch.outputs.candidate_ready == 'yes'
+        env:
+          EXPECTED_PATCH_SHA256: ${{ needs.dispatch.outputs.candidate_patch_sha256 }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          artifact_dir="$RUNNER_TEMP/proffera-worker-candidate"
+          patch="$artifact_dir/worker.patch"
+          test -s "$patch"
+          test -s "$artifact_dir/worker.patch.sha256"
+          (cd "$artifact_dir" && sha256sum --check --status worker.patch.sha256)
+          actual_sha256="$(sha256sum "$patch" | cut -d' ' -f1)"
+          test -n "$EXPECTED_PATCH_SHA256"
+          test "$actual_sha256" = "$EXPECTED_PATCH_SHA256"
+
+      - name: Apply Worker candidate without executing PR-controlled code
+        if: needs.dispatch.result == 'success' && needs.dispatch.outputs.candidate_ready == 'yes'
+        shell: bash
+        run: |
+          set -euo pipefail
+          patch="$RUNNER_TEMP/proffera-worker-candidate/worker.patch"
+          git apply --check --binary "$patch"
+          git apply --binary "$patch"
+          git add --all --intent-to-add
+          git diff --check HEAD
       - name: Verify Worker diff is nonempty and packet-bounded with immutable helper
         id: verify_diff
         env:
@@ -1018,8 +1170,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          helper="$RUNNER_TEMP/proffera-trusted-control/supervisor-worker-handoff.mjs"
-          manifest="$RUNNER_TEMP/proffera-trusted-control/supervisor-worker-handoff.sha256"
+          helper="$RUNNER_TEMP/proffera-trusted-publish/supervisor-worker-handoff.mjs"
+          manifest="$RUNNER_TEMP/proffera-trusted-publish/supervisor-worker-handoff.sha256"
           test -f "$helper" -a -f "$manifest"
           sha256sum --check --status "$manifest"
           rm -f "$RUNNER_TEMP/proffera-task-packet.json"
@@ -1037,16 +1189,6 @@ jobs:
           git diff --check HEAD
           printf '%s\n' "$changed_files"
 
-      - name: Run full pre-publish validation for sensitive dispatch path
-        shell: bash
-        run: |
-          set -euo pipefail
-          npm run lint
-          npm run typecheck
-          npm test
-          npm run build
-          git diff --check HEAD
-
       - name: Reconcile live state again immediately before publication
         env:
           GH_TOKEN: ${{ github.token }}
@@ -1062,8 +1204,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          helper="$RUNNER_TEMP/proffera-trusted-control/supervisor-worker-handoff.mjs"
-          manifest="$RUNNER_TEMP/proffera-trusted-control/supervisor-worker-handoff.sha256"
+          helper="$RUNNER_TEMP/proffera-trusted-publish/supervisor-worker-handoff.mjs"
+          manifest="$RUNNER_TEMP/proffera-trusted-publish/supervisor-worker-handoff.sha256"
           test -f "$helper" -a -f "$manifest"
           sha256sum --check --status "$manifest"
           packet="$(printf '%s' "$PACKET_B64" | base64 --decode)"
@@ -1166,8 +1308,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          helper="$RUNNER_TEMP/proffera-trusted-control/supervisor-worker-handoff.mjs"
-          manifest="$RUNNER_TEMP/proffera-trusted-control/supervisor-worker-handoff.sha256"
+          helper="$RUNNER_TEMP/proffera-trusted-publish/supervisor-worker-handoff.mjs"
+          manifest="$RUNNER_TEMP/proffera-trusted-publish/supervisor-worker-handoff.sha256"
           test -f "$helper" -a -f "$manifest"
           sha256sum --check --status "$manifest"
           packet="$(printf '%s' "$PACKET_B64" | base64 --decode)"
@@ -1181,15 +1323,15 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           REPOSITORY: ${{ github.repository }}
-          RESERVATION_COMMENT_ID: ${{ steps.reserve.outputs.reservation_comment_id }}
+          RESERVATION_COMMENT_ID: ${{ needs.dispatch.outputs.reservation_comment_id }}
           PACKET_B64: ${{ needs.preflight.outputs.packet_b64 }}
           BASE_SHA: ${{ needs.preflight.outputs.base_sha }}
           RUN_ID: ${{ github.run_id }}
         shell: bash
         run: |
           set -euo pipefail
-          helper="$RUNNER_TEMP/proffera-trusted-control/supervisor-worker-handoff.mjs"
-          manifest="$RUNNER_TEMP/proffera-trusted-control/supervisor-worker-handoff.sha256"
+          helper="$RUNNER_TEMP/proffera-trusted-publish/supervisor-worker-handoff.mjs"
+          manifest="$RUNNER_TEMP/proffera-trusted-publish/supervisor-worker-handoff.sha256"
           test -f "$helper" -a -f "$manifest"
           sha256sum --check --status "$manifest"
           test -n "$RESERVATION_COMMENT_ID"
@@ -1260,7 +1402,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          helper="$RUNNER_TEMP/proffera-trusted-control/supervisor-worker-handoff.mjs"
+          helper="$RUNNER_TEMP/proffera-trusted-publish/supervisor-worker-handoff.mjs"
           artifact="$RUNNER_TEMP/proffera-publication-artifact.json"
           pr_body_file="$RUNNER_TEMP/proffera-worker-pr-body.md"
           packet="$(printf '%s' "$PACKET_B64" | base64 --decode)"
@@ -1307,7 +1449,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           REPOSITORY: ${{ github.repository }}
-          RESERVATION_COMMENT_ID: ${{ steps.reserve.outputs.reservation_comment_id }}
+          RESERVATION_COMMENT_ID: ${{ needs.dispatch.outputs.reservation_comment_id }}
           TASK_ID: ${{ needs.preflight.outputs.task_id }}
           RUN_ID: ${{ github.run_id }}
           PR_NUMBER: ${{ steps.publish.outputs.pr_number }}
@@ -1362,7 +1504,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           REPOSITORY: ${{ github.repository }}
-          RESERVATION_COMMENT_ID: ${{ steps.reserve.outputs.reservation_comment_id }}
+          RESERVATION_COMMENT_ID: ${{ needs.dispatch.outputs.reservation_comment_id }}
           TASK_ID: ${{ needs.preflight.outputs.task_id }}
           RUN_ID: ${{ github.run_id }}
           HEAD_SHA: ${{ steps.publish.outputs.head_sha }}
@@ -1482,8 +1624,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          helper="$RUNNER_TEMP/proffera-trusted-control/supervisor-worker-handoff.mjs"
-          manifest="$RUNNER_TEMP/proffera-trusted-control/supervisor-worker-handoff.sha256"
+          helper="$RUNNER_TEMP/proffera-trusted-publish/supervisor-worker-handoff.mjs"
+          manifest="$RUNNER_TEMP/proffera-trusted-publish/supervisor-worker-handoff.sha256"
           test -f "$helper" -a -f "$manifest"
           sha256sum --check --status "$manifest"
           control_input="$(jq -cn --arg repository "$REPOSITORY" --arg run_id "$RUN_ID" '{repository:$repository,run_id:$run_id}')"
@@ -1517,8 +1659,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          helper="$RUNNER_TEMP/proffera-trusted-control/supervisor-worker-handoff.mjs"
-          manifest="$RUNNER_TEMP/proffera-trusted-control/supervisor-worker-handoff.sha256"
+          helper="$RUNNER_TEMP/proffera-trusted-publish/supervisor-worker-handoff.mjs"
+          manifest="$RUNNER_TEMP/proffera-trusted-publish/supervisor-worker-handoff.sha256"
           test -f "$helper" -a -f "$manifest"
           sha256sum --check --status "$manifest"
           packet="$(printf '%s' "$PACKET_B64" | base64 --decode)"
@@ -1535,13 +1677,13 @@ jobs:
           PACKET_B64: ${{ needs.preflight.outputs.packet_b64 }}
           STATE_COMMENT_ID: ${{ needs.preflight.outputs.state_comment_id }}
           RUN_ID: ${{ github.run_id }}
-          CAPACITY_BLOCKED: ${{ steps.reserve.outputs.capacity_blocked }}
-          RESERVATION_COMMENT_ID: ${{ steps.reserve.outputs.reservation_comment_id }}
+          CAPACITY_BLOCKED: ${{ needs.dispatch.outputs.capacity_blocked }}
+          RESERVATION_COMMENT_ID: ${{ needs.dispatch.outputs.reservation_comment_id }}
         shell: bash
         run: |
           set -euo pipefail
-          helper="$RUNNER_TEMP/proffera-trusted-control/supervisor-worker-handoff.mjs"
-          manifest="$RUNNER_TEMP/proffera-trusted-control/supervisor-worker-handoff.sha256"
+          helper="$RUNNER_TEMP/proffera-trusted-publish/supervisor-worker-handoff.mjs"
+          manifest="$RUNNER_TEMP/proffera-trusted-publish/supervisor-worker-handoff.sha256"
           test -f "$helper" -a -f "$manifest"
           sha256sum --check --status "$manifest"
           packet="$(printf '%s' "$PACKET_B64" | base64 --decode)"
@@ -1560,11 +1702,11 @@ jobs:
           gh api --method PATCH "repos/${REPOSITORY}/issues/comments/${STATE_COMMENT_ID}" -f body="$state_body" >/dev/null || true
 
       - name: Release or recover reservation on dispatch failure
-        if: failure() && steps.reserve.outputs.reservation_comment_id != ''
+        if: failure() && needs.dispatch.outputs.reservation_comment_id != ''
         env:
           GH_TOKEN: ${{ github.token }}
           REPOSITORY: ${{ github.repository }}
-          RESERVATION_COMMENT_ID: ${{ steps.reserve.outputs.reservation_comment_id }}
+          RESERVATION_COMMENT_ID: ${{ needs.dispatch.outputs.reservation_comment_id }}
           STATE_COMMENT_ID: ${{ needs.preflight.outputs.state_comment_id }}
           TASK_ID: ${{ needs.preflight.outputs.task_id }}
           BRANCH: ${{ needs.preflight.outputs.branch }}
@@ -1576,7 +1718,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          helper="$RUNNER_TEMP/proffera-trusted-control/supervisor-worker-handoff.mjs"
+          helper="$RUNNER_TEMP/proffera-trusted-publish/supervisor-worker-handoff.mjs"
           comment="$(gh api "repos/${REPOSITORY}/issues/comments/${RESERVATION_COMMENT_ID}" 2>/dev/null || true)"
           [ -z "$comment" ] && exit 0
           body="$(jq -r '.body // ""' <<< "$comment")"

@@ -22,6 +22,7 @@ describe("Supervisor control-plane v2", () => {
     const routerHeader = router.slice(0, router.indexOf("jobs:"));
     expect(routerHeader).toContain("cancel-in-progress: false");
     expect(routerHeader).not.toContain("cancel-in-progress: true");
+    expect(routerHeader).toContain("github.event.comment.id");
 
     expect(wakeup).not.toContain("issue_comment:");
     expect(wakeup).not.toContain("pull_request_review:");
@@ -99,6 +100,22 @@ describe("Supervisor control-plane v2", () => {
     expect(helper).toContain("plannerPacketFromReservationEvidence");
   });
 
+  it("isolates Worker candidate execution from trusted publication", () => {
+    const handoff = source(".github/workflows/supervisor-worker-handoff.yml");
+    const dispatchStart = handoff.indexOf("  dispatch:");
+    const publishStart = handoff.indexOf("  publish:");
+    const builder = handoff.slice(dispatchStart, publishStart);
+    const publish = handoff.slice(publishStart);
+    expect(builder).toContain("Capture untrusted Worker candidate patch");
+    expect(builder).toContain("actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02");
+    expect(builder).not.toContain("PROFFERA_AUTOFIX_PUSH_TOKEN");
+    expect(publish).toContain("Materialize trusted publication helper in isolated job");
+    expect(publish).toContain("actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0");
+    expect(publish).toContain("validate-changes");
+    expect(publish).toContain("PROFFERA_AUTOFIX_PUSH_TOKEN");
+    expect(publish).not.toContain("npm test");
+    expect(publish.indexOf("validate-changes")).toBeLessThan(publish.indexOf("PROFFERA_AUTOFIX_PUSH_TOKEN"));
+  });
   it("isolates trusted review-repair publication from untrusted model and repository execution", () => {
     const repair = source(".github/workflows/supervisor-review-repair.yml");
 

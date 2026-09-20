@@ -2731,20 +2731,28 @@ esac
     expect(readFileSync(ghLog, "utf8")).not.toContain("proffera-worker-supervisor-event");
   });
 
-  it("materializes an immutable helper before Codex and never executes the Worker checkout helper afterward", () => {
+  it("isolates Worker authorization and publication from the untrusted Builder job", () => {
     const workflow = source(".github/workflows/supervisor-worker-handoff.yml");
-    const materialize = workflow.indexOf("Materialize immutable trusted handoff helper outside Worker workspace");
-    const codex = workflow.indexOf("Run one bounded implementation Worker");
-    const postWorker = workflow.slice(workflow.indexOf("Verify Worker diff", codex));
-    expect(materialize).toBeGreaterThan(0);
-    expect(materialize).toBeLessThan(codex);
-    expect(workflow.slice(materialize, codex)).toContain("$RUNNER_TEMP/proffera-trusted-control");
-    expect(workflow.slice(materialize, codex)).toContain("sha256sum --check --status");
-    expect(postWorker).not.toContain('helper="scripts/supervisor-worker-handoff.mjs"');
-    expect(postWorker).toContain('helper="$RUNNER_TEMP/proffera-trusted-control/supervisor-worker-handoff.mjs"');
-    expect(postWorker).toContain("sha256sum --check --status");
+    const dispatchStart = workflow.indexOf("  dispatch:");
+    const publishStart = workflow.indexOf("  publish:");
+    expect(dispatchStart).toBeGreaterThan(0);
+    expect(publishStart).toBeGreaterThan(dispatchStart);
+    const builder = workflow.slice(dispatchStart, publishStart);
+    const publish = workflow.slice(publishStart);
+    expect(builder).toContain("Run one bounded implementation Worker");
+    expect(builder).toContain("Capture untrusted Worker candidate patch");
+    expect(builder).toContain("Upload exact Worker candidate patch");
+    expect(builder).toContain("Run full pre-publish validation for sensitive dispatch path");
+    expect(builder).not.toContain("PROFFERA_AUTOFIX_PUSH_TOKEN");
+    expect(builder).not.toContain("Verify Worker diff is nonempty and packet-bounded with immutable helper");
+    expect(publish).toContain("Materialize trusted publication helper in isolated job");
+    expect(publish).toContain("actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0");
+    expect(publish).toContain("Verify Worker diff is nonempty and packet-bounded with immutable helper");
+    expect(publish).toContain("PROFFERA_AUTOFIX_PUSH_TOKEN");
+    expect(publish).not.toContain("npm test");
+    expect(publish).not.toContain("npm run build");
+    expect(publish.indexOf("validate-changes")).toBeLessThan(publish.indexOf("PROFFERA_AUTOFIX_PUSH_TOKEN"));
   });
-
   it("Worker tampering with the repository helper cannot change trusted post-Worker validation", () => {
     const dir = mkdtempSync(join(tmpdir(), "proffera-handoff-trust-"));
     const trusted = join(dir, "trusted-helper.mjs");
@@ -2772,7 +2780,7 @@ esac
     const root = mkdtempSync(join(tmpdir(), "proffera-handoff-step-"));
     const repo = join(root, "repo");
     const runnerTemp = join(root, "runner");
-    const trustedDir = join(runnerTemp, "proffera-trusted-control");
+    const trustedDir = join(runnerTemp, "proffera-trusted-publish");
     const repoHelper = join(repo, "scripts", "supervisor-worker-handoff.mjs");
     const trustedHelper = join(trustedDir, "supervisor-worker-handoff.mjs");
     const manifest = join(trustedDir, "supervisor-worker-handoff.sha256");
@@ -2812,7 +2820,7 @@ esac
     });
     expect(result.status).not.toBe(0);
     expect(result.stderr).toContain("hard-blocked path 'scripts/supervisor-worker-handoff.mjs'");
-    expect(verifyScript).toContain('helper="$RUNNER_TEMP/proffera-trusted-control/supervisor-worker-handoff.mjs"');
+    expect(verifyScript).toContain('helper="$RUNNER_TEMP/proffera-trusted-publish/supervisor-worker-handoff.mjs"');
     expect(verifyScript).toContain("sha256sum --check --status");
   });
 
