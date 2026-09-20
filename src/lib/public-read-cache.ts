@@ -19,7 +19,7 @@ const PUBLIC_BUSINESS_SITEMAP_REVALIDATE_SECONDS = 30 * 60;
 
 const readCachedPublishedDirectoryLocationSuggestions = unstable_cache(
   async (limit: number) => getPublishedDirectoryLocationSuggestions(limit),
-  ["public-directory-location-suggestions-v3"],
+  ["public-directory-location-suggestions-v4"],
   {
     revalidate: LOCATION_SUGGESTIONS_REVALIDATE_SECONDS,
     tags: [PUBLIC_DIRECTORY_LOCATION_SUGGESTIONS_CACHE_TAG],
@@ -28,7 +28,7 @@ const readCachedPublishedDirectoryLocationSuggestions = unstable_cache(
 
 const readCachedMarketplaceHomeCompanies = unstable_cache(
   async (limit: number) => searchPublishedBusinessProfiles({ limit, sort: "recommended" }),
-  ["marketplace-home-companies-v2"],
+  ["marketplace-home-companies-v3"],
   {
     revalidate: MARKETPLACE_HOME_COMPANIES_REVALIDATE_SECONDS,
     tags: [MARKETPLACE_HOME_COMPANIES_CACHE_TAG],
