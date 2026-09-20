@@ -6,7 +6,7 @@ import { CalendarClock, Clock3, UserRound } from "lucide-react";
 
 import { readableBookingTextColor } from "@/lib/booking-theme-contract";
 import { getRescheduleBooking, rescheduleCustomerBooking } from "@/lib/customer-booking-reschedule";
-import { getCustomerPortalPresentation, type CustomerPortalLanguage } from "@/lib/customer-portal-language";
+import { getCustomerPortalPresentation, resolveCustomerPortalLanguage, type CustomerPortalLanguage } from "@/lib/customer-portal-language";
 import { getAvailableRescheduleSlots, getUpcomingRescheduleDays } from "@/lib/customer-reschedule-slots";
 import { isPrimeViewHost } from "@/lib/public-site-domains";
 import styles from "../../../customer-portal.module.css";
@@ -35,14 +35,6 @@ const errorsEn: Record<string, string> = {
 
 function first(value: string | string[] | undefined) {
   return Array.isArray(value) ? value[0] : value;
-}
-
-function resolveLanguage(requested: string | undefined, presentation: Awaited<ReturnType<typeof getCustomerPortalPresentation>>): CustomerPortalLanguage {
-  if (requested === "en" && presentation?.englishEnabled) return "en";
-  if (requested === "sv" && presentation?.swedishEnabled) return "sv";
-  if (presentation?.defaultLanguage === "en" && presentation.englishEnabled) return "en";
-  if (presentation?.swedishEnabled !== false) return "sv";
-  return "en";
 }
 
 function formatDate(value: string, timeZone: string, isEnglish: boolean) {
@@ -74,7 +66,7 @@ export default async function ReschedulePage({ params, searchParams }: PageProps
     getCustomerPortalPresentation(token),
     headers(),
   ]);
-  const language = resolveLanguage(first(query?.lang), presentation);
+  const language = resolveCustomerPortalLanguage(first(query?.lang), presentation);
   const isEnglish = language === "en";
   const isPrimeView = presentation?.publicBookingSlug === "primeview";
 
