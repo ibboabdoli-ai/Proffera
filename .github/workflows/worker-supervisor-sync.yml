@@ -266,7 +266,7 @@ jobs:
                 binding="$(validate_canonical_task_state "$current_body" "$PR_NUMBER" "$reserved_run" 2>"$binding_error")"
                 binding_status=$?
                 set -e
-                if [ "$binding_status" -ne 0 ] || [ "$(jq -r '.ok == true' <<< "${binding:-{}}" 2>/dev/null || echo false)" != "true" ]; then
+                if [ "$binding_status" -ne 0 ] || ! jq -e '.ok == true' >/dev/null 2>&1 <<< "${binding:-}"; then
                   echo "Closed Worker PR canonical task-state binding is invalid; no mutation performed: $(tr '\n' ' ' < "$binding_error" | head -c 300)"
                   return 0
                 fi
@@ -311,7 +311,7 @@ jobs:
                 confirm_binding="$(validate_canonical_task_state "$confirm_task_body" "$PR_NUMBER" "$reserved_run" 2>/dev/null)"
                 confirm_binding_status=$?
                 set -e
-                if [ "$confirm_binding_status" -ne 0 ] || [ "$(jq -r '.ok == true' <<< "${confirm_binding:-{}}" 2>/dev/null || echo false)" != "true" ]; then
+                if [ "$confirm_binding_status" -ne 0 ] || ! jq -e '.ok == true' >/dev/null 2>&1 <<< "${confirm_binding:-}"; then
                   echo "Canonical task-state binding changed before closed-PR mutation; leaving reservation and task state unchanged."
                   return 0
                 fi
@@ -622,7 +622,7 @@ jobs:
             binding="$(validate_canonical_task_state "$current_body" "$pr_number" "$reserved_run" 2>"$binding_error")"
             binding_status=$?
             set -e
-            if [ "$binding_status" -ne 0 ] || [ "$(jq -r '.ok == true' <<< "${binding:-{}}" 2>/dev/null || echo false)" != "true" ]; then
+            if [ "$binding_status" -ne 0 ] || ! jq -e '.ok == true' >/dev/null 2>&1 <<< "${binding:-}"; then
               echo "Closed Worker PR canonical task-state binding is invalid; no mutation performed: $(tr '\n' ' ' < "$binding_error" | head -c 300)"
               return 0
             fi
@@ -667,7 +667,7 @@ jobs:
             confirm_binding="$(validate_canonical_task_state "$confirm_task_body" "$pr_number" "$reserved_run" 2>/dev/null)"
             confirm_binding_status=$?
             set -e
-            if [ "$confirm_binding_status" -ne 0 ] || [ "$(jq -r '.ok == true' <<< "${confirm_binding:-{}}" 2>/dev/null || echo false)" != "true" ]; then
+            if [ "$confirm_binding_status" -ne 0 ] || ! jq -e '.ok == true' >/dev/null 2>&1 <<< "${confirm_binding:-}"; then
               echo "Canonical task-state binding changed before closed-PR mutation; leaving reservation and task state unchanged."
               return 0
             fi
