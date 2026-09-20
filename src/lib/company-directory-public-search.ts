@@ -141,7 +141,45 @@ export async function getPublishedDirectoryLocationSuggestions(limit = 50) {
         limit 1
       ) owner_location on true
       where (
-          profile.publication_status = 'published'
+          (
+            profile.publication_status = 'published'
+            and profile.organization_kind = 'juridical_person'
+            and exists (
+              select 1
+              from company_directory_official_facts published_facts
+              join company_directory_scb_enrichment published_scb
+                on published_scb.profile_id = published_facts.profile_id
+              where published_facts.profile_id = profile.id
+                and published_facts.source_payload_hash <> ''
+                and published_facts.last_synced_at >= profile.last_synced_at
+                and published_facts.deregistration_date is null
+                and coalesce(published_facts.advertising_blocked, false) = false
+                and (
+                  case
+                    when jsonb_typeof(published_facts.ongoing_procedures) = 'array'
+                      then jsonb_array_length(published_facts.ongoing_procedures)
+                    else 1
+                  end
+                ) = 0
+                and published_scb.source_payload_hash <> ''
+                and published_scb.last_synced_at >= now() - interval '7 days'
+                and published_scb.last_synced_at >= profile.last_synced_at
+                and published_scb.provenance #>> '{comparisonSnapshot,profileUpdatedToken}' = profile.updated_at::text
+                and published_scb.provenance #>> '{comparisonSnapshot,officialFactsLastSyncedToken}' = published_facts.last_synced_at::text
+                and jsonb_typeof(published_scb.conflicts) = 'array'
+                and jsonb_array_length(published_scb.conflicts) = 0
+                and jsonb_typeof(published_scb.workplaces) = 'array'
+                and jsonb_array_length(published_scb.workplaces) = 1
+                and nullif(btrim(published_scb.workplaces->0->'visitingAddress'->>'addressLine'), '') is not null
+                and nullif(btrim(published_scb.workplaces->0->'visitingAddress'->>'postalCode'), '') is not null
+                and nullif(btrim(published_scb.workplaces->0->'visitingAddress'->>'city'), '') is not null
+                and nullif(btrim(published_scb.workplaces->0->>'municipality'), '') is not null
+                and (
+                  lower(btrim(published_scb.workplaces->0->'visitingAddress'->>'city')) = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
+                  or lower(btrim(published_scb.workplaces->0->>'municipality')) = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
+                )
+            )
+          )
           or (
             profile.publication_status = 'claimed'
             and profile.claimed_workspace_id is not null
@@ -407,7 +445,45 @@ export async function searchPublishedCompanyDirectory(
           end as longitude
       ) public_coordinate
       where (
-          profile.publication_status = 'published'
+          (
+            profile.publication_status = 'published'
+            and profile.organization_kind = 'juridical_person'
+            and exists (
+              select 1
+              from company_directory_official_facts published_facts
+              join company_directory_scb_enrichment published_scb
+                on published_scb.profile_id = published_facts.profile_id
+              where published_facts.profile_id = profile.id
+                and published_facts.source_payload_hash <> ''
+                and published_facts.last_synced_at >= profile.last_synced_at
+                and published_facts.deregistration_date is null
+                and coalesce(published_facts.advertising_blocked, false) = false
+                and (
+                  case
+                    when jsonb_typeof(published_facts.ongoing_procedures) = 'array'
+                      then jsonb_array_length(published_facts.ongoing_procedures)
+                    else 1
+                  end
+                ) = 0
+                and published_scb.source_payload_hash <> ''
+                and published_scb.last_synced_at >= now() - interval '7 days'
+                and published_scb.last_synced_at >= profile.last_synced_at
+                and published_scb.provenance #>> '{comparisonSnapshot,profileUpdatedToken}' = profile.updated_at::text
+                and published_scb.provenance #>> '{comparisonSnapshot,officialFactsLastSyncedToken}' = published_facts.last_synced_at::text
+                and jsonb_typeof(published_scb.conflicts) = 'array'
+                and jsonb_array_length(published_scb.conflicts) = 0
+                and jsonb_typeof(published_scb.workplaces) = 'array'
+                and jsonb_array_length(published_scb.workplaces) = 1
+                and nullif(btrim(published_scb.workplaces->0->'visitingAddress'->>'addressLine'), '') is not null
+                and nullif(btrim(published_scb.workplaces->0->'visitingAddress'->>'postalCode'), '') is not null
+                and nullif(btrim(published_scb.workplaces->0->'visitingAddress'->>'city'), '') is not null
+                and nullif(btrim(published_scb.workplaces->0->>'municipality'), '') is not null
+                and (
+                  lower(btrim(published_scb.workplaces->0->'visitingAddress'->>'city')) = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
+                  or lower(btrim(published_scb.workplaces->0->>'municipality')) = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
+                )
+            )
+          )
           or (
             profile.publication_status = 'claimed'
             and profile.claimed_workspace_id is not null
@@ -690,7 +766,45 @@ export async function searchPublishedCompanyDirectory(
         limit 1
       ) service_area on true
       where (
-          profile.publication_status = 'published'
+          (
+            profile.publication_status = 'published'
+            and profile.organization_kind = 'juridical_person'
+            and exists (
+              select 1
+              from company_directory_official_facts published_facts
+              join company_directory_scb_enrichment published_scb
+                on published_scb.profile_id = published_facts.profile_id
+              where published_facts.profile_id = profile.id
+                and published_facts.source_payload_hash <> ''
+                and published_facts.last_synced_at >= profile.last_synced_at
+                and published_facts.deregistration_date is null
+                and coalesce(published_facts.advertising_blocked, false) = false
+                and (
+                  case
+                    when jsonb_typeof(published_facts.ongoing_procedures) = 'array'
+                      then jsonb_array_length(published_facts.ongoing_procedures)
+                    else 1
+                  end
+                ) = 0
+                and published_scb.source_payload_hash <> ''
+                and published_scb.last_synced_at >= now() - interval '7 days'
+                and published_scb.last_synced_at >= profile.last_synced_at
+                and published_scb.provenance #>> '{comparisonSnapshot,profileUpdatedToken}' = profile.updated_at::text
+                and published_scb.provenance #>> '{comparisonSnapshot,officialFactsLastSyncedToken}' = published_facts.last_synced_at::text
+                and jsonb_typeof(published_scb.conflicts) = 'array'
+                and jsonb_array_length(published_scb.conflicts) = 0
+                and jsonb_typeof(published_scb.workplaces) = 'array'
+                and jsonb_array_length(published_scb.workplaces) = 1
+                and nullif(btrim(published_scb.workplaces->0->'visitingAddress'->>'addressLine'), '') is not null
+                and nullif(btrim(published_scb.workplaces->0->'visitingAddress'->>'postalCode'), '') is not null
+                and nullif(btrim(published_scb.workplaces->0->'visitingAddress'->>'city'), '') is not null
+                and nullif(btrim(published_scb.workplaces->0->>'municipality'), '') is not null
+                and (
+                  lower(btrim(published_scb.workplaces->0->'visitingAddress'->>'city')) = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
+                  or lower(btrim(published_scb.workplaces->0->>'municipality')) = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
+                )
+            )
+          )
           or (
             profile.publication_status = 'claimed'
             and profile.claimed_workspace_id is not null
