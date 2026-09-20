@@ -1,18 +1,18 @@
-import type { Metadata } from "next";
 import { ArrowRight } from "lucide-react";
 import Link from "next/link";
 
 import { MarketingFeatures } from "@/components/marketing/marketing-features";
 import styles from "@/components/marketing/platform-marketing.module.css";
+import { createSwedishMetadata } from "@/lib/english-metadata";
 import { marketingServicePages } from "@/lib/marketing-service-pages";
 
-export const metadata: Metadata = {
-  title: {
-    absolute: "Funktioner – Företagssida, bokning, CRM och offerter | Proffera",
-  },
+export const metadata = createSwedishMetadata({
+  title: "Funktioner – Företagssida, bokning, CRM och offerter | Proffera",
   description:
     "Se hur Proffera kopplar ihop företagssida, onlinebokning, offertförfrågningar, kund-CRM, uppdrag, omdömen och analys i ett arbetsflöde.",
-};
+  swedishPath: "/tjanster",
+  englishPath: "/en/services",
+});
 
 export default function ServicesPage() {
   return (

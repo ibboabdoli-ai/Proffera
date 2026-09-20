@@ -1,17 +1,31 @@
 "use client";
 
-import { usePathname } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
+import { useEffect } from "react";
 import { Footer } from "@/components/layout/footer";
 import { Header } from "@/components/layout/header";
-import { getPublicLocale } from "@/lib/public-locale";
+import {
+  isAuthSurfacePath,
+  isRouteResolvedPublicLocalePath,
+  resolvePublicRequestLocale,
+} from "@/lib/public-locale";
 
 export function AppShell({ children }: Readonly<{ children: React.ReactNode }>) {
   const pathname = usePathname();
-  const locale = getPublicLocale(pathname);
+  const searchParams = useSearchParams();
+  const locale = resolvePublicRequestLocale(pathname, searchParams.get("lang"));
+  const authSurface = isAuthSurfacePath(pathname);
   const marketplaceHome = pathname === "/" || pathname === "/en";
   const directorySearchRoute = pathname === "/foretag/listad" || pathname === "/en/companies";
   const directoryProfileRoute = pathname?.startsWith("/foretag/listad/")
     || pathname?.startsWith("/en/companies/");
+  const routeResolvedLocale = isRouteResolvedPublicLocalePath(pathname);
+
+  useEffect(() => {
+    if (routeResolvedLocale) return;
+    document.documentElement.lang = locale === "en" ? "en" : "sv";
+  }, [locale, routeResolvedLocale]);
+
   const isStandaloneRoute = pathname?.startsWith("/admin")
     || pathname?.startsWith("/dashboard")
     || pathname?.startsWith("/demo/")
@@ -27,7 +41,7 @@ export function AppShell({ children }: Readonly<{ children: React.ReactNode }>) 
     return <main>{children}</main>;
   }
 
-  const marketplace = marketplaceHome || directorySearchRoute;
+  const marketplace = marketplaceHome || directorySearchRoute || authSurface;
 
   return (
     <>

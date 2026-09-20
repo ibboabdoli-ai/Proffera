@@ -1,13 +1,23 @@
 import type { Metadata } from "next";
-import Link from "next/link";
-
+import authStyles from "@/components/auth/auth-marketplace.module.css";
 import { PasswordResetRequestForm } from "./PasswordResetRequestForm";
 
-export const metadata: Metadata = {
-  title: "Reset password | Proffera",
-  description: "Request a secure Proffera password reset link.",
-  robots: { index: false, follow: false },
-};
+export async function generateMetadata({
+  searchParams,
+}: {
+  searchParams?: Promise<{ lang?: string | string[] }>;
+}): Promise<Metadata> {
+  const params = searchParams ? await searchParams : undefined;
+  const locale: PasswordResetLocale = first(params?.lang) === "en" ? "en" : "sv";
+
+  return {
+    title: locale === "en" ? "Reset password" : "Glömt lösenord",
+    description: locale === "en"
+      ? "Request a secure Proffera password reset link."
+      : "Begär en säker återställningslänk för ditt Proffera-konto.",
+    robots: { index: false, follow: false },
+  };
+}
 
 type PasswordResetLocale = "sv" | "en";
 
@@ -40,23 +50,25 @@ export default async function ForgotPasswordPage({
   const text = copy[locale];
 
   return (
-    <main className="relative min-h-[calc(100vh-5rem)] overflow-hidden bg-[#f7f7f4]" lang={locale}>
-      <div className="absolute inset-x-0 top-0 h-80 bg-[radial-gradient(circle_at_12%_0%,rgba(139,195,157,0.28),transparent_35%),linear-gradient(180deg,#fff_0%,#f7f7f4_100%)]" />
-      <section className="relative mx-auto flex max-w-2xl flex-col px-4 py-12 sm:px-6 lg:py-20">
-        <div className="mb-6 flex items-center gap-3 text-sm" aria-label={text.language}>
-          <span className="font-semibold text-[#5b665f]">{text.language}:</span>
-          <Link href="/glomt-losenord" className={`rounded-full px-3 py-1.5 font-semibold ${locale === "sv" ? "bg-[#17452f] text-white" : "bg-white text-[#17452f] ring-1 ring-[#d7ded5]"}`}>SV</Link>
-          <Link href="/glomt-losenord?lang=en" className={`rounded-full px-3 py-1.5 font-semibold ${locale === "en" ? "bg-[#17452f] text-white" : "bg-white text-[#17452f] ring-1 ring-[#d7ded5]"}`}>EN</Link>
-        </div>
-        <div className="rounded-[1.75rem] border border-white bg-white p-6 shadow-2xl shadow-[#17452f]/10 ring-1 ring-[#dfe5dd] sm:p-8">
-          <p className="text-xs font-bold uppercase tracking-[0.16em] text-[#17452f]">{text.eyebrow}</p>
-          <h1 className="mt-3 text-3xl font-bold tracking-[-0.03em] text-[#17201a]">{text.title}</h1>
-          <p className="mt-4 text-sm leading-7 text-[#5b665f]">{text.intro}</p>
-          <div className="mt-7">
-            <PasswordResetRequestForm locale={locale} />
+    <div className={authStyles.page} lang={locale}>
+      <section className={authStyles.shell}>
+        <div className={authStyles.single}>
+          <div className={authStyles.languageRow} aria-label={text.language}>
+            <span>{text.language}:</span>
+            <a href="/glomt-losenord" className={`${authStyles.languageLink} ${locale === "sv" ? authStyles.languageActive : ""}`} aria-current={locale === "sv" ? "page" : undefined}>SV</a>
+            <a href="/glomt-losenord?lang=en" className={`${authStyles.languageLink} ${locale === "en" ? authStyles.languageActive : ""}`} aria-current={locale === "en" ? "page" : undefined}>EN</a>
           </div>
+
+          <section className={authStyles.card}>
+            <p className={authStyles.cardEyebrow}>{text.eyebrow}</p>
+            <h1 className={authStyles.cardTitle}>{text.title}</h1>
+            <p className={authStyles.cardLead}>{text.intro}</p>
+            <div className="mt-5">
+              <PasswordResetRequestForm locale={locale} />
+            </div>
+          </section>
         </div>
       </section>
-    </main>
+    </div>
   );
 }
