@@ -334,6 +334,23 @@ function collectWritableTaskIds(comments, excludeTaskId = "") {
   );
 }
 
+function normalizePr(pr) {
+  return {
+    number: Number(pr?.number) || 0,
+    head_ref: String(pr?.head_ref ?? ""),
+    head_sha: String(pr?.head_sha ?? "").toLowerCase(),
+    base_ref: String(pr?.base_ref ?? ""),
+    head_repo: String(pr?.head_repo ?? ""),
+    author: String(pr?.author ?? ""),
+    body: String(pr?.body ?? ""),
+    files: Array.isArray(pr?.files) ? pr.files.map(String) : null,
+  };
+}
+
+function blocked(reason, packet = null, code = "blocked") {
+  return { ok: false, status: "TASK_BLOCKED", code, reason, packet };
+}
+
 export function evaluateDispatchContext(context) {
   const event = context?.event ?? {};
   if (event.repository !== EXPECTED_REPOSITORY) return blocked("repository event is not trusted", null, "wrong_repository");
