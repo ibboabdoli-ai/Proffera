@@ -14,6 +14,11 @@ permissions:
 jobs:
   plan:
     name: Select one bounded next task
+    permissions:
+      actions: read
+      contents: read
+      issues: read
+      pull-requests: read
     concurrency:
       group: proffera-supervisor-planner-plan
       cancel-in-progress: true
@@ -229,6 +234,11 @@ jobs:
   dispatch:
     name: Dispatch validated packet through trusted internal handoff
     needs: plan
+    permissions:
+      actions: read
+      contents: read
+      issues: write
+      pull-requests: read
     if: needs.plan.outputs.dispatch == 'yes'
     uses: ./.github/workflows/supervisor-worker-handoff.yml
     with:

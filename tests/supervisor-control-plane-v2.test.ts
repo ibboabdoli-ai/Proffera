@@ -104,12 +104,19 @@ describe("Supervisor control-plane v2", () => {
     const preflight = handoff.slice(preflightStart, handoffDispatchStart);
     expect(preflight).toContain("proffera-supervisor-worker-admission-${{ inputs.comment_id || inputs.planner_run_id || github.run_id }}");
     expect(preflight).toContain("cancel-in-progress: false");
+    expect(preflight).toContain("Atomically reserve writable Worker slot");
+    expect(preflight).toContain("Persist trusted Worker dispatch-start evidence");
+    expect(preflight).toContain("issues: write");
 
     const plannerHeader = planner.slice(0, planner.indexOf("jobs:"));
     expect(plannerHeader).not.toContain("concurrency:");
     const plannerJob = planner.slice(planner.indexOf("  plan:"), planner.indexOf("  dispatch:"));
     expect(plannerJob).toContain("group: proffera-supervisor-planner-plan");
     expect(plannerJob).toContain("cancel-in-progress: true");
+    expect(plannerJob).toContain("issues: read");
+    expect(plannerJob).not.toContain("issues: write");
+    const plannerDispatchJob = planner.slice(planner.indexOf("  dispatch:"));
+    expect(plannerDispatchJob).toContain("issues: write");
   });
 
   it("isolates Worker candidate execution from trusted publication", () => {
@@ -121,6 +128,11 @@ describe("Supervisor control-plane v2", () => {
     expect(builder).toContain("Capture untrusted Worker candidate patch");
     expect(builder).toContain("actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02");
     expect(builder).not.toContain("PROFFERA_AUTOFIX_PUSH_TOKEN");
+    expect(builder).toContain("issues: read");
+    expect(builder).not.toContain("issues: write");
+    expect(builder).not.toContain("reservation-mutex-acquire");
+    expect(builder).not.toContain("gh api --method PATCH");
+    expect(builder).not.toContain("gh api --method POST");
     expect(publish).toContain("Materialize trusted publication helper in isolated job");
     expect(publish).toContain("actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0");
     expect(publish).toContain("validate-changes");

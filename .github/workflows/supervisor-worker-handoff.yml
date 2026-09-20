@@ -420,6 +420,8 @@ jobs:
       state_comment_id: ${{ steps.evaluate.outputs.state_comment_id }}
       source_comment_id: ${{ steps.evaluate.outputs.source_comment_id }}
       source_mode: ${{ steps.evaluate.outputs.source_mode }}
+      reservation_comment_id: ${{ steps.reserve.outputs.reservation_comment_id }}
+      capacity_blocked: ${{ steps.reserve.outputs.capacity_blocked }}
 
     steps:
       - name: Checkout trusted default-branch control logic
@@ -741,86 +743,20 @@ jobs:
           else
             echo "Task $task_id accepted for one bounded Worker dispatch."
           fi
-
-  dispatch:
-    name: Run bounded Codex Worker
-    needs: preflight
-    if: needs.preflight.outputs.proceed == 'yes'
-    concurrency:
-      group: proffera-worker-task-state-${{ needs.preflight.outputs.branch }}
-      cancel-in-progress: false
-    runs-on: ubuntu-latest
-    timeout-minutes: 45
-    outputs:
-      reservation_comment_id: ${{ steps.reserve.outputs.reservation_comment_id }}
-      capacity_blocked: ${{ steps.reserve.outputs.capacity_blocked }}
-      candidate_ready: ${{ steps.capture_candidate.outputs.ready }}
-      candidate_patch_sha256: ${{ steps.capture_candidate.outputs.patch_sha256 }}
-    permissions:
-      actions: read
-      contents: read
-      issues: write
-      pull-requests: read
-
-    steps:
-      - name: Checkout exact Task Packet baseline
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-        with:
-          ref: ${{ needs.preflight.outputs.base_sha }}
-          fetch-depth: 0
-          persist-credentials: false
-
-      - name: Setup Node
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
-        with:
-          node-version: 22
-          cache: npm
-
-      - name: Install repository dependencies
-        run: npm ci --no-audit --no-fund
-
-      - name: Materialize immutable trusted handoff helper outside Worker workspace
-        shell: bash
-        run: |
-          set -euo pipefail
-          source_helper="scripts/supervisor-worker-handoff.mjs"
-          trusted_dir="$RUNNER_TEMP/proffera-trusted-control"
-          trusted_helper="$trusted_dir/supervisor-worker-handoff.mjs"
-          trusted_manifest="$trusted_dir/supervisor-worker-handoff.sha256"
-          test -f "$source_helper"
-          rm -rf "$trusted_dir"
-          mkdir -p "$trusted_dir"
-          cp -- "$source_helper" "$trusted_helper"
-          sha256sum "$trusted_helper" > "$trusted_manifest"
-          chmod 0444 "$trusted_helper" "$trusted_manifest"
-          chmod 0555 "$trusted_dir"
-          sha256sum --check --status "$trusted_manifest"
-
-      - name: Materialize untrusted Task Packet outside repository
-        env:
-          PACKET_B64: ${{ needs.preflight.outputs.packet_b64 }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          packet_file="$RUNNER_TEMP/proffera-task-packet.json"
-          printf '%s' "$PACKET_B64" | base64 --decode > "$packet_file"
-          jq -e . "$packet_file" >/dev/null
-
       - name: Refuse duplicate Worker dispatch on workflow rerun
-        if: ${{ github.run_attempt > 1 }}
+        if: steps.evaluate.outputs.proceed == 'yes' && github.run_attempt > 1
         env:
           GH_TOKEN: ${{ github.token }}
           REPOSITORY: ${{ github.repository }}
-          PACKET_B64: ${{ needs.preflight.outputs.packet_b64 }}
+          PACKET_B64: ${{ steps.evaluate.outputs.packet_b64 }}
           STATE_COMMENT_ID: ${{ needs.preflight.outputs.state_comment_id }}
           RUN_ID: ${{ github.run_id }}
         shell: bash
         run: |
           set -euo pipefail
-          helper="$RUNNER_TEMP/proffera-trusted-control/supervisor-worker-handoff.mjs"
-          manifest="$RUNNER_TEMP/proffera-trusted-control/supervisor-worker-handoff.sha256"
-          test -f "$helper" -a -f "$manifest"
-          sha256sum --check --status "$manifest"
+          helper="scripts/supervisor-worker-handoff.mjs"
+          test -f "$helper"
+          node --check "$helper"
           test -n "$STATE_COMMENT_ID"
           packet="$(printf '%s' "$PACKET_B64" | base64 --decode)"
           task_id="$(jq -r '.task_id' <<< "$packet")"
@@ -851,14 +787,15 @@ jobs:
           fi
 
       - name: Atomically reserve writable Worker slot
+        if: steps.evaluate.outputs.proceed == 'yes'
         id: reserve
         env:
           GH_TOKEN: ${{ github.token }}
           REPOSITORY: ${{ github.repository }}
-          PACKET_B64: ${{ needs.preflight.outputs.packet_b64 }}
-          SOURCE_COMMENT_ID: ${{ needs.preflight.outputs.source_comment_id }}
-          SOURCE_MODE: ${{ needs.preflight.outputs.source_mode }}
-          BASE_SHA: ${{ needs.preflight.outputs.base_sha }}
+          PACKET_B64: ${{ steps.evaluate.outputs.packet_b64 }}
+          SOURCE_COMMENT_ID: ${{ steps.evaluate.outputs.source_comment_id }}
+          SOURCE_MODE: ${{ steps.evaluate.outputs.source_mode }}
+          BASE_SHA: ${{ steps.evaluate.outputs.base_sha }}
           RUN_ID: ${{ github.run_id }}
           PLANNER_RUN_ID: ${{ inputs.planner_run_id }}
           PLANNER_HEAD_SHA: ${{ inputs.planner_head_sha }}
@@ -867,10 +804,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          helper="$RUNNER_TEMP/proffera-trusted-control/supervisor-worker-handoff.mjs"
-          manifest="$RUNNER_TEMP/proffera-trusted-control/supervisor-worker-handoff.sha256"
-          test -f "$helper" -a -f "$manifest"
-          sha256sum --check --status "$manifest"
+          helper="scripts/supervisor-worker-handoff.mjs"
+          test -f "$helper"
+          node --check "$helper"
           packet="$(printf '%s' "$PACKET_B64" | base64 --decode)"
           internal_provenance_verified=false
           packet_digest_verified=false
@@ -977,10 +913,11 @@ jobs:
           echo "Reserved one writable Worker slot through canonical ownership admission for ${task_id}@${head_sha}."
 
       - name: Persist trusted Worker dispatch-start evidence
+        if: steps.evaluate.outputs.proceed == 'yes'
         env:
           GH_TOKEN: ${{ github.token }}
           REPOSITORY: ${{ github.repository }}
-          PACKET_B64: ${{ needs.preflight.outputs.packet_b64 }}
+          PACKET_B64: ${{ steps.evaluate.outputs.packet_b64 }}
           RUN_ID: ${{ github.run_id }}
           RUN_ATTEMPT: ${{ github.run_attempt }}
         shell: bash
@@ -997,6 +934,52 @@ jobs:
           EOF
           )"
           gh api --method POST "repos/${REPOSITORY}/issues/548/comments" -f body="$dispatch_body" >/dev/null
+
+
+  dispatch:
+    name: Run bounded Codex Worker
+    needs: preflight
+    if: needs.preflight.outputs.proceed == 'yes'
+    concurrency:
+      group: proffera-worker-task-state-${{ needs.preflight.outputs.branch }}
+      cancel-in-progress: false
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    outputs:
+      candidate_ready: ${{ steps.capture_candidate.outputs.ready }}
+      candidate_patch_sha256: ${{ steps.capture_candidate.outputs.patch_sha256 }}
+    permissions:
+      actions: read
+      contents: read
+      issues: read
+      pull-requests: read
+
+    steps:
+      - name: Checkout exact Task Packet baseline
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ needs.preflight.outputs.base_sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install repository dependencies
+        run: npm ci --no-audit --no-fund
+
+      - name: Materialize untrusted Task Packet outside repository
+        env:
+          PACKET_B64: ${{ needs.preflight.outputs.packet_b64 }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          packet_file="$RUNNER_TEMP/proffera-task-packet.json"
+          printf '%s' "$PACKET_B64" | base64 --decode > "$packet_file"
+          jq -e . "$packet_file" >/dev/null
 
       - name: Run one bounded implementation Worker
         id: codex
@@ -1323,7 +1306,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           REPOSITORY: ${{ github.repository }}
-          RESERVATION_COMMENT_ID: ${{ needs.dispatch.outputs.reservation_comment_id }}
+          RESERVATION_COMMENT_ID: ${{ needs.preflight.outputs.reservation_comment_id }}
           PACKET_B64: ${{ needs.preflight.outputs.packet_b64 }}
           BASE_SHA: ${{ needs.preflight.outputs.base_sha }}
           RUN_ID: ${{ github.run_id }}
@@ -1449,7 +1432,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           REPOSITORY: ${{ github.repository }}
-          RESERVATION_COMMENT_ID: ${{ needs.dispatch.outputs.reservation_comment_id }}
+          RESERVATION_COMMENT_ID: ${{ needs.preflight.outputs.reservation_comment_id }}
           TASK_ID: ${{ needs.preflight.outputs.task_id }}
           RUN_ID: ${{ github.run_id }}
           PR_NUMBER: ${{ steps.publish.outputs.pr_number }}
@@ -1504,7 +1487,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           REPOSITORY: ${{ github.repository }}
-          RESERVATION_COMMENT_ID: ${{ needs.dispatch.outputs.reservation_comment_id }}
+          RESERVATION_COMMENT_ID: ${{ needs.preflight.outputs.reservation_comment_id }}
           TASK_ID: ${{ needs.preflight.outputs.task_id }}
           RUN_ID: ${{ github.run_id }}
           HEAD_SHA: ${{ steps.publish.outputs.head_sha }}
@@ -1677,8 +1660,8 @@ jobs:
           PACKET_B64: ${{ needs.preflight.outputs.packet_b64 }}
           STATE_COMMENT_ID: ${{ needs.preflight.outputs.state_comment_id }}
           RUN_ID: ${{ github.run_id }}
-          CAPACITY_BLOCKED: ${{ needs.dispatch.outputs.capacity_blocked }}
-          RESERVATION_COMMENT_ID: ${{ needs.dispatch.outputs.reservation_comment_id }}
+          CAPACITY_BLOCKED: ${{ needs.preflight.outputs.capacity_blocked }}
+          RESERVATION_COMMENT_ID: ${{ needs.preflight.outputs.reservation_comment_id }}
         shell: bash
         run: |
           set -euo pipefail
@@ -1706,7 +1689,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           REPOSITORY: ${{ github.repository }}
-          RESERVATION_COMMENT_ID: ${{ needs.dispatch.outputs.reservation_comment_id }}
+          RESERVATION_COMMENT_ID: ${{ needs.preflight.outputs.reservation_comment_id }}
           STATE_COMMENT_ID: ${{ needs.preflight.outputs.state_comment_id }}
           TASK_ID: ${{ needs.preflight.outputs.task_id }}
           BRANCH: ${{ needs.preflight.outputs.branch }}

@@ -2744,6 +2744,11 @@ esac
     expect(builder).toContain("Upload exact Worker candidate patch");
     expect(builder).toContain("Run full pre-publish validation for sensitive dispatch path");
     expect(builder).not.toContain("PROFFERA_AUTOFIX_PUSH_TOKEN");
+    expect(builder).toContain("issues: read");
+    expect(builder).not.toContain("issues: write");
+    expect(builder).not.toContain("reservation-mutex-acquire");
+    expect(builder).not.toContain("gh api --method PATCH");
+    expect(builder).not.toContain("gh api --method POST");
     expect(builder).not.toContain("Verify Worker diff is nonempty and packet-bounded with immutable helper");
     expect(publish).toContain("Materialize trusted publication helper in isolated job");
     expect(publish).toContain("actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0");
