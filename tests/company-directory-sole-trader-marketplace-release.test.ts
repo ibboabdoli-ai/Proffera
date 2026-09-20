@@ -328,6 +328,7 @@ describe("sole-trader Marketplace privacy release", () => {
     const sql = vi.fn(async (strings: TemplateStringsArray) => {
       const query = queryText(strings);
       queries.push(query);
+      if (query.startsWith("with service_guard as")) return [];
       if (query.includes("select service.id::text") && query.includes("from workspace_services service")) {
         return [{
           id: SERVICE_ID,
@@ -338,7 +339,6 @@ describe("sole-trader Marketplace privacy release", () => {
           requires_privacy_release: false,
         }];
       }
-      if (query.startsWith("with service_guard as")) return [];
       return [];
     });
     mocks.getSql.mockReturnValue(sql);

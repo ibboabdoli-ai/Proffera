@@ -138,6 +138,7 @@ describe("Company Directory smart claim service suggestions", () => {
           privacy_blocked: false,
           auto_public_eligible: true,
           published_at: "2026-08-30T00:00:00.000Z",
+          has_safe_owner_service_base: true,
         }];
       }
       if (query.includes("from company_directory_claims claim")) return [];

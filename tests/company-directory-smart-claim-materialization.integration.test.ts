@@ -134,6 +134,22 @@ function postgresSql(client: Client) {
           verification_method text not null,
           requested_at timestamptz not null default now()
         );
+        create table company_directory_profile_locations (
+          id uuid primary key default gen_random_uuid(),
+          profile_id uuid not null,
+          owner_workspace_id uuid,
+          source_type text not null default 'official',
+          purpose text not null default 'registered',
+          visibility text not null default 'private',
+          is_primary boolean not null default false,
+          is_active boolean not null default true,
+          confirmed_at timestamptz,
+          geocode_source text,
+          geocode_precision text,
+          latitude double precision,
+          longitude double precision,
+          city text not null default ''
+        );
         create table company_directory_services (
           slug text primary key,
           label text not null,
@@ -177,6 +193,7 @@ function postgresSql(client: Client) {
 
       await client!.query(`
         truncate table company_directory_profile_services,
+          company_directory_profile_locations,
           company_directory_claims,
           workspace_services,
           company_directory_profiles,
