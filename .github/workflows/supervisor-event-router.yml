@@ -13,7 +13,7 @@ permissions:
   pull-requests: read
 
 concurrency:
-  group: proffera-supervisor-event-router-${{ github.event_name == 'issue_comment' && github.event.comment.id || github.event.pull_request.number || github.run_id }}
+  group: proffera-supervisor-event-router-${{ github.event_name == 'issue_comment' && github.event.comment.id || github.event.review.id || github.run_id }}
   cancel-in-progress: false
 
 jobs:

@@ -399,7 +399,7 @@ function runReservationRecovery({
   const root = mkdtempSync(join(tmpdir(), "proffera-reservation-recovery-"));
   const bin = join(root, "bin");
   const runnerTemp = join(root, "runner");
-  const trusted = join(runnerTemp, "proffera-trusted-control");
+  const trusted = join(runnerTemp, "proffera-trusted-publish");
   const log = join(root, "gh-calls.jsonl");
   const stateFile = join(root, "gh-state.json");
   mkdirSync(bin, { recursive: true });
@@ -1069,7 +1069,7 @@ function runReservationFinalization({ changedReservationBody = false } = {}) {
   const root = mkdtempSync(join(tmpdir(), "proffera-reservation-finalize-"));
   const repo = join(root, "repo");
   const bin = join(root, "bin");
-  const trusted = join(root, "proffera-trusted-control");
+  const trusted = join(root, "proffera-trusted-publish");
   const log = join(root, "gh-calls.jsonl");
   const stateFile = join(root, "gh-state.json");
   mkdirSync(join(repo, "src"), { recursive: true });
@@ -1389,7 +1389,7 @@ function runWorkerPrStateRecord(currentBody: string) {
   const script = workflowRunStep(workflow, "Record dispatched Worker PR in stable Supervisor task state");
   const root = mkdtempSync(join(tmpdir(), "proffera-worker-pr-state-"));
   const bin = join(root, "bin");
-  const trusted = join(root, "proffera-trusted-control");
+  const trusted = join(root, "proffera-trusted-publish");
   const trustedHelper = join(trusted, "supervisor-worker-handoff.mjs");
   const manifest = join(trusted, "supervisor-worker-handoff.sha256");
   const log = join(root, "gh-calls.jsonl");
@@ -1490,7 +1490,7 @@ function runDispatchFailureState({
   const script = workflowRunStep(workflow, "Fail closed into WORKER_BLOCKED on dispatch failure");
   const root = mkdtempSync(join(tmpdir(), "proffera-dispatch-failure-state-"));
   const bin = join(root, "bin");
-  const trusted = join(root, "proffera-trusted-control");
+  const trusted = join(root, "proffera-trusted-publish");
   const output = join(root, "patched-body");
   mkdirSync(bin, { recursive: true });
   mkdirSync(trusted, { recursive: true });

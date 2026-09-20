@@ -23,6 +23,7 @@ describe("Supervisor control-plane v2", () => {
     expect(routerHeader).toContain("cancel-in-progress: false");
     expect(routerHeader).not.toContain("cancel-in-progress: true");
     expect(routerHeader).toContain("github.event.comment.id");
+    expect(routerHeader).toContain("github.event.review.id");
 
     expect(wakeup).not.toContain("issue_comment:");
     expect(wakeup).not.toContain("pull_request_review:");

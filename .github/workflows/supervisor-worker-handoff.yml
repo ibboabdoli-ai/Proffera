@@ -1077,7 +1077,7 @@ jobs:
     needs: [preflight, dispatch]
     if: always() && needs.preflight.outputs.proceed == 'yes'
     concurrency:
-      group: proffera-worker-task-state-${{ needs.preflight.outputs.branch }}
+      group: proffera-worker-publication-${{ needs.preflight.outputs.branch }}
       cancel-in-progress: false
     runs-on: ubuntu-latest
     timeout-minutes: 25
