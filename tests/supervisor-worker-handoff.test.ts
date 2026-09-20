@@ -5245,6 +5245,8 @@ process.stdout.write(JSON.stringify({
         input: JSON.stringify({
           packet: scopedPacket,
           current_source_head: sourceHead,
+          expected_target_head: targetHead,
+          expected_run_id: "9001",
           artifact: { ...artifact, unified_diff: candidateDiff },
         }),
         encoding: "utf8",
@@ -5321,7 +5323,7 @@ process.stdout.write(JSON.stringify({
     expect(replacement.content).toBe(targetText);
     const validated = spawnSync(process.execPath, [helper, "validate-publication"], {
       cwd: repo,
-      input: JSON.stringify({ packet: scopedPacket, current_source_head: sourceHead, artifact }),
+      input: JSON.stringify({ packet: scopedPacket, current_source_head: sourceHead, expected_target_head: targetHead, expected_run_id: "9001", artifact }),
       encoding: "utf8",
     });
     expect(validated.status, validated.stderr).toBe(0);
@@ -5358,7 +5360,7 @@ process.stdout.write(JSON.stringify({
     expect(String(artifact.unified_diff)).not.toContain("@@ ");
     const validated = spawnSync(process.execPath, [helper, "validate-publication"], {
       cwd: repo,
-      input: JSON.stringify({ packet: scopedPacket, current_source_head: sourceHead, artifact }),
+      input: JSON.stringify({ packet: scopedPacket, current_source_head: sourceHead, expected_target_head: targetHead, expected_run_id: "9001", artifact }),
       encoding: "utf8",
     });
     expect(validated.status, validated.stderr).toBe(0);
