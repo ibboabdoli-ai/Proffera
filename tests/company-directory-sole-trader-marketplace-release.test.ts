@@ -239,5 +239,25 @@ describe("sole-trader Marketplace privacy release", () => {
     expect(sql).toHaveBeenCalledTimes(2);
     const publication = queryText(sql.mock.calls[1]![0] as TemplateStringsArray);
     expect(publication.startsWith("with service_guard as")).toBe(true);
+    expect(queryText(sql.mock.calls[0]![0] as TemplateStringsArray)).toContain("owner_base.purpose = 'service_base'");
+    expect(publication).toContain("owner_base.visibility = 'private'");
+    expect(publication).toContain("owner_base.geocode_source = 'lantmateriet_belagenhetsadress_v4_2'");
+    expect(publication).toContain("lower(btrim(owner_base.city)) = any");
+    expect(publication).not.toContain("lower(btrim(owner_base.municipality)) = any");
+    expect(publication).toContain("for update");
+  });
+
+  it("cannot report release when the required owner service-base authority is missing", async () => {
+    const sql = vi.fn(async () => []);
+    mocks.getSql.mockReturnValue(sql);
+
+    await expect(activateProviderMarketplaceService({
+      serviceId: SERVICE_ID,
+      directoryServiceSlug: "fonsterputsning",
+      conversionMode: "quote",
+      radiusKm: 25,
+    })).rejects.toThrow("service_not_eligible");
+
+    expect(sql).toHaveBeenCalledTimes(1);
   });
 });
