@@ -295,7 +295,7 @@ describe("public booking human-designed UX contract", () => {
     expect(portal).toContain("cancelCustomerCalendarBooking(token, id, language)");
     expect(reschedulePage).toContain("rescheduleCustomerBooking(token, bookingId, startsAtLocal, language)");
     expect(email).toContain("input.language");
-    expect(email).toContain('language?: "sv" | "en"');
+    expect(email).toContain('language: "sv" | "en"');
     expect(reschedule).toContain("language,");
     expect(reschedule).toContain("?lang=${language}");
     expect(calendarSource).toContain("language,");
