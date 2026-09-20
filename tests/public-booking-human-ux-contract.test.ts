@@ -55,7 +55,25 @@ vi.mock("@/lib/customer-calendar", () => ({
   getCustomerCalendar: mocks.getCustomerCalendar,
   cancelCustomerCalendarBooking: mocks.cancelCustomerCalendarBooking,
 }));
-vi.mock("@/lib/customer-portal-language", () => ({ getCustomerPortalPresentation: mocks.getCustomerPortalPresentation }));
+vi.mock("@/lib/customer-portal-language", () => ({
+  getCustomerPortalPresentation: mocks.getCustomerPortalPresentation,
+  resolveCustomerPortalLanguage: (
+    requested: string | undefined,
+    presentation: {
+      defaultLanguage: "sv" | "en";
+      swedishEnabled: boolean;
+      englishEnabled: boolean;
+    } | null,
+  ) => {
+    if (requested === "en" && presentation?.englishEnabled) return "en";
+    if (requested === "sv" && presentation?.swedishEnabled) return "sv";
+    if (presentation?.defaultLanguage === "en" && presentation.englishEnabled) return "en";
+    if (presentation?.defaultLanguage === "sv" && presentation.swedishEnabled) return "sv";
+    if (presentation?.swedishEnabled) return "sv";
+    if (presentation?.englishEnabled) return "en";
+    return "sv";
+  },
+}));
 vi.mock("@/lib/customer-booking-reschedule", () => ({
   getRescheduleBooking: mocks.getRescheduleBooking,
   rescheduleCustomerBooking: mocks.rescheduleCustomerBooking,
@@ -204,6 +222,16 @@ describe("public booking human-designed UX contract", () => {
     expect(page).toContain("publishedHours");
   });
 
+  it("preserves the restaurant direct-child layout and Julius success contrast contract", () => {
+    const page = source("src/app/boka/[slug]/page.tsx");
+    const styles = source("src/app/boka/[slug]/public-booking-marketplace.module.css");
+
+    expect(page).toContain('if (experience.themeKey === "restaurant")');
+    expect(page).toContain('<div id="restaurant-booking" className={styles.shell}>');
+    expect(page).toContain('if (slug === "julius-salong") return <main lang={locale} style={themeStyles}>');
+    expect(styles).toContain("background: var(--booking-primary, #17452f);");
+  });
+
   it("chooses WCAG-readable tenant action text and exposes keyboard focus", () => {
     const portalStyles = source("src/app/mina-bokningar/customer-portal.module.css");
 
@@ -284,15 +312,73 @@ describe("public booking human-designed UX contract", () => {
     await expect(action(formData)).rejects.toThrow("redirect:/mina-bokningar/customer-token?changed=1&lang=sv");
   });
 
-  it("propagates only the resolved enabled portal locale through cancellation and booking-change email contracts", () => {
-    const portal = source("src/app/mina-bokningar/[token]/page.tsx");
+  it("passes the resolved enabled fallback locale through the rendered cancellation action", async () => {
+    mocks.getCustomerPortalPresentation.mockResolvedValue({
+      ...presentation,
+      defaultLanguage: "en",
+      swedishEnabled: true,
+      englishEnabled: false,
+    });
+    mocks.getCustomerCalendar.mockResolvedValue({
+      ...calendar,
+      policy: { ...calendar.policy, customerCancelEnabled: true },
+    });
+
+    const tree = await CustomerPortalPage({
+      params: Promise.resolve({ token: "customer-token" }),
+      searchParams: Promise.resolve({ lang: "en" }),
+    });
+    const markup = renderToStaticMarkup(tree);
+    expect(markup).toContain('lang="sv"');
+
+    const cancellationForm = findElements(
+      tree,
+      (element) => element.type === "form" && typeof element.props.action === "function",
+    )[0];
+    expect(cancellationForm).toBeTruthy();
+
+    const formData = new FormData();
+    for (const input of findElements(cancellationForm, (element) => element.type === "input")) {
+      const name = typeof input.props.name === "string" ? input.props.name : "";
+      if (!name) continue;
+      formData.set(name, String(input.props.value ?? ""));
+    }
+
+    await (cancellationForm.props.action as (data: FormData) => Promise<void>)(formData);
+    expect(mocks.cancelCustomerCalendarBooking).toHaveBeenCalledWith(
+      "customer-token",
+      "booking-1",
+      "sv",
+    );
+  });
+
+  it("fails closed to Swedish when customer portal language settings disable both languages", async () => {
+    mocks.getCustomerPortalPresentation.mockResolvedValue({
+      ...presentation,
+      defaultLanguage: "en",
+      swedishEnabled: false,
+      englishEnabled: false,
+    });
+
+    const portal = renderToStaticMarkup(await CustomerPortalPage({
+      params: Promise.resolve({ token: "customer-token" }),
+      searchParams: Promise.resolve({ lang: "en" }),
+    }));
+    const reschedule = renderToStaticMarkup(await ReschedulePage({
+      params: Promise.resolve({ token: "customer-token", bookingId: "booking-1" }),
+      searchParams: Promise.resolve({ lang: "en" }),
+    }));
+
+    expect(portal).toContain('lang="sv"');
+    expect(reschedule).toContain('lang="sv"');
+  });
+
+  it("keeps required locale propagation at booking-change email and reschedule boundaries", () => {
     const reschedulePage = source("src/app/mina-bokningar/[token]/[bookingId]/boka-om/page.tsx");
     const email = source("src/features/email/booking-change-email.ts");
     const reschedule = source("src/lib/customer-booking-reschedule.ts");
     const calendarSource = source("src/lib/customer-calendar.ts");
 
-    expect(portal).toContain('const language = resolvePortalLanguage(String(formData.get("lang") ?? ""), presentation);');
-    expect(portal).toContain("cancelCustomerCalendarBooking(token, id, language)");
     expect(reschedulePage).toContain("rescheduleCustomerBooking(token, bookingId, startsAtLocal, language)");
     expect(email).toContain("input.language");
     expect(email).toContain('language: "sv" | "en"');
