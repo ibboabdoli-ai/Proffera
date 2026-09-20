@@ -217,7 +217,7 @@ describe("public customer lifecycle rendered contract", () => {
     expect(html).toContain('<main class="' + lifecycleStyles.page + '" lang="en"');
     expect(html).toContain("Verified customer review");
     expect(html).toContain("Submit verified review");
-    expect(html).toContain('href="/review/review-token"');
+    expect(html).toContain('href="/review/review-token?lang=sv"');
   });
 
   it("uses the Marketplace invitation language for metadata and rendered UI when the URL has no locale override", async () => {
@@ -236,6 +236,6 @@ describe("public customer lifecycle rendered contract", () => {
     expect(html).toContain('<main lang="en" class="' + lifecycleStyles.page + '"');
     expect(html).toContain("Verified Marketplace review");
     expect(html).toContain("Submit verified review");
-    expect(html).toContain('href="/review/marketplace/marketplace-review-token"');
+    expect(html).toContain('href="/review/marketplace/marketplace-review-token?lang=sv"');
   });
 });
