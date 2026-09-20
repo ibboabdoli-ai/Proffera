@@ -99,6 +99,17 @@ describe("Supervisor control-plane v2", () => {
     expect(handoff).toContain("planner_evidence");
     expect(helper).toContain("planner_packet_evidence");
     expect(helper).toContain("plannerPacketFromReservationEvidence");
+    const preflightStart = handoff.indexOf("  preflight:");
+    const handoffDispatchStart = handoff.indexOf("  dispatch:", preflightStart);
+    const preflight = handoff.slice(preflightStart, handoffDispatchStart);
+    expect(preflight).toContain("proffera-supervisor-worker-admission-${{ inputs.comment_id || inputs.planner_run_id || github.run_id }}");
+    expect(preflight).toContain("cancel-in-progress: false");
+
+    const plannerHeader = planner.slice(0, planner.indexOf("jobs:"));
+    expect(plannerHeader).not.toContain("concurrency:");
+    const plannerJob = planner.slice(planner.indexOf("  plan:"), planner.indexOf("  dispatch:"));
+    expect(plannerJob).toContain("group: proffera-supervisor-planner-plan");
+    expect(plannerJob).toContain("cancel-in-progress: true");
   });
 
   it("isolates Worker candidate execution from trusted publication", () => {

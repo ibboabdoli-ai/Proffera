@@ -401,7 +401,7 @@ jobs:
       inputs.planner_packet_b64 != '' ||
       (github.event_name == 'workflow_dispatch' && inputs.comment_id != '')
     concurrency:
-      group: proffera-supervisor-worker-admission
+      group: proffera-supervisor-worker-admission-${{ inputs.comment_id || inputs.planner_run_id || github.run_id }}
       cancel-in-progress: false
     runs-on: ubuntu-latest
     timeout-minutes: 8

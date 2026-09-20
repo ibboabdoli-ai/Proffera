@@ -4603,6 +4603,7 @@ esac
     expect(workflow).toContain("cancel-in-progress: false");
     expect(workflow).toContain("github.event.pull_request.head.repo.full_name == github.repository");
     expect(workflow).toContain("format('untrusted-pr-{0}', github.event.pull_request.number)");
+    expect(workflow).toContain("group: proffera-supervisor-worker-admission-${{ inputs.comment_id || inputs.planner_run_id || github.run_id }}");
     expect(workflow).toContain("group: proffera-worker-task-state-${{ needs.preflight.outputs.branch }}");
     expect(sync).toContain("group: proffera-worker-lifecycle-${{ needs.resolve_worker_mutation_lane.outputs.branch }}");
     expect(sync).toContain("group: proffera-worker-checks-${{ needs.resolve_worker_mutation_lane.outputs.branch }}");

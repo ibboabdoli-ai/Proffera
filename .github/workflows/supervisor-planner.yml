@@ -11,13 +11,12 @@ permissions:
   issues: write
   pull-requests: read
 
-concurrency:
-  group: proffera-supervisor-planner
-  cancel-in-progress: true
-
 jobs:
   plan:
     name: Select one bounded next task
+    concurrency:
+      group: proffera-supervisor-planner-plan
+      cancel-in-progress: true
     runs-on: ubuntu-latest
     timeout-minutes: 20
     outputs:
