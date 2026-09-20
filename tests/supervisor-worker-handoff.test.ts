@@ -4391,6 +4391,57 @@ esac
     expect(String(result.comments.find((comment) => comment.id === 201)?.body)).toContain("- State: `RECOVERABLE`");
   });
 
+  it.each(["RESERVED", "RECOVERABLE"] as const)("reclaims an expired Planner %s reservation from durable packet evidence without an owner Task Packet comment", (state) => {
+    const old = globalExpiryEvidence(3, state);
+    const plannerEvidence = {
+      source: "planner",
+      packet_b64: Buffer.from(JSON.stringify(old.packet)).toString("base64"),
+      planner_packet_sha256: createHash("sha256").update(JSON.stringify(old.packet)).digest("hex"),
+      planner_run_id: String(old.payload.run_id),
+      planner_head_sha: old.packet.base_sha,
+      planner_workflow_ref: "ibboabdoli-ai/Proffera/.github/workflows/supervisor-planner.yml@refs/heads/main",
+    };
+    const comments = old.comments
+      .filter((comment) => comment.id !== 233)
+      .map((comment) => comment.id === 230
+        ? reservationComment({ ...old.payload, planner_packet_evidence: plannerEvidence }, 230)
+        : comment);
+    const result = runSlotReservation({ extraComments: comments });
+    expect(result.status, result.stderr).toBe(0);
+    expect(String(result.comments.find((comment) => comment.id === 230)?.body)).toContain("- State: `RELEASED`");
+    expect(String(result.comments.find((comment) => comment.id === 232)?.body)).toContain("- State: `TASK_BLOCKED`");
+    expect(result.outputs.reservation_comment_id).toBe("999");
+  });
+
+  it("fails closed when durable Planner packet evidence is forged or reservation-mismatched", () => {
+    const old = globalExpiryEvidence(3, "RECOVERABLE");
+    const exact = {
+      source: "planner",
+      packet_b64: Buffer.from(JSON.stringify(old.packet)).toString("base64"),
+      planner_packet_sha256: createHash("sha256").update(JSON.stringify(old.packet)).digest("hex"),
+      planner_run_id: String(old.payload.run_id),
+      planner_head_sha: old.packet.base_sha,
+      planner_workflow_ref: "ibboabdoli-ai/Proffera/.github/workflows/supervisor-planner.yml@refs/heads/main",
+    };
+    const variants = [
+      { ...exact, planner_packet_sha256: "f".repeat(64) },
+      { ...exact, planner_run_id: "999999" },
+      { ...exact, planner_head_sha: "f".repeat(40) },
+      { ...exact, planner_workflow_ref: "ibboabdoli-ai/Proffera/.github/workflows/other.yml@refs/heads/main" },
+      { ...exact, packet_b64: Buffer.from(JSON.stringify({ ...old.packet, task_title: "forged" })).toString("base64") },
+    ];
+    for (const planner_packet_evidence of variants) {
+      const comments = old.comments
+        .filter((comment) => comment.id !== 233)
+        .map((comment) => comment.id === 230
+          ? reservationComment({ ...old.payload, planner_packet_evidence }, 230)
+          : comment);
+      const result = runSlotReservation({ extraComments: comments });
+      expect(result.status).toBe(1);
+      expect(commentPatchCalls(result.calls, 230)).toHaveLength(0);
+      expect(result.outputs.reservation_comment_id).toBeUndefined();
+    }
+  });
   it("counts a promoted recovery PR and its published reservation as one slot", () => {
     const existingPacket = packet({ task_id: "SUP-OLD-SLOT-1", branch: "work/proffera-old-slot",
       graph_path: "feature/old-slot", allowed_paths: ["src/features/old-slot/"] });

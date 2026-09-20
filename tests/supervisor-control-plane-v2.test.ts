@@ -19,6 +19,9 @@ describe("Supervisor control-plane v2", () => {
     expect(router).toContain("supervisor-worker-handoff.yml");
     expect(router).toContain("proffera-final-gate-wakeup.yml");
     expect(router).toContain('REVIEW_STATE:-}" = "approved"');
+    const routerHeader = router.slice(0, router.indexOf("jobs:"));
+    expect(routerHeader).toContain("cancel-in-progress: false");
+    expect(routerHeader).not.toContain("cancel-in-progress: true");
 
     expect(wakeup).not.toContain("issue_comment:");
     expect(wakeup).not.toContain("pull_request_review:");
@@ -60,6 +63,9 @@ describe("Supervisor control-plane v2", () => {
     expect(planner).toContain("sort -u");
     expect(planner).not.toContain("PROFFERA_AUTOFIX_PUSH_TOKEN");
     expect(planner).not.toContain('POST "repos/${REPOSITORY}/issues/548/comments"');
+    const plannerValidation = planner.slice(planner.indexOf("Validate planner output against live state"), planner.indexOf("  dispatch:"));
+    expect(plannerValidation).toContain("PLANNER_RUN_ID: ${{ github.run_id }}");
+    expect(plannerValidation).toContain("PLANNER_WORKFLOW_REF: ${{ github.workflow_ref }}");
 
     const workflowCall = handoff.slice(handoff.indexOf("  workflow_call:"), handoff.indexOf("  workflow_dispatch:"));
     const manualDispatch = handoff.slice(handoff.indexOf("  workflow_dispatch:"), handoff.indexOf("  pull_request_target:"));
@@ -85,9 +91,13 @@ describe("Supervisor control-plane v2", () => {
     expect(handoff).toContain("validate-state");
     expect(handoff).toContain("canonical task-state record is malformed or ambiguous");
     expect(handoff).toContain("Refused read-only: duplicate canonical task-state records exist for $task_id");
+    expect((handoff.match(/--arg planner_packet_sha256/g) ?? []).length).toBeGreaterThanOrEqual(3);
+    expect(handoff).toContain("planner_evidence");
+    expect(helper).toContain("planner_packet_evidence");
+    expect(helper).toContain("plannerPacketFromReservationEvidence");
   });
 
-  it("qualifies current-head repair before any Codex repair call", () => {
+  it("isolates trusted review-repair publication from untrusted model and repository execution", () => {
     const repair = source(".github/workflows/supervisor-review-repair.yml");
 
     expect(repair).toContain("sleep 45");
@@ -97,17 +107,22 @@ describe("Supervisor control-plane v2", () => {
     expect(repair).toContain("steps.qualify.outputs.repair == 'yes'");
     expect(repair).toContain("consecutive");
     expect(repair).toContain("[review-repair]");
-    expect(repair).toContain("Materialize immutable trusted repair helper from exact default branch");
-    const codexStart = repair.indexOf("Run one batched exact-head repair");
-    const postWorker = repair.slice(codexStart);
-    expect(repair.indexOf("Materialize immutable trusted repair helper from exact default branch")).toBeLessThan(codexStart);
-    expect(postWorker).toContain('$RUNNER_TEMP/proffera-trusted-review-repair/supervisor-worker-handoff.mjs');
-    expect(postWorker).toContain("sha256sum --check --status");
-    expect(postWorker).not.toContain("node scripts/supervisor-worker-handoff.mjs");
-    expect(repair).toContain("validate-changes");
+    const publishStart = repair.indexOf("  publish:");
+    expect(publishStart).toBeGreaterThan(0);
+    const untrustedRepairJob = repair.slice(0, publishStart);
+    const trustedPublishJob = repair.slice(publishStart);
+    expect(untrustedRepairJob).toContain("Run one batched exact-head repair");
+    expect(untrustedRepairJob).toContain("actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02");
+    expect(untrustedRepairJob).not.toContain("PROFFERA_AUTOFIX_PUSH_TOKEN");
+    expect(untrustedRepairJob).not.toContain("validate-changes");
+    expect(trustedPublishJob).toContain("actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0");
+    expect(trustedPublishJob).toContain("Materialize trusted repair helper in isolated publish job");
+    expect(trustedPublishJob).toContain("git hash-object");
+    expect(trustedPublishJob).toContain("validate-changes");
+    expect(trustedPublishJob).toContain("PROFFERA_AUTOFIX_PUSH_TOKEN");
+    expect(trustedPublishJob.indexOf("validate-changes")).toBeLessThan(trustedPublishJob.indexOf("PROFFERA_AUTOFIX_PUSH_TOKEN"));
     expect(repair).not.toContain("--force");
   });
-
   it("trusted review-repair validation rejects checkout-helper tampering and out-of-scope writes", () => {
     const trustedSource = resolve(root, "scripts/supervisor-worker-handoff.mjs");
     const dir = mkdtempSync(join(tmpdir(), "proffera-review-repair-trust-"));

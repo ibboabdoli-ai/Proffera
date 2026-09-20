@@ -9,6 +9,7 @@ on:
         type: string
 
 permissions:
+  actions: read
   contents: read
   issues: read
   pull-requests: read
@@ -22,6 +23,10 @@ jobs:
     name: Batch current-head review findings
     runs-on: ubuntu-latest
     timeout-minutes: 35
+    outputs:
+      changed: ${{ steps.diff.outputs.changed }}
+      head_sha: ${{ steps.preflight.outputs.head_sha }}
+      head_ref: ${{ steps.preflight.outputs.head_ref }}
     steps:
       - name: Debounce review bursts
         run: sleep 45
@@ -76,34 +81,6 @@ jobs:
         if: steps.preflight.outputs.proceed == 'yes'
         run: npm ci --no-audit --no-fund
 
-      - name: Materialize immutable trusted repair helper from exact default branch
-        if: steps.preflight.outputs.proceed == 'yes'
-        env:
-          GH_TOKEN: ${{ github.token }}
-          REPOSITORY: ${{ github.repository }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          default_branch="$(gh api "repos/${REPOSITORY}" --jq '.default_branch // ""')"
-          test "$default_branch" = "main"
-          trusted_main_sha="$(gh api "repos/${REPOSITORY}/git/ref/heads/${default_branch}" --jq '.object.sha')"
-          test "${#trusted_main_sha}" -eq 40
-          trusted_dir="$RUNNER_TEMP/proffera-trusted-review-repair"
-          trusted_helper="$trusted_dir/supervisor-worker-handoff.mjs"
-          trusted_manifest="$trusted_dir/supervisor-worker-handoff.sha256"
-          rm -rf "$trusted_dir"
-          mkdir -p "$trusted_dir"
-          gh api "repos/${REPOSITORY}/contents/scripts/supervisor-worker-handoff.mjs?ref=${trusted_main_sha}" --jq '.content' \
-            | tr -d '\n' \
-            | base64 --decode > "$trusted_helper"
-          test -s "$trusted_helper"
-          sha256sum "$trusted_helper" > "$trusted_manifest"
-          chmod 0444 "$trusted_helper" "$trusted_manifest"
-          chmod 0555 "$trusted_dir"
-          sha256sum --check --status "$trusted_manifest"
-          node --check "$trusted_helper"
-          echo "TRUSTED_REPAIR_MAIN_SHA=$trusted_main_sha" >> "$GITHUB_ENV"
-
       - name: Materialize current-head review evidence
         if: steps.preflight.outputs.proceed == 'yes'
         env:
@@ -152,13 +129,9 @@ jobs:
 
             Do not touch any file outside the Task Packet, install packages, commit, push, open/merge PRs, approve, deploy, mutate Production, change secrets/config, or alter migrations. If there is no valid finding, leave the tree unchanged.
 
-      - name: Verify bounded repair diff
+      - name: Capture candidate repair patch
         if: steps.qualify.outputs.repair == 'yes'
         id: diff
-        env:
-          GH_TOKEN: ${{ github.token }}
-          REPOSITORY: ${{ github.repository }}
-          PR_NUMBER: ${{ inputs.pr_number }}
         shell: bash
         run: |
           set -euo pipefail
@@ -169,18 +142,26 @@ jobs:
             echo "No current valid review finding required a code change."
             exit 0
           fi
-          helper="$RUNNER_TEMP/proffera-trusted-review-repair/supervisor-worker-handoff.mjs"
-          manifest="$RUNNER_TEMP/proffera-trusted-review-repair/supervisor-worker-handoff.sha256"
-          test -f "$helper" -a -f "$manifest"
-          sha256sum --check --status "$manifest"
-          pr_body="$(gh api "repos/${REPOSITORY}/pulls/${PR_NUMBER}" --jq '.body // ""')"
-          packet="$(printf '%s' "$pr_body" | node "$helper" parse)"
-          files="$(git diff --name-only --no-renames HEAD)"
-          files_json="$(printf '%s\n' "$files" | jq -R -s 'split("\n") | map(select(length > 0))')"
-          validation="$(jq -n --argjson packet "$packet" --argjson changed_files "$files_json" '{packet:$packet,changed_files:$changed_files}' | node "$helper" validate-changes)"
-          test "$(jq -r '.ok' <<< "$validation")" = "true"
           git diff --check HEAD
+          artifact_dir="$RUNNER_TEMP/proffera-review-repair-candidate"
+          rm -rf "$artifact_dir"
+          mkdir -p "$artifact_dir"
+          patch="$artifact_dir/repair.patch"
+          git diff --binary --full-index HEAD > "$patch"
+          test -s "$patch"
+          patch_sha256="$(sha256sum "$patch" | cut -d' ' -f1)"
+          printf '%s  %s\n' "$patch_sha256" "repair.patch" > "$artifact_dir/repair.patch.sha256"
+          echo "patch_sha256=$patch_sha256" >> "$GITHUB_OUTPUT"
           echo "changed=yes" >> "$GITHUB_OUTPUT"
+
+      - name: Upload exact candidate repair patch
+        if: steps.diff.outputs.changed == 'yes'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: supervisor-review-repair-${{ github.run_id }}-${{ steps.preflight.outputs.head_sha }}
+          path: ${{ runner.temp }}/proffera-review-repair-candidate
+          if-no-files-found: error
+          retention-days: 1
 
       - name: Validate one repair batch
         if: steps.diff.outputs.changed == 'yes'
@@ -192,29 +173,129 @@ jobs:
           npm run build
           git diff --check HEAD
 
-      - name: Publish one same-branch repair commit
+      - name: Confirm validated tree matches uploaded candidate
         if: steps.diff.outputs.changed == 'yes'
+        env:
+          EXPECTED_PATCH_SHA256: ${{ steps.diff.outputs.patch_sha256 }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          git add --all --intent-to-add
+          current_patch="$(mktemp)"
+          git diff --binary --full-index HEAD > "$current_patch"
+          current_sha256="$(sha256sum "$current_patch" | cut -d' ' -f1)"
+          test "$current_sha256" = "$EXPECTED_PATCH_SHA256"
+          git diff --check HEAD
+
+  publish:
+    name: Publish verified repair from isolated trusted job
+    needs: repair
+    if: needs.repair.outputs.changed == 'yes'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      actions: read
+      contents: read
+      issues: read
+      pull-requests: read
+    steps:
+      - name: Checkout exact pre-repair PR head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ needs.repair.outputs.head_sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 22
+
+      - name: Download exact candidate repair patch
+        uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5
+        with:
+          name: supervisor-review-repair-${{ github.run_id }}-${{ needs.repair.outputs.head_sha }}
+          path: ${{ runner.temp }}/proffera-review-repair-candidate
+
+      - name: Verify candidate artifact integrity
+        shell: bash
+        run: |
+          set -euo pipefail
+          artifact_dir="$RUNNER_TEMP/proffera-review-repair-candidate"
+          test -s "$artifact_dir/repair.patch"
+          test -s "$artifact_dir/repair.patch.sha256"
+          (cd "$artifact_dir" && sha256sum --check --status repair.patch.sha256)
+
+      - name: Materialize trusted repair helper in isolated publish job
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          default_branch="$(gh api "repos/${REPOSITORY}" --jq '.default_branch // ""')"
+          test "$default_branch" = "main"
+          trusted_main_sha="$(gh api "repos/${REPOSITORY}/git/ref/heads/${default_branch}" --jq '.object.sha')"
+          test "${#trusted_main_sha}" -eq 40
+          trusted_dir="$RUNNER_TEMP/proffera-trusted-review-repair-publish"
+          trusted_helper="$trusted_dir/supervisor-worker-handoff.mjs"
+          rm -rf "$trusted_dir"
+          mkdir -p "$trusted_dir"
+          helper_json="$(gh api "repos/${REPOSITORY}/contents/scripts/supervisor-worker-handoff.mjs?ref=${trusted_main_sha}")"
+          expected_blob_sha="$(jq -r '.sha // ""' <<< "$helper_json")"
+          jq -r '.content' <<< "$helper_json" | tr -d '\n' | base64 --decode > "$trusted_helper"
+          test -s "$trusted_helper"
+          test "$(git hash-object "$trusted_helper")" = "$expected_blob_sha"
+          node --check "$trusted_helper"
+
+      - name: Apply candidate patch without executing PR-controlled code
+        shell: bash
+        run: |
+          set -euo pipefail
+          patch="$RUNNER_TEMP/proffera-review-repair-candidate/repair.patch"
+          git apply --check --binary "$patch"
+          git apply --binary "$patch"
+          git add --all --intent-to-add
+          git diff --check HEAD
+
+      - name: Validate bounded repair with isolated exact-main helper
         env:
           GH_TOKEN: ${{ github.token }}
           REPOSITORY: ${{ github.repository }}
           PR_NUMBER: ${{ inputs.pr_number }}
-          EXPECTED_HEAD: ${{ steps.preflight.outputs.head_sha }}
-          HEAD_REF: ${{ steps.preflight.outputs.head_ref }}
-          PUSH_TOKEN: ${{ secrets.PROFFERA_AUTOFIX_PUSH_TOKEN }}
+          EXPECTED_HEAD: ${{ needs.repair.outputs.head_sha }}
+          HEAD_REF: ${{ needs.repair.outputs.head_ref }}
         shell: bash
         run: |
           set -euo pipefail
-          helper="$RUNNER_TEMP/proffera-trusted-review-repair/supervisor-worker-handoff.mjs"
-          manifest="$RUNNER_TEMP/proffera-trusted-review-repair/supervisor-worker-handoff.sha256"
-          test -f "$helper" -a -f "$manifest"
-          sha256sum --check --status "$manifest"
-          pr_body="$(gh api "repos/${REPOSITORY}/pulls/${PR_NUMBER}" --jq '.body // ""')"
+          helper="$RUNNER_TEMP/proffera-trusted-review-repair-publish/supervisor-worker-handoff.mjs"
+          test -s "$helper"
+          pr="$(gh api "repos/${REPOSITORY}/pulls/${PR_NUMBER}")"
+          test "$(jq -r '.state' <<< "$pr")" = "open"
+          test "$(jq -r '.base.ref' <<< "$pr")" = "main"
+          test "$(jq -r '.head.sha' <<< "$pr")" = "$EXPECTED_HEAD"
+          test "$(jq -r '.head.ref' <<< "$pr")" = "$HEAD_REF"
+          test "$(jq -r '.head.repo.full_name' <<< "$pr")" = "$REPOSITORY"
+          test "$(jq -r '.user.login' <<< "$pr")" = "${REPOSITORY%%/*}"
+          pr_body="$(jq -r '.body // ""' <<< "$pr")"
           packet="$(printf '%s' "$pr_body" | node "$helper" parse)"
           files="$(git diff --name-only --no-renames HEAD)"
           files_json="$(printf '%s\n' "$files" | jq -R -s 'split("\n") | map(select(length > 0))')"
           validation="$(jq -n --argjson packet "$packet" --argjson changed_files "$files_json" '{packet:$packet,changed_files:$changed_files}' | node "$helper" validate-changes)"
           test "$(jq -r '.ok == true' <<< "$validation")" = "true"
           git diff --check HEAD
+
+      - name: Publish one same-branch repair commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          PR_NUMBER: ${{ inputs.pr_number }}
+          EXPECTED_HEAD: ${{ needs.repair.outputs.head_sha }}
+          HEAD_REF: ${{ needs.repair.outputs.head_ref }}
+          PUSH_TOKEN: ${{ secrets.PROFFERA_AUTOFIX_PUSH_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
           live_head="$(gh api "repos/${REPOSITORY}/pulls/${PR_NUMBER}" --jq '.head.sha')"
           test "$live_head" = "$EXPECTED_HEAD"
           test -n "${PUSH_TOKEN:-}"
@@ -222,7 +303,10 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add --all
           git commit -m "[review-repair] batch current-head verified findings"
+          cleanup() { git config --local --unset credential.helper || true; }
+          trap cleanup EXIT
           git config --local credential.helper '!f() { echo username=x-access-token; echo "password=$PUSH_TOKEN"; }; f'
           git remote set-url origin "https://github.com/${REPOSITORY}.git"
           GIT_TERMINAL_PROMPT=0 git push origin "HEAD:refs/heads/${HEAD_REF}"
-          git config --local --unset credential.helper || true
+          cleanup
+          trap - EXIT

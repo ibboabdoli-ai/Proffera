@@ -10,6 +10,7 @@ export const TASK_STATE_MARKER_PREFIX = "<!-- proffera-worker-task-state:";
 export const EXPECTED_REPOSITORY = "ibboabdoli-ai/Proffera";
 export const SUPERVISOR_ISSUE = 548;
 export const TRUSTED_SUPERVISOR_ACTOR = "ibboabdoli-ai";
+const EXPECTED_PLANNER_WORKFLOW_REF = `${EXPECTED_REPOSITORY}/.github/workflows/supervisor-planner.yml@refs/heads/main`;
 export const DISPATCH_ENABLE_LABEL = "worker-dispatch-enabled";
 export const AUTOPILOT_ENABLE_LABEL = "supervisor-autopilot-enabled";
 export const REQUIRED_CHECKS = Object.freeze([
@@ -360,7 +361,7 @@ export function evaluateDispatchContext(context) {
     /^[1-9][0-9]*$/.test(String(event.planner_run_id ?? "")) &&
     SHA_RE.test(String(event.planner_head_sha ?? "")) &&
     /^[0-9a-f]{64}$/.test(String(event.planner_packet_sha256 ?? "")) &&
-    event.planner_workflow_ref === `${EXPECTED_REPOSITORY}/.github/workflows/supervisor-planner.yml@refs/heads/main`;
+    event.planner_workflow_ref === EXPECTED_PLANNER_WORKFLOW_REF;
   if (!trustedOwnerComment && !trustedPlannerDispatch) {
     return blocked("Task Packet source is not a trusted owner comment or internal planner dispatch", null, "unauthorized_actor");
   }
@@ -1744,6 +1745,7 @@ function reservationRecords(comments) {
     const scopes = normalizeScopeArray(payload.allowed_paths, "reservation.allowed_paths");
     if (JSON.stringify(scopes) !== JSON.stringify(payload.allowed_paths)) throw new Error("reservation scope is not canonical");
     reservationFileList(payload.changed_files, "reservation.changed_files");
+    if (payload.planner_packet_evidence != null) plannerPacketFromReservationEvidence(payload);
     if ((payload.state === "RESERVED" && (payload.pr_number != null || payload.recovery != null))
       || (payload.state === "PUBLISHED" && (payload.pr_number == null || payload.recovery != null))
       || (payload.state === "RECOVERABLE" && (!["branch", "artifact"].includes(payload.recovery?.kind)
@@ -1763,6 +1765,59 @@ function reservationRecords(comments) {
   });
 }
 
+function parsePlannerPacketEvidence(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("Planner packet evidence is malformed");
+  const expectedKeys = ["packet_b64", "planner_head_sha", "planner_packet_sha256", "planner_run_id", "planner_workflow_ref", "source"];
+  const keys = Object.keys(value).sort();
+  if (JSON.stringify(keys) !== JSON.stringify([...expectedKeys].sort())) throw new Error("Planner packet evidence fields are not canonical");
+  if (value.source !== "planner"
+    || typeof value.packet_b64 !== "string"
+    || typeof value.planner_packet_sha256 !== "string" || !SHA256_RE.test(value.planner_packet_sha256)
+    || typeof value.planner_run_id !== "string" || !/^[1-9][0-9]*$/.test(value.planner_run_id)
+    || typeof value.planner_head_sha !== "string" || !SHA_RE.test(value.planner_head_sha)
+    || typeof value.planner_workflow_ref !== "string" || value.planner_workflow_ref !== EXPECTED_PLANNER_WORKFLOW_REF
+    || !/^[A-Za-z0-9+/]+={0,2}$/u.test(value.packet_b64) || value.packet_b64.length % 4 !== 0) {
+    throw new Error("Planner packet evidence provenance is malformed");
+  }
+  const bytes = Buffer.from(value.packet_b64, "base64");
+  if (bytes.toString("base64") !== value.packet_b64) throw new Error("Planner packet evidence is not canonical base64");
+  const text = bytes.toString("utf8");
+  let parsed;
+  try { parsed = JSON.parse(text); } catch { throw new Error("Planner packet evidence JSON is malformed"); }
+  const packet = normalizeTaskPacket(parsed);
+  if (JSON.stringify(packet) !== text) throw new Error("Planner packet evidence is not the exact normalized Task Packet");
+  const digest = packetDigest(packet);
+  if (value.planner_packet_sha256 !== digest) throw new Error("Planner packet evidence digest mismatch");
+  if (value.planner_head_sha !== packet.base_sha) throw new Error("Planner packet evidence head is not bound to packet base");
+  return {
+    evidence: { source: "planner", packet_b64: value.packet_b64, planner_packet_sha256: digest, planner_run_id: value.planner_run_id,
+      planner_head_sha: value.planner_head_sha, planner_workflow_ref: EXPECTED_PLANNER_WORKFLOW_REF },
+    packet,
+  };
+}
+
+function plannerPacketFromReservationEvidence(reservation) {
+  const parsed = parsePlannerPacketEvidence(reservation.planner_packet_evidence);
+  const packet = parsed.packet;
+  if (parsed.evidence.planner_run_id !== String(reservation.run_id ?? "")
+    || packet.task_id !== reservation.task_id
+    || packet.branch !== reservation.branch
+    || packet.graph_path !== reservation.graph_path
+    || packetDigest(packet) !== reservation.packet_digest
+    || JSON.stringify(packet.allowed_paths) !== JSON.stringify(reservation.allowed_paths)) {
+    throw new Error("Planner packet evidence does not match reservation ownership");
+  }
+  return packet;
+}
+
+function canonicalPlannerEvidenceForReservation(value, packet, runId) {
+  if (value == null) return null;
+  const parsed = parsePlannerPacketEvidence(value);
+  if (parsed.evidence.planner_run_id !== runId || JSON.stringify(parsed.packet) !== JSON.stringify(packet)) {
+    throw new Error("Planner packet evidence does not match the requested reservation");
+  }
+  return parsed.evidence;
+}
 function sameReservationPacket(payload, packet) {
   return payload.task_id === packet.task_id && payload.branch === packet.branch
     && payload.graph_path === packet.graph_path && payload.packet_digest === packetDigest(packet)
@@ -1784,6 +1839,7 @@ export function planWorkerReservation(input) {
     if (!/^[0-9]+$/.test(runId) || !SHA_RE.test(input.head_sha ?? "")) throw new Error("requested reservation run/head is malformed");
     const candidatePr = input.pr_number ?? null;
     const changed = reservationFileList(input.changed_files ?? [], "requested changed_files");
+    const plannerEvidence = canonicalPlannerEvidenceForReservation(input.planner_evidence, packet, runId);
     if (own && !sameReservationPacket(own.payload, packet)) throw new Error("task reservation does not match the exact packet/branch ownership");
     const ownActive = own && ACTIVE_RESERVATION_STATES.has(own.payload.state);
     const rebind = input.rebind === true && own?.payload.state === "PUBLISHED" && own.payload.pr_number === candidatePr;
@@ -1859,6 +1915,7 @@ export function planWorkerReservation(input) {
         graph_path: packet.graph_path, packet_digest: packetDigest(packet), head_sha: input.head_sha,
         lease_expires_at: new Date(input.now + 3600000).toISOString(), allowed_paths: packet.allowed_paths,
         changed_files: changed, snapshot_finalized: false, pr_number: null, recovery: null,
+        ...(plannerEvidence ? { planner_packet_evidence: plannerEvidence } : {}),
       }
       : { ...own.payload, state: "PUBLISHED", head_sha: input.head_sha, pr_number: candidatePr, recovery: null,
         changed_files: changed, snapshot_finalized: true,
@@ -2116,6 +2173,7 @@ export function createWorkerReservationAuthority(io) {
 
 function originalReservationPacket(comments, reservation, suppliedPacket) {
   if (suppliedPacket?.task_id === reservation.task_id) return normalizeTaskPacket(suppliedPacket);
+  if (reservation.planner_packet_evidence != null) return plannerPacketFromReservationEvidence(reservation);
   const packets = comments.flatMap((comment) => {
     if (comment?.user?.login !== TRUSTED_SUPERVISOR_ACTOR || !String(comment.body ?? "").includes(TASK_PACKET_MARKER)) return [];
     try {
