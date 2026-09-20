@@ -87,6 +87,7 @@ export async function GET(request: Request) {
     );
     if (policyEvaluation.movedToReview > 0) {
       invalidatePublicDirectoryCachesBestEffort("category_policy_batch_success");
+      invalidateMarketplaceCacheBestEffort("category_policy_batch_success");
     }
   } catch (error) {
     console.error("Company directory category policy revalidation failed", error);

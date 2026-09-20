@@ -65,10 +65,23 @@ function hasSafePilotWorkplace(row: Record<string, unknown>) {
   ).eligible;
 }
 
+function hasBlockingOngoingProcedures(value: unknown) {
+  if (Array.isArray(value)) return value.length > 0;
+  if (typeof value === "string" && value.trim()) {
+    try {
+      const parsed = JSON.parse(value) as unknown;
+      return !Array.isArray(parsed) || parsed.length > 0;
+    } catch {
+      return true;
+    }
+  }
+  return true;
+}
+
 function hardOfficialFactsBlock(row: Record<string, unknown> | null | undefined) {
   return Boolean(row?.deregistration_date)
     || Boolean(row?.advertising_blocked)
-    || jsonArray(row?.ongoing_procedures).length > 0;
+    || hasBlockingOngoingProcedures(row?.ongoing_procedures);
 }
 
 function boundedLimit(value: unknown) {
@@ -1249,7 +1262,7 @@ export async function revalidateAllCompanyDirectoryBatch(
           || !Boolean(row.auto_public_eligible)
           || Boolean(row.deregistration_date)
           || Boolean(row.advertising_blocked)
-          || jsonArray(row.ongoing_procedures).length > 0
+          || hasBlockingOngoingProcedures(row.ongoing_procedures)
           || !pilotWorkplaceSafe;
         const scbConflictCount = Math.max(0, number(row.scb_conflict_count));
         const shouldReview = unsafe

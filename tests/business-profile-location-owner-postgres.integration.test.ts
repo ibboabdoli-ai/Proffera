@@ -229,6 +229,7 @@ function primaryLocationInput(purpose: "storefront" | "service_base") {
       await client.connect();
 
       await client.query(`
+        create extension if not exists postgis;
         create table workspaces (
           id uuid primary key
         );

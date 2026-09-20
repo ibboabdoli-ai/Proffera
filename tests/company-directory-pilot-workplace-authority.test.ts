@@ -72,6 +72,12 @@ describe("Directory pilot workplace authority", () => {
       address: null,
     });
 
+    expect(assessCompanyDirectoryPilotWorkplace(profile, {})).toEqual({
+      eligible: false,
+      reason: "no_workplaces",
+      address: null,
+    });
+
     expect(assessCompanyDirectoryPilotWorkplace(profile, [workplace({ addressLine: "" })])).toEqual({
       eligible: false,
       reason: "no_complete_workplace",

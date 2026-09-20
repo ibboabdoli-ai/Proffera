@@ -5,6 +5,7 @@ const mocks = vi.hoisted(() => ({
   invalidateProjection: vi.fn(),
   invalidateByProfileId: vi.fn(),
   invalidateAll: vi.fn(),
+  invalidateMarketplace: vi.fn(),
   assessConfidence: vi.fn(),
   enrichScb: vi.fn(),
   enrichOfficialFacts: vi.fn(),
@@ -34,6 +35,9 @@ vi.mock("@/lib/company-directory-public-cache", async (importOriginal) => ({
   invalidatePublicDirectoryPublicProjection: mocks.invalidateProjection,
   invalidatePublicDirectoryPublicProjectionByProfileId: mocks.invalidateByProfileId,
   invalidateAllPublicDirectoryPublicCaches: mocks.invalidateAll,
+}));
+vi.mock("@/lib/public-read-cache", () => ({
+  invalidateMarketplaceHomeCompaniesCache: mocks.invalidateMarketplace,
 }));
 vi.mock("@/lib/company-directory-category-confidence", () => ({
   COMPANY_DIRECTORY_CATEGORY_CONFIDENCE_POLICY_VERSION: "test-policy",
@@ -580,6 +584,7 @@ describe("public Directory safety mutation invalidation", () => {
 
     expect(response.status).toBe(200);
     expect(mocks.invalidateAll).toHaveBeenCalledTimes(2);
+    expect(mocks.invalidateMarketplace).toHaveBeenCalledTimes(2);
   });
 
   it("invalidates fail-closed on category-policy batch failure without replacing the original error", async () => {
@@ -613,6 +618,7 @@ describe("public Directory safety mutation invalidation", () => {
       errorSummary: "policy batch failed after demotion",
     });
     expect(mocks.invalidateAll).toHaveBeenCalledTimes(1);
+    expect(mocks.invalidateMarketplace).not.toHaveBeenCalled();
     expect(consoleError).toHaveBeenCalledWith(
       "Public Directory cache invalidation failed after committed revalidation work",
       { context: "category_policy_batch_failure", error: cacheError },
@@ -647,6 +653,7 @@ describe("public Directory safety mutation invalidation", () => {
     expect(response.status).toBe(500);
     expect(body.error).toBe("full batch failed after demotion");
     expect(mocks.invalidateAll).toHaveBeenCalledTimes(1);
+    expect(mocks.invalidateMarketplace).toHaveBeenCalledTimes(1);
     expect(consoleError).toHaveBeenCalledWith(
       "Public Directory cache invalidation failed after committed revalidation work",
       { context: "full_revalidation_batch_failure", error: cacheError },
