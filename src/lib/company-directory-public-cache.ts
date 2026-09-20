@@ -17,7 +17,7 @@ export const PUBLIC_DIRECTORY_CACHE_TTL_SECONDS = 24 * 60 * 60;
 // request-fresh. The normal profile invalidation tag also evicts these misses.
 export const PUBLIC_DIRECTORY_MISS_CACHE_TTL_SECONDS = 30 * 60;
 
-const PUBLIC_DIRECTORY_PROFILE_CACHE_NAMESPACE = "public-directory-published-juridical-v3";
+const PUBLIC_DIRECTORY_PROFILE_CACHE_NAMESPACE = "public-directory-published-juridical-v4";
 const PUBLIC_DIRECTORY_EXTRAS_CACHE_NAMESPACE = "public-directory-profile-extras-v3";
 const PUBLIC_DIRECTORY_MISS_CACHE_NAMESPACE = "public-directory-miss-v2";
 const PUBLIC_DIRECTORY_ROUTING_MISS_CACHE_NAMESPACE = "public-directory-routing-miss-v2";
