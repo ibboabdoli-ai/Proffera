@@ -66,7 +66,7 @@ export async function rescheduleCustomerBooking(
   token: string,
   bookingId: string,
   startsAtLocal: string,
-  language?: "sv" | "en",
+  language: "sv" | "en",
 ) {
   const payload = verifyCustomerCalendarToken(token);
   if (!payload || !connectionString || !/^[0-9a-f-]{36}$/i.test(bookingId)) {
@@ -299,7 +299,7 @@ export async function rescheduleCustomerBooking(
     oldEndsAt: oldEnd,
     newStartsAt: start.toISOString(),
     newEndsAt: end.toISOString(),
-    portalUrl: `${base}/mina-bokningar/${encodeURIComponent(token)}${language ? `?lang=${language}` : ""}`,
+    portalUrl: `${base}/mina-bokningar/${encodeURIComponent(token)}?lang=${language}`,
     timeZone,
     language,
   });

@@ -16,7 +16,7 @@ type BookingChangeEmailInput = {
   newEndsAt?: string;
   portalUrl: string;
   timeZone: WorkspaceTimeZone;
-  language?: "sv" | "en";
+  language: "sv" | "en";
 };
 
 const primeViewLogo = "https://www.primeviewwindowcare.co.uk/brand/primeview-window-care-logo.jpeg";
@@ -52,8 +52,7 @@ async function send(to: { email: string; name: string }, subject: string, text: 
 }
 
 export async function sendBookingChangeEmails(input: BookingChangeEmailInput) {
-  const language: "sv" | "en" = input.language
-    ?? (input.companyName.trim().toLowerCase() === "primeview window care" ? "en" : "sv");
+  const language = input.language;
   const isEnglish = language === "en";
   const oldTime = `${formatTime(input.oldStartsAt, input.timeZone, language)}–${formatTime(input.oldEndsAt, input.timeZone, language)}`;
   const newTime = input.newStartsAt && input.newEndsAt ? `${formatTime(input.newStartsAt, input.timeZone, language)}–${formatTime(input.newEndsAt, input.timeZone, language)}` : null;

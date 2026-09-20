@@ -144,7 +144,7 @@ export async function getCustomerCalendarBooking(token: string, bookingId: strin
 export async function cancelCustomerCalendarBooking(
   token: string,
   bookingId: string,
-  language?: "sv" | "en",
+  language: "sv" | "en",
 ) {
   const payload = verifyCustomerCalendarToken(token);
   if (!payload || !connectionString || !/^[0-9a-f-]{36}$/i.test(bookingId)) {
@@ -275,7 +275,7 @@ export async function cancelCustomerCalendarBooking(
     city: String(booking.city ?? ""),
     oldStartsAt: new Date(String(booking.starts_at)).toISOString(),
     oldEndsAt: new Date(String(booking.ends_at)).toISOString(),
-    portalUrl: `${base}/mina-bokningar/${encodeURIComponent(token)}${language ? `?lang=${language}` : ""}`,
+    portalUrl: `${base}/mina-bokningar/${encodeURIComponent(token)}?lang=${language}`,
     timeZone: resolveBookingTimeZone(booking.time_zone),
     language,
   });
