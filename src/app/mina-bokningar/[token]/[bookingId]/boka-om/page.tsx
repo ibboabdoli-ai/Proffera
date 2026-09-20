@@ -98,8 +98,10 @@ export default async function ReschedulePage({ params, searchParams }: PageProps
   async function reschedule(formData: FormData) {
     "use server";
     const startsAtLocal = String(formData.get("startsAtLocal") ?? "");
-    const result = await rescheduleCustomerBooking(token, bookingId, startsAtLocal, language);
-    const langSuffix = `&lang=${language}`;
+    const currentPresentation = await getCustomerPortalPresentation(token);
+    const currentLanguage = resolveCustomerPortalLanguage(language, currentPresentation);
+    const result = await rescheduleCustomerBooking(token, bookingId, startsAtLocal, currentLanguage);
+    const langSuffix = `&lang=${currentLanguage}`;
     if (!result.ok) {
       const date = startsAtLocal.slice(0, 10);
       redirect(`/mina-bokningar/${encodeURIComponent(token)}/${bookingId}/boka-om?date=${encodeURIComponent(date)}&error=${result.error}${langSuffix}`);
