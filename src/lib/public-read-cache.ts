@@ -122,7 +122,6 @@ export async function getCachedMarketplaceHomeCompanies(limit = 4) {
   if (cached.authorityExpiresAt) {
     const expiresAt = Date.parse(cached.authorityExpiresAt);
     if (!Number.isFinite(expiresAt) || expiresAt <= Date.now()) {
-      invalidateMarketplaceHomeCompaniesCache();
       return searchPublishedBusinessProfiles({ limit: safeLimit, sort: "recommended" });
     }
   }

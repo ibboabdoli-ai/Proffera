@@ -108,7 +108,6 @@ describe("public read cache contract", () => {
     try {
       await expect(getCachedMarketplaceHomeCompanies(4)).resolves.toMatchObject({ results: [] });
       expect(mocks.marketplaceHomeCompanies).toHaveBeenCalledTimes(2);
-      expect(mocks.revalidateTag).toHaveBeenCalledWith(MARKETPLACE_HOME_COMPANIES_CACHE_TAG, { expire: 0 });
     } finally {
       vi.useRealTimers();
     }
