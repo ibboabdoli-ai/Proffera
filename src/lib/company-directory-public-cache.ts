@@ -29,6 +29,7 @@ const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3
 export type PublicDirectoryCacheDecision<T> = {
   cache: boolean;
   value: T;
+  authorityExpiresAt?: string | null;
 };
 
 export type PublicDirectoryCacheReadInput<T> = {
@@ -116,12 +117,37 @@ export async function readPublicDirectoryProfileCache<T>(
   loader: () => Promise<PublicDirectoryCacheDecision<T>>,
 ): Promise<T> {
   const normalized = tagToken(slug);
-  return activeAdapter().read({
+  const cached = await activeAdapter().read({
     keyParts: [PUBLIC_DIRECTORY_PROFILE_CACHE_NAMESPACE, normalized],
     tags: publicDirectoryProfileTags(normalized),
     revalidate: PUBLIC_DIRECTORY_CACHE_TTL_SECONDS,
-    loader,
+    loader: async () => {
+      const decision = await loader();
+      return {
+        cache: decision.cache,
+        value: {
+          value: decision.value,
+          authorityExpiresAt: decision.authorityExpiresAt ?? null,
+        },
+      };
+    },
   });
+
+  // This cache namespace predates authority-bound envelopes. Treat any
+  // remaining raw positive as expired instead of trusting it or returning an
+  // undefined projection during the rollout.
+  if (!cached || typeof cached !== "object" || !("value" in cached)) {
+    return (await loader()).value;
+  }
+
+  if (cached.authorityExpiresAt) {
+    const expiresAt = Date.parse(cached.authorityExpiresAt);
+    if (!Number.isFinite(expiresAt) || expiresAt <= Date.now()) {
+      return (await loader()).value;
+    }
+  }
+
+  return cached.value;
 }
 
 export async function readPublicDirectoryMissCache<T>(

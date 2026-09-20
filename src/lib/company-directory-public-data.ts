@@ -42,6 +42,7 @@ type ClaimedOwnerPrimaryLocation = {
 type PublishedDirectoryResolution = {
   business: PublicDirectoryBusinessForRequest;
   sharedCacheSafe: boolean;
+  authorityExpiresAt: string | null;
 };
 
 const PILOT_LOCATION_CSV = DIRECTORY_PILOT_LOCATIONS.join(",");
@@ -214,6 +215,7 @@ async function getPublishedDirectoryContact(business: PublicDirectoryBusiness) {
       contact: emptyContact(),
       claimedWorkspaceId: "",
       officialFactsCheckedAt: "",
+      workplaceAuthorityExpiresAt: null,
     };
   }
 
@@ -230,7 +232,13 @@ async function getPublishedDirectoryContact(business: PublicDirectoryBusiness) {
         from company_directory_official_facts facts
         where facts.profile_id = company_directory_profiles.id
         limit 1
-      ) as official_facts_last_synced_at
+      ) as official_facts_last_synced_at,
+      (
+        select scb.last_synced_at + interval '7 days'
+        from company_directory_scb_enrichment scb
+        where scb.profile_id = company_directory_profiles.id
+        limit 1
+      ) as workplace_authority_expires_at
     from company_directory_profiles
     where id = ${business.id}::uuid
       and publication_status = 'published'
@@ -284,6 +292,7 @@ async function getPublishedDirectoryContact(business: PublicDirectoryBusiness) {
       contact: emptyContact(),
       claimedWorkspaceId: "",
       officialFactsCheckedAt: "",
+      workplaceAuthorityExpiresAt: null,
     };
   }
 
@@ -311,6 +320,9 @@ async function getPublishedDirectoryContact(business: PublicDirectoryBusiness) {
     officialFactsCheckedAt: row.official_facts_last_synced_at
       ? new Date(String(row.official_facts_last_synced_at)).toISOString()
       : "",
+    workplaceAuthorityExpiresAt: row.workplace_authority_expires_at
+      ? new Date(String(row.workplace_authority_expires_at)).toISOString()
+      : null,
   };
 }
 
@@ -335,6 +347,7 @@ async function resolvePublishedDirectoryBusiness(slug: string): Promise<Publishe
       sharedCacheSafe,
     },
     sharedCacheSafe,
+    authorityExpiresAt: sharedCacheSafe ? publicContact.workplaceAuthorityExpiresAt : null,
   };
 }
 
@@ -536,7 +549,11 @@ export const getPublicDirectoryBusinessForRequest = cache(async (slug: string): 
     const published = await readPublicDirectoryProfileCache(normalized, async () => {
       const resolved = await resolvePublishedDirectoryBusiness(normalized);
       return resolved?.sharedCacheSafe
-        ? { cache: true, value: resolved.business }
+        ? {
+            cache: true,
+            value: resolved.business,
+            authorityExpiresAt: resolved.authorityExpiresAt,
+          }
         : { cache: false, value: resolved?.business ?? null };
     });
     if (published) return { cache: false, value: published };

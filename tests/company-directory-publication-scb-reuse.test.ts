@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
@@ -124,11 +126,31 @@ describe("Directory publication SCB evidence reuse", () => {
     expect(finalQuery).toContain("scb.last_synced_at >= now() - interval '7 days'");
     expect(finalQuery).toContain("{comparisonSnapshot,profileUpdatedToken}");
     expect(finalQuery).toContain("{comparisonSnapshot,officialFactsLastSyncedToken}");
+    expect(finalQuery).not.toContain("updated_at = now()");
     expect(sql.mock.calls[1]?.slice(1)).toEqual(expect.arrayContaining([
       PROFILE_UPDATED_TOKEN,
       FACTS_LAST_SYNCED_TOKEN,
       "scb-hash",
     ]));
+  });
+
+  it("preserves the validated snapshot token only for publication bookkeeping", () => {
+    const publicationSource = readFileSync(
+      resolve(process.cwd(), "src/lib/company-directory-publication.ts"),
+      "utf8",
+    );
+    const sourceSyncSource = readFileSync(
+      resolve(process.cwd(), "src/lib/company-directory-engine.ts"),
+      "utf8",
+    );
+
+    const publicationUpdate = publicationSource.slice(
+      publicationSource.indexOf("update company_directory_profiles p"),
+      publicationSource.indexOf("returning p.public_slug"),
+    );
+    expect(publicationUpdate).toContain("p.updated_at::text = ${profileUpdatedToken}");
+    expect(publicationUpdate).not.toContain("updated_at = now()");
+    expect(sourceSyncSource).toContain("updated_at = now()");
   });
 
   it("fails closed when the profile is in-pilot but the canonical workplace is outside the pilot", async () => {

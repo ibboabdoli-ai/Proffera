@@ -33,6 +33,7 @@ import {
   invalidatePublicDirectoryProfileCache,
   publicDirectoryExtrasCacheTag,
   publicDirectoryProfileCacheTag,
+  readPublicDirectoryProfileCache,
   setPublicDirectoryCacheAdapterForTests,
   type PublicDirectoryCacheAdapter,
   type PublicDirectoryCacheReadInput,
@@ -206,6 +207,35 @@ describe("company directory shared-cache route contract", () => {
 });
 
 describe("directory shared-cache behavior", () => {
+  it("rechecks a cached positive at its exact workplace-authority deadline", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-09-20T12:00:00.000Z"));
+    const loader = vi.fn()
+      .mockResolvedValueOnce({
+        cache: true,
+        value: publicBusiness(),
+        authorityExpiresAt: "2026-09-20T13:00:00.000Z",
+      })
+      .mockResolvedValue({ cache: false, value: null });
+
+    try {
+      expect(await readPublicDirectoryProfileCache("test-company-ab", loader)).toMatchObject({
+        companyName: "Test Brand AB",
+      });
+      vi.setSystemTime(new Date("2026-09-20T12:59:59.999Z"));
+      expect(await readPublicDirectoryProfileCache("test-company-ab", loader)).toMatchObject({
+        companyName: "Test Brand AB",
+      });
+      expect(loader).toHaveBeenCalledTimes(1);
+
+      vi.setSystemTime(new Date("2026-09-20T13:00:00.000Z"));
+      expect(await readPublicDirectoryProfileCache("test-company-ab", loader)).toBeNull();
+      expect(loader).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("turns 50 safe juridical reads into one underlying public lookup", async () => {
     mocks.getSql.mockReturnValue(publishedSql());
     mocks.getPublicDirectoryBusiness.mockResolvedValue(publicBusiness());
