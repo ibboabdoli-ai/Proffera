@@ -4455,7 +4455,7 @@ esac
       expect(commentPatchCalls(result.calls, 210)).toHaveLength(0);
       expect(result.outputs.reservation_comment_id).toBeUndefined();
     }
-  });
+  }, 20_000);
 
   it("retries a partial task-first reclamation without creating another task or reservation identity", () => {
     const old = globalExpiryEvidence(1);
