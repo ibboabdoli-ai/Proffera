@@ -1381,6 +1381,7 @@ jobs:
           TASK_TITLE: ${{ needs.preflight.outputs.task_title }}
           BASE_SHA: ${{ needs.preflight.outputs.base_sha }}
           PACKET_B64: ${{ needs.preflight.outputs.packet_b64 }}
+          RUN_ID: ${{ github.run_id }}
           DISPATCH_PUSH_TOKEN: ${{ secrets.PROFFERA_AUTOFIX_PUSH_TOKEN }}
         shell: bash
         run: |
@@ -1414,11 +1415,11 @@ jobs:
           else
             # Build and validate deterministic publication artifact only after normal publication fails.
             target_head="$(git rev-parse HEAD)"
-            jq -n --argjson packet "$packet" --arg source_head "$BASE_SHA" --arg target_head "$target_head" \
-              '{packet:$packet,source_head:$source_head,target_head:$target_head}' \
+            jq -n --argjson packet "$packet" --arg source_head "$BASE_SHA" --arg target_head "$target_head" --arg run_id "$RUN_ID" \
+              '{packet:$packet,source_head:$source_head,target_head:$target_head,run_id:$run_id}' \
               | node "$helper" build-publication > "$artifact"
             live_source="$(gh api "repos/${REPOSITORY}/git/ref/heads/main" --jq '.object.sha')"
-            validation="$(jq -n --argjson packet "$packet" --arg current_source_head "$live_source" --slurpfile artifact "$artifact" '{packet:$packet,current_source_head:$current_source_head,artifact:$artifact[0]}' | node "$helper" validate-publication)"
+            validation="$(jq -n --argjson packet "$packet" --arg current_source_head "$live_source" --arg expected_target_head "$target_head" --arg expected_run_id "$RUN_ID" --slurpfile artifact "$artifact" '{packet:$packet,current_source_head:$current_source_head,expected_target_head:$expected_target_head,expected_run_id:$expected_run_id,artifact:$artifact[0]}' | node "$helper" validate-publication)"
             test "$(jq -r '.ok' <<< "$validation")" = "true"
             test -s "$artifact"
             digest="$(sha256sum "$artifact" | cut -d' ' -f1)"
@@ -1833,6 +1834,13 @@ jobs:
       issues: write
       pull-requests: read
     steps:
+      - name: Checkout exact cleanup baseline
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ needs.preflight.outputs.base_sha }}
+          fetch-depth: 1
+          persist-credentials: false
+
       - name: Materialize exact baseline cleanup helper independently
         env:
           GH_TOKEN: ${{ github.token }}
@@ -1937,16 +1945,42 @@ jobs:
             else
               artifacts="$(gh api "repos/${REPOSITORY}/actions/runs/${RUN_ID}/artifacts?per_page=100")"
               artifact_prefix="proffera-publication-recovery-${TASK_ID}-"
-              artifact_matches="$(jq -c --arg prefix "$artifact_prefix" '[.artifacts[]? | select((.name // "") | startswith($prefix))]' <<< "$artifacts")"
+              artifact_matches="$(jq -c --arg prefix "$artifact_prefix" '[.artifacts[]? | select((.expired // true) == false) | select((.name // "") | startswith($prefix)) | select(((.name // "") | sub("^" + $prefix; "")) | test("^[0-9a-f]{64}$"))]' <<< "$artifacts")"
               artifact_count="$(jq 'length' <<< "$artifact_matches")"
               if [ "$artifact_count" -gt 1 ]; then
                 echo "Refused: stranded reservation has ambiguous recovery artifacts." >&2
                 exit 1
               fi
               if [ "$artifact_count" -eq 1 ]; then
-                artifact_name="$(jq -r '.[0].name' <<< "$artifact_matches")"
+                artifact_id="$(jq -r '.[0].id // ""' <<< "$artifact_matches")"
+                artifact_name="$(jq -r '.[0].name // ""' <<< "$artifact_matches")"
+                artifact_expired="$(jq -r '.[0].expired // true' <<< "$artifact_matches")"
                 recovery_digest="${artifact_name#${artifact_prefix}}"
+                [[ "$artifact_id" =~ ^[1-9][0-9]*$ ]]
+                [[ "$artifact_name" =~ ^proffera-publication-recovery-${TASK_ID}-[0-9a-f]{64}$ ]]
                 [[ "$recovery_digest" =~ ^[0-9a-f]{64}$ ]]
+                test "$artifact_expired" = "false"
+
+                archive="$RUNNER_TEMP/proffera-publication-recovery-${TASK_ID}.zip"
+                recovery_artifact="$RUNNER_TEMP/proffera-publication-recovery-${TASK_ID}.json"
+                rm -f "$archive" "$recovery_artifact"
+                gh api "repos/${REPOSITORY}/actions/artifacts/${artifact_id}/zip" > "$archive"
+                test -s "$archive"
+                archive_entries="$(unzip -Z1 "$archive")"
+                test "$archive_entries" = "proffera-publication-artifact.json"
+                unzip -p "$archive" proffera-publication-artifact.json > "$recovery_artifact"
+                test -s "$recovery_artifact"
+                jq -e . "$recovery_artifact" >/dev/null
+
+                actual_recovery_digest="$(sha256sum "$recovery_artifact" | cut -d' ' -f1)"
+                test "$actual_recovery_digest" = "$recovery_digest"
+                live_source="$(gh api "repos/${REPOSITORY}/git/ref/heads/main" --jq '.object.sha')"
+                test "$live_source" = "$BASE_SHA"
+                recovery_validation="$(jq -n --argjson packet "$packet" --arg current_source_head "$live_source" --arg expected_target_head "$head_sha" --arg expected_run_id "$RUN_ID" --slurpfile artifact "$recovery_artifact" '{packet:$packet,current_source_head:$current_source_head,expected_target_head:$expected_target_head,expected_run_id:$expected_run_id,artifact:$artifact[0]}' | node "$helper" validate-publication)"
+                test "$(jq -r '.ok // false' <<< "$recovery_validation")" = "true"
+                test "$(jq -r '.target_head // ""' <<< "$recovery_validation")" = "$head_sha"
+                test "$(jq -r '.run_id // ""' <<< "$recovery_validation")" = "$RUN_ID"
+
                 recovery_expires_at="$(date -u -d '+6 days' +%Y-%m-%dT%H:%M:%SZ)"
                 payload="$(jq -c --arg state RECOVERABLE --arg digest "$recovery_digest" --arg expires "$recovery_expires_at" '.state=$state | .recovery={kind:"artifact",digest:$digest,expires_at:$expires}' <<< "$payload")"
                 label=RECOVERABLE

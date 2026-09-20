@@ -834,8 +834,20 @@ export function validatePublicationArtifact(input) {
     try { packet = normalizeTaskPacket(input.packet); } catch (error) { publicationFailure("packet_invalid", error instanceof Error ? error.message : "Task Packet is invalid"); }
     const artifact = input.artifact;
     if (!artifact || typeof artifact !== "object" || Array.isArray(artifact)) publicationFailure("artifact_malformed", "artifact must be an object");
+    const expectedRunId = assertPlainString(String(input.expected_run_id ?? ""), "expected_run_id", 30);
+    if (!/^[1-9][0-9]*$/.test(expectedRunId)) publicationFailure("artifact_malformed", "expected_run_id must be a positive workflow run ID");
+    const expectedTargetHead = assertPlainString(input.expected_target_head, "expected_target_head", 40).toLowerCase();
+    if (!SHA_RE.test(expectedTargetHead)) publicationFailure("artifact_malformed", "expected_target_head must be a 40-character commit SHA");
+    const artifactTaskId = assertPlainString(artifact.task_id, "artifact.task_id", 64).toUpperCase();
+    const artifactRunId = assertPlainString(String(artifact.run_id ?? ""), "artifact.run_id", 30);
+    const artifactPacketSha256 = assertPlainString(artifact.packet_sha256, "artifact.packet_sha256", 64).toLowerCase();
     const sourceHead = assertPlainString(artifact.source_head, "artifact.source_head", 40).toLowerCase();
-    if (!SHA_RE.test(sourceHead)) publicationFailure("artifact_malformed", "artifact.source_head must be a 40-character commit SHA");
+    const targetHead = assertPlainString(artifact.target_head, "artifact.target_head", 40).toLowerCase();
+    if (!SHA_RE.test(sourceHead) || !SHA_RE.test(targetHead)) publicationFailure("artifact_malformed", "artifact source/target heads must be 40-character commit SHAs");
+    if (artifactTaskId !== packet.task_id || artifactRunId !== expectedRunId || artifactPacketSha256 !== packetDigest(packet)) {
+      publicationFailure("artifact_binding_mismatch", "publication artifact task, run, or Task Packet digest does not match trusted recovery context");
+    }
+    if (targetHead !== expectedTargetHead) publicationFailure("target_head_mismatch", "publication artifact target head does not match the exact reserved Worker head");
     if (sourceHead !== currentSourceHead || packet.base_sha !== sourceHead) publicationFailure("stale_source_head", "publication source must equal the live head and Task Packet baseline");
     if (artifact.artifact_set_complete !== "YES") publicationFailure("artifact_incomplete", "ARTIFACT_SET_COMPLETE must be exactly YES");
     if (Buffer.byteLength(String(artifact.unified_diff ?? ""), "utf8") > MAX_PUBLICATION_BYTES) publicationFailure("artifact_oversized", "unified diff exceeds the publication limit");
@@ -884,17 +896,19 @@ export function validatePublicationArtifact(input) {
       if (sourceBytes.length + aggregateBytes > MAX_PUBLICATION_BYTES || (!sourceIsAdded && sourceBlob !== diff.old_blob_sha)) publicationFailure("diff_source_mismatch", `unified diff old blob does not match exact source for '${path}'`);
       if (applyUnifiedDiffSection(source, diff) !== content) publicationFailure("diff_replacement_mismatch", `unified diff result diverges from replacement '${path}'`);
     }
-    return { ok: true, status: "VALID", code: "publication_artifact_valid", reason: "publication artifact is Task Packet scoped and exact-source/diff/replacement verified", source_head: sourceHead, paths };
+    return { ok: true, status: "VALID", code: "publication_artifact_valid", reason: "publication artifact is exact task/run/head bound, Task Packet scoped, and exact-source/diff/replacement verified", source_head: sourceHead, target_head: targetHead, run_id: artifactRunId, paths };
   } catch (error) {
     return publicationInvalid(error?.code ?? "artifact_malformed", error instanceof Error ? error.message : "publication artifact is malformed");
   }
 }
 
-export function buildPublicationArtifact({ packet: packetInput, source_head, target_head }) {
+export function buildPublicationArtifact({ packet: packetInput, source_head, target_head, run_id }) {
   const packet = normalizeTaskPacket(packetInput);
   const sourceHead = assertPlainString(source_head, "source_head", 40).toLowerCase();
   const targetHead = assertPlainString(target_head, "target_head", 40).toLowerCase();
+  const runId = assertPlainString(String(run_id ?? ""), "run_id", 30);
   if (!SHA_RE.test(sourceHead) || !SHA_RE.test(targetHead) || packet.base_sha !== sourceHead) throw new Error("publication heads are malformed or do not match Task Packet baseline");
+  if (!/^[1-9][0-9]*$/.test(runId)) throw new Error("publication run_id must be a positive workflow run ID");
   const unifiedDiff = gitOutput(["diff", "--full-index", "--no-renames", "--no-ext-diff", `${sourceHead}..${targetHead}`]);
   const paths = gitOutput(["diff", "--name-only", "--no-renames", `${sourceHead}..${targetHead}`]).trim().split("\n").filter(Boolean);
   const bounded = validateChangedFiles(packet, paths);
@@ -907,8 +921,25 @@ export function buildPublicationArtifact({ packet: packetInput, source_head, tar
     const bytes = Buffer.from(content);
     return { path: replacement.path, ...(replacement.deleted ? { deleted: true } : {}), bytes: bytes.length, lines: replacementLineCount(content), sha256: createHash("sha256").update(bytes).digest("hex"), git_blob_sha: replacement.deleted ? "0".repeat(40) : createHash("sha1").update(`blob ${bytes.length}\0`).update(bytes).digest("hex") };
   });
-  const artifact = { source_head: sourceHead, artifact_set_complete: "YES", paths, unified_diff: unifiedDiff, replacements, manifest };
-  const validation = validatePublicationArtifact({ packet, current_source_head: sourceHead, artifact });
+  const artifact = {
+    task_id: packet.task_id,
+    run_id: runId,
+    packet_sha256: packetDigest(packet),
+    source_head: sourceHead,
+    target_head: targetHead,
+    artifact_set_complete: "YES",
+    paths,
+    unified_diff: unifiedDiff,
+    replacements,
+    manifest,
+  };
+  const validation = validatePublicationArtifact({
+    packet,
+    current_source_head: sourceHead,
+    expected_target_head: targetHead,
+    expected_run_id: runId,
+    artifact,
+  });
   if (!validation.ok) throw new Error(validation.reason);
   return artifact;
 }

@@ -1616,6 +1616,8 @@ function ciPlan(paths: string[]) {
 function publicationInput(overrides: Record<string, unknown> = {}, currentSourceHead?: string) {
   const path = "docs/SUPERVISOR_WORKER_HANDOFF.md";
   const sourceHead = spawnSync("git", ["rev-parse", "HEAD"], { encoding: "utf8" }).stdout.trim();
+  const targetHead = "d".repeat(40);
+  const runId = "9001";
   const sourceContent = spawnSync("git", ["show", `${sourceHead}:${path}`], { encoding: "utf8" }).stdout;
   const [oldLine, ...rest] = sourceContent.split("\n");
   const newLine = `${oldLine} (publication test)`;
@@ -1624,11 +1626,18 @@ function publicationInput(overrides: Record<string, unknown> = {}, currentSource
   const bytes = Buffer.from(content, "utf8");
   const oldBlobSha = createHash("sha1").update(`blob ${oldBytes.length}\0`).update(oldBytes).digest("hex");
   const gitBlobSha = createHash("sha1").update(`blob ${bytes.length}\0`).update(bytes).digest("hex");
+  const taskPacket = packet({ base_sha: sourceHead, allowed_paths: [path], forbidden_paths: ["src/features/other/"] });
   return {
-    packet: packet({ base_sha: sourceHead, allowed_paths: [path], forbidden_paths: ["src/features/other/"] }),
+    packet: taskPacket,
     current_source_head: currentSourceHead ?? sourceHead,
+    expected_target_head: targetHead,
+    expected_run_id: runId,
     artifact: {
+      task_id: taskPacket.task_id,
+      run_id: runId,
+      packet_sha256: createHash("sha256").update(JSON.stringify(taskPacket)).digest("hex"),
       source_head: sourceHead,
+      target_head: targetHead,
       artifact_set_complete: "YES",
       paths: [path],
       unified_diff: [`diff --git a/${path} b/${path}`, `index ${oldBlobSha}..${gitBlobSha} 100644`, `--- a/${path}`, `+++ b/${path}`, "@@ -1 +1 @@", `-${oldLine}`, `+${newLine}`, ""].join("\n"),
@@ -4070,6 +4079,28 @@ esac
     expect(recovery).toContain('.user.login == $owner');
   });
 
+  it("validates exact same-run recovery artifact bytes before persisting RECOVERABLE", () => {
+    const workflow = source(".github/workflows/supervisor-worker-handoff.yml");
+    const cleanupStart = workflow.indexOf("  cleanup:");
+    expect(cleanupStart).toBeGreaterThanOrEqual(0);
+    const cleanup = workflow.slice(cleanupStart);
+    const reconcile = workflowRunStep(workflow, "Reconcile exact stranded reservation after publish setup failure");
+    expect(cleanup).toContain("Checkout exact cleanup baseline");
+    expect(reconcile).toContain('actions/runs/${RUN_ID}/artifacts?per_page=100');
+    expect(reconcile).toContain('actions/artifacts/${artifact_id}/zip');
+    expect(reconcile).toContain('test "$archive_entries" = "proffera-publication-artifact.json"');
+    expect(reconcile).toContain('actual_recovery_digest="$(sha256sum "$recovery_artifact"');
+    expect(reconcile).toContain('node "$helper" validate-publication');
+    expect(reconcile).toContain('--arg expected_target_head "$head_sha"');
+    expect(reconcile).toContain('--arg expected_run_id "$RUN_ID"');
+    const digestCheck = reconcile.indexOf('test "$actual_recovery_digest" = "$recovery_digest"');
+    const validation = reconcile.indexOf('node "$helper" validate-publication');
+    const recoverableArtifact = reconcile.indexOf('.recovery={kind:"artifact",digest:$digest,expires_at:$expires}');
+    expect(digestCheck).toBeGreaterThanOrEqual(0);
+    expect(validation).toBeGreaterThan(digestCheck);
+    expect(recoverableArtifact).toBeGreaterThan(validation);
+  });
+
   it("keeps uploaded fallback evidence recoverable and expires it before artifact deletion", () => {
     const workflow = source(".github/workflows/supervisor-worker-handoff.yml");
     const recovery = workflowRunStep(workflow, "Release or recover reservation on dispatch failure");
@@ -4950,7 +4981,7 @@ process.stdout.write(JSON.stringify({
 
   it("requires the normalized Task Packet and canonical scope boundary", () => {
     const input = publicationInput();
-    expect(run("validate-publication", { current_source_head: input.current_source_head, artifact: input.artifact }).code).toBe("packet_invalid");
+    expect(run("validate-publication", { current_source_head: input.current_source_head, expected_target_head: input.expected_target_head, expected_run_id: input.expected_run_id, artifact: input.artifact }).code).toBe("packet_invalid");
     const forbidden = { ...input, packet: packet({ base_sha: input.current_source_head, allowed_paths: ["docs/SUPERVISOR_WORKER_HANDOFF.md"], forbidden_paths: ["docs/"] }) };
     expect(run("validate-publication", forbidden).code).toBe("packet_invalid");
     const hardBlocked = publicationInput({ paths: ["package.json"] });
@@ -4967,6 +4998,16 @@ process.stdout.write(JSON.stringify({
   it("rejects stale-head and incomplete publication artifacts", () => {
     expect(run("validate-publication", publicationInput({}, otherSha)).code).toBe("stale_source_head");
     expect(run("validate-publication", publicationInput({ artifact_set_complete: "NO" })).code).toBe("artifact_incomplete");
+  });
+
+  it("binds recovery artifacts to the exact task, run, packet, and reserved target head", () => {
+    const input = publicationInput();
+    const artifact = input.artifact as Record<string, unknown>;
+    expect(run("validate-publication", { ...input, artifact: { ...artifact, task_id: "SUP-FORGED-1" } }).code).toBe("artifact_binding_mismatch");
+    expect(run("validate-publication", { ...input, artifact: { ...artifact, run_id: "9999" } }).code).toBe("artifact_binding_mismatch");
+    expect(run("validate-publication", { ...input, artifact: { ...artifact, packet_sha256: "0".repeat(64) } }).code).toBe("artifact_binding_mismatch");
+    expect(run("validate-publication", { ...input, expected_target_head: otherSha }).code).toBe("target_head_mismatch");
+    expect(run("validate-publication", { ...input, artifact: { ...artifact, target_head: "bad" } }).code).toBe("artifact_malformed");
   });
 
   it("rejects missing or discontinuous publication chunks", () => {
@@ -5067,7 +5108,7 @@ process.stdout.write(JSON.stringify({
     const scopedPacket = packet({ base_sha: sourceHead, allowed_paths: ["delete.txt", "rename.txt", "renamed.txt", "newline.txt"] });
     const built = spawnSync(process.execPath, [helper, "build-publication"], {
       cwd: repo,
-      input: JSON.stringify({ packet: scopedPacket, source_head: sourceHead, target_head: targetHead }),
+      input: JSON.stringify({ packet: scopedPacket, source_head: sourceHead, target_head: targetHead, run_id: "9001" }),
       encoding: "utf8",
     });
     expect(built.status, built.stderr).toBe(0);
@@ -5081,7 +5122,7 @@ process.stdout.write(JSON.stringify({
     const validate = (candidate: Record<string, unknown>) => {
       const result = spawnSync(process.execPath, [helper, "validate-publication"], {
         cwd: repo,
-        input: JSON.stringify({ packet: scopedPacket, current_source_head: sourceHead, artifact: candidate }),
+        input: JSON.stringify({ packet: scopedPacket, current_source_head: sourceHead, expected_target_head: targetHead, expected_run_id: "9001", artifact: candidate }),
         encoding: "utf8",
       });
       expect(result.status, result.stderr).toBe(0);
@@ -5110,7 +5151,7 @@ process.stdout.write(JSON.stringify({
     const noNewlinePacket = packet({ base_sha: noNewlineSource, allowed_paths: ["delete.txt"] });
     const noNewlineBuild = spawnSync(process.execPath, [helper, "build-publication"], {
       cwd: repo,
-      input: JSON.stringify({ packet: noNewlinePacket, source_head: noNewlineSource, target_head: noNewlineTarget }),
+      input: JSON.stringify({ packet: noNewlinePacket, source_head: noNewlineSource, target_head: noNewlineTarget, run_id: "9001" }),
       encoding: "utf8",
     });
     expect(noNewlineBuild.status, noNewlineBuild.stderr).toBe(0);
@@ -5140,7 +5181,7 @@ process.stdout.write(JSON.stringify({
     const targetHead = git("rev-parse", "HEAD").trim();
     const scopedPacket = packet({ base_sha: sourceHead, allowed_paths: Object.keys(sources) });
     const built = spawnSync(process.execPath, [helper, "build-publication"], { cwd: repo, encoding: "utf8",
-      input: JSON.stringify({ packet: scopedPacket, source_head: sourceHead, target_head: targetHead }) });
+      input: JSON.stringify({ packet: scopedPacket, source_head: sourceHead, target_head: targetHead, run_id: "9001" }) });
     expect(built.status, built.stderr).toBe(0);
     const artifact = JSON.parse(built.stdout);
     expect(artifact.unified_diff).toBe(git("diff", "--full-index", "--no-renames", "--no-ext-diff", sourceHead, targetHead, "--"));
@@ -5156,7 +5197,7 @@ process.stdout.write(JSON.stringify({
     expect(artifact.replacements.find((entry: { path: string }) => entry.path === "one-blank-line.txt").content).toBe("\n");
     const validate = (candidate: unknown) => {
       const result = spawnSync(process.execPath, [helper, "validate-publication"], { cwd: repo, encoding: "utf8",
-        input: JSON.stringify({ packet: scopedPacket, current_source_head: sourceHead, artifact: candidate }) });
+        input: JSON.stringify({ packet: scopedPacket, current_source_head: sourceHead, expected_target_head: targetHead, expected_run_id: "9001", artifact: candidate }) });
       expect(result.status, result.stderr).toBe(0);
       return JSON.parse(result.stdout);
     };
@@ -5191,7 +5232,7 @@ process.stdout.write(JSON.stringify({
     const scopedPacket = packet({ base_sha: sourceHead, allowed_paths: allowedPaths });
     const built = spawnSync(process.execPath, [helper, "build-publication"], {
       cwd: repo,
-      input: JSON.stringify({ packet: scopedPacket, source_head: sourceHead, target_head: targetHead }),
+      input: JSON.stringify({ packet: scopedPacket, source_head: sourceHead, target_head: targetHead, run_id: "9001" }),
       encoding: "utf8",
     });
     expect(built.status, built.stderr).toBe(0);
@@ -5271,7 +5312,7 @@ process.stdout.write(JSON.stringify({
     const scopedPacket = packet({ base_sha: sourceHead, allowed_paths: ["suffix.txt"] });
     const built = spawnSync(process.execPath, [helper, "build-publication"], {
       cwd: repo,
-      input: JSON.stringify({ packet: scopedPacket, source_head: sourceHead, target_head: targetHead }),
+      input: JSON.stringify({ packet: scopedPacket, source_head: sourceHead, target_head: targetHead, run_id: "9001" }),
       encoding: "utf8",
     });
     expect(built.status, built.stderr).toBe(0);
@@ -5309,7 +5350,7 @@ process.stdout.write(JSON.stringify({
     const scopedPacket = packet({ base_sha: sourceHead, allowed_paths: ["add-empty.txt", "delete-empty.txt"] });
     const built = spawnSync(process.execPath, [helper, "build-publication"], {
       cwd: repo,
-      input: JSON.stringify({ packet: scopedPacket, source_head: sourceHead, target_head: targetHead }),
+      input: JSON.stringify({ packet: scopedPacket, source_head: sourceHead, target_head: targetHead, run_id: "9001" }),
       encoding: "utf8",
     });
     expect(built.status, built.stderr).toBe(0);
