@@ -141,6 +141,26 @@ afterEach(() => {
 });
 
 describe("company directory shared-cache route contract", () => {
+  it("fails published public profile reads closed on canonical fresh workplace authority", () => {
+    const engineSource = source("src/lib/company-directory-engine.ts");
+    const publicDataSource = source("src/lib/company-directory-public-data.ts");
+
+    for (const candidate of [engineSource, publicDataSource]) {
+      expect(candidate).toContain("published_facts.source_payload_hash <> ''");
+      expect(candidate).toContain("published_facts.last_synced_at >=");
+      expect(candidate).toContain("published_facts.deregistration_date is null");
+      expect(candidate).toContain("coalesce(published_facts.advertising_blocked, false) = false");
+      expect(candidate).toContain("published_scb.source_payload_hash <> ''");
+      expect(candidate).toContain("published_scb.last_synced_at >= now() - interval '7 days'");
+      expect(candidate).toContain("comparisonSnapshot,profileUpdatedToken");
+      expect(candidate).toContain("comparisonSnapshot,officialFactsLastSyncedToken");
+      expect(candidate).toContain("jsonb_typeof(published_scb.conflicts) = 'array'");
+      expect(candidate).toContain("jsonb_typeof(published_scb.workplaces) = 'array'");
+      expect(candidate).toContain("jsonb_array_length(published_scb.workplaces) = 1");
+      expect(candidate).toContain("DIRECTORY_PILOT_LOCATIONS");
+    }
+  });
+
   it("fails claimed public fallback and routing closed on fresh snapshot-bound pilot workplace authority", () => {
     const publicDataSource = source("src/lib/company-directory-public-data.ts");
     const routingSource = source("src/lib/company-directory-routing.ts");
