@@ -20,6 +20,7 @@ const mocks = vi.hoisted(() => ({
   verifyPublicBookingCode: vi.fn(),
   resendPublicBookingCode: vi.fn(),
   publicBookingSuccessRedirect: vi.fn(),
+  getPublicWorkspaceExperienceSettings: vi.fn(),
 }));
 
 vi.mock("server-only", () => ({}));
@@ -46,7 +47,7 @@ vi.mock("@/lib/public-booking-verification", () => ({
 }));
 vi.mock("@/lib/public-booking-success-redirect", () => ({ publicBookingSuccessRedirect: mocks.publicBookingSuccessRedirect }));
 vi.mock("@/lib/workspace-feature-entitlement-db", () => ({ hasWorkspaceFeatureAccessForWorkspace: vi.fn() }));
-vi.mock("@/lib/workspace-experience", () => ({ getPublicWorkspaceExperienceSettings: vi.fn() }));
+vi.mock("@/lib/workspace-experience", () => ({ getPublicWorkspaceExperienceSettings: mocks.getPublicWorkspaceExperienceSettings }));
 vi.mock("@/lib/booking-theme-templates", () => ({ resolveBookingThemeContent: vi.fn() }));
 vi.mock("@/components/service-ai-chat-widget", () => ({ BookingAiChatWidget: () => null }));
 vi.mock("@/components/salon/julius-booking-demo", () => ({ JuliusBookingDemo: () => null }));
@@ -142,6 +143,12 @@ beforeEach(() => {
   mocks.getAvailableRescheduleSlots.mockResolvedValue([]);
   mocks.rescheduleCustomerBooking.mockResolvedValue({ ok: true });
   mocks.publicBookingSuccessRedirect.mockImplementation((slug: string, locale: string) => `/boka/${slug}?booked=1&lang=${locale}`);
+  mocks.getPublicWorkspaceExperienceSettings.mockResolvedValue({
+    defaultLanguage: "sv",
+    swedishEnabled: true,
+    englishEnabled: true,
+    primaryColor: "#17452f",
+  });
 });
 
 describe("public booking human-designed UX contract", () => {
@@ -272,26 +279,28 @@ describe("public booking human-designed UX contract", () => {
   });
 
   it("executes verification and resend behavior with localized observable redirects", async () => {
+    const verificationId = "11111111-1111-4111-8111-111111111111";
+    mocks.getSql.mockReturnValue(async () => [{ workspace_id: "22222222-2222-4222-8222-222222222222" }]);
     const tree = await VerifyBookingPage({
-      params: Promise.resolve({ id: "verification-1" }),
+      params: Promise.resolve({ id: verificationId }),
       searchParams: Promise.resolve({ lang: "en", channel: "sms" }),
     });
     const anchors = findElements(tree, (element) => element.type === "a").map((element) => element.props.href);
     const forms = findElements(tree, (element) => element.type === "form");
 
-    expect(anchors).toContain("/boka/verifiera/verification-1?channel=sms");
-    expect(anchors).toContain("/boka/verifiera/verification-1?lang=en&channel=sms");
+    expect(anchors).toContain(`/boka/verifiera/${verificationId}?channel=sms`);
+    expect(anchors).toContain(`/boka/verifiera/${verificationId}?lang=en&channel=sms`);
 
     const verifyAction = forms[0].props.action as (formData: FormData) => Promise<void>;
     const resendAction = forms[1].props.action as (formData: FormData) => Promise<void>;
     const verifyData = new FormData();
-    verifyData.set("id", "verification-1");
+    verifyData.set("id", verificationId);
     verifyData.set("code", "123456");
     verifyData.set("lang", "en");
     verifyData.set("channel", "sms");
 
     mocks.verifyPublicBookingCode.mockResolvedValueOnce({ ok: false, error: "code" });
-    await expect(verifyAction(verifyData)).rejects.toThrow("redirect:/boka/verifiera/verification-1?error=code&lang=en&channel=sms");
+    await expect(verifyAction(verifyData)).rejects.toThrow(`redirect:/boka/verifiera/${verificationId}?error=code&lang=en&channel=sms`);
 
     mocks.redirect.mockClear();
     mocks.verifyPublicBookingCode.mockResolvedValueOnce({ ok: true, slug: "nordic-fix" });
@@ -300,9 +309,95 @@ describe("public booking human-designed UX contract", () => {
 
     mocks.redirect.mockClear();
     const resendData = new FormData();
-    resendData.set("id", "verification-1");
+    resendData.set("id", verificationId);
     resendData.set("lang", "en");
     mocks.resendPublicBookingCode.mockResolvedValueOnce({ ok: true, delivery: "email_sms" });
-    await expect(resendAction(resendData)).rejects.toThrow("redirect:/boka/verifiera/verification-1?resent=1&lang=en&channel=email_sms");
+    await expect(resendAction(resendData)).rejects.toThrow(`redirect:/boka/verifiera/${verificationId}?resent=1&lang=en&channel=email_sms`);
+  });
+
+  it("renders only enabled verification languages and falls back consistently in actions", async () => {
+    const verificationId = "11111111-1111-4111-8111-111111111111";
+    mocks.getSql.mockReturnValue(async () => [{ workspace_id: "22222222-2222-4222-8222-222222222222" }]);
+    mocks.getPublicWorkspaceExperienceSettings.mockResolvedValue({
+      defaultLanguage: "en",
+      swedishEnabled: false,
+      englishEnabled: true,
+      primaryColor: "#ffffff",
+    });
+
+    const tree = await VerifyBookingPage({
+      params: Promise.resolve({ id: verificationId }),
+      searchParams: Promise.resolve({ lang: "sv" }),
+    });
+    const markup = renderToStaticMarkup(tree);
+    const anchors = findElements(tree, (element) => element.type === "a");
+    const forms = findElements(tree, (element) => element.type === "form");
+
+    expect(markup).toContain('lang="en"');
+    expect(markup).toContain('--booking-primary:#ffffff');
+    expect(markup).toContain('--booking-primary-text:#17201a');
+    expect(anchors.map((element) => element.props.href)).toEqual([`/boka/verifiera/${verificationId}?lang=en&channel=email`]);
+
+    const resendData = new FormData();
+    resendData.set("id", verificationId);
+    resendData.set("lang", "sv");
+    mocks.resendPublicBookingCode.mockResolvedValueOnce({ ok: true, delivery: "email" });
+    await expect((forms[1].props.action as (data: FormData) => Promise<void>)(resendData))
+      .rejects.toThrow(`redirect:/boka/verifiera/${verificationId}?resent=1&lang=en&channel=email`);
+    expect(mocks.resendPublicBookingCode).toHaveBeenCalledWith(verificationId, "en");
+  });
+
+  it("falls back to an enabled Swedish verification experience", async () => {
+    const verificationId = "11111111-1111-4111-8111-111111111111";
+    mocks.getSql.mockReturnValue(async () => [{ workspace_id: "22222222-2222-4222-8222-222222222222" }]);
+    mocks.getPublicWorkspaceExperienceSettings.mockResolvedValue({
+      defaultLanguage: "sv",
+      swedishEnabled: true,
+      englishEnabled: false,
+      primaryColor: "#17452f",
+    });
+
+    const tree = await VerifyBookingPage({
+      params: Promise.resolve({ id: verificationId }),
+      searchParams: Promise.resolve({ lang: "en", channel: "sms" }),
+    });
+    const markup = renderToStaticMarkup(tree);
+    const anchors = findElements(tree, (element) => element.type === "a");
+    const forms = findElements(tree, (element) => element.type === "form");
+
+    expect(markup).toContain('lang="sv"');
+    expect(anchors.map((element) => element.props.href)).toEqual([`/boka/verifiera/${verificationId}?channel=sms`]);
+
+    const verifyData = new FormData();
+    verifyData.set("id", verificationId);
+    verifyData.set("code", "123456");
+    verifyData.set("lang", "en");
+    verifyData.set("channel", "sms");
+    mocks.verifyPublicBookingCode.mockResolvedValueOnce({ ok: true, slug: "nordic-fix" });
+    await expect((forms[0].props.action as (data: FormData) => Promise<void>)(verifyData))
+      .rejects.toThrow("redirect:/boka/nordic-fix?booked=1&lang=sv");
+    expect(mocks.publicBookingSuccessRedirect).toHaveBeenCalledWith("nordic-fix", "sv");
+  });
+
+  it("fails closed to Swedish when verification workspace settings cannot be trusted", async () => {
+    const verificationId = "11111111-1111-4111-8111-111111111111";
+    mocks.getSql.mockReturnValue(async () => [{ workspace_id: "22222222-2222-4222-8222-222222222222" }]);
+    mocks.getPublicWorkspaceExperienceSettings.mockResolvedValue({
+      defaultLanguage: "en",
+      swedishEnabled: false,
+      englishEnabled: false,
+      primaryColor: "not-a-color",
+    });
+
+    const tree = await VerifyBookingPage({
+      params: Promise.resolve({ id: verificationId }),
+      searchParams: Promise.resolve({ lang: "en" }),
+    });
+    const markup = renderToStaticMarkup(tree);
+    const anchors = findElements(tree, (element) => element.type === "a");
+
+    expect(markup).toContain('lang="sv"');
+    expect(markup).toContain('--booking-primary:#17452f');
+    expect(anchors.map((element) => element.props.href)).toEqual([`/boka/verifiera/${verificationId}?channel=email`]);
   });
 });

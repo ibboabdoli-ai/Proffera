@@ -88,8 +88,8 @@
 }
 
 .languageActive {
-  border: 1px solid var(--booking-primary);
-  background: var(--booking-primary);
+  border: 1px solid var(--booking-primary, #17452f);
+  background: var(--booking-primary, #17452f);
   color: var(--booking-primary-text, #fff);
 }
 
