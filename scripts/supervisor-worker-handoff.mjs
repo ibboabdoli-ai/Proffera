@@ -904,11 +904,47 @@ export function parseTaskStateBody(body = "") {
   return { state: STATE_RE.test(state) ? state : "", head_sha: SHA_RE.test(headSha) ? headSha : "", pr_number: prNumber };
 }
 
+function assertCanonicalTaskStateEnvelope(text, packet) {
+  const marker = `${TASK_STATE_MARKER_PREFIX}${packet.task_id} -->`;
+  const lines = String(text ?? "").split("\n").filter((line) => line.length > 0);
+  const rules = [
+    { name: "marker", required: true, match: (line) => line === marker },
+    { name: "heading", required: true, re: /^### Supervisor task: [A-Z][A-Z0-9-]{1,63}$/u },
+    { name: "state", required: true, re: /^- State: `[A-Z][A-Z0-9_]{2,39}`$/u },
+    { name: "graph", required: true, re: /^- Graph path: `[^`\r\n]+`$/u },
+    { name: "branch", required: true, re: /^- Branch: `[^`\r\n]+`$/u },
+    { name: "base", required: true, re: /^- Base: `[0-9a-f]{40}`$/u },
+    { name: "digest", required: true, re: /^- Packet SHA-256: `[0-9a-f]{64}`$/u },
+    { name: "run", required: true, re: /^- Run ID: `[0-9]+`$/u },
+    { name: "pr", required: false, re: /^- PR: #[1-9][0-9]*$/u },
+    { name: "head", required: false, re: /^- Head: `[0-9a-f]{40}`$/u },
+    { name: "ready", required: false, re: /^- Ready checkpoint: `[A-Z][A-Z0-9-]{1,63}@[0-9a-f]{40}`$/u },
+    { name: "reason", required: true, re: /^- Reason: .+$/u },
+    { name: "production", required: true, match: (line) => line === "- Production mutation: `false`" },
+    { name: "merge", required: true, match: (line) => line === "- Merge allowed: `false`" },
+    { name: "automerge", required: true, match: (line) => line === "- Auto-merge allowed: `false`" },
+  ];
+  const counts = new Map(rules.map((rule) => [rule.name, 0]));
+  for (const line of lines) {
+    const matches = rules.filter((rule) => rule.match ? rule.match(line) : rule.re.test(line));
+    if (matches.length !== 1) throw new Error("task state contains an unsupported or ambiguous line");
+    const rule = matches[0];
+    counts.set(rule.name, (counts.get(rule.name) ?? 0) + 1);
+  }
+  for (const rule of rules) {
+    const seen = counts.get(rule.name) ?? 0;
+    if ((rule.required && seen !== 1) || (!rule.required && seen > 1)) {
+      throw new Error(`task state ${rule.name} field is missing or ambiguous`);
+    }
+  }
+}
+
 export function validateTaskStateBinding(input) {
   const packet = normalizeTaskPacket(input?.packet);
   const text = String(input?.body ?? "");
   const marker = `${TASK_STATE_MARKER_PREFIX}${packet.task_id} -->`;
   if (countOccurrences(text, marker) !== 1) throw new Error("task state must contain exactly one matching task marker");
+  assertCanonicalTaskStateEnvelope(text, packet);
 
   const headingTaskId = text.match(/^### Supervisor task:\s*([A-Z][A-Z0-9-]{1,63})\s*$/mi)?.[1]?.toUpperCase() ?? "";
   const state = text.match(/^- State:\s*`([A-Z][A-Z0-9_]{2,39})`\s*$/mi)?.[1] ?? "";
@@ -1110,6 +1146,7 @@ function unboundTaskRetryBody({ current_body, packet, run_id, head_sha = "", all
   const taskId = packet.task_id;
   const body = String(current_body ?? "");
   const marker = `${TASK_STATE_MARKER_PREFIX}${taskId} -->`;
+  assertCanonicalTaskStateEnvelope(body, packet);
   if (countOccurrences(body, marker) !== 1 || countOccurrences(body, TASK_STATE_MARKER_PREFIX) !== 1) throw new Error("retryable task marker is missing or ambiguous");
   if (exactStateBodyField(body, /^### Supervisor task: ([A-Z][A-Z0-9-]*)$/gmu, "heading") !== taskId) {
     throw new Error("expired reservation task heading does not match its identity");
@@ -1656,6 +1693,14 @@ function reservationRecords(comments) {
   return comments.filter((comment) => comment?.user?.login === "github-actions[bot]"
     && String(comment.body ?? "").includes("<!-- proffera-worker-slot-reservation:")).map((comment) => {
     const body = String(comment.body);
+    const nonEmptyLines = body.split("\n").filter((line) => line.length > 0);
+    if (nonEmptyLines.length !== 4
+      || !/^<!-- proffera-worker-slot-reservation:[A-Z][A-Z0-9-]{1,63} -->$/u.test(nonEmptyLines[0])
+      || !/^### Worker slot reservation: [A-Z][A-Z0-9-]{1,63}$/u.test(nonEmptyLines[1])
+      || !/^- State: `(?:RESERVED|PUBLISHED|RECOVERABLE|RELEASED)`$/u.test(nonEmptyLines[2])
+      || !/^- Reservation payload: `[A-Za-z0-9+/]+={0,2}`$/u.test(nonEmptyLines[3])) {
+      throw new Error("reservation record contains unsupported, missing, or ambiguous lines");
+    }
     const taskId = exactStateBodyField(body, /^<!-- proffera-worker-slot-reservation:([^ ]+) -->$/gmu, "reservation marker");
     const record = trustedRecord(comments, `<!-- proffera-worker-slot-reservation:${taskId} -->`);
     const encoded = exactStateBodyField(body, /^- Reservation payload: `([A-Za-z0-9+/]+={0,2})`$/gmu, "reservation payload");
@@ -1850,6 +1895,7 @@ function workerReservationIO(input) {
 
 function assertWorkerTask(record, packet, payload, prNumber) {
   const body = record.body;
+  assertCanonicalTaskStateEnvelope(body, packet);
   if (countOccurrences(body, TASK_STATE_MARKER_PREFIX) !== 1
     || exactStateBodyField(body, /^### Supervisor task: (.+)$/gmu, "task heading") !== packet.task_id
     || exactStateBodyField(body, /^- Branch: `([^`]+)`$/gmu, "task branch") !== packet.branch
@@ -2420,6 +2466,25 @@ async function main() {
   }
   if (mode === "validate-state") {
     process.stdout.write(`${JSON.stringify(validateTaskStateBinding(parsed))}\n`);
+    return;
+  }
+  if (mode === "validate-state-env") {
+    const packetJson = process.env.PROFFERA_PACKET_JSON ?? "";
+    const body = process.env.PROFFERA_STATE_BODY ?? "";
+    const prText = process.env.PROFFERA_EXPECTED_PR ?? "";
+    const runId = process.env.PROFFERA_EXPECTED_RUN ?? "";
+    let packet;
+    try {
+      packet = JSON.parse(packetJson);
+    } catch {
+      throw new Error("task state packet environment JSON is malformed");
+    }
+    const validationInput = { packet, body, run_id: runId };
+    if (prText) {
+      if (!/^[1-9][0-9]*$/u.test(prText)) throw new Error("task state expected PR environment binding is malformed");
+      validationInput.pr_number = Number(prText);
+    }
+    process.stdout.write(`${JSON.stringify(validateTaskStateBinding(validationInput))}\n`);
     return;
   }
   if (mode === "state-body") {

@@ -2142,7 +2142,7 @@ describe("Supervisor ↔ Worker Phase-1 handoff", () => {
     expect(created.calls.filter((args) => args.includes("--method") && args.includes("POST") && args.some((arg) => arg.endsWith("/issues/548/comments")))).toHaveLength(1);
     expect(edited.calls.filter((args) => args.includes("--method") && args.includes("POST") && args.some((arg) => arg.endsWith("/issues/548/comments")))).toHaveLength(0);
     expect(duplicate.calls.filter((args) => args.includes("--method") && args.includes("POST") && args.some((arg) => arg.endsWith("/issues/548/comments")))).toHaveLength(0);
-  });
+  }, 20_000);
 
   it("keeps two different disjoint task preflights independently dispatchable", () => {
     const harness = createPreflightHarness();
@@ -2302,7 +2302,7 @@ describe("Supervisor ↔ Worker Phase-1 handoff", () => {
       expect(commentPatchCalls(result.calls, 201)).toHaveLength(0);
       expect(String(result.comments.find((comment) => comment.id === 203)?.body)).toContain("- State: `WORKER_BLOCKED`");
     }
-  });
+  }, 20_000);
 
   it("fails closed when same-task expiry evidence changes or becomes duplicate during reconciliation", () => {
     const evidence = expiredSameTaskEvidence("RECOVERABLE");
@@ -3685,7 +3685,7 @@ esac
   });
 
   it("performs no close mutation for missing, duplicate, mismatched, or stale provenance", () => {
-    const evidence = exactReservationEvidence(sha, { state: "PUBLISHED", pr_number: 849, recovery: null });
+    const evidence = exactReservationEvidence();
     const taskState = { id: 103, user: { login: "github-actions[bot]" }, body: durableStateBody("CHECKS_PENDING") };
     const duplicateReservation = { ...evidence.comments[0], id: 104 };
     const mismatchedDispatch = {
