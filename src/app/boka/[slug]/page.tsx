@@ -290,9 +290,6 @@ export default async function PublicBookingPage({ params, searchParams }: PagePr
     </div>
   ) : null;
   const showChatbot = Boolean(aiChatClientId && experience.chatbotEnabled);
-
-  if (slug === "julius-salong") return <main lang={locale}><div className="fixed right-4 top-4 z-50 rounded-full bg-[#0a2e63] p-1 shadow-lg">{languageSwitch}</div><JuliusBookingDemo live bookingContent={<div className="mt-6 rounded-[1.7rem] bg-white p-4 text-[#11213b] shadow-2xl lg:mt-0 lg:p-6"><p className="text-xs font-bold uppercase tracking-wide text-[#1469d8]">{t.bookOnline}</p><h2 className="mt-1 text-2xl font-black">{String(workspace.company_name)}</h2>{booked ? <div className="mt-4">{successNotice}</div> : <><p className="mt-4 rounded-2xl bg-[#eef5ff] px-4 py-3 text-xs font-bold leading-5 text-[#1469d8]">{t.verification}</p><p data-booking-start-hint className="mt-3 text-xs font-semibold leading-5 text-[#617085]">{t.startHint}</p>{errorNotice}{bookingForm}</>}</div>} />{showChatbot ? <BookingAiChatWidget clientId={aiChatClientId!} /> : null}</main>;
-
   const dark = experience.appearance === "dark";
   const pageBackground = dark ? "#101512" : experience.themeKey === "premium" ? "#f4f0e8" : experience.themeKey === "modern" ? "#edf4f6" : "#f6f8fb";
   const cardBackground = dark ? "#19211c" : "#ffffff";
@@ -309,10 +306,32 @@ export default async function PublicBookingPage({ params, searchParams }: PagePr
     "--booking-muted": mutedColor,
     "--booking-line": lineColor,
   } as CSSProperties;
+
+  if (slug === "julius-salong") return <main lang={locale} style={themeStyles}><div className="fixed right-4 top-4 z-50 rounded-full bg-[#0a2e63] p-1 shadow-lg">{languageSwitch}</div><JuliusBookingDemo live bookingContent={<div className="mt-6 rounded-[1.7rem] bg-white p-4 text-[#11213b] shadow-2xl lg:mt-0 lg:p-6"><p className="text-xs font-bold uppercase tracking-wide text-[#1469d8]">{t.bookOnline}</p><h2 className="mt-1 text-2xl font-black">{String(workspace.company_name)}</h2>{booked ? <div className="mt-4">{successNotice}</div> : <><p className="mt-4 rounded-2xl bg-[#eef5ff] px-4 py-3 text-xs font-bold leading-5 text-[#1469d8]">{t.verification}</p><p data-booking-start-hint className="mt-3 text-xs font-semibold leading-5 text-[#617085]">{t.startHint}</p>{errorNotice}{bookingForm}</>}</div>} />{showChatbot ? <BookingAiChatWidget clientId={aiChatClientId!} /> : null}</main>;
   const heroImageUrl = experience.heroImageUrl || themeContent.heroImageUrl;
   const visibleServices = services.length
     ? services.map((service) => ({ key: String(service.id), name: String(service.name), meta: `${Number(service.duration_minutes) || 60} min${service.price_label ? ` · ${String(service.price_label)}` : ""}` }))
     : themeContent.serviceSamples.map((service, index) => ({ key: `sample-${index}`, name: service.name, meta: service.description }));
+
+  if (experience.themeKey === "restaurant") {
+    return (
+      <main lang={locale} style={themeStyles} className={styles.page}>
+        <div id="restaurant-booking" className={styles.shell}>
+          <section id="booking-form" className={styles.bookingPanel}>
+            {booked ? successNotice : (
+              <>
+                <p className={styles.verification}>{t.verification}</p>
+                <p data-booking-start-hint className={styles.startHint}>{t.startHint}</p>
+                {errorNotice}
+                {bookingForm ?? <p className={styles.preparing}>{t.preparing}</p>}
+              </>
+            )}
+          </section>
+        </div>
+        {showChatbot ? <BookingAiChatWidget clientId={aiChatClientId!} /> : null}
+      </main>
+    );
+  }
 
   return (
     <main lang={locale} style={themeStyles} className={styles.page}>
