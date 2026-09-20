@@ -123,6 +123,22 @@ describe("Supervisor control-plane v2", () => {
     expect(handoff).toContain("if: failure() && needs.preflight.outputs.reservation_comment_id != \'\'");
   });
 
+  it("recovers a preflight reservation even when trusted publication setup never materializes its helper", () => {
+    const handoff = source(".github/workflows/supervisor-worker-handoff.yml");
+    const cleanupStart = handoff.indexOf("  cleanup:");
+    expect(cleanupStart).toBeGreaterThan(0);
+    const cleanup = handoff.slice(cleanupStart);
+    expect(cleanup).toContain("needs: [preflight, dispatch, publish]");
+    expect(cleanup).toContain("needs.preflight.outputs.reservation_comment_id != ''");
+    expect(cleanup).toContain("needs.publish.result != 'success'");
+    expect(cleanup).toContain("Materialize exact baseline cleanup helper independently");
+    expect(cleanup).toContain('contents/scripts/supervisor-worker-handoff.mjs?ref=${BASE_SHA}');
+    expect(cleanup).toContain("git hash-object");
+    expect(cleanup).toContain("released-reservation-retry-body");
+    expect(cleanup).toContain("reservation-mutex-acquire");
+    expect(cleanup).not.toContain("$RUNNER_TEMP/proffera-trusted-publish/supervisor-worker-handoff.mjs");
+  });
+
   it("isolates Worker candidate execution from trusted publication", () => {
     const handoff = source(".github/workflows/supervisor-worker-handoff.yml");
     const dispatchStart = handoff.indexOf("  dispatch:");

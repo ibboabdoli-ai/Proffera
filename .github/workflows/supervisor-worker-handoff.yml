@@ -1812,3 +1812,180 @@ jobs:
             gh api --method PATCH "repos/${REPOSITORY}/issues/comments/${RESERVATION_COMMENT_ID}" -f body="$new_body" >/dev/null || true
           fi
           echo "Reservation ${TASK_ID}@${head_sha} moved to ${label} after dispatch failure."
+
+
+  cleanup:
+    name: Recover stranded preflight reservation
+    needs: [preflight, dispatch, publish]
+    if: >-
+      always() &&
+      needs.preflight.outputs.proceed == 'yes' &&
+      needs.preflight.outputs.reservation_comment_id != '' &&
+      (needs.dispatch.result != 'success' || needs.publish.result != 'success')
+    concurrency:
+      group: proffera-worker-cleanup-${{ needs.preflight.outputs.branch }}
+      cancel-in-progress: false
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      actions: read
+      contents: read
+      issues: write
+      pull-requests: read
+    steps:
+      - name: Materialize exact baseline cleanup helper independently
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          BASE_SHA: ${{ needs.preflight.outputs.base_sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          trusted_dir="$RUNNER_TEMP/proffera-trusted-cleanup"
+          helper="$trusted_dir/supervisor-worker-handoff.mjs"
+          rm -rf "$trusted_dir"
+          mkdir -p "$trusted_dir"
+          helper_json="$(gh api "repos/${REPOSITORY}/contents/scripts/supervisor-worker-handoff.mjs?ref=${BASE_SHA}")"
+          expected_blob="$(jq -r '.sha // ""' <<< "$helper_json")"
+          jq -r '.content' <<< "$helper_json" | tr -d '\n' | base64 --decode > "$helper"
+          test -s "$helper"
+          test "$(git hash-object "$helper")" = "$expected_blob"
+          node --check "$helper"
+
+      - name: Reconcile exact stranded reservation after publish setup failure
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          BASE_SHA: ${{ needs.preflight.outputs.base_sha }}
+          RESERVATION_COMMENT_ID: ${{ needs.preflight.outputs.reservation_comment_id }}
+          STATE_COMMENT_ID: ${{ needs.preflight.outputs.state_comment_id }}
+          TASK_ID: ${{ needs.preflight.outputs.task_id }}
+          BRANCH: ${{ needs.preflight.outputs.branch }}
+          RUN_ID: ${{ github.run_id }}
+          PACKET_B64: ${{ needs.preflight.outputs.packet_b64 }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          helper="$RUNNER_TEMP/proffera-trusted-cleanup/supervisor-worker-handoff.mjs"
+          test -s "$helper"
+          packet="$(printf '%s' "$PACKET_B64" | base64 --decode)"
+          test "$(jq -r '.task_id' <<< "$packet")" = "$TASK_ID"
+          test "$(jq -r '.branch' <<< "$packet")" = "$BRANCH"
+          test "$(jq -r '.base_sha' <<< "$packet")" = "$BASE_SHA"
+          packet_digest="$(printf '%s' "$packet" | sha256sum | cut -d' ' -f1)"
+
+          control_input="$(jq -cn --arg repository "$REPOSITORY" --arg run_id "$RUN_ID" '{repository:$repository,run_id:$run_id}')"
+          mutex="$(printf '%s' "$control_input" | node "$helper" reservation-mutex-acquire)"
+          control_input="$(jq -c --arg mutex "$mutex" '. + {mutex:$mutex}' <<< "$control_input")"
+          release_mutex() {
+            printf '%s' "$control_input" | node "$helper" reservation-mutex-release
+          }
+          trap 'release_mutex || true' EXIT
+
+          reservation_comment="$(gh api "repos/${REPOSITORY}/issues/comments/${RESERVATION_COMMENT_ID}")"
+          test "$(jq -r '.user.login // ""' <<< "$reservation_comment")" = "github-actions[bot]"
+          reservation_body="$(jq -r '.body // ""' <<< "$reservation_comment")"
+          payload_b64="$(sed -n 's/^- Reservation payload: `\([^`]*\)`$/\1/p' <<< "$reservation_body")"
+          payload="$(printf '%s' "$payload_b64" | base64 --decode)"
+          jq -e . >/dev/null <<< "$payload"
+          test "$(jq -r '.task_id // ""' <<< "$payload")" = "$TASK_ID"
+          test "$(jq -r '.run_id // ""' <<< "$payload")" = "$RUN_ID"
+          test "$(jq -r '.branch // ""' <<< "$payload")" = "$BRANCH"
+          test "$(jq -r '.packet_digest // ""' <<< "$payload")" = "$packet_digest"
+          state="$(jq -r '.state // ""' <<< "$payload")"
+          case "$state" in
+            PUBLISHED|RECOVERABLE|RELEASED)
+              echo "Reservation already converged to $state; fallback cleanup is idempotent."
+              release_mutex
+              trap - EXIT
+              exit 0
+              ;;
+            RESERVED) ;;
+            *)
+              echo "Refused: stranded reservation state is malformed or unsupported: $state" >&2
+              exit 1
+              ;;
+          esac
+
+          head_sha="$(jq -r '.head_sha // ""' <<< "$payload")"
+          test "$head_sha" != ""
+          repository_owner="${REPOSITORY%%/*}"
+          prs="$(gh api --paginate "repos/${REPOSITORY}/pulls?state=open&base=main&per_page=100" --jq '.[]' | jq -s --arg branch "$BRANCH" --arg head "$head_sha" --arg repo "$REPOSITORY" --arg owner "$repository_owner" '[.[] | select(.head.ref == $branch and .head.sha == $head and .head.repo.full_name == $repo and .user.login == $owner)]')"
+          pr_number=""
+          if [ "$(jq 'length' <<< "$prs")" -eq 1 ]; then
+            candidate_body="$(jq -r '.[0].body // ""' <<< "$prs")"
+            candidate_packet="$(printf '%s' "$candidate_body" | node "$helper" parse 2>/dev/null || true)"
+            if jq -e . >/dev/null 2>&1 <<< "$candidate_packet"               && [ "$(printf '%s' "$candidate_packet" | sha256sum | cut -d' ' -f1)" = "$packet_digest" ]; then
+              pr_number="$(jq -r '.[0].number' <<< "$prs")"
+            fi
+          elif [ "$(jq 'length' <<< "$prs")" -gt 1 ]; then
+            echo "Refused: stranded reservation has ambiguous open PR ownership." >&2
+            exit 1
+          fi
+
+          label=""
+          if [ -n "$pr_number" ]; then
+            payload="$(jq -c --arg state PUBLISHED --argjson pr_number "$pr_number" '.state=$state | .pr_number=$pr_number | .recovery=null' <<< "$payload")"
+            label=PUBLISHED
+          else
+            branch_ref="$(gh api "repos/${REPOSITORY}/git/ref/heads/${BRANCH}" 2>/dev/null || true)"
+            if [ -n "$branch_ref" ]; then
+              test "$(jq -r '.object.sha // ""' <<< "$branch_ref")" = "$head_sha"
+              recovery_expires_at="$(date -u -d '+6 days' +%Y-%m-%dT%H:%M:%SZ)"
+              payload="$(jq -c --arg state RECOVERABLE --arg expires "$recovery_expires_at" '.state=$state | .recovery={kind:"branch",expires_at:$expires}' <<< "$payload")"
+              label=RECOVERABLE
+            else
+              artifacts="$(gh api "repos/${REPOSITORY}/actions/runs/${RUN_ID}/artifacts?per_page=100")"
+              artifact_prefix="proffera-publication-recovery-${TASK_ID}-"
+              artifact_matches="$(jq -c --arg prefix "$artifact_prefix" '[.artifacts[]? | select((.name // "") | startswith($prefix))]' <<< "$artifacts")"
+              artifact_count="$(jq 'length' <<< "$artifact_matches")"
+              if [ "$artifact_count" -gt 1 ]; then
+                echo "Refused: stranded reservation has ambiguous recovery artifacts." >&2
+                exit 1
+              fi
+              if [ "$artifact_count" -eq 1 ]; then
+                artifact_name="$(jq -r '.[0].name' <<< "$artifact_matches")"
+                recovery_digest="${artifact_name#${artifact_prefix}}"
+                [[ "$recovery_digest" =~ ^[0-9a-f]{64}$ ]]
+                recovery_expires_at="$(date -u -d '+6 days' +%Y-%m-%dT%H:%M:%SZ)"
+                payload="$(jq -c --arg state RECOVERABLE --arg digest "$recovery_digest" --arg expires "$recovery_expires_at" '.state=$state | .recovery={kind:"artifact",digest:$digest,expires_at:$expires}' <<< "$payload")"
+                label=RECOVERABLE
+              else
+                payload="$(jq -c --arg state RELEASED '.state=$state | .recovery=null' <<< "$payload")"
+                label=RELEASED
+              fi
+            fi
+          fi
+
+          if [ "$label" = "RELEASED" ]; then
+            [[ "$STATE_COMMENT_ID" =~ ^[1-9][0-9]*$ ]]
+            task_comment="$(gh api "repos/${REPOSITORY}/issues/comments/${STATE_COMMENT_ID}")"
+            test "$(jq -r '.user.login // ""' <<< "$task_comment")" = "github-actions[bot]"
+            task_body="$(jq -r '.body // ""' <<< "$task_comment")"
+            retryable_input="$(jq -n --arg current_body "$task_body" --argjson reservation "$(printf '%s' "$payload" | jq '.state="RESERVED"')" --argjson packet "$packet" '{current_body:$current_body,reservation:$reservation,packet:$packet}')"
+            retryable_state_body="$(printf '%s' "$retryable_input" | node "$helper" released-reservation-retry-body)"
+
+            test "$(gh api "repos/${REPOSITORY}/issues/comments/${RESERVATION_COMMENT_ID}" --jq '.body // ""')" = "$reservation_body"
+            test "$(gh api "repos/${REPOSITORY}/issues/comments/${STATE_COMMENT_ID}" --jq '.body // ""')" = "$task_body"
+            if gh api "repos/${REPOSITORY}/git/ref/heads/${BRANCH}" >/dev/null 2>&1; then
+              echo "Refused: branch appeared before fallback release." >&2
+              exit 1
+            fi
+            live_pulls="$(gh api --paginate "repos/${REPOSITORY}/pulls?state=open&base=main&per_page=100" --jq '.[]' | jq -s --arg branch "$BRANCH" --arg repo "$REPOSITORY" '[.[] | select(.head.ref == $branch and (.head.repo.full_name // "") == $repo)]')"
+            test "$(jq 'length' <<< "$live_pulls")" -eq 0
+            gh api --method PATCH "repos/${REPOSITORY}/issues/comments/${STATE_COMMENT_ID}" -f body="$retryable_state_body" >/dev/null
+          fi
+
+          payload_b64="$(printf '%s' "$payload" | base64 -w0)"
+          new_body="$(printf '%s\n' "<!-- proffera-worker-slot-reservation:${TASK_ID} -->" "### Worker slot reservation: ${TASK_ID}" "- State: `${label}`" "- Reservation payload: `${payload_b64}`")"
+          test "$(gh api "repos/${REPOSITORY}/issues/comments/${RESERVATION_COMMENT_ID}" --jq '.body // ""')" = "$reservation_body"
+          gh api --method PATCH "repos/${REPOSITORY}/issues/comments/${RESERVATION_COMMENT_ID}" -f body="$new_body" >/dev/null
+
+          if [ "$label" = "RELEASED" ]; then
+            test "$(gh api "repos/${REPOSITORY}/issues/comments/${STATE_COMMENT_ID}" --jq '.body // ""')" = "$retryable_state_body"
+          fi
+          test "$(gh api "repos/${REPOSITORY}/issues/comments/${RESERVATION_COMMENT_ID}" --jq '.body // ""')" = "$new_body"
+          echo "Fallback cleanup converged stranded reservation ${TASK_ID}@${head_sha} to ${label}."
+
+          release_mutex
+          trap - EXIT
