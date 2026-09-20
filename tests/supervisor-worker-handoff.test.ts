@@ -2543,7 +2543,7 @@ describe("Supervisor ↔ Worker Phase-1 handoff", () => {
     expect(evaluate(baseContext({ comments: [orphan("OTHER-1", 7001), orphan("OTHER-2", 7002)] })).status).toBe("TASK_CREATED");
   });
 
-  it("still counts a durable reservation when its task record is only TASK_CREATED", () => {
+  it("leaves durable reservation accounting to the atomic reservation gate", () => {
     const orphanTask = {
       id: 7001,
       created_at: "2026-09-20T18:00:00Z",
@@ -2555,7 +2555,8 @@ describe("Supervisor ↔ Worker Phase-1 handoff", () => {
       user: { login: "github-actions[bot]" },
       body: "<!-- proffera-worker-slot-reservation:OTHER-2 -->\n### Worker slot reservation: OTHER-2\n- State: `RESERVED`",
     };
-    expect(evaluate(baseContext({ comments: [orphanTask, durableReservation], open_prs: [workerPr()] })).code).toBe("writable_worker_limit");
+    expect(evaluate(baseContext({ comments: [orphanTask, durableReservation], open_prs: [workerPr()] })).status).toBe("TASK_CREATED");
+    expect(source("scripts/supervisor-worker-handoff.mjs")).toContain("planWorkerReservation");
   });
 
   it("rejects hierarchical graph overlap for a second writable Worker", () => {

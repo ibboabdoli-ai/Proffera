@@ -313,18 +313,11 @@ function parseTrustedTaskState(comments, taskId) {
 function collectWritableTaskIds(comments, excludeTaskId = "") {
   if (!Array.isArray(comments)) return new Set();
   const latest = new Map();
-  const durableOwners = new Set();
   for (const comment of comments) {
     if (comment?.user?.login !== "github-actions[bot]" || typeof comment.body !== "string") continue;
-    const reservationTaskId = comment.body.match(/<!-- proffera-worker-slot-reservation:([A-Z][A-Z0-9-]{1,63}) -->/)?.[1] ?? "";
-    const reservationState = comment.body.match(/^- State:\s*`(RESERVED|PUBLISHED|RECOVERABLE)`\s*$/mi)?.[1] ?? "";
-    if (reservationTaskId && reservationState) durableOwners.add(reservationTaskId);
-    const dispatchTaskId = comment.body.match(/<!-- proffera-worker-dispatch-start:([A-Z][A-Z0-9-]{1,63}):[0-9]+ -->/)?.[1] ?? "";
-    if (dispatchTaskId) durableOwners.add(dispatchTaskId);
-
     const taskId = comment.body.match(/<!-- proffera-worker-task-state:([A-Z][A-Z0-9-]{1,63}) -->/)?.[1] ?? "";
     const state = comment.body.match(/^- State:\s*`([A-Z][A-Z0-9_]{2,39})`\s*$/mi)?.[1] ?? "";
-    if (!taskId || !STATE_RE.test(state)) continue;
+    if (!taskId || taskId === excludeTaskId || !STATE_RE.test(state)) continue;
     const id = Number(comment.id) || 0;
     const createdAt = String(comment.created_at ?? "");
     const previous = latest.get(taskId);
@@ -332,32 +325,13 @@ function collectWritableTaskIds(comments, excludeTaskId = "") {
       latest.set(taskId, { state, id, created_at: createdAt });
     }
   }
-  const writable = new Set(
+  return new Set(
     [...latest.entries()]
-      .filter(([taskId, entry]) => WRITABLE_TASK_STATES.has(entry.state)
-        && (entry.state !== "TASK_CREATED" || durableOwners.has(taskId)))
+      // TASK_CREATED is pre-reservation persistence only. Durable reservation
+      // ownership is reconciled and counted atomically by planWorkerReservation.
+      .filter(([, entry]) => WRITABLE_TASK_STATES.has(entry.state) && entry.state !== "TASK_CREATED")
       .map(([taskId]) => taskId),
   );
-  for (const taskId of durableOwners) writable.add(taskId);
-  if (excludeTaskId) writable.delete(excludeTaskId);
-  return writable;
-}
-
-function normalizePr(pr) {
-  return {
-    number: Number(pr?.number) || 0,
-    head_ref: String(pr?.head_ref ?? ""),
-    head_sha: String(pr?.head_sha ?? "").toLowerCase(),
-    base_ref: String(pr?.base_ref ?? ""),
-    head_repo: String(pr?.head_repo ?? ""),
-    author: String(pr?.author ?? ""),
-    body: String(pr?.body ?? ""),
-    files: Array.isArray(pr?.files) ? pr.files.map(String) : null,
-  };
-}
-
-function blocked(reason, packet = null, code = "blocked") {
-  return { ok: false, status: "TASK_BLOCKED", code, reason, packet };
 }
 
 export function evaluateDispatchContext(context) {
