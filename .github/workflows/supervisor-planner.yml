@@ -6,9 +6,9 @@ on:
     - cron: "17 * * * *"
 
 permissions:
-  actions: write
+  actions: read
   contents: read
-  issues: read
+  issues: write
   pull-requests: read
 
 concurrency:
@@ -20,6 +20,11 @@ jobs:
     name: Select one bounded next task
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    outputs:
+      dispatch: ${{ steps.validate.outputs.dispatch }}
+      packet_b64: ${{ steps.validate.outputs.packet_b64 }}
+      packet_sha256: ${{ steps.validate.outputs.packet_sha256 }}
+      planner_head_sha: ${{ steps.validate.outputs.planner_head_sha }}
     steps:
       - name: Require both autopilot kill switches and planner credential
         id: gate
@@ -210,19 +215,23 @@ jobs:
             exit 0
           fi
 
+          packet_sha256="$(printf '%s' "$normalized" | sha256sum | cut -d' ' -f1)"
           {
             echo "dispatch=yes"
             echo "packet_b64=$(printf '%s' "$normalized" | base64 -w0)"
+            echo "packet_sha256=$packet_sha256"
+            echo "planner_head_sha=$live_main"
           } >> "$GITHUB_OUTPUT"
 
-      - name: Dispatch validated packet through the trusted Worker handoff
-        if: steps.validate.outputs.dispatch == 'yes'
-        env:
-          GH_TOKEN: ${{ github.token }}
-          REPOSITORY: ${{ github.repository }}
-          PACKET_B64: ${{ steps.validate.outputs.packet_b64 }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          gh workflow run supervisor-worker-handoff.yml --repo "$REPOSITORY" -f planner_packet_b64="$PACKET_B64"
-          echo "Dispatched one deterministic planner packet without using an issue-comment event as authority."
+  dispatch:
+    name: Dispatch validated packet through trusted internal handoff
+    needs: plan
+    if: needs.plan.outputs.dispatch == 'yes'
+    uses: ./.github/workflows/supervisor-worker-handoff.yml
+    with:
+      planner_packet_b64: ${{ needs.plan.outputs.packet_b64 }}
+      planner_packet_sha256: ${{ needs.plan.outputs.packet_sha256 }}
+      planner_run_id: ${{ github.run_id }}
+      planner_head_sha: ${{ needs.plan.outputs.planner_head_sha }}
+      planner_workflow_ref: ${{ github.workflow_ref }}
+    secrets: inherit

@@ -787,6 +787,10 @@ process.exit(2);
           PATH: `${bin}${delimiter}${process.env.PATH ?? ""}`,
           INPUT_COMMENT_ID: commentId,
           PLANNER_PACKET_B64: "",
+          PLANNER_PACKET_SHA256: "",
+          PLANNER_RUN_ID: "",
+          PLANNER_HEAD_SHA: "",
+          PLANNER_WORKFLOW_REF: "",
           GH_STUB_SOURCE_COMMENT_ID: commentId,
           GH_STUB_SOURCE_COMMENT_BODY: packetComment(taskPacket),
           GH_STUB_LOG: log,
@@ -2071,10 +2075,15 @@ describe("Canonical Worker reservation ownership", () => {
 });
 
 describe("Supervisor ↔ Worker Phase-1 handoff", () => {
-  it("keeps task dispatch behind the routed workflow_dispatch boundary", () => {
+  it("keeps manual owner dispatch separate from typed internal Planner handoff", () => {
     const workflow = source(".github/workflows/supervisor-worker-handoff.yml");
-    expect(workflow).toContain("workflow_dispatch:");
-    expect(workflow).toContain("planner_packet_b64:");
+    const workflowCall = workflow.slice(workflow.indexOf("  workflow_call:"), workflow.indexOf("  workflow_dispatch:"));
+    const manualDispatch = workflow.slice(workflow.indexOf("  workflow_dispatch:"), workflow.indexOf("  pull_request_target:"));
+    expect(workflowCall).toContain("planner_packet_b64:");
+    expect(workflowCall).toContain("planner_packet_sha256:");
+    expect(workflowCall).toContain("planner_run_id:");
+    expect(manualDispatch).toContain("comment_id:");
+    expect(manualDispatch).not.toContain("planner_packet_b64:");
     expect(workflow).not.toContain("issue_comment:");
   });
 
@@ -2089,6 +2098,58 @@ describe("Supervisor ↔ Worker Phase-1 handoff", () => {
 
   it("accepts a valid bounded task", () => {
     expect(evaluate(baseContext()).status).toBe("TASK_CREATED");
+  });
+
+  it("rejects forged Planner authority without exact internal provenance and run binding", () => {
+    const forged = baseContext({
+      event: {
+        repository: "ibboabdoli-ai/Proffera",
+        issue_number: 548,
+        actor: "github-actions[bot]",
+        source: "planner",
+        trusted_internal_dispatch: true,
+        is_fork: false,
+        comment_body: packetComment(),
+      },
+      supervisor_labels: ["worker-dispatch-enabled", "supervisor-autopilot-enabled"],
+    });
+    expect(evaluate(forged).code).toBe("unauthorized_actor");
+
+    const wrongRun = baseContext({
+      event: {
+        repository: "ibboabdoli-ai/Proffera",
+        issue_number: 548,
+        actor: "github-actions[bot]",
+        source: "planner",
+        trusted_internal_dispatch: true,
+        internal_provenance_verified: true,
+        packet_digest_verified: true,
+        planner_run_id: "9999",
+        planner_workflow_ref: "ibboabdoli-ai/Proffera/.github/workflows/supervisor-planner.yml@refs/heads/main",
+        is_fork: false,
+        comment_body: packetComment(),
+      },
+      supervisor_labels: ["worker-dispatch-enabled", "supervisor-autopilot-enabled"],
+    });
+    expect(evaluate(wrongRun).code).toBe("planner_provenance_mismatch");
+
+    const exact = baseContext({
+      event: {
+        repository: "ibboabdoli-ai/Proffera",
+        issue_number: 548,
+        actor: "github-actions[bot]",
+        source: "planner",
+        trusted_internal_dispatch: true,
+        internal_provenance_verified: true,
+        packet_digest_verified: true,
+        planner_run_id: "1001",
+        planner_workflow_ref: "ibboabdoli-ai/Proffera/.github/workflows/supervisor-planner.yml@refs/heads/main",
+        is_fork: false,
+        comment_body: packetComment(),
+      },
+      supervisor_labels: ["worker-dispatch-enabled", "supervisor-autopilot-enabled"],
+    });
+    expect(evaluate(exact).status).toBe("TASK_CREATED");
   });
 
   it("rejects malformed task JSON", () => {
@@ -2112,6 +2173,7 @@ describe("Supervisor ↔ Worker Phase-1 handoff", () => {
     expect(workflow).toContain("reservation-mutex-acquire");
     expect(workflow).toContain("reservation-acquire");
     expect(workflow).toContain("planner_packet_b64");
+    expect(workflow).toContain("internal_provenance_verified");
     expect(workflow).not.toContain("needs: resolve_task_lane");
   });
 

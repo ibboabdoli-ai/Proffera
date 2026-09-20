@@ -1,5 +1,7 @@
-import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { copyFileSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
+import { spawnSync } from "node:child_process";
 import { describe, expect, it } from "vitest";
 
 const root = process.cwd();
@@ -46,14 +48,32 @@ describe("Supervisor control-plane v2", () => {
     expect(planner).toContain("supervisor-next-task.json");
     expect(planner).toContain('cron: "17 * * * *"');
     expect(planner).toContain("planner_packet_b64");
-    expect(planner).toContain("supervisor-worker-handoff.yml");
+    expect(planner).toContain("planner_packet_sha256");
+    expect(planner).toContain("planner_run_id");
+    expect(planner).toContain("planner_workflow_ref");
+    expect(planner).toContain("uses: ./.github/workflows/supervisor-worker-handoff.yml");
+    expect(planner).not.toContain("gh workflow run supervisor-worker-handoff.yml");
     expect(planner).toContain("active_state_ids");
     expect(planner).toContain("active_pr_ids");
     expect(planner).toContain("sort -u");
     expect(planner).not.toContain("PROFFERA_AUTOFIX_PUSH_TOKEN");
     expect(planner).not.toContain('POST "repos/${REPOSITORY}/issues/548/comments"');
 
+    const workflowCall = handoff.slice(handoff.indexOf("  workflow_call:"), handoff.indexOf("  workflow_dispatch:"));
+    const manualDispatch = handoff.slice(handoff.indexOf("  workflow_dispatch:"), handoff.indexOf("  pull_request_target:"));
+    expect(workflowCall).toContain("planner_packet_b64:");
+    expect(workflowCall).toContain("planner_packet_sha256:");
+    expect(workflowCall).toContain("planner_run_id:");
+    expect(workflowCall).toContain("planner_head_sha:");
+    expect(workflowCall).toContain("planner_workflow_ref:");
+    expect(manualDispatch).not.toContain("planner_packet_b64:");
     expect(handoff).toContain("trusted_internal_dispatch");
+    expect(handoff).toContain("internal_provenance_verified");
+    expect(handoff).toContain("packet_digest_verified");
+    expect(handoff).toContain('actions/runs/${PLANNER_RUN_ID}');
+    expect(handoff).toContain('.github/workflows/supervisor-planner.yml');
+    expect(helper).toContain("internal_provenance_verified === true");
+    expect(helper).toContain("packet_digest_verified === true");
     expect(helper).toContain('AUTOPILOT_ENABLE_LABEL = "supervisor-autopilot-enabled"');
     expect(helper).toContain('"autopilot_kill_switch_off"');
     expect(handoff).toContain("validate-state");
@@ -71,8 +91,50 @@ describe("Supervisor control-plane v2", () => {
     expect(repair).toContain("steps.qualify.outputs.repair == 'yes'");
     expect(repair).toContain("consecutive");
     expect(repair).toContain("[review-repair]");
+    expect(repair).toContain("Materialize immutable trusted repair helper from exact default branch");
+    const codexStart = repair.indexOf("Run one batched exact-head repair");
+    const postWorker = repair.slice(codexStart);
+    expect(repair.indexOf("Materialize immutable trusted repair helper from exact default branch")).toBeLessThan(codexStart);
+    expect(postWorker).toContain('$RUNNER_TEMP/proffera-trusted-review-repair/supervisor-worker-handoff.mjs');
+    expect(postWorker).toContain("sha256sum --check --status");
+    expect(postWorker).not.toContain("node scripts/supervisor-worker-handoff.mjs");
     expect(repair).toContain("validate-changes");
     expect(repair).not.toContain("--force");
+  });
+
+  it("trusted review-repair validation rejects checkout-helper tampering and out-of-scope writes", () => {
+    const trustedSource = resolve(root, "scripts/supervisor-worker-handoff.mjs");
+    const dir = mkdtempSync(join(tmpdir(), "proffera-review-repair-trust-"));
+    const trusted = join(dir, "trusted-helper.mjs");
+    const compromised = join(dir, "workspace-helper.mjs");
+    copyFileSync(trustedSource, trusted);
+    writeFileSync(compromised, '#!/usr/bin/env node\nprocess.stdin.resume(); process.stdin.on("end", () => process.stdout.write(JSON.stringify({ok:true})));\n');
+
+    const packet = {
+      task_id: "SUP-REPAIR-1",
+      supervisor_issue: 548,
+      repository: "ibboabdoli-ai/Proffera",
+      task_title: "Repair trust fixture",
+      task_goal: "Keep repair changes inside the declared scope.",
+      graph_path: "repair/trust",
+      base_sha: "a".repeat(40),
+      branch: "work/proffera-repair-trust",
+      allowed_paths: ["src/allowed/"],
+      forbidden_paths: ["src/blocked/"],
+      required_checks: ["validate","codeql","targeted-ci-shadow","production-base-health","ai-review","final-gate"],
+      risk_class: 2,
+      production_mutation_allowed: false,
+      merge_allowed: false,
+      auto_merge_allowed: false,
+    };
+    const input = JSON.stringify({ packet, changed_files: ["src/outside.ts"] });
+    const forged = spawnSync(process.execPath, [compromised], { input, encoding: "utf8" });
+    expect(forged.status, forged.stderr).toBe(0);
+    expect(JSON.parse(forged.stdout).ok).toBe(true);
+
+    const verified = spawnSync(process.execPath, [trusted, "validate-changes"], { input, encoding: "utf8" });
+    expect(verified.status, verified.stderr).toBe(0);
+    expect(JSON.parse(verified.stdout)).toMatchObject({ ok: false, code: "out_of_scope_change" });
   });
 
   it("serializes durable lifecycle transitions while cancelling superseded check reconciliation", () => {

@@ -1,15 +1,38 @@
 name: Supervisor Worker handoff
 
 on:
+  workflow_call:
+    inputs:
+      planner_packet_b64:
+        description: Normalized validated Planner Task Packet bytes
+        required: true
+        type: string
+      planner_packet_sha256:
+        description: SHA-256 of the exact normalized Planner Task Packet bytes
+        required: true
+        type: string
+      planner_run_id:
+        description: Originating Supervisor planner workflow run ID
+        required: true
+        type: string
+      planner_head_sha:
+        description: Exact default-branch Planner workflow head SHA
+        required: true
+        type: string
+      planner_workflow_ref:
+        description: Exact originating Supervisor planner workflow ref
+        required: true
+        type: string
+    secrets:
+      OPENAI_API_KEY:
+        required: true
+      PROFFERA_AUTOFIX_PUSH_TOKEN:
+        required: true
   workflow_dispatch:
     inputs:
       comment_id:
         description: Trusted owner Task Packet comment ID from Supervisor issue #548
-        required: false
-        type: string
-      planner_packet_b64:
-        description: Internal validated Supervisor planner packet
-        required: false
+        required: true
         type: string
   pull_request_target:
     branches: [main]
@@ -375,8 +398,8 @@ jobs:
   preflight:
     name: Validate bounded Task Packet
     if: >-
-      github.event_name == 'workflow_dispatch' &&
-      (inputs.comment_id != '' || inputs.planner_packet_b64 != '')
+      inputs.planner_packet_b64 != '' ||
+      (github.event_name == 'workflow_dispatch' && inputs.comment_id != '')
     concurrency:
       group: proffera-supervisor-worker-admission
       cancel-in-progress: false
@@ -418,6 +441,10 @@ jobs:
           REPOSITORY: ${{ github.repository }}
           INPUT_COMMENT_ID: ${{ inputs.comment_id }}
           PLANNER_PACKET_B64: ${{ inputs.planner_packet_b64 }}
+          PLANNER_PACKET_SHA256: ${{ inputs.planner_packet_sha256 }}
+          PLANNER_RUN_ID: ${{ inputs.planner_run_id }}
+          PLANNER_HEAD_SHA: ${{ inputs.planner_head_sha }}
+          PLANNER_WORKFLOW_REF: ${{ inputs.planner_workflow_ref }}
           RUN_ID: ${{ github.run_id }}
           OPENAI_AVAILABLE: ${{ secrets.OPENAI_API_KEY != '' }}
           PUSH_AVAILABLE: ${{ secrets.PROFFERA_AUTOFIX_PUSH_TOKEN != '' }}
@@ -436,17 +463,69 @@ jobs:
           EVENT_ACTOR=""
           EVENT_COMMENT_BODY=""
           EVENT_ISSUE_NUMBER="548"
+          internal_provenance_verified=false
+          packet_digest_verified=false
 
           if [ -n "${PLANNER_PACKET_B64:-}" ]; then
             if [ -n "${INPUT_COMMENT_ID:-}" ]; then
-              echo "Refused: choose owner-comment or planner-packet dispatch, not both." >&2
+              echo "Refused: choose owner-comment or internal planner dispatch, not both." >&2
+              exit 1
+            fi
+            if ! [[ "${PLANNER_RUN_ID:-}" =~ ^[1-9][0-9]*$ ]] \
+              || ! [[ "${PLANNER_HEAD_SHA:-}" =~ ^[0-9a-f]{40}$ ]] \
+              || ! [[ "${PLANNER_PACKET_SHA256:-}" =~ ^[0-9a-f]{64}$ ]]; then
+              echo "Refused: internal Planner provenance inputs are malformed." >&2
+              exit 1
+            fi
+            if [ "$PLANNER_RUN_ID" != "$RUN_ID" ]; then
+              echo "Refused: internal Planner run ID does not match this reusable-workflow run." >&2
+              exit 1
+            fi
+            default_branch="$(gh api "repos/${REPOSITORY}" --jq '.default_branch // ""')"
+            if [ "$default_branch" != "main" ]; then
+              echo "Refused: repository default branch is not the trusted main branch." >&2
+              exit 1
+            fi
+            expected_workflow_ref="${REPOSITORY}/.github/workflows/supervisor-planner.yml@refs/heads/main"
+            if [ "${PLANNER_WORKFLOW_REF:-}" != "$expected_workflow_ref" ]; then
+              echo "Refused: internal Planner workflow ref is not the exact default-branch planner." >&2
+              exit 1
+            fi
+            planner_run="$(gh api "repos/${REPOSITORY}/actions/runs/${PLANNER_RUN_ID}")"
+            if [ "$(jq -r '.repository.full_name // ""' <<< "$planner_run")" != "$REPOSITORY" ] \
+              || [ "$(jq -r '.path // ""' <<< "$planner_run")" != ".github/workflows/supervisor-planner.yml" ] \
+              || [ "$(jq -r '.head_branch // ""' <<< "$planner_run")" != "main" ] \
+              || [ "$(jq -r '.head_sha // ""' <<< "$planner_run")" != "$PLANNER_HEAD_SHA" ]; then
+              echo "Refused: internal Planner workflow run provenance is not exact." >&2
+              exit 1
+            fi
+            planner_event="$(jq -r '.event // ""' <<< "$planner_run")"
+            case "$planner_event" in
+              schedule|workflow_dispatch) ;;
+              *)
+                echo "Refused: internal Planner run event is not trusted." >&2
+                exit 1
+                ;;
+            esac
+
+            planner_packet="$(printf '%s' "$PLANNER_PACKET_B64" | base64 --decode)"
+            jq -e . <<< "$planner_packet" >/dev/null
+            actual_packet_sha256="$(printf '%s' "$planner_packet" | sha256sum | cut -d' ' -f1)"
+            if [ "$actual_packet_sha256" != "$PLANNER_PACKET_SHA256" ]; then
+              echo "Refused: internal Planner packet digest does not match the received bytes." >&2
+              exit 1
+            fi
+            EVENT_COMMENT_BODY="$(printf '<!-- proffera-worker-task-packet:v1 -->\n```json\n%s\n```\n' "$(jq '.' <<< "$planner_packet")")"
+            canonical_packet="$(printf '%s' "$EVENT_COMMENT_BODY" | node "$helper" parse)"
+            if [ "$canonical_packet" != "$planner_packet" ] \
+              || [ "$(printf '%s' "$canonical_packet" | sha256sum | cut -d' ' -f1)" != "$PLANNER_PACKET_SHA256" ]; then
+              echo "Refused: internal Planner packet is not the exact normalized packet bound to its digest." >&2
               exit 1
             fi
             source_mode=planner
             EVENT_ACTOR="github-actions[bot]"
-            planner_packet="$(printf '%s' "$PLANNER_PACKET_B64" | base64 --decode)"
-            jq -e . <<< "$planner_packet" >/dev/null
-            EVENT_COMMENT_BODY="$(printf '<!-- proffera-worker-task-packet:v1 -->\n```json\n%s\n```\n' "$(jq '.' <<< "$planner_packet")")"
+            internal_provenance_verified=true
+            packet_digest_verified=true
           else
             if ! [[ "${INPUT_COMMENT_ID:-}" =~ ^[1-9][0-9]*$ ]]; then
               echo "Refused: workflow_dispatch comment_id must be a positive integer." >&2
@@ -567,6 +646,10 @@ jobs:
             --argjson issue_number "$EVENT_ISSUE_NUMBER" \
             --arg actor "$EVENT_ACTOR" \
             --arg source "$source_mode" \
+            --arg planner_run_id "${PLANNER_RUN_ID:-}" \
+            --arg planner_workflow_ref "${PLANNER_WORKFLOW_REF:-}" \
+            --argjson internal_provenance_verified "$internal_provenance_verified" \
+            --argjson packet_digest_verified "$packet_digest_verified" \
             --arg comment_body "$EVENT_COMMENT_BODY" \
             --arg live_main_sha "$live_main_sha" \
             --arg run_id "$RUN_ID" \
@@ -576,7 +659,7 @@ jobs:
             --argjson branch_exists "$branch_exists" \
             --argjson openai "$openai_available" \
             --argjson push "$push_available" \
-            '{event:{repository:$repository,issue_number:$issue_number,actor:$actor,source:$source,trusted_internal_dispatch:($source == "planner"),is_fork:false,comment_body:$comment_body},supervisor_labels:$supervisor_labels,live_main_sha:$live_main_sha,comments:$comments,open_prs:$open_prs,branch:{exists:$branch_exists},secrets:{openai:$openai,push:$push},run_id:$run_id}')"
+            '{event:{repository:$repository,issue_number:$issue_number,actor:$actor,source:$source,trusted_internal_dispatch:($source == "planner"),internal_provenance_verified:$internal_provenance_verified,packet_digest_verified:$packet_digest_verified,planner_run_id:$planner_run_id,planner_workflow_ref:$planner_workflow_ref,is_fork:false,comment_body:$comment_body},supervisor_labels:$supervisor_labels,live_main_sha:$live_main_sha,comments:$comments,open_prs:$open_prs,branch:{exists:$branch_exists},secrets:{openai:$openai,push:$push},run_id:$run_id}')"
 
           decision="$(printf '%s' "$context" | node "$helper" evaluate)"
           decision_status="$(jq -r '.status' <<< "$decision")"

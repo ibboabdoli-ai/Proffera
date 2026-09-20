@@ -354,7 +354,11 @@ export function evaluateDispatchContext(context) {
   const trustedPlannerDispatch =
     event.source === "planner" &&
     event.actor === "github-actions[bot]" &&
-    event.trusted_internal_dispatch === true;
+    event.trusted_internal_dispatch === true &&
+    event.internal_provenance_verified === true &&
+    event.packet_digest_verified === true &&
+    /^[1-9][0-9]*$/.test(String(event.planner_run_id ?? "")) &&
+    event.planner_workflow_ref === `${EXPECTED_REPOSITORY}/.github/workflows/supervisor-planner.yml@refs/heads/main`;
   if (!trustedOwnerComment && !trustedPlannerDispatch) {
     return blocked("Task Packet source is not a trusted owner comment or internal planner dispatch", null, "unauthorized_actor");
   }
@@ -383,6 +387,9 @@ export function evaluateDispatchContext(context) {
   if (packet.base_sha !== liveMainSha) return blocked(`Task Packet base ${packet.base_sha} is stale; live main is ${liveMainSha}`, packet, "stale_base");
 
   const currentRunId = String(context.run_id ?? "");
+  if (trustedPlannerDispatch && String(event.planner_run_id) !== currentRunId) {
+    return blocked("internal Planner provenance is not bound to the current reusable-workflow run", packet, "planner_provenance_mismatch");
+  }
   const taskState = parseTrustedTaskState(context.comments, packet.task_id);
   if (taskState?.ambiguous) {
     return blocked(`task ${packet.task_id} has missing, duplicate, or malformed trusted state evidence`, packet, "task_state_ambiguous");
