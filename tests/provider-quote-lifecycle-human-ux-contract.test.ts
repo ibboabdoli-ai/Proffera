@@ -17,6 +17,12 @@ describe("provider quote lifecycle human UX contract", () => {
     expect(page).toContain("customerContact");
     expect(page).toContain('name="confirmAuthority"');
     expect(page).toContain('name="lang" value={locale}');
+    expect(page).toContain('htmlFor="quote-amount-sek"');
+    expect(page).toContain('id="quote-amount-sek"');
+    expect(page).toContain('htmlFor="quote-available-date"');
+    expect(page).toContain('id="quote-available-date"');
+    expect(page).toContain('htmlFor="quote-company-note"');
+    expect(page).toContain('id="quote-company-note"');
     expect(page).toContain("providerStyles");
   });
 
@@ -30,6 +36,12 @@ describe("provider quote lifecycle human UX contract", () => {
     expect(page).toContain('name="nextStatus" value="problem"');
     expect(page).toContain('name="nextStatus" value="provider_cancelled"');
     expect(page).toContain('name="nextStatus" value="no_show"');
+    expect(page).toContain('htmlFor="job-completion-summary"');
+    expect(page).toContain('id="job-completion-summary"');
+    expect(page).toContain('htmlFor="job-problem-reason"');
+    expect(page).toContain('id="job-problem-reason"');
+    expect(page).toContain('htmlFor="job-cancel-reason"');
+    expect(page).toContain('id="job-cancel-reason"');
     expect(page).toContain("SV");
     expect(page).toContain("EN");
   });

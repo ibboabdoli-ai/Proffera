@@ -198,8 +198,8 @@ export default async function MarketplaceProviderJobPage({
                 <input type="hidden" name="lang" value={locale} />
                 <input type="hidden" name="nextStatus" value="completed" />
                 <div className={providerStyles.field}>
-                  <label>{text.completion}</label>
-                  <textarea name="completionSummary" minLength={3} maxLength={4000} required rows={4} className={providerStyles.textarea} />
+                  <label htmlFor="job-completion-summary">{text.completion}</label>
+                  <textarea id="job-completion-summary" name="completionSummary" minLength={3} maxLength={4000} required rows={4} className={providerStyles.textarea} />
                   <span className={providerStyles.helper}>{text.completionHint}</span>
                 </div>
                 <button className={providerStyles.primary} type="submit">{text.complete}</button>
@@ -211,8 +211,8 @@ export default async function MarketplaceProviderJobPage({
                 <input type="hidden" name="lang" value={locale} />
                 <input type="hidden" name="nextStatus" value="problem" />
                 <div className={providerStyles.field}>
-                  <label>{text.problemReason}</label>
-                  <textarea name="reason" minLength={3} maxLength={1000} required rows={3} className={providerStyles.textarea} />
+                  <label htmlFor="job-problem-reason">{text.problemReason}</label>
+                  <textarea id="job-problem-reason" name="reason" minLength={3} maxLength={1000} required rows={3} className={providerStyles.textarea} />
                 </div>
                 <button className={providerStyles.secondary} type="submit">{text.problem}</button>
               </form>
@@ -223,8 +223,8 @@ export default async function MarketplaceProviderJobPage({
                 <input type="hidden" name="lang" value={locale} />
                 <input type="hidden" name="nextStatus" value="provider_cancelled" />
                 <div className={providerStyles.field}>
-                  <label>{text.cancelReason}</label>
-                  <textarea name="reason" minLength={3} maxLength={1000} required rows={3} className={providerStyles.textarea} />
+                  <label htmlFor="job-cancel-reason">{text.cancelReason}</label>
+                  <textarea id="job-cancel-reason" name="reason" minLength={3} maxLength={1000} required rows={3} className={providerStyles.textarea} />
                 </div>
                 <button className={providerStyles.danger} type="submit">{text.cancel}</button>
               </form>

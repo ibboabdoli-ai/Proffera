@@ -287,19 +287,19 @@ export default async function MarketplaceGuestQuotePage({
               </fieldset>
 
               <div className={providerStyles.field}>
-                <label>{text.amountLabel}</label>
-                <input name="amountSek" inputMode="decimal" placeholder={text.amountPlaceholder} className={providerStyles.input} />
+                <label htmlFor="quote-amount-sek">{text.amountLabel}</label>
+                <input id="quote-amount-sek" name="amountSek" inputMode="decimal" placeholder={text.amountPlaceholder} className={providerStyles.input} />
                 <span className={providerStyles.helper}>{text.amountHint}</span>
               </div>
 
               <div className={providerStyles.field}>
-                <label>{text.earliestDate}</label>
-                <input type="date" name="availableDate" className={providerStyles.input} />
+                <label htmlFor="quote-available-date">{text.earliestDate}</label>
+                <input id="quote-available-date" type="date" name="availableDate" className={providerStyles.input} />
               </div>
 
               <div className={providerStyles.field}>
-                <label>{text.noteLabel}</label>
-                <textarea name="companyNote" maxLength={4000} rows={5} placeholder={text.notePlaceholder} className={providerStyles.textarea} />
+                <label htmlFor="quote-company-note">{text.noteLabel}</label>
+                <textarea id="quote-company-note" name="companyNote" maxLength={4000} rows={5} placeholder={text.notePlaceholder} className={providerStyles.textarea} />
               </div>
 
               <label className={providerStyles.consent}>
