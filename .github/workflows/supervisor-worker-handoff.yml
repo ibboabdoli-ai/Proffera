@@ -1685,7 +1685,7 @@ jobs:
           gh api --method PATCH "repos/${REPOSITORY}/issues/comments/${STATE_COMMENT_ID}" -f body="$state_body" >/dev/null || true
 
       - name: Release or recover reservation on dispatch failure
-        if: failure() && needs.dispatch.outputs.reservation_comment_id != ''
+        if: failure() && needs.preflight.outputs.reservation_comment_id != ''
         env:
           GH_TOKEN: ${{ github.token }}
           REPOSITORY: ${{ github.repository }}

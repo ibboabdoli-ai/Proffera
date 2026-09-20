@@ -119,6 +119,8 @@ describe("Supervisor control-plane v2", () => {
     expect(plannerJob).not.toContain("issues: write");
     const plannerDispatchJob = planner.slice(planner.indexOf("  dispatch:"));
     expect(plannerDispatchJob).toContain("issues: write");
+    expect(handoff).not.toContain("needs.dispatch.outputs.reservation_comment_id");
+    expect(handoff).toContain("if: failure() && needs.preflight.outputs.reservation_comment_id != \'\'");
   });
 
   it("isolates Worker candidate execution from trusted publication", () => {
