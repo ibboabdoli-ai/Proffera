@@ -384,6 +384,13 @@ export function evaluateDispatchContext(context) {
   if (trustedPlannerDispatch && !context.supervisor_labels.includes(AUTOPILOT_ENABLE_LABEL)) {
     return blocked(`autopilot kill switch is OFF; #548 must carry '${AUTOPILOT_ENABLE_LABEL}'`, packet, "autopilot_kill_switch_off");
   }
+  if (trustedPlannerDispatch && packet.risk_class > 2) {
+    return blocked(
+      `autonomous Planner cannot dispatch risk_class ${packet.risk_class}; Class 3/4 work requires explicit human authorization before implementation`,
+      packet,
+      "planner_risk_class_requires_human",
+    );
+  }
 
   if (context?.secrets?.openai !== true || context?.secrets?.push !== true) {
     return blocked("existing authenticated Codex/push dispatch capability is unavailable", packet, "dispatch_auth_unavailable");

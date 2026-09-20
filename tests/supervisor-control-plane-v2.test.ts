@@ -70,6 +70,9 @@ describe("Supervisor control-plane v2", () => {
     const plannerValidation = planner.slice(plannerValidationStart, plannerDispatchStart);
     expect(plannerValidation).toContain("PLANNER_RUN_ID: ${{ github.run_id }}");
     expect(plannerValidation).toContain("PLANNER_WORKFLOW_REF: ${{ github.workflow_ref }}");
+    expect(planner).toContain("risk_class 1..2 only");
+    expect(plannerValidation).toContain("autonomous dispatch is limited to risk_class 1 or 2");
+    expect(helper).toContain('"planner_risk_class_requires_human"');
 
     const workflowCall = handoff.slice(handoff.indexOf("  workflow_call:"), handoff.indexOf("  workflow_dispatch:"));
     const manualDispatch = handoff.slice(handoff.indexOf("  workflow_dispatch:"), handoff.indexOf("  pull_request_target:"));
@@ -121,7 +124,11 @@ describe("Supervisor control-plane v2", () => {
     const modelStart = planner.indexOf("Ask Codex for exactly one next bounded task", cheapStart);
     const cheapCapacity = planner.slice(cheapStart, modelStart);
     expect(cheapCapacity).toContain("active_reservation_ids");
-    expect(cheapCapacity).toContain('"TASK_DISPATCHED","WORKER_PR_OPENED"');
+    expect(cheapCapacity).toContain("lease_expires_at");
+    expect(cheapCapacity).toContain("recovery.expires_at");
+    expect(cheapCapacity).toContain("fromdateiso8601");
+    expect(cheapCapacity).toContain("reconcile-unbound-tasks sweep");
+    expect(cheapCapacity).not.toContain("active_state_ids");
     expect(cheapCapacity).not.toContain('"TASK_CREATED"');
     const plannerDispatchJob = planner.slice(planner.indexOf("  dispatch:"));
     expect(plannerDispatchJob).toContain("issues: write");

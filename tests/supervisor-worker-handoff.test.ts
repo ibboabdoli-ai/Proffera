@@ -2164,6 +2164,15 @@ describe("Supervisor ↔ Worker Phase-1 handoff", () => {
     });
     expect(evaluate(exact).status).toBe("TASK_CREATED");
 
+    for (const risk_class of [3, 4]) {
+      const highRiskPacket = packet({ risk_class });
+      const highRisk = structuredClone(exact) as Record<string, unknown>;
+      const highRiskEvent = highRisk.event as Record<string, unknown>;
+      highRiskEvent.comment_body = packetComment(highRiskPacket);
+      highRiskEvent.planner_packet_sha256 = createHash("sha256").update(JSON.stringify(highRiskPacket)).digest("hex");
+      expect(evaluate(highRisk).code).toBe("planner_risk_class_requires_human");
+    }
+
     const badDigest = structuredClone(exact) as Record<string, unknown>;
     ((badDigest.event as Record<string, unknown>).planner_packet_sha256 as string) = "f".repeat(64);
     expect(evaluate(badDigest).code).toBe("planner_packet_digest_mismatch");

@@ -114,20 +114,6 @@ jobs:
 
           control_comments="$(gh api --paginate "repos/${REPOSITORY}/issues/548/comments?per_page=100" --jq '.[]' | jq -s '.')"
 
-          active_state_ids="$(
-            jq -r '
-              .[]
-              | select(.user.login == "github-actions[bot]")
-              | (.body // "") as $body
-              | select($body | contains("<!-- proffera-worker-task-state:"))
-              | ($body | try capture("<!-- proffera-worker-task-state:(?<id>[A-Z][A-Z0-9-]{1,63}) -->").id catch "") as $id
-              | ($body | try capture("^- State:[[:space:]]*`(?<state>[A-Z][A-Z0-9_]{2,39})`[[:space:]]*$"; "m").state catch "") as $state
-              | select($id != "")
-              | select(["TASK_DISPATCHED","WORKER_PR_OPENED","CHECKS_PENDING","REVIEW_PENDING","READY_FOR_SUPERVISOR"] | index($state))
-              | $id
-            ' <<< "$control_comments"
-          )"
-
           active_reservation_ids="$(
             jq -r '
               .[]
@@ -135,23 +121,41 @@ jobs:
               | (.body // "") as $body
               | select($body | contains("<!-- proffera-worker-slot-reservation:"))
               | ($body | try capture("<!-- proffera-worker-slot-reservation:(?<id>[A-Z][A-Z0-9-]{1,63}) -->").id catch "") as $id
-              | ($body | try capture("^- State:[[:space:]]*`(?<state>RESERVED|PUBLISHED|RECOVERABLE)`[[:space:]]*$"; "m").state catch "") as $state
-              | select($id != "" and $state != "")
-              | $id
+              | ($body | try capture("^- Reservation payload:[[:space:]]*`(?<payload>[A-Za-z0-9+/]+={0,2})`[[:space:]]*$"; "m").payload catch "") as $encoded
+              | select($id != "")
+              | if $encoded == "" then
+                  $id
+                else
+                  (try ($encoded | @base64d | fromjson) catch null) as $payload
+                  | if ($payload == null) or (($payload.task_id // "") != $id) then
+                      $id
+                    elif $payload.state == "PUBLISHED" then
+                      $id
+                    elif $payload.state == "RESERVED" then
+                      (try ($payload.lease_expires_at | fromdateiso8601) catch null) as $expires
+                      | if ($expires == null) or ($expires > now) then $id else empty end
+                    elif $payload.state == "RECOVERABLE" then
+                      (try ($payload.recovery.expires_at | fromdateiso8601) catch null) as $expires
+                      | if ($expires == null) or ($expires > now) then $id else empty end
+                    else
+                      empty
+                    end
+                end
             ' <<< "$control_comments"
           )"
 
-          # Bare TASK_CREATED is pre-reservation persistence, not slot ownership.
-          # The exact task is reconciled on resubmission; durable reservations,
-          # dispatch/lifecycle state, and open Worker PRs own writable capacity.
+          # This is only a cheap pre-model optimization. Open trusted Worker PRs and
+          # non-expired durable reservations count here. Expired reservations are
+          # intentionally allowed through so the handoff's mutex-protected
+          # reconcile-unbound-tasks sweep can verify and reclaim them before the
+          # authoritative atomic reservation-capacity decision.
           active_count="$(
-            printf '%s\n%s\n%s\n' "$active_pr_ids" "$active_state_ids" "$active_reservation_ids" \
+            printf '%s\n%s\n' "$active_pr_ids" "$active_reservation_ids" \
               | sed '/^$/d' \
               | sort -u \
               | wc -l \
               | tr -d ' '
           )"
-
           if [ "$active_count" -ge 2 ]; then
             echo "proceed=no" >> "$GITHUB_OUTPUT"
             echo "Planner skipped before model call: writable Worker capacity is full ($active_count/2)."
@@ -183,7 +187,7 @@ jobs:
             Write:
             {"action":"dispatch","reason":"...","packet":{...}}
 
-            packet must use the live main_sha from supervisor-context.json as base_sha, a unique task_id and work/proffera-* branch, a narrow graph_path, explicit allowed_paths/forbidden_paths, required_checks exactly ["validate","codeql","targeted-ci-shadow","production-base-health","ai-review","final-gate"], risk_class 1..4, and production_mutation_allowed=false, merge_allowed=false, auto_merge_allowed=false.
+            packet must use the live main_sha from supervisor-context.json as base_sha, a unique task_id and work/proffera-* branch, a narrow graph_path, explicit allowed_paths/forbidden_paths, required_checks exactly ["validate","codeql","targeted-ci-shadow","production-base-health","ai-review","final-gate"], risk_class 1..2 only, and production_mutation_allowed=false, merge_allowed=false, auto_merge_allowed=false. Class 3 or 4 work must return action "wait" because it requires explicit human authorization before implementation.
 
       - name: Validate planner output against live state
         if: steps.cheap.outputs.proceed == 'yes'
@@ -212,6 +216,12 @@ jobs:
           comment_body="$(printf '<!-- proffera-worker-task-packet:v1 -->\n```json\n%s\n```\n' "$(jq '.' <<< "$packet")")"
           normalized="$(printf '%s' "$comment_body" | node scripts/supervisor-worker-handoff.mjs parse)"
           test "$(jq -r '.base_sha' <<< "$normalized")" = "$live_main"
+          risk_class="$(jq -r '.risk_class' <<< "$normalized")"
+          if ! [[ "$risk_class" =~ ^[12]$ ]]; then
+            echo "Planner selection refused: autonomous dispatch is limited to risk_class 1 or 2; Class 3/4 requires explicit human authorization."
+            echo "dispatch=no" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
 
           labels="$(gh api "repos/${REPOSITORY}/issues/548" --jq '[.labels[].name]')"
           state_comments="$(
