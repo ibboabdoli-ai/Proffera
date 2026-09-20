@@ -55,8 +55,8 @@ describe("Supervisor control-plane v2", () => {
     expect(handoff).toContain("trusted_internal_dispatch");
     expect(handoff).toContain("supervisor-autopilot-enabled");
     expect(handoff).toContain("validate-state");
-    expect(handoff).toContain("Refused read-only: existing canonical task-state binding is invalid");
-    expect(handoff).toContain("Refused read-only: task $task_id has duplicate canonical task-state records");
+    expect(handoff).toContain("Refused read-only: canonical task-state binding is invalid");
+    expect(handoff).toContain("Refused read-only: duplicate canonical task-state records exist for $task_id");
   });
 
   it("qualifies current-head repair before any Codex repair call", () => {
@@ -80,6 +80,8 @@ describe("Supervisor control-plane v2", () => {
     expect(sync).toContain("proffera-worker-checks-");
     expect(sync).toContain("cancel-in-progress: false");
     expect(sync).toContain("cancel-in-progress: true");
-    expect(sync).toContain("expected exactly one canonical task-state record");
+    expect(sync).toContain("task_count");
+    expect(sync).toContain('if [ "$task_count" -ne 1 ]');
+    expect(sync).toContain("validate-state");
   });
 });

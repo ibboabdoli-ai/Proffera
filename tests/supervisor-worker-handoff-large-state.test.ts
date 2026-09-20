@@ -157,7 +157,7 @@ fi
 }
 
 describe("Supervisor Worker handoff large-state safety", () => {
-  it("filters Supervisor comments to the current task marker before jq argv construction", () => {
+  it("filters Supervisor state evidence before constructing control-plane argv", () => {
     const workflow = workflowSource();
     const marker = 'state_marker="<!-- proffera-worker-task-state:${task_id} -->"';
     const stateOnlyFilter = 'contains("<!-- proffera-worker-task-state:")';
@@ -166,11 +166,11 @@ describe("Supervisor Worker handoff large-state safety", () => {
     expect(occurrences(workflow, stateOnlyFilter)).toBeGreaterThanOrEqual(1);
 
     const preflight = workflow.slice(
-      workflow.indexOf("packet=\"$(cat \"$packet_file\")\""),
+      workflow.indexOf("Validate trust, freshness, idempotency, graph ownership, and scope"),
       workflow.indexOf("  dispatch:"),
     );
     const preflightFilter = preflight.indexOf(stateOnlyFilter);
-    const preflightContext = preflight.indexOf('--argjson comments "$all_comments_json"');
+    const preflightContext = preflight.indexOf('--argjson comments "$active_state_comments_json"');
     expect(preflightFilter).toBeGreaterThanOrEqual(0);
     expect(preflightContext).toBeGreaterThan(preflightFilter);
 
@@ -178,7 +178,7 @@ describe("Supervisor Worker handoff large-state safety", () => {
       workflow.indexOf("Reconcile live state again immediately before publication"),
       workflow.indexOf("Commit bounded Worker result locally"),
     );
-    const reconcileFilter = reconcile.indexOf(stateOnlyFilter);
+    const reconcileFilter = reconcile.indexOf('--arg marker "$state_marker"');
     const reconcileContext = reconcile.indexOf('--argjson comments "$comments_json"');
     expect(reconcileFilter).toBeGreaterThanOrEqual(0);
     expect(reconcileContext).toBeGreaterThan(reconcileFilter);
