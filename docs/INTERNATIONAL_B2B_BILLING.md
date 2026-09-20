@@ -25,19 +25,19 @@ in UTC.
 
 - Hosted Checkout remains the authority for final amount, currency and tax.
 - The configured Stripe subscription Price remains the source of truth.
-- Live Stripe Price currency options are configured as follows. The amounts
-  are managed in Stripe, not derived at runtime by application code.
+- Canonical Proffera launch pricing is defined in SEK. The application does
+  not invent EUR or GBP subscription amounts; Stripe Checkout remains the
+  authority for the final displayed currency and charge.
 
-| Plan | SEK/month | EUR/month | GBP/month |
-| --- | ---: | ---: | ---: |
-| Starter | 299 kr | €28 | £24 |
-| Professional | 699 kr | €64 | £55 |
+| Plan | Canonical SEK/month |
+| --- | ---: |
+| Starter | 299 kr |
+| Professional | 599 kr |
 
-- All six current currency options use Stripe's `inclusive` tax behaviour.
-  This does not enable automatic tax calculation.
-- Manual EUR and GBP options take precedence over Adaptive Pricing for those
-  currencies. `STRIPE_ADAPTIVE_PRICING_ENABLED` is therefore not required for
-  Sweden, the supported EU countries, or the United Kingdom.
+- The current recurring SEK Price objects use Stripe's `inclusive` tax
+  behaviour. This does not enable automatic tax calculation.
+- Any future localized currency option or Adaptive Pricing rollout must be
+  verified against the provider configuration before public copy is changed.
 - Checkout collects billing address and VAT ID for B2B records.
 - `STRIPE_TAX_ENABLED` must remain `false` until the applicable tax
   registrations are configured and business/legal review is complete.

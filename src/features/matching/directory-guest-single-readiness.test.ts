@@ -72,7 +72,7 @@ describe("single-request Marketplace readiness gate", () => {
     vi.clearAllMocks();
   });
 
-  it("returns a candidate only when the shared readiness classifier marks it Auto Outreach Ready", async () => {
+  it("returns a readiness-approved candidate but keeps missing customer geometry as locality fallback", async () => {
     const sql = sqlResponses([leadRow], [], [candidateRow]);
     mocks.getSql.mockReturnValue(sql);
 
@@ -81,9 +81,25 @@ describe("single-request Marketplace readiness gate", () => {
     expect(result.ok).toBe(true);
     expect(result.match?.candidates).toHaveLength(1);
     expect(result.match?.candidates[0]?.recipientEmail).toBe("offert@rorfirma.se");
+    expect(result.match?.candidates[0]?.coverageState).toBe("locality_fallback");
   });
 
-  it("blocks a candidate with SCB reklamspärr from automatic outreach", async () => {
+  it("propagates verified provider evidence into confirmed_inside when customer geometry is usable", async () => {
+    const sql = sqlResponses([{
+      ...leadRow,
+      customer_latitude: 59.1955,
+      customer_longitude: 17.6253,
+    }], [], [candidateRow]);
+    mocks.getSql.mockReturnValue(sql);
+
+    const result = await getDirectoryGuestLeadMatch(leadRow.id);
+
+    expect(result.ok).toBe(true);
+    expect(result.match?.candidates[0]?.coverageState).toBe("confirmed_inside");
+    expect(result.match?.candidates[0]?.serviceAreaConfirmed).toBe(true);
+  });
+
+  it("blocks a candidate with SCB reklamspärr from automatic outreach readiness", async () => {
     const sql = sqlResponses([leadRow], [], [{
       ...candidateRow,
       advertising_blocked: true,
@@ -96,7 +112,7 @@ describe("single-request Marketplace readiness gate", () => {
     expect(result.match?.candidates).toEqual([]);
   });
 
-  it("blocks automatic outreach when reklamspärr status is unknown", async () => {
+  it("blocks automatic outreach readiness when reklamspärr status is unknown", async () => {
     const sql = sqlResponses([leadRow], [], [{
       ...candidateRow,
       advertising_blocked: null,
@@ -144,7 +160,7 @@ describe("single-request Marketplace readiness gate", () => {
     expect(result.match?.candidates).toEqual([]);
   });
 
-  it("does not return a public-mailbox candidate to automatic outreach", async () => {
+  it("does not return a public-mailbox candidate to automatic outreach readiness", async () => {
     const sql = sqlResponses([leadRow], [], [{
       ...candidateRow,
       recipient_email: "rorfirma@gmail.com",

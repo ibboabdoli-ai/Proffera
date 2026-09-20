@@ -1,8 +1,9 @@
 import { MarketingPricing } from "@/components/marketing/marketing-pricing";
+import { getCheckoutPlanPriceLabel } from "@/lib/billing-plans";
 import { createEnglishMetadata } from "@/lib/english-metadata";
 
 export const metadata = createEnglishMetadata({
-  title: "Pricing – Proffera from SEK 199/month",
+  title: `Pricing – Proffera from ${getCheckoutPlanPriceLabel("starter", "SEK", "en")}`,
   description: "Compare Starter, Professional and Enterprise for online booking, CRM, business page, quotes, reviews and analytics. Try Starter or Professional free for 14 days.",
   englishPath: "/en/pricing",
   swedishPath: "/priser",

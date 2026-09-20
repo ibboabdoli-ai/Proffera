@@ -1,4 +1,8 @@
+import type { Instrumentation } from "next";
+import * as Sentry from "@sentry/nextjs";
+
 import { buildPreviewSafeBrevoRequestInit } from "@/lib/preview-email-egress";
+import { captureServerRequestError } from "@/lib/observability/server";
 
 const PREVIEW_FETCH_GUARD = Symbol.for("proffera.preview-email-fetch-guard");
 
@@ -7,6 +11,14 @@ type GuardedFetch = typeof fetch & {
 };
 
 export async function register() {
+  if (process.env.NEXT_RUNTIME === "nodejs") {
+    await import("./sentry.server.config");
+  }
+
+  if (process.env.NEXT_RUNTIME === "edge") {
+    await import("./sentry.edge.config");
+  }
+
   if (process.env.VERCEL_ENV !== "preview") return;
 
   const previewEnv: NodeJS.ProcessEnv = { ...process.env };
@@ -22,3 +34,13 @@ export async function register() {
   guardedFetch[PREVIEW_FETCH_GUARD] = true;
   globalThis.fetch = guardedFetch;
 }
+
+
+export const onRequestError: Instrumentation.onRequestError = async (
+  error,
+  request,
+  context,
+) => {
+  captureServerRequestError(error, request, context);
+  Sentry.captureRequestError(error, request, context);
+};

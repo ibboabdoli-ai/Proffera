@@ -4,6 +4,10 @@ import { useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
 
 import {
+  MARKETPLACE_FUNNEL_BROWSER_EVENT,
+  buildMarketplaceFunnelPostHogEvent,
+} from "@/lib/analytics/marketplace-funnel-events";
+import {
   ANALYTICS_CONSENT_CHANGED_EVENT,
   ANALYTICS_CONSENT_STORAGE_KEY,
   analyticsSourceFromReferrer,
@@ -18,6 +22,11 @@ import {
 import { sanitizePostHogEvent } from "@/lib/analytics/posthog-send-boundary";
 
 type PostHogClient = typeof import("posthog-js")["default"];
+type MarketplaceCaptureDependencies = {
+  loadClient?: (config: PostHogPublicConfig) => Promise<PostHogClient | null>;
+  readCurrentConsent?: () => AnalyticsConsentState;
+  isCancelled?: () => boolean;
+};
 
 let postHogClientPromise: Promise<PostHogClient | null> | null = null;
 let initializedConfigKey: string | null = null;
@@ -60,6 +69,30 @@ async function loadPostHog(config: PostHogPublicConfig) {
   return postHogClientPromise;
 }
 
+export async function captureMarketplaceEvent(
+  config: PostHogPublicConfig,
+  input: unknown,
+  dependencies: MarketplaceCaptureDependencies = {},
+) {
+  const sanitized = buildMarketplaceFunnelPostHogEvent(input, config.environment);
+  if (!sanitized) return false;
+
+  const loadClient = dependencies.loadClient ?? loadPostHog;
+  const readCurrentConsent = dependencies.readCurrentConsent ?? readConsent;
+  const isCancelled = dependencies.isCancelled ?? (() => false);
+  const posthog = await loadClient(config);
+  if (!posthog || isCancelled() || !isAnalyticsConsentGranted(readCurrentConsent())) return false;
+
+  posthog.opt_in_capturing();
+  if (isCancelled() || !isAnalyticsConsentGranted(readCurrentConsent())) {
+    posthog.opt_out_capturing();
+    return false;
+  }
+
+  posthog.capture(sanitized.event, sanitized.properties);
+  return true;
+}
+
 function optOutLoadedPostHog() {
   lastCapturedPageKey = null;
   void postHogClientPromise?.then((posthog) => posthog?.opt_out_capturing()).catch(() => undefined);
@@ -87,6 +120,22 @@ export function PostHogAnalytics({ config }: { config: PostHogPublicConfig }) {
   }, []);
 
   useEffect(() => {
+    let cancelled = false;
+    const handleMarketplaceEvent = (event: Event) => {
+      if (!isAnalyticsConsentGranted(consent)) return;
+      void captureMarketplaceEvent(config, event instanceof CustomEvent ? event.detail : null, {
+        isCancelled: () => cancelled,
+      });
+    };
+
+    window.addEventListener(MARKETPLACE_FUNNEL_BROWSER_EVENT, handleMarketplaceEvent);
+    return () => {
+      cancelled = true;
+      window.removeEventListener(MARKETPLACE_FUNNEL_BROWSER_EVENT, handleMarketplaceEvent);
+    };
+  }, [config, consent]);
+
+  useEffect(() => {
     if (consent === "denied") {
       optOutLoadedPostHog();
       return;
@@ -103,8 +152,12 @@ export function PostHogAnalytics({ config }: { config: PostHogPublicConfig }) {
     const pageKey = `${config.environment}:${pageUrl}`;
 
     void loadPostHog(config).then((posthog) => {
-      if (!posthog || cancelled) return;
+      if (!posthog || cancelled || !isAnalyticsConsentGranted(readConsent())) return;
       posthog.opt_in_capturing();
+      if (cancelled || !isAnalyticsConsentGranted(readConsent())) {
+        posthog.opt_out_capturing();
+        return;
+      }
       if (!shouldCapturePageview(lastCapturedPageKey, pageKey)) return;
 
       posthog.capture("$pageview", {

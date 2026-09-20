@@ -1,8 +1,9 @@
 "use client";
 
 import { CheckCircle2 } from "lucide-react";
-import { useEffect, useState, useTransition } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
 
+import { emitMarketplaceFunnelEvent } from "@/components/analytics/marketplace-funnel-signal";
 import type { PublicLocale } from "@/lib/public-locale";
 import { submitQuoteRequest } from "./actions";
 import { quoteFormCopy } from "./form-copy";
@@ -14,6 +15,8 @@ import { QuoteLocationStep } from "./step-location";
 import { QuoteReviewStep } from "./step-review";
 import { QuoteServiceStep } from "./step-service";
 import { QuoteSmartDetailsStep } from "./step-smart-details";
+
+import styles from "./quote-request-marketplace.module.css";
 
 const DRAFT_STORAGE_KEY = "proffera:quote-request:language-draft:v1";
 const DRAFT_MAX_AGE_MS = 30 * 60 * 1000;
@@ -92,6 +95,8 @@ export function LocalizedQuoteRequestForm({
   const [errors, setErrors] = useState<QuoteRequestErrors>({});
   const [reference, setReference] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
+  const [submitting, setSubmitting] = useState(false);
+  const submissionInFlight = useRef(false);
   const progress = Math.round(((step + 1) / t.steps.length) * 100);
   const smartQuestions = getSmartQuoteQuestions(data.category, data.serviceType, locale);
 
@@ -187,7 +192,7 @@ export function LocalizedQuoteRequestForm({
   }
 
   function switchLanguage() {
-    if (!alternateLocaleHref) return;
+    if (!alternateLocaleHref || submissionInFlight.current) return;
 
     try {
       const draft: QuoteLanguageDraft = { savedAt: Date.now(), data, smartAnswers, step };
@@ -199,6 +204,8 @@ export function LocalizedQuoteRequestForm({
   }
 
   function handleSubmit() {
+    if (submissionInFlight.current) return;
+
     const detailErrors = validateSmartQuoteAnswers(smartQuestions, smartAnswers, locale);
     if (Object.keys(detailErrors).length > 0) {
       setSmartErrors(detailErrors);
@@ -216,53 +223,65 @@ export function LocalizedQuoteRequestForm({
     const submissionData = { ...data, description: compiledDescription };
     const allErrors = validate(submissionData);
     if (Object.keys(allErrors).length > 0) { setErrors(allErrors); return; }
+
+    submissionInFlight.current = true;
+    setSubmitting(true);
     startTransition(() => {
-      void submitQuoteRequest({ ...submissionData, website, formStartedAt: startedAt }).then((result) => {
-        if (!result.ok) {
-          if (locale === "en") {
-            const localizedErrors = validate(submissionData);
-            setErrors(Object.keys(localizedErrors).length > 0 ? localizedErrors : { form: t.serverError });
-          } else {
-            setErrors(result.errors);
+      void submitQuoteRequest({ ...submissionData, website, formStartedAt: startedAt })
+        .then((result) => {
+          if (!result.ok) {
+            if (locale === "en") {
+              const localizedErrors = validate(submissionData);
+              setErrors(Object.keys(localizedErrors).length > 0 ? localizedErrors : { form: t.serverError });
+            } else {
+              setErrors(result.errors);
+            }
+            return;
           }
-          return;
-        }
-        discardLanguageDraft();
-        setReference(result.referenceId);
-        setErrors({});
-      });
+          discardLanguageDraft();
+          emitMarketplaceFunnelEvent({ event: "marketplace_request_submitted", properties: { locale } });
+          setReference(result.referenceId);
+          setErrors({});
+        })
+        .finally(() => {
+          submissionInFlight.current = false;
+          setSubmitting(false);
+        });
     });
   }
 
-  if (reference) return <div className="rounded-3xl bg-white p-8 shadow-sm ring-1 ring-[#dfe5dd]">
-    <CheckCircle2 className="h-12 w-12 text-[#17452f]" aria-hidden="true" />
-    <h2 className="mt-5 text-2xl font-bold text-[#17201a]">{t.sent}</h2>
-    <p className="mt-3 text-[#5b665f]">{t.sentText}</p>
-    <div className="mt-6 rounded-2xl bg-[#eef5ef] p-4 text-sm font-semibold text-[#17452f]">{t.reference}: {reference}</div>
+  if (reference) return <div className={styles.successCard}>
+    <CheckCircle2 className={styles.successIcon} aria-hidden="true" />
+    <h2>{t.sent}</h2>
+    <p>{t.sentText}</p>
+    <div className={styles.reference}>{t.reference}: {reference}</div>
   </div>;
 
   const stepProps = { locale, data, errors, update };
+  const submissionPending = pending || submitting;
 
-  return <div className="rounded-3xl bg-white p-5 shadow-sm ring-1 ring-[#dfe5dd] sm:p-8">
+  return <div className={styles.formCard}>
     <label className="absolute left-[-10000px]" aria-hidden="true">{t.website}<input type="text" tabIndex={-1} autoComplete="off" value={website} onChange={(event) => setWebsite(event.target.value)} /></label>
-    {alternateLocaleHref && alternateLocaleLabel ? <div className="mb-5 flex justify-end">
-      <button type="button" onClick={switchLanguage} className="rounded-full border border-[#dfe5dd] bg-white px-4 py-2 text-sm font-semibold text-[#17452f] transition hover:bg-[#f4f8f4]">{alternateLocaleLabel}</button>
+    {alternateLocaleHref && alternateLocaleLabel ? <div className={styles.languageRow}>
+      <button type="button" onClick={switchLanguage} disabled={submissionPending} className={styles.languageButton}>{alternateLocaleLabel}</button>
     </div> : null}
-    <div className="mb-8">
-      <div className="flex items-center justify-between gap-4 text-sm font-semibold text-[#17452f]"><span>{t.step} {step + 1} {t.of} {t.steps.length}</span><span>{progress}%</span></div>
-      <div className="mt-3 h-2 overflow-hidden rounded-full bg-[#e8eee8]"><div className="h-full rounded-full bg-[#17452f] transition-all" style={{ width: `${progress}%` }} /></div>
-      <div className="mt-4 flex flex-wrap gap-2 text-xs font-semibold text-[#5b665f]">{t.steps.map((label, index) => <span key={label} className={`rounded-full px-3 py-1 ${index === step ? "bg-[#17452f] text-white" : "bg-[#f1f4f0]"}`}>{label}</span>)}</div>
+    <div className={styles.progressHeader}>
+      <div className={styles.progressMeta}><span>{t.step} {step + 1} {t.of} {t.steps.length}</span><span>{progress}%</span></div>
+      <div className={styles.progressTrack}><div className={styles.progressBar} style={{ width: `${progress}%` }} /></div>
+      <div className={styles.stepChips}>{t.steps.map((label, index) => <span key={label} className={`${styles.stepChip} ${index === step ? styles.stepChipActive : ""}`}>{label}</span>)}</div>
     </div>
-    {errors.form ? <div className="mb-5 rounded-2xl bg-red-50 p-4 text-sm font-medium text-red-700">{errors.form}</div> : null}
+    {errors.form ? <div className={styles.formError}>{errors.form}</div> : null}
     {step === 0 ? <QuoteServiceStep {...stepProps} /> : null}
     {step === 1 ? <QuoteSmartDetailsStep locale={locale} questions={smartQuestions} answers={smartAnswers} errors={smartErrors} onChange={updateSmartAnswer} /> : null}
     {step === 2 ? <QuoteLocationStep {...stepProps} /> : null}
     {step === 3 ? <QuoteDescriptionStep {...stepProps} /> : null}
     {step === 4 ? <QuoteContactStep {...stepProps} /> : null}
     {step === 5 ? <QuoteReviewStep {...stepProps} smartAnswers={smartAnswers} /> : null}
-    <div className="mt-8 flex flex-col-reverse gap-3 border-t border-[#dfe5dd] pt-6 sm:flex-row sm:justify-between">
-      <button type="button" onClick={() => setStep((current) => Math.max(current - 1, 0))} disabled={step === 0 || pending} className="rounded-full border border-[#dfe5dd] px-5 py-3 text-sm font-semibold text-[#17452f] disabled:opacity-50">{t.back}</button>
-      {step < t.steps.length - 1 ? <button type="button" onClick={goNext} className="rounded-full bg-[#17452f] px-5 py-3 text-sm font-semibold text-white hover:bg-[#0e2e1e]">{t.next}</button> : <button type="button" onClick={handleSubmit} disabled={pending} className="rounded-full bg-[#17452f] px-5 py-3 text-sm font-semibold text-white hover:bg-[#0e2e1e] disabled:opacity-60">{pending ? t.sending : t.submit}</button>}
+    <div className={styles.navRow}>
+      <button type="button" onClick={() => setStep((current) => Math.max(current - 1, 0))} disabled={step === 0 || submissionPending} className={styles.backButton}>{t.back}</button>
+      {step < t.steps.length - 1
+        ? <button type="button" onClick={goNext} className={styles.nextButton}>{t.next}</button>
+        : <button type="button" onClick={handleSubmit} disabled={submissionPending} className={styles.nextButton}>{submissionPending ? t.sending : t.submit}</button>}
     </div>
   </div>;
 }

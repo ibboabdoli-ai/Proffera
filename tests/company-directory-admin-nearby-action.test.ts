@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   requireSuperAdmin: vi.fn(),
-  geocodeDirectoryPilotFromAdmin: vi.fn(),
+  geocodeDirectoryProviderPointsFromAdmin: vi.fn(),
   revalidatePath: vi.fn(),
   cookies: vi.fn(),
   redirect: vi.fn(),
@@ -22,11 +22,12 @@ vi.mock("@/lib/admin-authorization", () => ({
   requireSuperAdmin: mocks.requireSuperAdmin,
 }));
 vi.mock("@/lib/company-directory-geocoding", () => ({
-  geocodeDirectoryPilotFromAdmin: mocks.geocodeDirectoryPilotFromAdmin,
+  DIRECTORY_PROVIDER_GEOCODING_MAX_BATCH: 3,
+  geocodeDirectoryProviderPointsFromAdmin: mocks.geocodeDirectoryProviderPointsFromAdmin,
 }));
 
 import {
-  geocodeDirectoryPilotAction,
+  geocodeDirectoryProviderPointsAction,
   searchDirectoryNearbyAction,
 } from "@/app/admin/foretag/directory/search-preview/actions";
 import { ADMIN_DIRECTORY_NEARBY_COOKIE } from "@/app/admin/foretag/directory/search-preview/search-behavior";
@@ -34,7 +35,7 @@ import { ADMIN_DIRECTORY_NEARBY_COOKIE } from "@/app/admin/foretag/directory/sea
 describe("admin directory Nearby server action", () => {
   beforeEach(() => {
     mocks.requireSuperAdmin.mockReset();
-    mocks.geocodeDirectoryPilotFromAdmin.mockReset();
+    mocks.geocodeDirectoryProviderPointsFromAdmin.mockReset();
     mocks.revalidatePath.mockReset();
     mocks.cookies.mockReset();
     mocks.redirect.mockReset();
@@ -47,8 +48,8 @@ describe("admin directory Nearby server action", () => {
     });
   });
 
-  it("limits the production geocoding pilot action to three companies per run", async () => {
-    mocks.geocodeDirectoryPilotFromAdmin.mockResolvedValue({
+  it("limits the provider geocoding action to three companies per explicit run", async () => {
+    mocks.geocodeDirectoryProviderPointsFromAdmin.mockResolvedValue({
       attempted: 3,
       geocoded: 1,
       noMatch: 2,
@@ -57,10 +58,10 @@ describe("admin directory Nearby server action", () => {
       needsReview: 2,
     });
 
-    await expect(geocodeDirectoryPilotAction()).rejects.toThrow("NEXT_REDIRECT");
+    await expect(geocodeDirectoryProviderPointsAction()).rejects.toThrow("NEXT_REDIRECT");
 
-    expect(mocks.geocodeDirectoryPilotFromAdmin).toHaveBeenCalledTimes(1);
-    expect(mocks.geocodeDirectoryPilotFromAdmin).toHaveBeenCalledWith(3);
+    expect(mocks.geocodeDirectoryProviderPointsFromAdmin).toHaveBeenCalledTimes(1);
+    expect(mocks.geocodeDirectoryProviderPointsFromAdmin).toHaveBeenCalledWith(3);
     expect(mocks.revalidatePath).toHaveBeenCalledWith(
       "/admin/foretag/directory/search-preview",
     );

@@ -85,12 +85,16 @@ function childRequest(url: string, secret?: string) {
 }
 
 describe("Neon cost-reset scheduler contract", () => {
-  it("reduces the repository-owned Directory source probe without removing the daily safety scan", () => {
+  it("keeps repository-owned Directory discovery manual-only during pre-launch", () => {
     const discovery = read(".github/workflows/company-directory-automation.yml");
+    const triggers = workflowTriggers(discovery);
 
-    expect(workflowCronExpressions(discovery)).toEqual(["8 */6 * * *", "31 3 * * *"]);
-    expect(discovery).not.toContain('cron: "17 * * * *"');
-    expect(discovery).toContain("github.event.schedule == '8 */6 * * *'");
+    expect(triggers).toHaveProperty("workflow_dispatch");
+    expect(triggers).not.toHaveProperty("push");
+    expect(triggers).not.toHaveProperty("schedule");
+    expect(workflowCronExpressions(discovery)).toEqual([]);
+    expect(discovery).toContain("Discover official company candidates");
+    expect(discovery).toContain('reason="manual-or-discovery-code-change"');
     expect(discovery).toContain('reason="daily-safety-scan"');
   });
 

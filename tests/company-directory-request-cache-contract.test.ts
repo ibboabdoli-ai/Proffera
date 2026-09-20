@@ -28,6 +28,7 @@ vi.mock("@/lib/workspace-feature-entitlement-db", () => ({
 
 import {
   PUBLIC_DIRECTORY_CACHE_TTL_SECONDS,
+  PUBLIC_DIRECTORY_MISS_CACHE_TTL_SECONDS,
   invalidatePublicDirectoryExtrasCache,
   invalidatePublicDirectoryProfileCache,
   publicDirectoryExtrasCacheTag,
@@ -117,6 +118,7 @@ function publishedSql(input: {
         primary_sni_code: "43.221",
         website_url: "example.se",
         claimed_workspace_id: input.claimedWorkspaceId ?? null,
+        official_facts_last_synced_at: "2026-08-23T00:00:00.000Z",
       }];
     }
     if (query.includes("company_directory_scb_enrichment")) {
@@ -171,16 +173,47 @@ describe("directory shared-cache behavior", () => {
     expect(mocks.hasActivePaidDirectoryContactAccess).not.toHaveBeenCalled();
   });
 
-  it("uses a 300-second TTL and profile-specific tags for profile and extras", async () => {
+  it("turns repeated unknown slugs into one published lookup and one claimed fallback query", async () => {
+    const sql = vi.fn(async () => []);
+    mocks.getSql.mockReturnValue(sql);
+    mocks.getPublicDirectoryBusiness.mockResolvedValue(null);
+
+    const results = [];
+    for (let index = 0; index < 50; index += 1) {
+      results.push(await getPublicDirectoryBusinessForRequest("crawler-invented-company"));
+    }
+
+    expect(results).toEqual(Array.from({ length: 50 }, () => null));
+    expect(mocks.getPublicDirectoryBusiness).toHaveBeenCalledTimes(1);
+    expect(sql).toHaveBeenCalledTimes(1);
+    expect(cacheReads.some((read) => read.revalidate === PUBLIC_DIRECTORY_MISS_CACHE_TTL_SECONDS)).toBe(true);
+  });
+
+  it("does not persist a miss when the Directory SQL client is temporarily unavailable", async () => {
+    const sql = publishedSql();
+    mocks.getSql.mockReturnValueOnce(undefined).mockReturnValue(sql);
+    mocks.getPublicDirectoryBusiness
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(publicBusiness("database-recovery-company", "Recovered Company AB"));
+
+    expect(await getPublicDirectoryBusinessForRequest("database-recovery-company")).toBeNull();
+
+    const recovered = await getPublicDirectoryBusinessForRequest("database-recovery-company");
+    expect(recovered?.companyName).toBe("Recovered Company AB");
+    expect(mocks.getPublicDirectoryBusiness).toHaveBeenCalledTimes(2);
+  });
+
+  it("uses a one-day TTL for safe public data and a short TTL for proven misses", async () => {
     mocks.getSql.mockReturnValue(publishedSql());
     mocks.getPublicDirectoryBusiness.mockResolvedValue(publicBusiness());
     mocks.getPublicDirectoryProfileExtras.mockResolvedValue({ services: [], serviceAreas: [], reputation: null });
 
     await getPublicBusinessProfileViewForRequest("test-company-ab");
 
-    expect(PUBLIC_DIRECTORY_CACHE_TTL_SECONDS).toBe(300);
-    expect(cacheReads.length).toBeGreaterThanOrEqual(2);
-    expect(cacheReads.every((read) => read.revalidate === 300)).toBe(true);
+    expect(PUBLIC_DIRECTORY_CACHE_TTL_SECONDS).toBe(24 * 60 * 60);
+    expect(PUBLIC_DIRECTORY_MISS_CACHE_TTL_SECONDS).toBe(30 * 60);
+    expect(cacheReads.some((read) => read.revalidate === PUBLIC_DIRECTORY_CACHE_TTL_SECONDS)).toBe(true);
+    expect(cacheReads.some((read) => read.revalidate === PUBLIC_DIRECTORY_MISS_CACHE_TTL_SECONDS)).toBe(true);
     expect(cacheReads.some((read) => read.tags.includes(publicDirectoryProfileCacheTag("test-company-ab")))).toBe(true);
     expect(cacheReads.some((read) => read.tags.includes(publicDirectoryExtrasCacheTag(PROFILE_ID)))).toBe(true);
   });
@@ -259,7 +292,7 @@ describe("directory shared-cache behavior", () => {
           quality_score: 95,
           official_source: "bolagsverket",
           source_updated_at: "2026-08-23T00:00:00.000Z",
-          last_synced_at: "2026-08-23T00:00:00.000Z",
+          official_facts_last_synced_at: "2026-08-23T00:00:00.000Z",
           claimed_workspace_id: WORKSPACE_ID,
           media_url: null,
         }];
@@ -299,6 +332,45 @@ describe("directory shared-cache behavior", () => {
     expect(after?.companyName).toBe("Brand After");
     expect(mocks.getPublicDirectoryBusiness).toHaveBeenCalledTimes(2);
     expect(invalidatedTags).toContain(publicDirectoryProfileCacheTag("test-company-ab"));
+  });
+
+  it("profile invalidation also clears a cached not-found decision", async () => {
+    const sql = vi.fn(async (strings: TemplateStringsArray) => {
+      const query = strings.join(" ");
+      if (
+        query.includes("from company_directory_profiles")
+        && query.includes("where id =")
+        && query.includes("publication_status = 'published'")
+      ) {
+        return [{
+          organization_number: "5560000000",
+          organization_kind: "juridical_person",
+          legal_name: "Now Published AB",
+          primary_sni_code: "43.221",
+          website_url: "example.se",
+          claimed_workspace_id: null,
+          official_facts_last_synced_at: "2026-08-23T00:00:00.000Z",
+        }];
+      }
+      if (query.includes("company_directory_scb_enrichment")) {
+        return [{ phone: "", email: "", workplaces: [] }];
+      }
+      return [];
+    });
+    mocks.getSql.mockReturnValue(sql);
+    mocks.getPublicDirectoryBusiness
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(publicBusiness("newly-published-company", "Now Published AB"));
+
+    expect(await getPublicDirectoryBusinessForRequest("newly-published-company")).toBeNull();
+    expect(await getPublicDirectoryBusinessForRequest("newly-published-company")).toBeNull();
+    expect(mocks.getPublicDirectoryBusiness).toHaveBeenCalledTimes(1);
+
+    invalidatePublicDirectoryProfileCache("newly-published-company");
+    const published = await getPublicDirectoryBusinessForRequest("newly-published-company");
+
+    expect(published?.companyName).toBe("Now Published AB");
+    expect(mocks.getPublicDirectoryBusiness).toHaveBeenCalledTimes(2);
   });
 
   it("extras invalidation refreshes only the affected extras entry", async () => {

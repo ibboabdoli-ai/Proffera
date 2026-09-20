@@ -1,62 +1,51 @@
 import type { Metadata } from "next";
-import { Mail, MapPin, MessageSquare } from "lucide-react";
-import { ButtonLink } from "@/components/ui/button-link";
+import Link from "next/link";
+import { Mail, MapPin, MessageSquare, ArrowRight } from "lucide-react";
+
+import styles from "@/app/remaining-public-experience.module.css";
 
 export const metadata: Metadata = {
-  title: {
-    absolute: "Kontakt – Boka demo av Proffera",
-  },
-  description:
-    "Kontakta Proffera för demo eller frågor om bokningssystem, CRM och leadhantering för tjänsteföretag.",
+  title: { absolute: "Kontakt – Proffera" },
+  description: "Kontakta Proffera för demo eller frågor om bokning, CRM, offerter och kundflöden för tjänsteföretag.",
 };
+
+const details = [
+  [Mail, "E-post", "leads@proffera.se"],
+  [MapPin, "Marknad", "Sverige"],
+  [MessageSquare, "Ärenden", "Demo, pilot och produktfrågor"],
+] as const;
 
 export default function ContactPage() {
   return (
-    <div className="overflow-hidden bg-[#f7f7f4]">
-      <section className="mx-auto max-w-7xl px-4 py-16 sm:px-6 lg:px-8 lg:py-24">
-        <p className="text-sm font-semibold uppercase tracking-[0.16em] text-[#17452f]">Kontakt</p>
-        <h1 className="mt-4 max-w-4xl text-4xl font-bold leading-[1.08] tracking-[-0.04em] text-[#17201a] sm:text-5xl">
-          Vill du se hur Proffera fungerar för ditt företag?
-        </h1>
-        <p className="mt-5 max-w-3xl text-lg leading-8 text-[#5b665f]">
-          Boka en demo så visar vi bokning, leads och kundhantering i ett enkelt flöde.
-        </p>
-        <div className="mt-8">
-          <ButtonLink href="/anslut-foretag/registrera">Boka demo</ButtonLink>
-        </div>
-      </section>
-
-      <section className="mx-auto grid max-w-7xl gap-6 px-4 pb-16 sm:px-6 lg:grid-cols-[0.8fr_1.2fr] lg:px-8">
-        <div className="rounded-2xl bg-[#102a1c] p-7 text-white shadow-xl shadow-[#17452f]/10">
-          <h2 className="text-2xl font-bold">Kontaktuppgifter</h2>
-          <div className="mt-6 space-y-5 text-sm text-white/75">
-            <p className="flex gap-3"><Mail className="h-5 w-5 text-[#a9dbb9]" aria-hidden="true" /> leads@proffera.se</p>
-            <p className="flex gap-3"><MapPin className="h-5 w-5 text-[#a9dbb9]" aria-hidden="true" /> Sverige</p>
-            <p className="flex gap-3"><MessageSquare className="h-5 w-5 text-[#a9dbb9]" aria-hidden="true" /> Demo och pilotkunder</p>
+    <main className={styles.landing}>
+      <section className={styles.landingHero}>
+        <div className={styles.landingInner}>
+          <div className={styles.landingGrid}>
+            <div>
+              <p className={styles.landingEyebrow}>Kontakt</p>
+              <h1 className={styles.landingTitle}>Prata med oss om hur Proffera passar ert kundflöde.</h1>
+              <p className={styles.landingLead}>Beskriv kort företaget, tjänsterna och det flöde ni vill förbättra. Vi återkommer med nästa lämpliga steg.</p>
+              <div className={styles.actions} style={{ marginTop: "1.5rem" }}>
+                <Link href="/anslut-foretag/registrera" className={styles.primaryButton}>Boka demo <ArrowRight className="h-4 w-4" aria-hidden="true" /></Link>
+                <a href="mailto:leads@proffera.se?subject=Demo%20Proffera" className={styles.secondaryButton}>Skicka e-post</a>
+              </div>
+            </div>
+            <aside className={styles.landingAside}>
+              <Link href="/en/contact" className={styles.link}>English</Link>
+              <p className={styles.sectionCopy}>Vi använder kontaktuppgifterna bara för att hantera din förfrågan och relevant uppföljning.</p>
+            </aside>
           </div>
-        </div>
 
-        <div className="rounded-2xl bg-white p-7 shadow-sm ring-1 ring-[#dfe5dd]">
-          <h2 className="text-2xl font-bold text-[#17201a]">Boka demo eller mejla oss</h2>
-          <p className="mt-2 text-sm leading-6 text-[#5b665f]">
-            Berätta kort om företaget, vilka tjänster ni erbjuder och vilket flöde ni vill förbättra. Vi återkommer med förslag på demo eller pilotupplägg.
-          </p>
-          <div className="mt-6 rounded-xl bg-[#fbfbf8] p-5 text-sm text-[#344139] ring-1 ring-[#dfe5dd]">
-            <p className="font-semibold text-[#17201a]">Bra information att skicka:</p>
-            <ul className="mt-3 list-disc space-y-2 pl-5">
-              <li>Företagsnamn, bransch och stad</li>
-              <li>Om ni vill testa bokning, leads eller kundhantering</li>
-              <li>Telefonnummer eller e-post för uppföljning</li>
-            </ul>
-          </div>
-          <div className="mt-6 flex flex-col gap-3 sm:flex-row">
-            <ButtonLink href="/anslut-foretag/registrera">Boka demo</ButtonLink>
-            <a className="inline-flex min-h-11 w-fit items-center rounded-xl border border-[#17452f] bg-white px-5 py-3 text-sm font-semibold text-[#17452f]" href="mailto:leads@proffera.se?subject=Demo%20Proffera">
-              Skicka e-post
-            </a>
+          <div className={styles.rowList} style={{ marginTop: "3rem" }}>
+            {details.map(([Icon, label, value]) => (
+              <div key={label} className={styles.row}>
+                <span className={styles.rowNumber}><Icon className="h-5 w-5" aria-hidden="true" /></span>
+                <div><h2 className={styles.rowTitle}>{label}</h2><p className={styles.rowText}>{value}</p></div>
+              </div>
+            ))}
           </div>
         </div>
       </section>
-    </div>
+    </main>
   );
 }

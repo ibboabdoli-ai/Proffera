@@ -228,7 +228,7 @@ export async function getDirectoryGuestLeadMatch(quoteRequestId: string) {
                   * power(sin(radians(location.longitude - ${originLongitude}::float8) / 2), 2)
                 )
               )
-            ) <= 50
+            ) <= 300
           )
           or (
             ${originLatitude}::float8 is null
@@ -277,6 +277,7 @@ export async function getDirectoryGuestLeadMatch(quoteRequestId: string) {
         qualityScore: Number(row.quality_score ?? 0),
         latitude: finiteCoordinate(row.latitude, -90, 90),
         longitude: finiteCoordinate(row.longitude, -180, 180),
+        providerPointVerified: readiness.hasVerifiedCoordinates,
         serviceAreaRadiusKm: finiteRadius(row.service_area_radius_km),
         recipientEmail: readiness.businessEmail,
         scbConflicts: row.scb_conflicts as CandidateRows[number]["scbConflicts"],

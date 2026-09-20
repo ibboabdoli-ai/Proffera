@@ -1,3 +1,6 @@
+import {
+  sanitizeMarketplaceFunnelPostHogEvent,
+} from "@/lib/analytics/marketplace-funnel-events";
 import { sanitizePostHogEvent as sanitizePrivacySafePostHogEvent } from "./posthog-privacy";
 
 type AnalyticsEvent = {
@@ -8,7 +11,10 @@ type AnalyticsEvent = {
 const POSTHOG_PUBLIC_PROJECT_TOKEN = /^phc_[A-Za-z0-9_-]{20,}$/;
 
 export function sanitizePostHogEvent<T extends AnalyticsEvent>(event: T | null): T | null {
-  const sanitized = sanitizePrivacySafePostHogEvent(event);
+  const sanitized = (
+    sanitizeMarketplaceFunnelPostHogEvent(event)
+    ?? sanitizePrivacySafePostHogEvent(event)
+  ) as T | null;
   if (!sanitized || !event?.properties) return sanitized;
 
   const projectToken = event.properties.token;

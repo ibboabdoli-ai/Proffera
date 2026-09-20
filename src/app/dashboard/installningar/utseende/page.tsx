@@ -1,4 +1,8 @@
+import { SlidersHorizontal } from "lucide-react";
 import { redirect } from "next/navigation";
+
+import { DashboardActionFeedback } from "@/components/dashboard/dashboard-action-feedback";
+import { DashboardPageHeader } from "@/components/dashboard/dashboard-page-ui";
 
 import { BookingPageBuilder } from "./booking-page-builder";
 import { ThemeContentEditor } from "./theme-content-editor";
@@ -141,8 +145,8 @@ async function saveAppearance(formData: FormData) {
 
   const nextSettings = {
     themeKey: String(formData.get("themeKey") ?? "clean"),
-    primaryColor: String(formData.get("primaryColor") ?? "#17452f"),
-    accentColor: String(formData.get("accentColor") ?? "#d9b44a"),
+    primaryColor: String(formData.get("primaryColor") ?? "#0a2e63"),
+    accentColor: String(formData.get("accentColor") ?? "#1469d8"),
     appearance: formData.get("appearance") === "dark" ? "dark" as const : "light" as const,
     defaultLanguage,
     swedishEnabled,
@@ -266,36 +270,40 @@ export default async function AppearanceSettingsPage({
     : redirectDomainState
       ? domainMessages[redirectDomainState]
       : null;
+  const actionStatusMessage = params.updated === "1"
+    ? "Designen och temainnehållet sparades och publicerades."
+    : params.domainRemoved === "1"
+      ? "Domänen kopplades från och togs bort från Profferas Vercel-projekt."
+      : null;
+  const actionErrorMessages: Record<string, string> = {
+    language: "Minst ett språk måste vara aktivt.",
+    theme_content: "Temainnehållet kunde inte sparas. Välj ett giltigt tema.",
+    domain: "Ange bara ett giltigt domännamn, till exempel booking.foretagen.se.",
+    domain_taken: "Domänen används redan av en annan arbetsyta.",
+    domain_remove: "Domänen kunde inte kopplas från Vercel. Ingen säker bortkoppling genomfördes.",
+    domain_cleanup: "Den gamla domänen kunde inte städas bort säkert. Domänbytet återställdes.",
+    domain_provision: "Den nya domänen kunde inte läggas till säkert i Vercel. Den tidigare domänen behölls.",
+    domain_protected: "Den här domänen är skyddad och kan inte flyttas eller kopplas från via självservice.",
+  };
+  const actionAlertMessage = params.error ? actionErrorMessages[params.error] ?? null : null;
 
   return (
     <div className="grid gap-5">
-      <header className="rounded-[28px] bg-[#173e2b] p-6 text-white sm:p-7">
-        <p className="text-xs font-bold uppercase tracking-[0.18em] text-white/65">Bokningssida / Booking page</p>
-        <div className="mt-2 flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
-          <div>
-            <h1 className="text-3xl font-black">Bygg din bokningssida</h1>
-            <p className="mt-3 max-w-3xl text-sm leading-7 text-white/80">Välj en professionell mall, anpassa varumärket och bestäm vilka sektioner kunderna ska se. Förhandsvisningen reagerar direkt och samma verktyg används av alla arbetsytor.</p>
-          </div>
-          {publicBookingUrl ? <a href={publicBookingUrl} target="_blank" rel="noreferrer" className="inline-flex min-h-11 items-center justify-center rounded-xl bg-white px-4 py-2.5 text-sm font-black text-[#173e2b]">Visa publik sida</a> : null}
-        </div>
-      </header>
+      <DashboardPageHeader
+        eyebrow="Bokningssida / Booking page"
+        title="Bygg din bokningssida"
+        description="Välj en professionell mall, anpassa varumärket och bestäm vilka sektioner kunderna ska se. Förhandsvisningen reagerar direkt och samma verktyg används av alla arbetsytor."
+        icon={SlidersHorizontal}
+        actions={publicBookingUrl ? <a href={publicBookingUrl} target="_blank" rel="noreferrer" className="inline-flex min-h-11 items-center justify-center rounded-control bg-brand-deep px-4 py-2.5 text-sm font-bold text-white">Visa publik sida</a> : null}
+      />
 
-      {params.updated === "1" ? <p className="rounded-xl bg-[#eaf6ed] p-4 text-sm font-bold text-[#17452f]">Designen och temainnehållet sparades och publicerades.</p> : null}
-      {params.domainRemoved === "1" ? <p className="rounded-xl bg-[#eaf6ed] p-4 text-sm font-bold text-[#17452f]">Domänen kopplades från och togs bort från Profferas Vercel-projekt.</p> : null}
-      {params.error === "language" ? <p className="rounded-xl bg-[#fff3ef] p-4 text-sm font-bold text-[#8f2f1b]">Minst ett språk måste vara aktivt.</p> : null}
-      {params.error === "theme_content" ? <p className="rounded-xl bg-[#fff3ef] p-4 text-sm font-bold text-[#8f2f1b]">Temainnehållet kunde inte sparas. Välj ett giltigt tema.</p> : null}
-      {params.error === "domain" ? <p className="rounded-xl bg-[#fff3ef] p-4 text-sm font-bold text-[#8f2f1b]">Ange bara ett giltigt domännamn, till exempel booking.foretagen.se.</p> : null}
-      {params.error === "domain_taken" ? <p className="rounded-xl bg-[#fff3ef] p-4 text-sm font-bold text-[#8f2f1b]">Domänen används redan av en annan arbetsyta.</p> : null}
-      {params.error === "domain_remove" ? <p className="rounded-xl bg-[#fff3ef] p-4 text-sm font-bold text-[#8f2f1b]">Domänen kunde inte kopplas från Vercel. Ingen säker bortkoppling genomfördes.</p> : null}
-      {params.error === "domain_cleanup" ? <p className="rounded-xl bg-[#fff3ef] p-4 text-sm font-bold text-[#8f2f1b]">Den gamla domänen kunde inte städas bort säkert. Domänbytet återställdes.</p> : null}
-      {params.error === "domain_provision" ? <p className="rounded-xl bg-[#fff3ef] p-4 text-sm font-bold text-[#8f2f1b]">Den nya domänen kunde inte läggas till säkert i Vercel. Den tidigare domänen behölls.</p> : null}
-      {params.error === "domain_protected" ? <p className="rounded-xl bg-[#fff3ef] p-4 text-sm font-bold text-[#8f2f1b]">Den här domänen är skyddad och kan inte flyttas eller kopplas från via självservice.</p> : null}
+      <DashboardActionFeedback statusMessage={actionStatusMessage} alertMessage={actionAlertMessage} />
 
       {!builderEnabled ? (
-        <section className="rounded-2xl border border-[#ead9ac] bg-[#fff9e9] p-5">
-          <p className="font-bold text-[#6f5512]">Sidbyggaren är låst för nuvarande plan.</p>
-          <p className="mt-2 text-sm text-[#765f28]">Starta en 14-dagars testperiod eller uppgradera planen. Dina inställningar behålls.</p>
-          <a href="/dashboard/installningar/funktioner" className="mt-4 inline-flex rounded-xl bg-[#173e2b] px-4 py-2 text-sm font-bold text-white">Visa funktioner</a>
+        <section className="rounded-card border border-[#efd58d] bg-[#fff7df] p-5">
+          <p className="font-bold text-[#805d14]">Sidbyggaren är låst för nuvarande plan.</p>
+          <p className="mt-2 text-sm text-[#805d14]">Starta en 14-dagars testperiod eller uppgradera planen. Dina inställningar behålls.</p>
+          <a href="/dashboard/installningar/funktioner" className="mt-4 inline-flex rounded-control bg-brand-deep px-4 py-2 text-sm font-bold text-white">Visa funktioner</a>
         </section>
       ) : null}
 
@@ -312,26 +320,26 @@ export default async function AppearanceSettingsPage({
       {builderEnabled ? <ThemeContentEditor activeThemeKey={settings.themeKey} overrides={settings.themeContentOverrides} saveAction={saveThemeContent} /> : null}
 
       {customDomainEnabled && settings.customDomain && !bespokePrimeView ? (
-        <section className="rounded-[24px] border border-[#dfe6df] bg-white p-6" data-domain-connection-status>
+        <section className="rounded-card border border-line bg-surface p-5 shadow-card sm:p-6" data-domain-connection-status>
           <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
             <div>
-              <p className="text-xs font-black uppercase tracking-[0.16em] text-[#68736b]">Automatisk domänanslutning</p>
-              <h2 className="mt-2 text-xl font-black text-[#17201a]">{settings.customDomain}</h2>
-              {statusMessage ? <p className="mt-2 max-w-3xl text-sm leading-6 text-[#5f6b63]">{statusMessage}</p> : null}
+              <p className="text-xs font-black uppercase tracking-[0.16em] text-ink-muted">Automatisk domänanslutning</p>
+              <h2 className="mt-2 text-xl font-black text-ink">{settings.customDomain}</h2>
+              {statusMessage ? <p className="mt-2 max-w-3xl text-sm leading-6 text-ink-muted">{statusMessage}</p> : null}
             </div>
             <div className="flex flex-wrap gap-2">
               <form action={syncSavedCustomDomain}>
-                <button className="min-h-11 rounded-xl border border-[#bfcdbf] bg-white px-4 py-2.5 text-sm font-bold text-[#17452f]">Kontrollera och anslut</button>
+                <button className="min-h-11 rounded-xl border border-line bg-surface px-4 py-2.5 text-sm font-bold text-brand">Kontrollera och anslut</button>
               </form>
               <form action={disconnectSavedCustomDomain}>
-                <button className="min-h-11 rounded-xl border border-[#e4c5c0] bg-white px-4 py-2.5 text-sm font-bold text-[#8f2f1b]">Koppla från domän</button>
+                <button className="min-h-11 rounded-xl border border-[#efc8c0] bg-surface px-4 py-2.5 text-sm font-bold text-danger">Koppla från domän</button>
               </form>
             </div>
           </div>
 
           {automationStatus?.verificationRecords.length ? (
-            <div className="mt-5 rounded-2xl bg-[#fff9e9] p-4 ring-1 ring-[#ead9ac]">
-              <h3 className="font-bold text-[#6f5512]">TXT för verifiering</h3>
+            <div className="mt-5 rounded-card bg-[#fff7df] p-4 ring-1 ring-[#ead9ac]">
+              <h3 className="font-bold text-[#805d14]">TXT för verifiering</h3>
               <div className="mt-3 grid gap-3">
                 {automationStatus.verificationRecords.map((record, index) => (
                   <div key={`${record.type}-${record.domain}-${index}`} className="grid gap-1 text-sm">
@@ -345,11 +353,11 @@ export default async function AppearanceSettingsPage({
           ) : null}
 
           {automationStatus?.recommendedCNAME.length || automationStatus?.recommendedIPv4.length ? (
-            <div className="mt-5 rounded-2xl bg-[#f7f9f6] p-4 ring-1 ring-[#dfe6df]">
-              <h3 className="font-bold text-[#17201a]">DNS som Vercel rekommenderar</h3>
+            <div className="mt-5 rounded-card bg-surface-subtle p-4 ring-1 ring-line">
+              <h3 className="font-bold text-ink">DNS som Vercel rekommenderar</h3>
               {automationStatus.recommendedCNAME.length ? <p className="mt-3 break-all text-sm"><strong>CNAME:</strong> {automationStatus.recommendedCNAME.join(", ")}</p> : null}
               {automationStatus.recommendedIPv4.length ? <p className="mt-2 break-all text-sm"><strong>A / IPv4:</strong> {automationStatus.recommendedIPv4.join(", ")}</p> : null}
-              <p className="mt-3 text-xs leading-5 text-[#667168]">Använd värdena som visas av Vercel för just den här domänen. Proffera flyttar eller skriver aldrig över en domän som tillhör ett annat Vercel-projekt.</p>
+              <p className="mt-3 text-xs leading-5 text-ink-muted">Använd värdena som visas av Vercel för just den här domänen. Proffera flyttar eller skriver aldrig över en domän som tillhör ett annat Vercel-projekt.</p>
             </div>
           ) : null}
         </section>

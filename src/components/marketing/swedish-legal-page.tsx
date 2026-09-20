@@ -1,0 +1,47 @@
+import Link from "next/link";
+
+type LegalSection = {
+  title: string;
+  text: string;
+};
+
+type SwedishLegalPageProps = {
+  title: string;
+  introduction: string;
+  sections: readonly LegalSection[];
+  englishHref: string;
+  notice?: string;
+};
+
+export function SwedishLegalPage({ title, introduction, sections, englishHref, notice }: SwedishLegalPageProps) {
+  return (
+    <main className="min-h-screen bg-[#f6f9fd] text-[#11213b]">
+      <section className="border-b border-[#dce4ee] bg-white">
+        <div className="mx-auto max-w-4xl px-4 py-14 sm:px-6 lg:px-8 lg:py-20">
+          <div className="flex items-start justify-between gap-5">
+            <div>
+              <p className="text-xs font-extrabold uppercase tracking-[0.15em] text-[#1469d8]">Juridiskt</p>
+              <h1 className="mt-3 text-4xl font-extrabold tracking-[-0.04em] text-[#0a2e63] sm:text-5xl">{title}</h1>
+            </div>
+            <Link href={englishHref} className="text-sm font-bold text-[#1469d8] underline underline-offset-4">English</Link>
+          </div>
+          <p className="mt-5 max-w-3xl text-base leading-8 text-[#617085]">{introduction}</p>
+          <p className="mt-5 border-l-2 border-[#1469d8] pl-4 text-sm leading-6 text-[#617085]">
+            Senast uppdaterad: 22 juli 2026. {notice ?? "Kundspecifika villkor eller personuppgiftsbiträdesavtal kan komplettera informationen på den här sidan."}
+          </p>
+        </div>
+      </section>
+
+      <section className="mx-auto max-w-4xl px-4 py-10 sm:px-6 lg:px-8 lg:py-14">
+        <div className="divide-y divide-[#dce4ee] border-y border-[#dce4ee] bg-white px-5 sm:px-7">
+          {sections.map((section) => (
+            <article key={section.title} className="py-6">
+              <h2 className="text-xl font-bold text-[#0a2e63]">{section.title}</h2>
+              <p className="mt-3 text-sm leading-7 text-[#617085]">{section.text}</p>
+            </article>
+          ))}
+        </div>
+      </section>
+    </main>
+  );
+}

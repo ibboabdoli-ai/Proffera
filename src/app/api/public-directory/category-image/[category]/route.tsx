@@ -22,11 +22,11 @@ function CategoryMark() {
       style={{
         width: 92,
         height: 92,
-        borderRadius: 28,
+        borderRadius: 18,
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
-        background: "rgba(255,255,255,.14)",
+        background: "rgba(255,255,255,.12)",
       }}
     >
       <div
@@ -57,7 +57,7 @@ export async function GET(_: Request, context: { params: Promise<{ category: str
           justifyContent: "space-between",
           padding: "72px",
           color: "#ffffff",
-          background: "linear-gradient(135deg, #173e2b 0%, #245f43 55%, #111b15 100%)",
+          background: "#0a2e63",
           fontFamily: "sans-serif",
         }}
       >
@@ -67,8 +67,8 @@ export async function GET(_: Request, context: { params: Promise<{ category: str
         </div>
         <div style={{ display: "flex", flexDirection: "column" }}>
           <div style={{ fontSize: 24, opacity: 0.72, marginBottom: 14 }}>Illustrationsbild</div>
-          <div style={{ fontSize: 74, lineHeight: 1, fontWeight: 900 }}>{item.label}</div>
-          <div style={{ fontSize: 30, opacity: 0.8, marginTop: 18 }}>{item.detail}</div>
+          <div style={{ fontSize: 68, lineHeight: 1, fontWeight: 900 }}>{item.label}</div>
+          <div style={{ fontSize: 30, opacity: 0.82, marginTop: 18 }}>{item.detail}</div>
         </div>
       </div>
     ),

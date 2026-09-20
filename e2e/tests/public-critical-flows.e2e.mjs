@@ -67,6 +67,31 @@ test.describe("public critical-flow smoke", () => {
     await expect(page.getByLabel("E-post")).toBeVisible();
     await expect(page.getByLabel("Lösenord")).toBeVisible();
     await expect(page.getByRole("button", { name: "Logga in" })).toBeVisible();
+    await expect(page.getByRole("link", { name: "Glömt lösenordet?" })).toHaveAttribute("href", "/glomt-losenord");
+  });
+
+  test("password recovery pages are bilingual and scrub reset-token fragments without sending email", async ({ page }) => {
+    let response = await page.goto("/glomt-losenord");
+    expect(response?.ok()).toBeTruthy();
+    await expect(page.getByRole("heading", { level: 1, name: "Glömt lösenordet?" })).toBeVisible();
+    await expect(page.getByLabel("E-post")).toBeVisible();
+    await expect(page.getByRole("button", { name: "Skicka återställningslänk" })).toBeVisible();
+
+    response = await page.goto("/glomt-losenord?lang=en");
+    expect(response?.ok()).toBeTruthy();
+    await expect(page.getByRole("heading", { level: 1, name: "Forgot your password?" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Send reset link" })).toBeVisible();
+
+    response = await page.goto("/aterstall-losenord?lang=en#token=ABCDEFGHIJKLMNOPQRSTUVWX");
+    expect(response?.ok()).toBeTruthy();
+    await expect(page.getByRole("heading", { level: 1, name: "Choose a new password" })).toBeVisible();
+    await expect(page.getByLabel("New password", { exact: true })).toBeVisible();
+    await expect(page.getByLabel("Confirm new password", { exact: true })).toBeVisible();
+    await expect.poll(() => page.url()).not.toContain("#token=");
+
+    response = await page.goto("/aterstall-losenord");
+    expect(response?.ok()).toBeTruthy();
+    await expect(page.getByText("Återställningslänken är ogiltig eller har gått ut. Begär en ny länk.")).toBeVisible();
   });
 
   test("quote intake advances from service selection into adaptive details without submitting", async ({ page }) => {
@@ -84,6 +109,31 @@ test.describe("public critical-flow smoke", () => {
     await expect(page.getByText("Steg 2 av 6")).toBeVisible();
     await expect(page.getByRole("heading", { name: "Berätta lite mer om jobbet" })).toBeVisible();
     await expect(page.getByRole("button", { name: "Tillbaka" })).toBeEnabled();
+  });
+
+  test("quote flow disables motion for progress and navigation controls in both locales", async ({ page }) => {
+    await page.emulateMedia({ reducedMotion: "reduce" });
+
+    for (const flow of [
+      { path: "/fa-offert", stepText: "Steg 1 av 6", back: "Tillbaka", next: "Fortsätt" },
+      { path: "/en/get-quote", stepText: "Step 1 of 6", back: "Back", next: "Continue" },
+    ]) {
+      const response = await page.goto(flow.path);
+      expect(response?.ok()).toBeTruthy();
+
+      const stepLabel = page.getByText(flow.stepText, { exact: true });
+      await expect(stepLabel).toBeVisible();
+      const progressBar = stepLabel.locator("xpath=../following-sibling::div[1]/div");
+      await expect(progressBar).toBeVisible();
+
+      for (const locator of [
+        progressBar,
+        page.getByRole("button", { name: flow.back }),
+        page.getByRole("button", { name: flow.next }),
+      ]) {
+        await expect.poll(() => locator.evaluate((element) => getComputedStyle(element).transitionDuration)).toBe("0s");
+      }
+    }
   });
 
   test("preserves private location and smart answers when switching Swedish into English", async ({ page }) => {

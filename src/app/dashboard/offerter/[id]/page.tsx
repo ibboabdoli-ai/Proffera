@@ -129,71 +129,71 @@ export default async function QuoteDetailPage({ params, searchParams }: {
 
   return (
     <div className="grid gap-6" lang={locale}>
-      <Link href={localHref("/dashboard/offerter", locale)} className="inline-flex w-fit items-center gap-2 text-sm font-bold text-[#17452f]"><ArrowLeft className="h-4 w-4" />{text.back}</Link>
+      <Link href={localHref("/dashboard/offerter", locale)} className="inline-flex w-fit items-center gap-2 text-sm font-bold text-brand"><ArrowLeft className="h-4 w-4" />{text.back}</Link>
       <DashboardPageHeader eyebrow={text.eyebrow} title={quote.referenceId} description={`${text.currentStatus}: ${statusLabel[locale][quote.status]}`} icon={FileText} />
 
       <div className="grid gap-6 xl:grid-cols-[1fr_1fr]">
-        <section className="rounded-3xl border border-[#e0e6de] bg-white p-5 shadow-sm sm:p-6">
-          <h2 className="text-lg font-bold text-[#17201a]">{text.customer}</h2>
+        <section className="rounded-card border border-line bg-surface p-5 shadow-sm sm:p-6">
+          <h2 className="text-lg font-bold text-ink">{text.customer}</h2>
           <div className="mt-5 grid gap-4 text-sm">
-            <div className="flex items-start gap-3"><UserRound className="mt-0.5 h-5 w-5 text-[#557061]" /><div><p className="text-xs font-bold uppercase tracking-wide text-[#7d877f]">{text.customer}</p><p className="mt-1 font-semibold text-[#17201a]">{quote.customerName}</p></div></div>
-            <div className="flex items-start gap-3"><Mail className="mt-0.5 h-5 w-5 text-[#557061]" /><a className="font-semibold text-[#17452f]" href={`mailto:${quote.customerEmail}`}>{quote.customerEmail}</a></div>
-            <div className="flex items-start gap-3"><Phone className="mt-0.5 h-5 w-5 text-[#557061]" /><p>{quote.customerPhone || text.noPhone}</p></div>
-            <div className="flex items-start gap-3"><MapPin className="mt-0.5 h-5 w-5 text-[#557061]" /><p>{location || text.noLocation}</p></div>
+            <div className="flex items-start gap-3"><UserRound className="mt-0.5 h-5 w-5 text-brand" /><div><p className="text-xs font-bold uppercase tracking-wide text-ink-muted">{text.customer}</p><p className="mt-1 font-semibold text-ink">{quote.customerName}</p></div></div>
+            <div className="flex items-start gap-3"><Mail className="mt-0.5 h-5 w-5 text-brand" /><a className="font-semibold text-brand" href={`mailto:${quote.customerEmail}`}>{quote.customerEmail}</a></div>
+            <div className="flex items-start gap-3"><Phone className="mt-0.5 h-5 w-5 text-brand" /><p>{quote.customerPhone || text.noPhone}</p></div>
+            <div className="flex items-start gap-3"><MapPin className="mt-0.5 h-5 w-5 text-brand" /><p>{location || text.noLocation}</p></div>
           </div>
         </section>
-        <section className="rounded-3xl border border-[#e0e6de] bg-white p-5 shadow-sm sm:p-6">
-          <h2 className="text-lg font-bold text-[#17201a]">{text.request}</h2>
+        <section className="rounded-card border border-line bg-surface p-5 shadow-sm sm:p-6">
+          <h2 className="text-lg font-bold text-ink">{text.request}</h2>
           <dl className="mt-5 grid gap-4 text-sm">
-            <div><dt className="text-xs font-bold uppercase tracking-wide text-[#7d877f]">{text.service}</dt><dd className="mt-1 font-semibold text-[#17201a]">{quote.serviceName || text.noService}</dd></div>
-            <div><dt className="text-xs font-bold uppercase tracking-wide text-[#7d877f]">{text.preferredDate}</dt><dd className="mt-1">{quote.preferredDate || text.noDate}</dd></div>
-            <div><dt className="text-xs font-bold uppercase tracking-wide text-[#7d877f]">{text.submitted}</dt><dd className="mt-1">{new Intl.DateTimeFormat(locale === "en" ? "en-GB" : "sv-SE", { dateStyle: "long", timeStyle: "short" }).format(new Date(quote.createdAt))}</dd></div>
-            <div><dt className="text-xs font-bold uppercase tracking-wide text-[#7d877f]">{text.source}</dt><dd className="mt-1">{quote.source}</dd></div>
+            <div><dt className="text-xs font-bold uppercase tracking-wide text-ink-muted">{text.service}</dt><dd className="mt-1 font-semibold text-ink">{quote.serviceName || text.noService}</dd></div>
+            <div><dt className="text-xs font-bold uppercase tracking-wide text-ink-muted">{text.preferredDate}</dt><dd className="mt-1">{quote.preferredDate || text.noDate}</dd></div>
+            <div><dt className="text-xs font-bold uppercase tracking-wide text-ink-muted">{text.submitted}</dt><dd className="mt-1">{new Intl.DateTimeFormat(locale === "en" ? "en-GB" : "sv-SE", { dateStyle: "long", timeStyle: "short" }).format(new Date(quote.createdAt))}</dd></div>
+            <div><dt className="text-xs font-bold uppercase tracking-wide text-ink-muted">{text.source}</dt><dd className="mt-1">{quote.source}</dd></div>
           </dl>
         </section>
       </div>
 
-      <section className="rounded-3xl border border-[#e0e6de] bg-white p-5 shadow-sm sm:p-6">
-        <div className="flex items-center gap-2"><CalendarDays className="h-5 w-5 text-[#557061]" /><h2 className="text-lg font-bold text-[#17201a]">{text.description}</h2></div>
-        <p className="mt-4 whitespace-pre-wrap text-sm leading-7 text-[#435047]">{quote.description}</p>
+      <section className="rounded-card border border-line bg-surface p-5 shadow-sm sm:p-6">
+        <div className="flex items-center gap-2"><CalendarDays className="h-5 w-5 text-brand" /><h2 className="text-lg font-bold text-ink">{text.description}</h2></div>
+        <p className="mt-4 whitespace-pre-wrap text-sm leading-7 text-ink-muted">{quote.description}</p>
       </section>
 
-      <section className="rounded-3xl border border-[#e0e6de] bg-white p-5 shadow-sm sm:p-6">
-        <div className="flex items-center gap-2"><ReceiptText className="h-5 w-5 text-[#557061]" /><h2 className="text-lg font-bold text-[#17201a]">{text.offers}</h2></div>
-        {offerMessage ? <p className={`mt-4 rounded-xl px-4 py-3 text-sm font-semibold ${offerMessage === "created" ? "bg-emerald-50 text-emerald-800" : "bg-amber-50 text-amber-900"}`}>{offerMessage === "created" ? text.created : text.invalid}</p> : null}
+      <section className="rounded-card border border-line bg-surface p-5 shadow-sm sm:p-6">
+        <div className="flex items-center gap-2"><ReceiptText className="h-5 w-5 text-brand" /><h2 className="text-lg font-bold text-ink">{text.offers}</h2></div>
+        {offerMessage ? <p className={`mt-4 rounded-control px-4 py-3 text-sm font-semibold ${offerMessage === "created" ? "bg-emerald-50 text-emerald-800" : "bg-amber-50 text-amber-900"}`}>{offerMessage === "created" ? text.created : text.invalid}</p> : null}
         <div className="mt-5 grid gap-4">
           {offers.length ? offers.map((offer) => (
-            <article key={offer.id} className="rounded-2xl border border-[#e0e6de] bg-[#fafbf9] p-4">
+            <article key={offer.id} className="rounded-card border border-line bg-surface-subtle p-4">
               <div className="flex flex-wrap items-center justify-between gap-3">
-                <div><p className="font-bold text-[#17201a]">{offer.title}</p><p className="mt-1 text-xs text-[#667269]">{text.version} {offer.version} · {offerStatusLabel[locale][offer.status]}</p></div>
-                <div className="flex flex-wrap items-center justify-end gap-3"><p className="text-lg font-extrabold text-[#173e2b]">{formatMoney(offer.totalMinor, offer.currency, locale)}</p>{canEditWorkspaceQuoteOffer(offer.status) ? <Link href={localHref(`/dashboard/offerter/${quote.id}/offer/${offer.id}`, locale)} className="rounded-xl border border-[#bfcbbf] bg-white px-3 py-2 text-xs font-bold text-[#17452f] hover:bg-[#f0f5f0]">{text.edit}</Link> : null}</div>
+                <div><p className="font-bold text-ink">{offer.title}</p><p className="mt-1 text-xs text-ink-muted">{text.version} {offer.version} · {offerStatusLabel[locale][offer.status]}</p></div>
+                <div className="flex flex-wrap items-center justify-end gap-3"><p className="text-lg font-extrabold text-brand-deep">{formatMoney(offer.totalMinor, offer.currency, locale)}</p>{canEditWorkspaceQuoteOffer(offer.status) ? <Link href={localHref(`/dashboard/offerter/${quote.id}/offer/${offer.id}`, locale)} className="rounded-control border border-line bg-surface px-3 py-2 text-xs font-bold text-brand hover:bg-surface-subtle">{text.edit}</Link> : null}</div>
               </div>
-              <dl className="mt-4 grid gap-3 text-sm sm:grid-cols-3"><div><dt className="text-xs font-bold uppercase text-[#7d877f]">{text.subtotal}</dt><dd>{formatMoney(offer.subtotalMinor, offer.currency, locale)}</dd></div><div><dt className="text-xs font-bold uppercase text-[#7d877f]">{text.vat} ({offer.vatRateBasisPoints / 100}%)</dt><dd>{formatMoney(offer.vatAmountMinor, offer.currency, locale)}</dd></div><div><dt className="text-xs font-bold uppercase text-[#7d877f]">{text.total}</dt><dd className="font-bold">{formatMoney(offer.totalMinor, offer.currency, locale)}</dd></div></dl>
-              {canEditWorkspaceQuoteOffer(offer.status) ? <div className="mt-4 border-t border-[#e0e6de] pt-4"><SendOfferForm quoteRequestId={quote.id} offerId={offer.id} locale={locale} mode="initial" copy={sendOfferCopy} /></div> : null}
-              {offer.status === "sent" ? <div className="mt-4 border-t border-[#e0e6de] pt-4"><SendOfferForm quoteRequestId={quote.id} offerId={offer.id} locale={locale} mode="resend" deliveryStatus={offer.emailDeliveryStatus} copy={sendOfferCopy} /></div> : null}
+              <dl className="mt-4 grid gap-3 text-sm sm:grid-cols-3"><div><dt className="text-xs font-bold uppercase text-ink-muted">{text.subtotal}</dt><dd>{formatMoney(offer.subtotalMinor, offer.currency, locale)}</dd></div><div><dt className="text-xs font-bold uppercase text-ink-muted">{text.vat} ({offer.vatRateBasisPoints / 100}%)</dt><dd>{formatMoney(offer.vatAmountMinor, offer.currency, locale)}</dd></div><div><dt className="text-xs font-bold uppercase text-ink-muted">{text.total}</dt><dd className="font-bold">{formatMoney(offer.totalMinor, offer.currency, locale)}</dd></div></dl>
+              {canEditWorkspaceQuoteOffer(offer.status) ? <div className="mt-4 border-t border-line pt-4"><SendOfferForm quoteRequestId={quote.id} offerId={offer.id} locale={locale} mode="initial" copy={sendOfferCopy} /></div> : null}
+              {offer.status === "sent" ? <div className="mt-4 border-t border-line pt-4"><SendOfferForm quoteRequestId={quote.id} offerId={offer.id} locale={locale} mode="resend" deliveryStatus={offer.emailDeliveryStatus} copy={sendOfferCopy} /></div> : null}
             </article>
-          )) : <p className="text-sm text-[#667269]">{text.noOffers}</p>}
+          )) : <p className="text-sm text-ink-muted">{text.noOffers}</p>}
         </div>
       </section>
 
       {canCreateOffer ? (
-        <section className="rounded-3xl border border-[#dbe3d8] bg-[#f7f9f6] p-5 sm:p-6">
-          <h2 className="text-lg font-bold text-[#17201a]">{text.createOffer}</h2>
+        <section className="rounded-card border border-line bg-surface-subtle p-5 sm:p-6">
+          <h2 className="text-lg font-bold text-ink">{text.createOffer}</h2>
           <form action={createOffer} className="mt-5 grid gap-4 sm:grid-cols-2">
-            <label className="grid gap-1.5 text-sm font-semibold"><span>{text.offerTitle}</span><input name="title" required maxLength={160} className="min-h-11 rounded-xl border border-[#cfd8cf] bg-white px-3" /></label>
-            <label className="grid gap-1.5 text-sm font-semibold"><span>{text.validUntil}</span><input name="validUntil" type="date" className="min-h-11 rounded-xl border border-[#cfd8cf] bg-white px-3" /></label>
-            <label className="grid gap-1.5 text-sm font-semibold"><span>{text.amount} ({currency})</span><input name="amount" required inputMode="decimal" placeholder="0.00" className="min-h-11 rounded-xl border border-[#cfd8cf] bg-white px-3" /></label>
-            <label className="grid gap-1.5 text-sm font-semibold"><span>{text.vatRate}</span><input name="vatRate" required inputMode="decimal" placeholder="0" className="min-h-11 rounded-xl border border-[#cfd8cf] bg-white px-3" /></label>
-            <label className="grid gap-1.5 text-sm font-semibold sm:col-span-2"><span>{text.terms}</span><textarea name="terms" maxLength={5000} rows={4} className="rounded-xl border border-[#cfd8cf] bg-white px-3 py-2" /></label>
-            <button type="submit" className="min-h-11 w-fit rounded-xl bg-[#173e2b] px-5 py-2.5 text-sm font-bold text-white hover:bg-[#0f3020]">{text.saveDraft}</button>
+            <label className="grid gap-1.5 text-sm font-semibold"><span>{text.offerTitle}</span><input name="title" required maxLength={160} className="min-h-11 rounded-control border border-line bg-surface px-3" /></label>
+            <label className="grid gap-1.5 text-sm font-semibold"><span>{text.validUntil}</span><input name="validUntil" type="date" className="min-h-11 rounded-control border border-line bg-surface px-3" /></label>
+            <label className="grid gap-1.5 text-sm font-semibold"><span>{text.amount} ({currency})</span><input name="amount" required inputMode="decimal" placeholder="0.00" className="min-h-11 rounded-control border border-line bg-surface px-3" /></label>
+            <label className="grid gap-1.5 text-sm font-semibold"><span>{text.vatRate}</span><input name="vatRate" required inputMode="decimal" placeholder="0" className="min-h-11 rounded-control border border-line bg-surface px-3" /></label>
+            <label className="grid gap-1.5 text-sm font-semibold sm:col-span-2"><span>{text.terms}</span><textarea name="terms" maxLength={5000} rows={4} className="rounded-control border border-line bg-surface px-3 py-2" /></label>
+            <button type="submit" className="min-h-11 w-fit rounded-control bg-brand-deep px-5 py-2.5 text-sm font-bold text-white hover:bg-brand-hover">{text.saveDraft}</button>
           </form>
         </section>
       ) : null}
 
       {nextStatuses.length > 0 ? (
-        <section className="rounded-3xl border border-[#dbe3d8] bg-[#f7f9f6] p-5 sm:p-6">
-          <h2 className="text-lg font-bold text-[#17201a]">{text.changeStatus}</h2>
-          <div className="mt-4 flex flex-wrap gap-3">{nextStatuses.map((status: WorkspaceQuoteStatus) => <form key={status} action={changeStatus}><input type="hidden" name="status" value={status} /><button type="submit" className="min-h-11 rounded-xl bg-[#173e2b] px-4 py-2.5 text-sm font-bold text-white hover:bg-[#0f3020]">{statusLabel[locale][status]}</button></form>)}</div>
+        <section className="rounded-card border border-line bg-surface-subtle p-5 sm:p-6">
+          <h2 className="text-lg font-bold text-ink">{text.changeStatus}</h2>
+          <div className="mt-4 flex flex-wrap gap-3">{nextStatuses.map((status: WorkspaceQuoteStatus) => <form key={status} action={changeStatus}><input type="hidden" name="status" value={status} /><button type="submit" className="min-h-11 rounded-control bg-brand-deep px-4 py-2.5 text-sm font-bold text-white hover:bg-brand-hover">{statusLabel[locale][status]}</button></form>)}</div>
         </section>
       ) : null}
     </div>

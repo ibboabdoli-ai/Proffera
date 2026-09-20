@@ -21,5 +21,5 @@ const sections = [
 ] as const;
 
 export default function EnglishTermsPage() {
-  return <EnglishLegalPage title="Terms of service" introduction="These terms describe the general use of Proffera as a digital platform for leads, bookings and business workflows." sections={sections} />;
+  return <EnglishLegalPage title="Terms of service" introduction="These terms describe the general use of Proffera as a digital platform for leads, bookings and business workflows." sections={sections} swedishHref="/villkor" />;
 }

@@ -160,6 +160,47 @@ printf 'FINAL_REVIEW_OK\\n'
   return { output: result.stdout, headSha };
 }
 
+function workflowRunGateShellBlock() {
+  const startMarker = '          if [ "$EVENT_NAME" = "workflow_run" ]; then';
+  const endMarker = '          pr_number="${EVENT_PR_NUMBER:-}"';
+  const start = workflow.indexOf(startMarker);
+  const end = workflow.indexOf(endMarker, start);
+  expect(start).toBeGreaterThanOrEqual(0);
+  expect(end).toBeGreaterThan(start);
+
+  return workflow
+    .slice(start, end)
+    .split("\n")
+    .map((line) => line.startsWith("          ") ? line.slice(10) : line)
+    .join("\n");
+}
+
+function runWorkflowRunGateFixture(workflowName: string, conclusion: string) {
+  const dir = mkdtempSync(join(tmpdir(), "proffera-automerge-workflow-run-"));
+  const script = join(dir, "workflow-run.sh");
+
+  writeFileSync(script, `#!/usr/bin/env bash
+set -euo pipefail
+summary() { :; }
+refuse() { printf 'REFUSED:%s\\n' "$1"; exit 0; }
+EVENT_NAME=workflow_run
+${workflowRunGateShellBlock()}
+printf 'WORKFLOW_RUN_OK\\n'
+`, { mode: 0o755 });
+
+  const result = spawnSync("bash", [script], {
+    encoding: "utf8",
+    env: {
+      ...process.env,
+      EVENT_WORKFLOW_NAME: workflowName,
+      EVENT_WORKFLOW_CONCLUSION: conclusion,
+    },
+  });
+  rmSync(dir, { recursive: true, force: true });
+  expect(result.status, result.stderr).toBe(0);
+  return result.stdout;
+}
+
 function parseWorkflowTriggers(yaml: string) {
   const lines = yaml.split(/\r?\n/);
   const onIndex = lines.findIndex((line) => line === "on:");
@@ -503,7 +544,7 @@ describe("Proffera standing automerge authorization", () => {
     expect(workflow).not.toContain("updated_at");
     expect(workflow).toContain("clean exact-head completion comment");
     expect(workflow).toContain('workflow_run:');
-    expect(workflow).toContain('workflows: [CI]');
+    expect(workflow).toContain('workflows: [CI, Security review regressions]');
     expect(workflow).toContain('E2E public smoke');
     expect(workflow).toContain('select(.name == "Validate" and .bucket == "pass")');
     expect(workflow).toContain('select(.name == "E2E public smoke" and .bucket == "pass")');
@@ -520,10 +561,28 @@ describe("Proffera standing automerge authorization", () => {
   it("reacts to CI completion and review events instead of depending on polling", () => {
     const triggers = parseWorkflowTriggers(workflow);
     expect(triggers.get("workflow_run")?.workflows).toContain("CI");
+    expect(triggers.get("workflow_run")?.workflows).toContain("Security review regressions");
     expect(triggers.get("workflow_run")?.types).toContain("completed");
-    expect(triggers.has("pull_request_review")).toBe(true);
-    expect(triggers.has("issue_comment")).toBe(true);
-    expect(triggers.get("pull_request")?.types).toContain("ready_for_review");
+    expect(triggers.has("pull_request_review")).toBe(false);
+    expect(triggers.has("issue_comment")).toBe(false);
+    expect(triggers.get("pull_request")?.types).toEqual(["labeled", "unlabeled"]);
+    const router = source(".github/workflows/supervisor-event-router.yml");
+    expect(router).toContain("pull_request_review:");
+    expect(router).toContain("issue_comment:");
+    expect(router).toContain("proffera-automerge.yml");
+  });
+
+  it("accepts only successful CI and security-regression workflow_run wake events", () => {
+    expect(runWorkflowRunGateFixture("CI", "success")).toContain("WORKFLOW_RUN_OK");
+    expect(runWorkflowRunGateFixture("Security review regressions", "success")).toContain("WORKFLOW_RUN_OK");
+
+    const untrusted = runWorkflowRunGateFixture("Untrusted workflow", "success");
+    expect(untrusted).toContain("REFUSED:");
+    expect(untrusted).toContain("not an allowed completion workflow");
+
+    const failedSecurity = runWorkflowRunGateFixture("Security review regressions", "failure");
+    expect(failedSecurity).toContain("REFUSED:");
+    expect(failedSecurity).toContain("did not complete successfully");
   });
 
   it("executes current-head CodeRabbit blocking precedence in the real automerge gate", () => {

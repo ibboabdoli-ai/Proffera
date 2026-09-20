@@ -4,10 +4,21 @@ import { revalidateTag, unstable_cache } from "next/cache";
 
 import { getSql } from "@/lib/db/server";
 
-export const PUBLIC_DIRECTORY_CACHE_TTL_SECONDS = 5 * 60;
+// Safe published + unclaimed juridical Directory projections are explicitly
+// invalidated on publication, claim, revalidation, and profile mutations. Keep
+// a 24-hour TTL only as a fallback so crawler repeats do not wake Neon every
+// five minutes when no underlying public data has changed.
+export const PUBLIC_DIRECTORY_CACHE_TTL_SECONDS = 24 * 60 * 60;
+
+// Cache only proven misses for a short window. Positive claimed/private results
+// deliberately bypass this cache so entitlement and ownership state remain
+// request-fresh. The normal profile invalidation tag also evicts these misses.
+export const PUBLIC_DIRECTORY_MISS_CACHE_TTL_SECONDS = 30 * 60;
 
 const PUBLIC_DIRECTORY_PROFILE_CACHE_NAMESPACE = "public-directory-published-juridical-v2";
 const PUBLIC_DIRECTORY_EXTRAS_CACHE_NAMESPACE = "public-directory-profile-extras-v2";
+const PUBLIC_DIRECTORY_MISS_CACHE_NAMESPACE = "public-directory-miss-v1";
+const PUBLIC_DIRECTORY_ROUTING_MISS_CACHE_NAMESPACE = "public-directory-routing-miss-v1";
 const PUBLIC_DIRECTORY_PROFILE_GLOBAL_TAG = "public-directory-profile:v2:all";
 const PUBLIC_DIRECTORY_EXTRAS_GLOBAL_TAG = "public-directory-extras:v2:all";
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -93,6 +104,10 @@ export function publicDirectoryExtrasCacheTag(profileId: string) {
   return `public-directory-extras:v2:${tagToken(profileId)}`;
 }
 
+function publicDirectoryProfileTags(slug: string) {
+  return [publicDirectoryProfileCacheTag(slug), PUBLIC_DIRECTORY_PROFILE_GLOBAL_TAG];
+}
+
 export async function readPublicDirectoryProfileCache<T>(
   slug: string,
   loader: () => Promise<PublicDirectoryCacheDecision<T>>,
@@ -100,8 +115,41 @@ export async function readPublicDirectoryProfileCache<T>(
   const normalized = tagToken(slug);
   return activeAdapter().read({
     keyParts: [PUBLIC_DIRECTORY_PROFILE_CACHE_NAMESPACE, normalized],
-    tags: [publicDirectoryProfileCacheTag(normalized), PUBLIC_DIRECTORY_PROFILE_GLOBAL_TAG],
+    tags: publicDirectoryProfileTags(normalized),
     revalidate: PUBLIC_DIRECTORY_CACHE_TTL_SECONDS,
+    loader,
+  });
+}
+
+export async function readPublicDirectoryMissCache<T>(
+  slug: string,
+  loader: () => Promise<PublicDirectoryCacheDecision<T>>,
+): Promise<T> {
+  const normalized = tagToken(slug);
+
+  // A negative Directory cache entry is safe only when the database is
+  // available and has actually proved the slug is missing. If the SQL client
+  // is unavailable, bypass the persistent miss cache entirely so a temporary
+  // infrastructure/configuration failure can never become a 30-minute 404.
+  if (!getSql()) return (await loader()).value;
+
+  return activeAdapter().read({
+    keyParts: [PUBLIC_DIRECTORY_MISS_CACHE_NAMESPACE, normalized],
+    tags: publicDirectoryProfileTags(normalized),
+    revalidate: PUBLIC_DIRECTORY_MISS_CACHE_TTL_SECONDS,
+    loader,
+  });
+}
+
+export async function readPublicDirectoryRoutingMissCache<T>(
+  slug: string,
+  loader: () => Promise<PublicDirectoryCacheDecision<T>>,
+): Promise<T> {
+  const normalized = tagToken(slug);
+  return activeAdapter().read({
+    keyParts: [PUBLIC_DIRECTORY_ROUTING_MISS_CACHE_NAMESPACE, normalized],
+    tags: publicDirectoryProfileTags(normalized),
+    revalidate: PUBLIC_DIRECTORY_MISS_CACHE_TTL_SECONDS,
     loader,
   });
 }

@@ -1,3 +1,4 @@
+import Image from "next/image";
 import Link from "next/link";
 import { getPublicNavigation, localeCopy, type PublicLocale } from "@/lib/public-locale";
 import { siteConfig } from "@/lib/site";
@@ -16,6 +17,7 @@ const marketplaceFooter = {
       { label: "Populära tjänster", href: "/#populara-tjanster" },
       { label: "Så fungerar det", href: "/#sa-fungerar" },
       { label: "För företag", href: "/for-foretag" },
+      { label: "Om oss", href: "/om" },
     ],
   },
   en: {
@@ -26,6 +28,7 @@ const marketplaceFooter = {
       { label: "Popular services", href: "/en#populara-tjanster" },
       { label: "How it works", href: "/en#sa-fungerar" },
       { label: "For businesses", href: "/en/for-business" },
+      { label: "About us", href: "/en/about" },
     ],
   },
 } as const;
@@ -37,25 +40,41 @@ export function Footer({ locale, marketplace = false }: FooterProps) {
   const description = marketplaceCopy?.description ?? copy.footerDescription;
   const status = marketplaceCopy?.status ?? copy.footerStatus;
 
+  const footerClass = marketplace
+    ? "border-t border-[#dce4ee] bg-white text-[#11213b]"
+    : "border-t border-[#082654] bg-[#0a2e63] text-white";
+  const secondaryText = marketplace ? "text-[#66758a]" : "text-white/70";
+  const tertiaryText = marketplace ? "text-[#7b8799]" : "text-white/55";
+  const linkClass = marketplace
+    ? "transition hover:text-[#1469d8] focus:outline-none focus-visible:text-[#1469d8]"
+    : "transition hover:text-white focus:outline-none focus-visible:text-white";
+  const dividerClass = marketplace ? "border-[#dce4ee]" : "border-white/10";
+
   return (
-    <footer className="border-t border-[#0c2116] bg-[#102a1c] text-white">
-      <div className="mx-auto grid max-w-7xl gap-10 px-4 py-14 sm:px-6 md:grid-cols-[1.5fr_0.75fr_0.75fr] lg:px-8">
+    <footer className={footerClass}>
+      <div className={`mx-auto grid max-w-7xl gap-10 px-4 sm:px-6 md:grid-cols-[1.5fr_0.75fr_0.75fr] lg:px-8 ${marketplace ? "py-9" : "py-12"}`}>
         <div>
-          <p className="text-2xl font-bold tracking-tight">{siteConfig.name}</p>
-          <p className="mt-4 max-w-sm text-sm leading-6 text-white/70">
+          <Image
+            src={marketplace ? "/brand/proffera-logo.svg" : "/brand/proffera-logo-light.svg"}
+            alt={siteConfig.name}
+            width={184}
+            height={48}
+            className={marketplace ? "h-7 w-auto" : "h-8 w-auto"}
+          />
+          <p className={`mt-4 max-w-sm text-sm leading-6 ${secondaryText}`}>
             {description}
           </p>
-          <p className="mt-5 text-xs font-medium uppercase tracking-[0.16em] text-white/45">
+          <p className={`mt-5 text-xs font-medium uppercase tracking-[0.16em] ${tertiaryText}`}>
             {status}
           </p>
         </div>
 
         <div>
           <p className="text-sm font-semibold">{copy.footerNavigation}</p>
-          <ul className="mt-4 space-y-3 text-sm text-white/70">
+          <ul className={`mt-4 space-y-3 text-sm ${secondaryText}`}>
             {navigation.map((item) => (
               <li key={item.href}>
-                <Link href={item.href} className="transition hover:text-white focus:outline-none focus-visible:text-white">
+                <Link href={item.href} className={linkClass}>
                   {item.label}
                 </Link>
               </li>
@@ -65,10 +84,10 @@ export function Footer({ locale, marketplace = false }: FooterProps) {
 
         <div>
           <p className="text-sm font-semibold">{copy.footerLegal}</p>
-          <ul className="mt-4 space-y-3 text-sm text-white/70">
+          <ul className={`mt-4 space-y-3 text-sm ${secondaryText}`}>
             {copy.legalLinks.map((item) => (
               <li key={item.href}>
-                <Link href={item.href} className="transition hover:text-white focus:outline-none focus-visible:text-white">
+                <Link href={item.href} className={linkClass}>
                   {item.label}
                 </Link>
               </li>
@@ -76,7 +95,7 @@ export function Footer({ locale, marketplace = false }: FooterProps) {
           </ul>
         </div>
       </div>
-      <div className="border-t border-white/10 px-4 py-5 text-center text-xs text-white/55">
+      <div className={`border-t ${dividerClass} px-4 py-5 text-center text-xs ${marketplace ? "text-[#7b8799]" : "text-white/55"}`}>
         © {new Date().getFullYear()} Proffera. {copy.copyright}
       </div>
     </footer>

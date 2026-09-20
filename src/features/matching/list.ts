@@ -1,4 +1,6 @@
 import { getSql } from "@/lib/db/server";
+import { selectClaimedProviderMatchingOrigin } from "@/lib/company-directory-claimed-provider-origin";
+import { isVerifiedDirectoryMarketplaceLocation } from "@/lib/company-directory-marketplace-readiness";
 import { QUOTE_REQUEST_MATCHING_DELIVERY_STATUSES } from "@/lib/quote-request-lifecycle";
 import {
   buildWorkspaceLeadSuggestions,
@@ -16,6 +18,11 @@ type LeadRow = {
   description: string;
   status: string;
   created_at: string;
+};
+
+type InternalLeadRow = LeadRow & {
+  customer_latitude: unknown;
+  customer_longitude: unknown;
 };
 
 export type LeadMatch = {
@@ -40,7 +47,51 @@ function asNullableText(value: unknown) {
   return text || null;
 }
 
+function asNullableNumber(value: unknown) {
+  if (value === null || value === undefined || value === "") return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
 function toCandidate(row: Record<string, unknown>): WorkspaceLeadCandidate {
+  const canonical = {
+    providerPointVerified: isVerifiedDirectoryMarketplaceLocation({
+      latitude: row.provider_latitude,
+      longitude: row.provider_longitude,
+      geocodeSource: row.geocode_source,
+      geocodePrecision: row.geocode_precision,
+      geocodeConfidence: row.geocode_confidence,
+      geocodedAt: row.geocoded_at,
+      locationIsPublic: row.location_is_public,
+    }),
+  };
+  const origin = selectClaimedProviderMatchingOrigin({
+    claimedWorkspaceId: row.workspace_id,
+    serviceBase: row.service_base_candidate_count === null || row.service_base_candidate_count === undefined
+      ? null
+      : {
+          candidateCount: row.service_base_candidate_count,
+          ownerWorkspaceId: row.service_base_owner_workspace_id,
+          sourceType: row.service_base_source_type,
+          purpose: row.service_base_purpose,
+          isActive: row.service_base_is_active,
+          confirmedAt: row.service_base_confirmed_at,
+          latitude: row.service_base_latitude,
+          longitude: row.service_base_longitude,
+          geocodeSource: row.service_base_geocode_source,
+          geocodePrecision: row.service_base_geocode_precision,
+          city: row.service_base_city,
+          municipality: row.service_base_municipality,
+        },
+    canonical: {
+      latitude: row.provider_latitude,
+      longitude: row.provider_longitude,
+      city: row.provider_city,
+      municipality: row.provider_municipality,
+      pointVerified: canonical.providerPointVerified,
+    },
+  });
+
   return {
     workspaceId: asText(row.workspace_id),
     companyName: asText(row.company_name),
@@ -59,6 +110,12 @@ function toCandidate(row: Record<string, unknown>): WorkspaceLeadCandidate {
     serviceName: asText(row.service_name),
     serviceCategory: asText(row.service_category),
     serviceArea: asText(row.service_area),
+    serviceAreaRadiusKm: asNullableNumber(row.service_area_radius_km),
+    providerLatitude: origin.latitude,
+    providerLongitude: origin.longitude,
+    providerPointVerified: origin.pointVerified,
+    providerCity: origin.city,
+    providerMunicipality: origin.municipality,
     serviceIsActive: Boolean(row.service_is_active),
     servicePublicStatus: asText(row.service_public_status),
     serviceConversionMode: asText(row.service_conversion_mode),
@@ -85,16 +142,37 @@ export async function getLeadMatches() {
 
   try {
     const leads = await sql`
-      select id, reference_id, category, service_type, city, postal_code, description, status, created_at
-      from quote_requests
-      where status in (
+      select
+        request.id,
+        request.reference_id,
+        request.category,
+        request.service_type,
+        request.city,
+        request.postal_code,
+        request.description,
+        request.status,
+        request.created_at,
+        case
+          when nullif(to_jsonb(request)->>'customer_verified_latitude', '') is not null
+            and nullif(to_jsonb(request)->>'customer_verified_longitude', '') is not null
+          then nullif(to_jsonb(request)->>'customer_verified_latitude', '')::float8
+          else request.customer_latitude::float8
+        end as customer_latitude,
+        case
+          when nullif(to_jsonb(request)->>'customer_verified_latitude', '') is not null
+            and nullif(to_jsonb(request)->>'customer_verified_longitude', '') is not null
+          then nullif(to_jsonb(request)->>'customer_verified_longitude', '')::float8
+          else request.customer_longitude::float8
+        end as customer_longitude
+      from quote_requests request
+      where request.status in (
         ${submittedStatus},
         ${pendingReviewStatus},
         ${approvedStatus},
         ${matchedStatus},
         ${answeredStatus}
       )
-      order by created_at desc
+      order by request.created_at desc
       limit 50
     `;
 
@@ -128,13 +206,35 @@ export async function getLeadMatches() {
         profile.category_slug as claimed_profile_category_slug,
         profile.is_active as claimed_profile_is_active,
         profile.privacy_blocked as claimed_profile_privacy_blocked,
+        profile.city as provider_city,
+        profile.municipality as provider_municipality,
         claim.status as claim_status,
         claim.verified_at as claim_verified_at,
         claim.resolved_at as claim_resolved_at,
         service.id::text as service_id,
         service.name as service_name,
         service.category as service_category,
-        case when confirmed_area.radius_km is not null then service.service_area else '' end as service_area,
+        service.service_area as service_area,
+        confirmed_area.radius_km::float8 as service_area_radius_km,
+        location.latitude::float8 as provider_latitude,
+        location.longitude::float8 as provider_longitude,
+        location.geocode_source,
+        location.geocode_precision,
+        location.geocode_confidence,
+        location.geocoded_at::text as geocoded_at,
+        location.is_public as location_is_public,
+        service_base.matching_candidate_count as service_base_candidate_count,
+        service_base.owner_workspace_id::text as service_base_owner_workspace_id,
+        service_base.source_type as service_base_source_type,
+        service_base.purpose as service_base_purpose,
+        service_base.is_active as service_base_is_active,
+        service_base.confirmed_at::text as service_base_confirmed_at,
+        service_base.latitude::float8 as service_base_latitude,
+        service_base.longitude::float8 as service_base_longitude,
+        service_base.geocode_source as service_base_geocode_source,
+        service_base.geocode_precision as service_base_geocode_precision,
+        service_base.city as service_base_city,
+        service_base.municipality as service_base_municipality,
         service.is_active as service_is_active,
         service.public_status as service_public_status,
         service.conversion_mode as service_conversion_mode,
@@ -168,6 +268,38 @@ export async function getLeadMatches() {
       left join workspace_feature_trials trial
         on trial.workspace_id = workspace.id
        and trial.feature_key = catalog.feature_key
+      left join company_directory_business_locations location
+        on location.profile_id = profile.id
+      left join lateral (
+        select
+          owner_base.owner_workspace_id,
+          owner_base.source_type,
+          owner_base.purpose,
+          owner_base.is_active,
+          owner_base.confirmed_at,
+          owner_base.latitude,
+          owner_base.longitude,
+          owner_base.geocode_source,
+          owner_base.geocode_precision,
+          owner_base.city,
+          owner_base.municipality,
+          (count(*) over ())::int as matching_candidate_count
+        from company_directory_profile_locations owner_base
+        where owner_base.profile_id = profile.id
+          and profile.claimed_workspace_id is not null
+          and owner_base.owner_workspace_id = profile.claimed_workspace_id
+          and owner_base.source_type = 'owner'
+          and owner_base.purpose = 'service_base'
+          and owner_base.is_active = true
+          and owner_base.confirmed_at is not null
+          and owner_base.latitude is not null
+          and owner_base.longitude is not null
+          and not (owner_base.latitude = 0 and owner_base.longitude = 0)
+          and owner_base.geocode_source = 'lantmateriet_belagenhetsadress_v4_2'
+          and owner_base.geocode_precision = 'address'
+        order by owner_base.confirmed_at desc, owner_base.id asc
+        limit 1
+      ) service_base on true
       left join lateral (
         select area.radius_km
         from company_directory_service_areas area
@@ -190,10 +322,29 @@ export async function getLeadMatches() {
     `;
 
     const candidates = (candidateRows as Record<string, unknown>[]).map(toCandidate);
-    const matches = (leads as LeadRow[]).map((lead) => ({
-      lead,
-      suggestions: buildWorkspaceLeadSuggestions(lead, candidates),
-    }));
+    const matches = (leads as InternalLeadRow[]).map((rawLead) => {
+      const lead: LeadRow = {
+        id: rawLead.id,
+        reference_id: rawLead.reference_id,
+        category: rawLead.category,
+        service_type: rawLead.service_type,
+        city: rawLead.city,
+        postal_code: rawLead.postal_code,
+        description: rawLead.description,
+        status: rawLead.status,
+        created_at: rawLead.created_at,
+      };
+      return {
+        lead,
+        suggestions: buildWorkspaceLeadSuggestions({
+          category: rawLead.category,
+          service_type: rawLead.service_type,
+          city: rawLead.city,
+          customerLatitude: rawLead.customer_latitude,
+          customerLongitude: rawLead.customer_longitude,
+        }, candidates),
+      };
+    });
 
     return { ok: true as const, matches };
   } catch (error) {

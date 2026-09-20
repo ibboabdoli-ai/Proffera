@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 
 import { ButtonLink } from "@/components/ui/button-link";
+import { getCheckoutPlanPriceLabel } from "@/lib/billing-plans";
 import type { PublicLocale } from "@/lib/public-locale";
 
 type HomeCopy = {
@@ -114,8 +115,8 @@ const copy: Record<PublicLocale, HomeCopy> = {
     pricingLead: "Alla planer bygger på samma kundflöde. Stripe Checkout visar alltid den slutliga betalningen.",
     popular: "Mest populär",
     plans: [
-      { name: "Starter", price: "199 kr/mån", description: "För små företag som vill samla bokningar, leads och kunder.", features: ["Onlinebokning", "Leadhantering", "Kund-CRM", "Kundportal", "Påminnelser"], cta: "Starta gratis", href: "/skapa-konto?plan=starter" },
-      { name: "Professional", price: "599 kr/mån", description: "För företag som vill visa tjänster online och driva fler delar av kundresan.", features: ["Allt i Starter", "Företagssida", "Offerter", "Galleri och verifierade omdömen", "Analys", "Flera medarbetare"], cta: "Starta gratis", href: "/skapa-konto?plan=professional" },
+      { name: "Starter", price: getCheckoutPlanPriceLabel("starter", "SEK", "sv"), description: "För små företag som vill samla bokningar, leads och kunder.", features: ["Onlinebokning", "Leadhantering", "Kund-CRM", "Kundportal", "Påminnelser"], cta: "Starta gratis", href: "/skapa-konto?plan=starter" },
+      { name: "Professional", price: getCheckoutPlanPriceLabel("professional", "SEK", "sv"), description: "För företag som vill visa tjänster online och driva fler delar av kundresan.", features: ["Allt i Starter", "Företagssida", "Offerter", "Galleri och verifierade omdömen", "Analys", "Flera medarbetare"], cta: "Starta gratis", href: "/skapa-konto?plan=professional" },
       { name: "Enterprise", price: "Kontakta oss", description: "För större eller mer avancerade upplägg med behov utöver standardflödet.", features: ["Allt i Professional", "Egen domän", "Avancerade arbetsflöden", "Anpassad uppsättning", "Prioriterad dialog"], cta: "Kontakta oss", href: "/kontakt" },
     ],
     faqEyebrow: "Vanliga frågor",
@@ -188,8 +189,8 @@ const copy: Record<PublicLocale, HomeCopy> = {
     pricingLead: "Every plan is built around the same customer flow. Stripe Checkout always shows the final charge.",
     popular: "Most popular",
     plans: [
-      { name: "Starter", price: "SEK 199/month", description: "For small businesses that want bookings, leads and customers in one place.", features: ["Online booking", "Lead management", "Customer CRM", "Customer portal", "Reminders"], cta: "Start free", href: "/en/create-account?plan=starter" },
-      { name: "Professional", price: "SEK 599/month", description: "For businesses that want to show services online and run more of the customer journey.", features: ["Everything in Starter", "Business page", "Quotes", "Gallery and verified reviews", "Analytics", "Multiple staff"], cta: "Start free", href: "/en/create-account?plan=professional" },
+      { name: "Starter", price: getCheckoutPlanPriceLabel("starter", "SEK", "en"), description: "For small businesses that want bookings, leads and customers in one place.", features: ["Online booking", "Lead management", "Customer CRM", "Customer portal", "Reminders"], cta: "Start free", href: "/en/create-account?plan=starter" },
+      { name: "Professional", price: getCheckoutPlanPriceLabel("professional", "SEK", "en"), description: "For businesses that want to show services online and run more of the customer journey.", features: ["Everything in Starter", "Business page", "Quotes", "Gallery and verified reviews", "Analytics", "Multiple staff"], cta: "Start free", href: "/en/create-account?plan=professional" },
       { name: "Enterprise", price: "Contact us", description: "For larger or more advanced setups with needs beyond the standard workflow.", features: ["Everything in Professional", "Custom domain", "Advanced workflows", "Tailored setup", "Priority dialogue"], cta: "Contact us", href: "/en/contact" },
     ],
     faqEyebrow: "Common questions",

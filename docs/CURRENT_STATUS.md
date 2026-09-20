@@ -1,8 +1,8 @@
 # Proffera Current Status
 
-Last updated: 2026-09-08
+Last updated: 2026-09-15
 
-This is the canonical factual status document for Proffera. For worker rules, live task state, current `main` SHA, and roadmap order, also read `AGENTS.md`, `WORKER_BOOTSTRAP.md`, GitHub issue #548, GitHub issue #276, and `docs/README.md`.
+This is the canonical factual status document for Proffera. For worker rules, live task state, current `main` SHA, roadmap order, and the stable V1 completion evidence requirements, also read `AGENTS.md`, `WORKER_BOOTSTRAP.md`, GitHub issue #548, GitHub issue #276, `docs/README.md`, and `docs/V1_LAUNCH_EVIDENCE_CONTRACT.json`.
 
 ## Release baseline
 
@@ -18,18 +18,27 @@ Do not pin the current `main` SHA or current Vercel deployment ID in this file: 
 The repository contains active production implementations for these major areas:
 
 - Better Auth sign-in/session handling and Workspace membership/RBAC.
+- Runtime observability uses privacy-minimized structured error events, per-request correlation IDs for proxied application traffic, Next request-error instrumentation, and a same-origin client global-error endpoint with bounded streamed request bodies. Sentry's Next.js SDK runs alongside those existing paths in the browser, Node.js, and Edge runtimes with `sendDefaultPii: false`, conservative tracing, and additional request/breadcrumb scrubbing; Session Replay, Profiling, Sentry Logs, and automatic cron monitors remain disabled. Raw client error messages, stacks, query strings, URL fragments, request headers/bodies, and tokenized raw server request paths are intentionally excluded from the existing sinks and Sentry delivery.
+- Better Auth password recovery uses the built-in single-use reset-token flow with a 60-minute expiry, revokes prior sessions after a successful reset, applies dedicated request/reset endpoint rate limits, and exposes bilingual Swedish/English recovery UI. Password-reset email delivery reuses the existing Brevo runtime/Preview isolation boundary. Reset tokens are placed in the browser URL fragment rather than the request path/query, are scrubbed from the address bar before submission, and are not projected into PostHog pageview data. Source/CI proof is not a claim that outbound reset email has been exercised in Production; Preview/Production runtime proof remains governed by the V1 evidence contract and environment approval gates.
 - Workspace-scoped Dashboard data for customers, bookings, leads, offers, reviews, billing and service work.
 - Public Booking, availability, email verification, booking management and customer portal foundations.
 - Quote Request / Offer flows and Service Job lifecycle foundations.
 - Verified Review invitation, token, moderation and publication protections.
 - Stripe Checkout, Customer Portal, subscription webhook synchronization and billing-alert foundations.
+- Canonical Proffera launch subscription pricing is **Starter 299 SEK/month** and **Professional 599 SEK/month**. Application pricing labels derive from the shared billing-plan source; Stripe Price IDs remain environment/provider configuration and must be staged so public copy and Checkout amounts change together. Historical Price objects and existing subscriptions are not migrated or removed without a separate decision.
 - Company Directory ingestion, official-facts verification, SNI/category mapping, publication safety gates and admin review flows.
 - Public marketplace/search foundations and provider marketplace activation.
+- Shared-domain routing is host-aware at the proxy boundary: Proffera/platform hosts reject PrimeView-only public namespaces, PrimeView exposes only its bespoke public namespace plus shared customer lifecycle links, and generic customer domains fail closed outside their root, clean service URLs and shared customer lifecycle routes. PrimeView `/` and `/booking` rewrites plus generic custom-domain root/service rewrites remain the intended public entry points.
+- Marketplace geo coverage now uses one explicit coverage-state contract: `confirmed_inside`, `confirmed_outside`, `inferred_nearby`, `locality_fallback`, or `unknown`. Only `confirmed_inside` is eligible for automatic Marketplace outreach. Confirmed service-specific radius wins over confirmed default/profile radius; explicit `confirmed_outside` is terminal; malformed/missing authority fails closed. `workspace_services.service_area` remains metadata rather than geometry, and exact customer coordinates remain private matching data.
+- Unclaimed/guest providers continue to use the canonical verified SCB workplace point. A claimed Workspace provider may instead use one unique owner-scoped `service_base` as its internal matching origin only when it is active, explicitly confirmed, exact-address verified by the Lantmäteriet pipeline, and still owned by the same claimed Workspace; missing, ambiguous, invalid, or wrong-Workspace evidence falls back to the canonical SCB point. Exact service-base coordinates are server-internal and are not projected into Marketplace suggestion output.
+- Confirmed owner `service_base` writes authorize the claimed Workspace/profile before any external verification call and do not trust caller-supplied coordinates or geocode metadata. Proffera verifies the address through the existing exact Lantmäteriet path, transforms verified SWEREF 99 TM coordinates to WGS84 server-side, and fails closed on no-match/unavailable/invalid output. An unchanged already-exact server-owned service base may reuse its verified coordinates without another provider call; unconfirmed service bases carry no coordinate authority.
 - Marketplace Quote Request has a bounded server-side Lantmäteriet exact-address verification path after public-form abuse protection. When the address integration is configured and migration 0059 storage exists, the official object reference and transformed WGS84 coordinates are stored as private matching data separate from browser geolocation; matching prefers verified coordinates without projecting the exact address, coordinates or official reference into the provider Guest Quote view. Definitive official no-match is rejected, configured transient upstream failure is retryable/fail-closed, and missing integration configuration preserves the pre-verification address flow. A source merge or Preview proof is not evidence that this path is active in Production; Production activation still requires the controlled migration/configuration/deployment checks.
 - Official-source compliance is explicitly codified for SCB, Lantmäteriet and Bolagsverket. Lantmäteriet-derived public geodata is attributed conditionally as `Lantmäteriet – Belägenhetsadress Direkt` with Proffera own-processing wording when transformed, while exact customer address/reference/coordinates remain private matching data. The Bolagsverket Company Directory adapter rejects non-HTTPS token/source/detail URLs and embedded URL credentials, applies conservative provider-aware process-local request spacing, and allows automated detail lookup only for a known Swedish juridical person or an `unknown` pre-classification discovery seed with a valid company-shaped organisationsnummer; known sole traders and personnummer-shaped identities remain blocked, and broader person-linked data remains outside the automated public Directory path.
 - Company Directory direct-contact visibility is a separate server-side entitlement boundary: Unclaimed and Claimed Free directory projections do not expose direct street address/phone/email/website data by default; a claimed Workspace needs valid plan access before direct contact fields may be projected publicly. Internal Official Facts or SCB enrichment does not itself authorize public contact disclosure.
 - Marketplace-invited unclaimed companies use a profile-first conversion path: the invitation can open the company’s existing public Directory profile, and the company verifies that same profile rather than creating a duplicate business identity. Normal claims remain manual-review by default. Automatic Workspace provisioning is allowed only for the narrow Marketplace proof case where a recent invitation was successfully sent to the exact business-domain mailbox that owns the signed-in account, that mailbox still matches the profile’s current conflict-free SCB email, and the business-email challenge succeeds; otherwise the claim stays on the existing manual-review path. Opt-out continues to stop future guest outreach but does not revoke the company’s ability to verify ownership of its existing profile. The resulting Workspace is linked back to the same Directory profile, and the source Marketplace invitation/offer is linked to that Workspace without unlocking customer contact data unless the offer wins.
 - Company Directory super-admins have a dedicated full-underlag explorer for profile data, Official Facts, SCB contact/postal/workplace data, conflicts, freshness, services, geographic locations and field-source provenance. This internal visibility does not change public contact entitlements.
+
+Proffera V1 completion is governed by the stable machine-readable `docs/V1_LAUNCH_EVIDENCE_CONTRACT.json`. The contract defines 18 launch criteria across Customer/Marketplace, Provider, and Platform Quality, plus the evidence kinds required for each criterion. It is not a live completion report and cannot itself mark a criterion complete. Source merges, green builds, historical screenshots, stale issue text, or unchecked boxes are insufficient when the contract requires Preview/Staging runtime proof, fresh read-only Production evidence, exact deployed-SHA Production runtime evidence, or explicit human approval for a restricted real-world action.
 
 Recent Production changes independently verified through matching `main` deployments on 2026-08-18 include:
 
@@ -48,8 +57,9 @@ Current control plane:
 3. GitHub issue #548 — live AI Supervisor control board, including current `main` baseline and active queue.
 4. GitHub issue #276 — execution roadmap/dependency order.
 5. `docs/CURRENT_STATUS.md` — stable factual project status.
-6. `docs/README.md` — documentation authority map.
-7. `.github/copilot-instructions.md` — automatic GitHub/Copilot agent entry instructions pointing to the same canonical sources.
+6. `docs/V1_LAUNCH_EVIDENCE_CONTRACT.json` — stable machine-readable V1 completion evidence contract; never a live completion report.
+7. `docs/README.md` — documentation authority map.
+8. `.github/copilot-instructions.md` — automatic GitHub/Copilot agent entry instructions pointing to the same canonical sources.
 
 Current merge-safety rules include:
 
@@ -64,6 +74,8 @@ Current merge-safety rules include:
 - required `E2E public smoke` check;
 - no force push / protected default branch behavior;
 - gated automerge can use either an owner-applied `ibbo-approved` label backed by a repository-owner `APPROVED` review on the exact current head, or a scoped standing merge authorization committed on `main`; standing authorization is limited to trusted same-repository owner-authored PRs and never removes current-head CI/review/head-SHA gates or authorizes blocked sensitive paths.
+
+A repository-owned release rollback runbook and read-only dry-run validator now require an exact known-good Vercel deployment/SHA, explicit database-impact classification, and exact-SHA post-rollback health verification. The standard path never performs a database down-migration automatically; destructive or unknown database impact is blocked pending a separate approved recovery plan.
 
 Production release health is bound to the exact merged `main` commit rather than to a generic scheduled probe. GitHub-token merges do not reliably generate downstream `push` workflow runs, so gated automerge emits a `repository_dispatch` event only after a successful merge and includes the resolved merge commit SHA. The Production health workflow rejects a dispatch whose SHA is missing, malformed or no longer equals the default-branch head, waits for the matching Vercel deployment, and requires that deployed SHA plus schema health to pass. The trusted PR-base gate accepts successful exact-base health evidence from either a normal `push` run or this repository-dispatch handoff; scheduled health remains supplemental rather than proof for a specific PR base.
 
@@ -106,6 +118,7 @@ Committed non-destructive browser coverage includes:
 - public marketing/marketplace smoke coverage;
 - public nearby/geolocation coverage;
 - the real Login page entry surface;
+- bilingual password-recovery page rendering plus client-side reset-token fragment scrubbing without sending reset email;
 - Quote intake through service selection and adaptive-details navigation without submitting a request.
 
 An opt-in isolated Preview harness also exists for:
@@ -117,15 +130,14 @@ On 2026-08-21 the dedicated non-Production Neon Preview branch was refreshed in 
 
 Marketplace Guest Quote state transitions were also exercised with synthetic Preview-only data and no external email egress: the real guest page rendered with contact redaction, invitation state changed `sent -> viewed -> responded`, a fixed-price synthetic offer was recorded as `submitted`, the Quote moved to `answered`, and the real success page rendered the saved price/date. All synthetic profile/quote/invitation/offer rows were deleted after the test. The Guest Quote email sender was hardened so Preview now uses the dedicated Brevo resolver and controlled-recipient rewrite instead of directly using shared credentials or the company recipient.
 
-The remaining Preview activation blockers are operational: a genuinely independent `PROFFERA_PREVIEW_BREVO_API_KEY` is not yet configured, so Preview outbound email remains intentionally fail-closed; the current Preview Better Auth secret should also be rotated to a strong random value after runtime warnings identified it as weak/short. Full controlled-recipient email egress and the normal Admin-visible end-to-end route must be re-run before recurring state-changing browser automation is enabled.
+Later isolated Preview evidence supersedes that August blocker. The dedicated Preview lane has successfully exercised controlled Brevo email egress and the full synthetic Marketplace lifecycle through Quote → Matching/Invitation → Provider Offer → Customer Selection → ServiceJob → Completed → Verified Review, with scoped cleanup and no Production mutation. Separate isolated Preview runs also proved Better Auth signup/login/logout/re-login and end-to-end password reset through a fresh controlled Preview email. These runtime results show the Preview Brevo and Auth configuration are operational; do not treat a missing Brevo key or unusable Preview Auth configuration as a current blocker unless fresh runtime evidence contradicts this. Secret values and rotation history remain intentionally opaque and must stay independent from Production.
 
-Those authenticated/Booking checks intentionally skip unless dedicated Preview E2E credentials/workspace names/booking slug are supplied. They must not become required CI until Preview is proven isolated from Production for database, auth, email, payments and customer data.
+Other opt-in authenticated/Booking checks may still skip unless their dedicated Preview E2E credentials, Workspace names or booking slug are supplied. They must not become required CI unless the specific flow is proven safe inside the isolated Preview boundary.
 
-Still intentionally excluded from recurring state-changing browser automation until the remaining runtime isolation gate is proven:
+Still intentionally excluded from general recurring state-changing browser automation unless separately proven and gated:
 
 - Booking → email verification → confirmation;
-- full Marketplace Quote invitation → controlled email → Offer → Admin visibility;
-- Stripe/payment lifecycle;
+- broader Stripe/payment lifecycle;
 - destructive Admin mutations.
 
 Do not run destructive or uncertain browser tests against Production or real customer Workspaces.
@@ -160,19 +172,20 @@ Company Directory discovery uses a six-hour lightweight probe of the official SC
 
 Dedicated Company Directory full revalidation is currently requested twice per hour by the external QStash scheduler; live Production run history on 2026-09-06 showed starts at minutes 13 and 43. The GitHub Actions revalidation workflow is retained as a manual `workflow_dispatch` fallback only, and the Operations path does not invoke full revalidation; it keeps the small published-profile safety revalidation separately. Each external wake performs one bounded ten-profile API batch. Read-only audit evidence showed these full-revalidation runs remain productive, so the cost-reset plan preserves the two-per-hour throughput and proposes moving them to minutes 12 and 42 only to cluster DB wake windows. SCB transport keeps the existing 1.05-second request spacing and retries only once for transient network resets/timeouts and retryable HTTP statuses (408/425/429/500/502/503/504), with backoff; permanent response/schema errors still fail closed without repeated requests.
 
-SCB location semantics distinguish the company-level registered seat from the physical workplace. SCB enrichment may retain the company-level municipality as source data, but a Directory profile/public geographic municipality is projected only from the same unambiguous workplace visiting address selected by the public-address resolver. Existing non-SCB/manual values are preserved, while values created by the earlier company-level SCB municipality projection are repairable only when field provenance still owns the current value. Public Directory Search likewise prefers a complete, conflict-free single workplace visiting address for unclaimed profiles so street/postcode/city/municipality stay coherent; claimed Workspace-owned profiles are not overwritten by that projection. The `0058` migration is designed to add the relational `frisor` mapping for primary SNI 96.210 and backfill SNI-owned profile/service relations; that migration behavior was validated only on an isolated Neon branch, and Production execution is not claimed here. Neither repair changes publication status. Geographic coordinates remain a separate controlled Lantmäteriet geocoding pilot; absence of a verified coordinate is not treated as an SCB-sync failure and broad geocoding must not be enabled until the upstream PROD lookup path produces verified references.
+SCB location semantics distinguish the company-level registered seat from the physical workplace. SCB enrichment may retain the company-level municipality as source data, but a Directory profile/public geographic municipality is projected only from the same unambiguous workplace visiting address selected by the public-address resolver. Existing non-SCB/manual values are preserved, while values created by the earlier company-level SCB municipality projection are repairable only when field provenance still owns the current value. Public Directory Search likewise prefers a complete, conflict-free single workplace visiting address for unclaimed profiles so street/postcode/city/municipality stay coherent; claimed Workspace-owned profiles are not overwritten by that projection. The `0058` migration is designed to add the relational `frisor` mapping for primary SNI 96.210 and backfill SNI-owned profile/service relations; that migration behavior was validated only on an isolated Neon branch, and Production execution is not claimed here. Neither repair changes publication status. Geographic coordinates remain a separate controlled Lantmäteriet geocoding path; absence of a verified coordinate is not treated as an SCB-sync failure and broad Production geocoding must not be run without its separate restricted-action approval.
 
 A Production runtime warning observed on 2026-08-18 concerns PostgreSQL connection-string SSL semantics. It is a forward-compatibility/security warning rather than an observed request failure and should be handled deliberately before the relevant `pg`/`pg-connection-string` major upgrade.
 
 ## Current priorities
 
-1. Keep issue #548 as the live worker/PR state and current `main` baseline; use automatic Supervisor lifecycle events as the durable event trail.
-2. Keep this file synchronized only when a PR changes stable project-level truth; do not use it for fast-moving task/SHA/deployment state.
-3. Keep AI-review routing fail closed while avoiding review latency as CI runner latency: low-risk PRs avoid unnecessary review, sensitive/high-risk paths fail fast while waiting for CodeRabbit and wake only the final gate when exact-head review evidence changes, and medium-risk non-sensitive PRs may use bounded Codex fallback only after CodeRabbit availability failure.
-4. Monitor nationwide Company Directory rollout volume and queue health before increasing rollout speed.
-5. Configure an independent Preview Brevo credential and rotate the weak Preview Better Auth secret, then re-run controlled-recipient email and Admin-visible Marketplace E2E.
-6. Keep recurring state-changing Booking/Marketplace/Stripe browser automation gated until the remaining Preview runtime isolation checks are proven.
-7. Continue database tenant-defense work only through isolated-branch proof before any Production RLS rollout.
+1. Use `docs/V1_LAUNCH_EVIDENCE_CONTRACT.json` to audit all 18 V1 exit criteria against fresh `main`, Preview/runtime evidence and fresh read-only Production evidence; classify gaps rather than assuming completion from source code.
+2. Keep issue #548 as the live worker/PR state and current `main` baseline; use automatic Supervisor lifecycle events as the durable event trail.
+3. Keep this file synchronized only when a PR changes stable project-level truth; do not use it for fast-moving task/SHA/deployment state.
+4. Keep AI-review routing fail closed while avoiding review latency as CI runner latency: low-risk PRs avoid unnecessary review, sensitive/high-risk paths fail fast while waiting for CodeRabbit and wake only the final gate when exact-head review evidence changes, and medium-risk non-sensitive PRs may use bounded Codex fallback only after CodeRabbit availability failure.
+5. Audit Directory/scheduler/Neon reliability, PostHog funnel coverage, and Marketplace product gaps from fresh evidence before opening additional implementation PRs.
+6. Preserve the proven Preview Brevo/Auth isolation contract; do not rotate or rewrite Preview secrets merely because older documentation called them blockers. Re-run the bounded isolated Preview evidence lane when auth/email behavior changes, and treat any secret rotation as a separate owner-approved security action.
+7. Keep recurring state-changing Booking/Stripe and destructive Admin browser automation separately gated; the proven Marketplace lifecycle remains confined to the isolated Preview evidence lane rather than becoming a general Production-like CI mutation path.
+8. Continue database tenant-defense work only through isolated-branch proof before any Production RLS rollout.
 
 ## Status-document rule
 

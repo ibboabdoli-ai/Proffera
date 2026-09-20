@@ -1,3 +1,5 @@
+import Link from "next/link";
+
 type LegalSection = {
   title: string;
   text: string;
@@ -8,30 +10,38 @@ type EnglishLegalPageProps = {
   introduction: string;
   sections: readonly LegalSection[];
   notice?: string;
+  swedishHref: string;
 };
 
-export function EnglishLegalPage({ title, introduction, sections, notice }: EnglishLegalPageProps) {
+export function EnglishLegalPage({ title, introduction, sections, notice, swedishHref }: EnglishLegalPageProps) {
   return (
-    <div className="bg-[#f7f7f4]">
-      <section className="mx-auto max-w-4xl px-4 py-16 sm:px-6 lg:px-8 lg:py-24">
-        <p className="text-sm font-semibold uppercase tracking-wide text-[#17452f]">Legal</p>
-        <h1 className="mt-3 text-4xl font-bold tracking-tight text-[#17201a] sm:text-5xl">{title}</h1>
-        <p className="mt-5 text-lg leading-8 text-[#5b665f]">{introduction}</p>
-        <p className="mt-4 rounded-2xl bg-white p-4 text-sm leading-6 text-[#5b665f] ring-1 ring-[#dfe5dd]">
-          Last updated: 22 July 2026. {notice ?? "This English version is provided for convenience; the Swedish version prevails if there is a difference."}
-        </p>
+    <main className="min-h-screen bg-[#f6f9fd] text-[#11213b]" lang="en">
+      <section className="border-b border-[#dce4ee] bg-white">
+        <div className="mx-auto max-w-4xl px-4 py-14 sm:px-6 lg:px-8 lg:py-20">
+          <div className="flex items-start justify-between gap-5">
+            <div>
+              <p className="text-xs font-extrabold uppercase tracking-[0.15em] text-[#1469d8]">Legal</p>
+              <h1 className="mt-3 text-4xl font-extrabold tracking-[-0.04em] text-[#0a2e63] sm:text-5xl">{title}</h1>
+            </div>
+            <Link href={swedishHref} className="text-sm font-bold text-[#1469d8] underline underline-offset-4">Svenska</Link>
+          </div>
+          <p className="mt-5 max-w-3xl text-base leading-8 text-[#617085]">{introduction}</p>
+          <p className="mt-5 border-l-2 border-[#1469d8] pl-4 text-sm leading-6 text-[#617085]">
+            Last updated: 22 July 2026. {notice ?? "This English version is provided for convenience; the Swedish version prevails if there is a difference."}
+          </p>
+        </div>
       </section>
 
-      <section className="mx-auto max-w-4xl px-4 pb-16 sm:px-6 lg:px-8">
-        <div className="space-y-4">
+      <section className="mx-auto max-w-4xl px-4 py-10 sm:px-6 lg:px-8 lg:py-14">
+        <div className="divide-y divide-[#dce4ee] border-y border-[#dce4ee] bg-white px-5 sm:px-7">
           {sections.map((section) => (
-            <article key={section.title} className="rounded-3xl bg-white p-6 shadow-sm ring-1 ring-[#dfe5dd]">
-              <h2 className="text-xl font-semibold text-[#17201a]">{section.title}</h2>
-              <p className="mt-3 text-sm leading-7 text-[#5b665f]">{section.text}</p>
+            <article key={section.title} className="py-6">
+              <h2 className="text-xl font-bold text-[#0a2e63]">{section.title}</h2>
+              <p className="mt-3 text-sm leading-7 text-[#617085]">{section.text}</p>
             </article>
           ))}
         </div>
       </section>
-    </div>
+    </main>
   );
 }

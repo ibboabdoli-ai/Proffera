@@ -1,0 +1,419 @@
+.page {
+  min-height: calc(100vh - 5rem);
+  background: #f6f9fd;
+  color: #11213b;
+}
+
+.shell {
+  width: min(100%, 1180px);
+  margin: 0 auto;
+  padding: 48px 24px 56px;
+}
+
+.split {
+  display: grid;
+  grid-template-columns: minmax(0, 1.02fr) minmax(360px, .98fr);
+  gap: 56px;
+  align-items: center;
+}
+
+.single {
+  width: min(100%, 680px);
+  margin: 0 auto;
+}
+
+.languageRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 22px;
+  color: #617085;
+  font-size: .72rem;
+  font-weight: 800;
+}
+
+.languageLink,
+.languageButton {
+  display: inline-flex;
+  min-height: 36px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid #dce4ee;
+  border-radius: 8px;
+  background: #fff;
+  padding: 0 10px;
+  color: #0a2e63;
+  font-size: .7rem;
+  font-weight: 900;
+}
+
+.languageActive {
+  border-color: #0a2e63;
+  background: #0a2e63;
+  color: #fff;
+}
+
+.eyebrow {
+  margin: 0;
+  color: #1469d8;
+  font-size: .68rem;
+  font-weight: 900;
+  letter-spacing: .16em;
+  text-transform: uppercase;
+}
+
+.title {
+  margin: 8px 0 0;
+  color: #0a2e63;
+  font-size: clamp(2.35rem, 5vw, 4.2rem);
+  font-weight: 950;
+  line-height: 1.02;
+  letter-spacing: -.05em;
+  text-wrap: balance;
+}
+
+.lead {
+  max-width: 700px;
+  margin: 13px 0 0;
+  color: #617085;
+  font-size: .96rem;
+  line-height: 1.7;
+}
+
+.trustList {
+  display: grid;
+  gap: 10px;
+  margin: 24px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.trustItem {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  color: #42536a;
+  font-size: .78rem;
+  line-height: 1.5;
+}
+
+.trustMark {
+  display: grid;
+  width: 20px;
+  height: 20px;
+  flex: none;
+  place-items: center;
+  border-radius: 999px;
+  background: #eaf8f2;
+  color: #087754;
+  font-size: .66rem;
+  font-weight: 950;
+}
+
+.infoGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0,1fr));
+  gap: 10px;
+  margin-top: 24px;
+}
+
+.infoCell {
+  border-top: 1px solid #dce4ee;
+  padding-top: 12px;
+}
+
+.infoCell strong {
+  display: block;
+  color: #11213b;
+  font-size: .76rem;
+}
+
+.infoCell p {
+  margin: 4px 0 0;
+  color: #617085;
+  font-size: .7rem;
+  line-height: 1.5;
+}
+
+.linkRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  margin-top: 22px;
+}
+
+.textLink {
+  color: #1469d8;
+  font-size: .74rem;
+  font-weight: 900;
+  text-decoration: underline;
+  text-underline-offset: 4px;
+}
+
+.card {
+  border: 1px solid #dce4ee;
+  border-radius: 16px;
+  background: #fff;
+  padding: 24px;
+  box-shadow: 0 12px 32px rgba(10,46,99,.08);
+}
+
+.cardEyebrow {
+  margin: 0;
+  color: #1469d8;
+  font-size: .62rem;
+  font-weight: 900;
+  letter-spacing: .13em;
+  text-transform: uppercase;
+}
+
+.cardTitle {
+  margin: 8px 0 0;
+  color: #0a2e63;
+  font-size: 1.5rem;
+  font-weight: 950;
+  letter-spacing: -.025em;
+}
+
+.cardLead {
+  margin: 7px 0 0;
+  color: #617085;
+  font-size: .78rem;
+  line-height: 1.6;
+}
+
+.form {
+  display: grid;
+  gap: 16px;
+  margin-top: 20px;
+}
+
+.field {
+  display: grid;
+  gap: 7px;
+}
+
+.passwordInputWrap {
+  position: relative;
+}
+
+.passwordToggle {
+  position: absolute;
+  top: 50%;
+  right: 8px;
+  min-height: 36px;
+  transform: translateY(-50%);
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  padding: 0 9px;
+  color: #0a2e63;
+  font-size: .72rem;
+  font-weight: 900;
+}
+
+.passwordToggle:hover {
+  background: #eef5ff;
+}
+
+.passwordToggle:focus-visible {
+  outline: 2px solid #1469d8;
+  outline-offset: 1px;
+}
+
+.passwordToggle:disabled {
+  cursor: not-allowed;
+  opacity: .55;
+}
+
+.label {
+  color: #11213b;
+  font-size: .76rem;
+  font-weight: 850;
+}
+
+.input,
+.select {
+  width: 100%;
+  min-height: 44px;
+  border: 1px solid #dce4ee;
+  border-radius: 9px;
+  background: #fff;
+  padding: 0 12px;
+  color: #11213b;
+  outline: none;
+  font-size: 1rem;
+  transition: border-color 160ms ease, box-shadow 160ms ease, background 160ms ease;
+}
+
+.input.passwordInput {
+  padding-right: 72px;
+}
+
+.input:focus,
+.select:focus {
+  border-color: #1469d8;
+  box-shadow: 0 0 0 3px rgba(20,105,216,.10);
+}
+
+.input:disabled,
+.select:disabled {
+  cursor: not-allowed;
+  background: #f3f6fa;
+  opacity: .7;
+}
+
+.formMeta {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: -4px;
+}
+
+.primaryButton {
+  min-height: 44px;
+  border: 1px solid #0a2e63;
+  border-radius: 8px;
+  background: #0a2e63;
+  padding: 0 16px;
+  color: #fff;
+  font-size: .78rem;
+  font-weight: 900;
+}
+
+.primaryButton:hover {
+  background: #082654;
+}
+
+.primaryButton:disabled {
+  cursor: not-allowed;
+  opacity: .6;
+}
+
+.secondaryLink {
+  color: #1469d8;
+  font-size: .72rem;
+  font-weight: 850;
+  text-decoration: underline;
+  text-underline-offset: 4px;
+}
+
+.helpText {
+  margin: 13px 0 0;
+  color: #6a7890;
+  font-size: .68rem;
+  line-height: 1.55;
+}
+
+.statusSuccess,
+.statusError,
+.statusInfo {
+  border-radius: 9px;
+  padding: 11px 13px;
+  font-size: .74rem;
+  line-height: 1.55;
+  font-weight: 750;
+}
+
+.statusSuccess {
+  border: 1px solid #cfe8d6;
+  background: #eaf8f2;
+  color: #087754;
+}
+
+.statusError {
+  border: 1px solid #f4c7ba;
+  background: #fff5f2;
+  color: #9f3a2d;
+}
+
+.statusInfo {
+  border: 1px solid #d7e4f3;
+  background: #f3f8ff;
+  color: #294f7f;
+}
+
+.planGrid {
+  display: grid;
+  grid-template-columns: repeat(2,minmax(0,1fr));
+  gap: 8px;
+}
+
+.planOption {
+  display: grid;
+  gap: 2px;
+  border: 1px solid #dce4ee;
+  border-radius: 9px;
+  background: #fff;
+  padding: 11px;
+  cursor: pointer;
+}
+
+.planOptionActive {
+  border-color: #aac8ea;
+  background: #eef5ff;
+}
+
+.planOption strong {
+  color: #0a2e63;
+  font-size: .72rem;
+}
+
+.planOption small {
+  color: #617085;
+  font-size: .62rem;
+}
+
+.terms {
+  color: #6a7890;
+  font-size: .64rem;
+  line-height: 1.55;
+}
+
+.skeleton {
+  height: 128px;
+  border-radius: 10px;
+  background: #f0f4f8;
+  animation: pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%,100% { opacity: .55; }
+  50% { opacity: 1; }
+}
+
+@media (max-width: 820px) {
+  .shell {
+    padding: 32px 18px 44px;
+  }
+
+  .split {
+    grid-template-columns: 1fr;
+    gap: 28px;
+  }
+
+  .title {
+    font-size: clamp(2.15rem, 10vw, 3.25rem);
+  }
+}
+
+@media (max-width: 560px) {
+  .card {
+    padding: 18px;
+  }
+
+  .infoGrid,
+  .planGrid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .input,
+  .select {
+    transition: none !important;
+  }
+
+  .skeleton {
+    animation: none;
+  }
+}

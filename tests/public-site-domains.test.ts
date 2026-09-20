@@ -7,6 +7,7 @@ import {
   hostnameFromHostHeader,
   isPlatformHost,
   isPrimeViewHost,
+  isPublicPageRouteAllowedForHost,
   normalizeCustomDomainInput,
 } from "../src/lib/public-site-domains";
 
@@ -39,13 +40,46 @@ describe("public custom-domain routing", () => {
     expect(normalizeCustomDomainInput("https://www.primeviewwindowcare.co.uk/")).toBe("www.primeviewwindowcare.co.uk");
   });
 
+  it("enforces the public route namespace matrix by host class", () => {
+    const platformHost = "www.proffera.se";
+    const primeViewHost = "www.primeviewwindowcare.co.uk";
+    const customerHost = "customer.example.com";
+
+    for (const path of ["/services", "/services/window-cleaning", "/areas/ealing", "/gallery", "/gallery/", "/privacy", "/booking", "/boka/primeview"]) {
+      expect(isPublicPageRouteAllowedForHost(platformHost, path)).toBe(false);
+    }
+
+    for (const path of ["/", "/booking", "/services", "/services/window-cleaning", "/areas/ealing", "/gallery", "/privacy", "/boka/primeview"]) {
+      expect(isPublicPageRouteAllowedForHost(primeViewHost, path)).toBe(true);
+    }
+
+    for (const path of ["/priser", "/skapa-konto", "/en/pricing", "/tjanster", "/dashboard", "/admin", "/demo"]) {
+      expect(isPublicPageRouteAllowedForHost(primeViewHost, path)).toBe(false);
+    }
+    expect(isPublicPageRouteAllowedForHost(primeViewHost, "/primeview-booking")).toBe(false);
+
+    for (const path of ["/", "/tjanster", "/tjanster/fonsterputs", "/boka/acme", "/mina-bokningar/token", "/offert/token", "/review/token", "/gallery/acme"]) {
+      expect(isPublicPageRouteAllowedForHost(customerHost, path)).toBe(true);
+    }
+
+    for (const path of ["/priser", "/en/pricing", "/dashboard", "/admin", "/services", "/areas/ealing", "/gallery", "/gallery/", "/privacy", "/booking", "/boka/primeview", "/primeview-booking"]) {
+      expect(isPublicPageRouteAllowedForHost(customerHost, path)).toBe(false);
+    }
+
+    expect(isPublicPageRouteAllowedForHost(platformHost, "/")).toBe(true);
+    expect(isPublicPageRouteAllowedForHost(platformHost, "/priser")).toBe(true);
+    expect(isPublicPageRouteAllowedForHost("127.0.0.1:3000", "/primeview-booking")).toBe(true);
+    expect(isPublicPageRouteAllowedForHost("localhost:3000", "/primeview-booking")).toBe(true);
+    expect(isPublicPageRouteAllowedForHost(platformHost, "/dashboard")).toBe(true);
+    expect(isPublicPageRouteAllowedForHost(platformHost, "/gallery/acme")).toBe(true);
+  });
+
   it("routes generic customer domains through canonical workspace entitlements", () => {
     const proxy = source("src/proxy.ts");
     const routing = source("src/lib/public-site-domain-routing.ts");
 
     expect(proxy).toContain("export async function proxy");
     expect(proxy).toContain("resolvePublicCustomDomain(host)");
-    expect(proxy).toContain("if (!target) return notFound()");
     expect(proxy).toContain('new URL("/demo/primeview", request.url)');
     expect(proxy).toContain('target.publicHomeMode === "website"');
     expect(proxy).toContain("/foretag/${encodeURIComponent(target.workspaceSlug)}");

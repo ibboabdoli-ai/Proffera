@@ -5,7 +5,10 @@ import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 
 import { requireSuperAdmin } from "@/lib/admin-authorization";
-import { geocodeDirectoryPilotFromAdmin } from "@/lib/company-directory-geocoding";
+import {
+  DIRECTORY_PROVIDER_GEOCODING_MAX_BATCH,
+  geocodeDirectoryProviderPointsFromAdmin,
+} from "@/lib/company-directory-geocoding";
 import {
   ADMIN_DIRECTORY_NEARBY_COOKIE,
   buildAdminNearbySearchDestination,
@@ -13,7 +16,6 @@ import {
 } from "./search-behavior";
 
 const ADMIN_DIRECTORY_NEARBY_COOKIE_PATH = "/admin/foretag/directory/search-preview";
-const DIRECTORY_GEOCODING_PILOT_BATCH_SIZE = 3;
 
 /** Returns the exact cookie attributes used for both storing and expiring an admin Nearby position. */
 function adminNearbyCookieOptions(maxAge: number) {
@@ -26,11 +28,14 @@ function adminNearbyCookieOptions(maxAge: number) {
   };
 }
 
-export async function geocodeDirectoryPilotAction() {
+/** Runs one explicit, bounded provider-point geocoding batch. No scheduler invokes this action. */
+export async function geocodeDirectoryProviderPointsAction() {
   let destination = "/admin/foretag/directory/search-preview?geocode=failed";
 
   try {
-    const result = await geocodeDirectoryPilotFromAdmin(DIRECTORY_GEOCODING_PILOT_BATCH_SIZE);
+    const result = await geocodeDirectoryProviderPointsFromAdmin(
+      DIRECTORY_PROVIDER_GEOCODING_MAX_BATCH,
+    );
     revalidatePath("/admin/foretag/directory/search-preview");
     const params = new URLSearchParams({
       geocode: "done",

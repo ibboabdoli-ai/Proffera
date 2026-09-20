@@ -264,9 +264,12 @@ describe("event-driven final review gate", () => {
     expect(ci).toContain("CodeRabbit high-risk availability timeout reached; exact-head Codex fallback will be allowed on the next poll.");
     expect(ci).toContain('echo "CodeRabbit changes remain requested for current head; Codex fallback cannot clear them."\n              exit 1');
 
-    expect(wakeup).toContain("pull_request_review:");
-    expect(wakeup).toContain("issue_comment:");
+    const router = source(".github/workflows/supervisor-event-router.yml");
+    expect(wakeup).not.toContain("pull_request_review:");
+    expect(wakeup).not.toContain("issue_comment:");
     expect(wakeup).toContain("workflow_dispatch:");
+    expect(router).toContain("pull_request_review:");
+    expect(router).toContain("issue_comment:");
     expect(wakeup).toContain("github.actor == 'coderabbitai[bot]'");
     expect(wakeup).toContain("<!-- CodeRabbit review command invocation: v2:");
     expect(wakeup).toContain("[0-9a-f]{64}");
