@@ -2125,6 +2125,8 @@ describe("Supervisor ↔ Worker Phase-1 handoff", () => {
         internal_provenance_verified: true,
         packet_digest_verified: true,
         planner_run_id: "9999",
+        planner_head_sha: sha,
+        planner_packet_sha256: createHash("sha256").update(JSON.stringify(packet())).digest("hex"),
         planner_workflow_ref: "ibboabdoli-ai/Proffera/.github/workflows/supervisor-planner.yml@refs/heads/main",
         is_fork: false,
         comment_body: packetComment(),
@@ -2143,6 +2145,8 @@ describe("Supervisor ↔ Worker Phase-1 handoff", () => {
         internal_provenance_verified: true,
         packet_digest_verified: true,
         planner_run_id: "1001",
+        planner_head_sha: sha,
+        planner_packet_sha256: createHash("sha256").update(JSON.stringify(packet())).digest("hex"),
         planner_workflow_ref: "ibboabdoli-ai/Proffera/.github/workflows/supervisor-planner.yml@refs/heads/main",
         is_fork: false,
         comment_body: packetComment(),
@@ -2150,6 +2154,14 @@ describe("Supervisor ↔ Worker Phase-1 handoff", () => {
       supervisor_labels: ["worker-dispatch-enabled", "supervisor-autopilot-enabled"],
     });
     expect(evaluate(exact).status).toBe("TASK_CREATED");
+
+    const badDigest = structuredClone(exact) as Record<string, unknown>;
+    ((badDigest.event as Record<string, unknown>).planner_packet_sha256 as string) = "f".repeat(64);
+    expect(evaluate(badDigest).code).toBe("planner_packet_digest_mismatch");
+
+    const badHead = structuredClone(exact) as Record<string, unknown>;
+    (badHead.event as Record<string, unknown>).planner_head_sha = otherSha;
+    expect(evaluate(badHead).code).toBe("planner_head_mismatch");
   });
 
   it("rejects malformed task JSON", () => {

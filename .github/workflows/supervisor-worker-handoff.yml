@@ -647,6 +647,8 @@ jobs:
             --arg actor "$EVENT_ACTOR" \
             --arg source "$source_mode" \
             --arg planner_run_id "${PLANNER_RUN_ID:-}" \
+            --arg planner_head_sha "${PLANNER_HEAD_SHA:-}" \
+            --arg planner_packet_sha256 "${PLANNER_PACKET_SHA256:-}" \
             --arg planner_workflow_ref "${PLANNER_WORKFLOW_REF:-}" \
             --argjson internal_provenance_verified "$internal_provenance_verified" \
             --argjson packet_digest_verified "$packet_digest_verified" \
@@ -659,7 +661,7 @@ jobs:
             --argjson branch_exists "$branch_exists" \
             --argjson openai "$openai_available" \
             --argjson push "$push_available" \
-            '{event:{repository:$repository,issue_number:$issue_number,actor:$actor,source:$source,trusted_internal_dispatch:($source == "planner"),internal_provenance_verified:$internal_provenance_verified,packet_digest_verified:$packet_digest_verified,planner_run_id:$planner_run_id,planner_workflow_ref:$planner_workflow_ref,is_fork:false,comment_body:$comment_body},supervisor_labels:$supervisor_labels,live_main_sha:$live_main_sha,comments:$comments,open_prs:$open_prs,branch:{exists:$branch_exists},secrets:{openai:$openai,push:$push},run_id:$run_id}')"
+            '{event:{repository:$repository,issue_number:$issue_number,actor:$actor,source:$source,trusted_internal_dispatch:($source == "planner"),internal_provenance_verified:$internal_provenance_verified,packet_digest_verified:$packet_digest_verified,planner_run_id:$planner_run_id,planner_head_sha:$planner_head_sha,planner_packet_sha256:$planner_packet_sha256,planner_workflow_ref:$planner_workflow_ref,is_fork:false,comment_body:$comment_body},supervisor_labels:$supervisor_labels,live_main_sha:$live_main_sha,comments:$comments,open_prs:$open_prs,branch:{exists:$branch_exists},secrets:{openai:$openai,push:$push},run_id:$run_id}')"
 
           decision="$(printf '%s' "$context" | node "$helper" evaluate)"
           decision_status="$(jq -r '.status' <<< "$decision")"

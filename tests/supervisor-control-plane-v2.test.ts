@@ -50,6 +50,8 @@ describe("Supervisor control-plane v2", () => {
     expect(planner).toContain("planner_packet_b64");
     expect(planner).toContain("planner_packet_sha256");
     expect(planner).toContain("planner_run_id");
+    expect(planner).toContain("planner_head_sha");
+    expect(planner).toContain("planner_packet_sha256");
     expect(planner).toContain("planner_workflow_ref");
     expect(planner).toContain("uses: ./.github/workflows/supervisor-worker-handoff.yml");
     expect(planner).not.toContain("gh workflow run supervisor-worker-handoff.yml");
@@ -70,10 +72,14 @@ describe("Supervisor control-plane v2", () => {
     expect(handoff).toContain("trusted_internal_dispatch");
     expect(handoff).toContain("internal_provenance_verified");
     expect(handoff).toContain("packet_digest_verified");
+    expect(handoff).toContain("planner_head_sha");
+    expect(handoff).toContain("planner_packet_sha256");
     expect(handoff).toContain('actions/runs/${PLANNER_RUN_ID}');
     expect(handoff).toContain('.github/workflows/supervisor-planner.yml');
     expect(helper).toContain("internal_provenance_verified === true");
     expect(helper).toContain("packet_digest_verified === true");
+    expect(helper).toContain("planner_head_mismatch");
+    expect(helper).toContain("planner_packet_digest_mismatch");
     expect(helper).toContain('AUTOPILOT_ENABLE_LABEL = "supervisor-autopilot-enabled"');
     expect(helper).toContain('"autopilot_kill_switch_off"');
     expect(handoff).toContain("validate-state");

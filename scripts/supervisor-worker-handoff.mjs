@@ -358,6 +358,8 @@ export function evaluateDispatchContext(context) {
     event.internal_provenance_verified === true &&
     event.packet_digest_verified === true &&
     /^[1-9][0-9]*$/.test(String(event.planner_run_id ?? "")) &&
+    SHA_RE.test(String(event.planner_head_sha ?? "")) &&
+    /^[0-9a-f]{64}$/.test(String(event.planner_packet_sha256 ?? "")) &&
     event.planner_workflow_ref === `${EXPECTED_REPOSITORY}/.github/workflows/supervisor-planner.yml@refs/heads/main`;
   if (!trustedOwnerComment && !trustedPlannerDispatch) {
     return blocked("Task Packet source is not a trusted owner comment or internal planner dispatch", null, "unauthorized_actor");
@@ -389,6 +391,12 @@ export function evaluateDispatchContext(context) {
   const currentRunId = String(context.run_id ?? "");
   if (trustedPlannerDispatch && String(event.planner_run_id) !== currentRunId) {
     return blocked("internal Planner provenance is not bound to the current reusable-workflow run", packet, "planner_provenance_mismatch");
+  }
+  if (trustedPlannerDispatch && String(event.planner_head_sha) !== liveMainSha) {
+    return blocked("internal Planner head is not bound to current main", packet, "planner_head_mismatch");
+  }
+  if (trustedPlannerDispatch && String(event.planner_packet_sha256) !== packetDigest(packet)) {
+    return blocked("internal Planner packet digest does not match the normalized Task Packet", packet, "planner_packet_digest_mismatch");
   }
   const taskState = parseTrustedTaskState(context.comments, packet.task_id);
   if (taskState?.ambiguous) {
