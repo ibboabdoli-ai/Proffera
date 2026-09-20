@@ -4,6 +4,7 @@ import { headers } from "next/headers";
 import { ArrowRight, Clock3, Languages, Mail, MapPin, Phone, Star } from "lucide-react";
 import { notFound } from "next/navigation";
 
+import { DocumentLanguageSync } from "@/components/layout/document-language-sync";
 import { PublicBusinessContactForm } from "@/components/public-business/public-contact-form";
 import { PublicBusinessTrackedLink, PublicBusinessViewEvent } from "@/components/public-business/public-business-tracking";
 import { formatPublicBusinessPrice, getPublicBusinessHub } from "@/lib/public-business-hub";
@@ -101,6 +102,7 @@ export default async function PublicBusinessPage({ params, searchParams }: Props
 
   return (
     <main lang={locale} style={style} className={styles.page}>
+      <DocumentLanguageSync locale={locale} />
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: serializePublicBusinessJsonLd(jsonLd) }} />
       <PublicBusinessViewEvent workspaceId={business.id} />
 
