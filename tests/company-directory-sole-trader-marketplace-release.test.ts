@@ -69,6 +69,30 @@ function claimedSoleTraderProfile(hasSafeOwnerServiceBase: boolean) {
     auto_public_eligible: true,
     published_at: "2026-09-20T05:00:00.000Z",
     has_safe_owner_service_base: hasSafeOwnerServiceBase,
+    has_safe_juridical_workplace: false,
+  };
+}
+
+function claimedJuridicalProfile(hasSafeJuridicalWorkplace: boolean) {
+  return {
+    id: PROFILE_ID,
+    public_slug: "juridical-service-ab",
+    display_name: "Juridical Service AB",
+    organization_number: "5560000000",
+    organization_kind: "juridical_person",
+    legal_form: "Aktiebolag",
+    organization_status: "Registrerad",
+    address_line1: "Storgatan 1",
+    postal_code: "15132",
+    city: "Södertälje",
+    publication_status: "claimed",
+    is_active: true,
+    privacy_blocked: false,
+    auto_public_eligible: true,
+    official_source: "bolagsverket_vardefulla_datamangder:company",
+    published_at: "2026-09-20T05:00:00.000Z",
+    has_safe_owner_service_base: false,
+    has_safe_juridical_workplace: hasSafeJuridicalWorkplace,
   };
 }
 
@@ -199,8 +223,37 @@ describe("sole-trader Marketplace privacy release", () => {
 
     expect(state.linkedProfile).toEqual(expect.objectContaining({ id: PROFILE_ID, slug: "" }));
     expect(state.directoryServices).toEqual([]);
-    expect(queries[0]).toContain("profile.organization_kind <> 'sole_trader'");
+    expect(queries[0]).toContain("profile.organization_kind = 'juridical_person'");
+    expect(queries[0]).toContain("claimed_scb.last_synced_at >= now() - interval '7 days'");
     expect(queries[0]).toContain("owner_base.purpose = 'service_base'");
+  });
+
+  it("does not offer Marketplace activation when claimed juridical workplace authority is unsafe", async () => {
+    const queries: string[] = [];
+    const sql = vi.fn(async (strings: TemplateStringsArray) => {
+      const query = queryText(strings);
+      queries.push(query);
+      if (query.startsWith("insert into workspace_services")) return [];
+      if (query.includes("select profile.id::text") && query.includes("from company_directory_profiles profile")) {
+        return [claimedJuridicalProfile(false)];
+      }
+      if (query.includes("from company_directory_claims claim")) return [];
+      return [];
+    });
+    mocks.getSql.mockReturnValue(sql);
+
+    const state = await getProviderActivationState();
+
+    expect(state.linkedProfile).toEqual(expect.objectContaining({
+      id: PROFILE_ID,
+      slug: "",
+      organizationNumber: "5560000000",
+    }));
+    expect(state.directoryServices).toEqual([]);
+    expect(queries.join("\n")).toContain("has_safe_juridical_workplace");
+    expect(queries.join("\n")).toContain("claimed_facts.source_payload_hash <> ''");
+    expect(queries.join("\n")).toContain("claimed_scb.last_synced_at >= now() - interval '7 days'");
+    expect(queries.join("\n")).toContain("comparisonSnapshot,officialFactsLastSyncedToken");
   });
 
   it("keeps pending-claim reporting separate from release eligibility", async () => {
@@ -350,10 +403,12 @@ describe("sole-trader Marketplace privacy release", () => {
       radiusKm: 25,
     })).rejects.toThrow("service_update");
 
-    expect(queries[0]).toContain("profile.organization_kind <> 'sole_trader'");
+    expect(queries[0]).toContain("profile.organization_kind = 'juridical_person'");
+    expect(queries[0]).toContain("claimed_scb.last_synced_at >= now() - interval '7 days'");
     expect(queries[0]).toContain("owner_base.purpose = 'service_base'");
     expect(queries[0].match(/owner_base\.visibility = 'private'/g) ?? []).toHaveLength(1);
-    expect(queries[1]).toContain("profile.organization_kind <> 'sole_trader'");
+    expect(queries[1]).toContain("profile.organization_kind = 'juridical_person'");
+    expect(queries[1]).toContain("claimed_scb.last_synced_at >= now() - interval '7 days'");
     expect(queries[1]).toContain("owner_base.purpose = 'service_base'");
     expect(queries[1].match(/owner_base\.visibility = 'private'/g) ?? []).toHaveLength(1);
     expect(mocks.invalidateByProfileId).not.toHaveBeenCalled();
