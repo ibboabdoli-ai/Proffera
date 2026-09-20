@@ -33,7 +33,7 @@ function localeFrom(value: string | string[] | undefined, fallback: Locale): Loc
 
 function reviewHref(token: string, locale: Locale) {
   const base = "/review/marketplace/" + encodeURIComponent(token);
-  return locale === "en" ? base + "?lang=en" : base;
+  return base + `?lang=${locale}`;
 }
 
 export async function generateMetadata({
