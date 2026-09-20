@@ -47,13 +47,13 @@ describe("public read cache contract", () => {
   it("keeps Directory location suggestions for one day while preserving the 30-minute Public Business sitemap cache", async () => {
     expect(mocks.unstableCache).toHaveBeenCalledTimes(3);
 
-    const locationCall = mocks.unstableCache.mock.calls.find(([, keyParts]) => keyParts[0] === "public-directory-location-suggestions-v3");
+    const locationCall = mocks.unstableCache.mock.calls.find(([, keyParts]) => keyParts[0] === "public-directory-location-suggestions-v4");
     expect(locationCall?.[2]).toEqual({
       revalidate: 24 * 60 * 60,
       tags: [PUBLIC_DIRECTORY_LOCATION_SUGGESTIONS_CACHE_TAG],
     });
 
-    const marketplaceCall = mocks.unstableCache.mock.calls.find(([, keyParts]) => keyParts[0] === "marketplace-home-companies-v2");
+    const marketplaceCall = mocks.unstableCache.mock.calls.find(([, keyParts]) => keyParts[0] === "marketplace-home-companies-v3");
     expect(marketplaceCall?.[2]).toEqual({
       revalidate: 30 * 60,
       tags: [MARKETPLACE_HOME_COMPANIES_CACHE_TAG],
