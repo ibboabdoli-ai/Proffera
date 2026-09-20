@@ -270,6 +270,10 @@ jobs:
                   echo "Closed Worker PR canonical task-state binding is invalid; no mutation performed: $(tr '\n' ' ' < "$binding_error" | head -c 300)"
                   return 0
                 fi
+                if [ "$(jq -r '.head_sha // ""' <<< "$binding")" != "$live_head_sha" ]; then
+                  echo "Closed Worker PR canonical task-state head binding is stale; no mutation performed."
+                  return 0
+                fi
                 transition_json="$(jq -n \
                   --arg current_body "$current_body" \
                   --arg source lifecycle \
@@ -313,6 +317,10 @@ jobs:
                 set -e
                 if [ "$confirm_binding_status" -ne 0 ] || ! jq -e '.ok == true' >/dev/null 2>&1 <<< "${confirm_binding:-}"; then
                   echo "Canonical task-state binding changed before closed-PR mutation; leaving reservation and task state unchanged."
+                  return 0
+                fi
+                if [ "$(jq -r '.head_sha // ""' <<< "$confirm_binding")" != "$live_head_sha" ]; then
+                  echo "Canonical task-state head binding changed before closed-PR mutation; leaving reservation and task state unchanged."
                   return 0
                 fi
                 confirm_dispatch_matches="$(jq --arg marker "$dispatch_marker" '[.[] | select(.user.login == "github-actions[bot]" and ((.body // "") | contains($marker)))] | length' <<< "$confirm_comments")"
@@ -626,6 +634,10 @@ jobs:
               echo "Closed Worker PR canonical task-state binding is invalid; no mutation performed: $(tr '\n' ' ' < "$binding_error" | head -c 300)"
               return 0
             fi
+            if [ "$(jq -r '.head_sha // ""' <<< "$binding")" != "$head_sha" ]; then
+              echo "Closed Worker PR canonical task-state head binding is stale; no mutation performed."
+              return 0
+            fi
             transition_json="$(jq -n \
               --arg current_body "$current_body" \
               --arg source lifecycle \
@@ -669,6 +681,10 @@ jobs:
             set -e
             if [ "$confirm_binding_status" -ne 0 ] || ! jq -e '.ok == true' >/dev/null 2>&1 <<< "${confirm_binding:-}"; then
               echo "Canonical task-state binding changed before closed-PR mutation; leaving reservation and task state unchanged."
+              return 0
+            fi
+            if [ "$(jq -r '.head_sha // ""' <<< "$confirm_binding")" != "$head_sha" ]; then
+              echo "Canonical task-state head binding changed before closed-PR mutation; leaving reservation and task state unchanged."
               return 0
             fi
             confirm_dispatch_matches="$(jq --arg marker "$dispatch_marker" '[.[] | select(.user.login == "github-actions[bot]" and ((.body // "") | contains($marker)))] | length' <<< "$confirm_comments")"
