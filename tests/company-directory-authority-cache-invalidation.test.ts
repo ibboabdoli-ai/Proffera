@@ -1,53 +1,109 @@
-import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
-
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
-  invalidateDirectory: vi.fn(),
-  invalidateMarketplace: vi.fn(),
+  getSql: vi.fn(),
+  fetchScb: vi.fn(),
+  invalidateAuthorityCaches: vi.fn(),
+  takeCompleteRecord: vi.fn(),
 }));
 
-vi.mock("@/lib/company-directory-public-cache", () => ({
-  invalidatePublicDirectoryPublicProjectionByProfileId: mocks.invalidateDirectory,
+vi.mock("server-only", () => ({}));
+vi.mock("@/lib/db/server", () => ({ getSql: mocks.getSql }));
+vi.mock("@/lib/company-directory-scb-provider", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/company-directory-scb-provider")>()),
+  fetchScbCompanyRegistryEnrichment: mocks.fetchScb,
 }));
-vi.mock("@/lib/public-read-cache", () => ({
-  invalidateMarketplaceHomeCompaniesCache: mocks.invalidateMarketplace,
+vi.mock("@/lib/company-directory-detail-cache", () => ({
+  takeCompleteBolagsverketOrganizationRecord: mocks.takeCompleteRecord,
+}));
+vi.mock("@/lib/company-directory-official-facts-errors", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/company-directory-official-facts-errors")>()),
+  resolveBolagsverketOrganizationRecord: (value: unknown) => value,
+}));
+vi.mock("@/lib/company-directory-authority-cache", () => ({
+  invalidateCompanyDirectoryAuthorityCachesBestEffort: mocks.invalidateAuthorityCaches,
 }));
 
-import { invalidateCompanyDirectoryAuthorityCachesBestEffort } from "@/lib/company-directory-authority-cache";
+import { enrichCompanyDirectoryOfficialFactsForProfile } from "@/lib/company-directory-official-facts";
+import { enrichCompanyDirectoryScbForProfile } from "@/lib/company-directory-scb-enrichment";
 
 const PROFILE_ID = "11111111-1111-4111-8111-111111111111";
+const ORGANIZATION_NUMBER = "5563115707";
 
 describe("Company Directory authority-writer cache invalidation", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mocks.invalidateAuthorityCaches.mockResolvedValue(undefined);
   });
 
-  it("invalidates Directory and Marketplace independently after a committed authority change", async () => {
-    mocks.invalidateDirectory.mockRejectedValueOnce(new Error("Directory cache unavailable"));
-    vi.spyOn(console, "error").mockImplementation(() => undefined);
+  it("invalidates after the committed SCB authority-changing write", async () => {
+    const sql = vi.fn()
+      .mockResolvedValueOnce([{
+        organization_number: ORGANIZATION_NUMBER,
+        organization_kind: "juridical_person",
+        legal_name: "Exempel AB",
+        address_line1: "",
+        postal_code: "",
+        city: "",
+        municipality: "",
+        profile_updated_token: "2026-09-20 10:00:00+00",
+        sni_codes: [],
+        facts_last_synced_token: "2026-09-20 09:00:00+00",
+      }])
+      .mockResolvedValueOnce([{ authority_changed: true }]);
+    mocks.getSql.mockReturnValue(sql);
+    mocks.fetchScb.mockResolvedValue({
+      status: "ok",
+      data: {
+        organizationNumber: ORGANIZATION_NUMBER,
+        legalName: "Exempel AB",
+        phone: null,
+        email: null,
+        postalAddress: { careOf: null, addressLine: null, postalCode: null, city: null },
+        municipality: null,
+        sniCodes: [],
+        workplaces: [],
+        source: "scb_foretagsregistret",
+        provenance: {},
+      },
+    });
 
-    await expect(invalidateCompanyDirectoryAuthorityCachesBestEffort(
+    await expect(enrichCompanyDirectoryScbForProfile(PROFILE_ID)).resolves.toMatchObject({
+      status: "saved",
+      saved: true,
+    });
+
+    expect(mocks.invalidateAuthorityCaches).toHaveBeenCalledWith(
       PROFILE_ID,
       "committed SCB authority change",
-    )).resolves.toBeUndefined();
-
-    expect(mocks.invalidateDirectory).toHaveBeenCalledWith(PROFILE_ID);
-    expect(mocks.invalidateMarketplace).toHaveBeenCalledTimes(1);
+    );
+    expect(sql.mock.invocationCallOrder[1]).toBeLessThan(
+      mocks.invalidateAuthorityCaches.mock.invocationCallOrder[0]!,
+    );
   });
 
-  it("binds SCB replacements and Official Facts token replacements to the shared post-commit boundary", () => {
-    const scb = readFileSync(resolve(process.cwd(), "src/lib/company-directory-scb-enrichment.ts"), "utf8");
-    const facts = readFileSync(resolve(process.cwd(), "src/lib/company-directory-official-facts.ts"), "utf8");
+  it("invalidates after the committed Official Facts replacement", async () => {
+    const sql = vi.fn()
+      .mockResolvedValueOnce([{ organization_number: ORGANIZATION_NUMBER }])
+      .mockResolvedValueOnce([]);
+    mocks.getSql.mockReturnValue(sql);
+    mocks.takeCompleteRecord.mockReturnValue({
+      organisationsnummer: ORGANIZATION_NUMBER,
+      reklamsparr: { kod: "NEJ" },
+    });
 
-    expect(scb).toContain("previous.source_payload_hash is distinct from upserted.source_payload_hash");
-    expect(scb).toContain("previous.workplaces is distinct from upserted.workplaces");
-    expect(scb).toContain("previous.conflicts is distinct from upserted.conflicts");
-    expect(scb).toContain("committed SCB authority change");
-    expect(facts).toContain("committed Official Facts authority change");
-    expect(facts.indexOf("await invalidateCompanyDirectoryAuthorityCachesBestEffort")).toBeGreaterThan(
-      facts.indexOf("on conflict (profile_id) do update set"),
+    await expect(enrichCompanyDirectoryOfficialFactsForProfile(PROFILE_ID)).resolves.toMatchObject({
+      profileId: PROFILE_ID,
+      organizationNumber: ORGANIZATION_NUMBER,
+      reusedVerifiedDetail: true,
+    });
+
+    expect(mocks.invalidateAuthorityCaches).toHaveBeenCalledWith(
+      PROFILE_ID,
+      "committed Official Facts authority change",
+    );
+    expect(sql.mock.invocationCallOrder[1]).toBeLessThan(
+      mocks.invalidateAuthorityCaches.mock.invocationCallOrder[0]!,
     );
   });
 });

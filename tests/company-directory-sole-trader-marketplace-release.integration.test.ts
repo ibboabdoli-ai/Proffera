@@ -142,7 +142,7 @@ function postgresSql(client: Client) {
         );
         create table company_directory_official_facts (
           profile_id uuid primary key,
-          source_payload_hash text not null default 'facts-hash',
+          source_payload_hash text not null default '',
           last_synced_at timestamptz not null default now(),
           deregistration_date date,
           advertising_blocked boolean not null default false,
@@ -150,9 +150,10 @@ function postgresSql(client: Client) {
         );
         create table company_directory_scb_enrichment (
           profile_id uuid primary key,
+          organization_number text not null,
           workplaces jsonb not null default '[]'::jsonb,
           conflicts jsonb not null default '[]'::jsonb,
-          source_payload_hash text not null default 'scb-hash',
+          source_payload_hash text not null default '',
           last_synced_at timestamptz not null default now(),
           provenance jsonb not null default '{}'::jsonb
         );
@@ -328,6 +329,12 @@ function postgresSql(client: Client) {
       expect(serviceMigration).toContain("category_slug text not null");
       expect(serviceMigration).toContain("label text not null");
       expect(workspaceIdentityMigration).toContain("add column if not exists primary_directory_service_slug text");
+      const scbMigration = readFileSync(
+        new URL("../db/migrations/20260819_0048_company_directory_scb_enrichment.sql", import.meta.url),
+        "utf8",
+      );
+      expect(scbMigration).toContain("organization_number text not null");
+      expect(scbMigration).toContain("source_payload_hash text not null default ''");
 
       const schema = await client!.query<{
         table_name: string;
@@ -600,14 +607,17 @@ function postgresSql(client: Client) {
         )
       `, [CLAIMED_PROFILE_ID, WORKSPACE_ID]);
       await client!.query(`
-        insert into company_directory_official_facts (profile_id)
-        values ($1::uuid)
+        insert into company_directory_official_facts (profile_id, source_payload_hash)
+        values ($1::uuid, 'facts-hash')
       `, [CLAIMED_PROFILE_ID]);
       await client!.query(`
-        insert into company_directory_scb_enrichment (profile_id, workplaces, conflicts, provenance)
-        select profile.id,
+        insert into company_directory_scb_enrichment (
+          profile_id, organization_number, workplaces, conflicts, source_payload_hash, provenance
+        )
+        select profile.id, profile.organization_number,
           '[{"cfarNumber":"12345678","municipality":"Södertälje","visitingAddress":{"addressLine":"Industrivägen 2","postalCode":"151 00","city":"Södertälje"}}]'::jsonb,
           '[]'::jsonb,
+          'scb-hash',
           jsonb_build_object('comparisonSnapshot', jsonb_build_object(
             'profileUpdatedToken', profile.updated_at::text,
             'officialFactsLastSyncedToken', facts.last_synced_at::text

@@ -221,6 +221,19 @@ export async function upsertCompanyDirectoryCandidate(candidate: NormalizedDirec
   const profileId = String(rows[0]?.id ?? "");
   if (!profileId) throw new Error(`Directory upsert failed for ${candidate.organizationNumber}`);
 
+  invalidatePersistedPublicProjectionBestEffort({
+    profileId,
+    persistedPublicSlug: rows[0]?.public_slug,
+  });
+  try {
+    invalidateMarketplaceHomeCompaniesCache();
+  } catch (error) {
+    console.error("Failed to invalidate Marketplace cache after committed candidate upsert", {
+      profileId,
+      error,
+    });
+  }
+
   const sniServiceSlug = mapPrimarySniToDirectorySearchService(candidate.primarySniCode);
   if (sniServiceSlug) {
     await sql`
@@ -313,18 +326,6 @@ export async function upsertCompanyDirectoryCandidate(candidate: NormalizedDirec
     `;
   }
 
-  invalidatePersistedPublicProjectionBestEffort({
-    profileId,
-    persistedPublicSlug: rows[0]?.public_slug,
-  });
-  try {
-    invalidateMarketplaceHomeCompaniesCache();
-  } catch (error) {
-    console.error("Failed to invalidate Marketplace cache after committed candidate upsert", {
-      profileId,
-      error,
-    });
-  }
   return {
     profileId,
     publicationStatus: String(rows[0]?.publication_status ?? desiredStatus),

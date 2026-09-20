@@ -398,6 +398,55 @@ describe("public Directory safety mutation invalidation", () => {
     expect(mocks.invalidateMarketplace).toHaveBeenCalledTimes(1);
   });
 
+  it("invalidates both public caches before a later source-sync statement fails", async () => {
+    const sql = vi.fn(async (strings: TemplateStringsArray) => {
+      const query = strings.join(" ");
+      if (query.includes("insert into company_directory_profiles")) {
+        return [{
+          id: PROFILE_ID,
+          public_slug: "safe-company-ab",
+          publication_status: "published",
+          category_slug: "",
+        }];
+      }
+      throw new Error("later source-sync statement failed");
+    });
+    mocks.getSql.mockReturnValue(sql);
+    mocks.mapPrimarySni.mockReturnValue("vvs");
+
+    const { upsertCompanyDirectoryCandidate } = await import("@/lib/company-directory-engine");
+    await expect(upsertCompanyDirectoryCandidate({
+      countryCode: "SE",
+      organizationNumber: "5560000000",
+      organizationKind: "juridical_person",
+      legalName: "Safe Company AB",
+      displayName: "Safe Company AB",
+      legalForm: "AB",
+      organizationStatus: "active",
+      isActive: true,
+      fTaxStatus: "registered",
+      vatStatus: "registered",
+      employerStatus: "registered",
+      primarySniCode: "43.221",
+      primarySniLabel: "VVS",
+      activityDescription: "VVS",
+      addressLine1: "Testgatan 1",
+      postalCode: "11122",
+      city: "Stockholm",
+      municipality: "Stockholm",
+      region: "Stockholm",
+      officialSource: "test",
+      sourceRecordId: "source-1",
+      sourceUpdatedAt: null,
+    } as never)).rejects.toThrow("later source-sync statement failed");
+
+    expect(mocks.invalidateProjection).toHaveBeenCalledWith({
+      slug: "safe-company-ab",
+      profileId: PROFILE_ID,
+    });
+    expect(mocks.invalidateMarketplace).toHaveBeenCalledTimes(1);
+  });
+
   it("fails closed with global invalidation when persisted public_slug is unavailable", async () => {
     mocks.invalidateMarketplace.mockImplementationOnce(() => {
       throw new Error("Marketplace cache unavailable");

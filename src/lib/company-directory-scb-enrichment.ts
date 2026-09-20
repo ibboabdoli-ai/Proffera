@@ -145,7 +145,7 @@ async function saveScbEnrichment(
 
   const saved = await sql`
     with previous as materialized (
-      select source_payload_hash, conflicts, workplaces,
+      select source_payload_hash, conflicts, workplaces, last_synced_at,
         provenance #>> '{comparisonSnapshot,profileUpdatedToken}' as profile_token,
         provenance #>> '{comparisonSnapshot,officialFactsLastSyncedToken}' as facts_token
       from company_directory_scb_enrichment
@@ -188,6 +188,7 @@ async function saveScbEnrichment(
          or previous.workplaces is distinct from upserted.workplaces
          or previous.profile_token is distinct from upserted.profile_token
          or previous.facts_token is distinct from upserted.facts_token
+         or previous.last_synced_at < now() - interval '7 days'
     ) as authority_changed
   `;
 
