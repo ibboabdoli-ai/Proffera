@@ -251,7 +251,7 @@ jobs:
                 current_body="$(jq -r '.[0].body // ""' <<< "$task_matches")"
                 binding_error="$(mktemp)"
                 set +e
-                binding="$(jq -n --argjson packet "$packet" --arg body "$current_body" --argjson pr_number "$PR_NUMBER" --arg run_id "$reserved_run" '{packet:$packet,body:$body,pr_number:$pr_number,run_id:$run_id}' | node "$helper" validate-state 2>"$binding_error")"
+                binding="$(jq -n --argjson packet "$packet" --arg body "$current_body" --argjson pr_number "$PR_NUMBER" --arg run_id "$reserved_run" --arg head_sha "$live_head_sha" '{packet:$packet,body:$body,pr_number:$pr_number,run_id:$run_id,head_sha:$head_sha}' | node "$helper" validate-state 2>"$binding_error")"
                 binding_status=$?
                 set -e
                 if [ "$binding_status" -ne 0 ] || [ "$(jq -r '.ok == true' <<< "${binding:-{}}" 2>/dev/null || echo false)" != "true" ]; then
@@ -296,7 +296,7 @@ jobs:
                 fi
                 confirm_task_body="$(jq -r '.[0].body // ""' <<< "$confirm_task_matches")"
                 set +e
-                confirm_binding="$(jq -n --argjson packet "$packet" --arg body "$confirm_task_body" --argjson pr_number "$PR_NUMBER" --arg run_id "$reserved_run" '{packet:$packet,body:$body,pr_number:$pr_number,run_id:$run_id}' | node "$helper" validate-state 2>/dev/null)"
+                confirm_binding="$(jq -n --argjson packet "$packet" --arg body "$confirm_task_body" --argjson pr_number "$PR_NUMBER" --arg run_id "$reserved_run" --arg head_sha "$live_head_sha" '{packet:$packet,body:$body,pr_number:$pr_number,run_id:$run_id,head_sha:$head_sha}' | node "$helper" validate-state 2>/dev/null)"
                 confirm_binding_status=$?
                 set -e
                 if [ "$confirm_binding_status" -ne 0 ] || [ "$(jq -r '.ok == true' <<< "${confirm_binding:-{}}" 2>/dev/null || echo false)" != "true" ]; then
@@ -316,7 +316,7 @@ jobs:
                   release_reservation=no
                 fi
                 if [ "$release_reservation" = "yes" ]; then
-                  task_body_digest="$(jq -j --arg marker "$terminal_task_marker" '[.[] | select(.user.login == "github-actions[bot]" and ((.body // "") | contains($marker)))] | last | .body // ""' <<< "$comments_json" | sha256sum | cut -d' ' -f1)"
+                  task_body_digest="$(jq -j '.[0].body // ""' <<< "$task_matches" | sha256sum | cut -d' ' -f1)"
                   payload="$(jq -c --arg state RELEASED --argjson pr_number "$PR_NUMBER" --arg head "$live_head_sha" --argjson merged "$live_merged" --arg task_body_digest "$task_body_digest" '.state=$state | .pr_number=$pr_number | .head_sha=$head | .activation_task_sha256=$task_body_digest | .recovery={kind:"closed_pr",merged:$merged}' <<< "$payload")"
                   payload_b64="$(printf '%s' "$payload" | base64 -w0)"
                   new_body="$(cat <<EOF
@@ -595,7 +595,7 @@ jobs:
             current_body="$(jq -r '.[0].body // ""' <<< "$task_matches")"
             binding_error="$(mktemp)"
             set +e
-            binding="$(jq -n --argjson packet "$packet" --arg body "$current_body" --argjson pr_number "$pr_number" --arg run_id "$reserved_run" '{packet:$packet,body:$body,pr_number:$pr_number,run_id:$run_id}' | node "$helper" validate-state 2>"$binding_error")"
+            binding="$(jq -n --argjson packet "$packet" --arg body "$current_body" --argjson pr_number "$pr_number" --arg run_id "$reserved_run" --arg head_sha "$head_sha" '{packet:$packet,body:$body,pr_number:$pr_number,run_id:$run_id,head_sha:$head_sha}' | node "$helper" validate-state 2>"$binding_error")"
             binding_status=$?
             set -e
             if [ "$binding_status" -ne 0 ] || [ "$(jq -r '.ok == true' <<< "${binding:-{}}" 2>/dev/null || echo false)" != "true" ]; then
@@ -640,7 +640,7 @@ jobs:
             fi
             confirm_task_body="$(jq -r '.[0].body // ""' <<< "$confirm_task_matches")"
             set +e
-            confirm_binding="$(jq -n --argjson packet "$packet" --arg body "$confirm_task_body" --argjson pr_number "$pr_number" --arg run_id "$reserved_run" '{packet:$packet,body:$body,pr_number:$pr_number,run_id:$run_id}' | node "$helper" validate-state 2>/dev/null)"
+            confirm_binding="$(jq -n --argjson packet "$packet" --arg body "$confirm_task_body" --argjson pr_number "$pr_number" --arg run_id "$reserved_run" --arg head_sha "$head_sha" '{packet:$packet,body:$body,pr_number:$pr_number,run_id:$run_id,head_sha:$head_sha}' | node "$helper" validate-state 2>/dev/null)"
             confirm_binding_status=$?
             set -e
             if [ "$confirm_binding_status" -ne 0 ] || [ "$(jq -r '.ok == true' <<< "${confirm_binding:-{}}" 2>/dev/null || echo false)" != "true" ]; then
@@ -660,7 +660,7 @@ jobs:
               release_reservation=no
             fi
             if [ "$release_reservation" = "yes" ]; then
-              task_body_digest="$(jq -j --arg marker "$task_marker" '[.[] | select(.user.login == "github-actions[bot]" and ((.body // "") | contains($marker)))] | last | .body // ""' <<< "$comments_json" | sha256sum | cut -d' ' -f1)"
+              task_body_digest="$(jq -j '.[0].body // ""' <<< "$task_matches" | sha256sum | cut -d' ' -f1)"
               payload="$(jq -c --arg state RELEASED --argjson pr_number "$pr_number" --arg head "$head_sha" --argjson merged "$pr_merged" --arg task_body_digest "$task_body_digest" '.state=$state | .pr_number=$pr_number | .head_sha=$head | .activation_task_sha256=$task_body_digest | .recovery={kind:"closed_pr",merged:$merged}' <<< "$payload")"
               payload_b64="$(printf '%s' "$payload" | base64 -w0)"
               new_body="$(cat <<EOF

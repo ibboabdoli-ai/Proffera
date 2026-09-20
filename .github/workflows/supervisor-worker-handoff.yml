@@ -511,21 +511,13 @@ jobs:
           if [ "$initial_state_count" -gt 1 ]; then
             echo "proceed=no" >> "$GITHUB_OUTPUT"
             echo "Refused read-only: duplicate canonical task-state records exist for $task_id." >&2
-            exit 0
+            exit 1
           fi
-          if [ "$initial_state_count" -eq 1 ]; then
-            initial_state_body="$(jq -r '.[0].body // ""' <<< "$initial_state_matches")"
-            binding_error="$(mktemp)"
-            set +e
-            binding_json="$(jq -n --argjson packet "$packet" --arg body "$initial_state_body" '{packet:$packet,body:$body}' | node "$helper" validate-state 2>"$binding_error")"
-            binding_status=$?
-            set -e
-            if [ "$binding_status" -ne 0 ] || [ "$(jq -r '.ok == true' <<< "${binding_json:-{}}" 2>/dev/null || echo false)" != "true" ]; then
-              echo "proceed=no" >> "$GITHUB_OUTPUT"
-              echo "Refused read-only: canonical task-state binding is invalid: $(tr '\n' ' ' < "$binding_error" | head -c 300)" >&2
-              exit 0
-            fi
-          fi
+          # A single retryable state can require canonical recovery after an expired
+          # reservation or interrupted TASK_CREATED write. Reconciliation runs under
+          # the global reservation mutex and validates exact packet/run/branch
+          # provenance before any mutation. The canonical result is re-fetched and
+          # validated below before any dispatch-state mutation.
 
           mutex="$(printf '%s' "$control_input" | node "$helper" reservation-mutex-acquire)"
           control_input="$(jq -c --arg mutex "$mutex" '. + {mutex:$mutex}' <<< "$control_input")"

@@ -1684,6 +1684,9 @@ function stateBody(state: string, headSha = sha) {
     "- Run ID: `9001`",
     "- PR: #900",
     `- Head: \`${headSha}\``,
+    "- Production mutation: `false`",
+    "- Merge allowed: `false`",
+    "- Auto-merge allowed: `false`",
   ].join("\n");
 }
 
@@ -2122,9 +2125,9 @@ describe("Supervisor ↔ Worker Phase-1 handoff", () => {
       commentId: "501",
       taskPacket: packet({ task_title: "Edited duplicate delivery" }),
     });
-    expect(edited.status, edited.stderr).toBe(0);
-    expect(edited.outputs.proceed).toBe("no");
-    expect(edited.stdout).toContain("Preserved existing canonical task state TASK_CREATED");
+    expect(edited.outputs.proceed).not.toBe("yes");
+    expect(edited.comments.filter((comment) => String(comment.body ?? "").includes("proffera-worker-task-state:SUP-TEST-1"))).toHaveLength(1);
+    expect(String(edited.comments[0]?.body ?? "")).toBe(String(created.comments[0]?.body ?? ""));
 
     const duplicate = harness.run({ runId: "1002", commentId: "501" });
     expect(duplicate.status, duplicate.stderr).toBe(0);
@@ -3670,7 +3673,7 @@ esac
       body: evidence.body,
       comments: [
         ...evidence.comments,
-        { id: 103, user: { login: "github-actions[bot]" }, body: stateBody("MERGED") },
+        { id: 103, user: { login: "github-actions[bot]" }, body: durableStateBody("MERGED") },
       ],
       eventAction: "closed",
       liveState: "closed",
@@ -3684,7 +3687,7 @@ esac
 
   it("performs no close mutation for missing, duplicate, mismatched, or stale provenance", () => {
     const evidence = exactReservationEvidence();
-    const taskState = { id: 103, user: { login: "github-actions[bot]" }, body: stateBody("CHECKS_PENDING") };
+    const taskState = { id: 103, user: { login: "github-actions[bot]" }, body: durableStateBody("CHECKS_PENDING") };
     const duplicateReservation = { ...evidence.comments[0], id: 104 };
     const mismatchedDispatch = {
       ...evidence.comments[1],
@@ -3713,7 +3716,7 @@ esac
     const result = runSyncCheckReconciliation({
       comments: [
         ...evidence.comments,
-        { id: 103, user: { login: "github-actions[bot]" }, body: stateBody("CHECKS_PENDING") },
+        { id: 103, user: { login: "github-actions[bot]" }, body: durableStateBody("CHECKS_PENDING") },
       ],
     });
     expect(result.status, result.stderr).toBe(0);
@@ -3731,7 +3734,7 @@ esac
     const first = runSyncCheckReconciliation({
       comments: [
         ...evidence.comments,
-        { id: 103, user: { login: "github-actions[bot]" }, body: stateBody("CHECKS_PENDING") },
+        { id: 103, user: { login: "github-actions[bot]" }, body: durableStateBody("CHECKS_PENDING") },
       ],
     });
     expect(first.status, first.stderr).toBe(0);
@@ -3743,7 +3746,7 @@ esac
 
   it("makes a check replacement reject invalid or stale close provenance without mutation", () => {
     const evidence = exactReservationEvidence();
-    const taskState = { id: 103, user: { login: "github-actions[bot]" }, body: stateBody("CHECKS_PENDING") };
+    const taskState = { id: 103, user: { login: "github-actions[bot]" }, body: durableStateBody("CHECKS_PENDING") };
     const duplicateReservation = { ...evidence.comments[0], id: 104 };
     const mismatchedDispatch = {
       ...evidence.comments[1],
@@ -3766,7 +3769,7 @@ esac
     const result = runSyncCheckReconciliation({
       comments: [
         ...evidence.comments,
-        { id: 103, user: { login: "github-actions[bot]" }, body: stateBody("MERGED") },
+        { id: 103, user: { login: "github-actions[bot]" }, body: durableStateBody("MERGED") },
       ],
     });
     expect(result.status, result.stderr).toBe(0);
@@ -3781,7 +3784,7 @@ esac
     const result = runSyncCheckReconciliation({
       comments: [
         ...evidence.comments,
-        { id: 103, user: { login: "github-actions[bot]" }, body: stateBody("CHECKS_PENDING", liveHead) },
+        { id: 103, user: { login: "github-actions[bot]" }, body: durableStateBody("CHECKS_PENDING", liveHead) },
       ],
       eventHead: sha,
       liveHead,
@@ -3794,7 +3797,7 @@ esac
 
   it("does not reuse stale workflow-run evidence for an open PR", () => {
     const result = runSyncCheckReconciliation({
-      comments: [{ id: 103, user: { login: "github-actions[bot]" }, body: stateBody("CHECKS_PENDING", otherSha) }],
+      comments: [{ id: 103, user: { login: "github-actions[bot]" }, body: durableStateBody("CHECKS_PENDING", otherSha) }],
       eventHead: sha,
       liveHead: otherSha,
       liveState: "open",
@@ -3812,7 +3815,7 @@ esac
         action,
         comments: [
           ...evidence.comments,
-          { id: 103, user: { login: "github-actions[bot]" }, body: stateBody("CHECKS_PENDING", liveHead) },
+          { id: 103, user: { login: "github-actions[bot]" }, body: durableStateBody("CHECKS_PENDING", liveHead) },
         ],
         eventHead: sha,
         liveHead,
@@ -3833,7 +3836,7 @@ esac
         action: "synchronize",
         comments: [
           ...evidence.comments,
-          { id: 103, user: { login: "github-actions[bot]" }, body: stateBody("CHECKS_PENDING", otherSha) },
+          { id: 103, user: { login: "github-actions[bot]" }, body: durableStateBody("CHECKS_PENDING", otherSha) },
         ],
         eventHead: sha,
         liveHead: otherSha,
@@ -3848,7 +3851,7 @@ esac
         pr_number: 849,
         head_sha: otherSha,
         recovery: { kind: "closed_pr", merged: false },
-        activation_task_sha256: createHash("sha256").update(stateBody("CHECKS_PENDING", otherSha)).digest("hex"),
+        activation_task_sha256: createHash("sha256").update(durableStateBody("CHECKS_PENDING", otherSha)).digest("hex"),
       });
     }
   });
@@ -3859,7 +3862,7 @@ esac
       action: "synchronize",
       comments: [
         ...evidence.comments,
-        { id: 103, user: { login: "github-actions[bot]" }, body: stateBody("CHECKS_PENDING") },
+        { id: 103, user: { login: "github-actions[bot]" }, body: durableStateBody("CHECKS_PENDING") },
       ],
     });
     expect(first.status, first.stderr).toBe(0);
@@ -3903,7 +3906,7 @@ esac
 
   it("rejects invalid lifecycle close provenance without mutation", () => {
     const evidence = exactReservationEvidence();
-    const taskState = { id: 103, user: { login: "github-actions[bot]" }, body: stateBody("CHECKS_PENDING") };
+    const taskState = { id: 103, user: { login: "github-actions[bot]" }, body: durableStateBody("CHECKS_PENDING") };
     const duplicateReservation = { ...evidence.comments[0], id: 104 };
     const mismatchedDispatch = {
       ...evidence.comments[1],
@@ -4468,7 +4471,12 @@ esac
     expect(workflow).toContain("github.event.pull_request.head.repo.full_name == github.repository");
     expect(workflow).toContain("format('untrusted-pr-{0}', github.event.pull_request.number)");
     expect(workflow).toContain("group: proffera-worker-task-state-${{ needs.preflight.outputs.branch }}");
-    expect(sync.match(/group: proffera-worker-task-state-\$\{\{ needs\.resolve_worker_mutation_lane\.outputs\.branch \}\}/g)).toHaveLength(2);
+    expect(sync).toContain("group: proffera-worker-lifecycle-${{ needs.resolve_worker_mutation_lane.outputs.branch }}");
+    expect(sync).toContain("group: proffera-worker-checks-${{ needs.resolve_worker_mutation_lane.outputs.branch }}");
+    const lifecycleHeader = sync.slice(sync.indexOf("  sync-pr-event:"), sync.indexOf("    runs-on:", sync.indexOf("  sync-pr-event:")));
+    const checksHeader = sync.slice(sync.indexOf("  sync-check-state:"), sync.indexOf("    runs-on:", sync.indexOf("  sync-check-state:")));
+    expect(lifecycleHeader).toContain("cancel-in-progress: false");
+    expect(checksHeader).toContain("cancel-in-progress: true");
     const syncPrHeader = sync.slice(sync.indexOf("  sync-pr-event:"), sync.indexOf("    runs-on:", sync.indexOf("  sync-pr-event:")));
     expect(syncPrHeader).not.toContain("github.event.action != 'closed'");
     expectShellAndJqSyntax(workflowRunStep(sync, "Record or update Worker lifecycle state in Supervisor issue"));

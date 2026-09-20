@@ -910,6 +910,7 @@ export function validateTaskStateBinding(input) {
   const marker = `${TASK_STATE_MARKER_PREFIX}${packet.task_id} -->`;
   if (countOccurrences(text, marker) !== 1) throw new Error("task state must contain exactly one matching task marker");
 
+  const headingTaskId = text.match(/^### Supervisor task:\s*([A-Z][A-Z0-9-]{1,63})\s*$/mi)?.[1]?.toUpperCase() ?? "";
   const state = text.match(/^- State:\s*`([A-Z][A-Z0-9_]{2,39})`\s*$/mi)?.[1] ?? "";
   const graphPath = text.match(/^- Graph path:\s*`([^\r\n`]+)`\s*$/mi)?.[1] ?? "";
   const branch = text.match(/^- Branch:\s*`([^\r\n`]+)`\s*$/mi)?.[1] ?? "";
@@ -919,16 +920,21 @@ export function validateTaskStateBinding(input) {
   const prNumber = Number(text.match(/^- PR:\s*#([1-9][0-9]*)\s*$/mi)?.[1] ?? 0) || null;
   const headSha = text.match(/^- Head:\s*`([0-9a-f]{40})`\s*$/mi)?.[1]?.toLowerCase() ?? "";
 
+  if (headingTaskId !== packet.task_id) throw new Error("task state task_id binding mismatch");
   if (!STATE_RE.test(state)) throw new Error("task state is malformed");
   if (graphPath !== packet.graph_path) throw new Error("task state graph_path binding mismatch");
   if (branch !== packet.branch) throw new Error("task state branch binding mismatch");
   if (baseSha !== packet.base_sha) throw new Error("task state base binding mismatch");
   if (digest !== packetDigest(packet)) throw new Error("task state packet digest mismatch");
   if (!/^[0-9]+$/.test(runId)) throw new Error("task state dispatch run binding is missing");
-  if (!text.includes("- Production mutation: `false`")
-    || !text.includes("- Merge allowed: `false`")
-    || !text.includes("- Auto-merge allowed: `false`")) {
-    throw new Error("task state safety invariants are missing");
+  for (const invariant of [
+    "- Production mutation: `false`",
+    "- Merge allowed: `false`",
+    "- Auto-merge allowed: `false`",
+  ]) {
+    if (countOccurrences(text, invariant) !== 1) {
+      throw new Error("task state safety invariants are missing or ambiguous");
+    }
   }
 
   const expectedPr = Number(input?.pr_number ?? 0) || null;
@@ -939,6 +945,15 @@ export function validateTaskStateBinding(input) {
 
   const expectedRun = String(input?.run_id ?? "");
   if (expectedRun && runId !== expectedRun) throw new Error("task state dispatch run binding mismatch");
+
+  const expectedHead = String(input?.head_sha ?? "").toLowerCase();
+  if (expectedHead) {
+    if (!SHA_RE.test(expectedHead)) throw new Error("expected task state head binding is malformed");
+    if (headSha && headSha !== expectedHead) throw new Error("task state head binding mismatch");
+    if (!headSha && !["TASK_CREATED", "TASK_DISPATCHED"].includes(state)) {
+      throw new Error("task state head binding is missing");
+    }
+  }
 
   return { ok: true, state, run_id: runId, pr_number: prNumber, head_sha: headSha };
 }

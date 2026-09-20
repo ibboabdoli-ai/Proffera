@@ -28,16 +28,17 @@ describe("Supervisor control-plane v2", () => {
 
   it("enforces a deterministic two-writable-worker union ceiling", () => {
     const helper = source("scripts/supervisor-worker-handoff.mjs");
-    expect(helper).toContain("MAX_WRITABLE_WORKERS = 2");
-    expect(helper).toContain('"capacity_blocked"');
     expect(helper).toContain("collectWritableTaskIds");
     expect(helper).toContain("activeWorkerIds");
-    expect(helper).toContain("isTrustedWritableWorkerPr");
+    expect(helper).toContain("activeWorkerIds.size >= 2");
+    expect(helper).toContain('"writable_worker_limit"');
+    expect(helper).toContain('if (units >= 2) return ownershipRefusal("capacity_blocked"');
   });
 
   it("keeps autonomous planning behind two kill switches and internal deterministic admission", () => {
     const planner = source(".github/workflows/supervisor-planner.yml");
     const handoff = source(".github/workflows/supervisor-worker-handoff.yml");
+    const helper = source("scripts/supervisor-worker-handoff.mjs");
 
     expect(planner).toContain("worker-dispatch-enabled");
     expect(planner).toContain("supervisor-autopilot-enabled");
@@ -53,7 +54,8 @@ describe("Supervisor control-plane v2", () => {
     expect(planner).not.toContain('POST "repos/${REPOSITORY}/issues/548/comments"');
 
     expect(handoff).toContain("trusted_internal_dispatch");
-    expect(handoff).toContain("supervisor-autopilot-enabled");
+    expect(helper).toContain('AUTOPILOT_ENABLE_LABEL = "supervisor-autopilot-enabled"');
+    expect(helper).toContain('"autopilot_kill_switch_off"');
     expect(handoff).toContain("validate-state");
     expect(handoff).toContain("Refused read-only: canonical task-state binding is invalid");
     expect(handoff).toContain("Refused read-only: duplicate canonical task-state records exist for $task_id");
