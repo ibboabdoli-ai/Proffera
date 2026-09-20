@@ -272,10 +272,46 @@ describe("public booking human-designed UX contract", () => {
 
     mocks.rescheduleCustomerBooking.mockResolvedValueOnce({ ok: false, error: "conflict" });
     await expect(action(formData)).rejects.toThrow("redirect:/mina-bokningar/customer-token/booking-1/boka-om?date=2099-05-15&error=conflict&lang=sv");
+    expect(mocks.rescheduleCustomerBooking).toHaveBeenLastCalledWith(
+      "customer-token",
+      "booking-1",
+      slot.startsAtLocal,
+      "sv",
+    );
 
     mocks.redirect.mockClear();
     mocks.rescheduleCustomerBooking.mockResolvedValueOnce({ ok: true });
     await expect(action(formData)).rejects.toThrow("redirect:/mina-bokningar/customer-token?changed=1&lang=sv");
+  });
+
+  it("passes an enabled portal locale through customer cancellation and booking-change email contracts", async () => {
+    mocks.getCustomerCalendar.mockResolvedValue({
+      ...calendar,
+      policy: { customerRescheduleEnabled: true, customerCancelEnabled: true, cancelNoticeHours: 0 },
+    });
+    const tree = await CustomerPortalPage({
+      params: Promise.resolve({ token: "customer-token" }),
+      searchParams: Promise.resolve({ lang: "en" }),
+    });
+    const cancelForm = findElements(tree, (element) => element.type === "form")[0];
+    const action = cancelForm.props.action as (formData: FormData) => Promise<void>;
+    const data = new FormData();
+    data.set("token", "customer-token");
+    data.set("booking_id", "booking-1");
+    data.set("lang", "en");
+
+    await action(data);
+
+    expect(mocks.cancelCustomerCalendarBooking).toHaveBeenCalledWith("customer-token", "booking-1", "en");
+
+    const email = source("src/features/email/booking-change-email.ts");
+    const reschedule = source("src/lib/customer-booking-reschedule.ts");
+    const calendarSource = source("src/lib/customer-calendar.ts");
+    expect(email).toContain("input.language");
+    expect(reschedule).toContain("language,");
+    expect(reschedule).toContain("?lang=${language}");
+    expect(calendarSource).toContain("language,");
+    expect(calendarSource).toContain("?lang=${language}");
   });
 
   it("executes verification and resend behavior with localized observable redirects", async () => {

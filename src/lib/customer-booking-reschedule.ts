@@ -62,7 +62,12 @@ export async function getRescheduleBooking(token: string, bookingId: string): Pr
     : null;
 }
 
-export async function rescheduleCustomerBooking(token: string, bookingId: string, startsAtLocal: string) {
+export async function rescheduleCustomerBooking(
+  token: string,
+  bookingId: string,
+  startsAtLocal: string,
+  language?: "sv" | "en",
+) {
   const payload = verifyCustomerCalendarToken(token);
   if (!payload || !connectionString || !/^[0-9a-f-]{36}$/i.test(bookingId)) {
     return { ok: false as const, error: "invalid" };
@@ -294,8 +299,9 @@ export async function rescheduleCustomerBooking(token: string, bookingId: string
     oldEndsAt: oldEnd,
     newStartsAt: start.toISOString(),
     newEndsAt: end.toISOString(),
-    portalUrl: `${base}/mina-bokningar/${encodeURIComponent(token)}`,
+    portalUrl: `${base}/mina-bokningar/${encodeURIComponent(token)}${language ? `?lang=${language}` : ""}`,
     timeZone,
+    language,
   });
 
   return { ok: true as const };

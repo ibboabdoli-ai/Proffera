@@ -106,7 +106,7 @@ export default async function ReschedulePage({ params, searchParams }: PageProps
   async function reschedule(formData: FormData) {
     "use server";
     const startsAtLocal = String(formData.get("startsAtLocal") ?? "");
-    const result = await rescheduleCustomerBooking(token, bookingId, startsAtLocal);
+    const result = await rescheduleCustomerBooking(token, bookingId, startsAtLocal, language);
     const langSuffix = `&lang=${language}`;
     if (!result.ok) {
       const date = startsAtLocal.slice(0, 10);

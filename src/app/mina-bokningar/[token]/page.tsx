@@ -63,7 +63,9 @@ async function cancelBooking(formData: FormData) {
   "use server";
   const token = String(formData.get("token") ?? "");
   const id = String(formData.get("booking_id") ?? "");
-  const result = await cancelCustomerCalendarBooking(token, id);
+  const presentation = await getCustomerPortalPresentation(token);
+  const language = resolvePortalLanguage(String(formData.get("lang") ?? ""), presentation);
+  const result = await cancelCustomerCalendarBooking(token, id, language);
   if (result.ok) revalidatePath(`/mina-bokningar/${token}`);
 }
 
