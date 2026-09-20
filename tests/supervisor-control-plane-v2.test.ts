@@ -11,11 +11,13 @@ describe("Supervisor control-plane v2", () => {
     const wakeup = source(".github/workflows/proffera-final-gate-wakeup.yml");
     const automerge = source(".github/workflows/proffera-automerge.yml");
     const handoff = source(".github/workflows/supervisor-worker-handoff.yml");
+
     expect(router).toContain("issue_comment:");
     expect(router).toContain("pull_request_review:");
     expect(router).toContain("supervisor-worker-handoff.yml");
     expect(router).toContain("proffera-final-gate-wakeup.yml");
-    expect(router).toContain("proffera-automerge.yml");
+    expect(router).toContain('REVIEW_STATE:-}" = "approved"');
+
     expect(wakeup).not.toContain("issue_comment:");
     expect(wakeup).not.toContain("pull_request_review:");
     expect(automerge).not.toContain("issue_comment:");
@@ -24,36 +26,54 @@ describe("Supervisor control-plane v2", () => {
     expect(handoff).toContain("comment_id:");
   });
 
-  it("enforces a deterministic two-writable-worker ceiling", () => {
+  it("enforces a deterministic two-writable-worker union ceiling", () => {
     const helper = source("scripts/supervisor-worker-handoff.mjs");
     expect(helper).toContain("MAX_WRITABLE_WORKERS = 2");
     expect(helper).toContain('"capacity_blocked"');
-    expect(helper).toContain("countWritableTaskStates");
+    expect(helper).toContain("collectWritableTaskIds");
+    expect(helper).toContain("activeWorkerIds");
     expect(helper).toContain("isTrustedWritableWorkerPr");
   });
 
-  it("keeps autonomous planning behind two kill switches and deterministic admission", () => {
+  it("keeps autonomous planning behind two kill switches and internal deterministic admission", () => {
     const planner = source(".github/workflows/supervisor-planner.yml");
+    const handoff = source(".github/workflows/supervisor-worker-handoff.yml");
+
     expect(planner).toContain("worker-dispatch-enabled");
     expect(planner).toContain("supervisor-autopilot-enabled");
     expect(planner).toContain("supervisor-worker-handoff.mjs evaluate");
     expect(planner).toContain("supervisor-next-task.json");
-    expect(planner).toContain("production_mutation_allowed=false");
+    expect(planner).toContain('cron: "17 * * * *"');
+    expect(planner).toContain("planner_packet_b64");
+    expect(planner).toContain("supervisor-worker-handoff.yml");
     expect(planner).not.toContain("PROFFERA_AUTOFIX_PUSH_TOKEN");
+    expect(planner).not.toContain('POST "repos/${REPOSITORY}/issues/548/comments"');
+
+    expect(handoff).toContain("trusted_internal_dispatch");
+    expect(handoff).toContain("supervisor-autopilot-enabled");
   });
 
-  it("batches current-head repair and refuses unbounded repair loops", () => {
+  it("qualifies current-head repair before any Codex repair call", () => {
     const repair = source(".github/workflows/supervisor-review-repair.yml");
+
     expect(repair).toContain("sleep 45");
+    expect(repair).toContain("Qualify current-head material findings before model repair");
+    expect(repair).toContain("current_inline");
+    expect(repair).toContain("blocking_reviews");
+    expect(repair).toContain("steps.qualify.outputs.repair == 'yes'");
     expect(repair).toContain("consecutive");
     expect(repair).toContain("[review-repair]");
     expect(repair).toContain("validate-changes");
-    expect(repair).toContain("git push origin");
     expect(repair).not.toContain("--force");
   });
 
-  it("collapses superseded worker reconciliation runs", () => {
+  it("serializes durable lifecycle transitions while cancelling superseded check reconciliation", () => {
     const sync = source(".github/workflows/worker-supervisor-sync.yml");
+
+    expect(sync).toContain("proffera-worker-lifecycle-");
+    expect(sync).toContain("proffera-worker-checks-");
+    expect(sync).toContain("cancel-in-progress: false");
     expect(sync).toContain("cancel-in-progress: true");
+    expect(sync).toContain("expected exactly one canonical task-state record");
   });
 });

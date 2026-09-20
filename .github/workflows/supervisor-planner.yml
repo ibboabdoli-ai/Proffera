@@ -3,11 +3,12 @@ name: Supervisor planner
 on:
   workflow_dispatch:
   schedule:
-    - cron: "11,41 * * * *"
+    - cron: "17 * * * *"
 
 permissions:
+  actions: write
   contents: read
-  issues: write
+  issues: read
   pull-requests: read
 
 concurrency:
@@ -20,7 +21,30 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
+      - name: Require both autopilot kill switches and planner credential
+        id: gate
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          OPENAI_AVAILABLE: ${{ secrets.OPENAI_API_KEY != '' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          labels="$(gh api "repos/${REPOSITORY}/issues/548" --jq '[.labels[].name]')"
+          if ! jq -e 'index("worker-dispatch-enabled") != null and index("supervisor-autopilot-enabled") != null' <<< "$labels" >/dev/null; then
+            echo "enabled=no" >> "$GITHUB_OUTPUT"
+            echo "Supervisor autopilot is disabled; both kill switches are required."
+            exit 0
+          fi
+          if [ "${OPENAI_AVAILABLE:-false}" != "true" ]; then
+            echo "enabled=no" >> "$GITHUB_OUTPUT"
+            echo "Supervisor planner is disabled because its model credential is unavailable."
+            exit 0
+          fi
+          echo "enabled=yes" >> "$GITHUB_OUTPUT"
+
       - name: Checkout trusted current main
+        if: steps.gate.outputs.enabled == 'yes'
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           ref: main
@@ -28,32 +52,10 @@ jobs:
           persist-credentials: false
 
       - name: Setup Node
+        if: steps.gate.outputs.enabled == 'yes'
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
           node-version: 22
-
-      - name: Require both autopilot kill switches and dispatch credentials
-        id: gate
-        env:
-          GH_TOKEN: ${{ github.token }}
-          REPOSITORY: ${{ github.repository }}
-          OPENAI_AVAILABLE: ${{ secrets.OPENAI_API_KEY != '' }}
-          PUSH_AVAILABLE: ${{ secrets.PROFFERA_AUTOFIX_PUSH_TOKEN != '' }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          labels="$(gh api "repos/${REPOSITORY}/issues/548" --jq '[.labels[].name]')"
-          if ! jq -e 'index("worker-dispatch-enabled") != null and index("supervisor-autopilot-enabled") != null' <<< "$labels" >/dev/null; then
-            echo "enabled=no" >> "$GITHUB_OUTPUT"
-            echo "Supervisor autopilot is disabled; both worker-dispatch-enabled and supervisor-autopilot-enabled are required."
-            exit 0
-          fi
-          if [ "${OPENAI_AVAILABLE:-false}" != "true" ] || [ "${PUSH_AVAILABLE:-false}" != "true" ]; then
-            echo "enabled=no" >> "$GITHUB_OUTPUT"
-            echo "Supervisor autopilot is disabled because bounded Codex/publish credentials are unavailable."
-            exit 0
-          fi
-          echo "enabled=yes" >> "$GITHUB_OUTPUT"
 
       - name: Build live planning context
         if: steps.gate.outputs.enabled == 'yes'
@@ -77,8 +79,35 @@ jobs:
           done < <(jq -r '.[] | @base64' <<< "$pulls")
           jq -n --arg main_sha "$main_sha" --arg issue_body "$(jq -r '.body // ""' <<< "$issue_json")" --argjson open_prs "$enriched" '{main_sha:$main_sha,supervisor_plan:$issue_body,open_prs:$open_prs}' > supervisor-context.json
 
-      - name: Ask Codex for exactly one next bounded task
+      - name: Skip model call when writable capacity is already full
         if: steps.gate.outputs.enabled == 'yes'
+        id: cheap
+        shell: bash
+        run: |
+          set -euo pipefail
+          active_pr_tasks="$(
+            jq -r '
+              [
+                .open_prs[]
+                | select(.head_repo == "ibboabdoli-ai/Proffera")
+                | select(.author == "ibboabdoli-ai")
+                | select(.head_ref | startswith("work/proffera-"))
+                | select(.body | contains("<!-- proffera-worker-task-packet:v1 -->"))
+                | (.body | capture("(?mi)^Task ID:[[:space:]]*(?<id>[A-Z][A-Z0-9-]{1,63})[[:space:]]*$").id? // empty)
+              ]
+              | unique
+              | length
+            ' supervisor-context.json
+          )"
+          if [ "$active_pr_tasks" -ge 2 ]; then
+            echo "proceed=no" >> "$GITHUB_OUTPUT"
+            echo "Planner skipped before model call: writable PR capacity is already full."
+            exit 0
+          fi
+          echo "proceed=yes" >> "$GITHUB_OUTPUT"
+
+      - name: Ask Codex for exactly one next bounded task
+        if: steps.cheap.outputs.proceed == 'yes'
         id: planner
         uses: openai/codex-action@86365089eb2b84e0a8fb0717b304f8bdcb13b20e
         with:
@@ -104,7 +133,7 @@ jobs:
             packet must use the live main_sha from supervisor-context.json as base_sha, a unique task_id and work/proffera-* branch, a narrow graph_path, explicit allowed_paths/forbidden_paths, required_checks exactly ["validate","codeql","targeted-ci-shadow","production-base-health","ai-review","final-gate"], risk_class 1..4, and production_mutation_allowed=false, merge_allowed=false, auto_merge_allowed=false.
 
       - name: Validate planner output against live state
-        if: steps.gate.outputs.enabled == 'yes'
+        if: steps.cheap.outputs.proceed == 'yes'
         id: validate
         env:
           GH_TOKEN: ${{ github.token }}
@@ -130,7 +159,10 @@ jobs:
           test "$(jq -r '.base_sha' <<< "$normalized")" = "$live_main"
 
           labels="$(gh api "repos/${REPOSITORY}/issues/548" --jq '[.labels[].name]')"
-          comments="$(gh api --paginate "repos/${REPOSITORY}/issues/548/comments?per_page=100" --jq '.[]' | jq -s '.')"
+          state_comments="$(
+            gh api --paginate "repos/${REPOSITORY}/issues/548/comments?per_page=100" --jq '.[]' \
+              | jq -s '[.[] | select(.user.login == "github-actions[bot]" and ((.body // "") | contains("<!-- proffera-worker-task-state:")))]'
+          )"
           pulls="$(gh api --paginate "repos/${REPOSITORY}/pulls?state=open&base=main&per_page=100" --jq '.[]' | jq -s '.')"
           enriched='[]'
           while IFS= read -r encoded; do
@@ -145,7 +177,7 @@ jobs:
           branch="$(jq -r '.branch' <<< "$normalized")"
           branch_exists=false
           gh api "repos/${REPOSITORY}/git/ref/heads/${branch}" >/dev/null 2>&1 && branch_exists=true
-          context="$(jq -n --arg repository "$REPOSITORY" --arg comment_body "$comment_body" --arg live_main_sha "$live_main" --argjson labels "$labels" --argjson comments "$comments" --argjson open_prs "$enriched" --argjson branch_exists "$branch_exists" '{event:{repository:$repository,issue_number:548,actor:"ibboabdoli-ai",is_fork:false,comment_body:$comment_body},supervisor_labels:$labels,live_main_sha:$live_main_sha,comments:$comments,open_prs:$open_prs,branch:{exists:$branch_exists},secrets:{openai:true,push:true},run_id:"1"}')"
+          context="$(jq -n --arg repository "$REPOSITORY" --arg comment_body "$comment_body" --arg live_main_sha "$live_main" --argjson labels "$labels" --argjson comments "$state_comments" --argjson open_prs "$enriched" --argjson branch_exists "$branch_exists" '{event:{repository:$repository,issue_number:548,actor:"github-actions[bot]",source:"planner",trusted_internal_dispatch:true,is_fork:false,comment_body:$comment_body},supervisor_labels:$labels,live_main_sha:$live_main_sha,comments:$comments,open_prs:$open_prs,branch:{exists:$branch_exists},secrets:{openai:true,push:true},run_id:"1"}')"
           decision="$(printf '%s' "$context" | node scripts/supervisor-worker-handoff.mjs evaluate)"
           if [ "$(jq -r '.ok' <<< "$decision")" != "true" ]; then
             echo "Planner selection refused by deterministic admission: $(jq -r '.reason' <<< "$decision")"
@@ -155,23 +187,17 @@ jobs:
 
           {
             echo "dispatch=yes"
-            echo "comment_body_b64=$(printf '%s' "$comment_body" | base64 -w0)"
+            echo "packet_b64=$(printf '%s' "$normalized" | base64 -w0)"
           } >> "$GITHUB_OUTPUT"
 
-      - name: Publish exactly one validated Task Packet
+      - name: Dispatch validated packet through the trusted Worker handoff
         if: steps.validate.outputs.dispatch == 'yes'
         env:
           GH_TOKEN: ${{ github.token }}
           REPOSITORY: ${{ github.repository }}
-          COMMENT_BODY_B64: ${{ steps.validate.outputs.comment_body_b64 }}
+          PACKET_B64: ${{ steps.validate.outputs.packet_b64 }}
         shell: bash
         run: |
           set -euo pipefail
-          body="$(printf '%s' "$COMMENT_BODY_B64" | base64 --decode)"
-          packet="$(printf '%s' "$body" | node scripts/supervisor-worker-handoff.mjs parse)"
-          live_main="$(gh api "repos/${REPOSITORY}/git/ref/heads/main" --jq '.object.sha')"
-          test "$(jq -r '.base_sha' <<< "$packet")" = "$live_main"
-          labels="$(gh api "repos/${REPOSITORY}/issues/548" --jq '[.labels[].name]')"
-          jq -e 'index("worker-dispatch-enabled") != null and index("supervisor-autopilot-enabled") != null' <<< "$labels" >/dev/null
-          gh api --method POST "repos/${REPOSITORY}/issues/548/comments" -f body="$body" >/dev/null
-          echo "Published one deterministic-admission-validated Task Packet for the event router."
+          gh workflow run supervisor-worker-handoff.yml --repo "$REPOSITORY" -f planner_packet_b64="$PACKET_B64"
+          echo "Dispatched one deterministic planner packet without using an issue-comment event as authority."

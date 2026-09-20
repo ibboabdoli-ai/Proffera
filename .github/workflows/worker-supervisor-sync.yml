@@ -10,19 +10,19 @@ on:
 
 permissions: {}
 
-concurrency:
-  group: proffera-worker-supervisor-sync-${{ github.event_name }}-${{ github.event.pull_request.number || github.event.workflow_run.pull_requests[0].number || github.run_id }}
-  cancel-in-progress: true
-
 jobs:
   sync-pr-event:
     name: Reconcile Worker PR lifecycle
+    concurrency:
+      group: proffera-worker-lifecycle-${{ github.event.pull_request.number || github.run_id }}
+      cancel-in-progress: false
     if: >-
       github.event_name == 'pull_request_target' &&
       startsWith(github.event.pull_request.head.ref, 'work/proffera-')
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
+      actions: write
       contents: read
       issues: write
       pull-requests: read
@@ -108,13 +108,23 @@ jobs:
               fi
 
               load_current_state() {
-                comments_json="$(gh api --paginate "repos/${REPOSITORY}/issues/548/comments?per_page=100" --jq '.[]' | jq -s '.')"
                 marker="<!-- proffera-worker-task-state:${task_id} -->"
-                comment_id="$(jq -r --arg marker "$marker" '[.[] | select(.user.login == "github-actions[bot]" and ((.body // "") | contains($marker)))] | last | .id // empty' <<< "$comments_json")"
-                current_body=""
-                if [ -n "$comment_id" ]; then
-                  current_body="$(jq -r --argjson id "$comment_id" '[.[] | select(.id == $id)] | last | .body // ""' <<< "$comments_json")"
+                comments_json="$(
+                  gh api --paginate "repos/${REPOSITORY}/issues/548/comments?per_page=100" --jq '.[]' \
+                    | jq -s --arg marker "$marker" '[.[] | select(.user.login == "github-actions[bot]" and ((.body // "") | contains($marker)))]'
+                )"
+                state_count="$(jq 'length' <<< "$comments_json")"
+                if [ "$state_count" -ne 1 ]; then
+                  echo "Refused: expected exactly one canonical task-state record for $task_id, found $state_count." >&2
+                  return 42
                 fi
+                comment_id="$(jq -r '.[0].id' <<< "$comments_json")"
+                state_json="$(gh api "repos/${REPOSITORY}/issues/comments/${comment_id}")"
+                test "$(jq -r '.user.login // ""' <<< "$state_json")" = "github-actions[bot]"
+                current_body="$(jq -r '.body // ""' <<< "$state_json")"
+                binding="$(jq -n --argjson packet "$packet" --arg body "$current_body" --argjson pr_number "$PR_NUMBER" '{packet:$packet,body:$body,pr_number:$pr_number}' | node "$helper" validate-state)"
+                test "$(jq -r '.ok' <<< "$binding")" = "true"
+                dispatch_run_id="$(jq -r '.run_id' <<< "$binding")"
               }
 
               guard_transition() {
@@ -156,14 +166,13 @@ jobs:
                 exit 0
               fi
 
-              state_json="$(jq -n --argjson packet "$packet" --arg state "$state" --arg reason "$reason" --arg run_id "$RUN_ID" --argjson pr_number "$PR_NUMBER" --arg head_sha "$live_head_sha" '{packet:$packet,state:$state,reason:$reason,run_id:$run_id,pr_number:$pr_number,head_sha:$head_sha}')"
+              state_json="$(jq -n --argjson packet "$packet" --arg state "$state" --arg reason "$reason" --arg run_id "$dispatch_run_id" --argjson pr_number "$PR_NUMBER" --arg head_sha "$live_head_sha" '{packet:$packet,state:$state,reason:$reason,run_id:$run_id,pr_number:$pr_number,head_sha:$head_sha}')"
               body="$(printf '%s' "$state_json" | node "$helper" state-body)"
-              if [ -n "$comment_id" ]; then
-                gh api --method PATCH "repos/${REPOSITORY}/issues/comments/${comment_id}" -f body="$body" >/dev/null
-              else
-                gh api --method POST "repos/${REPOSITORY}/issues/548/comments" -f body="$body" >/dev/null
-              fi
+              gh api --method PATCH "repos/${REPOSITORY}/issues/comments/${comment_id}" -f body="$body" >/dev/null
               echo "Reconciled task $task_id to $state on live head $live_head_sha."
+              if [ "$state" = "MERGED" ] || [ "$state" = "CLOSED_UNMERGED" ]; then
+                gh workflow run supervisor-planner.yml --repo "$REPOSITORY" || echo "Planner recovery dispatch could not be queued; hourly fallback remains available."
+              fi
               exit 0
             fi
 
@@ -207,6 +216,9 @@ jobs:
 
   sync-check-state:
     name: Reconcile exact-head checks into task state
+    concurrency:
+      group: proffera-worker-checks-${{ github.event.workflow_run.pull_requests[0].number || github.run_id }}
+      cancel-in-progress: true
     if: >-
       github.event_name == 'workflow_run' &&
       github.event.workflow_run.event == 'pull_request' &&
@@ -303,13 +315,23 @@ jobs:
           }
 
           load_current_state() {
-            comments_json="$(gh api --paginate "repos/${REPOSITORY}/issues/548/comments?per_page=100" --jq '.[]' | jq -s '.')"
             marker="<!-- proffera-worker-task-state:${task_id} -->"
-            comment_id="$(jq -r --arg marker "$marker" '[.[] | select(.user.login == "github-actions[bot]" and ((.body // "") | contains($marker)))] | last | .id // empty' <<< "$comments_json")"
-            current_body=""
-            if [ -n "$comment_id" ]; then
-              current_body="$(jq -r --argjson id "$comment_id" '[.[] | select(.id == $id)] | last | .body // ""' <<< "$comments_json")"
+            comments_json="$(
+              gh api --paginate "repos/${REPOSITORY}/issues/548/comments?per_page=100" --jq '.[]' \
+                | jq -s --arg marker "$marker" '[.[] | select(.user.login == "github-actions[bot]" and ((.body // "") | contains($marker)))]'
+            )"
+            state_count="$(jq 'length' <<< "$comments_json")"
+            if [ "$state_count" -ne 1 ]; then
+              echo "Refused: expected exactly one canonical task-state record for $task_id, found $state_count." >&2
+              return 42
             fi
+            comment_id="$(jq -r '.[0].id' <<< "$comments_json")"
+            state_json="$(gh api "repos/${REPOSITORY}/issues/comments/${comment_id}")"
+            test "$(jq -r '.user.login // ""' <<< "$state_json")" = "github-actions[bot]"
+            current_body="$(jq -r '.body // ""' <<< "$state_json")"
+            binding="$(jq -n --argjson packet "$packet" --arg body "$current_body" --argjson pr_number "$pr_number" '{packet:$packet,body:$body,pr_number:$pr_number}' | node "$helper" validate-state)"
+            test "$(jq -r '.ok' <<< "$binding")" = "true"
+            dispatch_run_id="$(jq -r '.run_id' <<< "$binding")"
           }
 
           guard_transition() {
@@ -356,11 +378,7 @@ jobs:
             exit 0
           fi
 
-          state_json="$(jq -n --argjson packet "$packet" --arg state "$state" --arg reason "$reason" --arg run_id "$RUN_ID" --argjson pr_number "$pr_number" --arg head_sha "$head_sha" '{packet:$packet,state:$state,reason:$reason,run_id:$run_id,pr_number:$pr_number,head_sha:$head_sha}')"
+          state_json="$(jq -n --argjson packet "$packet" --arg state "$state" --arg reason "$reason" --arg run_id "$dispatch_run_id" --argjson pr_number "$pr_number" --arg head_sha "$head_sha" '{packet:$packet,state:$state,reason:$reason,run_id:$run_id,pr_number:$pr_number,head_sha:$head_sha}')"
           body="$(printf '%s' "$state_json" | node "$helper" state-body)"
-          if [ -n "$comment_id" ]; then
-            gh api --method PATCH "repos/${REPOSITORY}/issues/comments/${comment_id}" -f body="$body" >/dev/null
-          else
-            gh api --method POST "repos/${REPOSITORY}/issues/548/comments" -f body="$body" >/dev/null
-          fi
+          gh api --method PATCH "repos/${REPOSITORY}/issues/comments/${comment_id}" -f body="$body" >/dev/null
           echo "Reconciled task $task_id checks to $state on exact live head $head_sha."

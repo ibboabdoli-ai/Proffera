@@ -91,8 +91,26 @@ jobs:
           inline="$(gh api --paginate "repos/${REPOSITORY}/pulls/${PR_NUMBER}/comments?per_page=100" --jq '.[]' | jq -s '[.[] | select(.user.login == "coderabbitai[bot]" or .user.login == "chatgpt-codex-connector[bot]")] | .[-80:]')"
           jq -n --arg head "$HEAD_SHA" --argjson issue_comments "$issue_comments" --argjson reviews "$reviews" --argjson inline "$inline" '{head_sha:$head,issue_comments:$issue_comments,reviews:$reviews,inline_comments:$inline}' > supervisor-review-evidence.json
 
-      - name: Run one batched exact-head repair
+      - name: Qualify current-head material findings before model repair
         if: steps.preflight.outputs.proceed == 'yes'
+        id: qualify
+        env:
+          HEAD_SHA: ${{ steps.preflight.outputs.head_sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          current_inline="$(jq -r --arg head "$HEAD_SHA" '[.inline_comments[] | select(.commit_id == $head)] | length' supervisor-review-evidence.json)"
+          blocking_reviews="$(jq -r --arg head "$HEAD_SHA" '[.reviews[] | select(.commit_id == $head and .state == "CHANGES_REQUESTED")] | length' supervisor-review-evidence.json)"
+          if [ "$current_inline" -eq 0 ] && [ "$blocking_reviews" -eq 0 ]; then
+            echo "repair=no" >> "$GITHUB_OUTPUT"
+            echo "No current-head material review finding; skipping Codex repair."
+            exit 0
+          fi
+          echo "repair=yes" >> "$GITHUB_OUTPUT"
+          echo "Current-head material review evidence exists; one bounded repair batch is allowed."
+
+      - name: Run one batched exact-head repair
+        if: steps.qualify.outputs.repair == 'yes'
         uses: openai/codex-action@86365089eb2b84e0a8fb0717b304f8bdcb13b20e
         with:
           openai-api-key: ${{ secrets.OPENAI_API_KEY }}
@@ -107,7 +125,7 @@ jobs:
             Do not touch any file outside the Task Packet, install packages, commit, push, open/merge PRs, approve, deploy, mutate Production, change secrets/config, or alter migrations. If there is no valid finding, leave the tree unchanged.
 
       - name: Verify bounded repair diff
-        if: steps.preflight.outputs.proceed == 'yes'
+        if: steps.qualify.outputs.repair == 'yes'
         id: diff
         env:
           GH_TOKEN: ${{ github.token }}

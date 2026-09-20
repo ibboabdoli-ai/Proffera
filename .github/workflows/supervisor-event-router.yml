@@ -33,12 +33,12 @@ jobs:
           COMMENT_ID: ${{ github.event.comment.id }}
           COMMENT_BODY: ${{ github.event.comment.body }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
-          PR_DRAFT: ${{ github.event.pull_request.draft }}
           REVIEW_STATE: ${{ github.event.review.state }}
           REVIEW_COMMIT: ${{ github.event.review.commit_id }}
         shell: bash
         run: |
           set -euo pipefail
+
           dispatch_pr() {
             local workflow="$1"
             local pr_number="$2"
@@ -50,7 +50,7 @@ jobs:
               && [ "$ACTOR" = "ibboabdoli-ai" ] \
               && [[ "${COMMENT_BODY:-}" == *"<!-- proffera-worker-task-packet:v1 -->"* ]]; then
               gh workflow run supervisor-worker-handoff.yml --repo "$REPOSITORY" -f comment_id="$COMMENT_ID"
-              echo "Dispatched bounded Worker handoff for Supervisor Task Packet comment $COMMENT_ID."
+              echo "Dispatched bounded Worker handoff for trusted owner Task Packet comment $COMMENT_ID."
               exit 0
             fi
 
@@ -61,24 +61,15 @@ jobs:
 
             pr_number="${ISSUE_NUMBER:-}"
             wake_final=no
-            evaluate_merge=no
             case "$ACTOR" in
               "coderabbitai[bot]")
                 if grep -Eqi 'recent_review_start|Final exact-head review is complete for|Review limit reached|Review rate[ -]?limited|Review skipped|temporarily unavailable|service unavailable' <<< "${COMMENT_BODY:-}"; then
                   wake_final=yes
                 fi
-                if grep -Fq 'Final exact-head review is complete for' <<< "${COMMENT_BODY:-}" \
-                  && grep -Fq 'I found no issues.' <<< "${COMMENT_BODY:-}"; then
-                  evaluate_merge=yes
-                fi
                 ;;
               "chatgpt-codex-connector[bot]")
                 if grep -Fq "Reviewed commit:" <<< "${COMMENT_BODY:-}"; then
                   wake_final=yes
-                fi
-                if grep -Fq "Codex Review: Didn't find any major issues" <<< "${COMMENT_BODY:-}" \
-                  && grep -Fq "Reviewed commit:" <<< "${COMMENT_BODY:-}"; then
-                  evaluate_merge=yes
                 fi
                 ;;
               "ibboabdoli-ai")
@@ -89,10 +80,10 @@ jobs:
                 ;;
             esac
 
-            [ "$wake_final" = "yes" ] && dispatch_pr proffera-final-gate-wakeup.yml "$pr_number"
-            [ "$evaluate_merge" = "yes" ] && dispatch_pr proffera-automerge.yml "$pr_number"
-            if [ "$wake_final" = "no" ] && [ "$evaluate_merge" = "no" ]; then
-              echo "PR comment is unrelated to current review/final-gate routing."
+            if [ "$wake_final" = "yes" ]; then
+              dispatch_pr proffera-final-gate-wakeup.yml "$pr_number"
+            else
+              echo "PR comment is unrelated to current final-gate routing."
             fi
             exit 0
           fi
@@ -103,13 +94,10 @@ jobs:
               echo "Review has no valid PR number."
               exit 0
             fi
-            if [ "${PR_DRAFT:-false}" = "true" ]; then
-              echo "Draft PR review does not wake merge/final gates."
-              exit 0
-            fi
 
             pr_json="$(gh api "repos/${REPOSITORY}/pulls/${pr_number}")"
             live_head="$(jq -r '.head.sha' <<< "$pr_json")"
+            live_draft="$(jq -r '.draft == true' <<< "$pr_json")"
             if [ -n "${REVIEW_COMMIT:-}" ] && [ "$REVIEW_COMMIT" != "$live_head" ]; then
               echo "Stale review targets $REVIEW_COMMIT while live head is $live_head."
               exit 0
@@ -117,16 +105,30 @@ jobs:
 
             case "$ACTOR" in
               "coderabbitai[bot]"|"chatgpt-codex-connector[bot]")
-                if [ "${REVIEW_STATE:-}" != "changes_requested" ]; then
+                if [ "$live_draft" != "true" ] && [ "${REVIEW_STATE:-}" != "changes_requested" ]; then
                   dispatch_pr proffera-final-gate-wakeup.yml "$pr_number"
-                  dispatch_pr proffera-automerge.yml "$pr_number"
                 fi
-                if grep -Fq '<!-- proffera-worker-task-packet:v1 -->' <<< "$(jq -r '.body // ""' <<< "$pr_json")"; then
+
+                repair=no
+                if [ "${REVIEW_STATE:-}" = "changes_requested" ]; then
+                  repair=yes
+                else
+                  inline_count="$(
+                    gh api --paginate "repos/${REPOSITORY}/pulls/${pr_number}/comments?per_page=100" --jq '.[]' \
+                      | jq -s --arg actor "$ACTOR" --arg head "$live_head" '[.[] | select(.user.login == $actor and .commit_id == $head)] | length'
+                  )"
+                  if [ "$inline_count" -gt 0 ]; then
+                    repair=yes
+                  fi
+                fi
+
+                if [ "$repair" = "yes" ] \
+                  && grep -Fq '<!-- proffera-worker-task-packet:v1 -->' <<< "$(jq -r '.body // ""' <<< "$pr_json")"; then
                   gh workflow run supervisor-review-repair.yml --repo "$REPOSITORY" -f pr_number="$pr_number"
                 fi
                 ;;
               "ibboabdoli-ai")
-                if [ "${REVIEW_STATE:-}" != "changes_requested" ]; then
+                if [ "$live_draft" != "true" ] && [ "${REVIEW_STATE:-}" = "approved" ]; then
                   dispatch_pr proffera-automerge.yml "$pr_number"
                 fi
                 ;;

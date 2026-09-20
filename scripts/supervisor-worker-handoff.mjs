@@ -9,6 +9,7 @@ export const EXPECTED_REPOSITORY = "ibboabdoli-ai/Proffera";
 export const SUPERVISOR_ISSUE = 548;
 export const TRUSTED_SUPERVISOR_ACTOR = "ibboabdoli-ai";
 export const DISPATCH_ENABLE_LABEL = "worker-dispatch-enabled";
+export const AUTOPILOT_ENABLE_LABEL = "supervisor-autopilot-enabled";
 export const REQUIRED_CHECKS = Object.freeze([
   "validate",
   "codeql",
@@ -270,17 +271,30 @@ function parseTaskMetadata(body = "") {
 function parseTrustedTaskState(comments, taskId) {
   if (!Array.isArray(comments)) return null;
   const marker = `${TASK_STATE_MARKER_PREFIX}${taskId} -->`;
-  const candidates = comments
-    .filter((comment) => comment?.user?.login === "github-actions[bot]" && typeof comment.body === "string" && comment.body.includes(marker))
-    .map((comment) => {
-      const state = comment.body.match(/^- State:\s*`([A-Z][A-Z0-9_]{2,39})`\s*$/mi)?.[1] ?? "";
-      const runId = comment.body.match(/^- Run ID:\s*`([0-9]+)`\s*$/mi)?.[1] ?? "";
-      const prNumber = Number(comment.body.match(/^- PR:\s*#([1-9][0-9]*)\s*$/mi)?.[1] ?? 0) || null;
-      return { id: Number(comment.id) || 0, created_at: String(comment.created_at ?? ""), state, run_id: runId, pr_number: prNumber };
-    })
-    .filter((entry) => STATE_RE.test(entry.state))
-    .sort((a, b) => (a.created_at || "").localeCompare(b.created_at || "") || a.id - b.id);
-  return candidates.at(-1) ?? null;
+  const matching = comments.filter(
+    (comment) =>
+      comment?.user?.login === "github-actions[bot]" &&
+      typeof comment.body === "string" &&
+      comment.body.includes(marker),
+  );
+
+  if (matching.length > 1) return { duplicate: true, count: matching.length };
+  if (matching.length === 0) return null;
+  if (countOccurrences(matching[0].body, marker) !== 1) return { invalid: true, count: 1 };
+
+  const comment = matching[0];
+  const state = comment.body.match(/^- State:\s*`([A-Z][A-Z0-9_]{2,39})`\s*$/mi)?.[1] ?? "";
+  const runId = comment.body.match(/^- Run ID:\s*`([0-9]+)`\s*$/mi)?.[1] ?? "";
+  const prNumber = Number(comment.body.match(/^- PR:\s*#([1-9][0-9]*)\s*$/mi)?.[1] ?? 0) || null;
+  if (!STATE_RE.test(state)) return { invalid: true, count: 1 };
+
+  return {
+    id: Number(comment.id) || 0,
+    created_at: String(comment.created_at ?? ""),
+    state,
+    run_id: runId,
+    pr_number: prNumber,
+  };
 }
 
 function normalizePr(pr) {
@@ -306,8 +320,8 @@ function isTrustedWritableWorkerPr(pr) {
   );
 }
 
-function countWritableTaskStates(comments, excludeTaskId = "") {
-  if (!Array.isArray(comments)) return 0;
+function collectWritableTaskIds(comments, excludeTaskId = "") {
+  if (!Array.isArray(comments)) return new Set();
   const latest = new Map();
   for (const comment of comments) {
     if (comment?.user?.login !== "github-actions[bot]" || typeof comment.body !== "string") continue;
@@ -321,7 +335,11 @@ function countWritableTaskStates(comments, excludeTaskId = "") {
       latest.set(taskId, { state, id, created_at: createdAt });
     }
   }
-  return [...latest.values()].filter((entry) => WRITABLE_TASK_STATES.has(entry.state)).length;
+  return new Set(
+    [...latest.entries()]
+      .filter(([, entry]) => WRITABLE_TASK_STATES.has(entry.state))
+      .map(([taskId]) => taskId),
+  );
 }
 
 function blocked(reason, packet = null, code = "blocked") {
@@ -332,7 +350,14 @@ export function evaluateDispatchContext(context) {
   const event = context?.event ?? {};
   if (event.repository !== EXPECTED_REPOSITORY) return blocked("repository event is not trusted", null, "wrong_repository");
   if (Number(event.issue_number) !== SUPERVISOR_ISSUE) return blocked("Task Packet did not originate from Supervisor issue #548", null, "wrong_supervisor_issue");
-  if (event.actor !== TRUSTED_SUPERVISOR_ACTOR) return blocked("Task Packet actor is not the trusted repository owner", null, "unauthorized_actor");
+  const trustedOwnerComment = event.actor === TRUSTED_SUPERVISOR_ACTOR && event.source !== "planner";
+  const trustedPlannerDispatch =
+    event.source === "planner" &&
+    event.actor === "github-actions[bot]" &&
+    event.trusted_internal_dispatch === true;
+  if (!trustedOwnerComment && !trustedPlannerDispatch) {
+    return blocked("Task Packet source is not a trusted owner comment or internal planner dispatch", null, "unauthorized_actor");
+  }
   if (event.is_fork === true) return blocked("fork or cross-repository dispatch sources are not trusted", null, "fork_source");
 
   let packet;
@@ -345,6 +370,9 @@ export function evaluateDispatchContext(context) {
   if (!Array.isArray(context.supervisor_labels) || !context.supervisor_labels.includes(DISPATCH_ENABLE_LABEL)) {
     return blocked(`dispatch kill switch is OFF; #548 must carry '${DISPATCH_ENABLE_LABEL}'`, packet, "kill_switch_off");
   }
+  if (trustedPlannerDispatch && !context.supervisor_labels.includes(AUTOPILOT_ENABLE_LABEL)) {
+    return blocked(`autopilot kill switch is OFF; #548 must carry '${AUTOPILOT_ENABLE_LABEL}'`, packet, "autopilot_kill_switch_off");
+  }
 
   if (context?.secrets?.openai !== true || context?.secrets?.push !== true) {
     return blocked("existing authenticated Codex/push dispatch capability is unavailable", packet, "dispatch_auth_unavailable");
@@ -356,6 +384,12 @@ export function evaluateDispatchContext(context) {
 
   const currentRunId = String(context.run_id ?? "");
   const taskState = parseTrustedTaskState(context.comments, packet.task_id);
+  if (taskState?.duplicate) {
+    return blocked(`task ${packet.task_id} has ${taskState.count} canonical task-state records; refusing ambiguous state`, packet, "duplicate_task_state");
+  }
+  if (taskState?.invalid) {
+    return blocked(`task ${packet.task_id} has a malformed canonical task-state record`, packet, "invalid_task_state");
+  }
   if (taskState && taskState.state !== "TASK_BLOCKED") {
     const sameRunTaskCreated = taskState.state === "TASK_CREATED" && currentRunId && taskState.run_id === currentRunId;
     if (!sameRunTaskCreated && ACTIVE_TASK_STATES.has(taskState.state)) {
@@ -398,12 +432,13 @@ export function evaluateDispatchContext(context) {
     return blocked(`branch ${packet.branch} already exists without a trusted matching task PR`, packet, "branch_exists");
   }
 
-  const activeTaskWorkers = countWritableTaskStates(context.comments, packet.task_id);
-  const activePrWorkers = prs
-    .map(normalizePr)
-    .filter((pr) => isTrustedWritableWorkerPr(pr) && parseTaskMetadata(pr.body).taskId !== packet.task_id)
-    .length;
-  const activeWritableWorkers = Math.max(activeTaskWorkers, activePrWorkers);
+  const activeWorkerIds = collectWritableTaskIds(context.comments, packet.task_id);
+  for (const pr of prs.map(normalizePr).filter(isTrustedWritableWorkerPr)) {
+    const taskId = parseTaskMetadata(pr.body).taskId;
+    if (taskId && taskId !== packet.task_id) activeWorkerIds.add(taskId);
+    if (!taskId) activeWorkerIds.add(`pr:${pr.number}`);
+  }
+  const activeWritableWorkers = activeWorkerIds.size;
   if (activeWritableWorkers >= MAX_WRITABLE_WORKERS) {
     return blocked(
       `writable Worker capacity is full (${activeWritableWorkers}/${MAX_WRITABLE_WORKERS}); wait for an active Worker to reach a terminal state`,
@@ -501,6 +536,40 @@ export function parseTaskStateBody(body = "") {
   const headSha = text.match(/^- Head:\s*`([0-9a-f]{40})`\s*$/mi)?.[1]?.toLowerCase() ?? "";
   const prNumber = Number(text.match(/^- PR:\s*#([1-9][0-9]*)\s*$/mi)?.[1] ?? 0) || null;
   return { state: STATE_RE.test(state) ? state : "", head_sha: SHA_RE.test(headSha) ? headSha : "", pr_number: prNumber };
+}
+
+export function validateTaskStateBinding(input) {
+  const packet = normalizeTaskPacket(input?.packet);
+  const text = String(input?.body ?? "");
+  const marker = `${TASK_STATE_MARKER_PREFIX}${packet.task_id} -->`;
+  if (countOccurrences(text, marker) !== 1) throw new Error("task state must contain exactly one matching task marker");
+
+  const state = text.match(/^- State:\s*`([A-Z][A-Z0-9_]{2,39})`\s*$/mi)?.[1] ?? "";
+  const graphPath = text.match(/^- Graph path:\s*`([^\r\n`]+)`\s*$/mi)?.[1] ?? "";
+  const branch = text.match(/^- Branch:\s*`([^\r\n`]+)`\s*$/mi)?.[1] ?? "";
+  const baseSha = text.match(/^- Base:\s*`([0-9a-f]{40})`\s*$/mi)?.[1]?.toLowerCase() ?? "";
+  const digest = text.match(/^- Packet SHA-256:\s*`([0-9a-f]{64})`\s*$/mi)?.[1]?.toLowerCase() ?? "";
+  const runId = text.match(/^- Run ID:\s*`([0-9]+)`\s*$/mi)?.[1] ?? "";
+  const prNumber = Number(text.match(/^- PR:\s*#([1-9][0-9]*)\s*$/mi)?.[1] ?? 0) || null;
+  const headSha = text.match(/^- Head:\s*`([0-9a-f]{40})`\s*$/mi)?.[1]?.toLowerCase() ?? "";
+
+  if (!STATE_RE.test(state)) throw new Error("task state is malformed");
+  if (graphPath !== packet.graph_path) throw new Error("task state graph_path binding mismatch");
+  if (branch !== packet.branch) throw new Error("task state branch binding mismatch");
+  if (baseSha !== packet.base_sha) throw new Error("task state base binding mismatch");
+  if (digest !== packetDigest(packet)) throw new Error("task state packet digest mismatch");
+  if (!/^[0-9]+$/.test(runId)) throw new Error("task state dispatch run binding is missing");
+  if (!text.includes("- Production mutation: `false`") || !text.includes("- Merge allowed: `false`") || !text.includes("- Auto-merge allowed: `false`")) {
+    throw new Error("task state safety invariants are missing");
+  }
+
+  const expectedPr = Number(input?.pr_number ?? 0) || null;
+  if (expectedPr && prNumber && prNumber !== expectedPr) throw new Error("task state PR binding mismatch");
+  if (expectedPr && !prNumber && !["TASK_CREATED", "TASK_DISPATCHED"].includes(state)) {
+    throw new Error("task state PR binding is missing");
+  }
+
+  return { ok: true, state, run_id: runId, pr_number: prNumber, head_sha: headSha };
 }
 
 function transitionResult(ok, apply, code, reason, current, requestedState, requestedHead, liveHead) {
@@ -677,6 +746,10 @@ async function main() {
   }
   if (mode === "transition") {
     process.stdout.write(`${JSON.stringify(evaluateTaskStateTransition(parsed))}\n`);
+    return;
+  }
+  if (mode === "validate-state") {
+    process.stdout.write(`${JSON.stringify(validateTaskStateBinding(parsed))}\n`);
     return;
   }
   if (mode === "state-body") {

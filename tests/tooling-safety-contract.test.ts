@@ -839,20 +839,17 @@ describe("tooling safety contract", () => {
     expect(shadow).toContain("unsupported schema");
     expect(shadow).toContain("3000-file API limit");
 
-    expect(automerge).toContain("fallback_eligible=true");
-    expect(automerge).toContain("fallback_eligible=false");
-    expect(automerge).toContain("proffera-codex-fallback-review-request:${head_sha}");
-    expect(automerge).toContain("issues/comments/${codex_request_id}/reactions?per_page=100");
-    expect(automerge).toContain("bounded 300-second CodeRabbit timeout");
-    expect(automerge).toContain('select(.user.login == $requester');
-    expect(automerge).toContain('contains("@codex review")');
-    expect(automerge).toContain("Current-head Codex fallback decision: clean review after CodeRabbit availability failure or bounded timeout");
-    expect(automerge).toContain("CodeRabbit changes remain requested on the current PR head; Codex fallback can never clear them.");
-    expect(automerge).toContain("Final exact-head review is complete for");
-    expect(automerge).toContain("I found no issues.");
-    expect(automerge).toContain("clean exact-head completion comment");
-    expect(automerge).toContain("src/app/privacy/*|src/app/privacy/**|*/privacy/*");
-    expect(automerge).toContain("package-lock.json|pnpm-lock.yaml|yarn.lock|*/package-lock.json|*/pnpm-lock.yaml|*/yarn.lock");
+    expect(ci).toContain("fallback_eligible=true");
+    expect(ci).toContain("fallback_eligible=false");
+    expect(ci).toContain("proffera-codex-fallback-review-request:${HEAD_SHA}");
+    expect(ci).toContain("issues/comments/${codex_request_id}/reactions?per_page=100");
+    expect(ci).toContain("CodeRabbit changes remain requested for current head; Codex fallback cannot clear them.");
+    expect(ci).toContain("Final exact-head review is complete for");
+    expect(ci).toContain("I found no issues.");
+    expect(ci).toContain("src/app/privacy/*|src/app/privacy/**|*/privacy/*");
+    expect(ci).toContain("package-lock.json|pnpm-lock.yaml|yarn.lock|*/package-lock.json|*/pnpm-lock.yaml|*/yarn.lock");
+    expect(automerge).toContain("workflow_run:");
+    expect(automerge).toContain("E2E public smoke");
 
     expect(agents).toContain("CodeRabbit remains the primary provider for risk-routed final PR review.");
     expect(agents).toContain("High-risk PRs remain CodeRabbit-only during the normal review window");

@@ -213,6 +213,12 @@ describe("Supervisor ↔ Worker Phase-1 handoff", () => {
   it("allows the same serialized run to recheck its own TASK_CREATED state", () => {
     expect(evaluate(baseContext({ comments: [trustedState("TASK_CREATED")] })).status).toBe("TASK_CREATED");
   });
+  it("fails closed on duplicate canonical task-state records", () => {
+    const first = trustedState("WORKER_PR_OPENED", "1000");
+    const second = { ...trustedState("WORKER_PR_OPENED", "1000"), id: 100, created_at: "2026-09-08T12:01:00Z" };
+    expect(evaluate(baseContext({ comments: [first, second] })).code).toBe("duplicate_task_state");
+  });
+
 
   it("ignores a spoofed task-state comment not authored by the trusted bot", () => {
     const spoofed = { ...trustedState("WORKER_PR_OPENED", "1000"), user: { login: "attacker" } };
@@ -374,8 +380,10 @@ describe("Supervisor ↔ Worker Phase-1 handoff", () => {
 
   it("separates lifecycle and check reconciliation concurrency groups", () => {
     const sync = source(".github/workflows/worker-supervisor-sync.yml");
-    expect(sync).toContain("proffera-worker-supervisor-sync-${{ github.event_name }}-");
+    expect(sync).toContain("proffera-worker-lifecycle-");
+    expect(sync).toContain("proffera-worker-checks-");
     expect(sync).toContain("cancel-in-progress: false");
+    expect(sync).toContain("cancel-in-progress: true");
   });
 
   it("fails closed on an invalid trusted Phase-1 lifecycle packet", () => {
@@ -581,6 +589,14 @@ exit 0
     const second = phase1("OTHER-2", "feature/two", "src/features/two/", 902);
     const blocked = evaluate(baseContext({ open_prs: [first, second] }));
     expect(blocked.code).toBe("capacity_blocked");
+
+    const stateForOtherTask = trustedState("WORKER_PR_OPENED", "1000");
+    stateForOtherTask.body = stateForOtherTask.body.replaceAll("SUP-TEST-1", "OTHER-STATE");
+    const mixed = evaluate(baseContext({
+      comments: [stateForOtherTask],
+      open_prs: [second],
+    }));
+    expect(mixed.code).toBe("capacity_blocked");
   });
 
   it("serializes identical concurrent task deliveries and refuses the second run", () => {

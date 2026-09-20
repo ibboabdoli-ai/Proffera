@@ -529,6 +529,7 @@ describe("Proffera standing automerge authorization", () => {
   });
 
   it("reads standing authorization only from main and keeps current-head safety gates", () => {
+    const ci = source(".github/workflows/ci.yml");
     expect(workflow).toContain("contents/$STANDING_AUTH_PATH?ref=main");
     expect(workflow).toContain("Standing authorization advisory");
     expect(workflow).toContain("standing authorization is advisory only");
@@ -538,11 +539,10 @@ describe("Proffera standing automerge authorization", () => {
     expect(workflow).toContain("coderabbitai[bot]");
     expect(workflow).toContain("commit_id == $sha");
     expect(workflow).toContain("CodeRabbit changes remain requested on the current PR head; Codex fallback can never clear them.");
-    expect(workflow).toContain("Final exact-head review is complete for");
-    expect(workflow).toContain("I found no issues.");
-    expect(workflow).toContain("CodeRabbit review command invocation: v2:[0-9a-f]{64}");
+    expect(ci).toContain("Final exact-head review is complete for");
+    expect(ci).toContain("I found no issues.");
+    expect(ci).toContain("CodeRabbit review command invocation: v2:[0-9a-f]{64}");
     expect(workflow).not.toContain("updated_at");
-    expect(workflow).toContain("clean exact-head completion comment");
     expect(workflow).toContain('workflow_run:');
     expect(workflow).toContain('workflows: [CI, Security review regressions]');
     expect(workflow).toContain('E2E public smoke');
