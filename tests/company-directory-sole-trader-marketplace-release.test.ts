@@ -5,6 +5,8 @@ const mocks = vi.hoisted(() => ({
   getUserWorkspaceAccess: vi.fn(),
   canManageWorkspaceSettings: vi.fn(),
   getDashboardWorkspaceServices: vi.fn(),
+  invalidateByProfileId: vi.fn(),
+  invalidateMarketplace: vi.fn(),
 }));
 
 vi.mock("server-only", () => ({}));
@@ -15,6 +17,12 @@ vi.mock("@/lib/workspace-access", () => ({
 }));
 vi.mock("@/lib/workspace-services-db", () => ({
   getDashboardWorkspaceServices: mocks.getDashboardWorkspaceServices,
+}));
+vi.mock("@/lib/company-directory-public-cache", () => ({
+  invalidatePublicDirectoryPublicProjectionByProfileId: mocks.invalidateByProfileId,
+}));
+vi.mock("@/lib/public-read-cache", () => ({
+  invalidateMarketplaceHomeCompaniesCache: mocks.invalidateMarketplace,
 }));
 
 import {
@@ -245,6 +253,38 @@ describe("sole-trader Marketplace privacy release", () => {
     expect(publication).toContain("lower(btrim(owner_base.city)) = any");
     expect(publication).not.toContain("lower(btrim(owner_base.municipality)) = any");
     expect(publication).toContain("for update");
+    expect(mocks.invalidateByProfileId).toHaveBeenCalledWith(PROFILE_ID);
+    expect(mocks.invalidateMarketplace).toHaveBeenCalledTimes(1);
+  });
+
+  it("still invalidates Marketplace after a committed activation when Directory invalidation fails", async () => {
+    const sql = vi.fn(async (strings: TemplateStringsArray) => {
+      const query = queryText(strings);
+      if (query.includes("select service.id::text") && query.includes("from workspace_services service")) {
+        return [{
+          id: SERVICE_ID,
+          name: "Fönsterputs",
+          previous_directory_service_slug: null,
+          profile_id: PROFILE_ID,
+          has_existing_relation: false,
+          requires_privacy_release: true,
+        }];
+      }
+      if (query.startsWith("with service_guard as")) return [{ id: SERVICE_ID }];
+      return [];
+    });
+    mocks.getSql.mockReturnValue(sql);
+    mocks.invalidateByProfileId.mockRejectedValue(new Error("cache unavailable"));
+
+    await expect(activateProviderMarketplaceService({
+      serviceId: SERVICE_ID,
+      directoryServiceSlug: "fonsterputsning",
+      conversionMode: "quote",
+      radiusKm: 25,
+    })).resolves.toEqual(expect.objectContaining({ serviceId: SERVICE_ID }));
+
+    expect(mocks.invalidateByProfileId).toHaveBeenCalledWith(PROFILE_ID);
+    expect(mocks.invalidateMarketplace).toHaveBeenCalledTimes(1);
   });
 
   it("cannot report release when the required owner service-base authority is missing", async () => {
@@ -259,5 +299,7 @@ describe("sole-trader Marketplace privacy release", () => {
     })).rejects.toThrow("service_not_eligible");
 
     expect(sql).toHaveBeenCalledTimes(1);
+    expect(mocks.invalidateByProfileId).not.toHaveBeenCalled();
+    expect(mocks.invalidateMarketplace).not.toHaveBeenCalled();
   });
 });

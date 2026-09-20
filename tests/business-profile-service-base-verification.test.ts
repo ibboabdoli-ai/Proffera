@@ -143,7 +143,8 @@ describe("owner service-base verification boundary", () => {
       if (query.text.includes("st_y(transformed.point)::float8 as latitude")) {
         return [{ latitude: 59.1955, longitude: 17.6253 }];
       }
-      if (query.text.startsWith("with profile_guard as")) return [{ id: LOCATION_ID }];
+      if (query.text.startsWith("select profile.id from company_directory_profiles")) return [{ id: PROFILE_ID }];
+      if (query.text.startsWith("with selected_location as")) return [{ id: LOCATION_ID }];
       return [];
     });
     mocks.getSql.mockReturnValue(sql);
@@ -163,8 +164,14 @@ describe("owner service-base verification boundary", () => {
 
     expect(queries[0]?.text).toContain("profile.publication_status = 'blocked'");
     expect(queries[0]?.text).toContain("owner_claim.verification_method = 'manual_review'");
-    const write = queries.find((query) => query.text.startsWith("with profile_guard as"));
+    expect(sql.transaction).toHaveBeenCalledTimes(1);
+    const transactionQueries = sql.transaction.mock.calls[0]?.[0] as Promise<unknown[]>[];
+    expect(transactionQueries).toHaveLength(3);
+    expect(queries[2]?.text).toContain("for update of profile, owner_claim");
+    expect(queries[3]?.text).toContain("set is_primary = false");
+    const write = queries.find((query) => query.text.startsWith("with selected_location as"));
     expect(write?.text).toContain("'service_base', 'private', true, true");
+    expect(write?.text).toContain("order by location.updated_at desc, location.id");
     expect(write?.text).toContain("municipality = ''");
     expect(write?.values).toContain("lantmateriet_belagenhetsadress_v4_2");
     expect(write?.values).toContain(59.1955);

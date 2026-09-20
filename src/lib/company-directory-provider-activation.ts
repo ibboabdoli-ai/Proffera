@@ -14,6 +14,8 @@ import {
   resolveDirectoryServiceQuery,
 } from "@/lib/company-directory-service-taxonomy";
 import { DIRECTORY_PILOT_LOCATIONS } from "@/lib/company-directory-policy";
+import { invalidatePublicDirectoryPublicProjectionByProfileId } from "@/lib/company-directory-public-cache";
+import { invalidateMarketplaceHomeCompaniesCache } from "@/lib/public-read-cache";
 
 const SOLE_TRADER_OWNER_SOURCE = "bolagsverket_vardefulla_datamangder:sole_trader_owner";
 const SOLE_TRADER_SURROGATE_IDENTITY_PATTERN = "^sole-trader-[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$";
@@ -689,5 +691,23 @@ export async function activateProviderMarketplaceService(input: {
   `;
 
   if (!published[0]?.id) throw new Error("service_update");
+
+  try {
+    await invalidatePublicDirectoryPublicProjectionByProfileId(profileId);
+  } catch (error) {
+    console.error("Failed to invalidate public Directory cache after committed provider activation", {
+      profileId,
+      error,
+    });
+  }
+  try {
+    invalidateMarketplaceHomeCompaniesCache();
+  } catch (error) {
+    console.error("Failed to invalidate Marketplace cache after committed provider activation", {
+      profileId,
+      error,
+    });
+  }
+
   return { serviceId: input.serviceId, directoryServiceSlug: input.directoryServiceSlug, conversionMode: input.conversionMode, radiusKm };
 }
