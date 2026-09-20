@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   locationSuggestions: vi.fn(async (limit: number) => [`location-${limit}`]),
@@ -10,6 +10,7 @@ const mocks = vi.hoisted(() => ({
     results: [{ id: `company-${limit}` }],
     totalCount: 1,
   })),
+  getSql: vi.fn(),
   revalidateTag: vi.fn(),
   unstableCache: vi.fn((
     loader: (...args: never[]) => Promise<unknown>,
@@ -26,6 +27,7 @@ vi.mock("@/lib/business-profile-search", () => ({
 vi.mock("@/lib/company-directory-public-search", () => ({
   getPublishedDirectoryLocationSuggestions: mocks.locationSuggestions,
 }));
+vi.mock("@/lib/db/server", () => ({ getSql: mocks.getSql }));
 vi.mock("@/lib/public-business-seo", () => ({
   listPublicBusinessSitemapEntries: mocks.publicBusinessSitemapEntries,
 }));
@@ -43,6 +45,15 @@ function source(path: string) {
   return readFileSync(resolve(process.cwd(), path), "utf8");
 }
 
+beforeEach(() => {
+  mocks.getSql.mockReset();
+  mocks.revalidateTag.mockClear();
+  mocks.marketplaceHomeCompanies.mockReset().mockImplementation(async ({ limit }: { limit: number }) => ({
+    results: [{ id: `company-${limit}` }],
+    totalCount: 1,
+  }));
+});
+
 describe("public read cache contract", () => {
   it("keeps Directory location suggestions for one day while preserving the 30-minute Public Business sitemap cache", async () => {
     expect(mocks.unstableCache).toHaveBeenCalledTimes(3);
@@ -53,7 +64,7 @@ describe("public read cache contract", () => {
       tags: [PUBLIC_DIRECTORY_LOCATION_SUGGESTIONS_CACHE_TAG],
     });
 
-    const marketplaceCall = mocks.unstableCache.mock.calls.find(([, keyParts]) => keyParts[0] === "marketplace-home-companies-v3");
+    const marketplaceCall = mocks.unstableCache.mock.calls.find(([, keyParts]) => keyParts[0] === "marketplace-home-companies-v4");
     expect(marketplaceCall?.[2]).toEqual({
       revalidate: 30 * 60,
       tags: [MARKETPLACE_HOME_COMPANIES_CACHE_TAG],
@@ -79,6 +90,28 @@ describe("public read cache contract", () => {
 
     invalidateMarketplaceHomeCompaniesCache();
     expect(mocks.revalidateTag).toHaveBeenCalledWith(MARKETPLACE_HOME_COMPANIES_CACHE_TAG, { expire: 0 });
+  });
+
+  it("rechecks Marketplace companies once their workplace authority reaches its exact deadline", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-09-20T13:00:00.000Z"));
+    const profileId = "11111111-1111-4111-8111-111111111111";
+    mocks.marketplaceHomeCompanies
+      .mockResolvedValueOnce({ results: [{ id: profileId }], totalCount: 1 })
+      .mockResolvedValueOnce({ results: [], totalCount: 0 });
+    mocks.getSql.mockReturnValue(vi.fn(async () => [{
+      profile_count: 1,
+      juridical_count: 1,
+      authority_expires_at: "2026-09-20T13:00:00.000Z",
+    }]));
+
+    try {
+      await expect(getCachedMarketplaceHomeCompanies(4)).resolves.toMatchObject({ results: [] });
+      expect(mocks.marketplaceHomeCompanies).toHaveBeenCalledTimes(2);
+      expect(mocks.revalidateTag).toHaveBeenCalledWith(MARKETPLACE_HOME_COMPANIES_CACHE_TAG, { expire: 0 });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("keeps generic caches separate while Directory profile caching stays behind its audited boundary", () => {
