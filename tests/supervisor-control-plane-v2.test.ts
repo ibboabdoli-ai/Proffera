@@ -127,6 +127,13 @@ describe("Supervisor control-plane v2", () => {
     expect(cheapCapacity).toContain("lease_expires_at");
     expect(cheapCapacity).toContain("recovery.expires_at");
     expect(cheapCapacity).toContain("fromdateiso8601");
+    expect(cheapCapacity).toContain('sub("\\\\.[0-9]+Z$"; "Z")');
+    const fractionalLease = spawnSync("jq", [
+      "-n", "--arg", "ts", "2026-09-20T22:00:00.000Z",
+      '$ts | sub("\\\\.[0-9]+Z$"; "Z") | fromdateiso8601',
+    ], { encoding: "utf8" });
+    expect(fractionalLease.status, fractionalLease.stderr).toBe(0);
+    expect(Number(fractionalLease.stdout.trim())).toBe(Date.parse("2026-09-20T22:00:00.000Z") / 1000);
     expect(cheapCapacity).toContain("reconcile-unbound-tasks sweep");
     expect(cheapCapacity).not.toContain("active_state_ids");
     expect(cheapCapacity).not.toContain('"TASK_CREATED"');

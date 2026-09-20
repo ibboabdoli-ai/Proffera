@@ -132,10 +132,10 @@ jobs:
                     elif $payload.state == "PUBLISHED" then
                       $id
                     elif $payload.state == "RESERVED" then
-                      (try ($payload.lease_expires_at | fromdateiso8601) catch null) as $expires
+                      (try ($payload.lease_expires_at | sub("\\.[0-9]+Z$"; "Z") | fromdateiso8601) catch null) as $expires
                       | if ($expires == null) or ($expires > now) then $id else empty end
                     elif $payload.state == "RECOVERABLE" then
-                      (try ($payload.recovery.expires_at | fromdateiso8601) catch null) as $expires
+                      (try ($payload.recovery.expires_at | sub("\\.[0-9]+Z$"; "Z") | fromdateiso8601) catch null) as $expires
                       | if ($expires == null) or ($expires > now) then $id else empty end
                     else
                       empty
