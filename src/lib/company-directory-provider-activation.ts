@@ -187,7 +187,6 @@ export async function getProviderActivationState(): Promise<ProviderActivationSt
             and owner_base.owner_workspace_id = ${access.workspaceId}::uuid
             and owner_base.source_type = 'owner'
             and owner_base.purpose = 'service_base'
-            and owner_base.visibility = 'private'
             and owner_base.is_primary = true
             and owner_base.is_active = true
             and owner_base.confirmed_at is not null
@@ -237,7 +236,6 @@ export async function getProviderActivationState(): Promise<ProviderActivationSt
             and owner_base.owner_workspace_id = ${access.workspaceId}::uuid
             and owner_base.source_type = 'owner'
             and owner_base.purpose = 'service_base'
-            and owner_base.visibility = 'private'
             and owner_base.is_primary = true
             and owner_base.is_active = true
             and owner_base.confirmed_at is not null
@@ -460,7 +458,6 @@ export async function activateProviderMarketplaceService(input: {
                and owner_base.owner_workspace_id = ${access.workspaceId}::uuid
                and owner_base.source_type = 'owner'
                and owner_base.purpose = 'service_base'
-               and owner_base.visibility = 'private'
                and owner_base.is_primary = true
                and owner_base.is_active = true
                and owner_base.confirmed_at is not null
@@ -594,7 +591,6 @@ export async function activateProviderMarketplaceService(input: {
                   and owner_base.owner_workspace_id = ${access.workspaceId}::uuid
                   and owner_base.source_type = 'owner'
                   and owner_base.purpose = 'service_base'
-                  and owner_base.visibility = 'private'
                   and owner_base.is_primary = true
                   and owner_base.is_active = true
                   and owner_base.confirmed_at is not null

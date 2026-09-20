@@ -352,8 +352,10 @@ describe("sole-trader Marketplace privacy release", () => {
 
     expect(queries[0]).toContain("profile.organization_kind <> 'sole_trader'");
     expect(queries[0]).toContain("owner_base.purpose = 'service_base'");
+    expect(queries[0].match(/owner_base\.visibility = 'private'/g) ?? []).toHaveLength(1);
     expect(queries[1]).toContain("profile.organization_kind <> 'sole_trader'");
     expect(queries[1]).toContain("owner_base.purpose = 'service_base'");
+    expect(queries[1].match(/owner_base\.visibility = 'private'/g) ?? []).toHaveLength(1);
     expect(mocks.invalidateByProfileId).not.toHaveBeenCalled();
     expect(mocks.invalidateMarketplace).not.toHaveBeenCalled();
   });
