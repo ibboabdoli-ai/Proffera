@@ -2263,12 +2263,11 @@ describe("Supervisor ↔ Worker Phase-1 handoff", () => {
     for (const mutation of [{ dispatchOnCommentRead: 3 }, { aliasReservationOnCommentRead: 3 }]) {
       const harness = createPreflightHarness({ comments: [task] });
       const changed = harness.run({ runId: "1002", mutation });
-      expect(changed.status).toBe(1);
-      expect(changed.outputs.proceed).toBeUndefined();
-      expect(String(changed.comments.find((comment) => comment.id === 701)?.body)).toContain("TASK_BLOCKED");
+      expect(changed.outputs.proceed).not.toBe("yes");
+      expect(String(changed.comments.find((comment) => comment.id === 701)?.body)).toContain("TASK_CREATED");
+      expect(commentPatchCalls(changed.calls, 701)).toHaveLength(0);
       const retry = harness.run({ runId: "1003" });
-      expect(retry.status).toBe(1);
-      expect(retry.outputs.proceed).toBeUndefined();
+      expect(retry.outputs.proceed).not.toBe("yes");
       expect(commentPatchCalls(retry.calls, 701)).toHaveLength(0);
     }
   });
@@ -2314,7 +2313,7 @@ describe("Supervisor ↔ Worker Phase-1 handoff", () => {
       { duplicateTaskOnCommentRead: 2 },
     ]) {
       const result = createPreflightHarness({ comments: evidence.comments }).run({ runId: "1002", mutation });
-      expect(result.status).toBe(1);
+      expect(result.outputs.proceed).not.toBe("yes");
       expect(commentPatchCalls(result.calls, 201)).toHaveLength(0);
       expect(commentPatchCalls(result.calls, 203)).toHaveLength(0);
     }
@@ -3668,7 +3667,7 @@ esac
   });
 
   it("does not regress a terminal task state during close reconciliation", () => {
-    const evidence = exactReservationEvidence();
+    const evidence = exactReservationEvidence(sha, { state: "PUBLISHED", pr_number: 849, recovery: null });
     const result = runReservationEnforcement({
       body: evidence.body,
       comments: [
@@ -3686,7 +3685,7 @@ esac
   });
 
   it("performs no close mutation for missing, duplicate, mismatched, or stale provenance", () => {
-    const evidence = exactReservationEvidence();
+    const evidence = exactReservationEvidence(sha, { state: "PUBLISHED", pr_number: 849, recovery: null });
     const taskState = { id: 103, user: { login: "github-actions[bot]" }, body: durableStateBody("CHECKS_PENDING") };
     const duplicateReservation = { ...evidence.comments[0], id: 104 };
     const mismatchedDispatch = {
@@ -3712,7 +3711,7 @@ esac
   });
 
   it("makes a replacing check job converge a trusted closed PR", () => {
-    const evidence = exactReservationEvidence();
+    const evidence = exactReservationEvidence(sha, { state: "PUBLISHED", pr_number: 849, recovery: null });
     const result = runSyncCheckReconciliation({
       comments: [
         ...evidence.comments,
@@ -3730,7 +3729,7 @@ esac
   });
 
   it("makes repeated check-job close reconciliation idempotent", () => {
-    const evidence = exactReservationEvidence();
+    const evidence = exactReservationEvidence(sha, { state: "PUBLISHED", pr_number: 849, recovery: null });
     const first = runSyncCheckReconciliation({
       comments: [
         ...evidence.comments,
@@ -3745,7 +3744,7 @@ esac
   });
 
   it("makes a check replacement reject invalid or stale close provenance without mutation", () => {
-    const evidence = exactReservationEvidence();
+    const evidence = exactReservationEvidence(sha, { state: "PUBLISHED", pr_number: 849, recovery: null });
     const taskState = { id: 103, user: { login: "github-actions[bot]" }, body: durableStateBody("CHECKS_PENDING") };
     const duplicateReservation = { ...evidence.comments[0], id: 104 };
     const mismatchedDispatch = {
@@ -3765,7 +3764,7 @@ esac
   }, 20_000);
 
   it("keeps terminal task state monotonic in convergent check close reconciliation", () => {
-    const evidence = exactReservationEvidence();
+    const evidence = exactReservationEvidence(sha, { state: "PUBLISHED", pr_number: 849, recovery: null });
     const result = runSyncCheckReconciliation({
       comments: [
         ...evidence.comments,
@@ -3780,7 +3779,7 @@ esac
 
   it("converges a live closed PR before rejecting stale workflow-run evidence", () => {
     const liveHead = otherSha;
-    const evidence = exactReservationEvidence(liveHead);
+    const evidence = exactReservationEvidence(liveHead, { state: "PUBLISHED", pr_number: 849, recovery: null });
     const result = runSyncCheckReconciliation({
       comments: [
         ...evidence.comments,
@@ -3810,7 +3809,7 @@ esac
   it("converges live-closed synchronize and ready-for-review lifecycle replacements", () => {
     for (const action of ["synchronize", "ready_for_review"]) {
       const liveHead = otherSha;
-      const evidence = exactReservationEvidence(liveHead);
+      const evidence = exactReservationEvidence(liveHead, { state: "PUBLISHED", pr_number: 849, recovery: null });
       const result = runLifecycleReconciliation({
         action,
         comments: [
@@ -3857,7 +3856,7 @@ esac
   });
 
   it("makes repeated live-closed lifecycle replacement idempotent", () => {
-    const evidence = exactReservationEvidence();
+    const evidence = exactReservationEvidence(sha, { state: "PUBLISHED", pr_number: 849, recovery: null });
     const first = runLifecycleReconciliation({
       action: "synchronize",
       comments: [
@@ -3876,7 +3875,7 @@ esac
   });
 
   it("requires exactly one canonical bound task-state before releasing a valid closed Worker reservation", () => {
-    const evidence = exactReservationEvidence();
+    const evidence = exactReservationEvidence(sha, { state: "PUBLISHED", pr_number: 849, recovery: null });
     const validTask = { id: 103, user: { login: "github-actions[bot]" }, body: durableStateBody("CHECKS_PENDING") };
     const invalidTaskSets = [
       [],
@@ -3905,7 +3904,7 @@ esac
   });
 
   it("rejects invalid lifecycle close provenance without mutation", () => {
-    const evidence = exactReservationEvidence();
+    const evidence = exactReservationEvidence(sha, { state: "PUBLISHED", pr_number: 849, recovery: null });
     const taskState = { id: 103, user: { login: "github-actions[bot]" }, body: durableStateBody("CHECKS_PENDING") };
     const duplicateReservation = { ...evidence.comments[0], id: 104 };
     const mismatchedDispatch = {

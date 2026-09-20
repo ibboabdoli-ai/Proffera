@@ -57,7 +57,7 @@ describe("Supervisor control-plane v2", () => {
     expect(helper).toContain('AUTOPILOT_ENABLE_LABEL = "supervisor-autopilot-enabled"');
     expect(helper).toContain('"autopilot_kill_switch_off"');
     expect(handoff).toContain("validate-state");
-    expect(handoff).toContain("Refused read-only: canonical task-state binding is invalid");
+    expect(handoff).toContain("canonical task-state record is malformed or ambiguous");
     expect(handoff).toContain("Refused read-only: duplicate canonical task-state records exist for $task_id");
   });
 
