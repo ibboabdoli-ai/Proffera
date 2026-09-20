@@ -61,6 +61,17 @@ function blockedSoleTraderProfile() {
   };
 }
 
+function claimedSoleTraderProfile(hasSafeOwnerServiceBase: boolean) {
+  return {
+    ...blockedSoleTraderProfile(),
+    publication_status: "claimed",
+    privacy_blocked: false,
+    auto_public_eligible: true,
+    published_at: "2026-09-20T05:00:00.000Z",
+    has_safe_owner_service_base: hasSafeOwnerServiceBase,
+  };
+}
+
 function claimedManualReview() {
   return {
     status: "claimed",
@@ -165,6 +176,31 @@ describe("sole-trader Marketplace privacy release", () => {
     expect(state.directoryServices).toEqual([
       { slug: "fonsterputsning", label: "Fönsterputsning" },
     ]);
+  });
+
+  it("does not offer Marketplace activation for a claimed sole trader after owner service-base authority becomes unsafe", async () => {
+    const queries: string[] = [];
+    const sql = vi.fn(async (strings: TemplateStringsArray) => {
+      const query = queryText(strings);
+      queries.push(query);
+      if (query.startsWith("insert into workspace_services")) return [];
+      if (query.includes("select profile.id::text") && query.includes("from company_directory_profiles profile")) {
+        return [claimedSoleTraderProfile(false)];
+      }
+      if (query.includes("claim.status in ('pending', 'verified')")) return [];
+      if (query.includes("claim.status = 'claimed'") && query.includes("claim.profile_id")) {
+        return [{ status: "claimed", verification_method: "manual_review" }];
+      }
+      return [];
+    });
+    mocks.getSql.mockReturnValue(sql);
+
+    const state = await getProviderActivationState();
+
+    expect(state.linkedProfile).toEqual(expect.objectContaining({ id: PROFILE_ID, slug: "" }));
+    expect(state.directoryServices).toEqual([]);
+    expect(queries[0]).toContain("profile.organization_kind <> 'sole_trader'");
+    expect(queries[0]).toContain("owner_base.purpose = 'service_base'");
   });
 
   it("keeps pending-claim reporting separate from release eligibility", async () => {
@@ -285,6 +321,41 @@ describe("sole-trader Marketplace privacy release", () => {
 
     expect(mocks.invalidateByProfileId).toHaveBeenCalledWith(PROFILE_ID);
     expect(mocks.invalidateMarketplace).toHaveBeenCalledTimes(1);
+  });
+
+  it("rechecks owner service-base authority for later claimed sole-trader activations", async () => {
+    const queries: string[] = [];
+    const sql = vi.fn(async (strings: TemplateStringsArray) => {
+      const query = queryText(strings);
+      queries.push(query);
+      if (query.includes("select service.id::text") && query.includes("from workspace_services service")) {
+        return [{
+          id: SERVICE_ID,
+          name: "Fönsterputs",
+          previous_directory_service_slug: null,
+          profile_id: PROFILE_ID,
+          has_existing_relation: false,
+          requires_privacy_release: false,
+        }];
+      }
+      if (query.startsWith("with service_guard as")) return [];
+      return [];
+    });
+    mocks.getSql.mockReturnValue(sql);
+
+    await expect(activateProviderMarketplaceService({
+      serviceId: SERVICE_ID,
+      directoryServiceSlug: "fonsterputsning",
+      conversionMode: "quote",
+      radiusKm: 25,
+    })).rejects.toThrow("service_update");
+
+    expect(queries[0]).toContain("profile.organization_kind <> 'sole_trader'");
+    expect(queries[0]).toContain("owner_base.purpose = 'service_base'");
+    expect(queries[1]).toContain("profile.organization_kind <> 'sole_trader'");
+    expect(queries[1]).toContain("owner_base.purpose = 'service_base'");
+    expect(mocks.invalidateByProfileId).not.toHaveBeenCalled();
+    expect(mocks.invalidateMarketplace).not.toHaveBeenCalled();
   });
 
   it("cannot report release when the required owner service-base authority is missing", async () => {

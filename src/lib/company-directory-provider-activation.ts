@@ -178,6 +178,26 @@ export async function getProviderActivationState(): Promise<ProviderActivationSt
       and profile.privacy_blocked = false
       and profile.auto_public_eligible = true
       and profile.published_at is not null
+      and (
+        profile.organization_kind <> 'sole_trader'
+        or exists (
+          select 1
+          from company_directory_profile_locations owner_base
+          where owner_base.profile_id = profile.id
+            and owner_base.owner_workspace_id = ${access.workspaceId}::uuid
+            and owner_base.source_type = 'owner'
+            and owner_base.purpose = 'service_base'
+            and owner_base.visibility = 'private'
+            and owner_base.is_primary = true
+            and owner_base.is_active = true
+            and owner_base.confirmed_at is not null
+            and owner_base.geocode_source = 'lantmateriet_belagenhetsadress_v4_2'
+            and owner_base.geocode_precision = 'address'
+            and owner_base.latitude is not null and owner_base.longitude is not null
+            and not (owner_base.latitude = 0 and owner_base.longitude = 0)
+            and lower(btrim(owner_base.city)) = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
+        )
+      )
       and not exists (
         select 1
         from workspace_services existing
@@ -209,7 +229,24 @@ export async function getProviderActivationState(): Promise<ProviderActivationSt
         profile.privacy_blocked,
         profile.auto_public_eligible,
         profile.official_source,
-        profile.published_at
+        profile.published_at,
+        exists (
+          select 1
+          from company_directory_profile_locations owner_base
+          where owner_base.profile_id = profile.id
+            and owner_base.owner_workspace_id = ${access.workspaceId}::uuid
+            and owner_base.source_type = 'owner'
+            and owner_base.purpose = 'service_base'
+            and owner_base.visibility = 'private'
+            and owner_base.is_primary = true
+            and owner_base.is_active = true
+            and owner_base.confirmed_at is not null
+            and owner_base.geocode_source = 'lantmateriet_belagenhetsadress_v4_2'
+            and owner_base.geocode_precision = 'address'
+            and owner_base.latitude is not null and owner_base.longitude is not null
+            and not (owner_base.latitude = 0 and owner_base.longitude = 0)
+            and lower(btrim(owner_base.city)) = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
+        ) as has_safe_owner_service_base
       from company_directory_profiles profile
       where profile.claimed_workspace_id = ${access.workspaceId}::uuid
       order by
@@ -252,7 +289,11 @@ export async function getProviderActivationState(): Promise<ProviderActivationSt
       `
     : [];
   const releaseClaim = releaseClaimRows[0];
-  const profileCanOpenPublicPage = providerProfileCanOpenPublicPage(profile);
+  const profileCanOpenPublicPage = providerProfileCanOpenPublicPage(profile)
+    && (
+      String(profile?.organization_kind ?? "") !== "sole_trader"
+      || Boolean(profile?.has_safe_owner_service_base)
+    );
   const soleTraderCanRelease = providerSoleTraderProfileCanReleaseMarketplace(profile, releaseClaim);
   const profileCanOfferMarketplace = profileCanOpenPublicPage || soleTraderCanRelease;
   const linkedProfile = profile
@@ -410,6 +451,26 @@ export async function activateProviderMarketplaceService(input: {
          and profile.privacy_blocked = false
          and profile.auto_public_eligible = true
          and profile.published_at is not null
+         and (
+           profile.organization_kind <> 'sole_trader'
+           or exists (
+             select 1
+             from company_directory_profile_locations owner_base
+             where owner_base.profile_id = profile.id
+               and owner_base.owner_workspace_id = ${access.workspaceId}::uuid
+               and owner_base.source_type = 'owner'
+               and owner_base.purpose = 'service_base'
+               and owner_base.visibility = 'private'
+               and owner_base.is_primary = true
+               and owner_base.is_active = true
+               and owner_base.confirmed_at is not null
+               and owner_base.geocode_source = 'lantmateriet_belagenhetsadress_v4_2'
+               and owner_base.geocode_precision = 'address'
+               and owner_base.latitude is not null and owner_base.longitude is not null
+               and not (owner_base.latitude = 0 and owner_base.longitude = 0)
+               and lower(btrim(owner_base.city)) = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
+           )
+         )
        )
        or (
          profile.organization_kind = 'sole_trader'
@@ -524,6 +585,27 @@ export async function activateProviderMarketplaceService(input: {
             and profile.privacy_blocked = false
             and profile.auto_public_eligible = true
             and profile.published_at is not null
+            and (
+              profile.organization_kind <> 'sole_trader'
+              or exists (
+                select 1
+                from company_directory_profile_locations owner_base
+                where owner_base.profile_id = profile.id
+                  and owner_base.owner_workspace_id = ${access.workspaceId}::uuid
+                  and owner_base.source_type = 'owner'
+                  and owner_base.purpose = 'service_base'
+                  and owner_base.visibility = 'private'
+                  and owner_base.is_primary = true
+                  and owner_base.is_active = true
+                  and owner_base.confirmed_at is not null
+                  and owner_base.geocode_source = 'lantmateriet_belagenhetsadress_v4_2'
+                  and owner_base.geocode_precision = 'address'
+                  and owner_base.latitude is not null and owner_base.longitude is not null
+                  and not (owner_base.latitude = 0 and owner_base.longitude = 0)
+                  and lower(btrim(owner_base.city)) = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
+                for update
+              )
+            )
           )
           or (
             ${requiresPrivacyRelease} = true
