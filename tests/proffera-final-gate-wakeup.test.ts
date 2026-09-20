@@ -299,11 +299,11 @@ describe("event-driven final review gate", () => {
     expect(wakeup).not.toContain("sleep ");
     expect(wakeup).not.toContain("seq 1");
 
-    expect(automerge).toContain("Final exact-head review is complete for");
-    expect(automerge).toContain("I found no issues.");
-    expect(automerge).toContain("<!-- CodeRabbit review command invocation: v2:");
-    expect(automerge).toContain("clean exact-head completion comment");
-    expect(automerge).toContain("clean comments cannot clear them");
+    expect(automerge).toContain("workflow_run:");
+    expect(automerge).toContain("workflows: [CI, Security review regressions]");
+    expect(automerge).toContain("E2E public smoke");
+    expect(automerge).not.toContain("pull_request_review:");
+    expect(automerge).not.toContain("issue_comment:");
   });
 
   it("wakes for trusted current-head CodeRabbit clean completion comments and rejects spoofed or stale clean evidence", () => {
