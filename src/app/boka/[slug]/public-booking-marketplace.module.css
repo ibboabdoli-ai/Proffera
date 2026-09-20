@@ -176,7 +176,7 @@
   justify-content: center;
   margin-top: 17px;
   border-radius: 8px;
-  background: var(--booking-primary);
+  background: var(--booking-primary, #17452f);
   padding: 0 13px;
   color: var(--booking-primary-text, #fff);
   font-size: .72rem;
