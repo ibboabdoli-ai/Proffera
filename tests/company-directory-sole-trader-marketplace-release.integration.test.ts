@@ -187,6 +187,27 @@ function postgresSql(client: Client) {
         create unique index company_directory_service_areas_service_unique_idx
           on company_directory_service_areas (profile_id, service_slug)
           where service_slug is not null;
+        create table company_directory_profile_locations (
+          id uuid primary key default gen_random_uuid(),
+          profile_id uuid not null,
+          owner_workspace_id uuid,
+          purpose text not null,
+          visibility text not null default 'private',
+          is_visitable boolean not null default false,
+          is_primary boolean not null default false,
+          is_active boolean not null default true,
+          source_type text not null,
+          address_line1 text not null default '',
+          postal_code text not null default '',
+          city text not null default '',
+          municipality text not null default '',
+          latitude numeric(9,6), longitude numeric(9,6),
+          geocode_source text not null default '',
+          geocode_precision text not null default 'unknown',
+          confirmed_at timestamptz,
+          created_at timestamptz not null default now(),
+          updated_at timestamptz not null default now()
+        );
       `);
     }, 120_000);
 
@@ -218,6 +239,7 @@ function postgresSql(client: Client) {
 
       await client!.query(`
         truncate table company_directory_service_areas,
+          company_directory_profile_locations,
           company_directory_profile_services,
           company_directory_claims,
           workspace_services,
@@ -254,6 +276,17 @@ function postgresSql(client: Client) {
           id, workspace_id, name, is_active, public_status, conversion_mode
         ) values ($1::uuid, $2::uuid, 'Fönsterputs', true, 'draft', 'quote')
       `, [SERVICE_ID, WORKSPACE_ID]);
+      await client!.query(`
+        insert into company_directory_profile_locations (
+          profile_id, owner_workspace_id, purpose, visibility, is_visitable, is_primary,
+          is_active, source_type, address_line1, postal_code, city, municipality,
+          latitude, longitude, geocode_source, geocode_precision, confirmed_at
+        ) values (
+          $1::uuid, $2::uuid, 'service_base', 'private', true, true,
+          true, 'owner', 'Industrivägen 2', '151 00', 'Södertälje', '',
+          59.1955, 17.6253, 'lantmateriet_belagenhetsadress_v4_2', 'address', now()
+        )
+      `, [PROFILE_ID, WORKSPACE_ID]);
     });
 
     it("keeps fixture columns aligned with canonical Marketplace migrations", async () => {
@@ -406,6 +439,32 @@ function postgresSql(client: Client) {
       const service = await client!.query<{ public_status: string }>(`
         select public_status from workspace_services where id = $1::uuid
       `, [SERVICE_ID]);
+      expect(service.rows[0]?.public_status).toBe("draft");
+    }, 30_000);
+
+    it.each([
+      ["missing", "delete from company_directory_profile_locations where profile_id = $1::uuid"],
+      ["outside pilot", "update company_directory_profile_locations set city = 'Uppsala' where profile_id = $1::uuid"],
+      ["unverified", "update company_directory_profile_locations set geocode_source = 'caller' where profile_id = $1::uuid"],
+    ])("fails closed when owner service-base authority is %s", async (_case, mutation) => {
+      await client!.query(mutation, [PROFILE_ID]);
+
+      await expect(activateProviderMarketplaceService({
+        serviceId: SERVICE_ID,
+        directoryServiceSlug: TARGET_SLUG,
+        conversionMode: "quote",
+        radiusKm: 25,
+      })).rejects.toThrow("service_not_eligible");
+
+      const profile = await client!.query<{ publication_status: string }>(
+        "select publication_status from company_directory_profiles where id = $1::uuid",
+        [PROFILE_ID],
+      );
+      const service = await client!.query<{ public_status: string }>(
+        "select public_status from workspace_services where id = $1::uuid",
+        [SERVICE_ID],
+      );
+      expect(profile.rows[0]?.publication_status).toBe("blocked");
       expect(service.rows[0]?.public_status).toBe("draft");
     }, 30_000);
 
