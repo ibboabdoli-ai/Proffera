@@ -60,7 +60,7 @@ describe("Supervisor control-plane v2", () => {
     expect(planner).toContain("planner_workflow_ref");
     expect(planner).toContain("uses: ./.github/workflows/supervisor-worker-handoff.yml");
     expect(planner).not.toContain("gh workflow run supervisor-worker-handoff.yml");
-    expect(planner).toContain("active_state_ids");
+    expect(planner).toContain("active_reservation_ids");
     expect(planner).toContain("active_pr_ids");
     expect(planner).toContain("sort -u");
     expect(planner).not.toContain("PROFFERA_AUTOFIX_PUSH_TOKEN");
