@@ -58,7 +58,7 @@ async function cancelBooking(formData: FormData) {
   if (result.ok) revalidatePath(`/mina-bokningar/${token}`);
 }
 
-function BookingCard({
+export function BookingCard({
   booking, token, timeZone, canReschedule, canCancel, cancelNoticeHours, language,
 }: {
   booking: CustomerCalendarBooking;
