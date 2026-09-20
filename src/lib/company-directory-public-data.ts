@@ -234,8 +234,44 @@ async function getPublishedDirectoryContact(business: PublicDirectoryBusiness) {
     from company_directory_profiles
     where id = ${business.id}::uuid
       and publication_status = 'published'
+      and organization_kind = 'juridical_person'
       and privacy_blocked = false
       and auto_public_eligible = true
+      and exists (
+        select 1
+        from company_directory_official_facts published_facts
+        join company_directory_scb_enrichment published_scb
+          on published_scb.profile_id = published_facts.profile_id
+        where published_facts.profile_id = company_directory_profiles.id
+          and published_facts.source_payload_hash <> ''
+          and published_facts.last_synced_at >= company_directory_profiles.last_synced_at
+          and published_facts.deregistration_date is null
+          and coalesce(published_facts.advertising_blocked, false) = false
+          and (
+            case
+              when jsonb_typeof(published_facts.ongoing_procedures) = 'array'
+                then jsonb_array_length(published_facts.ongoing_procedures)
+              else 1
+            end
+          ) = 0
+          and published_scb.source_payload_hash <> ''
+          and published_scb.last_synced_at >= now() - interval '7 days'
+          and published_scb.last_synced_at >= company_directory_profiles.last_synced_at
+          and published_scb.provenance #>> '{comparisonSnapshot,profileUpdatedToken}' = company_directory_profiles.updated_at::text
+          and published_scb.provenance #>> '{comparisonSnapshot,officialFactsLastSyncedToken}' = published_facts.last_synced_at::text
+          and jsonb_typeof(published_scb.conflicts) = 'array'
+          and jsonb_array_length(published_scb.conflicts) = 0
+          and jsonb_typeof(published_scb.workplaces) = 'array'
+          and jsonb_array_length(published_scb.workplaces) = 1
+          and nullif(btrim(published_scb.workplaces->0->'visitingAddress'->>'addressLine'), '') is not null
+          and nullif(btrim(published_scb.workplaces->0->'visitingAddress'->>'postalCode'), '') is not null
+          and nullif(btrim(published_scb.workplaces->0->'visitingAddress'->>'city'), '') is not null
+          and nullif(btrim(published_scb.workplaces->0->>'municipality'), '') is not null
+          and (
+            lower(btrim(published_scb.workplaces->0->'visitingAddress'->>'city')) = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
+            or lower(btrim(published_scb.workplaces->0->>'municipality')) = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
+          )
+      )
     limit 1
   `;
   const row = rows[0];
