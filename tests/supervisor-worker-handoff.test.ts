@@ -4126,7 +4126,7 @@ esac
     expect(reconcile).toContain('--arg expected_run_id "$RUN_ID"');
     expect(reconcile).toContain('test "$snapshot_finalized" = "true"');
     expect(reconcile).toContain('test "$head_sha" != "$BASE_SHA"');
-    expect(reconcile).toContain('test "$(jq -c '.paths | sort' <<< "$recovery_validation")" = "$reserved_paths"');
+    expect(reconcile).toContain("test \"$(jq -c '.paths | sort' <<< \"$recovery_validation\")\" = \"$reserved_paths\"");
     const digestCheck = reconcile.indexOf('test "$actual_recovery_digest" = "$recovery_digest"');
     const validation = reconcile.indexOf('node "$helper" validate-publication');
     const recoverableArtifact = reconcile.indexOf('.recovery={kind:"artifact",digest:$digest,expires_at:$expires}');
@@ -4138,7 +4138,7 @@ esac
     expect(markRecoverable).toContain("snapshot_finalized == true");
     expect(markRecoverable).toContain("target_tree_sha");
     expect(markRecoverable).toContain('node "$helper" validate-publication');
-    expect(markRecoverable).toContain('test "$(jq -c '.paths | sort' <<< "$validation")" = "$reserved_paths"');
+    expect(markRecoverable).toContain("test \"$(jq -c '.paths | sort' <<< \"$validation\")\" = \"$reserved_paths\"");
     const finalize = workflowRunStep(workflow, "Finalize reserved Worker snapshot before publication");
     expect(finalize).toContain('target_tree_sha="$(git rev-parse HEAD^{tree})"');
     expect(finalize).toContain(".target_tree_sha=$target_tree_sha");
