@@ -37,6 +37,7 @@ function guestRow(overrides: Record<string, unknown> = {}) {
     recipient_suppressed: false,
     quote_status: "submitted",
     offer_status: null,
+    has_current_authority: true,
     display_name: "Rör AB",
     public_slug: "ror-ab",
     reference_id: "PF-1234",
@@ -76,6 +77,21 @@ describe("marketplace guest human-view tracking", () => {
     expect(sql).toHaveBeenCalledTimes(1);
     expect(queryText(sql.mock.calls[0])).toContain("where i.token_hash =");
     expect(sql.mock.calls.some((call) => queryText(call).includes("set status = 'viewed'"))).toBe(false);
+  });
+
+  it("revokes an active guest link when workplace authority is no longer current", async () => {
+    const sql = vi.fn()
+      .mockResolvedValueOnce([guestRow({ has_current_authority: false })])
+      .mockResolvedValueOnce([]);
+    mocks.getSql.mockReturnValue(sql);
+
+    const view = await getMarketplaceGuestQuoteView("a".repeat(40));
+
+    expect(view).toBeNull();
+    expect(sql).toHaveBeenCalledTimes(2);
+    expect(queryText(sql.mock.calls[0])).toContain("authority_scb.last_synced_at >= now() - interval '7 days'");
+    expect(queryText(sql.mock.calls[1])).toContain("set status = 'cancelled'");
+    expect(queryText(sql.mock.calls[1])).toContain("token_hash = encode(digest");
   });
 
   it("unlocks customer contact only for the selected winner after the request closes", async () => {
