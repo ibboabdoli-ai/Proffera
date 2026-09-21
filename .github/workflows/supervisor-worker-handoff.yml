@@ -2056,12 +2056,20 @@ jobs:
           test "$(jq -r '.branch // ""' <<< "$payload")" = "$BRANCH"
           test "$(jq -r '.packet_digest // ""' <<< "$payload")" = "$packet_digest"
           state="$(jq -r '.state // ""' <<< "$payload")"
+          recovery_kind="$(jq -r '.recovery.kind // ""' <<< "$payload")"
           case "$state" in
             RELEASED)
-              echo "Reservation already converged to RELEASED; fallback cleanup is idempotent."
-              release_mutex
-              trap - EXIT
-              exit 0
+              case "$recovery_kind" in
+                retargeted_pr|closed_pr)
+                  echo "Reservation is already RELEASED with exceptional PR provenance; verifying task convergence before treating cleanup as complete."
+                  ;;
+                *)
+                  echo "Reservation already converged to RELEASED; fallback cleanup is idempotent."
+                  release_mutex
+                  trap - EXIT
+                  exit 0
+                  ;;
+              esac
               ;;
             RESERVED|PUBLISHED|RECOVERABLE) ;;
             *)
@@ -2128,10 +2136,16 @@ jobs:
           }
 
           converge_exceptional_exact_pr() {
-            local expected_class expected_number expected_base terminal_state reason next_task_json next_task_body next_payload payload_b64 next_reservation_body merged_for_main
+            local expected_class expected_number expected_base terminal_state reason next_task_json next_task_body next_payload payload_b64 next_reservation_body merged_for_main current_task_body current_reservation_body task_converged reservation_converged
             refresh_exact_cleanup_pr || return 1
             expected_class="$exact_pr_class"; expected_number="$exact_pr_number"; expected_base="$exact_pr_base"
-            if [ "$expected_class" = "none" ] || [ "$expected_class" = "main_open" ]; then return 10; fi
+            if [ "$expected_class" = "none" ] || [ "$expected_class" = "main_open" ]; then
+              if [ "$state" = "RELEASED" ] && { [ "$recovery_kind" = "retargeted_pr" ] || [ "$recovery_kind" = "closed_pr" ]; }; then
+                echo "Exceptional reservation is already RELEASED and live PR evidence no longer requires cleanup mutation."
+                release_mutex; trap - EXIT; exit 0
+              fi
+              return 10
+            fi
             validate_task_before_exceptional_convergence || return 1
             if [ "$expected_class" = "retargeted_open" ] && { [ "$exceptional_task_state" = "MERGED" ] || [ "$exceptional_task_state" = "CLOSED_UNMERGED" ]; }; then
               echo "Refused: a live retargeted PR conflicts with terminal task state $exceptional_task_state." >&2
@@ -2158,20 +2172,57 @@ jobs:
             payload_b64="$(printf '%s' "$next_payload" | base64 -w0)"
             next_reservation_body="$(printf '%s\n' "<!-- proffera-worker-slot-reservation:${TASK_ID} -->" "### Worker slot reservation: ${TASK_ID}" "- State: \`RELEASED\`" "- Reservation payload: \`${payload_b64}\`")"
 
-            [ "$(gh api "repos/${REPOSITORY}/issues/comments/${RESERVATION_COMMENT_ID}" --jq '.body // ""')" = "$reservation_body" ] || return 1
-            [ "$(gh api "repos/${REPOSITORY}/issues/comments/${STATE_COMMENT_ID}" --jq '.body // ""')" = "$exceptional_task_body_before" ] || return 1
-            refresh_exact_cleanup_pr || return 1
-            [ "$exact_pr_class" = "$expected_class" ] && [ "$exact_pr_number" = "$expected_number" ] && [ "$exact_pr_base" = "$expected_base" ] || return 1
+            current_task_body="$(gh api "repos/${REPOSITORY}/issues/comments/${STATE_COMMENT_ID}" --jq '.body // ""')"
+            current_reservation_body="$(gh api "repos/${REPOSITORY}/issues/comments/${RESERVATION_COMMENT_ID}" --jq '.body // ""')"
+            if [ "$current_task_body" = "$next_task_body" ]; then
+              task_converged=true
+            elif [ "$current_task_body" = "$exceptional_task_body_before" ]; then
+              task_converged=false
+            else
+              echo "Refused: exceptional task evidence changed before convergence." >&2
+              return 1
+            fi
+            if [ "$current_reservation_body" = "$next_reservation_body" ]; then
+              reservation_converged=true
+            elif [ "$current_reservation_body" = "$reservation_body" ]; then
+              reservation_converged=false
+            else
+              echo "Refused: exceptional reservation evidence changed before convergence." >&2
+              return 1
+            fi
 
-            gh api --method PATCH "repos/${REPOSITORY}/issues/comments/${STATE_COMMENT_ID}" -f body="$next_task_body" >/dev/null
-            [ "$(gh api "repos/${REPOSITORY}/issues/comments/${STATE_COMMENT_ID}" --jq '.body // ""')" = "$next_task_body" ] || return 1
-            [ "$(gh api "repos/${REPOSITORY}/issues/comments/${RESERVATION_COMMENT_ID}" --jq '.body // ""')" = "$reservation_body" ] || return 1
-            refresh_exact_cleanup_pr || return 1
-            [ "$exact_pr_class" = "$expected_class" ] && [ "$exact_pr_number" = "$expected_number" ] && [ "$exact_pr_base" = "$expected_base" ] || return 1
+            if [ "$reservation_converged" != "true" ]; then
+              if [ "$task_converged" != "true" ]; then
+                [ "$(gh api "repos/${REPOSITORY}/issues/comments/${RESERVATION_COMMENT_ID}" --jq '.body // ""')" = "$reservation_body" ] || return 1
+                [ "$(gh api "repos/${REPOSITORY}/issues/comments/${STATE_COMMENT_ID}" --jq '.body // ""')" = "$exceptional_task_body_before" ] || return 1
+                refresh_exact_cleanup_pr || return 1
+                [ "$exact_pr_class" = "$expected_class" ] && [ "$exact_pr_number" = "$expected_number" ] && [ "$exact_pr_base" = "$expected_base" ] || return 1
 
-            gh api --method PATCH "repos/${REPOSITORY}/issues/comments/${RESERVATION_COMMENT_ID}" -f body="$next_reservation_body" >/dev/null
+                gh api --method PATCH "repos/${REPOSITORY}/issues/comments/${STATE_COMMENT_ID}" -f body="$next_task_body" >/dev/null
+                task_converged=true
+              fi
+
+              [ "$(gh api "repos/${REPOSITORY}/issues/comments/${STATE_COMMENT_ID}" --jq '.body // ""')" = "$next_task_body" ] || return 1
+              [ "$(gh api "repos/${REPOSITORY}/issues/comments/${RESERVATION_COMMENT_ID}" --jq '.body // ""')" = "$reservation_body" ] || return 1
+              refresh_exact_cleanup_pr || return 1
+              [ "$exact_pr_class" = "$expected_class" ] && [ "$exact_pr_number" = "$expected_number" ] && [ "$exact_pr_base" = "$expected_base" ] || return 1
+
+              gh api --method PATCH "repos/${REPOSITORY}/issues/comments/${RESERVATION_COMMENT_ID}" -f body="$next_reservation_body" >/dev/null
+              reservation_converged=true
+            elif [ "$task_converged" != "true" ]; then
+              [ "$(gh api "repos/${REPOSITORY}/issues/comments/${RESERVATION_COMMENT_ID}" --jq '.body // ""')" = "$next_reservation_body" ] || return 1
+              [ "$(gh api "repos/${REPOSITORY}/issues/comments/${STATE_COMMENT_ID}" --jq '.body // ""')" = "$exceptional_task_body_before" ] || return 1
+              refresh_exact_cleanup_pr || return 1
+              [ "$exact_pr_class" = "$expected_class" ] && [ "$exact_pr_number" = "$expected_number" ] && [ "$exact_pr_base" = "$expected_base" ] || return 1
+
+              gh api --method PATCH "repos/${REPOSITORY}/issues/comments/${STATE_COMMENT_ID}" -f body="$next_task_body" >/dev/null
+              task_converged=true
+            fi
+
             [ "$(gh api "repos/${REPOSITORY}/issues/comments/${STATE_COMMENT_ID}" --jq '.body // ""')" = "$next_task_body" ] || return 1
             [ "$(gh api "repos/${REPOSITORY}/issues/comments/${RESERVATION_COMMENT_ID}" --jq '.body // ""')" = "$next_reservation_body" ] || return 1
+            refresh_exact_cleanup_pr || return 1
+            [ "$exact_pr_class" = "$expected_class" ] && [ "$exact_pr_number" = "$expected_number" ] && [ "$exact_pr_base" = "$expected_base" ] || return 1
             echo "Fallback cleanup converged exact PR #${expected_number} from ${expected_class} to a provenance-preserving RELEASED reservation."
             release_mutex; trap - EXIT; exit 0
           }
