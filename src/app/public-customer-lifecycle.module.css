@@ -286,8 +286,9 @@
 .starButton:focus-visible,
 .input:focus-visible,
 .textarea:focus-visible {
-  outline: 3px solid rgba(20, 105, 216, 0.24);
+  outline: 3px solid #fff;
   outline-offset: 2px;
+  box-shadow: 0 0 0 5px #0f58b8;
 }
 
 .actions {
