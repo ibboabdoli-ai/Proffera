@@ -578,7 +578,7 @@ function runFallbackCleanup({
   taskState?: "WORKER_BLOCKED" | "CHECKS_PENDING";
   failReservationReleaseOnce?: boolean;
   rerunAfterFailure?: boolean;
-  mutationAfterTaskPatch?: "task" | "base" | "head" | "state" | null;
+  mutationAfterTaskPatch?: "task" | "base" | "head" | "state" | "merged" | null;
 } = {}) {
   const workflow = source(".github/workflows/supervisor-worker-handoff.yml");
   const script = workflowRunStep(workflow, "Reconcile exact stranded reservation after publish setup failure");
@@ -688,6 +688,10 @@ if (method === "PATCH" && commentMatch) {
     if (state.mutationAfterTaskPatch === "base") state.pr.base.ref = "release/moved";
     if (state.mutationAfterTaskPatch === "head") state.pr.head.sha = "b".repeat(40);
     if (state.mutationAfterTaskPatch === "state") state.pr.state = "closed";
+    if (state.mutationAfterTaskPatch === "merged") {
+      state.pr.state = "closed";
+      state.pr.merged = true;
+    }
   }
   save();
   process.stdout.write("{}\\n");
@@ -4488,6 +4492,36 @@ esac
     expect(result.status).not.toBe(0);
     expect(commentPatchCalls(result.calls, 101)).toHaveLength(0);
     expect(String(result.comments.find((comment) => comment.id === 101)?.body ?? "")).toContain("- State: `PUBLISHED`");
+  });
+
+  it("revalidates merged status between exceptional writes and resumes once closed-PR evidence stabilizes", () => {
+    const result = runFallbackCleanup({
+      prBase: "release/other",
+      prState: "closed",
+      prMerged: false,
+      reservationState: "PUBLISHED",
+      taskState: "CHECKS_PENDING",
+      mutationAfterTaskPatch: "merged",
+      rerunAfterFailure: true,
+    });
+    expect(result.firstRun.status).not.toBe(0);
+    expect(result.secondRun?.status, result.secondRun?.stderr).toBe(0);
+    expect(commentPatchCalls(result.calls, 99)).toHaveLength(2);
+    expect(commentPatchCalls(result.calls, 101)).toHaveLength(1);
+
+    const reservationBody = String(result.comments.find((comment) => comment.id === 101)?.body ?? "");
+    expect(reservationBody).toContain("- State: `RELEASED`");
+    const payload = JSON.parse(Buffer.from(reservationBody.match(/Reservation payload: `([^`]+)`/)![1], "base64").toString());
+    expect(payload).toMatchObject({
+      state: "RELEASED",
+      pr_number: 900,
+      head_sha: sha,
+      recovery: { kind: "closed_pr", merged: true, reservation_head_sha: sha },
+    });
+    const taskBody = String(result.comments.find((comment) => comment.id === 99)?.body ?? "");
+    expect(taskBody).toContain("- State: `MERGED`");
+    expect(taskBody).toContain("- PR: #900");
+    expect(taskBody).toContain(`- Head: \`${sha}\``);
   });
 
   it("terminalizes a closed exact PR while releasing its reservation", () => {
