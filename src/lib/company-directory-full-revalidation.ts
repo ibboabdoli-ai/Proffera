@@ -1271,22 +1271,10 @@ export async function revalidateAllCompanyDirectoryBatch(
           || scbConflictCount > 0;
 
         if (claimed) {
-          try {
-            await invalidatePublicDirectoryPublicProjectionByProfileId(profileId);
-          } catch (error) {
-            console.error("Failed to invalidate public Directory cache after claimed workplace revalidation", {
-              profileId,
-              error,
-            });
-          }
-          try {
-            invalidateMarketplaceHomeCompaniesCache();
-          } catch (error) {
-            console.error("Failed to invalidate Marketplace cache after claimed workplace revalidation", {
-              profileId,
-              error,
-            });
-          }
+          // Official Facts and SCB writers invalidate the public projections
+          // only when committed authority materially changes (including a
+          // stale-to-fresh SCB transition). Avoid a second unconditional cache
+          // expiry for timestamp-only refreshes here.
           kept += 1;
           continue;
         }
