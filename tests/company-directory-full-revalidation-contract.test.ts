@@ -491,6 +491,7 @@ describe("full Company Directory revalidation", () => {
     expect(mocks.enrichOfficialFacts).toHaveBeenCalledTimes(1);
     expect(mocks.enrichScb).toHaveBeenCalledTimes(1);
     expect(sqlCalls.some((call) => call.query.includes("update company_directory_profiles profile"))).toBe(false);
+    expect(mocks.invalidateByProfileId).not.toHaveBeenCalled();
   });
 
   it("stops before starting SCB when the deadline expires during a candidate", async () => {
