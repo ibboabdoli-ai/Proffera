@@ -460,7 +460,42 @@ export async function findProviderProfileByOrganizationNumber(value: unknown): P
       profile.privacy_blocked,
       profile.auto_public_eligible,
       profile.claimed_workspace_id::text,
-      profile.claim_reservation_id::text
+      profile.claim_reservation_id::text,
+      exists (
+        select 1
+        from company_directory_official_facts facts
+        join company_directory_scb_enrichment scb
+          on scb.profile_id = facts.profile_id
+        where facts.profile_id = profile.id
+          and facts.source_payload_hash <> ''
+          and facts.last_synced_at >= profile.last_synced_at
+          and facts.deregistration_date is null
+          and coalesce(facts.advertising_blocked, false) = false
+          and (
+            case
+              when jsonb_typeof(facts.ongoing_procedures) = 'array'
+                then jsonb_array_length(facts.ongoing_procedures)
+              else 1
+            end
+          ) = 0
+          and scb.source_payload_hash <> ''
+          and scb.last_synced_at >= now() - interval '7 days'
+          and scb.last_synced_at >= profile.last_synced_at
+          and scb.provenance #>> '{comparisonSnapshot,profileUpdatedToken}' = profile.updated_at::text
+          and scb.provenance #>> '{comparisonSnapshot,officialFactsLastSyncedToken}' = facts.last_synced_at::text
+          and jsonb_typeof(scb.conflicts) = 'array'
+          and jsonb_array_length(scb.conflicts) = 0
+          and jsonb_typeof(scb.workplaces) = 'array'
+          and jsonb_array_length(scb.workplaces) = 1
+          and nullif(btrim(scb.workplaces->0->'visitingAddress'->>'addressLine'), '') is not null
+          and nullif(btrim(scb.workplaces->0->'visitingAddress'->>'postalCode'), '') is not null
+          and nullif(btrim(scb.workplaces->0->'visitingAddress'->>'city'), '') is not null
+          and nullif(btrim(scb.workplaces->0->>'municipality'), '') is not null
+          and (
+            lower(btrim(scb.workplaces->0->'visitingAddress'->>'city')) = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
+            or lower(btrim(scb.workplaces->0->>'municipality')) = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
+          )
+      ) as has_current_authority
     from company_directory_profiles profile
     where profile.country_code = 'SE'
       and profile.organization_number = ${organizationNumber}
@@ -482,6 +517,7 @@ export async function findProviderProfileByOrganizationNumber(value: unknown): P
     String(row.publication_status) !== "published"
     || !Boolean(row.is_active)
     || !Boolean(row.auto_public_eligible)
+    || !Boolean(row.has_current_authority)
     || !profileSlug
   ) {
     return { status: "not_ready" };
