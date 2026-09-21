@@ -27,16 +27,43 @@ type ElementLike = {
   props: Record<string, unknown> & { children?: unknown };
 };
 
-const failureCases = [
-  [400, "Kontrollera formuläret och försök igen."],
-  [404, "Omdömeslänken kan inte användas längre."],
-  [409, "Omdömet kan inte skickas i det här läget."],
-  [429, "För många försök. Vänta en stund och försök igen."],
-  [503, "Omdömet kunde inte sparas just nu. Försök igen senare."],
-] as const;
+type Locale = "sv" | "en";
+
+type FailedResponse = {
+  ok: false;
+  status: number;
+};
+
+const localizedFailureCases: ReadonlyArray<readonly [number, Locale, string]> = [
+  [400, "sv", "Kontrollera formuläret och försök igen."],
+  [404, "sv", "Omdömeslänken kan inte användas längre."],
+  [409, "sv", "Omdömet kan inte skickas i det här läget."],
+  [429, "sv", "För många försök. Vänta en stund och försök igen."],
+  [503, "sv", "Omdömet kunde inte sparas just nu. Försök igen senare."],
+  [400, "en", "Check the form and try again."],
+  [404, "en", "This review link can no longer be used."],
+  [409, "en", "This review cannot be submitted in its current state."],
+  [429, "en", "Too many attempts. Wait a while and try again."],
+  [503, "en", "The review could not be saved right now. Please try again later."],
+];
 
 let stateValues: unknown[];
 let stateCursor: number;
+
+function createDeferred<T>() {
+  let resolvePromise: ((value: T) => void) | null = null;
+  const promise = new Promise<T>((resolve) => {
+    resolvePromise = resolve;
+  });
+
+  return {
+    promise,
+    resolve(value: T) {
+      if (!resolvePromise) throw new Error("Deferred promise was not initialized.");
+      resolvePromise(value);
+    },
+  };
+}
 
 function isElementLike(value: unknown): value is ElementLike {
   return typeof value === "object" && value !== null && "props" in value;
@@ -62,7 +89,7 @@ function findSubmitButton(node: unknown): ElementLike | null {
   return findSubmitButton(node.props.children);
 }
 
-function renderReviewForm(): ElementLike {
+function renderReviewForm(language: Locale): ElementLike {
   stateCursor = 0;
   return VerifiedReviewForm({
     token: "review-token",
@@ -70,7 +97,7 @@ function renderReviewForm(): ElementLike {
     service: "Window cleaning",
     area: "Stockholm",
     companyName: "Nordic Fix AB",
-    language: "sv",
+    language,
     primaryColor: "#1469d8",
   }) as unknown as ElementLike;
 }
@@ -127,28 +154,40 @@ afterEach(() => {
 });
 
 describe("VerifiedReviewForm submission failures", () => {
-  it.each(failureCases)("renders the localized error for HTTP %s and re-enables submit", async (status, expectedMessage) => {
-    const fetchMock = vi.fn().mockResolvedValue({ ok: false, status });
-    vi.stubGlobal("fetch", fetchMock);
+  it.each(localizedFailureCases)(
+    "renders the %s HTTP failure in %s with pending submit protection",
+    async (status, language, expectedMessage) => {
+      const pendingResponse = createDeferred<FailedResponse>();
+      const fetchMock = vi.fn().mockReturnValue(pendingResponse.promise);
+      vi.stubGlobal("fetch", fetchMock);
 
-    const initialForm = renderReviewForm();
-    const submit = initialForm.props.onSubmit;
-    expect(typeof submit).toBe("function");
+      const initialForm = renderReviewForm(language);
+      const submit = initialForm.props.onSubmit;
+      expect(typeof submit).toBe("function");
 
-    const event = {
-      preventDefault: vi.fn(),
-      currentTarget: { reset: vi.fn() },
-    } as unknown as FormEvent<HTMLFormElement>;
+      const event = {
+        preventDefault: vi.fn(),
+        currentTarget: { reset: vi.fn() },
+      } as unknown as FormEvent<HTMLFormElement>;
 
-    await (submit as (event: FormEvent<HTMLFormElement>) => Promise<void>)(event);
+      const submitPromise = (submit as (event: FormEvent<HTMLFormElement>) => Promise<void>)(event);
 
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
 
-    const rerenderedForm = renderReviewForm();
-    expect(textContent(rerenderedForm)).toContain(expectedMessage);
+      const pendingForm = renderReviewForm(language);
+      const pendingSubmitButton = findSubmitButton(pendingForm);
+      expect(pendingSubmitButton).not.toBeNull();
+      expect(pendingSubmitButton?.props.disabled).toBe(true);
 
-    const submitButton = findSubmitButton(rerenderedForm);
-    expect(submitButton).not.toBeNull();
-    expect(submitButton?.props.disabled).toBe(false);
-  });
+      pendingResponse.resolve({ ok: false, status });
+      await submitPromise;
+
+      const rerenderedForm = renderReviewForm(language);
+      expect(textContent(rerenderedForm)).toContain(expectedMessage);
+
+      const submitButton = findSubmitButton(rerenderedForm);
+      expect(submitButton).not.toBeNull();
+      expect(submitButton?.props.disabled).toBe(false);
+    },
+  );
 });
