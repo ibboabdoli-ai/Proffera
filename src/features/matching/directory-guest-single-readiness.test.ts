@@ -1,4 +1,8 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { execFileSync } from "node:child_process";
+import { setTimeout as delay } from "node:timers/promises";
+
+import { Client } from "pg";
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { DIRECTORY_PILOT_LOCATIONS } from "@/lib/company-directory-policy";
 
 const mocks = vi.hoisted(() => ({
@@ -13,6 +17,25 @@ import { getDirectoryGuestLeadMatch } from "./directory-guest-single";
 function sqlResponses(...responses: unknown[][]) {
   let index = 0;
   return vi.fn(async () => responses[index++] ?? []);
+}
+
+const RUN_POSTGRES_INTEGRATION =
+  process.env.GITHUB_ACTIONS === "true"
+  || process.env.PROFFERA_POSTGRES_INTEGRATION === "1";
+
+function docker(args: string[]) {
+  return execFileSync("docker", args, { encoding: "utf8" }).trim();
+}
+
+function postgresSql(client: Client) {
+  return async (strings: TemplateStringsArray, ...values: unknown[]) => {
+    let query = strings[0] ?? "";
+    for (let index = 0; index < values.length; index += 1) {
+      query += `$${index + 1}${strings[index + 1] ?? ""}`;
+    }
+    const result = await client.query(query, values);
+    return result.rows as Record<string, unknown>[];
+  };
 }
 
 const leadRow = {
@@ -35,6 +58,7 @@ const workplace = {
     postalCode: "151 46",
     city: "SÖDERTÄLJE",
   },
+  municipality: "SÖDERTÄLJE",
 };
 
 const candidateRow = {
@@ -130,7 +154,7 @@ describe("single-request Marketplace readiness gate", () => {
   it.each([
     ["stale SCB evidence"],
     ["a snapshot-invalid SCB comparison"],
-  ])("fails closed when current authority is not proven because of %s", async () => {
+  ])("fails closed after retrieval when current authority is not proven because of %s", async () => {
     const sql = sqlResponses([leadRow], [], [{
       ...candidateRow,
       has_current_authority: false,
@@ -148,6 +172,9 @@ describe("single-request Marketplace readiness gate", () => {
     expect(candidateQuery).toContain("{comparisonSnapshot,profileUpdatedToken}");
     expect(candidateQuery).toContain("{comparisonSnapshot,officialFactsLastSyncedToken}");
     expect(candidateQuery).toContain("jsonb_array_length(scb.workplaces) = 1");
+    expect(candidateQuery).toContain("where has_current_authority = true");
+    expect(candidateQuery.indexOf("where has_current_authority = true"))
+      .toBeLessThan(candidateQuery.indexOf("limit 500"));
     expect(candidateCall.slice(1)).toContain(DIRECTORY_PILOT_LOCATIONS.join(","));
   });
 
@@ -175,6 +202,7 @@ describe("single-request Marketplace readiness gate", () => {
             postalCode: "118 60",
             city: "STOCKHOLM",
           },
+          municipality: "STOCKHOLM",
         },
       ],
     }]);
@@ -199,3 +227,306 @@ describe("single-request Marketplace readiness gate", () => {
     expect(result.match?.candidates).toEqual([]);
   });
 });
+
+(RUN_POSTGRES_INTEGRATION ? describe.sequential : describe.skip)(
+  "single-request Marketplace authority filtering in PostgreSQL",
+  () => {
+    let containerName = "";
+    let connectionString = "";
+    let client: Client | null = null;
+
+    async function waitForPostgres() {
+      let lastError: unknown = null;
+      for (let attempt = 0; attempt < 80; attempt += 1) {
+        const probe = new Client({ connectionString });
+        try {
+          await probe.connect();
+          await probe.query("select 1");
+          await probe.end();
+          return;
+        } catch (error) {
+          lastError = error;
+          await probe.end().catch(() => undefined);
+          await delay(500);
+        }
+      }
+      throw lastError ?? new Error("PostgreSQL test container did not become ready");
+    }
+
+    beforeAll(async () => {
+      containerName = `proffera-directory-guest-readiness-${process.pid}-${Date.now()}`;
+      docker([
+        "run", "--rm", "-d", "--name", containerName,
+        "-e", "POSTGRES_PASSWORD=postgres",
+        "-e", "POSTGRES_USER=postgres",
+        "-e", "POSTGRES_DB=proffera_test",
+        "-p", "127.0.0.1::5432",
+        "postgres:16-alpine",
+      ]);
+      const portLine = docker(["port", containerName, "5432/tcp"]).split(/\r?\n/)[0] ?? "";
+      const port = portLine.match(/:(\d+)$/)?.[1];
+      if (!port) throw new Error(`Could not resolve PostgreSQL test port from: ${portLine}`);
+      connectionString = `postgres://postgres:postgres@127.0.0.1:${port}/proffera_test`;
+      await waitForPostgres();
+      client = new Client({ connectionString });
+      await client.connect();
+
+      await client.query(`
+        create table quote_requests (
+          id uuid primary key,
+          reference_id text not null,
+          category text not null,
+          service_type text not null,
+          city text not null,
+          postal_code text not null,
+          description text not null,
+          status text not null,
+          customer_latitude double precision,
+          customer_longitude double precision,
+          created_at timestamptz not null default now()
+        );
+        create table company_directory_profiles (
+          id uuid primary key,
+          public_slug text not null,
+          display_name text not null,
+          city text not null,
+          municipality text not null,
+          category_slug text not null,
+          quality_score double precision not null,
+          publication_status text not null,
+          is_active boolean not null,
+          privacy_blocked boolean not null,
+          organization_kind text not null,
+          claimed_workspace_id uuid,
+          last_synced_at timestamptz not null,
+          updated_at timestamptz not null
+        );
+        create table marketplace_quote_invitations (
+          id uuid primary key
+        );
+        create table marketplace_quote_offers (
+          id uuid primary key,
+          invitation_id uuid not null,
+          profile_id uuid not null,
+          quote_request_id uuid not null,
+          status text not null,
+          price_kind text not null,
+          currency text not null,
+          amount_minor integer not null,
+          available_date date,
+          company_note text,
+          submitted_at timestamptz not null
+        );
+        create table company_directory_profile_services (
+          profile_id uuid not null,
+          service_slug text not null,
+          is_active boolean not null,
+          public_visible boolean not null
+        );
+        create table company_directory_services (
+          slug text primary key,
+          label text not null,
+          category_slug text not null,
+          is_active boolean not null
+        );
+        create table company_directory_service_categories (
+          slug text primary key,
+          label text not null,
+          is_active boolean not null
+        );
+        create table company_directory_business_locations (
+          profile_id uuid not null,
+          latitude double precision,
+          longitude double precision,
+          geocode_source text,
+          geocode_precision text,
+          geocode_confidence double precision,
+          geocoded_at timestamptz,
+          is_public boolean not null
+        );
+        create table company_directory_official_facts (
+          profile_id uuid not null,
+          advertising_blocked boolean,
+          source_payload_hash text not null,
+          last_synced_at timestamptz not null,
+          deregistration_date date,
+          ongoing_procedures jsonb
+        );
+        create table company_directory_scb_enrichment (
+          profile_id uuid not null,
+          email text,
+          phone text,
+          workplaces jsonb,
+          conflicts jsonb,
+          source_payload_hash text not null,
+          last_synced_at timestamptz not null,
+          provenance jsonb not null
+        );
+        create table company_directory_service_areas (
+          profile_id uuid not null,
+          radius_km double precision,
+          public_visible boolean not null,
+          confirmed_at timestamptz,
+          service_slug text
+        );
+      `);
+    }, 120_000);
+
+    beforeEach(async () => {
+      vi.clearAllMocks();
+      if (!client) throw new Error("PostgreSQL test client is not initialized");
+
+      await client.query(`
+        truncate table marketplace_quote_offers,
+          marketplace_quote_invitations,
+          company_directory_service_areas,
+          company_directory_scb_enrichment,
+          company_directory_official_facts,
+          company_directory_business_locations,
+          company_directory_profile_services,
+          company_directory_services,
+          company_directory_service_categories,
+          company_directory_profiles,
+          quote_requests;
+      `);
+
+      await client.query(`
+        insert into quote_requests (
+          id, reference_id, category, service_type, city, postal_code,
+          description, status, customer_latitude, customer_longitude, created_at
+        ) values (
+          $1::uuid, 'QR-READY', 'VVS', 'VVS / Rörmokare', 'Södertälje', '151 46',
+          'Läckande rör', 'submitted', null, null, now()
+        )
+      `, [leadRow.id]);
+
+      await client.query(`
+        insert into company_directory_service_categories (slug, label, is_active)
+        values ('vvs', 'VVS', true)
+      `);
+      await client.query(`
+        insert into company_directory_services (slug, label, category_slug, is_active)
+        values ('vvs', 'VVS / Rörmokare', 'vvs', true)
+      `);
+
+      await client.query(`
+        insert into company_directory_profiles (
+          id, public_slug, display_name, city, municipality, category_slug,
+          quality_score, publication_status, is_active, privacy_blocked,
+          organization_kind, claimed_workspace_id, last_synced_at, updated_at
+        ) values (
+          $1::uuid, 'ror-ab', 'Rör AB', 'Södertälje', 'Södertälje', 'vvs',
+          95, 'published', true, false, 'juridical_person', null,
+          now() - interval '2 hours', now() - interval '2 hours'
+        )
+      `, [candidateRow.profile_id]);
+
+      await client.query(`
+        insert into company_directory_profile_services (
+          profile_id, service_slug, is_active, public_visible
+        ) values ($1::uuid, 'vvs', true, true)
+      `, [candidateRow.profile_id]);
+
+      await client.query(`
+        insert into company_directory_business_locations (
+          profile_id, latitude, longitude, geocode_source, geocode_precision,
+          geocode_confidence, geocoded_at, is_public
+        ) values (
+          $1::uuid, 59.1955, 17.6253, 'lantmateriet_belagenhetsadress_v4_2',
+          'address', 100, now(), true
+        )
+      `, [candidateRow.profile_id]);
+
+      await client.query(`
+        insert into company_directory_official_facts (
+          profile_id, advertising_blocked, source_payload_hash, last_synced_at,
+          deregistration_date, ongoing_procedures
+        ) values (
+          $1::uuid, false, 'facts-hash', now() - interval '1 hour', null, '[]'::jsonb
+        )
+      `, [candidateRow.profile_id]);
+
+      await client.query(`
+        insert into company_directory_service_areas (
+          profile_id, radius_km, public_visible, confirmed_at, service_slug
+        ) values ($1::uuid, 25, true, now(), 'vvs')
+      `, [candidateRow.profile_id]);
+
+      await client.query(`
+        insert into company_directory_scb_enrichment (
+          profile_id, email, phone, workplaces, conflicts, source_payload_hash,
+          last_synced_at, provenance
+        )
+        select
+          profile.id,
+          'offert@rorfirma.se',
+          '+46 70 123 45 67',
+          jsonb_build_array(jsonb_build_object(
+            'visitingAddress', jsonb_build_object(
+              'addressLine', 'ERIKSHÄLLSGATAN 40',
+              'postalCode', '151 46',
+              'city', 'SÖDERTÄLJE'
+            ),
+            'municipality', 'SÖDERTÄLJE'
+          )),
+          '[]'::jsonb,
+          'scb-hash',
+          now() - interval '30 minutes',
+          jsonb_build_object(
+            'comparisonSnapshot',
+            jsonb_build_object(
+              'profileUpdatedToken', profile.updated_at::text,
+              'officialFactsLastSyncedToken', facts.last_synced_at::text
+            )
+          )
+        from company_directory_profiles profile
+        join company_directory_official_facts facts on facts.profile_id = profile.id
+        where profile.id = $1::uuid
+      `, [candidateRow.profile_id]);
+
+      mocks.getSql.mockReturnValue(postgresSql(client));
+    });
+
+    afterAll(async () => {
+      await client?.end().catch(() => undefined);
+      if (containerName) {
+        try {
+          docker(["stop", containerName]);
+        } catch {
+          // --rm may already have removed a failed container.
+        }
+      }
+    }, 30_000);
+
+    it("returns the candidate when SCB authority is fresh and snapshot-bound", async () => {
+      const result = await getDirectoryGuestLeadMatch(leadRow.id);
+
+      expect(result.ok).toBe(true);
+      expect(result.match?.candidates).toHaveLength(1);
+      expect(result.match?.candidates[0]?.profileId).toBe(candidateRow.profile_id);
+    });
+
+    it.each([
+      [
+        "stale SCB timestamp",
+        "update company_directory_scb_enrichment set last_synced_at = now() - interval '8 days'",
+      ],
+      [
+        "mismatched profileUpdatedToken",
+        "update company_directory_scb_enrichment set provenance = jsonb_set(provenance, '{comparisonSnapshot,profileUpdatedToken}', to_jsonb('wrong-profile-token'::text))",
+      ],
+      [
+        "mismatched officialFactsLastSyncedToken",
+        "update company_directory_scb_enrichment set provenance = jsonb_set(provenance, '{comparisonSnapshot,officialFactsLastSyncedToken}', to_jsonb('wrong-facts-token'::text))",
+      ],
+    ])("filters %s before candidate ranking and limiting", async (_label, mutation) => {
+      if (!client) throw new Error("PostgreSQL test client is not initialized");
+      await client.query(mutation);
+
+      const result = await getDirectoryGuestLeadMatch(leadRow.id);
+
+      expect(result.ok).toBe(true);
+      expect(result.match?.candidates).toEqual([]);
+    });
+  },
+);
