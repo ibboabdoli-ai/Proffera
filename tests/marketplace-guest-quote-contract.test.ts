@@ -45,6 +45,7 @@ const eligibleRow = {
   privacy_blocked: false,
   organization_kind: "juridical_person",
   claimed_workspace_id: null,
+  has_current_authority: true,
 };
 
 function invitationInput() {
@@ -208,6 +209,20 @@ describe("marketplace guest quote safety contract", () => {
     expect(mocks.sendInvitationEmail).not.toHaveBeenCalled();
   });
 
+  it("rejects and never dispatches when current workplace authority is invalid", async () => {
+    const sql = sqlResponses([{ ...eligibleRow, has_current_authority: false }]);
+    mocks.getSql.mockReturnValue(sql);
+
+    const result = await sendMarketplaceGuestQuoteInvitation(invitationInput());
+
+    expect(result).toEqual({ ok: false, code: "profile_ineligible" });
+    expect(sql).toHaveBeenCalledTimes(1);
+    expect(queryText(sql.mock.calls[0])).toContain("authority_scb.last_synced_at >= now() - interval '7 days'");
+    expect(queryText(sql.mock.calls[0])).toContain("comparisonSnapshot,profileUpdatedToken");
+    expect(queryText(sql.mock.calls[0])).toContain("comparisonSnapshot,officialFactsLastSyncedToken");
+    expect(mocks.sendInvitationEmail).not.toHaveBeenCalled();
+  });
+
   it("does not invite a recipient that previously opted out", async () => {
     const sql = sqlResponses([eligibleRow], [{ id: "suppression-id" }]);
     mocks.getSql.mockReturnValue(sql);
@@ -348,6 +363,38 @@ describe("marketplace guest quote safety contract", () => {
     expect(result).toEqual({ ok: false, code: "quote_closed" });
     expect(sql).toHaveBeenCalledTimes(1);
     expect(mocks.sendInvitationEmail).not.toHaveBeenCalled();
+  });
+
+  it("revokes an active guest quote before offer submission when workplace authority expired", async () => {
+    const invitationId = "44444444-4444-4444-8444-444444444444";
+    const sql = sqlResponses(
+      [{
+        invitation_id: invitationId,
+        quote_request_id: eligibleRow.quote_request_id,
+        profile_id: eligibleRow.profile_id,
+        workspace_id: null,
+        status: "sent",
+        expires_at: "2099-01-01T00:00:00.000Z",
+        quote_status: "submitted",
+        has_current_authority: false,
+      }],
+      [],
+    );
+    mocks.getSql.mockReturnValue(sql);
+
+    const result = await submitMarketplaceGuestQuote({
+      token: "a".repeat(40),
+      priceKind: "estimate",
+      amountMinor: 100_00,
+      availableDate: null,
+      companyNote: "Test",
+    });
+
+    expect(result).toEqual({ ok: false, code: "closed" });
+    expect(sql).toHaveBeenCalledTimes(2);
+    const revoke = queryText(sql.mock.calls[1]);
+    expect(revoke).toContain("set status = 'cancelled'");
+    expect(revoke).toContain("token_hash = encode(digest");
   });
 
   it("rejects a guest offer when the underlying request is already closed", async () => {
