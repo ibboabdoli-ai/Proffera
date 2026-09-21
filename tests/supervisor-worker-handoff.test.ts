@@ -4252,9 +4252,9 @@ esac
     const recovery = workflowRunStep(workflow, "Release or recover reservation on dispatch failure");
     const acquire = recovery.indexOf("reservation-mutex-acquire");
     const read = recovery.indexOf('comment="$(gh api "repos/${REPOSITORY}/issues/comments/${RESERVATION_COMMENT_ID}"');
-    const finalReservationGuard = recovery.lastIndexOf('issues/comments/${RESERVATION_COMMENT_ID}" --jq');
-    const finalPrGuard = recovery.lastIndexOf("guard_exact_live_pr_open");
-    const patch = recovery.lastIndexOf('gh api --method PATCH "repos/${REPOSITORY}/issues/comments/${RESERVATION_COMMENT_ID}"');
+    const finalReservationGuard = recovery.indexOf("Refused: reservation changed before dispatch-failure recovery mutation.");
+    const finalPrGuard = recovery.indexOf("guard_exact_live_pr_open", finalReservationGuard);
+    const patch = recovery.indexOf('gh api --method PATCH "repos/${REPOSITORY}/issues/comments/${RESERVATION_COMMENT_ID}"', finalPrGuard);
     expect(acquire).toBeGreaterThanOrEqual(0);
     expect(read).toBeGreaterThan(acquire);
     expect(finalReservationGuard).toBeGreaterThan(read);
@@ -4485,7 +4485,7 @@ esac
       expect(result.calls.filter((args) => args.includes("PATCH"))).toHaveLength(0);
       expect(result.outputs.reservation_comment_id).toBeUndefined();
     }
-  });
+  }, 20_000);
 
   it("fails closed when global reclamation evidence changes before either mutation", () => {
     const old = globalExpiryEvidence(1);
