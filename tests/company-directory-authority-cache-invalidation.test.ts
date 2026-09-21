@@ -85,7 +85,7 @@ describe("Company Directory authority-writer cache invalidation", () => {
   it("invalidates after the committed Official Facts replacement", async () => {
     const sql = vi.fn()
       .mockResolvedValueOnce([{ organization_number: ORGANIZATION_NUMBER }])
-      .mockResolvedValueOnce([]);
+      .mockResolvedValueOnce([{ authority_changed: true }]);
     mocks.getSql.mockReturnValue(sql);
     mocks.takeCompleteRecord.mockReturnValue({
       organisationsnummer: ORGANIZATION_NUMBER,
@@ -105,5 +105,24 @@ describe("Company Directory authority-writer cache invalidation", () => {
     expect(sql.mock.invocationCallOrder[1]).toBeLessThan(
       mocks.invalidateAuthorityCaches.mock.invocationCallOrder[0]!,
     );
+  });
+
+  it("does not invalidate after a timestamp-only Official Facts refresh", async () => {
+    const sql = vi.fn()
+      .mockResolvedValueOnce([{ organization_number: ORGANIZATION_NUMBER }])
+      .mockResolvedValueOnce([{ authority_changed: false }]);
+    mocks.getSql.mockReturnValue(sql);
+    mocks.takeCompleteRecord.mockReturnValue({
+      organisationsnummer: ORGANIZATION_NUMBER,
+      reklamsparr: { kod: "NEJ" },
+    });
+
+    await expect(enrichCompanyDirectoryOfficialFactsForProfile(PROFILE_ID)).resolves.toMatchObject({
+      profileId: PROFILE_ID,
+      organizationNumber: ORGANIZATION_NUMBER,
+      reusedVerifiedDetail: true,
+    });
+
+    expect(mocks.invalidateAuthorityCaches).not.toHaveBeenCalled();
   });
 });
