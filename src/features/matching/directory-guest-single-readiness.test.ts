@@ -313,8 +313,8 @@ describe("single-request Marketplace readiness gate", () => {
         ) values (
           $1::uuid, '5560000000', 'juridical_person', 'Rör AB', 'Rör AB',
           'ror-ab', 'Södertälje', 'Södertälje', 'vvs', 95,
-          'published', true, false, true,
-          null, now() - interval '2 hours', now() - interval '2 hours', now() - interval '2 hours'
+          'ready', true, false, true,
+          null, now() - interval '2 hours', now() - interval '2 hours', null
         )
       `, [candidateRow.profile_id]);
 
@@ -387,6 +387,13 @@ describe("single-request Marketplace readiness gate", () => {
         from company_directory_profiles profile
         join company_directory_official_facts facts on facts.profile_id = profile.id
         where profile.id = $1::uuid
+      `, [candidateRow.profile_id]);
+
+      await client.query(`
+        update company_directory_profiles
+        set publication_status = 'published',
+            published_at = now()
+        where id = $1::uuid
       `, [candidateRow.profile_id]);
 
       mocks.getSql.mockReturnValue(postgresSql(client));
