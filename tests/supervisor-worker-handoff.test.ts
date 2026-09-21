@@ -385,7 +385,9 @@ function runReservationRecovery({
   artifactUploaded = false,
   branchAppearsOnSecondVerification = false,
   branchExists = true,
+  discoveredPrBase = "main",
   discoveredPrState = "",
+  livePrBase = "main",
   livePrState = "open",
   prNumber = "",
   reservationState = "RESERVED",
@@ -394,7 +396,9 @@ function runReservationRecovery({
   artifactUploaded?: boolean;
   branchAppearsOnSecondVerification?: boolean;
   branchExists?: boolean;
+  discoveredPrBase?: string;
   discoveredPrState?: "" | "open" | "closed";
+  livePrBase?: string;
   livePrState?: "open" | "closed";
   prNumber?: string;
   reservationState?: "RESERVED" | "RELEASED";
@@ -454,6 +458,7 @@ function runReservationRecovery({
     pr: {
       number: Number(prNumber || 900),
       state: livePrState,
+      base: { ref: livePrBase },
       head: { ref: normalizedPacketJson.branch, sha, repo: { full_name: "ibboabdoli-ai/Proffera" } },
       user: { login: "ibboabdoli-ai" },
     },
@@ -461,6 +466,7 @@ function runReservationRecovery({
       ? [{
           number: 900,
           state: discoveredPrState,
+          base: { ref: discoveredPrBase },
           head: { ref: normalizedPacketJson.branch, sha, repo: { full_name: "ibboabdoli-ai/Proffera" } },
           user: { login: "ibboabdoli-ai" },
           body: packetComment(normalizedPacketJson),
@@ -495,7 +501,7 @@ if (commentMatch) {
   process.stdout.write(args.includes("--jq") ? String(comment.body || "") + "\\n" : JSON.stringify(comment) + "\\n");
   process.exit(0);
 }
-if (endpoint === "repos/ibboabdoli-ai/Proffera/pulls?state=all&base=main&per_page=100") {
+if (endpoint === "repos/ibboabdoli-ai/Proffera/pulls?state=all&per_page=100") {
   for (const pull of state.pulls) process.stdout.write(JSON.stringify(pull) + "\\n");
   process.exit(0);
 }
@@ -1851,6 +1857,27 @@ describe("Canonical Worker reservation ownership", () => {
     expect(fixture.state.writes).toHaveLength(3);
     expect(fixture.state.posts).toBe(0);
     expect(fixture.state.comments.filter((record) => record.body.includes("proffera-worker-dispatch-start:"))).toHaveLength(1);
+  });
+
+  it("re-admits the same unchanged PR after a provenance-preserving retargeted release", async () => {
+    const fixture = await ownershipHarness();
+    fixture.state.comments[0] = reservationComment({
+      ...fixture.payload,
+      state: "RELEASED",
+      pr_number: 849,
+      recovery: { kind: "retargeted_pr", base_ref: "release/other", reservation_head_sha: sha },
+    }, 101);
+    fixture.state.comments[2].body = fixture.control.taskStateBody({
+      packet: fixture.taskPacket,
+      state: "WORKER_BLOCKED",
+      reason: "Retargeted away from main; exact PR may be re-admitted when restored.",
+      run_id: "9001",
+      pr_number: 849,
+      head_sha: sha,
+    });
+    expect(fixture.authority.admitPr(fixture.request)).toMatchObject({ ok: true, reactivated: true });
+    expect(fixture.state.comments[0].body).toContain("- State: `PUBLISHED`");
+    expect(fixture.state.comments[2].body).toContain("- State: `WORKER_PR_OPENED`");
   });
 
   it("rejects reopening a third Worker and recovers once capacity frees without redispatch", async () => {
@@ -4169,7 +4196,6 @@ esac
     expect(reconcile).toContain("retargeted away from main");
     expect(reconcile).toContain('jq -r \'.base.ref // ""\'');
     expect(reconcile).toContain("force_release=true");
-    expect(reconcile).toContain("RELEASED:2|RELEASED:3");
     expect(reconcile).toContain("revalidate_fallback_pr_evidence");
     expect(reconcile).toContain("stop_if_fallback_pr_not_mutation_safe");
 
@@ -4179,11 +4205,11 @@ esac
     const reservationGuard = reconcile.lastIndexOf("stop_if_fallback_pr_not_mutation_safe", reservationPatch);
     const allStateScan = reconcile.indexOf("pulls?state=all&per_page=100");
     const baseGuard = reconcile.indexOf("retargeted away from main");
-    const forceRelease = reconcile.indexOf("force_release=true");
+    const retargetedRelease = reconcile.indexOf('kind:"retargeted_pr"');
     const publishedMutation = reconcile.indexOf("--arg state PUBLISHED");
     expect(baseGuard).toBeGreaterThan(allStateScan);
-    expect(forceRelease).toBeGreaterThan(baseGuard);
-    expect(publishedMutation).toBeGreaterThan(forceRelease);
+    expect(retargetedRelease).toBeGreaterThan(baseGuard);
+    expect(publishedMutation).toBeGreaterThan(retargetedRelease);
     expect(allStateScan).toBeGreaterThanOrEqual(0);
     expect(taskGuard).toBeGreaterThan(allStateScan);
     expect(taskPatch).toBeGreaterThan(taskGuard);
@@ -4328,6 +4354,21 @@ esac
     expect(recovery).toContain("pulls?state=all&base=main&per_page=100");
     expect(recovery).toContain('guard_exact_live_pr_open "$pr_number"');
     expect(recovery).toContain('guard_exact_live_pr_open "${pr_number:-${PR_NUMBER:-}}"');
+  });
+
+
+  it("defers a retargeted exact PR to fallback cleanup instead of recording RECOVERABLE", () => {
+    const retargeted = runReservationRecovery({
+      branchExists: true,
+      discoveredPrBase: "release/other",
+      discoveredPrState: "open",
+      livePrBase: "release/other",
+      prNumber: "900",
+    });
+    expect(retargeted.status, retargeted.stderr).toBe(0);
+    expect(commentPatchCalls(retargeted.calls, 101)).toHaveLength(0);
+    expect(String(retargeted.comments.find((comment) => comment.id === 101)?.body ?? "")).toContain("- State: `RESERVED`");
+    expect(retargeted.stdout).toContain("deferring convergence to independent cleanup");
   });
 
 

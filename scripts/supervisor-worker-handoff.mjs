@@ -1841,6 +1841,11 @@ function reservationRecords(comments) {
         || typeof payload.recovery.expires_at !== "string" || !Number.isFinite(Date.parse(payload.recovery.expires_at))))) {
       throw new Error("reservation publication/recovery ownership is malformed");
     }
+    if (payload.state === "RELEASED" && payload.recovery?.kind === "retargeted_pr"
+      && (payload.pr_number == null || typeof payload.recovery.base_ref !== "string" || !payload.recovery.base_ref
+        || payload.recovery.base_ref === "main" || payload.recovery.reservation_head_sha !== payload.head_sha)) {
+      throw new Error("retargeted release provenance is malformed");
+    }
     if (payload.activation_task_sha256 != null && (typeof payload.activation_task_sha256 !== "string" || !SHA256_RE.test(payload.activation_task_sha256))) {
       throw new Error("reservation activation provenance is malformed");
     }
@@ -2163,14 +2168,18 @@ export function createWorkerReservationAuthority(io) {
       const dispatch = trustedRecord(observed.comments, dispatchMarker);
       if (payload.pr_number != null && payload.pr_number !== prNumber) throw new Error("reservation belongs to another PR");
       const released = payload.state === "RELEASED";
-      if (released && (payload.pr_number !== prNumber || payload.head_sha !== pr.head.sha
-        || payload.recovery?.kind !== "closed_pr" || payload.recovery?.merged !== false)) {
-        throw new Error("released reservation has no exact closed-unmerged reopen provenance");
+      const closedRelease = released && payload.pr_number === prNumber && payload.head_sha === pr.head.sha
+        && payload.recovery?.kind === "closed_pr" && payload.recovery?.merged === false;
+      const retargetedRelease = released && payload.pr_number === prNumber && payload.head_sha === pr.head.sha
+        && payload.recovery?.kind === "retargeted_pr"
+        && typeof payload.recovery?.base_ref === "string" && payload.recovery.base_ref.length > 0
+        && payload.recovery.base_ref !== "main"
+        && payload.recovery?.reservation_head_sha === pr.head.sha;
+      if (released && !closedRelease && !retargetedRelease) {
+        throw new Error("released reservation has no exact closed-unmerged or retargeted-PR reactivation provenance");
       }
-      // A verified release is authoritative even if the close's task PATCH was
-      // interrupted. Reopening must not preserve a pre-close Ready checkpoint.
       const interrupted = payload.activation_task_sha256 === createHash("sha256").update(task.body).digest("hex");
-      const priorBody = released || interrupted ? taskStateBody({ packet, state: "CLOSED_UNMERGED", run_id: payload.run_id,
+      const priorBody = closedRelease || interrupted ? taskStateBody({ packet, state: "CLOSED_UNMERGED", run_id: payload.run_id,
         pr_number: prNumber, head_sha: pr.head.sha, reason: "Verified closed-unmerged reservation release." }) : task.body;
       const transition = evaluateTaskStateTransition({ current_body: priorBody, source,
         requested_state: requestedState, requested_head: pr.head.sha, live_head: pr.head.sha,
