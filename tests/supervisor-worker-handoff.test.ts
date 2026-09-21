@@ -4160,11 +4160,16 @@ esac
     const reconcile = workflowRunStep(workflow, "Reconcile exact stranded reservation after publish setup failure");
     const shell = spawnSync("bash", ["-n"], { input: reconcile, encoding: "utf8" });
     expect(shell.status, shell.stderr).toBe(0);
-    expect(reconcile).toContain("pulls?state=all&base=main&per_page=100");
+    expect(reconcile).toContain("pulls?state=all&per_page=100");
+    expect(reconcile).not.toContain("pulls?state=all&base=main&per_page=100");
     expect(reconcile).toContain("discover_exact_cleanup_pr_number");
     expect(reconcile).toContain("guard_exact_cleanup_pr_open");
     expect(reconcile).toContain('gh api "repos/${REPOSITORY}/pulls/${candidate_pr}"');
     expect(reconcile).toContain("Exact Worker PR #${candidate_pr} is no longer open");
+    expect(reconcile).toContain("retargeted away from main");
+    expect(reconcile).toContain('jq -r \'.base.ref // ""\'');
+    expect(reconcile).toContain("force_release=true");
+    expect(reconcile).toContain("RELEASED:3");
     expect(reconcile).toContain("revalidate_fallback_pr_evidence");
     expect(reconcile).toContain("stop_if_fallback_pr_not_mutation_safe");
 
@@ -4172,7 +4177,13 @@ esac
     const reservationPatch = reconcile.indexOf('gh api --method PATCH "repos/${REPOSITORY}/issues/comments/${RESERVATION_COMMENT_ID}"');
     const taskGuard = reconcile.lastIndexOf("stop_if_fallback_pr_not_mutation_safe", taskPatch);
     const reservationGuard = reconcile.lastIndexOf("stop_if_fallback_pr_not_mutation_safe", reservationPatch);
-    const allStateScan = reconcile.indexOf("pulls?state=all&base=main&per_page=100");
+    const allStateScan = reconcile.indexOf("pulls?state=all&per_page=100");
+    const baseGuard = reconcile.indexOf("retargeted away from main");
+    const forceRelease = reconcile.indexOf("force_release=true");
+    const publishedMutation = reconcile.indexOf("--arg state PUBLISHED");
+    expect(baseGuard).toBeGreaterThan(allStateScan);
+    expect(forceRelease).toBeGreaterThan(baseGuard);
+    expect(publishedMutation).toBeGreaterThan(forceRelease);
     expect(allStateScan).toBeGreaterThanOrEqual(0);
     expect(taskGuard).toBeGreaterThan(allStateScan);
     expect(taskPatch).toBeGreaterThan(taskGuard);

@@ -2020,7 +2020,7 @@ jobs:
 
           discover_exact_cleanup_pr_number() {
             local matches count candidate_body candidate_packet candidate_number
-            matches="$(gh api --paginate "repos/${REPOSITORY}/pulls?state=all&base=main&per_page=100" --jq '.[]' | jq -s --arg branch "$BRANCH" --arg head "$head_sha" --arg repo "$REPOSITORY" --arg owner "$repository_owner" '[.[] | select(.head.ref == $branch and .head.sha == $head and .head.repo.full_name == $repo and .user.login == $owner)]')"
+            matches="$(gh api --paginate "repos/${REPOSITORY}/pulls?state=all&per_page=100" --jq '.[]' | jq -s --arg branch "$BRANCH" --arg head "$head_sha" --arg repo "$REPOSITORY" --arg owner "$repository_owner" '[.[] | select(.head.ref == $branch and .head.sha == $head and .head.repo.full_name == $repo and .user.login == $owner)]')"
             count="$(jq 'length' <<< "$matches")"
             if [ "$count" -gt 1 ]; then
               echo "Refused: stranded reservation has ambiguous exact PR ownership." >&2
@@ -2060,6 +2060,10 @@ jobs:
               echo "Refused: exact Worker PR identity changed during fallback cleanup." >&2
               return 1
             fi
+            if [ "$(jq -r '.base.ref // ""' <<< "$live_pr")" != "main" ]; then
+              echo "Exact Worker PR #${candidate_pr} was retargeted away from main; fallback cleanup must release its reservation."
+              return 3
+            fi
             if [ "$(jq -r '.state // ""' <<< "$live_pr")" != "open" ]; then
               echo "Exact Worker PR #${candidate_pr} is no longer open; leaving reservation convergence to the serialized close writer."
               return 2
@@ -2067,50 +2071,63 @@ jobs:
             return 0
           }
 
+          force_release=false
           pr_number="$(discover_exact_cleanup_pr_number)" || exit 1
           if [ -n "$pr_number" ]; then
-            guard_exact_cleanup_pr_open "$pr_number" || {
+            if ! guard_exact_cleanup_pr_open "$pr_number"; then
               guard_status=$?
               if [ "$guard_status" -eq 2 ]; then
                 release_mutex
                 trap - EXIT
                 exit 0
               fi
-              exit "$guard_status"
-            }
+              if [ "$guard_status" -eq 3 ]; then
+                force_release=true
+              else
+                exit "$guard_status"
+              fi
+            fi
           fi
 
           revalidate_fallback_pr_evidence() {
             local current_pr_number guard_status
             current_pr_number="$(discover_exact_cleanup_pr_number)" || return 1
-            if [ -n "$current_pr_number" ]; then
-              guard_exact_cleanup_pr_open "$current_pr_number" || {
-                guard_status=$?
-                return "$guard_status"
-              }
-            fi
             if [ "$current_pr_number" != "$pr_number" ]; then
               echo "Refused: exact Worker PR evidence changed before fallback mutation." >&2
               return 1
             fi
-            return 0
+            if [ -z "$current_pr_number" ]; then
+              if [ "$label" = "PUBLISHED" ]; then
+                echo "Refused: PUBLISHED fallback mutation lost its exact Worker PR evidence." >&2
+                return 1
+              fi
+              return 0
+            fi
+
+            guard_exact_cleanup_pr_open "$current_pr_number" && guard_status=0 || guard_status=$?
+            case "$label:$guard_status" in
+              PUBLISHED:0)
+                return 0
+                ;;
+              RELEASED:3)
+                return 0
+                ;;
+              *)
+                echo "Refused: exact Worker PR is not mutation-safe for fallback state $label (guard=$guard_status)." >&2
+                return 1
+                ;;
+            esac
           }
 
           stop_if_fallback_pr_not_mutation_safe() {
-            local status
-            revalidate_fallback_pr_evidence || {
-              status=$?
-              if [ "$status" -eq 2 ]; then
-                release_mutex
-                trap - EXIT
-                exit 0
-              fi
-              exit "$status"
-            }
+            revalidate_fallback_pr_evidence || exit $?
           }
 
           label=""
-          if [ -n "$pr_number" ]; then
+          if [ "$force_release" = "true" ]; then
+            payload="$(jq -c --arg state RELEASED '.state=$state | .recovery=null' <<< "$payload")"
+            label=RELEASED
+          elif [ -n "$pr_number" ]; then
             payload="$(jq -c --arg state PUBLISHED --argjson pr_number "$pr_number" '.state=$state | .pr_number=$pr_number | .recovery=null' <<< "$payload")"
             label=PUBLISHED
           else
@@ -2185,12 +2202,14 @@ jobs:
 
             test "$(gh api "repos/${REPOSITORY}/issues/comments/${RESERVATION_COMMENT_ID}" --jq '.body // ""')" = "$reservation_body"
             test "$(gh api "repos/${REPOSITORY}/issues/comments/${STATE_COMMENT_ID}" --jq '.body // ""')" = "$task_body"
-            if gh api "repos/${REPOSITORY}/git/ref/heads/${BRANCH}" >/dev/null 2>&1; then
-              echo "Refused: branch appeared before fallback release." >&2
-              exit 1
+            if [ -z "$pr_number" ]; then
+              if gh api "repos/${REPOSITORY}/git/ref/heads/${BRANCH}" >/dev/null 2>&1; then
+                echo "Refused: branch appeared before fallback release." >&2
+                exit 1
+              fi
+              live_pulls="$(gh api --paginate "repos/${REPOSITORY}/pulls?state=open&per_page=100" --jq '.[]' | jq -s --arg branch "$BRANCH" --arg repo "$REPOSITORY" '[.[] | select(.head.ref == $branch and (.head.repo.full_name // "") == $repo)]')"
+              test "$(jq 'length' <<< "$live_pulls")" -eq 0
             fi
-            live_pulls="$(gh api --paginate "repos/${REPOSITORY}/pulls?state=open&base=main&per_page=100" --jq '.[]' | jq -s --arg branch "$BRANCH" --arg repo "$REPOSITORY" '[.[] | select(.head.ref == $branch and (.head.repo.full_name // "") == $repo)]')"
-            test "$(jq 'length' <<< "$live_pulls")" -eq 0
             stop_if_fallback_pr_not_mutation_safe
             gh api --method PATCH "repos/${REPOSITORY}/issues/comments/${STATE_COMMENT_ID}" -f body="$retryable_state_body" >/dev/null
           fi
