@@ -559,6 +559,142 @@ process.exit(2);
   return { ...result, calls, comments: finalState.comments };
 }
 
+
+function runFallbackCleanup({
+  prBase = "release/other",
+  prMerged = false,
+  prState = "open",
+  reservationState = "RESERVED",
+}: {
+  prBase?: string;
+  prMerged?: boolean;
+  prState?: "open" | "closed";
+  reservationState?: "RESERVED" | "PUBLISHED" | "RECOVERABLE";
+} = {}) {
+  const workflow = source(".github/workflows/supervisor-worker-handoff.yml");
+  const script = workflowRunStep(workflow, "Reconcile exact stranded reservation after publish setup failure");
+  const root = mkdtempSync(join(tmpdir(), "proffera-fallback-cleanup-"));
+  const bin = join(root, "bin");
+  const runnerTemp = join(root, "runner");
+  const trusted = join(runnerTemp, "proffera-trusted-cleanup");
+  const stateFile = join(root, "gh-state.json");
+  const log = join(root, "gh-calls.jsonl");
+  mkdirSync(bin, { recursive: true });
+  mkdirSync(trusted, { recursive: true });
+  copyFileSync(helper, join(trusted, "supervisor-worker-handoff.mjs"));
+
+  const parsed = spawnSync(process.execPath, [helper, "parse"], { input: packetComment(), encoding: "utf8" });
+  expect(parsed.status, parsed.stderr).toBe(0);
+  const normalizedPacket = parsed.stdout.replace(/\n+$/, "");
+  const normalizedPacketJson = JSON.parse(normalizedPacket);
+  const recovery = reservationState === "RECOVERABLE"
+    ? { kind: "branch", expires_at: "2099-01-01T00:00:00Z" }
+    : null;
+  const reservation = reservationComment({
+    version: 1,
+    state: reservationState,
+    task_id: normalizedPacketJson.task_id,
+    run_id: "9001",
+    branch: normalizedPacketJson.branch,
+    head_sha: sha,
+    graph_path: normalizedPacketJson.graph_path,
+    packet_digest: createHash("sha256").update(normalizedPacket).digest("hex"),
+    lease_expires_at: "2099-01-01T00:00:00Z",
+    allowed_paths: normalizedPacketJson.allowed_paths,
+    changed_files: [],
+    snapshot_finalized: false,
+    pr_number: reservationState === "PUBLISHED" ? 900 : null,
+    recovery,
+  }, 101);
+  const taskBody = runText("state-body", {
+    packet: normalizedPacketJson,
+    state: "WORKER_BLOCKED",
+    reason: "Dispatch stopped before successful PR handoff.",
+    run_id: "9001",
+  });
+  const pr = {
+    number: 900,
+    state: prState,
+    merged: prMerged,
+    base: { ref: prBase },
+    head: { ref: normalizedPacketJson.branch, sha, repo: { full_name: "ibboabdoli-ai/Proffera" } },
+    user: { login: "ibboabdoli-ai" },
+    body: packetComment(normalizedPacketJson),
+  };
+  writeFileSync(log, "");
+  writeFileSync(stateFile, JSON.stringify({
+    comments: [reservation, { id: 99, user: { login: "github-actions[bot]" }, body: taskBody }],
+    mutex: "",
+    pr,
+  }));
+  writeFileSync(
+    join(bin, "gh"),
+    `#!/usr/bin/env node
+const { appendFileSync, readFileSync, writeFileSync } = require("node:fs");
+const args = process.argv.slice(2);
+appendFileSync(process.env.GH_STUB_LOG, JSON.stringify(args) + "\\n");
+const methodIndex = args.indexOf("--method");
+const method = methodIndex >= 0 ? args[methodIndex + 1] : "GET";
+const endpoint = args.find((arg) => arg.startsWith("repos/")) || "";
+const state = JSON.parse(readFileSync(process.env.GH_STUB_STATE_FILE, "utf8"));
+${reservationControlApiStub()}
+const save = () => writeFileSync(process.env.GH_STUB_STATE_FILE, JSON.stringify(state));
+const commentMatch = endpoint.match(/issues\\/comments\\/(\\d+)$/);
+if (method === "PATCH" && commentMatch) {
+  const bodyArg = args.find((arg) => arg.startsWith("body="));
+  const comment = state.comments.find((entry) => String(entry.id) === commentMatch[1]);
+  if (!bodyArg || !comment) process.exit(3);
+  comment.body = bodyArg.slice("body=".length);
+  save();
+  process.stdout.write("{}\\n");
+  process.exit(0);
+}
+if (method !== "GET") process.exit(2);
+if (commentMatch) {
+  const comment = state.comments.find((entry) => String(entry.id) === commentMatch[1]);
+  if (!comment) process.exit(3);
+  process.stdout.write(args.includes("--jq") ? String(comment.body || "") + "\\n" : JSON.stringify(comment) + "\\n");
+  process.exit(0);
+}
+if (endpoint === "repos/ibboabdoli-ai/Proffera/pulls?state=all&per_page=100") {
+  process.stdout.write(JSON.stringify(state.pr) + "\\n");
+  process.exit(0);
+}
+if (endpoint === "repos/ibboabdoli-ai/Proffera/pulls/900") {
+  process.stdout.write(JSON.stringify(state.pr) + "\\n");
+  process.exit(0);
+}
+process.stderr.write("unhandled gh endpoint: " + endpoint + "\\n");
+process.exit(2);
+`,
+    { encoding: "utf8", mode: 0o755 },
+  );
+
+  const result = spawnSync("bash", ["-c", script], {
+    cwd: process.cwd(),
+    encoding: "utf8",
+    env: {
+      ...process.env,
+      PATH: `${bin}${delimiter}${process.env.PATH ?? ""}`,
+      GH_TOKEN: "test-token",
+      GH_STUB_LOG: log,
+      GH_STUB_STATE_FILE: stateFile,
+      RUNNER_TEMP: runnerTemp,
+      REPOSITORY: "ibboabdoli-ai/Proffera",
+      BASE_SHA: normalizedPacketJson.base_sha,
+      RESERVATION_COMMENT_ID: "101",
+      STATE_COMMENT_ID: "99",
+      TASK_ID: normalizedPacketJson.task_id,
+      BRANCH: normalizedPacketJson.branch,
+      RUN_ID: "9001",
+      PACKET_B64: Buffer.from(normalizedPacket).toString("base64"),
+    },
+  });
+  const finalState = JSON.parse(readFileSync(stateFile, "utf8")) as { comments: Array<Record<string, unknown>> };
+  const calls = readFileSync(log, "utf8").trim().split("\n").filter(Boolean).map((line) => JSON.parse(line) as string[]);
+  return { ...result, calls, comments: finalState.comments };
+}
+
 type SlotReservationOptions = {
   reservation?: Record<string, unknown>;
   extraComments?: Array<Record<string, unknown>>;
@@ -4216,6 +4352,36 @@ esac
     expect(reservationGuard).toBeGreaterThan(taskPatch);
     expect(reservationPatch).toBeGreaterThan(reservationGuard);
   });
+
+  it.each(["RESERVED", "RECOVERABLE"] as const)("converges a %s reservation for an open retargeted exact PR without making the task redispatchable", (reservationState) => {
+    const result = runFallbackCleanup({ prBase: "release/other", prState: "open", reservationState });
+    expect(result.status, result.stderr).toBe(0);
+    const reservationBody = String(result.comments.find((comment) => comment.id === 101)?.body ?? "");
+    expect(reservationBody).toContain("- State: `RELEASED`");
+    const payload = JSON.parse(Buffer.from(reservationBody.match(/Reservation payload: `([^`]+)`/)![1], "base64").toString());
+    expect(payload).toMatchObject({
+      state: "RELEASED",
+      pr_number: 900,
+      recovery: { kind: "retargeted_pr", base_ref: "release/other", reservation_head_sha: sha },
+    });
+    const taskBody = String(result.comments.find((comment) => comment.id === 99)?.body ?? "");
+    expect(taskBody).toContain("- State: `WORKER_BLOCKED`");
+    expect(taskBody).toContain("- PR: #900");
+    expect(taskBody).toContain(`- Head: \`${sha}\``);
+    expect(taskBody).not.toContain("same task may be resubmitted safely");
+  });
+
+  it("terminalizes a closed exact PR while releasing its reservation", () => {
+    const result = runFallbackCleanup({ prBase: "release/other", prState: "closed", reservationState: "RECOVERABLE" });
+    expect(result.status, result.stderr).toBe(0);
+    const reservationBody = String(result.comments.find((comment) => comment.id === 101)?.body ?? "");
+    const payload = JSON.parse(Buffer.from(reservationBody.match(/Reservation payload: `([^`]+)`/)![1], "base64").toString());
+    expect(payload).toMatchObject({ state: "RELEASED", pr_number: 900, recovery: { kind: "closed_pr", merged: false } });
+    const taskBody = String(result.comments.find((comment) => comment.id === 99)?.body ?? "");
+    expect(taskBody).toContain("- State: `CLOSED_UNMERGED`");
+    expect(taskBody).toContain("- PR: #900");
+  });
+
 
   it("validates exact same-run recovery artifact bytes before persisting RECOVERABLE", () => {
     const workflow = source(".github/workflows/supervisor-worker-handoff.yml");

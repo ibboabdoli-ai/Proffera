@@ -2092,18 +2092,19 @@ jobs:
             [ "$task_author" = "github-actions[bot]" ] || return 1
             validation_input="$(jq -n --argjson packet "$packet" --arg body "$exceptional_task_body_before" --arg run_id "$RUN_ID" '{packet:$packet,body:$body,run_id:$run_id}')"
             validation="$(printf '%s' "$validation_input" | node "$helper" validate-state)"
-            case "$(jq -r '.state // ""' <<< "$validation")" in
-              MERGED|CLOSED_UNMERGED) return 1 ;;
-              *) ;;
-            esac
+            exceptional_task_state="$(jq -r '.state // ""' <<< "$validation")"
           }
 
           converge_exceptional_exact_pr() {
             local expected_class expected_number expected_base terminal_state reason next_task_json next_task_body next_payload payload_b64 next_reservation_body merged_for_main
             refresh_exact_cleanup_pr || return 1
             expected_class="$exact_pr_class"; expected_number="$exact_pr_number"; expected_base="$exact_pr_base"
-            if [ "$expected_class" = "none" ] || [ "$expected_class" = "main_open" ]; then return 1; fi
+            if [ "$expected_class" = "none" ] || [ "$expected_class" = "main_open" ]; then return 10; fi
             validate_task_before_exceptional_convergence || return 1
+            if [ "$expected_class" = "retargeted_open" ] && { [ "$exceptional_task_state" = "MERGED" ] || [ "$exceptional_task_state" = "CLOSED_UNMERGED" ]; }; then
+              echo "Refused: a live retargeted PR conflicts with terminal task state $exceptional_task_state." >&2
+              return 1
+            fi
 
             if [ "$expected_class" = "retargeted_open" ]; then
               reason="Exact Worker PR #${expected_number} was retargeted away from main to '${expected_base}'. Its writable slot is released, but the same task is not redispatchable while that PR/branch remains; retarget this same unchanged PR back to main for exact-provenance re-admission."
@@ -2113,9 +2114,13 @@ jobs:
             else
               if [ "$exact_pr_base" = "main" ] && [ "$exact_pr_merged" = "true" ]; then terminal_state=MERGED; else terminal_state=CLOSED_UNMERGED; fi
               reason="Exact Worker PR #${expected_number} is live-verified closed during fallback cleanup; durable reservation ownership is released without inventing retryable branch/PR absence."
-              next_task_json="$(jq -n --argjson packet "$packet" --arg state "$terminal_state" --arg reason "$reason" --arg run_id "$RUN_ID" --argjson pr_number "$expected_number" --arg head_sha "$head_sha" '{packet:$packet,state:$state,reason:$reason,run_id:$run_id,pr_number:$pr_number,head_sha:$head_sha}')"
-              next_task_body="$(printf '%s' "$next_task_json" | node "$helper" state-body)"
-              merged_for_main=false; [ "$terminal_state" != "MERGED" ] || merged_for_main=true
+              if [ "$exceptional_task_state" = "$terminal_state" ]; then
+                next_task_body="$exceptional_task_body_before"
+              else
+                next_task_json="$(jq -n --argjson packet "$packet" --arg state "$terminal_state" --arg reason "$reason" --arg run_id "$RUN_ID" --argjson pr_number "$expected_number" --arg head_sha "$head_sha" '{packet:$packet,state:$state,reason:$reason,run_id:$run_id,pr_number:$pr_number,head_sha:$head_sha}')"
+                next_task_body="$(printf '%s' "$next_task_json" | node "$helper" state-body)"
+              fi
+              merged_for_main="$exact_pr_merged"
               next_payload="$(jq -c --arg state RELEASED --argjson pr_number "$expected_number" --argjson merged "$merged_for_main" --arg reservation_head_sha "$head_sha" '.state=$state | .pr_number=$pr_number | .head_sha=$reservation_head_sha | .recovery={kind:"closed_pr",merged:$merged,reservation_head_sha:$reservation_head_sha}' <<< "$payload")"
             fi
             payload_b64="$(printf '%s' "$next_payload" | base64 -w0)"
@@ -2139,7 +2144,12 @@ jobs:
             release_mutex; trap - EXIT; exit 0
           }
 
-          if converge_exceptional_exact_pr; then :; fi
+          if converge_exceptional_exact_pr; then
+            :
+          else
+            exceptional_status=$?
+            [ "$exceptional_status" -eq 10 ] || exit "$exceptional_status"
+          fi
           pr_number="$exact_pr_number"
           label=""
           if [ -n "$pr_number" ]; then
@@ -2231,7 +2241,12 @@ jobs:
           payload_b64="$(printf '%s' "$payload" | base64 -w0)"
           new_body="$(printf '%s\n' "<!-- proffera-worker-slot-reservation:${TASK_ID} -->" "### Worker slot reservation: ${TASK_ID}" "- State: \`${label}\`" "- Reservation payload: \`${payload_b64}\`")"
           test "$(gh api "repos/${REPOSITORY}/issues/comments/${RESERVATION_COMMENT_ID}" --jq '.body // ""')" = "$reservation_body"
-          if converge_exceptional_exact_pr; then :; fi
+          if converge_exceptional_exact_pr; then
+            :
+          else
+            exceptional_status=$?
+            [ "$exceptional_status" -eq 10 ] || exit "$exceptional_status"
+          fi
           if [ "$label" = "PUBLISHED" ]; then
             [ "$exact_pr_class" = "main_open" ] && [ "$exact_pr_number" = "$pr_number" ] || exit 1
           else
