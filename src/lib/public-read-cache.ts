@@ -80,7 +80,10 @@ async function locationSuggestionsAuthorityBoundary(value: DirectoryLocationSugg
         and scb.source_payload_hash <> ''
         and scb.last_synced_at >= now() - interval '7 days'
         and scb.last_synced_at >= profile.last_synced_at
-        and scb.provenance #>> '{comparisonSnapshot,profileUpdatedToken}' = profile.updated_at::text
+        and (
+          profile.publication_status = 'claimed'
+          or scb.provenance #>> '{comparisonSnapshot,profileUpdatedToken}' = profile.updated_at::text
+        )
         and scb.provenance #>> '{comparisonSnapshot,officialFactsLastSyncedToken}' = facts.last_synced_at::text
         and jsonb_typeof(scb.conflicts) = 'array'
         and jsonb_array_length(scb.conflicts) = 0
