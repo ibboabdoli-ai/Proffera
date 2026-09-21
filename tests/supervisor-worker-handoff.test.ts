@@ -385,6 +385,7 @@ function runReservationRecovery({
   artifactUploaded = false,
   branchAppearsOnSecondVerification = false,
   branchExists = true,
+  discoveredPrState = "",
   livePrState = "open",
   prNumber = "",
   reservationState = "RESERVED",
@@ -393,6 +394,7 @@ function runReservationRecovery({
   artifactUploaded?: boolean;
   branchAppearsOnSecondVerification?: boolean;
   branchExists?: boolean;
+  discoveredPrState?: "" | "open" | "closed";
   livePrState?: "open" | "closed";
   prNumber?: string;
   reservationState?: "RESERVED" | "RELEASED";
@@ -455,7 +457,15 @@ function runReservationRecovery({
       head: { ref: normalizedPacketJson.branch, sha, repo: { full_name: "ibboabdoli-ai/Proffera" } },
       user: { login: "ibboabdoli-ai" },
     },
-    pulls: [],
+    pulls: discoveredPrState
+      ? [{
+          number: 900,
+          state: discoveredPrState,
+          head: { ref: normalizedPacketJson.branch, sha, repo: { full_name: "ibboabdoli-ai/Proffera" } },
+          user: { login: "ibboabdoli-ai" },
+          body: packetComment(normalizedPacketJson),
+        }]
+      : [],
   }));
   writeFileSync(
     join(bin, "gh"),
@@ -485,12 +495,13 @@ if (commentMatch) {
   process.stdout.write(args.includes("--jq") ? String(comment.body || "") + "\\n" : JSON.stringify(comment) + "\\n");
   process.exit(0);
 }
-if (endpoint === "repos/ibboabdoli-ai/Proffera/pulls?state=open&base=main&per_page=100") {
+if (endpoint === "repos/ibboabdoli-ai/Proffera/pulls?state=all&base=main&per_page=100") {
   for (const pull of state.pulls) process.stdout.write(JSON.stringify(pull) + "\\n");
   process.exit(0);
 }
 if (endpoint === "repos/ibboabdoli-ai/Proffera/pulls/900") {
-  process.stdout.write(JSON.stringify(state.pr) + "\\n");
+  const discovered = (state.pulls || []).find((pull) => String(pull.number) === "900");
+  process.stdout.write(JSON.stringify(discovered || state.pr) + "\\n");
   process.exit(0);
 }
 if (endpoint === "repos/ibboabdoli-ai/Proffera/git/ref/heads/work/proffera-test-task") {
@@ -4262,6 +4273,23 @@ esac
     expect(patch).toBeGreaterThan(finalPrGuard);
     expect(recovery).toContain("reservation-mutex-release");
   });
+
+  it("revalidates a discovered PR even when the publish step lost its PR-number output", () => {
+    const closed = runReservationRecovery({
+      branchExists: true,
+      discoveredPrState: "closed",
+      prNumber: "",
+    });
+    expect(closed.status, closed.stderr).toBe(0);
+    expect(commentPatchCalls(closed.calls, 101)).toHaveLength(0);
+    expect(String(closed.comments.find((comment) => comment.id === 101)?.body ?? "")).toContain("- State: `RESERVED`");
+
+    const recovery = workflowRunStep(source(".github/workflows/supervisor-worker-handoff.yml"), "Release or recover reservation on dispatch failure");
+    expect(recovery).toContain("pulls?state=all&base=main&per_page=100");
+    expect(recovery).toContain('guard_exact_live_pr_open "$pr_number"');
+    expect(recovery).toContain('guard_exact_live_pr_open "${pr_number:-${PR_NUMBER:-}}"');
+  });
+
 
   it("gives branch-backed recovery a bounded durable lease", () => {
     const result = runReservationRecovery();

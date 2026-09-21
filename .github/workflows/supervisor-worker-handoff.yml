@@ -1774,13 +1774,13 @@ jobs:
           packet_digest="$(printf '%s' "$packet" | sha256sum | cut -d' ' -f1)"
           repository_owner="${REPOSITORY%%/*}"
           guard_exact_live_pr_open() {
-            local live_pr
-            if [ -z "${PR_NUMBER:-}" ]; then return 0; fi
-            if ! [[ "$PR_NUMBER" =~ ^[1-9][0-9]*$ ]]; then
+            local candidate_pr="${1:-${PR_NUMBER:-}}" live_pr
+            if [ -z "$candidate_pr" ]; then return 0; fi
+            if ! [[ "$candidate_pr" =~ ^[1-9][0-9]*$ ]]; then
               echo "Refused: dispatch-failure recovery has a malformed PR identity." >&2
               exit 1
             fi
-            live_pr="$(gh api "repos/${REPOSITORY}/pulls/${PR_NUMBER}" 2>/dev/null || true)"
+            live_pr="$(gh api "repos/${REPOSITORY}/pulls/${candidate_pr}" 2>/dev/null || true)"
             if [ -z "$live_pr" ]; then
               echo "Refused: exact Worker PR evidence is unavailable during dispatch-failure recovery." >&2
               exit 1
@@ -1797,15 +1797,24 @@ jobs:
               exit 0
             fi
           }
-          guard_exact_live_pr_open
-          prs="$(gh api --paginate "repos/${REPOSITORY}/pulls?state=open&base=main&per_page=100" --jq '.[]' | jq -s --arg branch "$BRANCH" --arg head "$head_sha" --arg repo "$REPOSITORY" --arg owner "$repository_owner" '[.[] | select(.head.ref == $branch and .head.sha == $head and .head.repo.full_name == $repo and .user.login == $owner)]')"
+          guard_exact_live_pr_open "${PR_NUMBER:-}"
+          prs="$(gh api --paginate "repos/${REPOSITORY}/pulls?state=all&base=main&per_page=100" --jq '.[]' | jq -s --arg branch "$BRANCH" --arg head "$head_sha" --arg repo "$REPOSITORY" --arg owner "$repository_owner" '[.[] | select(.head.ref == $branch and .head.sha == $head and .head.repo.full_name == $repo and .user.login == $owner)]')"
           pr_number=""
-          if [ "$(jq 'length' <<< "$prs")" -eq 1 ]; then
+          pr_match_count="$(jq 'length' <<< "$prs")"
+          if [ "$pr_match_count" -gt 1 ]; then
+            echo "Refused: dispatch-failure recovery found ambiguous exact Worker PR ownership." >&2
+            exit 1
+          fi
+          if [ "$pr_match_count" -eq 1 ]; then
             candidate_body="$(jq -r '.[0].body // ""' <<< "$prs")"
             candidate_packet="$(printf '%s' "$candidate_body" | node "$helper" parse 2>/dev/null || true)"
-            if jq -e . >/dev/null 2>&1 <<< "$candidate_packet" && [ "$(printf '%s' "$candidate_packet" | sha256sum | cut -d' ' -f1)" = "$packet_digest" ]; then
-              pr_number="$(jq -r '.[0].number' <<< "$prs")"
+            if ! jq -e . >/dev/null 2>&1 <<< "$candidate_packet" \
+              || [ "$(printf '%s' "$candidate_packet" | sha256sum | cut -d' ' -f1)" != "$packet_digest" ]; then
+              echo "Refused: discovered exact Worker PR does not carry the reservation-bound Task Packet." >&2
+              exit 1
             fi
+            pr_number="$(jq -r '.[0].number' <<< "$prs")"
+            guard_exact_live_pr_open "$pr_number"
           fi
           if [ -n "$pr_number" ]; then
             payload="$(jq -c --arg state PUBLISHED --argjson pr_number "$pr_number" '.state=$state | .pr_number=$pr_number | .recovery=null' <<< "$payload")"
@@ -1885,7 +1894,7 @@ jobs:
             echo "Refused: reservation changed before dispatch-failure recovery mutation." >&2
             exit 1
           fi
-          guard_exact_live_pr_open
+          guard_exact_live_pr_open "${pr_number:-${PR_NUMBER:-}}"
           if [ "$label" = "RELEASED" ]; then
             gh api --method PATCH "repos/${REPOSITORY}/issues/comments/${RESERVATION_COMMENT_ID}" -f body="$new_body" >/dev/null
             persisted_reservation_body="$(gh api "repos/${REPOSITORY}/issues/comments/${RESERVATION_COMMENT_ID}" --jq '.body // ""')"
