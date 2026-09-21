@@ -20,6 +20,7 @@ vi.mock("@/lib/workspace-services-db", () => ({
 import {
   activateProviderMarketplaceService,
   exactOwnerDirectoryServiceCandidate,
+  findProviderProfileByOrganizationNumber,
   getProviderActivationState,
 } from "../src/lib/company-directory-provider-activation";
 
@@ -57,6 +58,52 @@ describe("Company Directory smart claim service suggestions", () => {
         primaryDirectoryServiceSlug: "vvs",
       },
     ]);
+  });
+
+  it("offers an unclaimed provider claim only with current workplace authority", async () => {
+    const sql = vi.fn(async () => [{
+      public_slug: "safe-provider-ab",
+      display_name: "Safe Provider AB",
+      publication_status: "published",
+      is_active: true,
+      privacy_blocked: false,
+      auto_public_eligible: true,
+      claimed_workspace_id: null,
+      claim_reservation_id: null,
+      has_current_authority: true,
+    }]);
+    mocks.getSql.mockReturnValue(sql);
+
+    await expect(findProviderProfileByOrganizationNumber("5560000000")).resolves.toEqual({
+      status: "available",
+      profileSlug: "safe-provider-ab",
+      companyName: "Safe Provider AB",
+    });
+
+    const query = queryText(sql.mock.calls[0]![0] as TemplateStringsArray);
+    expect(query).toContain("facts.last_synced_at >= profile.last_synced_at");
+    expect(query).toContain("scb.last_synced_at >= now() - interval '7 days'");
+    expect(query).toContain("comparisonSnapshot,profileUpdatedToken");
+    expect(query).toContain("comparisonSnapshot,officialFactsLastSyncedToken");
+    expect(query).toContain("jsonb_array_length(scb.workplaces) = 1");
+  });
+
+  it("does not offer a provider claim when current workplace authority is stale or unbound", async () => {
+    mocks.getSql.mockReturnValue(vi.fn(async () => [{
+      public_slug: "unsafe-provider-ab",
+      display_name: "Unsafe Provider AB",
+      publication_status: "published",
+      is_active: true,
+      privacy_blocked: false,
+      auto_public_eligible: true,
+      claimed_workspace_id: null,
+      claim_reservation_id: null,
+      has_current_authority: false,
+    }]));
+
+    await expect(findProviderProfileByOrganizationNumber("5560000000")).resolves.toEqual({
+      status: "not_ready",
+    });
   });
 
   it("resolves only exact canonical labels and aliases as owner candidates", () => {
