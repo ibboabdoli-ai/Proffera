@@ -310,7 +310,7 @@ describe("marketplace guest quote safety contract", () => {
       [{ id: invitationId, status: "pending", stale_reservation: true }],
       [{ id: invitationId }],
       [],
-      [{ status: "delivery_uncertain" }],
+      [{ status: "delivery_uncertain", has_current_authority: true }],
     );
     mocks.getSql.mockReturnValue(sql);
     mocks.sendInvitationEmail.mockResolvedValue({ ok: true, providerMessageId: "provider-2" });
