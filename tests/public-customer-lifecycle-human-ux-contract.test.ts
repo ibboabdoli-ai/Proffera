@@ -99,7 +99,7 @@ const selectedComparison = {
       submittedAt: "2030-01-01T11:00:00.000Z",
       rating: null,
       reviewCount: 0,
-      providerEmail: "",
+      providerEmail: "loser@other-provider.test",
     },
   ],
 };
@@ -172,7 +172,7 @@ describe("public customer lifecycle rendered contract", () => {
     expect(html).toContain("Nordic Fix AB");
     expect(html).toContain("plumbing · Stockholm");
     expect(html).toContain('href="mailto:winner@nordic-fix.test"');
-    expect(html).not.toContain("loser@");
+    expect(html).not.toContain("loser@other-provider.test");
     expect(html).toContain("Call […] for details.");
     expect(html).toContain('href="/offert/jamfor/customer-token?status=selected"');
   });
