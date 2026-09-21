@@ -47,6 +47,7 @@ function source(path: string) {
 
 beforeEach(() => {
   mocks.getSql.mockReset();
+  mocks.locationSuggestions.mockReset().mockImplementation(async (limit: number) => [`location-${limit}`]);
   mocks.revalidateTag.mockClear();
   mocks.marketplaceHomeCompanies.mockReset().mockImplementation(async ({ limit }: { limit: number }) => ({
     results: [{ id: `company-${limit}` }],
@@ -58,7 +59,7 @@ describe("public read cache contract", () => {
   it("keeps Directory location suggestions for one day while preserving the 30-minute Public Business sitemap cache", async () => {
     expect(mocks.unstableCache).toHaveBeenCalledTimes(3);
 
-    const locationCall = mocks.unstableCache.mock.calls.find(([, keyParts]) => keyParts[0] === "public-directory-location-suggestions-v4");
+    const locationCall = mocks.unstableCache.mock.calls.find(([, keyParts]) => keyParts[0] === "public-directory-location-suggestions-v5");
     expect(locationCall?.[2]).toEqual({
       revalidate: 24 * 60 * 60,
       tags: [PUBLIC_DIRECTORY_LOCATION_SUGGESTIONS_CACHE_TAG],
@@ -90,6 +91,25 @@ describe("public read cache contract", () => {
 
     invalidateMarketplaceHomeCompaniesCache();
     expect(mocks.revalidateTag).toHaveBeenCalledWith(MARKETPLACE_HOME_COMPANIES_CACHE_TAG, { expire: 0 });
+  });
+
+  it("rechecks Directory location suggestions once workplace authority reaches its exact deadline", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-09-20T13:00:00.000Z"));
+    mocks.locationSuggestions
+      .mockResolvedValueOnce(["Södertälje"])
+      .mockResolvedValueOnce([]);
+    mocks.getSql.mockReturnValue(vi.fn(async () => [{
+      juridical_count: 1,
+      authority_expires_at: "2026-09-20T13:00:00.000Z",
+    }]));
+
+    try {
+      await expect(getCachedPublishedDirectoryLocationSuggestions(24)).resolves.toEqual([]);
+      expect(mocks.locationSuggestions).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("rechecks Marketplace companies once their workplace authority reaches its exact deadline", async () => {
