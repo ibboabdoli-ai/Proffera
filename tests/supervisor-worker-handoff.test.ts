@@ -680,7 +680,8 @@ if (method === "PATCH" && commentMatch) {
   }
   comment.body = bodyArg.slice("body=".length);
   if (commentMatch[1] === "99"
-    && bodyArg.includes("- State: \`WORKER_BLOCKED\`")
+    && (bodyArg.includes("- State: \`WORKER_BLOCKED\`")
+      || bodyArg.includes("- State: \`CLOSED_UNMERGED\`"))
     && state.mutationAfterTaskPatch
     && !state.mutationApplied) {
     state.mutationApplied = true;
