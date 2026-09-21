@@ -1014,25 +1014,25 @@ function assertCanonicalTaskStateEnvelope(text, packet) {
   const marker = `${TASK_STATE_MARKER_PREFIX}${packet.task_id} -->`;
   const lines = String(text ?? "").split("\n").filter((line) => line.length > 0);
   const rules = [
-    { name: "marker", required: true, match: (line) => line === marker },
-    { name: "heading", required: true, match: (line) => /^### Supervisor task: [A-Z][A-Z0-9-]{1,63}$/u.test(line) },
-    { name: "state", required: true, match: (line) => /^- State: `[A-Z][A-Z0-9_]{2,39}`$/u.test(line) },
-    { name: "graph", required: true, match: (line) => /^- Graph path: `[^`\r\n]+`$/u.test(line) },
-    { name: "branch", required: true, match: (line) => /^- Branch: `[^`\r\n]+`$/u.test(line) },
-    { name: "base", required: true, match: (line) => /^- Base: `[0-9a-f]{40}`$/u.test(line) },
-    { name: "digest", required: true, match: (line) => /^- Packet SHA-256: `[0-9a-f]{64}`$/u.test(line) },
-    { name: "run", required: true, match: (line) => /^- Run ID: `[0-9]+`$/u.test(line) },
-    { name: "pr", required: false, match: (line) => /^- PR: #[1-9][0-9]*$/u.test(line) },
-    { name: "head", required: false, match: (line) => /^- Head: `[0-9a-f]{40}`$/u.test(line) },
-    { name: "ready", required: false, match: (line) => /^- Ready checkpoint: `[A-Z][A-Z0-9-]{1,63}@[0-9a-f]{40}`$/u.test(line) },
-    { name: "reason", required: true, match: (line) => /^- Reason: .+$/u.test(line) },
-    { name: "production", required: true, match: (line) => line === "- Production mutation: `false`" },
-    { name: "merge", required: true, match: (line) => line === "- Merge allowed: `false`" },
-    { name: "automerge", required: true, match: (line) => line === "- Auto-merge allowed: `false`" },
+    { name: "marker", required: true, accepts: (line) => line === marker },
+    { name: "heading", required: true, accepts: (line) => /^### Supervisor task: [A-Z][A-Z0-9-]{1,63}$/u.test(line) },
+    { name: "state", required: true, accepts: (line) => /^- State: `[A-Z][A-Z0-9_]{2,39}`$/u.test(line) },
+    { name: "graph", required: true, accepts: (line) => /^- Graph path: `[^`\r\n]+`$/u.test(line) },
+    { name: "branch", required: true, accepts: (line) => /^- Branch: `[^`\r\n]+`$/u.test(line) },
+    { name: "base", required: true, accepts: (line) => /^- Base: `[0-9a-f]{40}`$/u.test(line) },
+    { name: "digest", required: true, accepts: (line) => /^- Packet SHA-256: `[0-9a-f]{64}`$/u.test(line) },
+    { name: "run", required: true, accepts: (line) => /^- Run ID: `[0-9]+`$/u.test(line) },
+    { name: "pr", required: false, accepts: (line) => /^- PR: #[1-9][0-9]*$/u.test(line) },
+    { name: "head", required: false, accepts: (line) => /^- Head: `[0-9a-f]{40}`$/u.test(line) },
+    { name: "ready", required: false, accepts: (line) => /^- Ready checkpoint: `[A-Z][A-Z0-9-]{1,63}@[0-9a-f]{40}`$/u.test(line) },
+    { name: "reason", required: true, accepts: (line) => /^- Reason: .+$/u.test(line) },
+    { name: "production", required: true, accepts: (line) => line === "- Production mutation: `false`" },
+    { name: "merge", required: true, accepts: (line) => line === "- Merge allowed: `false`" },
+    { name: "automerge", required: true, accepts: (line) => line === "- Auto-merge allowed: `false`" },
   ];
   const counts = new Map(rules.map((rule) => [rule.name, 0]));
   for (const line of lines) {
-    const matches = rules.filter((rule) => rule.match(line));
+    const matches = rules.filter((rule) => rule.accepts(line));
     if (matches.length !== 1) throw new Error("task state contains an unsupported or ambiguous line");
     const rule = matches[0];
     counts.set(rule.name, (counts.get(rule.name) ?? 0) + 1);
