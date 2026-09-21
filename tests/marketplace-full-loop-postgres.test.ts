@@ -71,6 +71,7 @@ const authMigration = "20260616_0001_better_auth_core_schema.sql";
 const reviewMigration = "20260729_0019_website_reviews.sql";
 const migrationFiles = [
   "20260812_0044_company_directory_official_facts.sql",
+  "20260819_0048_company_directory_scb_enrichment.sql",
   "20260820_0049_marketplace_guest_quotes.sql",
   "20260820_0050_marketplace_guest_dispatch_claim.sql",
   "20260820_0051_marketplace_guest_runtime_eligibility.sql",
@@ -225,10 +226,56 @@ if (RUN_POSTGRES_INTEGRATION) {
           'published', 95, false, true
         )
       `, [profileId]);
-      await client.query(`
-        insert into company_directory_official_facts (profile_id, advertising_blocked)
-        values ($1, false)
+      const profileTokens = await client.query<{ updated_at: string; last_synced_at: string }>(`
+        select updated_at::text, last_synced_at::text
+        from company_directory_profiles
+        where id = $1
       `, [profileId]);
+      const profileUpdatedToken = String(profileTokens.rows[0]?.updated_at ?? "");
+      const profileLastSyncedToken = String(profileTokens.rows[0]?.last_synced_at ?? "");
+
+      await client.query(`
+        insert into company_directory_official_facts (
+          profile_id, advertising_blocked, ongoing_procedures,
+          source_payload_hash, last_synced_at
+        )
+        values ($1, false, '[]'::jsonb, 'official-facts-hash', $2::timestamptz)
+      `, [profileId, profileLastSyncedToken]);
+
+      const factsTokens = await client.query<{ last_synced_at: string }>(`
+        select last_synced_at::text
+        from company_directory_official_facts
+        where profile_id = $1
+      `, [profileId]);
+      const factsLastSyncedToken = String(factsTokens.rows[0]?.last_synced_at ?? "");
+
+      await client.query(`
+        insert into company_directory_scb_enrichment (
+          profile_id, organization_number, observed_company_name, email,
+          workplaces, provenance, conflicts, source_payload_hash, last_synced_at
+        )
+        values (
+          $1, '5566778899', 'Integration Rör AB', $2,
+          $3::jsonb, $4::jsonb, '[]'::jsonb, 'scb-hash', now()
+        )
+      `, [
+        profileId,
+        providerEmail,
+        JSON.stringify([{
+          visitingAddress: {
+            addressLine: "Storgatan 1",
+            postalCode: "15100",
+            city: "Södertälje",
+          },
+          municipality: "Södertälje",
+        }]),
+        JSON.stringify({
+          comparisonSnapshot: {
+            profileUpdatedToken,
+            officialFactsLastSyncedToken: factsLastSyncedToken,
+          },
+        }),
+      ]);
 
       mocks.sendMarketplaceGuestInvitationEmail.mockResolvedValue({
         ok: true,
