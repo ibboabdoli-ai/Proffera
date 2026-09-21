@@ -461,6 +461,7 @@ function runReservationRecovery({
       base: { ref: livePrBase },
       head: { ref: normalizedPacketJson.branch, sha, repo: { full_name: "ibboabdoli-ai/Proffera" } },
       user: { login: "ibboabdoli-ai" },
+      body: packetComment(normalizedPacketJson),
     },
     pulls: discoveredPrState
       ? [{
@@ -4318,7 +4319,7 @@ esac
     expect(recovery).toContain('.user.login == $owner');
   });
 
-  it("guards fallback cleanup against closed or changed exact Worker PR evidence", () => {
+  it("guards fallback cleanup against closed, retargeted, or changed exact Worker PR evidence", () => {
     const workflow = source(".github/workflows/supervisor-worker-handoff.yml");
     const reconcile = workflowRunStep(workflow, "Reconcile exact stranded reservation after publish setup failure");
     const shell = spawnSync("bash", ["-n"], { input: reconcile, encoding: "utf8" });
@@ -4326,31 +4327,25 @@ esac
     expect(reconcile).toContain("pulls?state=all&per_page=100");
     expect(reconcile).not.toContain("pulls?state=all&base=main&per_page=100");
     expect(reconcile).toContain("discover_exact_cleanup_pr_number");
-    expect(reconcile).toContain("guard_exact_cleanup_pr_open");
-    expect(reconcile).toContain('gh api "repos/${REPOSITORY}/pulls/${candidate_pr}"');
-    expect(reconcile).toContain("Exact Worker PR #${candidate_pr} is no longer open");
-    expect(reconcile).toContain("retargeted away from main");
-    expect(reconcile).toContain('jq -r \'.base.ref // ""\'');
-    expect(reconcile).toContain("force_release=true");
-    expect(reconcile).toContain("revalidate_fallback_pr_evidence");
-    expect(reconcile).toContain("stop_if_fallback_pr_not_mutation_safe");
+    expect(reconcile).toContain("refresh_exact_cleanup_pr");
+    expect(reconcile).toContain("converge_exceptional_exact_pr");
+    expect(reconcile).toContain('gh api "repos/${REPOSITORY}/pulls/${exact_pr_number}"');
+    expect(reconcile).toContain("retargeted_open");
+    expect(reconcile).toContain('jq -r '.base.ref // ""'');
+    expect(reconcile).toContain('kind:"retargeted_pr"');
+    expect(reconcile).toContain("same task is not redispatchable");
+    expect(reconcile).toContain("RESERVED|PUBLISHED|RECOVERABLE");
 
-    const taskPatch = reconcile.indexOf('gh api --method PATCH "repos/${REPOSITORY}/issues/comments/${STATE_COMMENT_ID}"');
-    const reservationPatch = reconcile.indexOf('gh api --method PATCH "repos/${REPOSITORY}/issues/comments/${RESERVATION_COMMENT_ID}"');
-    const taskGuard = reconcile.lastIndexOf("stop_if_fallback_pr_not_mutation_safe", taskPatch);
-    const reservationGuard = reconcile.lastIndexOf("stop_if_fallback_pr_not_mutation_safe", reservationPatch);
     const allStateScan = reconcile.indexOf("pulls?state=all&per_page=100");
-    const baseGuard = reconcile.indexOf("retargeted away from main");
-    const retargetedRelease = reconcile.indexOf('kind:"retargeted_pr"');
-    const publishedMutation = reconcile.indexOf("--arg state PUBLISHED");
-    expect(baseGuard).toBeGreaterThan(allStateScan);
-    expect(retargetedRelease).toBeGreaterThan(baseGuard);
-    expect(publishedMutation).toBeGreaterThan(retargetedRelease);
+    const classification = reconcile.indexOf("retargeted_open", allStateScan);
+    const retargetedRelease = reconcile.indexOf('kind:"retargeted_pr"', classification);
+    const taskPatch = reconcile.indexOf('gh api --method PATCH "repos/${REPOSITORY}/issues/comments/${STATE_COMMENT_ID}"', retargetedRelease);
+    const reservationPatch = reconcile.indexOf('gh api --method PATCH "repos/${REPOSITORY}/issues/comments/${RESERVATION_COMMENT_ID}"', taskPatch);
     expect(allStateScan).toBeGreaterThanOrEqual(0);
-    expect(taskGuard).toBeGreaterThan(allStateScan);
-    expect(taskPatch).toBeGreaterThan(taskGuard);
-    expect(reservationGuard).toBeGreaterThan(taskPatch);
-    expect(reservationPatch).toBeGreaterThan(reservationGuard);
+    expect(classification).toBeGreaterThan(allStateScan);
+    expect(retargetedRelease).toBeGreaterThan(classification);
+    expect(taskPatch).toBeGreaterThan(retargetedRelease);
+    expect(reservationPatch).toBeGreaterThan(taskPatch);
   });
 
   it.each(["RESERVED", "RECOVERABLE"] as const)("converges a %s reservation for an open retargeted exact PR without making the task redispatchable", (reservationState) => {
@@ -4491,17 +4486,18 @@ esac
     expect(commentPatchCalls(closed.calls, 101)).toHaveLength(0);
     expect(String(closed.comments.find((comment) => comment.id === 101)?.body ?? "")).toContain("- State: `RESERVED`");
 
-    const workflow = source(".github/workflows/supervisor-worker-handoff.yml");
-    const recovery = workflowRunStep(workflow, "Release or recover reservation on dispatch failure");
+    const recovery = workflowRunStep(source(".github/workflows/supervisor-worker-handoff.yml"), "Release or recover reservation on dispatch failure");
     const acquire = recovery.indexOf("reservation-mutex-acquire");
     const read = recovery.indexOf('comment="$(gh api "repos/${REPOSITORY}/issues/comments/${RESERVATION_COMMENT_ID}"');
     const finalReservationGuard = recovery.indexOf("Refused: reservation changed before dispatch-failure recovery mutation.");
-    const finalPrGuard = recovery.indexOf("guard_exact_live_pr_open", finalReservationGuard);
+    const finalPrScan = recovery.indexOf('final_prs="$(discover_exact_dispatch_prs)"', finalReservationGuard);
+    const finalPrGuard = recovery.indexOf('defer_exceptional_exact_pr "$pr_number"', finalPrScan);
     const patch = recovery.indexOf('gh api --method PATCH "repos/${REPOSITORY}/issues/comments/${RESERVATION_COMMENT_ID}"', finalPrGuard);
     expect(acquire).toBeGreaterThanOrEqual(0);
     expect(read).toBeGreaterThan(acquire);
     expect(finalReservationGuard).toBeGreaterThan(read);
-    expect(finalPrGuard).toBeGreaterThan(finalReservationGuard);
+    expect(finalPrScan).toBeGreaterThan(finalReservationGuard);
+    expect(finalPrGuard).toBeGreaterThan(finalPrScan);
     expect(patch).toBeGreaterThan(finalPrGuard);
     expect(recovery).toContain("reservation-mutex-release");
   });
@@ -4517,9 +4513,10 @@ esac
     expect(String(closed.comments.find((comment) => comment.id === 101)?.body ?? "")).toContain("- State: `RESERVED`");
 
     const recovery = workflowRunStep(source(".github/workflows/supervisor-worker-handoff.yml"), "Release or recover reservation on dispatch failure");
-    expect(recovery).toContain("pulls?state=all&base=main&per_page=100");
-    expect(recovery).toContain('guard_exact_live_pr_open "$pr_number"');
-    expect(recovery).toContain('guard_exact_live_pr_open "${pr_number:-${PR_NUMBER:-}}"');
+    expect(recovery).toContain("pulls?state=all&per_page=100");
+    expect(recovery).toContain("discover_exact_dispatch_prs");
+    expect(recovery).toContain('defer_exceptional_exact_pr "$pr_number"');
+    expect(recovery).toContain('gh api "repos/${REPOSITORY}/pulls/${PR_NUMBER}"');
   });
 
 

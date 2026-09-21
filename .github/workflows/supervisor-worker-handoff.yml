@@ -1792,8 +1792,12 @@ jobs:
           }
           defer_exceptional_exact_pr() {
             local candidate_pr="$1" status
-            if validate_exact_dispatch_pr_main_open "$candidate_pr"; then return 1; fi
-            status=$?
+            if validate_exact_dispatch_pr_main_open "$candidate_pr"; then
+              status=0
+            else
+              status=$?
+            fi
+            if [ "$status" -eq 0 ]; then return 1; fi
             if [ "$status" -eq 2 ] || [ "$status" -eq 3 ]; then
               echo "Exact Worker PR #${candidate_pr} is not an open main-target PR; deferring convergence to independent cleanup."
               release_mutex
@@ -1803,8 +1807,37 @@ jobs:
             echo "Refused: exact Worker PR identity changed during dispatch-failure recovery." >&2
             exit 1
           }
-          prs="$(discover_exact_dispatch_prs)"
+
           pr_number=""
+          if [ -n "${PR_NUMBER:-}" ]; then
+            if ! [[ "$PR_NUMBER" =~ ^[1-9][0-9]*$ ]]; then
+              echo "Refused: publish output PR identity is malformed." >&2
+              exit 1
+            fi
+            direct_pr="$(gh api "repos/${REPOSITORY}/pulls/${PR_NUMBER}" 2>/dev/null || true)"
+            if [ -z "$direct_pr" ]; then
+              echo "Refused: publish output PR evidence is unavailable." >&2
+              exit 1
+            fi
+            if [ "$(jq -r '.head.ref // ""' <<< "$direct_pr")" != "$BRANCH" ] \
+              || [ "$(jq -r '.head.sha // ""' <<< "$direct_pr")" != "$head_sha" ] \
+              || [ "$(jq -r '.head.repo.full_name // ""' <<< "$direct_pr")" != "$REPOSITORY" ] \
+              || [ "$(jq -r '.user.login // ""' <<< "$direct_pr")" != "$repository_owner" ]; then
+              echo "Refused: publish output PR does not match exact Worker identity." >&2
+              exit 1
+            fi
+            direct_body="$(jq -r '.body // ""' <<< "$direct_pr")"
+            direct_packet="$(printf '%s' "$direct_body" | node "$helper" parse 2>/dev/null || true)"
+            if ! jq -e . >/dev/null 2>&1 <<< "$direct_packet" \
+              || [ "$(printf '%s' "$direct_packet" | sha256sum | cut -d' ' -f1)" != "$packet_digest" ]; then
+              echo "Refused: publish output PR does not carry the reservation-bound Task Packet." >&2
+              exit 1
+            fi
+            pr_number="$PR_NUMBER"
+            defer_exceptional_exact_pr "$pr_number" || true
+          fi
+
+          prs="$(discover_exact_dispatch_prs)"
           pr_match_count="$(jq 'length' <<< "$prs")"
           if [ "$pr_match_count" -gt 1 ]; then
             echo "Refused: dispatch-failure recovery found ambiguous exact Worker PR ownership." >&2
@@ -1818,15 +1851,13 @@ jobs:
               echo "Refused: discovered exact Worker PR does not carry the reservation-bound Task Packet." >&2
               exit 1
             fi
-            pr_number="$(jq -r '.[0].number' <<< "$prs")"
-            if [ -n "${PR_NUMBER:-}" ] && [ "$PR_NUMBER" != "$pr_number" ]; then
-              echo "Refused: publish output PR identity disagrees with exact live PR evidence." >&2
+            discovered_pr_number="$(jq -r '.[0].number' <<< "$prs")"
+            if [ -n "$pr_number" ] && [ "$pr_number" != "$discovered_pr_number" ]; then
+              echo "Refused: publish output PR identity disagrees with exact all-state PR evidence." >&2
               exit 1
             fi
+            pr_number="$discovered_pr_number"
             defer_exceptional_exact_pr "$pr_number" || true
-          elif [ -n "${PR_NUMBER:-}" ]; then
-            echo "Refused: publish output names a PR but exact all-state PR evidence is missing." >&2
-            exit 1
           fi
           if [ -n "$pr_number" ]; then
             payload="$(jq -c --arg state PUBLISHED --argjson pr_number "$pr_number" '.state=$state | .pr_number=$pr_number | .recovery=null' <<< "$payload")"
@@ -1909,13 +1940,14 @@ jobs:
           final_prs="$(discover_exact_dispatch_prs)"
           final_pr_count="$(jq 'length' <<< "$final_prs")"
           if [ "$label" = "PUBLISHED" ]; then
-            if [ "$final_pr_count" -ne 1 ] || [ "$(jq -r '.[0].number' <<< "$final_prs")" != "$pr_number" ]; then
-              echo "Exact PR evidence changed before PUBLISHED mutation; deferring to independent cleanup."
+            defer_exceptional_exact_pr "$pr_number" || true
+            if [ "$final_pr_count" -gt 1 ] \
+              || { [ "$final_pr_count" -eq 1 ] && [ "$(jq -r '.[0].number' <<< "$final_prs")" != "$pr_number" ]; }; then
+              echo "Exact PR list evidence changed before PUBLISHED mutation; deferring to independent cleanup."
               release_mutex
               trap - EXIT
               exit 0
             fi
-            defer_exceptional_exact_pr "$pr_number" || true
           elif [ "$final_pr_count" -ne 0 ]; then
             echo "Exact PR evidence appeared before non-PR recovery mutation; deferring to independent cleanup."
             release_mutex
@@ -2124,7 +2156,7 @@ jobs:
               next_payload="$(jq -c --arg state RELEASED --argjson pr_number "$expected_number" --argjson merged "$merged_for_main" --arg reservation_head_sha "$head_sha" '.state=$state | .pr_number=$pr_number | .head_sha=$reservation_head_sha | .recovery={kind:"closed_pr",merged:$merged,reservation_head_sha:$reservation_head_sha}' <<< "$payload")"
             fi
             payload_b64="$(printf '%s' "$next_payload" | base64 -w0)"
-            next_reservation_body="$(printf '%s\n' "<!-- proffera-worker-slot-reservation:${TASK_ID} -->" "### Worker slot reservation: ${TASK_ID}" "- State: `RELEASED`" "- Reservation payload: `${payload_b64}`")"
+            next_reservation_body="$(printf '%s\n' "<!-- proffera-worker-slot-reservation:${TASK_ID} -->" "### Worker slot reservation: ${TASK_ID}" "- State: \`RELEASED\`" "- Reservation payload: \`${payload_b64}\`")"
 
             [ "$(gh api "repos/${REPOSITORY}/issues/comments/${RESERVATION_COMMENT_ID}" --jq '.body // ""')" = "$reservation_body" ] || return 1
             [ "$(gh api "repos/${REPOSITORY}/issues/comments/${STATE_COMMENT_ID}" --jq '.body // ""')" = "$exceptional_task_body_before" ] || return 1
