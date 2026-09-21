@@ -4155,6 +4155,30 @@ esac
     expect(recovery).toContain('.user.login == $owner');
   });
 
+  it("guards fallback cleanup against closed or changed exact Worker PR evidence", () => {
+    const workflow = source(".github/workflows/supervisor-worker-handoff.yml");
+    const reconcile = workflowRunStep(workflow, "Reconcile exact stranded reservation after publish setup failure");
+    expectShellAndJqSyntax(reconcile);
+    expect(reconcile).toContain("pulls?state=all&base=main&per_page=100");
+    expect(reconcile).toContain("discover_exact_cleanup_pr_number");
+    expect(reconcile).toContain("guard_exact_cleanup_pr_open");
+    expect(reconcile).toContain('gh api "repos/${REPOSITORY}/pulls/${candidate_pr}"');
+    expect(reconcile).toContain("Exact Worker PR #${candidate_pr} is no longer open");
+    expect(reconcile).toContain("revalidate_fallback_pr_evidence");
+    expect(reconcile).toContain("stop_if_fallback_pr_not_mutation_safe");
+
+    const taskPatch = reconcile.indexOf('gh api --method PATCH "repos/${REPOSITORY}/issues/comments/${STATE_COMMENT_ID}"');
+    const reservationPatch = reconcile.indexOf('gh api --method PATCH "repos/${REPOSITORY}/issues/comments/${RESERVATION_COMMENT_ID}"');
+    const taskGuard = reconcile.lastIndexOf("stop_if_fallback_pr_not_mutation_safe", taskPatch);
+    const reservationGuard = reconcile.lastIndexOf("stop_if_fallback_pr_not_mutation_safe", reservationPatch);
+    const allStateScan = reconcile.indexOf("pulls?state=all&base=main&per_page=100");
+    expect(allStateScan).toBeGreaterThanOrEqual(0);
+    expect(taskGuard).toBeGreaterThan(allStateScan);
+    expect(taskPatch).toBeGreaterThan(taskGuard);
+    expect(reservationGuard).toBeGreaterThan(taskPatch);
+    expect(reservationPatch).toBeGreaterThan(reservationGuard);
+  });
+
   it("validates exact same-run recovery artifact bytes before persisting RECOVERABLE", () => {
     const workflow = source(".github/workflows/supervisor-worker-handoff.yml");
     const cleanupStart = workflow.indexOf("  cleanup:");

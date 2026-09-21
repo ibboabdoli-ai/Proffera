@@ -2017,18 +2017,97 @@ jobs:
           target_tree_sha="$(jq -r '.target_tree_sha // ""' <<< "$payload")"
           reserved_paths="$(jq -c '.changed_files // [] | sort' <<< "$payload")"
           repository_owner="${REPOSITORY%%/*}"
-          prs="$(gh api --paginate "repos/${REPOSITORY}/pulls?state=open&base=main&per_page=100" --jq '.[]' | jq -s --arg branch "$BRANCH" --arg head "$head_sha" --arg repo "$REPOSITORY" --arg owner "$repository_owner" '[.[] | select(.head.ref == $branch and .head.sha == $head and .head.repo.full_name == $repo and .user.login == $owner)]')"
-          pr_number=""
-          if [ "$(jq 'length' <<< "$prs")" -eq 1 ]; then
-            candidate_body="$(jq -r '.[0].body // ""' <<< "$prs")"
-            candidate_packet="$(printf '%s' "$candidate_body" | node "$helper" parse 2>/dev/null || true)"
-            if jq -e . >/dev/null 2>&1 <<< "$candidate_packet"               && [ "$(printf '%s' "$candidate_packet" | sha256sum | cut -d' ' -f1)" = "$packet_digest" ]; then
-              pr_number="$(jq -r '.[0].number' <<< "$prs")"
+
+          discover_exact_cleanup_pr_number() {
+            local matches count candidate_body candidate_packet candidate_number
+            matches="$(gh api --paginate "repos/${REPOSITORY}/pulls?state=all&base=main&per_page=100" --jq '.[]' | jq -s --arg branch "$BRANCH" --arg head "$head_sha" --arg repo "$REPOSITORY" --arg owner "$repository_owner" '[.[] | select(.head.ref == $branch and .head.sha == $head and .head.repo.full_name == $repo and .user.login == $owner)]')"
+            count="$(jq 'length' <<< "$matches")"
+            if [ "$count" -gt 1 ]; then
+              echo "Refused: stranded reservation has ambiguous exact PR ownership." >&2
+              return 1
             fi
-          elif [ "$(jq 'length' <<< "$prs")" -gt 1 ]; then
-            echo "Refused: stranded reservation has ambiguous open PR ownership." >&2
-            exit 1
+            if [ "$count" -eq 0 ]; then
+              printf '%s' ""
+              return 0
+            fi
+            candidate_body="$(jq -r '.[0].body // ""' <<< "$matches")"
+            candidate_packet="$(printf '%s' "$candidate_body" | node "$helper" parse 2>/dev/null || true)"
+            if ! jq -e . >/dev/null 2>&1 <<< "$candidate_packet" \
+              || [ "$(printf '%s' "$candidate_packet" | sha256sum | cut -d' ' -f1)" != "$packet_digest" ]; then
+              echo "Refused: exact Worker PR does not carry the reservation-bound Task Packet." >&2
+              return 1
+            fi
+            candidate_number="$(jq -r '.[0].number // ""' <<< "$matches")"
+            if ! [[ "$candidate_number" =~ ^[1-9][0-9]*$ ]]; then
+              echo "Refused: exact Worker PR has an invalid number." >&2
+              return 1
+            fi
+            printf '%s' "$candidate_number"
+          }
+
+          guard_exact_cleanup_pr_open() {
+            local candidate_pr="$1" live_pr
+            [ -z "$candidate_pr" ] && return 0
+            live_pr="$(gh api "repos/${REPOSITORY}/pulls/${candidate_pr}" 2>/dev/null || true)"
+            if [ -z "$live_pr" ]; then
+              echo "Refused: exact Worker PR evidence is unavailable during fallback cleanup." >&2
+              return 1
+            fi
+            if [ "$(jq -r '.head.ref // ""' <<< "$live_pr")" != "$BRANCH" ] \
+              || [ "$(jq -r '.head.sha // ""' <<< "$live_pr")" != "$head_sha" ] \
+              || [ "$(jq -r '.head.repo.full_name // ""' <<< "$live_pr")" != "$REPOSITORY" ] \
+              || [ "$(jq -r '.user.login // ""' <<< "$live_pr")" != "$repository_owner" ]; then
+              echo "Refused: exact Worker PR identity changed during fallback cleanup." >&2
+              return 1
+            fi
+            if [ "$(jq -r '.state // ""' <<< "$live_pr")" != "open" ]; then
+              echo "Exact Worker PR #${candidate_pr} is no longer open; leaving reservation convergence to the serialized close writer."
+              return 2
+            fi
+            return 0
+          }
+
+          pr_number="$(discover_exact_cleanup_pr_number)" || exit 1
+          if [ -n "$pr_number" ]; then
+            guard_exact_cleanup_pr_open "$pr_number" || {
+              guard_status=$?
+              if [ "$guard_status" -eq 2 ]; then
+                release_mutex
+                trap - EXIT
+                exit 0
+              fi
+              exit "$guard_status"
+            }
           fi
+
+          revalidate_fallback_pr_evidence() {
+            local current_pr_number guard_status
+            current_pr_number="$(discover_exact_cleanup_pr_number)" || return 1
+            if [ -n "$current_pr_number" ]; then
+              guard_exact_cleanup_pr_open "$current_pr_number" || {
+                guard_status=$?
+                return "$guard_status"
+              }
+            fi
+            if [ "$current_pr_number" != "$pr_number" ]; then
+              echo "Refused: exact Worker PR evidence changed before fallback mutation." >&2
+              return 1
+            fi
+            return 0
+          }
+
+          stop_if_fallback_pr_not_mutation_safe() {
+            local status
+            revalidate_fallback_pr_evidence || {
+              status=$?
+              if [ "$status" -eq 2 ]; then
+                release_mutex
+                trap - EXIT
+                exit 0
+              fi
+              exit "$status"
+            }
+          }
 
           label=""
           if [ -n "$pr_number" ]; then
@@ -2112,12 +2191,14 @@ jobs:
             fi
             live_pulls="$(gh api --paginate "repos/${REPOSITORY}/pulls?state=open&base=main&per_page=100" --jq '.[]' | jq -s --arg branch "$BRANCH" --arg repo "$REPOSITORY" '[.[] | select(.head.ref == $branch and (.head.repo.full_name // "") == $repo)]')"
             test "$(jq 'length' <<< "$live_pulls")" -eq 0
+            stop_if_fallback_pr_not_mutation_safe
             gh api --method PATCH "repos/${REPOSITORY}/issues/comments/${STATE_COMMENT_ID}" -f body="$retryable_state_body" >/dev/null
           fi
 
           payload_b64="$(printf '%s' "$payload" | base64 -w0)"
           new_body="$(printf '%s\n' "<!-- proffera-worker-slot-reservation:${TASK_ID} -->" "### Worker slot reservation: ${TASK_ID}" "- State: \`${label}\`" "- Reservation payload: \`${payload_b64}\`")"
           test "$(gh api "repos/${REPOSITORY}/issues/comments/${RESERVATION_COMMENT_ID}" --jq '.body // ""')" = "$reservation_body"
+          stop_if_fallback_pr_not_mutation_safe
           gh api --method PATCH "repos/${REPOSITORY}/issues/comments/${RESERVATION_COMMENT_ID}" -f body="$new_body" >/dev/null
 
           if [ "$label" = "RELEASED" ]; then
