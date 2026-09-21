@@ -643,7 +643,7 @@ export async function sendMarketplaceGuestQuoteInvitation(input: {
           on authority_scb.profile_id = authority_facts.profile_id
         where authority_facts.profile_id = profile.id
           and authority_facts.source_payload_hash <> ''
-          and authority_facts.last_synced_at >= p.last_synced_at
+          and authority_facts.last_synced_at >= profile.last_synced_at
           and authority_facts.deregistration_date is null
           and coalesce(authority_facts.advertising_blocked, false) = false
           and (
@@ -655,8 +655,8 @@ export async function sendMarketplaceGuestQuoteInvitation(input: {
           ) = 0
           and authority_scb.source_payload_hash <> ''
           and authority_scb.last_synced_at >= now() - interval '7 days'
-          and authority_scb.last_synced_at >= p.last_synced_at
-          and authority_scb.provenance #>> '{comparisonSnapshot,profileUpdatedToken}' = p.updated_at::text
+          and authority_scb.last_synced_at >= profile.last_synced_at
+          and authority_scb.provenance #>> '{comparisonSnapshot,profileUpdatedToken}' = profile.updated_at::text
           and authority_scb.provenance #>> '{comparisonSnapshot,officialFactsLastSyncedToken}' = authority_facts.last_synced_at::text
           and jsonb_typeof(authority_scb.conflicts) = 'array'
           and jsonb_array_length(authority_scb.conflicts) = 0
