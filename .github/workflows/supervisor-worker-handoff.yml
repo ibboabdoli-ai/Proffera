@@ -1744,10 +1744,21 @@ jobs:
           RUN_ID: ${{ github.run_id }}
           PACKET_B64: ${{ needs.preflight.outputs.packet_b64 }}
           ARTIFACT_UPLOADED: ${{ steps.recovery_upload.outcome == 'success' }}
+          PR_NUMBER: ${{ steps.publish.outputs.pr_number }}
         shell: bash
         run: |
           set -euo pipefail
           helper="$RUNNER_TEMP/proffera-trusted-publish/supervisor-worker-handoff.mjs"
+          manifest="$RUNNER_TEMP/proffera-trusted-publish/supervisor-worker-handoff.sha256"
+          test -f "$helper" -a -f "$manifest"
+          sha256sum --check --status "$manifest"
+          control_input="$(jq -cn --arg repository "$REPOSITORY" --arg run_id "$RUN_ID" '{repository:$repository,run_id:$run_id}')"
+          mutex="$(printf '%s' "$control_input" | node "$helper" reservation-mutex-acquire)"
+          control_input="$(jq -c --arg mutex "$mutex" '. + {mutex:$mutex}' <<< "$control_input")"
+          release_mutex() {
+            printf '%s' "$control_input" | node "$helper" reservation-mutex-release
+          }
+          trap 'release_mutex || true' EXIT
           comment="$(gh api "repos/${REPOSITORY}/issues/comments/${RESERVATION_COMMENT_ID}" 2>/dev/null || true)"
           [ -z "$comment" ] && exit 0
           body="$(jq -r '.body // ""' <<< "$comment")"
@@ -1756,12 +1767,37 @@ jobs:
           if ! jq -e . >/dev/null 2>&1 <<< "$payload"; then exit 0; fi
           if [ "$(jq -r '.task_id // ""' <<< "$payload")" != "$TASK_ID" ] || [ "$(jq -r '.run_id // ""' <<< "$payload")" != "$RUN_ID" ]; then exit 0; fi
           state="$(jq -r '.state // ""' <<< "$payload")"
-          if [ "$state" = "PUBLISHED" ] || [ "$state" = "RECOVERABLE" ]; then exit 0; fi
+          if [ "$state" = "PUBLISHED" ] || [ "$state" = "RECOVERABLE" ] || [ "$state" = "RELEASED" ]; then exit 0; fi
           reservation_before="$payload"
           head_sha="$(jq -r '.head_sha // ""' <<< "$payload")"
           packet="$(printf '%s' "$PACKET_B64" | base64 --decode)"
           packet_digest="$(printf '%s' "$packet" | sha256sum | cut -d' ' -f1)"
           repository_owner="${REPOSITORY%%/*}"
+          guard_exact_live_pr_open() {
+            local live_pr
+            if [ -z "${PR_NUMBER:-}" ]; then return 0; fi
+            if ! [[ "$PR_NUMBER" =~ ^[1-9][0-9]*$ ]]; then
+              echo "Refused: dispatch-failure recovery has a malformed PR identity." >&2
+              exit 1
+            fi
+            live_pr="$(gh api "repos/${REPOSITORY}/pulls/${PR_NUMBER}" 2>/dev/null || true)"
+            if [ -z "$live_pr" ]; then
+              echo "Refused: exact Worker PR evidence is unavailable during dispatch-failure recovery." >&2
+              exit 1
+            fi
+            if [ "$(jq -r '.head.ref // ""' <<< "$live_pr")" != "$BRANCH" ] \
+              || [ "$(jq -r '.head.sha // ""' <<< "$live_pr")" != "$head_sha" ] \
+              || [ "$(jq -r '.head.repo.full_name // ""' <<< "$live_pr")" != "$REPOSITORY" ] \
+              || [ "$(jq -r '.user.login // ""' <<< "$live_pr")" != "$repository_owner" ]; then
+              echo "Refused: exact Worker PR identity changed during dispatch-failure recovery." >&2
+              exit 1
+            fi
+            if [ "$(jq -r '.state // ""' <<< "$live_pr")" != "open" ]; then
+              echo "Worker PR is no longer open; leaving reservation ownership to the serialized close writer."
+              exit 0
+            fi
+          }
+          guard_exact_live_pr_open
           prs="$(gh api --paginate "repos/${REPOSITORY}/pulls?state=open&base=main&per_page=100" --jq '.[]' | jq -s --arg branch "$BRANCH" --arg head "$head_sha" --arg repo "$REPOSITORY" --arg owner "$repository_owner" '[.[] | select(.head.ref == $branch and .head.sha == $head and .head.repo.full_name == $repo and .user.login == $owner)]')"
           pr_number=""
           if [ "$(jq 'length' <<< "$prs")" -eq 1 ]; then
@@ -1845,6 +1881,11 @@ jobs:
           - Reservation payload: \`${payload_b64}\`
           EOF
           )"
+          if [ "$(gh api "repos/${REPOSITORY}/issues/comments/${RESERVATION_COMMENT_ID}" --jq '.body // ""')" != "$body" ]; then
+            echo "Refused: reservation changed before dispatch-failure recovery mutation." >&2
+            exit 1
+          fi
+          guard_exact_live_pr_open
           if [ "$label" = "RELEASED" ]; then
             gh api --method PATCH "repos/${REPOSITORY}/issues/comments/${RESERVATION_COMMENT_ID}" -f body="$new_body" >/dev/null
             persisted_reservation_body="$(gh api "repos/${REPOSITORY}/issues/comments/${RESERVATION_COMMENT_ID}" --jq '.body // ""')"
@@ -1857,6 +1898,8 @@ jobs:
             gh api --method PATCH "repos/${REPOSITORY}/issues/comments/${RESERVATION_COMMENT_ID}" -f body="$new_body" >/dev/null || true
           fi
           echo "Reservation ${TASK_ID}@${head_sha} moved to ${label} after dispatch failure."
+          release_mutex
+          trap - EXIT
 
 
   cleanup:

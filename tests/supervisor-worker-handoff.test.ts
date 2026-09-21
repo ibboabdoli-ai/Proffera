@@ -385,12 +385,16 @@ function runReservationRecovery({
   artifactUploaded = false,
   branchAppearsOnSecondVerification = false,
   branchExists = true,
+  livePrState = "open",
+  prNumber = "",
   reservationState = "RESERVED",
   taskState = "WORKER_BLOCKED",
 }: {
   artifactUploaded?: boolean;
   branchAppearsOnSecondVerification?: boolean;
   branchExists?: boolean;
+  livePrState?: "open" | "closed";
+  prNumber?: string;
   reservationState?: "RESERVED" | "RELEASED";
   taskState?: string;
 } = {}) {
@@ -404,7 +408,11 @@ function runReservationRecovery({
   const stateFile = join(root, "gh-state.json");
   mkdirSync(bin, { recursive: true });
   mkdirSync(trusted, { recursive: true });
-  copyFileSync(helper, join(trusted, "supervisor-worker-handoff.mjs"));
+  const trustedHelper = join(trusted, "supervisor-worker-handoff.mjs");
+  const trustedManifest = join(trusted, "supervisor-worker-handoff.sha256");
+  copyFileSync(helper, trustedHelper);
+  const trustedDigest = createHash("sha256").update(readFileSync(trustedHelper)).digest("hex");
+  writeFileSync(trustedManifest, `${trustedDigest}  ${trustedHelper}\n`);
   const parsed = spawnSync(process.execPath, [helper, "parse"], { input: packetComment(), encoding: "utf8" });
   expect(parsed.status, parsed.stderr).toBe(0);
   const normalizedPacket = parsed.stdout.replace(/\n+$/, "");
@@ -440,6 +448,13 @@ function runReservationRecovery({
       { id: 99, user: { login: "github-actions[bot]" }, body: taskStateBody },
     ],
     matchingRefReads: 0,
+    mutex: "",
+    pr: {
+      number: Number(prNumber || 900),
+      state: livePrState,
+      head: { ref: normalizedPacketJson.branch, sha, repo: { full_name: "ibboabdoli-ai/Proffera" } },
+      user: { login: "ibboabdoli-ai" },
+    },
     pulls: [],
   }));
   writeFileSync(
@@ -452,6 +467,7 @@ const methodIndex = args.indexOf("--method");
 const method = methodIndex >= 0 ? args[methodIndex + 1] : "GET";
 const endpoint = args.find((arg) => arg.startsWith("repos/")) || "";
 const state = JSON.parse(readFileSync(process.env.GH_STUB_STATE_FILE, "utf8"));
+${reservationControlApiStub()}
 const commentMatch = endpoint.match(/issues\\/comments\\/(\\d+)$/);
 if (method === "PATCH" && commentMatch) {
   const bodyArg = args.find((arg) => arg.startsWith("body="));
@@ -471,6 +487,10 @@ if (commentMatch) {
 }
 if (endpoint === "repos/ibboabdoli-ai/Proffera/pulls?state=open&base=main&per_page=100") {
   for (const pull of state.pulls) process.stdout.write(JSON.stringify(pull) + "\\n");
+  process.exit(0);
+}
+if (endpoint === "repos/ibboabdoli-ai/Proffera/pulls/900") {
+  process.stdout.write(JSON.stringify(state.pr) + "\\n");
   process.exit(0);
 }
 if (endpoint === "repos/ibboabdoli-ai/Proffera/git/ref/heads/work/proffera-test-task") {
@@ -508,6 +528,7 @@ process.exit(2);
       RUN_ID: "9001",
       PACKET_B64: Buffer.from(normalizedPacket).toString("base64"),
       ARTIFACT_UPLOADED: artifactUploaded ? "true" : "false",
+      PR_NUMBER: prNumber,
       RECOVERY_DIGEST: "",
       HEAD_SHA: sha,
     },
@@ -4187,13 +4208,12 @@ esac
     expect(String(retry.comments.find((comment) => comment.id === 99)?.body)).toContain("- State: `TASK_CREATED`");
   }, 15_000);
 
-  it("repairs an already RELEASED reservation whose exact task remained WORKER_BLOCKED", () => {
-    const repaired = runReservationRecovery({ branchExists: false, reservationState: "RELEASED" });
-    expect(repaired.status, repaired.stderr).toBe(0);
-    expect(commentPatchCalls(repaired.calls, 99)).toHaveLength(1);
-    expect(commentPatchCalls(repaired.calls, 101)).toHaveLength(1);
-    expect(String(repaired.comments.find((comment) => comment.id === 99)?.body)).toContain("- State: `TASK_BLOCKED`");
-    expect(String(repaired.comments.find((comment) => comment.id === 101)?.body)).toContain("- State: `RELEASED`");
+  it("does not rewrite a reservation that a serialized close writer already RELEASED", () => {
+    const released = runReservationRecovery({ branchExists: true, reservationState: "RELEASED" });
+    expect(released.status, released.stderr).toBe(0);
+    expect(commentPatchCalls(released.calls, 99)).toHaveLength(0);
+    expect(commentPatchCalls(released.calls, 101)).toHaveLength(0);
+    expect(String(released.comments.find((comment) => comment.id === 101)?.body)).toContain("- State: `RELEASED`");
   });
 
   it("keeps the reservation unreleased when its exact task state cannot become retryable", () => {
@@ -4216,6 +4236,31 @@ esac
     expect(commentPatchCalls(changed.calls, 101)).toHaveLength(0);
     expect(String(changed.comments.find((comment) => comment.id === 99)?.body)).toContain("- State: `TASK_BLOCKED`");
     expect(String(changed.comments.find((comment) => comment.id === 101)?.body)).toContain("- State: `RESERVED`");
+  });
+
+  it("does not resurrect a slot when the exact Worker PR closed but its branch still exists", () => {
+    const closed = runReservationRecovery({
+      branchExists: true,
+      livePrState: "closed",
+      prNumber: "900",
+    });
+    expect(closed.status, closed.stderr).toBe(0);
+    expect(commentPatchCalls(closed.calls, 101)).toHaveLength(0);
+    expect(String(closed.comments.find((comment) => comment.id === 101)?.body ?? "")).toContain("- State: `RESERVED`");
+
+    const workflow = source(".github/workflows/supervisor-worker-handoff.yml");
+    const recovery = workflowRunStep(workflow, "Release or recover reservation on dispatch failure");
+    const acquire = recovery.indexOf("reservation-mutex-acquire");
+    const read = recovery.indexOf('comment="$(gh api "repos/${REPOSITORY}/issues/comments/${RESERVATION_COMMENT_ID}"');
+    const finalReservationGuard = recovery.lastIndexOf('issues/comments/${RESERVATION_COMMENT_ID}" --jq');
+    const finalPrGuard = recovery.lastIndexOf("guard_exact_live_pr_open");
+    const patch = recovery.lastIndexOf('gh api --method PATCH "repos/${REPOSITORY}/issues/comments/${RESERVATION_COMMENT_ID}"');
+    expect(acquire).toBeGreaterThanOrEqual(0);
+    expect(read).toBeGreaterThan(acquire);
+    expect(finalReservationGuard).toBeGreaterThan(read);
+    expect(finalPrGuard).toBeGreaterThan(finalReservationGuard);
+    expect(patch).toBeGreaterThan(finalPrGuard);
+    expect(recovery).toContain("reservation-mutex-release");
   });
 
   it("gives branch-backed recovery a bounded durable lease", () => {
