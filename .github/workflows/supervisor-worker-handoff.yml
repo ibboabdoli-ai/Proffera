@@ -2125,7 +2125,7 @@ jobs:
           }
 
           validate_task_before_exceptional_convergence() {
-            local task_comment task_author validation_input validation
+            local task_comment task_author validation_input validation exceptional_task_pr exceptional_task_head
             task_comment="$(gh api "repos/${REPOSITORY}/issues/comments/${STATE_COMMENT_ID}")"
             task_author="$(jq -r '.user.login // ""' <<< "$task_comment")"
             exceptional_task_body_before="$(jq -r '.body // ""' <<< "$task_comment")"
@@ -2133,6 +2133,10 @@ jobs:
             validation_input="$(jq -n --argjson packet "$packet" --arg body "$exceptional_task_body_before" --arg run_id "$RUN_ID" '{packet:$packet,body:$body,run_id:$run_id}')"
             validation="$(printf '%s' "$validation_input" | node "$helper" validate-state)"
             exceptional_task_state="$(jq -r '.state // ""' <<< "$validation")"
+            exceptional_task_pr="$(jq -r '.pr_number // empty' <<< "$validation")"
+            exceptional_task_head="$(jq -r '.head_sha // ""' <<< "$validation")"
+            [ -z "$exceptional_task_pr" ] || [ "$exceptional_task_pr" = "$exact_pr_number" ] || { echo "Refused: exceptional task PR binding does not match the exact Worker PR." >&2; return 1; }
+            [ -z "$exceptional_task_head" ] || [ "$exceptional_task_head" = "$head_sha" ] || { echo "Refused: exceptional task head binding does not match the reservation head." >&2; return 1; }
           }
 
           converge_exceptional_exact_pr() {
