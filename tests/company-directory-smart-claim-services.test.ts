@@ -61,7 +61,7 @@ describe("Company Directory smart claim service suggestions", () => {
   });
 
   it("offers an unclaimed provider claim only with current workplace authority", async () => {
-    const sql = vi.fn(async () => [{
+    const sql = vi.fn(async (_strings: TemplateStringsArray) => [{
       public_slug: "safe-provider-ab",
       display_name: "Safe Provider AB",
       publication_status: "published",
@@ -80,7 +80,7 @@ describe("Company Directory smart claim service suggestions", () => {
       companyName: "Safe Provider AB",
     });
 
-    const query = queryText(sql.mock.calls[0]![0] as TemplateStringsArray);
+    const query = queryText(sql.mock.calls[0]![0]);
     expect(query).toContain("facts.last_synced_at >= profile.last_synced_at");
     expect(query).toContain("scb.last_synced_at >= now() - interval '7 days'");
     expect(query).toContain("comparisonSnapshot,profileUpdatedToken");
