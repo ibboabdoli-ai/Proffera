@@ -4,6 +4,7 @@ import { setTimeout as delay } from "node:timers/promises";
 import { Client } from "pg";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { DIRECTORY_PILOT_LOCATIONS } from "@/lib/company-directory-policy";
+import { applyCanonicalProfferaMigrations } from "../../../tests/helpers/postgres-canonical-schema";
 
 const mocks = vi.hoisted(() => ({
   getSql: vi.fn(),
@@ -261,7 +262,7 @@ describe("single-request Marketplace readiness gate", () => {
         "-e", "POSTGRES_USER=postgres",
         "-e", "POSTGRES_DB=proffera_test",
         "-p", "127.0.0.1::5432",
-        "postgres:16-alpine",
+        "postgis/postgis:16-3.5-alpine",
       ]);
       const portLine = docker(["port", containerName, "5432/tcp"]).split(/\r?\n/)[0] ?? "";
       const port = portLine.match(/:(\d+)$/)?.[1];
@@ -271,105 +272,7 @@ describe("single-request Marketplace readiness gate", () => {
       client = new Client({ connectionString });
       await client.connect();
 
-      await client.query(`
-        create table quote_requests (
-          id uuid primary key,
-          reference_id text not null,
-          category text not null,
-          service_type text not null,
-          city text not null,
-          postal_code text not null,
-          description text not null,
-          status text not null,
-          customer_latitude double precision,
-          customer_longitude double precision,
-          created_at timestamptz not null default now()
-        );
-        create table company_directory_profiles (
-          id uuid primary key,
-          public_slug text not null,
-          display_name text not null,
-          city text not null,
-          municipality text not null,
-          category_slug text not null,
-          quality_score double precision not null,
-          publication_status text not null,
-          is_active boolean not null,
-          privacy_blocked boolean not null,
-          organization_kind text not null,
-          claimed_workspace_id uuid,
-          last_synced_at timestamptz not null,
-          updated_at timestamptz not null
-        );
-        create table marketplace_quote_invitations (
-          id uuid primary key
-        );
-        create table marketplace_quote_offers (
-          id uuid primary key,
-          invitation_id uuid not null,
-          profile_id uuid not null,
-          quote_request_id uuid not null,
-          status text not null,
-          price_kind text not null,
-          currency text not null,
-          amount_minor integer not null,
-          available_date date,
-          company_note text,
-          submitted_at timestamptz not null
-        );
-        create table company_directory_profile_services (
-          profile_id uuid not null,
-          service_slug text not null,
-          is_active boolean not null,
-          public_visible boolean not null
-        );
-        create table company_directory_services (
-          slug text primary key,
-          label text not null,
-          category_slug text not null,
-          is_active boolean not null
-        );
-        create table company_directory_service_categories (
-          slug text primary key,
-          label text not null,
-          is_active boolean not null
-        );
-        create table company_directory_business_locations (
-          profile_id uuid not null,
-          latitude double precision,
-          longitude double precision,
-          geocode_source text,
-          geocode_precision text,
-          geocode_confidence double precision,
-          geocoded_at timestamptz,
-          is_public boolean not null
-        );
-        create table company_directory_official_facts (
-          profile_id uuid not null,
-          advertising_blocked boolean,
-          source_payload_hash text not null,
-          last_synced_at timestamptz not null,
-          deregistration_date date,
-          ongoing_procedures jsonb
-        );
-        create table company_directory_scb_enrichment (
-          profile_id uuid not null,
-          email text,
-          phone text,
-          workplaces jsonb,
-          conflicts jsonb,
-          source_payload_hash text not null,
-          last_synced_at timestamptz not null,
-          provenance jsonb not null
-        );
-        create table company_directory_service_areas (
-          profile_id uuid not null,
-          radius_km double precision,
-          public_visible boolean not null,
-          confirmed_at timestamptz,
-          service_slug text
-        );
-      `);
+      await applyCanonicalProfferaMigrations(client);
     }, 120_000);
 
     beforeEach(async () => {
@@ -384,47 +287,48 @@ describe("single-request Marketplace readiness gate", () => {
           company_directory_official_facts,
           company_directory_business_locations,
           company_directory_profile_services,
-          company_directory_services,
-          company_directory_service_categories,
           company_directory_profiles,
-          quote_requests;
+          quote_requests
+        restart identity cascade;
       `);
 
       await client.query(`
         insert into quote_requests (
           id, reference_id, category, service_type, city, postal_code,
-          description, status, customer_latitude, customer_longitude, created_at
+          description, preferred_date, contact_name, contact_email, contact_phone,
+          consent_accepted, status, customer_latitude, customer_longitude, created_at
         ) values (
           $1::uuid, 'QR-READY', 'VVS', 'VVS / Rörmokare', 'Södertälje', '151 46',
-          'Läckande rör', 'submitted', null, null, now()
+          'Läckande rör', 'Så snart som möjligt', 'Ada Kund', 'ada@example.test', '0701234567',
+          true, 'submitted', null, null, now()
         )
       `, [leadRow.id]);
 
       await client.query(`
-        insert into company_directory_service_categories (slug, label, is_active)
-        values ('vvs', 'VVS', true)
-      `);
-      await client.query(`
-        insert into company_directory_services (slug, label, category_slug, is_active)
-        values ('vvs', 'VVS / Rörmokare', 'vvs', true)
-      `);
-
-      await client.query(`
         insert into company_directory_profiles (
-          id, public_slug, display_name, city, municipality, category_slug,
-          quality_score, publication_status, is_active, privacy_blocked,
-          organization_kind, claimed_workspace_id, last_synced_at, updated_at
+          id, organization_number, organization_kind, legal_name, display_name,
+          public_slug, city, municipality, category_slug, quality_score,
+          publication_status, is_active, privacy_blocked, auto_public_eligible,
+          claimed_workspace_id, last_synced_at, updated_at, published_at
         ) values (
-          $1::uuid, 'ror-ab', 'Rör AB', 'Södertälje', 'Södertälje', 'vvs',
-          95, 'published', true, false, 'juridical_person', null,
-          now() - interval '2 hours', now() - interval '2 hours'
+          $1::uuid, '5560000000', 'juridical_person', 'Rör AB', 'Rör AB',
+          'ror-ab', 'Södertälje', 'Södertälje', 'vvs', 95,
+          'published', true, false, true,
+          null, now() - interval '2 hours', now() - interval '2 hours', now() - interval '2 hours'
         )
       `, [candidateRow.profile_id]);
 
       await client.query(`
         insert into company_directory_profile_services (
-          profile_id, service_slug, is_active, public_visible
-        ) values ($1::uuid, 'vvs', true, true)
+          profile_id, service_slug, source_type, confidence, is_primary, is_active, public_visible, confirmed_at
+        ) values ($1::uuid, 'vvs', 'admin', 100, true, true, true, now())
+        on conflict (profile_id, service_slug) do update set
+          source_type = excluded.source_type,
+          confidence = excluded.confidence,
+          is_primary = excluded.is_primary,
+          is_active = excluded.is_active,
+          public_visible = excluded.public_visible,
+          confirmed_at = excluded.confirmed_at
       `, [candidateRow.profile_id]);
 
       await client.query(`
@@ -454,11 +358,12 @@ describe("single-request Marketplace readiness gate", () => {
 
       await client.query(`
         insert into company_directory_scb_enrichment (
-          profile_id, email, phone, workplaces, conflicts, source_payload_hash,
+          profile_id, organization_number, email, phone, workplaces, conflicts, source_payload_hash,
           last_synced_at, provenance
         )
         select
           profile.id,
+          profile.organization_number,
           'offert@rorfirma.se',
           '+46 70 123 45 67',
           jsonb_build_array(jsonb_build_object(
