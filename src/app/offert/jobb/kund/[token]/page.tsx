@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 
+import styles from "@/app/public-customer-lifecycle.module.css";
 import { getMarketplaceCustomerComparison } from "@/lib/marketplace-customer-comparison";
 import { getMarketplaceRematchForCustomerToken } from "@/lib/marketplace-rematch";
 import { getMarketplaceServiceJobForCustomerToken } from "@/lib/marketplace-service-jobs";
@@ -31,6 +32,7 @@ const copy = {
   sv: {
     language: "English",
     unavailable: "Jobbet är inte tillgängligt.",
+    unavailableBody: "Den säkra jobblänken är ogiltig eller jobbet kan inte längre visas.",
     eyebrow: "Ditt valda företag",
     title: "Följ jobbet",
     provider: "Företag",
@@ -51,11 +53,13 @@ const copy = {
     rematchProcessed: "Den nya matchningen har startat. Du får en ny jämförelselänk när nya offerter kommer in.",
     rematchCancelled: "Den nya matchningen har avbrutits. Kontakta Proffera om du fortfarande behöver ett nytt företag.",
     completed: "Jobbet är markerat som slutfört. När omdömesinbjudan skickas kan du lämna ett verifierat omdöme.",
+    selected: "Ditt val är registrerat och jobbet har skapats.",
     protected: "Säker personlig jobblänk · dela inte länken",
   },
   en: {
     language: "Svenska",
     unavailable: "This job is not available.",
+    unavailableBody: "The secure job link is invalid or the job can no longer be displayed.",
     eyebrow: "Your selected provider",
     title: "Track the job",
     provider: "Provider",
@@ -76,12 +80,14 @@ const copy = {
     rematchProcessed: "The new matching round has started. You will receive a new comparison link when new offers arrive.",
     rematchCancelled: "The new matching round was cancelled. Contact Proffera if you still need a new provider.",
     completed: "The job is marked completed. When the review invitation is delivered, you can leave a verified review.",
+    selected: "Your selection is recorded and the job has been created.",
     protected: "Secure personal job link · do not share it",
   },
 } as const;
 
 function actionMessage(value: string | undefined, locale: Locale): ActionFeedback {
   const sv = locale === "sv";
+  if (value === "selected") return { text: copy[locale].selected, severity: "success" };
   if (value === "customer_cancelled") return { text: sv ? "Jobbet har avbrutits." : "The job has been cancelled.", severity: "success" };
   if (value === "requested") return { text: sv ? "En ny matchning har beställts." : "A new matching round has been requested.", severity: "success" };
   if (value === "already_requested") return { text: sv ? "En ny matchning är redan beställd." : "A new matching round has already been requested.", severity: "success" };
@@ -136,6 +142,15 @@ export default async function MarketplaceCustomerJobPage({
   const [{ token }, query] = await Promise.all([params, searchParams ?? Promise.resolve(undefined)]);
   const locale = localeFrom(query?.lang);
   const text = copy[locale];
+  const alternative = locale === "en" ? "sv" : "en";
+  const rawActionStatus = query?.status;
+  const actionStatus = Array.isArray(rawActionStatus) ? rawActionStatus[0] : rawActionStatus;
+  const languageParams = new URLSearchParams();
+  if (alternative === "en") languageParams.set("lang", "en");
+  if (actionStatus) languageParams.set("status", actionStatus);
+  const languageQuery = languageParams.toString();
+  const languageHref = "/offert/jobb/kund/" + encodeURIComponent(token) + (languageQuery ? "?" + languageQuery : "");
+
   const [job, comparison, rematch] = await Promise.all([
     getMarketplaceServiceJobForCustomerToken(token),
     getMarketplaceCustomerComparison(token),
@@ -144,21 +159,30 @@ export default async function MarketplaceCustomerJobPage({
   const selected = comparison?.offers.find((offer) => offer.status === "selected") ?? null;
 
   if (!job || !selected) {
-    return <main lang={locale} className="min-h-screen bg-[#f7f7f4] px-4 py-16"><p className="mx-auto max-w-xl rounded-2xl bg-white p-8 text-center">{text.unavailable}</p></main>;
+    return (
+      <main lang={locale} className={styles.page}>
+        <section className={[styles.frame, styles.narrowFrame].join(" ")}>
+          <header className={styles.header}>
+            <div className={styles.headerRow}>
+              <div className={styles.headerCopy}>
+                <p className={styles.eyebrow}>{text.eyebrow}</p>
+                <h1 className={styles.title}>{text.unavailable}</h1>
+              </div>
+              <Link href={languageHref} className={styles.languageLink}>{text.language}</Link>
+            </div>
+          </header>
+          <div className={styles.stateBody}>
+            <p className={styles.reviewLead}>{text.unavailableBody}</p>
+          </div>
+        </section>
+      </main>
+    );
   }
 
-  const alternative = locale === "en" ? "sv" : "en";
-  const rawActionStatus = query?.status;
-  const actionStatus = Array.isArray(rawActionStatus) ? rawActionStatus[0] : rawActionStatus;
-  const languageParams = new URLSearchParams();
-  if (alternative === "en") languageParams.set("lang", "en");
-  if (actionStatus) languageParams.set("status", actionStatus);
-  const languageQuery = languageParams.toString();
-  const languageHref = `/offert/jobb/kund/${encodeURIComponent(token)}${languageQuery ? `?${languageQuery}` : ""}`;
   const feedback = actionMessage(actionStatus, locale);
   const cancellable = job.status === "accepted" || job.status === "in_progress" || job.status === "problem";
   const rematchEligible = ["customer_cancelled", "provider_cancelled", "no_show", "problem"].includes(job.status);
-  const action = `/api/marketplace/customer-service-job/${encodeURIComponent(token)}`;
+  const action = "/api/marketplace/customer-service-job/" + encodeURIComponent(token);
   const rematchMessage = rematch?.status === "processing"
     ? text.rematchProcessing
     : rematch?.status === "processed"
@@ -170,64 +194,102 @@ export default async function MarketplaceCustomerJobPage({
           : "";
 
   return (
-    <main lang={locale} className="min-h-screen bg-[#f7f7f4] px-4 py-8 text-[#17201a] sm:px-6 sm:py-12">
-      <section className="mx-auto max-w-3xl overflow-hidden rounded-[1.75rem] bg-white shadow-sm ring-1 ring-[#dfe5dd]">
-        <header className="bg-[#102a1c] px-6 py-7 text-white sm:px-10">
-          <div className="flex items-start justify-between gap-4">
-            <div><p className="text-xs font-bold uppercase tracking-[0.16em] text-[#a9dbb9]">{text.eyebrow}</p><h1 className="mt-3 text-3xl font-bold">{text.title}</h1></div>
-            <Link href={languageHref} className="rounded-lg border border-white/35 px-3 py-2 text-xs font-bold text-white">{text.language}</Link>
+    <main lang={locale} className={styles.page}>
+      <section className={styles.frame}>
+        <header className={styles.header}>
+          <div className={styles.headerRow}>
+            <div className={styles.headerCopy}>
+              <p className={styles.eyebrow}>{text.eyebrow}</p>
+              <h1 className={styles.title}>{text.title}</h1>
+            </div>
+            <Link href={languageHref} className={styles.languageLink}>{text.language}</Link>
           </div>
         </header>
 
-        <div className="grid gap-6 p-6 sm:p-10">
-          {feedback ? <p role={feedback.severity === "error" ? "alert" : "status"} className={feedback.severity === "error" ? "rounded-xl border border-[#efc2bb] bg-[#fff1ef] px-4 py-3 text-sm font-semibold text-[#8a2b20]" : "rounded-xl border border-[#a9cdb2] bg-[#edf8ef] px-4 py-3 text-sm font-semibold text-[#17452f]"}>{feedback.text}</p> : null}
+        <div className={styles.content}>
+          {feedback ? (
+            <p
+              role={feedback.severity === "error" ? "alert" : "status"}
+              className={[styles.notice, feedback.severity === "error" ? styles.noticeError : styles.noticeSuccess].join(" ")}
+            >
+              {feedback.text}
+            </p>
+          ) : null}
 
-          <section className="rounded-2xl border border-[#a9cdb2] bg-[#edf8ef] p-5">
-            <p className="text-xs font-bold uppercase tracking-wide text-[#4c745a]">{text.provider}</p>
-            <h2 className="mt-1 text-xl font-bold text-[#17452f]">{selected.companyName}</h2>
-            {selected.providerEmail ? <p className="mt-3 text-sm"><span className="font-bold">{text.providerContact}: </span><a className="underline" href={`mailto:${selected.providerEmail}`}>{selected.providerEmail}</a></p> : null}
+          <section className={[styles.panel, styles.jobProvider].join(" ")}>
+            <p className={styles.factLabel}>{text.provider}</p>
+            <h2 className={styles.panelTitle}>{selected.companyName}</h2>
+            {selected.providerEmail ? (
+              <p className={styles.sectionCopy}>
+                <strong>{text.providerContact}: </strong>
+                <a className="underline" href={"mailto:" + selected.providerEmail}>{selected.providerEmail}</a>
+              </p>
+            ) : null}
           </section>
 
-          <dl className="grid gap-4 rounded-2xl bg-[#f7f9f7] p-5 sm:grid-cols-2">
-            <div><dt className="text-xs font-bold uppercase text-[#6b776d]">{text.status}</dt><dd className="mt-1 font-bold">{jobStatusLabel(job.status, locale)}</dd></div>
-            <div><dt className="text-xs font-bold uppercase text-[#6b776d]">{text.service}</dt><dd className="mt-1 font-semibold">{job.serviceName}</dd></div>
-            <div><dt className="text-xs font-bold uppercase text-[#6b776d]">{text.date}</dt><dd className="mt-1 font-semibold">{job.scheduledDate || "—"}</dd></div>
-            <div><dt className="text-xs font-bold uppercase text-[#6b776d]">{text.price}</dt><dd className="mt-1 font-semibold">{money(job.amountMinor, job.currency, locale)}</dd></div>
+          <dl className={styles.facts}>
+            <div className={styles.fact}>
+              <dt className={styles.factLabel}>{text.status}</dt>
+              <dd className={styles.factValue}>{jobStatusLabel(job.status, locale)}</dd>
+            </div>
+            <div className={styles.fact}>
+              <dt className={styles.factLabel}>{text.service}</dt>
+              <dd className={styles.factValue}>{job.serviceName}</dd>
+            </div>
+            <div className={styles.fact}>
+              <dt className={styles.factLabel}>{text.date}</dt>
+              <dd className={styles.factValue}>{job.scheduledDate || "—"}</dd>
+            </div>
           </dl>
 
-          {job.status === "completed" ? <p className="rounded-2xl bg-[#edf8ef] p-5 text-sm leading-6 text-[#17452f]">{text.completed}</p> : null}
+          <dl className={styles.facts}>
+            <div className={styles.fact}>
+              <dt className={styles.factLabel}>{text.price}</dt>
+              <dd className={styles.factValue}>{money(job.amountMinor, job.currency, locale)}</dd>
+            </div>
+          </dl>
+
+          {job.status === "completed" ? (
+            <p className={[styles.notice, styles.noticeSuccess].join(" ")}>{text.completed}</p>
+          ) : null}
 
           {cancellable ? (
-            <section className="rounded-2xl border border-[#efd0cb] p-5">
-              <h2 className="font-bold text-[#8a2b20]">{text.cancelTitle}</h2>
-              <p className="mt-2 text-sm leading-6 text-[#6b625c]">{text.cancelBody}</p>
-              <form action={action} method="post" className="mt-4 grid gap-3">
+            <section className={[styles.panel, styles.dangerPanel].join(" ")}>
+              <h2 className={styles.sectionTitle}>{text.cancelTitle}</h2>
+              <p className={styles.sectionCopy}>{text.cancelBody}</p>
+              <form action={action} method="post" className={styles.formActions}>
                 <input type="hidden" name="lang" value={locale} />
                 <input type="hidden" name="intent" value="cancel" />
-                <label className="grid gap-2 text-sm font-bold">{text.reason}<textarea name="reason" maxLength={1000} rows={3} className="rounded-xl border p-3 font-normal" /></label>
-                <button type="submit" className="min-h-11 rounded-xl bg-[#8a2b20] px-4 py-2 font-bold text-white">{text.cancel}</button>
+                <label className={styles.formLabel}>
+                  {text.reason}
+                  <textarea name="reason" maxLength={1000} rows={3} className={styles.textarea} />
+                </label>
+                <button type="submit" className={styles.dangerButton}>{text.cancel}</button>
               </form>
             </section>
           ) : null}
 
           {rematchEligible ? (
-            <section className="rounded-2xl border border-[#c9d9f1] bg-[#f3f7fd] p-5">
-              <h2 className="font-bold text-[#214b7a]">{text.rematchTitle}</h2>
-              <p className="mt-2 text-sm leading-6 text-[#536579]">{text.rematchBody}</p>
+            <section className={[styles.panel, styles.infoPanel].join(" ")}>
+              <h2 className={styles.sectionTitle}>{text.rematchTitle}</h2>
+              <p className={styles.sectionCopy}>{text.rematchBody}</p>
               {rematch ? (
-                <p className="mt-4 rounded-xl bg-white p-4 text-sm font-semibold text-[#214b7a]">{rematchMessage}</p>
+                <p className={[styles.notice, styles.noticeInfo].join(" ")} style={{ marginTop: "1rem" }}>{rematchMessage}</p>
               ) : (
-                <form action={action} method="post" className="mt-4 grid gap-3">
+                <form action={action} method="post" className={styles.formActions}>
                   <input type="hidden" name="lang" value={locale} />
                   <input type="hidden" name="intent" value="rematch" />
-                  <label className="grid gap-2 text-sm font-bold">{text.reason}<textarea name="reason" maxLength={1000} rows={3} className="rounded-xl border p-3 font-normal" /></label>
-                  <button type="submit" className="min-h-11 rounded-xl bg-[#214b7a] px-4 py-2 font-bold text-white">{text.rematch}</button>
+                  <label className={styles.formLabel}>
+                    {text.reason}
+                    <textarea name="reason" maxLength={1000} rows={3} className={styles.textarea} />
+                  </label>
+                  <button type="submit" className={styles.primaryButton}>{text.rematch}</button>
                 </form>
               )}
             </section>
           ) : null}
 
-          <p className="text-center text-xs text-[#6b776d]">{text.protected}</p>
+          <p className={styles.secureLine}>{text.protected}</p>
         </div>
       </section>
     </main>
