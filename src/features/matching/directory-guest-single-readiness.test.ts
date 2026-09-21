@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { DIRECTORY_PILOT_LOCATIONS } from "@/lib/company-directory-policy";
 
 const mocks = vi.hoisted(() => ({
   getSql: vi.fn(),
@@ -65,6 +66,7 @@ const candidateRow = {
   scb_phone: "+46 70 123 45 67",
   scb_workplaces: [workplace],
   scb_conflicts: [],
+  has_current_authority: true,
 };
 
 describe("single-request Marketplace readiness gate", () => {
@@ -123,6 +125,30 @@ describe("single-request Marketplace readiness gate", () => {
 
     expect(result.ok).toBe(true);
     expect(result.match?.candidates).toEqual([]);
+  });
+
+  it.each([
+    ["stale SCB evidence"],
+    ["a snapshot-invalid SCB comparison"],
+  ])("fails closed when current authority is not proven because of %s", async () => {
+    const sql = sqlResponses([leadRow], [], [{
+      ...candidateRow,
+      has_current_authority: false,
+    }]);
+    mocks.getSql.mockReturnValue(sql);
+
+    const result = await getDirectoryGuestLeadMatch(leadRow.id);
+
+    expect(result.ok).toBe(true);
+    expect(result.match?.candidates).toEqual([]);
+    const candidateCall = (sql.mock.calls as unknown[][])[2] ?? [];
+    const candidateQuery = String(candidateCall[0]);
+    expect(candidateQuery).toContain("facts.last_synced_at >= profile.last_synced_at");
+    expect(candidateQuery).toContain("scb.last_synced_at >= now() - interval '7 days'");
+    expect(candidateQuery).toContain("{comparisonSnapshot,profileUpdatedToken}");
+    expect(candidateQuery).toContain("{comparisonSnapshot,officialFactsLastSyncedToken}");
+    expect(candidateQuery).toContain("jsonb_array_length(scb.workplaces) = 1");
+    expect(candidateCall.slice(1)).toContain(DIRECTORY_PILOT_LOCATIONS.join(","));
   });
 
   it("rejects arbitrary finite coordinates without verified Lantmäteriet provenance", async () => {

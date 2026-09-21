@@ -249,8 +249,7 @@ export async function POST(request: Request) {
       tx`
         update company_directory_profiles
         set publication_status = 'published',
-            published_at = now(),
-            updated_at = now()
+            published_at = now()
         where id = ${profileId}::uuid
           and publication_status = 'ready'
       `,

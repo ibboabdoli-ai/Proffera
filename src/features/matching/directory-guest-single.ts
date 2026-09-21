@@ -7,11 +7,14 @@ import {
   type DirectoryGuestOffer,
 } from "./directory-guest";
 import { classifyDirectoryMarketplaceReadiness } from "@/lib/company-directory-marketplace-readiness";
+import { DIRECTORY_PILOT_LOCATIONS } from "@/lib/company-directory-policy";
 import { getSql } from "@/lib/db/server";
 import { serviceCategoryForQuoteCategory } from "@/lib/service-catalog";
 
 type GuestLead = DirectoryGuestLeadMatch["lead"];
 type CandidateRows = Parameters<typeof rankDirectoryGuestCandidates>[1];
+
+const PILOT_LOCATION_CSV = DIRECTORY_PILOT_LOCATIONS.join(",");
 
 function text(value: unknown) {
   return value === null || value === undefined ? "" : String(value).trim();
@@ -174,7 +177,35 @@ export async function getDirectoryGuestLeadMatch(quoteRequestId: string) {
         scb.email as recipient_email,
         scb.phone as scb_phone,
         scb.workplaces as scb_workplaces,
-        scb.conflicts as scb_conflicts
+        scb.conflicts as scb_conflicts,
+        (
+          facts.source_payload_hash <> ''
+          and facts.last_synced_at >= profile.last_synced_at
+          and facts.deregistration_date is null
+          and coalesce(facts.advertising_blocked, false) = false
+          and case
+            when jsonb_typeof(facts.ongoing_procedures) = 'array'
+              then jsonb_array_length(facts.ongoing_procedures) = 0
+            else false
+          end
+          and scb.source_payload_hash <> ''
+          and scb.last_synced_at >= now() - interval '7 days'
+          and scb.last_synced_at >= profile.last_synced_at
+          and scb.provenance #>> '{comparisonSnapshot,profileUpdatedToken}' = profile.updated_at::text
+          and scb.provenance #>> '{comparisonSnapshot,officialFactsLastSyncedToken}' = facts.last_synced_at::text
+          and jsonb_typeof(scb.conflicts) = 'array'
+          and jsonb_array_length(scb.conflicts) = 0
+          and jsonb_typeof(scb.workplaces) = 'array'
+          and jsonb_array_length(scb.workplaces) = 1
+          and nullif(btrim(scb.workplaces->0->'visitingAddress'->>'addressLine'), '') is not null
+          and nullif(btrim(scb.workplaces->0->'visitingAddress'->>'postalCode'), '') is not null
+          and nullif(btrim(scb.workplaces->0->'visitingAddress'->>'city'), '') is not null
+          and nullif(btrim(scb.workplaces->0->>'municipality'), '') is not null
+          and (
+            lower(btrim(scb.workplaces->0->'visitingAddress'->>'city')) = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
+            or lower(btrim(scb.workplaces->0->>'municipality')) = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
+          )
+        ) as has_current_authority
       from company_directory_profiles profile
       join company_directory_profile_services relation
         on relation.profile_id = profile.id
@@ -192,11 +223,9 @@ export async function getDirectoryGuestLeadMatch(quoteRequestId: string) {
        and location.longitude is not null
       join company_directory_official_facts facts
         on facts.profile_id = profile.id
-       and facts.advertising_blocked is false
       join company_directory_scb_enrichment scb
         on scb.profile_id = profile.id
        and coalesce(scb.email, '') <> ''
-       and jsonb_array_length(coalesce(scb.workplaces, '[]'::jsonb)) > 0
       left join lateral (
         select area.radius_km
         from company_directory_service_areas area
@@ -243,6 +272,7 @@ export async function getDirectoryGuestLeadMatch(quoteRequestId: string) {
     `;
 
     const candidatesInput = (candidateRows as Record<string, unknown>[]).flatMap((row) => {
+      if (row.has_current_authority !== true) return [];
       const readiness = classifyDirectoryMarketplaceReadiness({
         publicationStatus: row.publication_status,
         isActive: row.is_active,

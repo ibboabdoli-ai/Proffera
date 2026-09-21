@@ -72,5 +72,7 @@ describe("Marketplace Preview browser E2E scope", () => {
     expect(fixtureSource).toContain("'comparisonSnapshot', jsonb_build_object");
     expect(publishUpdate).toBeGreaterThan(scbInsert);
     expect(fixtureSource).toContain("and publication_status = 'ready'");
+    const publicationTransition = fixtureSource.slice(publishUpdate, fixtureSource.indexOf("where id =", publishUpdate));
+    expect(publicationTransition).not.toContain("updated_at = now()");
   });
 });
