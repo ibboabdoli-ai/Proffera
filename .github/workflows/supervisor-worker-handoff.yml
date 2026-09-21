@@ -2140,9 +2140,9 @@ jobs:
           }
 
           converge_exceptional_exact_pr() {
-            local expected_class expected_number expected_base terminal_state reason next_task_json next_task_body next_payload payload_b64 next_reservation_body merged_for_main current_task_body current_reservation_body task_converged reservation_converged
+            local expected_class expected_number expected_base expected_merged terminal_state reason next_task_json next_task_body next_payload payload_b64 next_reservation_body merged_for_main current_task_body current_reservation_body task_converged reservation_converged
             refresh_exact_cleanup_pr || return 1
-            expected_class="$exact_pr_class"; expected_number="$exact_pr_number"; expected_base="$exact_pr_base"
+            expected_class="$exact_pr_class"; expected_number="$exact_pr_number"; expected_base="$exact_pr_base"; expected_merged="$exact_pr_merged"
             if [ "$expected_class" = "none" ] || [ "$expected_class" = "main_open" ]; then
               if [ "$state" = "RELEASED" ] && { [ "$recovery_kind" = "retargeted_pr" ] || [ "$recovery_kind" = "closed_pr" ]; }; then
                 echo "Exceptional reservation is already RELEASED and live PR evidence no longer requires cleanup mutation."
@@ -2200,7 +2200,7 @@ jobs:
                 [ "$(gh api "repos/${REPOSITORY}/issues/comments/${RESERVATION_COMMENT_ID}" --jq '.body // ""')" = "$reservation_body" ] || return 1
                 [ "$(gh api "repos/${REPOSITORY}/issues/comments/${STATE_COMMENT_ID}" --jq '.body // ""')" = "$exceptional_task_body_before" ] || return 1
                 refresh_exact_cleanup_pr || return 1
-                [ "$exact_pr_class" = "$expected_class" ] && [ "$exact_pr_number" = "$expected_number" ] && [ "$exact_pr_base" = "$expected_base" ] || return 1
+                [ "$exact_pr_class" = "$expected_class" ] && [ "$exact_pr_number" = "$expected_number" ] && [ "$exact_pr_base" = "$expected_base" ] && [ "$exact_pr_merged" = "$expected_merged" ] || return 1
 
                 gh api --method PATCH "repos/${REPOSITORY}/issues/comments/${STATE_COMMENT_ID}" -f body="$next_task_body" >/dev/null
                 task_converged=true
@@ -2209,7 +2209,7 @@ jobs:
               [ "$(gh api "repos/${REPOSITORY}/issues/comments/${STATE_COMMENT_ID}" --jq '.body // ""')" = "$next_task_body" ] || return 1
               [ "$(gh api "repos/${REPOSITORY}/issues/comments/${RESERVATION_COMMENT_ID}" --jq '.body // ""')" = "$reservation_body" ] || return 1
               refresh_exact_cleanup_pr || return 1
-              [ "$exact_pr_class" = "$expected_class" ] && [ "$exact_pr_number" = "$expected_number" ] && [ "$exact_pr_base" = "$expected_base" ] || return 1
+              [ "$exact_pr_class" = "$expected_class" ] && [ "$exact_pr_number" = "$expected_number" ] && [ "$exact_pr_base" = "$expected_base" ] && [ "$exact_pr_merged" = "$expected_merged" ] || return 1
 
               gh api --method PATCH "repos/${REPOSITORY}/issues/comments/${RESERVATION_COMMENT_ID}" -f body="$next_reservation_body" >/dev/null
               reservation_converged=true
@@ -2217,7 +2217,7 @@ jobs:
               [ "$(gh api "repos/${REPOSITORY}/issues/comments/${RESERVATION_COMMENT_ID}" --jq '.body // ""')" = "$next_reservation_body" ] || return 1
               [ "$(gh api "repos/${REPOSITORY}/issues/comments/${STATE_COMMENT_ID}" --jq '.body // ""')" = "$exceptional_task_body_before" ] || return 1
               refresh_exact_cleanup_pr || return 1
-              [ "$exact_pr_class" = "$expected_class" ] && [ "$exact_pr_number" = "$expected_number" ] && [ "$exact_pr_base" = "$expected_base" ] || return 1
+              [ "$exact_pr_class" = "$expected_class" ] && [ "$exact_pr_number" = "$expected_number" ] && [ "$exact_pr_base" = "$expected_base" ] && [ "$exact_pr_merged" = "$expected_merged" ] || return 1
 
               gh api --method PATCH "repos/${REPOSITORY}/issues/comments/${STATE_COMMENT_ID}" -f body="$next_task_body" >/dev/null
               task_converged=true
@@ -2226,7 +2226,7 @@ jobs:
             [ "$(gh api "repos/${REPOSITORY}/issues/comments/${STATE_COMMENT_ID}" --jq '.body // ""')" = "$next_task_body" ] || return 1
             [ "$(gh api "repos/${REPOSITORY}/issues/comments/${RESERVATION_COMMENT_ID}" --jq '.body // ""')" = "$next_reservation_body" ] || return 1
             refresh_exact_cleanup_pr || return 1
-            [ "$exact_pr_class" = "$expected_class" ] && [ "$exact_pr_number" = "$expected_number" ] && [ "$exact_pr_base" = "$expected_base" ] || return 1
+            [ "$exact_pr_class" = "$expected_class" ] && [ "$exact_pr_number" = "$expected_number" ] && [ "$exact_pr_base" = "$expected_base" ] && [ "$exact_pr_merged" = "$expected_merged" ] || return 1
             echo "Fallback cleanup converged exact PR #${expected_number} from ${expected_class} to a provenance-preserving RELEASED reservation."
             release_mutex; trap - EXIT; exit 0
           }
