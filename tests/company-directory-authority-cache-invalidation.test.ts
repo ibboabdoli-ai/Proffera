@@ -1,3 +1,6 @@
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
+
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
@@ -29,6 +32,10 @@ import { enrichCompanyDirectoryScbForProfile } from "@/lib/company-directory-scb
 
 const PROFILE_ID = "11111111-1111-4111-8111-111111111111";
 const ORGANIZATION_NUMBER = "5563115707";
+
+function source(path: string) {
+  return readFileSync(resolve(process.cwd(), path), "utf8");
+}
 
 describe("Company Directory authority-writer cache invalidation", () => {
   beforeEach(() => {
@@ -125,4 +132,19 @@ describe("Company Directory authority-writer cache invalidation", () => {
 
     expect(mocks.invalidateAuthorityCaches).not.toHaveBeenCalled();
   });
+
+  it("keeps claim reservation bookkeeping out of the publication authority token", () => {
+    const marketplaceClaim = source("src/lib/company-directory-marketplace-claim.ts");
+    const adminClaim = source("src/lib/company-directory-claims-admin.ts");
+
+    for (const candidate of [marketplaceClaim, adminClaim]) {
+      expect(candidate).not.toMatch(/claim_reserved_at = now\(\),\s*updated_at = now\(\)/);
+      expect(candidate).not.toMatch(/claim_reserved_at = null,\s*updated_at = now\(\)/);
+    }
+
+    // Final ownership/publication transitions still advance updated_at.
+    expect(marketplaceClaim).toMatch(/publication_status = 'claimed',\s*updated_at = now\(\)/);
+    expect(adminClaim).toMatch(/publication_status = 'claimed',\s*updated_at = now\(\)/);
+  });
+
 });
