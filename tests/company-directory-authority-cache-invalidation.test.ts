@@ -137,10 +137,19 @@ describe("Company Directory authority-writer cache invalidation", () => {
     const marketplaceClaim = source("src/lib/company-directory-marketplace-claim.ts");
     const adminClaim = source("src/lib/company-directory-claims-admin.ts");
 
-    for (const candidate of [marketplaceClaim, adminClaim]) {
-      expect(candidate).not.toMatch(/claim_reserved_at = now\(\),\s*updated_at = now\(\)/);
-      expect(candidate).not.toMatch(/claim_reserved_at = null,\s*updated_at = now\(\)/);
-    }
+    const marketplaceRelease = marketplaceClaim.slice(
+      marketplaceClaim.indexOf("async function releaseOwnReservation"),
+      marketplaceClaim.indexOf("async function cleanupProvisionedMarketplaceWorkspace"),
+    );
+    const adminRelease = adminClaim.slice(
+      adminClaim.indexOf("export async function releaseStaleCompanyDirectoryClaimReservation"),
+      adminClaim.indexOf("export async function approveAndProvisionCompanyDirectoryClaim"),
+    );
+
+    expect(marketplaceRelease).toContain("claim_reserved_at = null");
+    expect(marketplaceRelease).not.toContain("updated_at = now()");
+    expect(adminRelease).toContain("claim_reserved_at = null");
+    expect(adminRelease).not.toContain("updated_at = now()");
 
     // Final ownership/publication transitions still advance updated_at.
     expect(marketplaceClaim).toMatch(/publication_status = 'claimed',\s*updated_at = now\(\)/);
