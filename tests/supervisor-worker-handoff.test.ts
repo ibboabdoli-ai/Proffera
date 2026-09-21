@@ -566,11 +566,19 @@ function runFallbackCleanup({
   prMerged = false,
   prState = "open",
   reservationState = "RESERVED",
+  taskState = "WORKER_BLOCKED",
+  failReservationReleaseOnce = false,
+  rerunAfterFailure = false,
+  mutationAfterTaskPatch = null,
 }: {
   prBase?: string;
   prMerged?: boolean;
   prState?: "open" | "closed";
-  reservationState?: "RESERVED" | "PUBLISHED" | "RECOVERABLE";
+  reservationState?: "RESERVED" | "PUBLISHED" | "RECOVERABLE" | "RELEASED";
+  taskState?: "WORKER_BLOCKED" | "CHECKS_PENDING";
+  failReservationReleaseOnce?: boolean;
+  rerunAfterFailure?: boolean;
+  mutationAfterTaskPatch?: "task" | "base" | "head" | "state" | null;
 } = {}) {
   const workflow = source(".github/workflows/supervisor-worker-handoff.yml");
   const script = workflowRunStep(workflow, "Reconcile exact stranded reservation after publish setup failure");
@@ -590,7 +598,9 @@ function runFallbackCleanup({
   const normalizedPacketJson = JSON.parse(normalizedPacket);
   const recovery = reservationState === "RECOVERABLE"
     ? { kind: "branch", expires_at: "2099-01-01T00:00:00Z" }
-    : null;
+    : reservationState === "RELEASED"
+      ? { kind: "retargeted_pr", base_ref: prBase, reservation_head_sha: sha }
+      : null;
   const reservation = reservationComment({
     version: 1,
     state: reservationState,
@@ -604,14 +614,25 @@ function runFallbackCleanup({
     allowed_paths: normalizedPacketJson.allowed_paths,
     changed_files: [],
     snapshot_finalized: false,
-    pr_number: reservationState === "PUBLISHED" ? 900 : null,
+    pr_number: reservationState === "PUBLISHED" || reservationState === "RELEASED" ? 900 : null,
     recovery,
   }, 101);
   const taskBody = runText("state-body", {
     packet: normalizedPacketJson,
-    state: "WORKER_BLOCKED",
-    reason: "Dispatch stopped before successful PR handoff.",
+    state: taskState,
+    reason: taskState === "CHECKS_PENDING"
+      ? "Exact Worker PR is waiting for current-head checks."
+      : "Dispatch stopped before successful PR handoff.",
     run_id: "9001",
+    ...(taskState === "CHECKS_PENDING" ? { pr_number: 900, head_sha: sha } : {}),
+  });
+  const mutatedTaskBody = runText("state-body", {
+    packet: normalizedPacketJson,
+    state: "REVIEW_PENDING",
+    reason: "Concurrent writer changed the task after exceptional cleanup began.",
+    run_id: "9001",
+    pr_number: 900,
+    head_sha: sha,
   });
   const pr = {
     number: 900,
@@ -627,6 +648,10 @@ function runFallbackCleanup({
     comments: [reservation, { id: 99, user: { login: "github-actions[bot]" }, body: taskBody }],
     mutex: "",
     pr,
+    failReservationReleaseRemaining: failReservationReleaseOnce ? 1 : 0,
+    mutationAfterTaskPatch,
+    mutationApplied: false,
+    mutatedTaskBody,
   }));
   writeFileSync(
     join(bin, "gh"),
@@ -645,7 +670,25 @@ if (method === "PATCH" && commentMatch) {
   const bodyArg = args.find((arg) => arg.startsWith("body="));
   const comment = state.comments.find((entry) => String(entry.id) === commentMatch[1]);
   if (!bodyArg || !comment) process.exit(3);
+  if (commentMatch[1] === "101"
+    && bodyArg.includes("- State: \\`RELEASED\\`")
+    && state.failReservationReleaseRemaining > 0) {
+    state.failReservationReleaseRemaining -= 1;
+    save();
+    process.stderr.write("simulated reservation release interruption\\n");
+    process.exit(75);
+  }
   comment.body = bodyArg.slice("body=".length);
+  if (commentMatch[1] === "99"
+    && bodyArg.includes("- State: \\`WORKER_BLOCKED\\`")
+    && state.mutationAfterTaskPatch
+    && !state.mutationApplied) {
+    state.mutationApplied = true;
+    if (state.mutationAfterTaskPatch === "task") comment.body = state.mutatedTaskBody;
+    if (state.mutationAfterTaskPatch === "base") state.pr.base.ref = "release/moved";
+    if (state.mutationAfterTaskPatch === "head") state.pr.head.sha = "b".repeat(40);
+    if (state.mutationAfterTaskPatch === "state") state.pr.state = "closed";
+  }
   save();
   process.stdout.write("{}\\n");
   process.exit(0);
@@ -671,7 +714,7 @@ process.exit(2);
     { encoding: "utf8", mode: 0o755 },
   );
 
-  const result = spawnSync("bash", ["-c", script], {
+  const runOnce = () => spawnSync("bash", ["-c", script], {
     cwd: process.cwd(),
     encoding: "utf8",
     env: {
@@ -691,9 +734,12 @@ process.exit(2);
       PACKET_B64: Buffer.from(normalizedPacket).toString("base64"),
     },
   });
+  const firstRun = runOnce();
+  const secondRun = rerunAfterFailure ? runOnce() : null;
+  const result = secondRun ?? firstRun;
   const finalState = JSON.parse(readFileSync(stateFile, "utf8")) as { comments: Array<Record<string, unknown>> };
   const calls = readFileSync(log, "utf8").trim().split("\n").filter(Boolean).map((line) => JSON.parse(line) as string[]);
-  return { ...result, calls, comments: finalState.comments };
+  return { ...result, firstRun, secondRun, calls, comments: finalState.comments };
 }
 
 type SlotReservationOptions = {
@@ -4348,7 +4394,7 @@ esac
     expect(reservationPatch).toBeGreaterThan(taskPatch);
   });
 
-  it.each(["RESERVED", "RECOVERABLE"] as const)("converges a %s reservation for an open retargeted exact PR without making the task redispatchable", (reservationState) => {
+  it.each(["RESERVED", "PUBLISHED", "RECOVERABLE"] as const)("converges a %s reservation for an open retargeted exact PR without making the task redispatchable", (reservationState) => {
     const result = runFallbackCleanup({ prBase: "release/other", prState: "open", reservationState });
     expect(result.status, result.stderr).toBe(0);
     const reservationBody = String(result.comments.find((comment) => comment.id === 101)?.body ?? "");
@@ -4364,6 +4410,84 @@ esac
     expect(taskBody).toContain("- PR: #900");
     expect(taskBody).toContain(`- Head: \`${sha}\``);
     expect(taskBody).not.toContain("same task may be resubmitted safely");
+  });
+
+  it("resumes a retargeted PUBLISHED convergence after task persistence succeeds and reservation release is interrupted", () => {
+    const result = runFallbackCleanup({
+      prBase: "release/other",
+      prState: "open",
+      reservationState: "PUBLISHED",
+      taskState: "CHECKS_PENDING",
+      failReservationReleaseOnce: true,
+      rerunAfterFailure: true,
+    });
+    expect(result.firstRun.status).not.toBe(0);
+    expect(result.firstRun.stderr).toContain("simulated reservation release interruption");
+    expect(result.secondRun?.status, result.secondRun?.stderr).toBe(0);
+    expect(commentPatchCalls(result.calls, 99)).toHaveLength(1);
+    expect(commentPatchCalls(result.calls, 101)).toHaveLength(2);
+
+    const reservationBody = String(result.comments.find((comment) => comment.id === 101)?.body ?? "");
+    expect(reservationBody).toContain("- State: `RELEASED`");
+    const payload = JSON.parse(Buffer.from(reservationBody.match(/Reservation payload: `([^`]+)`/)![1], "base64").toString());
+    expect(payload).toMatchObject({
+      state: "RELEASED",
+      pr_number: 900,
+      head_sha: sha,
+      recovery: { kind: "retargeted_pr", base_ref: "release/other", reservation_head_sha: sha },
+    });
+    const taskBody = String(result.comments.find((comment) => comment.id === 99)?.body ?? "");
+    expect(taskBody).toContain("- State: `WORKER_BLOCKED`");
+    expect(taskBody).toContain("- PR: #900");
+    expect(taskBody).toContain(`- Head: \`${sha}\``);
+  });
+
+  it("repairs the opposite exceptional boundary when the reservation is already RELEASED but the task write is missing", () => {
+    const result = runFallbackCleanup({
+      prBase: "release/other",
+      prState: "open",
+      reservationState: "RELEASED",
+      taskState: "CHECKS_PENDING",
+    });
+    expect(result.status, result.stderr).toBe(0);
+    expect(commentPatchCalls(result.calls, 101)).toHaveLength(0);
+    expect(commentPatchCalls(result.calls, 99)).toHaveLength(1);
+    const reservationBody = String(result.comments.find((comment) => comment.id === 101)?.body ?? "");
+    const payload = JSON.parse(Buffer.from(reservationBody.match(/Reservation payload: `([^`]+)`/)![1], "base64").toString());
+    expect(payload).toMatchObject({
+      state: "RELEASED",
+      pr_number: 900,
+      head_sha: sha,
+      recovery: { kind: "retargeted_pr", base_ref: "release/other", reservation_head_sha: sha },
+    });
+    expect(String(result.comments.find((comment) => comment.id === 99)?.body ?? "")).toContain("- State: `WORKER_BLOCKED`");
+  });
+
+  it("refuses to release the reservation when task evidence changes between exceptional writes", () => {
+    const result = runFallbackCleanup({
+      prBase: "release/other",
+      prState: "open",
+      reservationState: "PUBLISHED",
+      taskState: "CHECKS_PENDING",
+      mutationAfterTaskPatch: "task",
+    });
+    expect(result.status).not.toBe(0);
+    expect(commentPatchCalls(result.calls, 101)).toHaveLength(0);
+    expect(String(result.comments.find((comment) => comment.id === 101)?.body ?? "")).toContain("- State: `PUBLISHED`");
+    expect(String(result.comments.find((comment) => comment.id === 99)?.body ?? "")).toContain("- State: `REVIEW_PENDING`");
+  });
+
+  it.each(["base", "head", "state"] as const)("refuses to release the reservation when exact PR %s evidence changes between exceptional writes", (mutationAfterTaskPatch) => {
+    const result = runFallbackCleanup({
+      prBase: "release/other",
+      prState: "open",
+      reservationState: "PUBLISHED",
+      taskState: "CHECKS_PENDING",
+      mutationAfterTaskPatch,
+    });
+    expect(result.status).not.toBe(0);
+    expect(commentPatchCalls(result.calls, 101)).toHaveLength(0);
+    expect(String(result.comments.find((comment) => comment.id === 101)?.body ?? "")).toContain("- State: `PUBLISHED`");
   });
 
   it("terminalizes a closed exact PR while releasing its reservation", () => {
