@@ -1,0 +1,758 @@
+.page {
+  --proffera-marketplace-navy: #0a2e63;
+  --proffera-marketplace-blue: #1469d8;
+  --proffera-marketplace-ink: #11213b;
+  --proffera-marketplace-muted: #617085;
+  --proffera-marketplace-border: #dce4ee;
+  --proffera-marketplace-soft: #f6f9fd;
+  --proffera-marketplace-success: #17a672;
+  min-height: 100vh;
+  background: var(--proffera-marketplace-soft);
+  color: var(--proffera-marketplace-ink);
+  padding: 2rem 1rem 3rem;
+}
+
+.frame {
+  width: min(100%, 64rem);
+  margin: 0 auto;
+  overflow: hidden;
+  border: 1px solid var(--proffera-marketplace-border);
+  border-radius: 1rem;
+  background: #fff;
+  box-shadow: 0 12px 32px rgba(10, 46, 99, 0.08);
+}
+
+.narrowFrame,
+.reviewFrame {
+  width: min(100%, 46rem);
+}
+
+.header {
+  background: var(--proffera-marketplace-navy);
+  color: #fff;
+  padding: 1.65rem 1.5rem;
+}
+
+.headerRow {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1.25rem;
+}
+
+.headerCopy {
+  min-width: 0;
+}
+
+.eyebrow {
+  margin: 0;
+  color: #c7dcf5;
+  font-size: 0.75rem;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.title {
+  margin: 0.55rem 0 0;
+  max-width: 48rem;
+  font-size: clamp(1.75rem, 4vw, 2.45rem);
+  font-weight: 850;
+  letter-spacing: -0.035em;
+  line-height: 1.08;
+}
+
+.intro {
+  margin: 0.7rem 0 0;
+  max-width: 46rem;
+  color: rgba(255, 255, 255, 0.82);
+  font-size: 0.95rem;
+  line-height: 1.6;
+}
+
+.languageLink {
+  flex: 0 0 auto;
+  min-height: 2.75rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(255, 255, 255, 0.42);
+  border-radius: 0.6rem;
+  padding: 0.65rem 0.85rem;
+  color: #fff;
+  font-size: 0.78rem;
+  font-weight: 800;
+  text-align: center;
+  text-decoration: none;
+}
+
+.languageLink:hover,
+.languageLink:focus-visible {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.content {
+  display: grid;
+  gap: 1.4rem;
+  padding: 1.5rem;
+}
+
+.notice {
+  margin: 0;
+  border: 1px solid transparent;
+  border-radius: 0.75rem;
+  padding: 0.85rem 1rem;
+  font-size: 0.9rem;
+  font-weight: 650;
+  line-height: 1.55;
+}
+
+.noticeInfo {
+  border-color: #bfd4ef;
+  background: #f2f7fd;
+  color: #284e7f;
+}
+
+.noticeSuccess {
+  border-color: #a9d8c8;
+  background: #eef9f5;
+  color: #126b4d;
+}
+
+.noticeError {
+  border-color: #efc9c4;
+  background: #fff5f3;
+  color: #8a2b20;
+}
+
+.noticeMuted {
+  border-color: var(--proffera-marketplace-border);
+  background: #f8fafc;
+  color: #4f5e72;
+}
+
+.facts {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  overflow: hidden;
+  border: 1px solid var(--proffera-marketplace-border);
+  border-radius: 0.8rem;
+  background: #fff;
+}
+
+.fact {
+  min-width: 0;
+  padding: 0.95rem 1rem;
+}
+
+.fact + .fact {
+  border-left: 1px solid var(--proffera-marketplace-border);
+}
+
+.factLabel {
+  margin: 0;
+  color: var(--proffera-marketplace-muted);
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+
+.factValue {
+  margin: 0.3rem 0 0;
+  overflow-wrap: anywhere;
+  color: var(--proffera-marketplace-ink);
+  font-size: 0.96rem;
+  font-weight: 750;
+  line-height: 1.45;
+}
+
+.panel {
+  border: 1px solid var(--proffera-marketplace-border);
+  border-radius: 0.8rem;
+  background: #fff;
+  padding: 1rem;
+}
+
+.iconPanel {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.9rem;
+}
+
+.iconBadge {
+  width: 2.6rem;
+  height: 2.6rem;
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  border-radius: 0.65rem;
+  background: #edf4fd;
+  color: var(--proffera-marketplace-navy);
+}
+
+.panelTitle {
+  margin: 0;
+  color: var(--proffera-marketplace-ink);
+  font-size: 1.15rem;
+  font-weight: 820;
+  line-height: 1.35;
+}
+
+.panelBody {
+  margin: 0.65rem 0 0;
+  white-space: pre-wrap;
+  color: #506078;
+  font-size: 0.9rem;
+  line-height: 1.7;
+}
+
+.priceGrid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  overflow: hidden;
+  border: 1px solid var(--proffera-marketplace-border);
+  border-radius: 0.8rem;
+}
+
+.priceTotal .factValue {
+  color: var(--proffera-marketplace-navy);
+  font-size: 1.2rem;
+  font-weight: 850;
+}
+
+.primaryButton,
+.secondaryButton,
+.dangerButton,
+.submitButton {
+  min-height: 2.85rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  border-radius: 0.65rem;
+  padding: 0.7rem 1rem;
+  font-size: 0.88rem;
+  font-weight: 800;
+  text-decoration: none;
+  transition: background-color 160ms ease, border-color 160ms ease, color 160ms ease, transform 160ms ease;
+}
+
+.primaryButton,
+.submitButton {
+  border: 1px solid var(--proffera-marketplace-blue);
+  background: var(--proffera-marketplace-blue);
+  color: #fff;
+}
+
+.primaryButton:hover,
+.primaryButton:focus-visible,
+.submitButton:hover,
+.submitButton:focus-visible {
+  border-color: #0f58b8;
+  background: #0f58b8;
+}
+
+.secondaryButton {
+  width: fit-content;
+  border: 1px solid #b9c9dc;
+  background: #fff;
+  color: var(--proffera-marketplace-navy);
+}
+
+.secondaryButton:hover,
+.secondaryButton:focus-visible {
+  background: #f2f7fd;
+  border-color: #9eb6d2;
+}
+
+.dangerButton {
+  border: 1px solid #c96f65;
+  background: #fff;
+  color: #8a2b20;
+}
+
+.dangerButton:hover,
+.dangerButton:focus-visible {
+  background: #fff5f3;
+}
+
+.primaryButton:focus-visible,
+.secondaryButton:focus-visible,
+.dangerButton:focus-visible,
+.submitButton:focus-visible,
+.languageLink:focus-visible,
+.companyIdentity:focus-visible,
+.starButton:focus-visible,
+.input:focus-visible,
+.textarea:focus-visible {
+  outline: 3px solid #fff;
+  outline-offset: 2px;
+  box-shadow: 0 0 0 5px #0f58b8;
+}
+
+.actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.75rem;
+}
+
+.actions form,
+.actions button {
+  width: 100%;
+}
+
+.secureLine {
+  margin: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.45rem;
+  color: var(--proffera-marketplace-muted);
+  font-size: 0.76rem;
+  line-height: 1.5;
+  text-align: center;
+}
+
+.offerGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(17.5rem, 1fr));
+  gap: 1rem;
+}
+
+.offerCard {
+  border: 1px solid var(--proffera-marketplace-border);
+  border-radius: 0.8rem;
+  background: #fff;
+  padding: 1.15rem;
+}
+
+.offerSelected {
+  border-color: #9fd2bf;
+  background: #f4fbf8;
+}
+
+.offerRejected {
+  background: #f8fafc;
+  color: #657286;
+}
+
+.offerHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.offerName {
+  margin: 0;
+  color: var(--proffera-marketplace-ink);
+  font-size: 1.1rem;
+  font-weight: 820;
+  line-height: 1.35;
+}
+
+.rating {
+  margin: 0.45rem 0 0;
+  display: flex;
+  align-items: center;
+  gap: 0.32rem;
+  color: #56657b;
+  font-size: 0.82rem;
+}
+
+.statusBadge {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.32rem;
+  border-radius: 999px;
+  padding: 0.32rem 0.6rem;
+  font-size: 0.72rem;
+  font-weight: 800;
+}
+
+.statusSuccess {
+  background: #e4f5ee;
+  color: #126b4d;
+}
+
+.statusMuted {
+  background: #edf1f5;
+  color: #5c6879;
+}
+
+.cardSection {
+  margin-top: 1rem;
+  border-top: 1px solid var(--proffera-marketplace-border);
+  padding-top: 0.9rem;
+}
+
+.contactPanel {
+  margin-top: 1rem;
+  border: 1px solid #b5dbc9;
+  border-radius: 0.7rem;
+  background: #f4fbf8;
+  padding: 0.9rem;
+  color: #155f48;
+}
+
+.emptyPanel {
+  border: 1px dashed #b9c9dc;
+  border-radius: 0.8rem;
+  background: #f8fbff;
+  padding: 1.25rem;
+  text-align: center;
+}
+
+.emptyTitle {
+  margin: 0;
+  color: var(--proffera-marketplace-navy);
+  font-weight: 820;
+}
+
+.emptyBody {
+  margin: 0.45rem 0 0;
+  color: var(--proffera-marketplace-muted);
+  font-size: 0.9rem;
+  line-height: 1.6;
+}
+
+.stateBody {
+  padding: 2rem 1.5rem;
+  text-align: center;
+}
+
+.stateIcon {
+  width: 2.5rem;
+  height: 2.5rem;
+  margin: 0 auto;
+  color: #a64035;
+}
+
+.jobProvider {
+  border-left: 3px solid var(--proffera-marketplace-blue);
+  background: #f8fbff;
+}
+
+.dangerPanel {
+  border-color: #efc9c4;
+  background: #fffafa;
+}
+
+.infoPanel {
+  border-color: #bfd4ef;
+  background: #f7faff;
+}
+
+.sectionTitle {
+  margin: 0;
+  color: var(--proffera-marketplace-ink);
+  font-size: 1rem;
+  font-weight: 820;
+}
+
+.dangerPanel .sectionTitle {
+  color: #8a2b20;
+}
+
+.infoPanel .sectionTitle {
+  color: #244f83;
+}
+
+.sectionCopy {
+  margin: 0.5rem 0 0;
+  color: #59677b;
+  font-size: 0.88rem;
+  line-height: 1.65;
+}
+
+.formActions {
+  display: grid;
+  gap: 0.75rem;
+  margin-top: 1rem;
+}
+
+.formLabel,
+.field {
+  display: grid;
+  gap: 0.45rem;
+  color: #334258;
+  font-size: 0.84rem;
+  font-weight: 800;
+}
+
+.textarea,
+.input {
+  width: 100%;
+  border: 1px solid #bdc9d8;
+  border-radius: 0.65rem;
+  background: #fff;
+  padding: 0.8rem 0.9rem;
+  color: var(--proffera-marketplace-ink);
+  font: inherit;
+  font-weight: 450;
+}
+
+.textarea {
+  min-height: 6.25rem;
+  resize: vertical;
+}
+
+.tenantBar {
+  height: 0.22rem;
+  background: var(--proffera-marketplace-blue);
+}
+
+.companyIdentity {
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
+  border-bottom: 1px solid var(--proffera-marketplace-border);
+  padding: 1rem 1.5rem;
+  color: var(--proffera-marketplace-ink);
+  text-decoration: none;
+}
+
+.companyIdentity:hover .companyName,
+.companyIdentity:focus-visible .companyName {
+  color: var(--proffera-marketplace-blue);
+}
+
+.logoFrame {
+  width: 3.2rem;
+  height: 3.2rem;
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  border: 1px solid var(--proffera-marketplace-border);
+  border-radius: 0.7rem;
+  background: #fff;
+}
+
+.logoImage {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  padding: 0.28rem;
+}
+
+.logoFallback {
+  width: 100%;
+  height: 100%;
+  display: grid;
+  place-items: center;
+  color: #fff;
+  font-size: 1.15rem;
+  font-weight: 850;
+}
+
+.companyName {
+  color: var(--proffera-marketplace-ink);
+  font-weight: 820;
+  line-height: 1.35;
+}
+
+.verifiedLabel {
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  color: #13795b;
+  font-size: 0.75rem;
+  font-weight: 850;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+}
+
+.reviewQuestion {
+  margin: 0.65rem 0 0;
+  color: var(--proffera-marketplace-ink);
+  font-size: clamp(1.7rem, 5vw, 2.25rem);
+  font-weight: 850;
+  letter-spacing: -0.035em;
+  line-height: 1.12;
+}
+
+.reviewLead {
+  margin: 0.75rem 0 0;
+  color: #56657b;
+  font-size: 0.95rem;
+  line-height: 1.65;
+}
+
+.reviewSecurity {
+  display: grid;
+  gap: 0.7rem;
+  border: 1px solid var(--proffera-marketplace-border);
+  border-radius: 0.75rem;
+  background: #f8fafc;
+  padding: 1rem;
+  color: #526176;
+  font-size: 0.86rem;
+  line-height: 1.55;
+}
+
+.reviewSecurity p {
+  margin: 0;
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+}
+
+.reviewForm {
+  display: grid;
+  gap: 1rem;
+}
+
+.reviewSummary {
+  border: 1px solid var(--proffera-marketplace-border);
+  border-left-width: 3px;
+  border-radius: 0.7rem;
+  background: #f8fbff;
+  padding: 0.9rem 1rem;
+  color: #56657b;
+  font-size: 0.86rem;
+}
+
+.reviewSummary p {
+  margin: 0;
+}
+
+.starRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+}
+
+.starButton {
+  width: 2.75rem;
+  height: 2.75rem;
+  display: grid;
+  place-items: center;
+  border: 1px solid #bdc9d8;
+  border-radius: 0.65rem;
+  background: #fff;
+  transition: border-color 160ms ease, color 160ms ease, background-color 160ms ease;
+}
+
+.consent {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.7rem;
+  border: 1px solid var(--proffera-marketplace-border);
+  border-radius: 0.7rem;
+  background: #f8fafc;
+  padding: 0.9rem;
+  color: #4f5e72;
+  font-size: 0.84rem;
+  line-height: 1.55;
+}
+
+.consent input {
+  width: 1rem;
+  height: 1rem;
+  flex: 0 0 auto;
+  margin-top: 0.18rem;
+  accent-color: var(--proffera-marketplace-blue);
+}
+
+.messageError,
+.messageSuccess {
+  margin: 0;
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  border-radius: 0.7rem;
+  padding: 0.85rem 1rem;
+  font-size: 0.86rem;
+  font-weight: 700;
+  line-height: 1.5;
+}
+
+.messageError {
+  background: #fff5f3;
+  color: #8a2b20;
+}
+
+.messageSuccess {
+  background: #eef9f5;
+  color: #126b4d;
+}
+
+.submitButton {
+  width: 100%;
+}
+
+.submitButton:disabled {
+  cursor: not-allowed;
+  opacity: 0.68;
+}
+
+.honeypot {
+  position: absolute;
+  left: -10000px;
+  top: auto;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+@media (max-width: 700px) {
+  .page {
+    padding: 1rem 0.75rem 2rem;
+  }
+
+  .header {
+    padding: 1.35rem 1.1rem;
+  }
+
+  .headerRow {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .languageLink {
+    align-self: flex-start;
+  }
+
+  .content {
+    gap: 1rem;
+    padding: 1.1rem;
+  }
+
+  .facts,
+  .priceGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .fact + .fact {
+    border-left: 0;
+    border-top: 1px solid var(--proffera-marketplace-border);
+  }
+
+  .actions {
+    grid-template-columns: 1fr;
+  }
+
+  .offerGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .companyIdentity {
+    padding: 0.9rem 1.1rem;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .primaryButton,
+  .secondaryButton,
+  .dangerButton,
+  .submitButton,
+  .starButton {
+    transition: none;
+  }
+}
