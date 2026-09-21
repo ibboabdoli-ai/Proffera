@@ -1015,24 +1015,24 @@ function assertCanonicalTaskStateEnvelope(text, packet) {
   const lines = String(text ?? "").split("\n").filter((line) => line.length > 0);
   const rules = [
     { name: "marker", required: true, match: (line) => line === marker },
-    { name: "heading", required: true, re: /^### Supervisor task: [A-Z][A-Z0-9-]{1,63}$/u },
-    { name: "state", required: true, re: /^- State: `[A-Z][A-Z0-9_]{2,39}`$/u },
-    { name: "graph", required: true, re: /^- Graph path: `[^`\r\n]+`$/u },
-    { name: "branch", required: true, re: /^- Branch: `[^`\r\n]+`$/u },
-    { name: "base", required: true, re: /^- Base: `[0-9a-f]{40}`$/u },
-    { name: "digest", required: true, re: /^- Packet SHA-256: `[0-9a-f]{64}`$/u },
-    { name: "run", required: true, re: /^- Run ID: `[0-9]+`$/u },
-    { name: "pr", required: false, re: /^- PR: #[1-9][0-9]*$/u },
-    { name: "head", required: false, re: /^- Head: `[0-9a-f]{40}`$/u },
-    { name: "ready", required: false, re: /^- Ready checkpoint: `[A-Z][A-Z0-9-]{1,63}@[0-9a-f]{40}`$/u },
-    { name: "reason", required: true, re: /^- Reason: .+$/u },
+    { name: "heading", required: true, match: (line) => /^### Supervisor task: [A-Z][A-Z0-9-]{1,63}$/u.test(line) },
+    { name: "state", required: true, match: (line) => /^- State: `[A-Z][A-Z0-9_]{2,39}`$/u.test(line) },
+    { name: "graph", required: true, match: (line) => /^- Graph path: `[^`\r\n]+`$/u.test(line) },
+    { name: "branch", required: true, match: (line) => /^- Branch: `[^`\r\n]+`$/u.test(line) },
+    { name: "base", required: true, match: (line) => /^- Base: `[0-9a-f]{40}`$/u.test(line) },
+    { name: "digest", required: true, match: (line) => /^- Packet SHA-256: `[0-9a-f]{64}`$/u.test(line) },
+    { name: "run", required: true, match: (line) => /^- Run ID: `[0-9]+`$/u.test(line) },
+    { name: "pr", required: false, match: (line) => /^- PR: #[1-9][0-9]*$/u.test(line) },
+    { name: "head", required: false, match: (line) => /^- Head: `[0-9a-f]{40}`$/u.test(line) },
+    { name: "ready", required: false, match: (line) => /^- Ready checkpoint: `[A-Z][A-Z0-9-]{1,63}@[0-9a-f]{40}`$/u.test(line) },
+    { name: "reason", required: true, match: (line) => /^- Reason: .+$/u.test(line) },
     { name: "production", required: true, match: (line) => line === "- Production mutation: `false`" },
     { name: "merge", required: true, match: (line) => line === "- Merge allowed: `false`" },
     { name: "automerge", required: true, match: (line) => line === "- Auto-merge allowed: `false`" },
   ];
   const counts = new Map(rules.map((rule) => [rule.name, 0]));
   for (const line of lines) {
-    const matches = rules.filter((rule) => rule.match ? rule.match(line) : rule.re.test(line));
+    const matches = rules.filter((rule) => rule.match(line));
     if (matches.length !== 1) throw new Error("task state contains an unsupported or ambiguous line");
     const rule = matches[0];
     counts.set(rule.name, (counts.get(rule.name) ?? 0) + 1);
