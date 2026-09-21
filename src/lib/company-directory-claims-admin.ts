@@ -237,8 +237,7 @@ export async function approveAndProvisionCompanyDirectoryClaim(input: { claimId:
     update company_directory_profiles profile
     set claim_reservation_id = ${claimId}::uuid,
         claim_reservation_token = ${reservationToken}::uuid,
-        claim_reserved_at = now(),
-        updated_at = now()
+        claim_reserved_at = now()
     where profile.id = ${profileId}::uuid
       and profile.claimed_workspace_id is null
       and (
