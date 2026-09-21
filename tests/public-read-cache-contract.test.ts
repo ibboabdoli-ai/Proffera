@@ -93,6 +93,24 @@ describe("public read cache contract", () => {
     expect(mocks.revalidateTag).toHaveBeenCalledWith(MARKETPLACE_HOME_COMPANIES_CACHE_TAG, { expire: 0 });
   });
 
+  it("uses the live claimed-profile authority token semantics when deriving suggestion expiry", async () => {
+    let query = "";
+    mocks.locationSuggestions.mockResolvedValueOnce(["Södertälje"]);
+    mocks.getSql.mockReturnValue(vi.fn(async (strings: TemplateStringsArray) => {
+      query = strings.join(" ");
+      return [{
+        juridical_count: 1,
+        authority_expires_at: "2099-09-20T13:00:00.000Z",
+      }];
+    }));
+
+    await expect(getCachedPublishedDirectoryLocationSuggestions(24)).resolves.toEqual(["Södertälje"]);
+
+    expect(query).toContain("profile.publication_status = 'claimed'");
+    expect(query).toContain("or scb.provenance #>> '{comparisonSnapshot,profileUpdatedToken}' = profile.updated_at::text");
+    expect(query).toContain("scb.provenance #>> '{comparisonSnapshot,officialFactsLastSyncedToken}' = facts.last_synced_at::text");
+  });
+
   it("rechecks Directory location suggestions once workplace authority reaches its exact deadline", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-09-20T13:00:00.000Z"));
