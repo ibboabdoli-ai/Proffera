@@ -4169,7 +4169,7 @@ esac
     expect(reconcile).toContain("retargeted away from main");
     expect(reconcile).toContain('jq -r \'.base.ref // ""\'');
     expect(reconcile).toContain("force_release=true");
-    expect(reconcile).toContain("RELEASED:3");
+    expect(reconcile).toContain("RELEASED:2|RELEASED:3");
     expect(reconcile).toContain("revalidate_fallback_pr_evidence");
     expect(reconcile).toContain("stop_if_fallback_pr_not_mutation_safe");
 

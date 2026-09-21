@@ -2074,7 +2074,9 @@ jobs:
           force_release=false
           pr_number="$(discover_exact_cleanup_pr_number)" || exit 1
           if [ -n "$pr_number" ]; then
-            if ! guard_exact_cleanup_pr_open "$pr_number"; then
+            if guard_exact_cleanup_pr_open "$pr_number"; then
+              :
+            else
               guard_status=$?
               if [ "$guard_status" -eq 2 ]; then
                 release_mutex
@@ -2109,7 +2111,7 @@ jobs:
               PUBLISHED:0)
                 return 0
                 ;;
-              RELEASED:3)
+              RELEASED:2|RELEASED:3)
                 return 0
                 ;;
               *)
