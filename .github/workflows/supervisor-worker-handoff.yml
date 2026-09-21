@@ -1446,6 +1446,18 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          helper="$RUNNER_TEMP/proffera-trusted-publish/supervisor-worker-handoff.mjs"
+          manifest="$RUNNER_TEMP/proffera-trusted-publish/supervisor-worker-handoff.sha256"
+          test -f "$helper" -a -f "$manifest"
+          sha256sum --check --status "$manifest"
+          control_input="$(jq -cn --arg repository "$REPOSITORY" --arg run_id "$RUN_ID" '{repository:$repository,run_id:$run_id}')"
+          mutex="$(printf '%s' "$control_input" | node "$helper" reservation-mutex-acquire)"
+          control_input="$(jq -c --arg mutex "$mutex" '. + {mutex:$mutex}' <<< "$control_input")"
+          release_mutex() {
+            printf '%s' "$control_input" | node "$helper" reservation-mutex-release
+          }
+          trap 'release_mutex || true' EXIT
+
           comment="$(gh api "repos/${REPOSITORY}/issues/comments/${RESERVATION_COMMENT_ID}")"
           body="$(jq -r '.body // ""' <<< "$comment")"
           payload_b64="$(sed -n 's/^- Reservation payload: `\([^`]*\)`$/\1/p' <<< "$body")"
@@ -1470,11 +1482,18 @@ jobs:
           EOF
           )"
           test "$(gh api "repos/${REPOSITORY}/issues/comments/${RESERVATION_COMMENT_ID}" --jq '.body // ""')" = "$body"
+          pr_guard="$(gh api "repos/${REPOSITORY}/pulls/${PR_NUMBER}")"
+          test "$(jq -r '.state' <<< "$pr_guard")" = "open"
+          test "$(jq -r '.head.sha' <<< "$pr_guard")" = "$HEAD_SHA"
+          test "$(jq -r '.head.repo.full_name' <<< "$pr_guard")" = "$REPOSITORY"
+          test "$(jq -r '.user.login' <<< "$pr_guard")" = "${REPOSITORY%%/*}"
           gh api --method PATCH "repos/${REPOSITORY}/issues/comments/${RESERVATION_COMMENT_ID}" -f body="$new_body" >/dev/null
           if [ "$(gh api "repos/${REPOSITORY}/pulls/${PR_NUMBER}" --jq '.state')" != "open" ]; then
             echo "Worker PR closed while its reservation was being published; refusing to resurrect the reservation." >&2
             exit 1
           fi
+          release_mutex
+          trap - EXIT
 
       - name: Persist validated recovery artifact atomically
         id: recovery_upload

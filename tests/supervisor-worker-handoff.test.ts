@@ -4700,6 +4700,14 @@ esac
     expect(workflow).toContain("group: proffera-supervisor-worker-admission-${{ inputs.comment_id || inputs.planner_run_id || github.run_id }}");
     expect(workflow).toContain("group: proffera-worker-task-state-${{ needs.preflight.outputs.branch }}");
     expect(sync).toContain("group: proffera-worker-lifecycle-${{ needs.resolve_worker_mutation_lane.outputs.branch }}");
+    const markPublished = workflowRunStep(workflow, "Mark reservation published");
+    const publishMutexAcquire = markPublished.indexOf("reservation-mutex-acquire");
+    const publishPrGuard = markPublished.indexOf('pr_guard="$(gh api "repos/${REPOSITORY}/pulls/${PR_NUMBER}")"');
+    const publishReservationPatch = markPublished.indexOf('gh api --method PATCH "repos/${REPOSITORY}/issues/comments/${RESERVATION_COMMENT_ID}"');
+    expect(publishMutexAcquire).toBeGreaterThanOrEqual(0);
+    expect(markPublished).toContain("reservation-mutex-release");
+    expect(publishPrGuard).toBeGreaterThan(publishMutexAcquire);
+    expect(publishReservationPatch).toBeGreaterThan(publishPrGuard);
     expect(sync).toContain("group: proffera-worker-checks-${{ needs.resolve_worker_mutation_lane.outputs.branch }}");
     const lifecycleHeader = sync.slice(sync.indexOf("  sync-pr-event:"), sync.indexOf("    runs-on:", sync.indexOf("  sync-pr-event:")));
     const checksHeader = sync.slice(sync.indexOf("  sync-check-state:"), sync.indexOf("    runs-on:", sync.indexOf("  sync-check-state:")));
