@@ -10,6 +10,12 @@ export function resolveAuthLocale(searchParams?: AuthSearchParams): AuthLocale {
   return firstAuthSearchParam(searchParams?.lang) === "en" ? "en" : "sv";
 }
 
+export function activationDocumentTitle(locale: AuthLocale) {
+  return locale === "en"
+    ? "Activate workspace | Proffera"
+    : "Aktivera arbetsyta | Proffera";
+}
+
 export function toAuthSearchParams(searchParams?: AuthSearchParams, omit: readonly string[] = []) {
   const omitted = new Set(omit);
   const params = new URLSearchParams();

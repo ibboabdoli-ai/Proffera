@@ -3,6 +3,7 @@ import type { Metadata } from "next";
 import { DashboardShell } from "@/components/dashboard/dashboard-shell";
 import { getWorkspaceInvitation } from "@/features/company/workspace-invitation";
 import {
+  activationDocumentTitle,
   authRedirectQuery,
   firstAuthSearchParam,
   resolveAuthLocale,
@@ -11,10 +12,15 @@ import {
 import { activateWorkspaceAction } from "./actions";
 import { ActivationView } from "./activation-view";
 
-export const metadata: Metadata = {
-  title: "Activate customer portal | Aktivera kundportal",
-  robots: { index: false, follow: false },
-};
+export async function generateMetadata({ searchParams }: PageProps): Promise<Metadata> {
+  const query = searchParams ? await searchParams : undefined;
+  const locale = resolveAuthLocale(query);
+
+  return {
+    title: { absolute: activationDocumentTitle(locale) },
+    robots: { index: false, follow: false },
+  };
+}
 
 type PageProps = {
   params: Promise<{ token: string }>;
