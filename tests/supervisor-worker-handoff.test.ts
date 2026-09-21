@@ -499,6 +499,10 @@ if (endpoint === "repos/ibboabdoli-ai/Proffera/pulls?state=all&base=main&per_pag
   for (const pull of state.pulls) process.stdout.write(JSON.stringify(pull) + "\\n");
   process.exit(0);
 }
+if (endpoint === "repos/ibboabdoli-ai/Proffera/pulls?state=open&base=main&per_page=100") {
+  for (const pull of (state.pulls || []).filter((pull) => pull.state === "open")) process.stdout.write(JSON.stringify(pull) + "\\n");
+  process.exit(0);
+}
 if (endpoint === "repos/ibboabdoli-ai/Proffera/pulls/900") {
   const discovered = (state.pulls || []).find((pull) => String(pull.number) === "900");
   process.stdout.write(JSON.stringify(discovered || state.pr) + "\\n");
