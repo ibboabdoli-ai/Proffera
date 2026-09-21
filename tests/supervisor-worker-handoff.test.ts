@@ -671,7 +671,7 @@ if (method === "PATCH" && commentMatch) {
   const comment = state.comments.find((entry) => String(entry.id) === commentMatch[1]);
   if (!bodyArg || !comment) process.exit(3);
   if (commentMatch[1] === "101"
-    && bodyArg.includes("- State: \\`RELEASED\\`")
+    && bodyArg.includes("- State: \`RELEASED\`")
     && state.failReservationReleaseRemaining > 0) {
     state.failReservationReleaseRemaining -= 1;
     save();
@@ -680,7 +680,7 @@ if (method === "PATCH" && commentMatch) {
   }
   comment.body = bodyArg.slice("body=".length);
   if (commentMatch[1] === "99"
-    && bodyArg.includes("- State: \\`WORKER_BLOCKED\\`")
+    && bodyArg.includes("- State: \`WORKER_BLOCKED\`")
     && state.mutationAfterTaskPatch
     && !state.mutationApplied) {
     state.mutationApplied = true;
