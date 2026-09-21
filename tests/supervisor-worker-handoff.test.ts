@@ -4331,7 +4331,7 @@ esac
     expect(reconcile).toContain("converge_exceptional_exact_pr");
     expect(reconcile).toContain('gh api "repos/${REPOSITORY}/pulls/${exact_pr_number}"');
     expect(reconcile).toContain("retargeted_open");
-    expect(reconcile).toContain('jq -r '.base.ref // ""'');
+    expect(reconcile).toContain("jq -r '.base.ref // \"\"'");
     expect(reconcile).toContain('kind:"retargeted_pr"');
     expect(reconcile).toContain("same task is not redispatchable");
     expect(reconcile).toContain("RESERVED|PUBLISHED|RECOVERABLE");
