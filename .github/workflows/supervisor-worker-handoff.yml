@@ -2072,7 +2072,7 @@ jobs:
           case "$state" in
             RELEASED)
               case "$recovery_kind" in
-                retargeted_pr|closed_pr)
+                prebind_head_changed|retargeted_pr|closed_pr)
                   echo "Reservation is already RELEASED with exceptional PR provenance; verifying task convergence before treating cleanup as complete."
                   ;;
                 *)
@@ -2096,40 +2096,80 @@ jobs:
           target_tree_sha="$(jq -r '.target_tree_sha // ""' <<< "$payload")"
           reserved_paths="$(jq -c '.changed_files // [] | sort' <<< "$payload")"
           repository_owner="${REPOSITORY%%/*}"
+          dispatch_marker="<!-- proffera-worker-dispatch-start:${TASK_ID}:${RUN_ID} -->"
+          dispatch_matches="$(gh api --paginate "repos/${REPOSITORY}/issues/548/comments?per_page=100" --jq '.[]' \
+            | jq -s --arg marker "$dispatch_marker" '[.[] | select(.user.login == "github-actions[bot]" and ((.body // "") | contains($marker)))]')"
+          if [ "$(jq 'length' <<< "$dispatch_matches")" -ne 1 ]; then
+            echo "Refused: stranded reservation has missing or ambiguous exact dispatch provenance." >&2
+            exit 1
+          fi
+          prebind_cleanup_mode=false
+          if [ "$state" = "RESERVED" ] && [ "$(jq -r '.pr_number // empty' <<< "$payload")" = "" ]; then
+            prebind_cleanup_mode=true
+          elif [ "$state" = "RELEASED" ] && [ "$recovery_kind" = "prebind_head_changed" ]; then
+            prebind_cleanup_mode=true
+          fi
 
           discover_exact_cleanup_pr_number() {
-            local matches count candidate_body candidate_packet candidate_number
-            matches="$(gh api --paginate "repos/${REPOSITORY}/pulls?state=all&per_page=100" --jq '.[]' | jq -s --arg branch "$BRANCH" --arg head "$head_sha" --arg repo "$REPOSITORY" --arg owner "$repository_owner" '[.[] | select(.head.ref == $branch and .head.sha == $head and .head.repo.full_name == $repo and .user.login == $owner)]')"
-            count="$(jq 'length' <<< "$matches")"
-            [ "$count" -le 1 ] || { echo "Refused: stranded reservation has ambiguous exact PR ownership." >&2; return 1; }
-            if [ "$count" -eq 0 ]; then printf '%s' ""; return 0; fi
-            candidate_body="$(jq -r '.[0].body // ""' <<< "$matches")"
-            candidate_packet="$(printf '%s' "$candidate_body" | node "$helper" parse 2>/dev/null || true)"
-            if ! jq -e . >/dev/null 2>&1 <<< "$candidate_packet" \
-              || [ "$(printf '%s' "$candidate_packet" | sha256sum | cut -d' ' -f1)" != "$packet_digest" ]; then
-              echo "Refused: exact Worker PR does not carry the reservation-bound Task Packet." >&2
-              return 1
+            local matches candidate_matches count encoded candidate candidate_body candidate_packet candidate_number
+            matches="$(gh api --paginate "repos/${REPOSITORY}/pulls?state=all&per_page=100" --jq '.[]' \
+              | jq -s --arg branch "$BRANCH" --arg head "$head_sha" --arg repo "$REPOSITORY" --arg owner "$repository_owner" \
+                '[.[] | select(.head.ref == $branch and .head.repo.full_name == $repo and .user.login == $owner)]')"
+            if [ "$prebind_cleanup_mode" != "true" ]; then
+              matches="$(jq --arg head "$head_sha" '[.[] | select(.head.sha == $head)]' <<< "$matches")"
             fi
-            candidate_number="$(jq -r '.[0].number // ""' <<< "$matches")"
+            candidate_matches='[]'
+            while IFS= read -r encoded; do
+              [ -n "$encoded" ] || continue
+              candidate="$(printf '%s' "$encoded" | base64 --decode)"
+              candidate_body="$(jq -r '.body // ""' <<< "$candidate")"
+              candidate_packet="$(printf '%s' "$candidate_body" | node "$helper" parse 2>/dev/null || true)"
+              if jq -e . >/dev/null 2>&1 <<< "$candidate_packet" \
+                && [ "$(printf '%s' "$candidate_packet" | sha256sum | cut -d' ' -f1)" = "$packet_digest" ]; then
+                candidate_matches="$(jq --argjson candidate "$candidate" '. + [$candidate]' <<< "$candidate_matches")"
+              fi
+            done < <(jq -r '.[] | @base64' <<< "$matches")
+            count="$(jq 'length' <<< "$candidate_matches")"
+            [ "$count" -le 1 ] || { echo "Refused: stranded reservation has ambiguous reservation-bound Worker PR ownership." >&2; return 1; }
+            if [ "$count" -eq 0 ]; then printf '%s' ""; return 0; fi
+            candidate_number="$(jq -r '.[0].number // ""' <<< "$candidate_matches")"
             [[ "$candidate_number" =~ ^[1-9][0-9]*$ ]] || return 1
             printf '%s' "$candidate_number"
           }
 
           refresh_exact_cleanup_pr() {
+            local live_packet
             exact_pr_number="$(discover_exact_cleanup_pr_number)" || return 1
             exact_pr_class=none
             exact_pr_base=""
+            exact_pr_head=""
             exact_pr_merged=false
             exact_pr_json=""
             [ -n "$exact_pr_number" ] || return 0
             exact_pr_json="$(gh api "repos/${REPOSITORY}/pulls/${exact_pr_number}" 2>/dev/null || true)"
             [ -n "$exact_pr_json" ] || return 1
             [ "$(jq -r '.head.ref // ""' <<< "$exact_pr_json")" = "$BRANCH" ] || return 1
-            [ "$(jq -r '.head.sha // ""' <<< "$exact_pr_json")" = "$head_sha" ] || return 1
             [ "$(jq -r '.head.repo.full_name // ""' <<< "$exact_pr_json")" = "$REPOSITORY" ] || return 1
             [ "$(jq -r '.user.login // ""' <<< "$exact_pr_json")" = "$repository_owner" ] || return 1
+            live_packet="$(jq -r '.body // ""' <<< "$exact_pr_json" | node "$helper" parse 2>/dev/null || true)"
+            jq -e . >/dev/null 2>&1 <<< "$live_packet" || return 1
+            [ "$(printf '%s' "$live_packet" | sha256sum | cut -d' ' -f1)" = "$packet_digest" ] || return 1
+            exact_pr_head="$(jq -r '.head.sha // ""' <<< "$exact_pr_json")"
+            [[ "$exact_pr_head" =~ ^[0-9a-f]{40}$ ]] || return 1
             exact_pr_base="$(jq -r '.base.ref // ""' <<< "$exact_pr_json")"
             exact_pr_merged="$(jq -r '.merged == true' <<< "$exact_pr_json")"
+            if [ "$exact_pr_head" != "$head_sha" ]; then
+              [ "$prebind_cleanup_mode" = "true" ] || return 1
+              [ "$(jq -r '.state // ""' <<< "$exact_pr_json")" = "open" ] || return 1
+              [ "$exact_pr_base" = "main" ] || return 1
+              if [ "$state" = "RELEASED" ]; then
+                [ "$(jq -r '.pr_number // empty' <<< "$payload")" = "$exact_pr_number" ] || return 1
+                [ "$(jq -r '.recovery.reservation_head_sha // ""' <<< "$payload")" = "$head_sha" ] || return 1
+                [ "$(jq -r '.recovery.observed_head_sha // ""' <<< "$payload")" = "$exact_pr_head" ] || return 1
+              fi
+              exact_pr_class=prebind_head_changed
+              return 0
+            fi
             if [ "$(jq -r '.state // ""' <<< "$exact_pr_json")" = "closed" ]; then exact_pr_class=closed
             elif [ "$exact_pr_base" = "main" ]; then exact_pr_class=main_open
             else exact_pr_class=retargeted_open
@@ -2152,9 +2192,9 @@ jobs:
           }
 
           converge_exceptional_exact_pr() {
-            local expected_class expected_number expected_base expected_merged terminal_state reason next_task_json next_task_body next_payload payload_b64 next_reservation_body merged_for_main current_task_body current_reservation_body task_converged reservation_converged
+            local expected_class expected_number expected_base expected_head expected_merged terminal_state reason next_task_json next_task_body next_payload payload_b64 next_reservation_body merged_for_main current_task_body current_reservation_body task_converged reservation_converged
             refresh_exact_cleanup_pr || return 1
-            expected_class="$exact_pr_class"; expected_number="$exact_pr_number"; expected_base="$exact_pr_base"; expected_merged="$exact_pr_merged"
+            expected_class="$exact_pr_class"; expected_number="$exact_pr_number"; expected_base="$exact_pr_base"; expected_head="$exact_pr_head"; expected_merged="$exact_pr_merged"
             if [ "$expected_class" = "none" ] || [ "$expected_class" = "main_open" ]; then
               if [ "$state" = "RELEASED" ] && { [ "$recovery_kind" = "retargeted_pr" ] || [ "$recovery_kind" = "closed_pr" ]; }; then
                 echo "Exceptional reservation is already RELEASED and live PR evidence no longer requires cleanup mutation."
@@ -2168,7 +2208,12 @@ jobs:
               return 1
             fi
 
-            if [ "$expected_class" = "retargeted_open" ]; then
+            if [ "$expected_class" = "prebind_head_changed" ]; then
+              reason="Reservation-bound Worker PR #${expected_number} advanced from trusted generated head ${head_sha} to observed head ${expected_head} before publication binding completed. The observed head is untrusted and is not eligible for automatic publication or admission; the writable slot is released."
+              next_task_json="$(jq -n --argjson packet "$packet" --arg state WORKER_BLOCKED --arg reason "$reason" --arg run_id "$RUN_ID" --argjson pr_number "$expected_number" --arg head_sha "$head_sha" '{packet:$packet,state:$state,reason:$reason,run_id:$run_id,pr_number:$pr_number,head_sha:$head_sha}')"
+              next_task_body="$(printf '%s' "$next_task_json" | node "$helper" state-body)"
+              next_payload="$(jq -c --arg state RELEASED --argjson pr_number "$expected_number" --arg base_ref "$expected_base" --arg reservation_head_sha "$head_sha" --arg observed_head_sha "$expected_head" '.state=$state | .pr_number=$pr_number | .head_sha=$reservation_head_sha | .recovery={kind:"prebind_head_changed",base_ref:$base_ref,reservation_head_sha:$reservation_head_sha,observed_head_sha:$observed_head_sha}' <<< "$payload")"
+            elif [ "$expected_class" = "retargeted_open" ]; then
               reason="Exact Worker PR #${expected_number} was retargeted away from main to '${expected_base}'. Its writable slot is released, but the same task is not redispatchable while that PR/branch remains; retarget this same unchanged PR back to main for exact-provenance re-admission."
               next_task_json="$(jq -n --argjson packet "$packet" --arg state WORKER_BLOCKED --arg reason "$reason" --arg run_id "$RUN_ID" --argjson pr_number "$expected_number" --arg head_sha "$head_sha" '{packet:$packet,state:$state,reason:$reason,run_id:$run_id,pr_number:$pr_number,head_sha:$head_sha}')"
               next_task_body="$(printf '%s' "$next_task_json" | node "$helper" state-body)"
@@ -2212,7 +2257,7 @@ jobs:
                 [ "$(gh api "repos/${REPOSITORY}/issues/comments/${RESERVATION_COMMENT_ID}" --jq '.body // ""')" = "$reservation_body" ] || return 1
                 [ "$(gh api "repos/${REPOSITORY}/issues/comments/${STATE_COMMENT_ID}" --jq '.body // ""')" = "$exceptional_task_body_before" ] || return 1
                 refresh_exact_cleanup_pr || return 1
-                [ "$exact_pr_class" = "$expected_class" ] && [ "$exact_pr_number" = "$expected_number" ] && [ "$exact_pr_base" = "$expected_base" ] && [ "$exact_pr_merged" = "$expected_merged" ] || return 1
+                [ "$exact_pr_class" = "$expected_class" ] && [ "$exact_pr_number" = "$expected_number" ] && [ "$exact_pr_base" = "$expected_base" ] && [ "$exact_pr_head" = "$expected_head" ] && [ "$exact_pr_merged" = "$expected_merged" ] || return 1
 
                 gh api --method PATCH "repos/${REPOSITORY}/issues/comments/${STATE_COMMENT_ID}" -f body="$next_task_body" >/dev/null
                 task_converged=true
@@ -2221,7 +2266,7 @@ jobs:
               [ "$(gh api "repos/${REPOSITORY}/issues/comments/${STATE_COMMENT_ID}" --jq '.body // ""')" = "$next_task_body" ] || return 1
               [ "$(gh api "repos/${REPOSITORY}/issues/comments/${RESERVATION_COMMENT_ID}" --jq '.body // ""')" = "$reservation_body" ] || return 1
               refresh_exact_cleanup_pr || return 1
-              [ "$exact_pr_class" = "$expected_class" ] && [ "$exact_pr_number" = "$expected_number" ] && [ "$exact_pr_base" = "$expected_base" ] && [ "$exact_pr_merged" = "$expected_merged" ] || return 1
+              [ "$exact_pr_class" = "$expected_class" ] && [ "$exact_pr_number" = "$expected_number" ] && [ "$exact_pr_base" = "$expected_base" ] && [ "$exact_pr_head" = "$expected_head" ] && [ "$exact_pr_merged" = "$expected_merged" ] || return 1
 
               gh api --method PATCH "repos/${REPOSITORY}/issues/comments/${RESERVATION_COMMENT_ID}" -f body="$next_reservation_body" >/dev/null
               reservation_converged=true
@@ -2229,7 +2274,7 @@ jobs:
               [ "$(gh api "repos/${REPOSITORY}/issues/comments/${RESERVATION_COMMENT_ID}" --jq '.body // ""')" = "$next_reservation_body" ] || return 1
               [ "$(gh api "repos/${REPOSITORY}/issues/comments/${STATE_COMMENT_ID}" --jq '.body // ""')" = "$exceptional_task_body_before" ] || return 1
               refresh_exact_cleanup_pr || return 1
-              [ "$exact_pr_class" = "$expected_class" ] && [ "$exact_pr_number" = "$expected_number" ] && [ "$exact_pr_base" = "$expected_base" ] && [ "$exact_pr_merged" = "$expected_merged" ] || return 1
+              [ "$exact_pr_class" = "$expected_class" ] && [ "$exact_pr_number" = "$expected_number" ] && [ "$exact_pr_base" = "$expected_base" ] && [ "$exact_pr_head" = "$expected_head" ] && [ "$exact_pr_merged" = "$expected_merged" ] || return 1
 
               gh api --method PATCH "repos/${REPOSITORY}/issues/comments/${STATE_COMMENT_ID}" -f body="$next_task_body" >/dev/null
               task_converged=true
@@ -2238,7 +2283,7 @@ jobs:
             [ "$(gh api "repos/${REPOSITORY}/issues/comments/${STATE_COMMENT_ID}" --jq '.body // ""')" = "$next_task_body" ] || return 1
             [ "$(gh api "repos/${REPOSITORY}/issues/comments/${RESERVATION_COMMENT_ID}" --jq '.body // ""')" = "$next_reservation_body" ] || return 1
             refresh_exact_cleanup_pr || return 1
-            [ "$exact_pr_class" = "$expected_class" ] && [ "$exact_pr_number" = "$expected_number" ] && [ "$exact_pr_base" = "$expected_base" ] && [ "$exact_pr_merged" = "$expected_merged" ] || return 1
+            [ "$exact_pr_class" = "$expected_class" ] && [ "$exact_pr_number" = "$expected_number" ] && [ "$exact_pr_base" = "$expected_base" ] && [ "$exact_pr_head" = "$expected_head" ] && [ "$exact_pr_merged" = "$expected_merged" ] || return 1
             echo "Fallback cleanup converged exact PR #${expected_number} from ${expected_class} to a provenance-preserving RELEASED reservation."
             release_mutex; trap - EXIT; exit 0
           }

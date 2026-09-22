@@ -567,6 +567,10 @@ process.exit(2);
 
 function runFallbackCleanup({
   prBase = "release/other",
+  prHead = sha,
+  prBranch,
+  extraPrs = [],
+  branchHead = prHead,
   prMerged = false,
   prState = "open",
   reservationState = "RESERVED",
@@ -576,6 +580,10 @@ function runFallbackCleanup({
   mutationAfterTaskPatch = null,
 }: {
   prBase?: string;
+  prHead?: string;
+  prBranch?: string;
+  extraPrs?: Array<Record<string, unknown>>;
+  branchHead?: string;
   prMerged?: boolean;
   prState?: "open" | "closed";
   reservationState?: "RESERVED" | "PUBLISHED" | "RECOVERABLE" | "RELEASED";
@@ -643,15 +651,21 @@ function runFallbackCleanup({
     state: prState,
     merged: prMerged,
     base: { ref: prBase },
-    head: { ref: normalizedPacketJson.branch, sha, repo: { full_name: "ibboabdoli-ai/Proffera" } },
+    head: { ref: prBranch ?? normalizedPacketJson.branch, sha: prHead, repo: { full_name: "ibboabdoli-ai/Proffera" } },
     user: { login: "ibboabdoli-ai" },
     body: packetComment(normalizedPacketJson),
   };
   writeFileSync(log, "");
   writeFileSync(stateFile, JSON.stringify({
-    comments: [reservation, { id: 99, user: { login: "github-actions[bot]" }, body: taskBody }],
+    comments: [
+      reservation,
+      { id: 98, user: { login: "github-actions[bot]" }, body: `<!-- proffera-worker-dispatch-start:${normalizedPacketJson.task_id}:9001 -->` },
+      { id: 99, user: { login: "github-actions[bot]" }, body: taskBody },
+    ],
     mutex: "",
     pr,
+    extraPrs,
+    branchHead,
     failReservationReleaseRemaining: failReservationReleaseOnce ? 1 : 0,
     mutationAfterTaskPatch,
     mutationApplied: false,
@@ -709,12 +723,26 @@ if (commentMatch) {
   process.stdout.write(args.includes("--jq") ? String(comment.body || "") + "\\n" : JSON.stringify(comment) + "\\n");
   process.exit(0);
 }
-if (endpoint === "repos/ibboabdoli-ai/Proffera/pulls?state=all&per_page=100") {
-  process.stdout.write(JSON.stringify(state.pr) + "\\n");
+if (endpoint === "repos/ibboabdoli-ai/Proffera/issues/548/comments?per_page=100") {
+  if (args.includes("--jq")) {
+    for (const comment of state.comments) process.stdout.write(JSON.stringify(comment) + "\\n");
+  } else process.stdout.write(JSON.stringify(state.comments) + "\\n");
   process.exit(0);
 }
-if (endpoint === "repos/ibboabdoli-ai/Proffera/pulls/900") {
-  process.stdout.write(JSON.stringify(state.pr) + "\\n");
+if (endpoint === "repos/ibboabdoli-ai/Proffera/pulls?state=all&per_page=100") {
+  for (const candidate of [state.pr, ...(state.extraPrs ?? [])]) process.stdout.write(JSON.stringify(candidate) + "\\n");
+  process.exit(0);
+}
+const directPrMatch = endpoint.match(/pulls\\/(\\d+)$/);
+if (directPrMatch) {
+  const candidate = [state.pr, ...(state.extraPrs ?? [])].find((item) => String(item?.number) === directPrMatch[1]);
+  if (!candidate) process.exit(3);
+  process.stdout.write(JSON.stringify(candidate) + "\\n");
+  process.exit(0);
+}
+if (endpoint === "repos/ibboabdoli-ai/Proffera/git/ref/heads/work/proffera-test-task") {
+  if (!state.branchHead) process.exit(1);
+  process.stdout.write(JSON.stringify({ object: { sha: state.branchHead } }) + "\\n");
   process.exit(0);
 }
 process.stderr.write("unhandled gh endpoint: " + endpoint + "\\n");
@@ -4538,6 +4566,11 @@ esac
     expect(reconcile).toContain('kind:"retargeted_pr"');
     expect(reconcile).toContain("same task is not redispatchable");
     expect(reconcile).toContain("RESERVED|PUBLISHED|RECOVERABLE");
+    expect(reconcile).toContain("prebind_head_changed");
+    expect(reconcile).toContain('dispatch_marker="<!-- proffera-worker-dispatch-start:${TASK_ID}:${RUN_ID} -->"');
+    expect(reconcile).toContain("observed_head_sha");
+    expect(publish).toContain('test "$(jq -r '.head.sha' <<< "$pr")" = "$HEAD_SHA"');
+    expect(source("scripts/supervisor-worker-handoff.mjs")).toContain("const bounded = validateChangedFiles(packet, candidate[0].files);");
 
     const allStateScan = reconcile.indexOf("pulls?state=all&per_page=100");
     const classification = reconcile.indexOf("retargeted_open", allStateScan);
@@ -4549,6 +4582,60 @@ esac
     expect(retargetedRelease).toBeGreaterThan(classification);
     expect(taskPatch).toBeGreaterThan(retargetedRelease);
     expect(reservationPatch).toBeGreaterThan(taskPatch);
+  });
+
+  it("releases an unbound RESERVED slot when its reservation-bound PR advances before publication, preserving old-head provenance", () => {
+    const concurrentHead = otherSha;
+    const result = runFallbackCleanup({ prBase: "main", prHead: concurrentHead, branchHead: concurrentHead, reservationState: "RESERVED" });
+    expect(result.status, result.stderr).toBe(0);
+    const reservationBody = String(result.comments.find((comment) => comment.id === 101)?.body ?? "");
+    const payload = JSON.parse(Buffer.from(reservationBody.match(/Reservation payload: `([^`]+)`/)![1], "base64").toString());
+    expect(payload).toMatchObject({ state: "RELEASED", pr_number: 900, head_sha: sha,
+      recovery: { kind: "prebind_head_changed", base_ref: "main", reservation_head_sha: sha, observed_head_sha: concurrentHead } });
+    const taskBody = String(result.comments.find((comment) => comment.id === 99)?.body ?? "");
+    expect(taskBody).toContain("- State: `WORKER_BLOCKED`");
+    expect(taskBody).toContain("- PR: #900");
+    expect(taskBody).toContain(`- Head: \`${sha}\``);
+    expect(taskBody).not.toContain(`- Head: \`${concurrentHead}\``);
+
+    const existing = { version: 1, state: "RESERVED", task_id: "SUP-OTHER-SLOT-1", run_id: "7001",
+      branch: "work/proffera-other-slot", head_sha: otherSha, graph_path: "feature/other-slot",
+      packet_digest: "c".repeat(64), lease_expires_at: "2099-01-01T00:00:00Z",
+      allowed_paths: ["src/features/other-slot/"], changed_files: [], snapshot_finalized: false, pr_number: null, recovery: null };
+    const freedCapacity = runSlotReservation({ reservation: existing, extraComments: result.comments });
+    expect(freedCapacity.status, freedCapacity.stderr).toBe(0);
+    expect(freedCapacity.comments.some((comment) => comment.id === 999)).toBe(true);
+  });
+
+  it("does not automatically admit the observed pre-bind HEAD B after terminal release", async () => {
+    const fixture = await ownershipHarness();
+    fixture.pr.head.sha = otherSha;
+    fixture.request.event_head = otherSha;
+    fixture.state.comments[0] = reservationComment({ ...fixture.payload, state: "RELEASED", pr_number: 849, head_sha: sha,
+      recovery: { kind: "prebind_head_changed", base_ref: "main", reservation_head_sha: sha, observed_head_sha: otherSha } }, 101);
+    fixture.state.comments[2].body = fixture.control.taskStateBody({ packet: fixture.taskPacket, state: "WORKER_BLOCKED",
+      reason: "Observed pre-bind head is untrusted.", run_id: "9001", pr_number: 849, head_sha: sha });
+    expect(() => fixture.authority.admitPr(fixture.request)).toThrow("released reservation has no exact closed-unmerged or retargeted-PR reactivation provenance");
+    expect(fixture.state.writes).toEqual([]);
+    expect(fixture.state.comments[0].body).toContain("- State: `RELEASED`");
+  });
+
+  it("refuses pre-bind release for unrelated or ambiguous PR identity", () => {
+    const unrelated = runFallbackCleanup({ prBase: "main", prHead: otherSha, prBranch: "work/proffera-unrelated",
+      branchHead: otherSha, reservationState: "RESERVED" });
+    expect(unrelated.status).not.toBe(0);
+    expect(commentPatchCalls(unrelated.calls, 101)).toHaveLength(0);
+    expect(String(unrelated.comments.find((comment) => comment.id === 101)?.body ?? "")).toContain("- State: `RESERVED`");
+
+    const duplicatePr = { number: 901, state: "open", merged: false, base: { ref: "main" },
+      head: { ref: "work/proffera-test-task", sha: "c".repeat(40), repo: { full_name: "ibboabdoli-ai/Proffera" } },
+      user: { login: "ibboabdoli-ai" }, body: packetComment() };
+    const ambiguous = runFallbackCleanup({ prBase: "main", prHead: otherSha, branchHead: otherSha,
+      reservationState: "RESERVED", extraPrs: [duplicatePr] });
+    expect(ambiguous.status).not.toBe(0);
+    expect(ambiguous.stderr).toContain("ambiguous reservation-bound Worker PR ownership");
+    expect(commentPatchCalls(ambiguous.calls, 101)).toHaveLength(0);
+    expect(String(ambiguous.comments.find((comment) => comment.id === 101)?.body ?? "")).toContain("- State: `RESERVED`");
   });
 
   it.each(["RESERVED", "PUBLISHED", "RECOVERABLE"] as const)("converges a %s reservation for an open retargeted exact PR without making the task redispatchable", (reservationState) => {

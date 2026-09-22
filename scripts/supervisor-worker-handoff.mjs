@@ -1848,6 +1848,14 @@ function reservationRecords(comments) {
           && (typeof payload.recovery.observed_head_sha !== "string" || !SHA_RE.test(payload.recovery.observed_head_sha))))) {
       throw new Error("retargeted release provenance is malformed");
     }
+    if (payload.state === "RELEASED" && payload.recovery?.kind === "prebind_head_changed"
+      && (payload.pr_number == null || payload.recovery.base_ref !== "main"
+        || payload.recovery.reservation_head_sha !== payload.head_sha
+        || typeof payload.recovery.observed_head_sha !== "string"
+        || !SHA_RE.test(payload.recovery.observed_head_sha)
+        || payload.recovery.observed_head_sha === payload.head_sha)) {
+      throw new Error("pre-bind head-change release provenance is malformed");
+    }
     if (payload.activation_task_sha256 != null && (typeof payload.activation_task_sha256 !== "string" || !SHA256_RE.test(payload.activation_task_sha256))) {
       throw new Error("reservation activation provenance is malformed");
     }
