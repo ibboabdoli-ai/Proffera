@@ -4569,7 +4569,7 @@ esac
     expect(reconcile).toContain("prebind_head_changed");
     expect(reconcile).toContain('dispatch_marker="<!-- proffera-worker-dispatch-start:${TASK_ID}:${RUN_ID} -->"');
     expect(reconcile).toContain("observed_head_sha");
-    expect(publish).toContain('test "$(jq -r '.head.sha' <<< "$pr")" = "$HEAD_SHA"');
+    expect(publish).toContain("test \"$(jq -r '.head.sha' <<< \"$pr\")\" = \"$HEAD_SHA\"");
     expect(source("scripts/supervisor-worker-handoff.mjs")).toContain("const bounded = validateChangedFiles(packet, candidate[0].files);");
 
     const allStateScan = reconcile.indexOf("pulls?state=all&per_page=100");
