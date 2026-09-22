@@ -2201,9 +2201,6 @@ export function createWorkerReservationAuthority(io) {
       if (candidate.length !== 1 || !equal({ ...candidate[0], files: undefined }, { ...pr, files: undefined })) {
         throw new Error("retargeted Worker PR list/live identity is missing or changed");
       }
-      const bounded = validateChangedFiles(packet, candidate[0].files);
-      if (!bounded.ok) throw new Error(bounded.reason);
-
       const headChangedAfterPublication = trustedPublishedHead !== pr.head.sha;
       const reason = headChangedAfterPublication
         ? `Exact Worker PR #${prNumber} was retargeted away from main to '${pr.base.ref}' after trusted published head ${trustedPublishedHead}; observed off-main head ${pr.head.sha} is not trusted or eligible for automatic re-admission. The writable slot is released while preserving the trusted published provenance.`

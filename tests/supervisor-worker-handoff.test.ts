@@ -101,6 +101,7 @@ type ReservationEnforcementOptions = {
   failPagedCommentReads?: number;
   liveHead?: string;
   liveBase?: string;
+  liveFiles?: string[];
   liveAuthor?: string;
   liveHeadRepository?: string;
   liveMerged?: boolean;
@@ -256,6 +257,7 @@ function runReservationEnforcement({
   eventActor = "ibboabdoli-ai",
   liveHead = sha,
   liveBase = "main",
+  liveFiles = ["src/features/test/worker.ts"],
   liveAuthor = "ibboabdoli-ai",
   liveHeadRepository = "ibboabdoli-ai/Proffera",
   eventHead = liveHead,
@@ -283,7 +285,7 @@ function runReservationEnforcement({
     },
     user: { login: liveAuthor },
     body,
-    files: ["src/features/test/worker.ts"],
+    files: liveFiles,
   };
   writeFileSync(stateFile, JSON.stringify({ comments, failPagedCommentReads, pagedCommentFailures: 0, pr: livePr }));
   writeFileSync(
@@ -3289,7 +3291,10 @@ esac
     expect(String(readmitted.comments.find((comment) => comment.id === 103)?.body ?? "")).toContain("- State: `WORKER_PR_OPENED`");
   });
 
-  it("releases a retargeted published slot after a concurrent head update without trusting the new head", () => {
+  it.each([
+    { currentFiles: [], caseName: "an empty current diff" },
+    { currentFiles: [".github/workflows/untrusted.yml"], caseName: "a hard-blocked current path" },
+  ])("releases a retargeted published slot after a concurrent head update with $caseName", ({ currentFiles }) => {
     const evidence = exactReservationEvidence(sha, {
       state: "PUBLISHED",
       pr_number: 849,
@@ -3306,6 +3311,7 @@ esac
       eventHead: concurrentHead,
       liveHead: concurrentHead,
       liveBase: "release/other",
+      liveFiles: currentFiles,
     });
     expect(retargeted.status, retargeted.stderr).toBe(0);
     expect(retargeted.stdout).toContain("was retargeted away from main");
