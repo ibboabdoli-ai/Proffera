@@ -6,5 +6,5 @@ export function publicBookingSuccessRedirect(
   locale: PublicBookingSuccessLocale,
 ) {
   if (slug === "primeview") return "/booking?booked=1";
-  return `/boka/${slug}?booked=1${locale === "en" ? "&lang=en" : ""}`;
+  return `/boka/${slug}?booked=1&lang=${locale}`;
 }
