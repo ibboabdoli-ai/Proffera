@@ -100,6 +100,7 @@ type ReservationEnforcementOptions = {
   eventHead?: string;
   failPagedCommentReads?: number;
   liveHead?: string;
+  liveBase?: string;
   liveAuthor?: string;
   liveHeadRepository?: string;
   liveMerged?: boolean;
@@ -254,6 +255,7 @@ function runReservationEnforcement({
   eventAction = "synchronize",
   eventActor = "ibboabdoli-ai",
   liveHead = sha,
+  liveBase = "main",
   liveAuthor = "ibboabdoli-ai",
   liveHeadRepository = "ibboabdoli-ai/Proffera",
   eventHead = liveHead,
@@ -273,7 +275,7 @@ function runReservationEnforcement({
     number: 849,
     state: liveState,
     merged: liveMerged,
-    base: { ref: "main", sha },
+    base: { ref: liveBase, sha },
     head: {
       sha: liveHead,
       ref: "work/proffera-test-task",
@@ -3203,9 +3205,14 @@ esac
     expect(preflightStep).toContain('node "$helper" task-comments');
   });
 
-  it("re-evaluates Worker reservation enforcement after head and body updates", () => {
+  it("re-evaluates Worker reservation enforcement after head, body, and base updates", () => {
     const workflow = source(".github/workflows/supervisor-worker-handoff.yml");
     expect(workflow).toContain("types: [opened, reopened, synchronize, edited, closed]");
+    const triggerStart = workflow.indexOf("  pull_request_target:");
+    const triggerEnd = workflow.indexOf("\n\npermissions:", triggerStart);
+    expect(triggerStart).toBeGreaterThanOrEqual(0);
+    expect(triggerEnd).toBeGreaterThan(triggerStart);
+    expect(workflow.slice(triggerStart, triggerEnd)).not.toContain("branches:");
   });
 
   it("leaves a PR unchanged when trusted dispatch provenance is missing", () => {
@@ -3225,6 +3232,61 @@ esac
     expect(result.stdout).toContain("is bound to durable reservation SUP-TEST-1@");
     expect(result.stdout).not.toContain("leaving it unchanged");
     expect(prPatchCalls(result.calls)).toHaveLength(0);
+  });
+
+  it("reconciles a successfully published PR retargeted away from main and re-admits it unchanged", () => {
+    const evidence = exactReservationEvidence(sha, {
+      state: "PUBLISHED",
+      pr_number: 849,
+      recovery: null,
+    });
+    const retargeted = runReservationEnforcement({
+      body: evidence.body,
+      comments: [
+        ...evidence.comments,
+        { id: 103, user: { login: "github-actions[bot]" }, body: durableStateBody("CHECKS_PENDING") },
+      ],
+      eventAction: "edited",
+      liveBase: "release/other",
+    });
+    expect(retargeted.status, retargeted.stderr).toBe(0);
+    expect(retargeted.stdout).toContain("was retargeted away from main");
+    expect(retargeted.pr).toMatchObject({ state: "open", base: { ref: "release/other" } });
+    expect(prPatchCalls(retargeted.calls)).toHaveLength(0);
+    expect(commentPatchCalls(retargeted.calls, 101)).toHaveLength(1);
+    expect(commentPatchCalls(retargeted.calls, 103)).toHaveLength(1);
+    const released = retargeted.comments.find((comment) => comment.id === 101);
+    const releasedB64 = String(released?.body ?? "").match(/^- Reservation payload: `([^`]*)`$/m)?.[1] ?? "";
+    expect(JSON.parse(Buffer.from(releasedB64, "base64").toString("utf8"))).toMatchObject({
+      state: "RELEASED",
+      pr_number: 849,
+      head_sha: sha,
+      recovery: {
+        kind: "retargeted_pr",
+        base_ref: "release/other",
+        reservation_head_sha: sha,
+      },
+    });
+    expect(String(retargeted.comments.find((comment) => comment.id === 103)?.body ?? "")).toContain("- State: `WORKER_BLOCKED`");
+
+    const readmitted = runReservationEnforcement({
+      body: evidence.body,
+      comments: retargeted.comments,
+      eventAction: "edited",
+      liveBase: "main",
+    });
+    expect(readmitted.status, readmitted.stderr).toBe(0);
+    expect(readmitted.pr).toMatchObject({ state: "open", base: { ref: "main" } });
+    expect(prPatchCalls(readmitted.calls)).toHaveLength(0);
+    const published = readmitted.comments.find((comment) => comment.id === 101);
+    const publishedB64 = String(published?.body ?? "").match(/^- Reservation payload: `([^`]*)`$/m)?.[1] ?? "";
+    expect(JSON.parse(Buffer.from(publishedB64, "base64").toString("utf8"))).toMatchObject({
+      state: "PUBLISHED",
+      pr_number: 849,
+      head_sha: sha,
+      recovery: null,
+    });
+    expect(String(readmitted.comments.find((comment) => comment.id === 103)?.body ?? "")).toContain("- State: `WORKER_PR_OPENED`");
   });
 
   it("closes a malformed trusted Worker PR and releases its exact published reservation on the closed event", () => {
