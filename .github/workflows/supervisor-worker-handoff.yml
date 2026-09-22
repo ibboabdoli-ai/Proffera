@@ -2096,13 +2096,13 @@ jobs:
           target_tree_sha="$(jq -r '.target_tree_sha // ""' <<< "$payload")"
           reserved_paths="$(jq -c '.changed_files // [] | sort' <<< "$payload")"
           repository_owner="${REPOSITORY%%/*}"
-          dispatch_marker="<!-- proffera-worker-dispatch-start:${TASK_ID}:${RUN_ID} -->"
-          dispatch_matches="$(gh api --paginate "repos/${REPOSITORY}/issues/548/comments?per_page=100" --jq '.[]' \
-            | jq -s --arg marker "$dispatch_marker" '[.[] | select(.user.login == "github-actions[bot]" and ((.body // "") | contains($marker)))]')"
-          if [ "$(jq 'length' <<< "$dispatch_matches")" -ne 1 ]; then
-            echo "Refused: stranded reservation has missing or ambiguous exact dispatch provenance." >&2
-            exit 1
-          fi
+          validate_exact_cleanup_dispatch() {
+            local dispatch_marker dispatch_matches
+            dispatch_marker="<!-- proffera-worker-dispatch-start:${TASK_ID}:${RUN_ID} -->"
+            dispatch_matches="$(gh api --paginate "repos/${REPOSITORY}/issues/548/comments?per_page=100" --jq '.[]' \
+              | jq -s --arg marker "$dispatch_marker" '[.[] | select(.user.login == "github-actions[bot]" and ((.body // "") | contains($marker)))]')" || return 1
+            [ "$(jq 'length' <<< "$dispatch_matches")" -eq 1 ]
+          }
           prebind_cleanup_mode=false
           if [ "$state" = "RESERVED" ] && [ "$(jq -r '.pr_number // empty' <<< "$payload")" = "" ]; then
             prebind_cleanup_mode=true
@@ -2160,6 +2160,10 @@ jobs:
             exact_pr_merged="$(jq -r '.merged == true' <<< "$exact_pr_json")"
             if [ "$exact_pr_head" != "$head_sha" ]; then
               [ "$prebind_cleanup_mode" = "true" ] || return 1
+              if ! validate_exact_cleanup_dispatch; then
+                echo "Refused: pre-bind head-change cleanup has missing or ambiguous exact dispatch provenance." >&2
+                return 1
+              fi
               [ "$(jq -r '.state // ""' <<< "$exact_pr_json")" = "open" ] || return 1
               [ "$exact_pr_base" = "main" ] || return 1
               if [ "$state" = "RELEASED" ]; then
