@@ -4497,7 +4497,7 @@ esac
 
   it("revalidates merged status between exceptional writes and resumes once closed-PR evidence stabilizes", () => {
     const result = runFallbackCleanup({
-      prBase: "release/other",
+      prBase: "main",
       prState: "closed",
       prMerged: false,
       reservationState: "PUBLISHED",
