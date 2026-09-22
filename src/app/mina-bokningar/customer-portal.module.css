@@ -100,7 +100,7 @@
 
 .eyebrow {
   margin: 0;
-  color: var(--portal-primary, #1469d8);
+  color: #11213b;
   font-size: .64rem;
   font-weight: 900;
   letter-spacing: .14em;
@@ -126,7 +126,7 @@
 .websiteLink {
   display: inline-flex;
   margin-top: 12px;
-  color: var(--portal-primary, #1469d8);
+  color: #0a2e63;
   font-size: .7rem;
   font-weight: 900;
   text-decoration: underline;
@@ -173,7 +173,7 @@
 .sectionHeader svg {
   width: 17px;
   height: 17px;
-  color: var(--portal-primary, #1469d8);
+  color: #0a2e63;
 }
 
 .sectionHeader h2 {
@@ -259,7 +259,7 @@
 .bookingMeta svg {
   width: 14px;
   height: 14px;
-  color: var(--portal-primary, #1469d8);
+  color: #0a2e63;
 }
 
 .actions {
