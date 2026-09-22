@@ -196,7 +196,7 @@ async function requestPublicBooking(formData: FormData) {
     workspaceId: String(workspace.id), slug, companyName: String(workspace.company_name), ownerEmail: workspace.contact_email ? String(workspace.contact_email) : undefined,
     ownerPhone: workspace.contact_phone ? String(workspace.contact_phone) : undefined, customerName: name, customerEmail: email, customerPhone: phone || undefined,
     serviceId, serviceName, staffId: staffId || undefined, city: String(workspace.primary_city ?? ""), address: address || undefined, postcode: postcode || undefined,
-    bookingDetails: bookingDetails || undefined, startsAt: start.toISOString(), endsAt: end.toISOString(), timeZone,
+    bookingDetails: bookingDetails || undefined, startsAt: start.toISOString(), endsAt: end.toISOString(), timeZone, language: lang,
   });
   if (!result.ok) redirect(withLang(slug, lang, `error=${result.error === "email" ? "email" : result.error === "service" ? "service" : "conflict"}`));
   redirect(`/boka/verifiera/${result.verificationId}?lang=${lang}`);
