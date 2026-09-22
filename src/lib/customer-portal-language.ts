@@ -31,7 +31,7 @@ export async function getCustomerPortalPresentation(token: string): Promise<Cust
       coalesce(x.default_language, 'sv') as default_language,
       coalesce(x.swedish_enabled, true) as swedish_enabled,
       coalesce(x.english_enabled, true) as english_enabled,
-      coalesce(nullif(x.primary_color, ''), '#0a2e63') as primary_color,
+      coalesce(nullif(x.primary_color, ''), '#17452f') as primary_color,
       coalesce(x.logo_url, '') as logo_url
     from workspaces w
     left join workspace_settings ws on ws.workspace_id = w.id::text
@@ -49,7 +49,7 @@ export async function getCustomerPortalPresentation(token: string): Promise<Cust
     defaultLanguage: row.default_language === "en" ? "en" : "sv",
     swedishEnabled: row.swedish_enabled !== false,
     englishEnabled: row.english_enabled !== false,
-    primaryColor: /^#[0-9a-f]{6}$/i.test(String(row.primary_color ?? "")) ? String(row.primary_color) : "#0a2e63",
+    primaryColor: /^#[0-9a-f]{6}$/i.test(String(row.primary_color ?? "")) ? String(row.primary_color) : "#17452f",
     logoUrl: String(row.logo_url ?? ""),
   };
 }

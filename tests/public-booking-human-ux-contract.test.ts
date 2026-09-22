@@ -331,8 +331,13 @@ describe("public booking human-designed UX contract", () => {
     const markup = renderToStaticMarkup(tree);
     expect(markup).toContain('lang="sv"');
 
-    const cancellationForm = findElements(
+    const bookingCard = findElements(
       tree,
+      (element) => typeof element.type === "function" && element.type.name === "BookingCard",
+    )[0];
+    const renderedCard = (bookingCard.type as (props: Record<string, unknown>) => ReactNode)(bookingCard.props);
+    const cancellationForm = findElements(
+      renderedCard,
       (element) => element.type === "form" && typeof element.props.action === "function",
     )[0];
     expect(cancellationForm).toBeTruthy();
@@ -373,13 +378,35 @@ describe("public booking human-designed UX contract", () => {
     expect(reschedule).toContain('lang="sv"');
   });
 
-  it("keeps required locale propagation at booking-change email and reschedule boundaries", () => {
-    const reschedulePage = source("src/app/mina-bokningar/[token]/[bookingId]/boka-om/page.tsx");
+  it("keeps required locale propagation at booking-change email and reschedule boundaries", async () => {
+    mocks.getAvailableRescheduleSlots.mockResolvedValue([slot]);
+    const tree = await ReschedulePage({
+      params: Promise.resolve({ token: "customer-token", bookingId: "booking-1" }),
+      searchParams: Promise.resolve({ lang: "en" }),
+    });
+    const picker = findElements(tree, (element) => Array.isArray(element.props.slots) && typeof element.props.action === "function")[0];
+    const formData = new FormData();
+    formData.set("startsAtLocal", slot.startsAtLocal);
+    mocks.getCustomerPortalPresentation.mockResolvedValue({
+      ...presentation,
+      defaultLanguage: "sv",
+      swedishEnabled: true,
+      englishEnabled: false,
+    });
+
+    await expect((picker.props.action as (data: FormData) => Promise<void>)(formData))
+      .rejects.toThrow("redirect:/mina-bokningar/customer-token?changed=1&lang=sv");
+    expect(mocks.rescheduleCustomerBooking).toHaveBeenCalledWith(
+      "customer-token",
+      "booking-1",
+      slot.startsAtLocal,
+      "sv",
+    );
+
     const email = source("src/features/email/booking-change-email.ts");
     const reschedule = source("src/lib/customer-booking-reschedule.ts");
     const calendarSource = source("src/lib/customer-calendar.ts");
 
-    expect(reschedulePage).toContain("rescheduleCustomerBooking(token, bookingId, startsAtLocal, language)");
     expect(email).toContain("input.language");
     expect(email).toContain('language: "sv" | "en"');
     expect(reschedule).toContain("language,");

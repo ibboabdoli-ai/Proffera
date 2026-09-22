@@ -1,8 +1,17 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+const mocks = vi.hoisted(() => ({
+  sql: vi.fn(),
+}));
 
 vi.mock("server-only", () => ({}));
+vi.mock("@neondatabase/serverless", () => ({ neon: () => mocks.sql }));
+vi.mock("@/lib/customer-calendar", () => ({
+  verifyCustomerCalendarToken: () => ({ workspaceId: "workspace-1" }),
+}));
+vi.mock("@/lib/db/database-url", () => ({ resolveDatabaseUrl: () => "postgres://test" }));
 
-import { resolveCustomerPortalLanguage } from "./customer-portal-language";
+import { getCustomerPortalPresentation, resolveCustomerPortalLanguage } from "./customer-portal-language";
 
 const base = {
   publicBookingSlug: "test",
@@ -13,6 +22,10 @@ const base = {
   primaryColor: "#0a2e63",
   logoUrl: "",
 };
+
+beforeEach(() => {
+  mocks.sql.mockReset();
+});
 
 describe("resolveCustomerPortalLanguage", () => {
   it("honors an enabled requested locale", () => {
@@ -41,5 +54,23 @@ describe("resolveCustomerPortalLanguage", () => {
       englishEnabled: false,
     })).toBe("sv");
     expect(resolveCustomerPortalLanguage(undefined, null)).toBe("sv");
+  });
+
+  it("uses the canonical booking color when experience settings are absent", async () => {
+    mocks.sql.mockResolvedValue([{
+      public_booking_slug: "legacy",
+      company_name: "Legacy AB",
+      default_language: "sv",
+      swedish_enabled: true,
+      english_enabled: true,
+      primary_color: "#17452f",
+      logo_url: "",
+    }]);
+
+    const presentation = await getCustomerPortalPresentation("customer-token");
+    const [strings] = mocks.sql.mock.calls[0] as [TemplateStringsArray];
+
+    expect(strings.join("?")).toContain("coalesce(nullif(x.primary_color, ''), '#17452f')");
+    expect(presentation?.primaryColor).toBe("#17452f");
   });
 });
