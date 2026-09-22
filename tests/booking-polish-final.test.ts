@@ -32,6 +32,7 @@ describe("final public booking polish", () => {
 
     expect(layout).toContain('import "./booking-polish.css"');
     expect(css).toContain("[data-booking-theme] [data-booking-success]");
+    expect(css).toContain("color: var(--booking-primary-text, #fff) !important;");
     expect(css).toContain("[data-booking-theme] [data-booking-start-hint]");
     expect(css).toContain("@media (max-width: 640px)");
   });

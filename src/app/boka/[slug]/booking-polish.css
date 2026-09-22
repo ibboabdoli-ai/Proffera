@@ -8,7 +8,7 @@
 
 [data-booking-theme] [data-booking-success] a {
   background: var(--booking-primary) !important;
-  color: #fff !important;
+  color: var(--booking-primary-text, #fff) !important;
   text-decoration: none !important;
 }
 

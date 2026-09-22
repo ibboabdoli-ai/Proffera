@@ -202,7 +202,7 @@ export async function resendPublicBookingCode(id: string, language: "sv" | "en" 
   return { ok: true as const, delivery };
 }
 
-export async function verifyPublicBookingCode(id: string, code: string) {
+export async function verifyPublicBookingCode(id: string, code: string, language?: "sv" | "en") {
   const sql = getSql();
   if (!sql || !/^[0-9a-f-]{36}$/i.test(id) || !/^\d{6}$/.test(code)) return { ok: false as const, error: "invalid" };
 
@@ -315,15 +315,17 @@ export async function verifyPublicBookingCode(id: string, code: string) {
   if (!bookingId || !customerId) return { ok: false as const, error: "save" };
 
   const timeZone = String(challenge.time_zone) as WorkspaceTimeZone;
+  const confirmationLanguage: "sv" | "en" = language ?? (String(challenge.public_booking_slug) === "primeview" ? "en" : "sv");
   const portalToken = createCustomerCalendarToken({ workspaceId: String(challenge.workspace_id), customerId, expiresInSeconds: portalTokenLifetimeSeconds(endsAt) });
   const appUrl = (process.env.NEXT_PUBLIC_APP_URL ?? process.env.APP_URL ?? "https://www.proffera.se").replace(/\/$/, "");
   const encodedToken = encodeURIComponent(portalToken);
   const encodedBookingId = encodeURIComponent(bookingId);
-  const portalUrl = `${appUrl}/mina-bokningar/${encodedToken}`;
-  const rescheduleUrl = `${portalUrl}/${encodedBookingId}/boka-om`;
+  const portalPath = `/mina-bokningar/${encodedToken}`;
+  const portalUrl = `${appUrl}${portalPath}?lang=${confirmationLanguage}`;
+  const rescheduleUrl = `${appUrl}${portalPath}/${encodedBookingId}/boka-om?lang=${confirmationLanguage}`;
 
   await Promise.allSettled([
-    sendUnifiedBookingConfirmationEmail({ customerName: String(challenge.customer_name), customerEmail: String(challenge.customer_email), companyName: String(challenge.company_name), service: String(challenge.service_name), startsAt, endsAt, city: String(challenge.city ?? ""), address, postcode, timeZone, portalUrl, rescheduleUrl, language: String(challenge.public_booking_slug) === "primeview" ? "en" : undefined }),
+    sendUnifiedBookingConfirmationEmail({ customerName: String(challenge.customer_name), customerEmail: String(challenge.customer_email), companyName: String(challenge.company_name), service: String(challenge.service_name), startsAt, endsAt, city: String(challenge.city ?? ""), address, postcode, timeZone, portalUrl, rescheduleUrl, language: confirmationLanguage }),
     challenge.owner_email ? sendBookingOwnerNotificationEmail({ ownerEmail: String(challenge.owner_email), companyName: String(challenge.company_name), customerName: String(challenge.customer_name), customerEmail: String(challenge.customer_email), customerPhone: String(challenge.customer_phone ?? ""), service: String(challenge.service_name), startsAt, endsAt, city: String(challenge.city ?? ""), address, postcode, timeZone, language: String(challenge.public_booking_slug) === "primeview" ? "en" : undefined }) : Promise.resolve(),
     challenge.owner_phone ? sendBookingOwnerSms({ ownerPhone: String(challenge.owner_phone), companyName: String(challenge.company_name), customerName: String(challenge.customer_name), customerPhone: String(challenge.customer_phone ?? ""), service: String(challenge.service_name), startsAt, timeZone }) : Promise.resolve(),
   ]);
