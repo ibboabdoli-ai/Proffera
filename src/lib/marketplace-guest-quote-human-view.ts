@@ -111,14 +111,51 @@ export async function getMarketplaceGuestQuoteView(token: string): Promise<Marke
   if (AUTHORITY_GUARDED_INVITATION_STATUSES.has(String(row.status))
       && !Boolean(row.has_current_authority)) {
     await sql`
-      update marketplace_quote_invitations
+      update marketplace_quote_invitations invitation
       set status = 'cancelled',
-          token_hash = encode(digest(id::text || ':' || gen_random_uuid()::text, 'sha256'), 'hex'),
-          dispatch_token = null,
-          provider_claimed_at = null,
-          updated_at = now()
-      where id = ${String(row.invitation_id)}::uuid
-        and status in ('pending', 'sending', 'sent', 'viewed', 'delivery_failed', 'delivery_uncertain')
+            token_hash = encode(digest(invitation.id::text || ':' || gen_random_uuid()::text, 'sha256'), 'hex'),
+            dispatch_token = null,
+            provider_claimed_at = null,
+            updated_at = now()
+        where invitation.id = ${String(row.invitation_id)}::uuid
+          and invitation.status in ('pending', 'sending', 'sent', 'viewed', 'delivery_failed', 'delivery_uncertain')
+        and not exists (
+          select 1
+          from company_directory_profiles authority_profile
+          join company_directory_official_facts authority_facts
+            on authority_facts.profile_id = authority_profile.id
+          join company_directory_scb_enrichment authority_scb
+            on authority_scb.profile_id = authority_profile.id
+          where authority_profile.id = invitation.profile_id
+            and authority_facts.source_payload_hash <> ''
+            and authority_facts.last_synced_at >= authority_profile.last_synced_at
+            and authority_facts.deregistration_date is null
+            and coalesce(authority_facts.advertising_blocked, false) = false
+            and (
+              case
+                when jsonb_typeof(authority_facts.ongoing_procedures) = 'array'
+                  then jsonb_array_length(authority_facts.ongoing_procedures)
+                else 1
+              end
+            ) = 0
+            and authority_scb.source_payload_hash <> ''
+            and authority_scb.last_synced_at >= now() - interval '7 days'
+            and authority_scb.last_synced_at >= authority_profile.last_synced_at
+            and authority_scb.provenance #>> '{comparisonSnapshot,profileUpdatedToken}' = authority_profile.updated_at::text
+            and authority_scb.provenance #>> '{comparisonSnapshot,officialFactsLastSyncedToken}' = authority_facts.last_synced_at::text
+            and jsonb_typeof(authority_scb.conflicts) = 'array'
+            and jsonb_array_length(authority_scb.conflicts) = 0
+            and jsonb_typeof(authority_scb.workplaces) = 'array'
+            and jsonb_array_length(authority_scb.workplaces) = 1
+            and nullif(btrim(authority_scb.workplaces->0->'visitingAddress'->>'addressLine'), '') is not null
+            and nullif(btrim(authority_scb.workplaces->0->'visitingAddress'->>'postalCode'), '') is not null
+            and nullif(btrim(authority_scb.workplaces->0->'visitingAddress'->>'city'), '') is not null
+            and nullif(btrim(authority_scb.workplaces->0->>'municipality'), '') is not null
+            and (
+              lower(btrim(authority_scb.workplaces->0->'visitingAddress'->>'city')) = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
+              or lower(btrim(authority_scb.workplaces->0->>'municipality')) = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
+            )
+        )
     `;
     return null;
   }

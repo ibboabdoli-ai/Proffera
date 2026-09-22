@@ -396,6 +396,66 @@ describe("marketplace guest quote safety contract", () => {
     const revoke = queryText(sql.mock.calls[1]);
     expect(revoke).toContain("set status = 'cancelled'");
     expect(revoke).toContain("token_hash = encode(digest");
+    expect(revoke).toContain("and not exists");
+    expect(revoke).toContain("authority_scb.last_synced_at >= now() - interval '7 days'");
+  });
+
+  it("binds offer creation to current authority at the write boundary", async () => {
+    const sql = sqlResponses(
+      [{
+        invitation_id: "44444444-4444-4444-8444-444444444444",
+        quote_request_id: eligibleRow.quote_request_id,
+        profile_id: eligibleRow.profile_id,
+        workspace_id: null,
+        status: "sent",
+        expires_at: "2099-01-01T00:00:00.000Z",
+        quote_status: "submitted",
+        has_current_authority: true,
+      }],
+      [{ id: "55555555-5555-4555-8555-555555555555", authority_current: true }],
+    );
+    mocks.getSql.mockReturnValue(sql);
+
+    const result = await submitMarketplaceGuestQuote({
+      token: "a".repeat(40),
+      priceKind: "estimate",
+      amountMinor: 100_00,
+      availableDate: null,
+      companyNote: "Test",
+    });
+
+    expect(result).toEqual({ ok: true, offerId: "55555555-5555-4555-8555-555555555555" });
+    const insert = queryText(sql.mock.calls[1]);
+    expect(insert).toContain("authority_guard as materialized");
+    expect(insert).toContain("authority_scb.last_synced_at >= now() - interval '7 days'");
+    expect(insert).toContain("from authority_guard");
+  });
+
+  it("fails closed when authority disappears at the offer write boundary", async () => {
+    const sql = sqlResponses(
+      [{
+        invitation_id: "44444444-4444-4444-8444-444444444444",
+        quote_request_id: eligibleRow.quote_request_id,
+        profile_id: eligibleRow.profile_id,
+        workspace_id: null,
+        status: "sent",
+        expires_at: "2099-01-01T00:00:00.000Z",
+        quote_status: "submitted",
+        has_current_authority: true,
+      }],
+      [{ id: null, authority_current: false }],
+    );
+    mocks.getSql.mockReturnValue(sql);
+
+    const result = await submitMarketplaceGuestQuote({
+      token: "a".repeat(40),
+      priceKind: "estimate",
+      amountMinor: 100_00,
+      availableDate: null,
+      companyNote: "Test",
+    });
+
+    expect(result).toEqual({ ok: false, code: "closed" });
   });
 
   it("rejects a guest offer when the underlying request is already closed", async () => {

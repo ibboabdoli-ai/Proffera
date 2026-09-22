@@ -92,6 +92,8 @@ describe("marketplace guest human-view tracking", () => {
     expect(queryText(sql.mock.calls[0])).toContain("authority_scb.last_synced_at >= now() - interval '7 days'");
     expect(queryText(sql.mock.calls[1])).toContain("set status = 'cancelled'");
     expect(queryText(sql.mock.calls[1])).toContain("token_hash = encode(digest");
+    expect(queryText(sql.mock.calls[1])).toContain("and not exists");
+    expect(queryText(sql.mock.calls[1])).toContain("authority_scb.last_synced_at >= now() - interval '7 days'");
   });
 
   it("unlocks customer contact only for the selected winner after the request closes", async () => {

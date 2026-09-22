@@ -145,6 +145,18 @@ describe("public Directory physical-location read contract", () => {
     expect(result?.addressLine1).toBe("");
   });
 
+  it("fails closed when the published authority recheck no longer returns the profile", async () => {
+    mocks.getPublicDirectoryBusiness.mockResolvedValue(publicBusiness());
+    const sql = vi.fn(async (strings: TemplateStringsArray) => { void strings; return []; });
+    mocks.getSql.mockReturnValue(sql);
+
+    const result = await getPublicDirectoryBusinessForRequest("physical-location-ab");
+
+    expect(result).toBeNull();
+    expect(sql).toHaveBeenCalled();
+    expect(String((sql.mock.calls[0]?.[0] ?? []).join(" "))).toContain("published_scb.last_synced_at >= now() - interval '7 days'");
+  });
+
   it("fails closed instead of exposing the profile postal address as physical for ambiguous workplaces", async () => {
     mocks.getPublicDirectoryBusiness.mockResolvedValue(publicBusiness());
     mocks.getSql.mockReturnValue(sqlForPublished([

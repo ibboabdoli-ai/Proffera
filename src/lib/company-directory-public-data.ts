@@ -283,18 +283,7 @@ async function getPublishedDirectoryContact(business: PublicDirectoryBusiness) {
     limit 1
   `;
   const row = rows[0];
-  if (!row) {
-    return {
-      organizationNumber: "",
-      primarySniCode: "",
-      legalName: "",
-      address: EMPTY_PHYSICAL_ADDRESS,
-      contact: emptyContact(),
-      claimedWorkspaceId: "",
-      officialFactsCheckedAt: "",
-      workplaceAuthorityExpiresAt: null,
-    };
-  }
+  if (!row) return null;
 
   const scb = await getConflictFreeScbContact(sql, business.id);
   const claimedWorkspaceId = String(row.claimed_workspace_id ?? "");
@@ -330,6 +319,7 @@ async function resolvePublishedDirectoryBusiness(slug: string): Promise<Publishe
   const published = await getPublicDirectoryBusiness(slug);
   if (!published) return null;
   const publicContact = await getPublishedDirectoryContact(published);
+  if (!publicContact) return null;
   const sharedCacheSafe = Boolean(publicContact.organizationNumber) && !publicContact.claimedWorkspaceId;
   return {
     business: {
