@@ -2168,6 +2168,104 @@ export function createWorkerReservationAuthority(io) {
       io.assertOwner();
       return { ok: true, reservation_comment_id: id, head_sha: input.head_sha, reused: plan.own?.body === plan.body };
     },
+    closeRapidPublishedRetargetReturnPr(input) {
+      io.assertOwner();
+      const prNumber = Number(input.pr_number);
+      const priorBase = String(input.prior_base_ref ?? "");
+      if (!Number.isSafeInteger(prNumber) || prNumber <= 0 || !SHA_RE.test(input.event_head ?? "")
+        || !BRANCH_RE.test(priorBase) || priorBase === "main") {
+        throw new Error("rapid published retarget-return identity is malformed");
+      }
+      const pr = readPr(prNumber);
+      if (pr.state !== "open" || pr.merged === true || pr.number !== prNumber
+        || pr.base?.ref !== "main" || pr.head?.repo?.full_name !== EXPECTED_REPOSITORY
+        || pr.user?.login !== TRUSTED_SUPERVISOR_ACTOR || pr.head?.sha !== input.event_head) {
+        throw new Error("rapid published retarget-return PR is stale or untrusted");
+      }
+      const packet = parseTaskPacketComment(pr.body);
+      if (packet.branch !== pr.head.ref) throw new Error("rapid published retarget-return branch does not match the Task Packet");
+      const observed = snapshot();
+      const ownMatches = reservationRecords(observed.comments).filter((record) => record.payload.task_id === packet.task_id);
+      if (ownMatches.length !== 1 || !sameReservationPacket(ownMatches[0].payload, packet)) {
+        throw new Error("rapid published retarget-return has missing or ambiguous reservation ownership");
+      }
+      const own = ownMatches[0];
+      const payload = own.payload;
+      const trustedHead = payload.head_sha;
+      if (payload.state !== "PUBLISHED" || payload.pr_number !== prNumber || payload.recovery != null
+        || pr.head.sha === trustedHead) {
+        throw new Error("rapid published retarget-return lacks exact PUBLISHED historical provenance");
+      }
+      const task = trustedRecord(observed.comments, `${TASK_STATE_MARKER_PREFIX}${packet.task_id} -->`);
+      assertWorkerTask(task, packet, payload, prNumber);
+      const dispatchMarker = `<!-- proffera-worker-dispatch-start:${packet.task_id}:${payload.run_id} -->`;
+      const dispatch = trustedRecord(observed.comments, dispatchMarker);
+      const candidate = observed.open_prs.filter((entry) => entry.number === prNumber);
+      if (candidate.length !== 1 || !equal({ ...candidate[0], files: undefined }, { ...pr, files: undefined })) {
+        throw new Error("rapid published retarget-return list/live identity is missing or changed");
+      }
+
+      const reason = `Exact Worker PR #${prNumber} returned to main from prior base '${priorBase}' at untrusted head ${pr.head.sha} before retarget release convergence. Trusted published head ${trustedHead} is preserved; the changed head is blocked and the writable slot is released.`;
+      const nextTaskBody = taskStateBody({ packet, state: "WORKER_BLOCKED", reason, run_id: payload.run_id,
+        pr_number: prNumber, head_sha: trustedHead });
+      const nextPayload = { ...payload, state: "RELEASED", pr_number: prNumber, head_sha: trustedHead,
+        recovery: { kind: "retargeted_pr", base_ref: priorBase, reservation_head_sha: trustedHead,
+          observed_head_sha: pr.head.sha } };
+      const nextReservationBody = reservationBody(nextPayload);
+
+      if (!equal(pr, readPr(prNumber)) || !equal(observed, snapshot())) {
+        throw new Error("rapid published retarget-return PR or trusted provenance changed before terminalization");
+      }
+      if (task.body !== nextTaskBody) {
+        convergePatch(task.id, `${TASK_STATE_MARKER_PREFIX}${packet.task_id} -->`,
+          nextTaskBody, "rapid published retarget-return task block");
+      }
+      if (!equal(pr, readPr(prNumber))) {
+        throw new Error("rapid published retarget-return PR changed before reservation release");
+      }
+      const midComments = io.comments();
+      const midTask = trustedRecord(midComments, `${TASK_STATE_MARKER_PREFIX}${packet.task_id} -->`);
+      const midReservation = trustedRecord(midComments, `<!-- proffera-worker-slot-reservation:${packet.task_id} -->`);
+      if (midTask.id !== task.id || midTask.body !== nextTaskBody
+        || midReservation.id !== own.id || (midReservation.body !== own.body && midReservation.body !== nextReservationBody)
+        || !equal(trustedRecord(midComments, dispatchMarker), dispatch)) {
+        throw new Error("rapid published retarget-return evidence changed between durable writes");
+      }
+      if (midReservation.body !== nextReservationBody) {
+        convergePatch(own.id, `<!-- proffera-worker-slot-reservation:${packet.task_id} -->`,
+          nextReservationBody, "rapid published retarget-return reservation release");
+      }
+
+      if (!equal(pr, readPr(prNumber))) {
+        throw new Error("rapid published retarget-return PR changed before fail-closed close");
+      }
+      const beforeCloseComments = io.comments();
+      if (!equal(trustedRecord(beforeCloseComments, `${TASK_STATE_MARKER_PREFIX}${packet.task_id} -->`),
+        { id: task.id, body: nextTaskBody })
+        || !equal(trustedRecord(beforeCloseComments, `<!-- proffera-worker-slot-reservation:${packet.task_id} -->`),
+          { id: own.id, body: nextReservationBody })
+        || !equal(trustedRecord(beforeCloseComments, dispatchMarker), dispatch)) {
+        throw new Error("rapid published retarget-return did not converge before close");
+      }
+
+      io.assertOwner();
+      io.close(prNumber);
+      const closed = readPr(prNumber);
+      if (!equal(closed, { ...pr, state: "closed" }) || closed.merged === true) {
+        throw new Error("rapid published retarget-return close did not preserve exact live identity");
+      }
+      const finalComments = io.comments();
+      if (!equal(trustedRecord(finalComments, `${TASK_STATE_MARKER_PREFIX}${packet.task_id} -->`),
+        { id: task.id, body: nextTaskBody })
+        || !equal(trustedRecord(finalComments, `<!-- proffera-worker-slot-reservation:${packet.task_id} -->`),
+          { id: own.id, body: nextReservationBody })
+        || !equal(trustedRecord(finalComments, dispatchMarker), dispatch)) {
+        throw new Error("rapid published retarget-return provenance changed during close enforcement");
+      }
+      io.assertOwner();
+      return { ok: true, pr_number: prNumber, trusted_head_sha: trustedHead,
+        observed_head_sha: pr.head.sha, prior_base_ref: priorBase, closed: true };
+    },
     closeChangedReleasedRetargetPr(input) {
       io.assertOwner();
       const prNumber = Number(input.pr_number);
@@ -2798,7 +2896,7 @@ async function main() {
     return;
   }
   if (mode === "reservation-acquire" || mode === "worker-pr-admit" || mode === "retarget-pr-reconcile"
-    || mode === "released-retarget-return-enforce") {
+    || mode === "released-retarget-return-enforce" || mode === "published-retarget-return-enforce") {
     assertControlIdentity(parsed);
     const authority = createWorkerReservationAuthority(workerReservationIO(parsed));
     const result = mode === "reservation-acquire"
@@ -2807,7 +2905,9 @@ async function main() {
         ? authority.admitPr(parsed)
         : mode === "retarget-pr-reconcile"
           ? authority.retargetPr(parsed)
-          : authority.closeChangedReleasedRetargetPr(parsed);
+          : mode === "released-retarget-return-enforce"
+            ? authority.closeChangedReleasedRetargetPr(parsed)
+            : authority.closeRapidPublishedRetargetReturnPr(parsed);
     process.stdout.write(`${JSON.stringify(result)}\n`);
     return;
   }

@@ -98,6 +98,8 @@ type ReservationEnforcementOptions = {
   eventAction?: string;
   eventActor?: string;
   eventHead?: string;
+  eventBase?: string;
+  eventPreviousBase?: string;
   failPagedCommentReads?: number;
   liveHead?: string;
   liveBase?: string;
@@ -261,6 +263,8 @@ function runReservationEnforcement({
   liveAuthor = "ibboabdoli-ai",
   liveHeadRepository = "ibboabdoli-ai/Proffera",
   eventHead = liveHead,
+  eventBase = liveBase,
+  eventPreviousBase = "",
   failPagedCommentReads = 0,
   liveMerged = false,
   liveState = "open",
@@ -371,6 +375,8 @@ process.exit(2);
       EVENT_ACTOR: eventActor,
       EVENT_HEAD_SHA: eventHead,
       EVENT_HEAD_REF: "work/proffera-test-task",
+      EVENT_BASE_REF: eventBase,
+      EVENT_PREVIOUS_BASE_REF: eventPreviousBase,
       EVENT_AUTHOR: "ibboabdoli-ai",
       EVENT_HEAD_REPOSITORY: "ibboabdoli-ai/Proffera",
       RUN_ID: "9002",
@@ -3317,6 +3323,128 @@ esac
       recovery: null,
     });
     expect(String(readmitted.comments.find((comment) => comment.id === 103)?.body ?? "")).toContain("- State: `WORKER_PR_OPENED`");
+  });
+
+  it.each([
+    { caseName: "the return-to-main edited event", eventAction: "edited", eventBase: "main", eventPreviousBase: "release/other" },
+    { caseName: "a delayed off-main synchronize event", eventAction: "synchronize", eventBase: "release/other", eventPreviousBase: "" },
+  ])("closes a rapid changed PUBLISHED retarget return from $caseName before head rebind", ({
+    eventAction, eventBase, eventPreviousBase,
+  }) => {
+    const evidence = exactReservationEvidence(sha, {
+      state: "PUBLISHED",
+      pr_number: 849,
+      recovery: null,
+    });
+    const currentHead = otherSha;
+    const result = runReservationEnforcement({
+      body: evidence.body,
+      comments: [
+        ...evidence.comments,
+        { id: 103, user: { login: "github-actions[bot]" }, body: durableStateBody("CHECKS_PENDING", sha) },
+      ],
+      eventAction,
+      eventHead: currentHead,
+      eventBase,
+      eventPreviousBase,
+      liveHead: currentHead,
+      liveBase: "main",
+    });
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stdout).toContain("Closed rapid changed-head PUBLISHED Worker PR #849 fail-closed");
+    expect(result.pr).toMatchObject({ state: "closed", merged: false, base: { ref: "main" }, head: { sha: currentHead } });
+    expect(prPatchCalls(result.calls)).toHaveLength(1);
+    expect(commentPatchCalls(result.calls, 101)).toHaveLength(1);
+    expect(commentPatchCalls(result.calls, 103)).toHaveLength(1);
+
+    const reservationBody = String(result.comments.find((comment) => comment.id === 101)?.body ?? "");
+    const reservationB64 = reservationBody.match(/^- Reservation payload: `([^`]*)`$/m)?.[1] ?? "";
+    expect(JSON.parse(Buffer.from(reservationB64, "base64").toString("utf8"))).toMatchObject({
+      state: "RELEASED",
+      pr_number: 849,
+      head_sha: sha,
+      recovery: {
+        kind: "retargeted_pr",
+        base_ref: "release/other",
+        reservation_head_sha: sha,
+        observed_head_sha: currentHead,
+      },
+    });
+    const taskBody = String(result.comments.find((comment) => comment.id === 103)?.body ?? "");
+    expect(taskBody).toContain("- State: `WORKER_BLOCKED`");
+    expect(taskBody).toContain(`- Head: \`${sha}\``);
+    expect(taskBody).not.toContain(`- Head: \`${currentHead}\``);
+
+    const existing = {
+      version: 1,
+      state: "RESERVED",
+      task_id: "SUP-RAPID-OTHER-1",
+      run_id: "7002",
+      branch: "work/proffera-rapid-other-slot",
+      head_sha: "d".repeat(40),
+      graph_path: "feature/rapid-other-slot",
+      packet_digest: "e".repeat(64),
+      lease_expires_at: "2099-01-01T00:00:00Z",
+      allowed_paths: ["src/features/rapid-other-slot/"],
+      changed_files: [],
+      snapshot_finalized: false,
+      pr_number: null,
+      recovery: null,
+    };
+    const freedCapacity = runSlotReservation({ reservation: existing, extraComments: result.comments });
+    expect(freedCapacity.status, freedCapacity.stderr).toBe(0);
+    expect(freedCapacity.comments.some((comment) => comment.id === 999)).toBe(true);
+
+    const replay = runReservationEnforcement({
+      body: evidence.body,
+      comments: result.comments,
+      eventAction: "closed",
+      eventHead: currentHead,
+      eventBase: "main",
+      liveHead: currentHead,
+      liveBase: "main",
+      liveState: "closed",
+    });
+    expect(replay.status, replay.stderr).toBe(0);
+    expect(replay.stdout).toContain("close replay is already converged");
+    expect(prPatchCalls(replay.calls)).toHaveLength(0);
+    expect(commentPatchCalls(replay.calls, 101)).toHaveLength(0);
+    expect(commentPatchCalls(replay.calls, 103)).toHaveLength(0);
+    expect(String(replay.comments.find((comment) => comment.id === 101)?.body ?? "")).toBe(reservationBody);
+    expect(String(replay.comments.find((comment) => comment.id === 103)?.body ?? "")).toBe(taskBody);
+  });
+
+  it("preserves normal on-main PUBLISHED head rebind when no retarget provenance exists", () => {
+    const evidence = exactReservationEvidence(sha, {
+      state: "PUBLISHED",
+      pr_number: 849,
+      recovery: null,
+    });
+    const currentHead = otherSha;
+    const result = runReservationEnforcement({
+      body: evidence.body,
+      comments: [
+        ...evidence.comments,
+        { id: 103, user: { login: "github-actions[bot]" }, body: durableStateBody("CHECKS_PENDING", sha) },
+      ],
+      eventAction: "synchronize",
+      eventHead: currentHead,
+      eventBase: "main",
+      eventPreviousBase: "",
+      liveHead: currentHead,
+      liveBase: "main",
+    });
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.pr).toMatchObject({ state: "open", merged: false, base: { ref: "main" }, head: { sha: currentHead } });
+    expect(prPatchCalls(result.calls)).toHaveLength(0);
+    const reservationBody = String(result.comments.find((comment) => comment.id === 101)?.body ?? "");
+    const reservationB64 = reservationBody.match(/^- Reservation payload: `([^`]*)`$/m)?.[1] ?? "";
+    expect(JSON.parse(Buffer.from(reservationB64, "base64").toString("utf8"))).toMatchObject({
+      state: "PUBLISHED",
+      pr_number: 849,
+      head_sha: currentHead,
+      recovery: null,
+    });
   });
 
   it.each([

@@ -72,6 +72,8 @@ jobs:
           EVENT_ACTOR: ${{ github.actor }}
           EVENT_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           EVENT_HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          EVENT_BASE_REF: ${{ github.event.pull_request.base.ref }}
+          EVENT_PREVIOUS_BASE_REF: ${{ github.event.changes.base.ref.from }}
           RUN_ID: ${{ github.run_id }}
         shell: bash
         run: |
@@ -91,6 +93,8 @@ jobs:
           trusted_reservation_body=""
           trusted_reservation_payload=""
           trusted_changed_retarget_return="false"
+          trusted_published_retarget_return="false"
+          trusted_published_retarget_prior_base=""
 
           close_unreserved() {
             local reason="$1"
@@ -101,11 +105,13 @@ jobs:
           }
 
           has_trusted_dispatch_provenance() {
-            local comments reservation_matches=0 trusted_matches=0 encoded reservation_json reservation_id reservation_body payload_b64 payload state reserved_task reserved_run reserved_branch reserved_head reserved_pr head_matches dispatch_marker dispatch_matches changed_retarget_return recovery_kind recovery_base recovery_reservation_head recovery_observed_head
+            local comments reservation_matches=0 trusted_matches=0 encoded reservation_json reservation_id reservation_body payload_b64 payload state reserved_task reserved_run reserved_branch reserved_head reserved_pr head_matches dispatch_marker dispatch_matches changed_retarget_return published_retarget_return prior_nonmain_base recovery_kind recovery_base recovery_reservation_head recovery_observed_head
             trusted_reservation_id=""
             trusted_reservation_body=""
             trusted_reservation_payload=""
             trusted_changed_retarget_return="false"
+            trusted_published_retarget_return="false"
+            trusted_published_retarget_prior_base=""
             [ "$live_author" = "${REPOSITORY%%/*}" ] && [ "$live_head_repository" = "$REPOSITORY" ] || return 1
             if ! comments="$(gh api --paginate "repos/${REPOSITORY}/issues/548/comments?per_page=100" --jq '.[]' | jq -s '.')"; then
               return 1
@@ -146,9 +152,31 @@ jobs:
                 && [ "$reserved_head" != "$live_head" ]; then
                 changed_retarget_return=true
               fi
+
+              prior_nonmain_base=""
+              case "$EVENT_ACTION" in
+                synchronize|edited)
+                  if [ -n "${EVENT_BASE_REF:-}" ] && [ "$EVENT_BASE_REF" != "main" ]; then
+                    prior_nonmain_base="$EVENT_BASE_REF"
+                  elif [ "$EVENT_ACTION" = "edited" ] \
+                    && [ -n "${EVENT_PREVIOUS_BASE_REF:-}" ] && [ "$EVENT_PREVIOUS_BASE_REF" != "main" ]; then
+                    prior_nonmain_base="$EVENT_PREVIOUS_BASE_REF"
+                  fi
+                  ;;
+              esac
+              published_retarget_return=false
+              if [ "$state" = "PUBLISHED" ] \
+                && [ "$reserved_pr" = "$PR_NUMBER" ] \
+                && [ "$live_state" = "open" ] \
+                && [ "$live_base" = "main" ] \
+                && [ "$reserved_head" != "$live_head" ] \
+                && [ -n "$prior_nonmain_base" ]; then
+                published_retarget_return=true
+              fi
               head_matches=false
               if [ "$reserved_head" = "$live_head" ] \
                 || [ "$changed_retarget_return" = "true" ] \
+                || [ "$published_retarget_return" = "true" ] \
                 || { [ "$reserved_pr" = "$PR_NUMBER" ] \
                   && { { [ "$state" = "PUBLISHED" ] \
                     && { [ "$live_state" = "closed" ] \
@@ -167,6 +195,8 @@ jobs:
                 trusted_reservation_body="$reservation_body"
                 trusted_reservation_payload="$payload"
                 trusted_changed_retarget_return="$changed_retarget_return"
+                trusted_published_retarget_return="$published_retarget_return"
+                trusted_published_retarget_prior_base="$prior_nonmain_base"
               fi
             done < <(jq -r '.[] | select(.user.login == "github-actions[bot]" and ((.body // "") | contains("<!-- proffera-worker-slot-reservation:"))) | @base64' <<< "$comments")
             [ "$reservation_matches" -eq 1 ] && [ "$trusted_matches" -eq 1 ]
@@ -215,6 +245,17 @@ jobs:
             printf '%s' "$control_input" | node "$helper" reservation-mutex-release
           }
           trap 'release_mutex || true' EXIT
+
+          if [ "$trusted_published_retarget_return" = "true" ]; then
+            enforcement_input="$(jq -c --argjson pr_number "$PR_NUMBER" --arg event_head "$EVENT_HEAD_SHA" --arg prior_base_ref "$trusted_published_retarget_prior_base" '. + {pr_number:$pr_number,event_head:$event_head,prior_base_ref:$prior_base_ref}' <<< "$control_input")"
+            enforcement="$(printf '%s' "$enforcement_input" | node "$helper" published-retarget-return-enforce)"
+            if [ "$(jq -r '.ok == true' <<< "$enforcement")" != "true" ]; then
+              jq -r '.reason // "Rapid published retarget-return enforcement refused."' <<< "$enforcement" >&2
+              exit 1
+            fi
+            echo "Closed rapid changed-head PUBLISHED Worker PR #${PR_NUMBER} fail-closed while preserving trusted historical provenance."
+            exit 0
+          fi
 
           if [ "$trusted_changed_retarget_return" = "true" ]; then
             enforcement_input="$(jq -c --argjson pr_number "$PR_NUMBER" --arg event_head "$EVENT_HEAD_SHA" '. + {pr_number:$pr_number,event_head:$event_head}' <<< "$control_input")"
