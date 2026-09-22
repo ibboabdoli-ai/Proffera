@@ -2168,6 +2168,79 @@ export function createWorkerReservationAuthority(io) {
       io.assertOwner();
       return { ok: true, reservation_comment_id: id, head_sha: input.head_sha, reused: plan.own?.body === plan.body };
     },
+    closeChangedReleasedRetargetPr(input) {
+      io.assertOwner();
+      const prNumber = Number(input.pr_number);
+      if (!Number.isSafeInteger(prNumber) || prNumber <= 0 || !SHA_RE.test(input.event_head ?? "")) {
+        throw new Error("changed released retarget PR identity is malformed");
+      }
+      const pr = readPr(prNumber);
+      if (!["open", "closed"].includes(pr.state) || pr.merged === true || pr.number !== prNumber
+        || pr.base?.ref !== "main" || pr.head?.repo?.full_name !== EXPECTED_REPOSITORY
+        || pr.user?.login !== TRUSTED_SUPERVISOR_ACTOR || pr.head?.sha !== input.event_head) {
+        throw new Error("changed released retarget PR is stale or untrusted");
+      }
+      const packet = parseTaskPacketComment(pr.body);
+      if (packet.branch !== pr.head.ref) throw new Error("changed released retarget PR branch does not match the Task Packet");
+      const observed = snapshot();
+      const ownMatches = reservationRecords(observed.comments).filter((record) => record.payload.task_id === packet.task_id);
+      if (ownMatches.length !== 1 || !sameReservationPacket(ownMatches[0].payload, packet)) {
+        throw new Error("changed released retarget PR has missing or ambiguous reservation ownership");
+      }
+      const own = ownMatches[0];
+      const payload = own.payload;
+      const trustedHead = payload.head_sha;
+      const recovery = payload.recovery;
+      if (payload.state !== "RELEASED" || payload.pr_number !== prNumber
+        || recovery?.kind !== "retargeted_pr"
+        || typeof recovery.base_ref !== "string" || !recovery.base_ref || recovery.base_ref === "main"
+        || recovery.reservation_head_sha !== trustedHead
+        || recovery.observed_head_sha !== pr.head.sha
+        || recovery.observed_head_sha === trustedHead) {
+        throw new Error("changed released retarget PR lacks exact historical retarget provenance");
+      }
+      const task = trustedRecord(observed.comments, `${TASK_STATE_MARKER_PREFIX}${packet.task_id} -->`);
+      if (assertWorkerTask(task, packet, payload, prNumber) !== "WORKER_BLOCKED") {
+        throw new Error("changed released retarget PR task is not canonically blocked");
+      }
+      const dispatchMarker = `<!-- proffera-worker-dispatch-start:${packet.task_id}:${payload.run_id} -->`;
+      const dispatch = trustedRecord(observed.comments, dispatchMarker);
+
+      if (pr.state === "open") {
+        const candidate = observed.open_prs.filter((entry) => entry.number === prNumber);
+        if (candidate.length !== 1 || !equal({ ...candidate[0], files: undefined }, { ...pr, files: undefined })) {
+          throw new Error("changed released retarget PR list/live identity is missing or changed");
+        }
+      } else if (observed.open_prs.some((entry) => entry.number === prNumber)) {
+        throw new Error("closed changed released retarget PR unexpectedly remains in the open PR snapshot");
+      }
+      if (!equal(pr, readPr(prNumber)) || !equal(observed, snapshot())) {
+        throw new Error("changed released retarget PR or trusted provenance changed before enforcement");
+      }
+
+      if (pr.state === "closed") {
+        io.assertOwner();
+        return { ok: true, pr_number: prNumber, trusted_head_sha: trustedHead,
+          observed_head_sha: pr.head.sha, closed: false, replay: true };
+      }
+
+      io.assertOwner();
+      io.close(prNumber);
+      const closed = readPr(prNumber);
+      if (!equal(closed, { ...pr, state: "closed" }) || closed.merged === true) {
+        throw new Error("changed released retarget PR close did not preserve exact live identity");
+      }
+      const finalComments = io.comments();
+      if (!equal(trustedRecord(finalComments, `${TASK_STATE_MARKER_PREFIX}${packet.task_id} -->`), task)
+        || !equal(trustedRecord(finalComments, `<!-- proffera-worker-slot-reservation:${packet.task_id} -->`),
+          { id: own.id, body: own.body })
+        || !equal(trustedRecord(finalComments, dispatchMarker), dispatch)) {
+        throw new Error("changed released retarget PR provenance changed during close enforcement");
+      }
+      io.assertOwner();
+      return { ok: true, pr_number: prNumber, trusted_head_sha: trustedHead,
+        observed_head_sha: pr.head.sha, closed: true, replay: false };
+    },
     retargetPr(input) {
       io.assertOwner();
       const prNumber = Number(input.pr_number);
@@ -2724,14 +2797,17 @@ async function main() {
     process.stdout.write(`${JSON.stringify(reconcileUnboundTasks(parsed))}\n`);
     return;
   }
-  if (mode === "reservation-acquire" || mode === "worker-pr-admit" || mode === "retarget-pr-reconcile") {
+  if (mode === "reservation-acquire" || mode === "worker-pr-admit" || mode === "retarget-pr-reconcile"
+    || mode === "released-retarget-return-enforce") {
     assertControlIdentity(parsed);
     const authority = createWorkerReservationAuthority(workerReservationIO(parsed));
     const result = mode === "reservation-acquire"
       ? authority.acquire(parsed)
       : mode === "worker-pr-admit"
         ? authority.admitPr(parsed)
-        : authority.retargetPr(parsed);
+        : mode === "retarget-pr-reconcile"
+          ? authority.retargetPr(parsed)
+          : authority.closeChangedReleasedRetargetPr(parsed);
     process.stdout.write(`${JSON.stringify(result)}\n`);
     return;
   }

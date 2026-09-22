@@ -90,6 +90,7 @@ jobs:
           trusted_reservation_id=""
           trusted_reservation_body=""
           trusted_reservation_payload=""
+          trusted_changed_retarget_return="false"
 
           close_unreserved() {
             local reason="$1"
@@ -100,10 +101,11 @@ jobs:
           }
 
           has_trusted_dispatch_provenance() {
-            local comments reservation_matches=0 trusted_matches=0 encoded reservation_json reservation_id reservation_body payload_b64 payload state reserved_task reserved_run reserved_branch reserved_head reserved_pr head_matches dispatch_marker dispatch_matches
+            local comments reservation_matches=0 trusted_matches=0 encoded reservation_json reservation_id reservation_body payload_b64 payload state reserved_task reserved_run reserved_branch reserved_head reserved_pr head_matches dispatch_marker dispatch_matches changed_retarget_return recovery_kind recovery_base recovery_reservation_head recovery_observed_head
             trusted_reservation_id=""
             trusted_reservation_body=""
             trusted_reservation_payload=""
+            trusted_changed_retarget_return="false"
             [ "$live_author" = "${REPOSITORY%%/*}" ] && [ "$live_head_repository" = "$REPOSITORY" ] || return 1
             if ! comments="$(gh api --paginate "repos/${REPOSITORY}/issues/548/comments?per_page=100" --jq '.[]' | jq -s '.')"; then
               return 1
@@ -121,6 +123,10 @@ jobs:
               reserved_branch="$(jq -r '.branch // ""' <<< "$payload")"
               reserved_head="$(jq -r '.head_sha // ""' <<< "$payload")"
               reserved_pr="$(jq -r '.pr_number // empty' <<< "$payload")"
+              recovery_kind="$(jq -r '.recovery.kind // ""' <<< "$payload")"
+              recovery_base="$(jq -r '.recovery.base_ref // ""' <<< "$payload")"
+              recovery_reservation_head="$(jq -r '.recovery.reservation_head_sha // ""' <<< "$payload")"
+              recovery_observed_head="$(jq -r '.recovery.observed_head_sha // ""' <<< "$payload")"
               case "$state" in
                 RESERVED|PUBLISHED|RECOVERABLE) ;;
                 RELEASED) ;;
@@ -128,8 +134,21 @@ jobs:
               esac
               [ -n "$reserved_task" ] && [ -n "$reserved_run" ] && [ -n "$reserved_head" ] || continue
               [ -z "$reserved_pr" ] || [ "$reserved_pr" = "$PR_NUMBER" ] || continue
+              changed_retarget_return=false
+              if [ "$state" = "RELEASED" ] \
+                && [ "$reserved_pr" = "$PR_NUMBER" ] \
+                && [ "$live_base" = "main" ] \
+                && { [ "$live_state" = "open" ] || [ "$live_state" = "closed" ]; } \
+                && [ "$recovery_kind" = "retargeted_pr" ] \
+                && [ -n "$recovery_base" ] && [ "$recovery_base" != "main" ] \
+                && [ "$recovery_reservation_head" = "$reserved_head" ] \
+                && [ "$recovery_observed_head" = "$live_head" ] \
+                && [ "$reserved_head" != "$live_head" ]; then
+                changed_retarget_return=true
+              fi
               head_matches=false
               if [ "$reserved_head" = "$live_head" ] \
+                || [ "$changed_retarget_return" = "true" ] \
                 || { [ "$reserved_pr" = "$PR_NUMBER" ] \
                   && { { [ "$state" = "PUBLISHED" ] \
                     && { [ "$live_state" = "closed" ] \
@@ -147,6 +166,7 @@ jobs:
                 trusted_reservation_id="$reservation_id"
                 trusted_reservation_body="$reservation_body"
                 trusted_reservation_payload="$payload"
+                trusted_changed_retarget_return="$changed_retarget_return"
               fi
             done < <(jq -r '.[] | select(.user.login == "github-actions[bot]" and ((.body // "") | contains("<!-- proffera-worker-slot-reservation:"))) | @base64' <<< "$comments")
             [ "$reservation_matches" -eq 1 ] && [ "$trusted_matches" -eq 1 ]
@@ -195,6 +215,21 @@ jobs:
             printf '%s' "$control_input" | node "$helper" reservation-mutex-release
           }
           trap 'release_mutex || true' EXIT
+
+          if [ "$trusted_changed_retarget_return" = "true" ]; then
+            enforcement_input="$(jq -c --argjson pr_number "$PR_NUMBER" --arg event_head "$EVENT_HEAD_SHA" '. + {pr_number:$pr_number,event_head:$event_head}' <<< "$control_input")"
+            enforcement="$(printf '%s' "$enforcement_input" | node "$helper" released-retarget-return-enforce)"
+            if [ "$(jq -r '.ok == true' <<< "$enforcement")" != "true" ]; then
+              jq -r '.reason // "Changed released retarget PR enforcement refused."' <<< "$enforcement" >&2
+              exit 1
+            fi
+            if [ "$(jq -r '.closed == true' <<< "$enforcement")" = "true" ]; then
+              echo "Closed changed-head released Worker PR #${PR_NUMBER} fail-closed without trusting or publishing the observed head."
+            else
+              echo "Changed-head released Worker PR #${PR_NUMBER} close replay is already converged; trusted historical provenance remains unchanged."
+            fi
+            exit 0
+          fi
 
           if [ "$live_state" != "closed" ] && [ "$live_base" != "main" ]; then
             retarget_input="$(jq -c --argjson pr_number "$PR_NUMBER" --arg event_head "$EVENT_HEAD_SHA" --arg actor "$EVENT_ACTOR" '. + {pr_number:$pr_number,event_head:$event_head,actor:$actor}' <<< "$control_input")"

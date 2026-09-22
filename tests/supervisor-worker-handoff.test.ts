@@ -3399,12 +3399,51 @@ esac
       liveBase: "main",
     });
     expect(mainAtConcurrentHead.status, mainAtConcurrentHead.stderr).toBe(0);
-    expect(mainAtConcurrentHead.stdout).toContain("has no exact trusted Supervisor dispatch provenance; leaving it unchanged");
-    expect(prPatchCalls(mainAtConcurrentHead.calls)).toHaveLength(0);
+    expect(mainAtConcurrentHead.stdout).toContain("Closed changed-head released Worker PR #849 fail-closed");
+    expect(mainAtConcurrentHead.pr).toMatchObject({
+      state: "closed",
+      merged: false,
+      base: { ref: "main" },
+      head: { sha: concurrentHead },
+    });
+    expect(prPatchCalls(mainAtConcurrentHead.calls)).toHaveLength(1);
     expect(commentPatchCalls(mainAtConcurrentHead.calls, 101)).toHaveLength(0);
     expect(commentPatchCalls(mainAtConcurrentHead.calls, 103)).toHaveLength(0);
-    expect(String(mainAtConcurrentHead.comments.find((comment) => comment.id === 101)?.body ?? "")).toContain("- State: `RELEASED`");
-    expect(String(mainAtConcurrentHead.comments.find((comment) => comment.id === 103)?.body ?? "")).toContain("- State: `WORKER_BLOCKED`");
+    const closedReservationBody = String(mainAtConcurrentHead.comments.find((comment) => comment.id === 101)?.body ?? "");
+    const closedReservationB64 = closedReservationBody.match(/^- Reservation payload: `([^`]*)`$/m)?.[1] ?? "";
+    expect(JSON.parse(Buffer.from(closedReservationB64, "base64").toString("utf8"))).toMatchObject({
+      state: "RELEASED",
+      pr_number: 849,
+      head_sha: sha,
+      recovery: {
+        kind: "retargeted_pr",
+        base_ref: "release/other",
+        reservation_head_sha: sha,
+        observed_head_sha: concurrentHead,
+      },
+    });
+    const closedTaskBody = String(mainAtConcurrentHead.comments.find((comment) => comment.id === 103)?.body ?? "");
+    expect(closedTaskBody).toContain("- State: `WORKER_BLOCKED`");
+    expect(closedTaskBody).toContain(`- Head: \`${sha}\``);
+    expect(closedTaskBody).not.toContain(`- Head: \`${concurrentHead}\``);
+
+    const closedReplay = runReservationEnforcement({
+      body: evidence.body,
+      comments: mainAtConcurrentHead.comments,
+      eventAction: "closed",
+      eventHead: concurrentHead,
+      liveHead: concurrentHead,
+      liveBase: "main",
+      liveState: "closed",
+    });
+    expect(closedReplay.status, closedReplay.stderr).toBe(0);
+    expect(closedReplay.stdout).toContain("close replay is already converged");
+    expect(closedReplay.pr).toMatchObject({ state: "closed", merged: false, head: { sha: concurrentHead } });
+    expect(prPatchCalls(closedReplay.calls)).toHaveLength(0);
+    expect(commentPatchCalls(closedReplay.calls, 101)).toHaveLength(0);
+    expect(commentPatchCalls(closedReplay.calls, 103)).toHaveLength(0);
+    expect(String(closedReplay.comments.find((comment) => comment.id === 101)?.body ?? "")).toBe(closedReservationBody);
+    expect(String(closedReplay.comments.find((comment) => comment.id === 103)?.body ?? "")).toBe(closedTaskBody);
   });
 
   it("closes a malformed trusted Worker PR and releases its exact published reservation on the closed event", () => {
