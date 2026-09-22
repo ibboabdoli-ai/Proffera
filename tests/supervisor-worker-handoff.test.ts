@@ -4553,6 +4553,7 @@ esac
   it("guards fallback cleanup against closed, retargeted, or changed exact Worker PR evidence", () => {
     const workflow = source(".github/workflows/supervisor-worker-handoff.yml");
     const reconcile = workflowRunStep(workflow, "Reconcile exact stranded reservation after publish setup failure");
+    const publish = workflowRunStep(workflow, "Mark reservation published");
     const shell = spawnSync("bash", ["-n"], { input: reconcile, encoding: "utf8" });
     expect(shell.status, shell.stderr).toBe(0);
     expect(reconcile).toContain("pulls?state=all&per_page=100");
