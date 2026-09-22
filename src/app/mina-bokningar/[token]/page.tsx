@@ -2,7 +2,6 @@
 import type { CSSProperties } from "react";
 import Image from "next/image";
 import Link from "next/link";
-import { revalidatePath } from "next/cache";
 import { headers } from "next/headers";
 import { notFound, redirect } from "next/navigation";
 import { CalendarClock, CalendarDays, Clock3, History, MapPin, XCircle } from "lucide-react";
@@ -55,7 +54,8 @@ async function cancelBooking(formData: FormData) {
   const presentation = await getCustomerPortalPresentation(token);
   const language = resolveCustomerPortalLanguage(String(formData.get("lang") ?? ""), presentation);
   const result = await cancelCustomerCalendarBooking(token, id, language);
-  if (result.ok) revalidatePath(`/mina-bokningar/${token}`);
+  if (result.ok) redirect(portalHref(token, language, { cancelled: "1" }));
+  redirect(portalHref(token, language, { error: "cancel" }));
 }
 
 export function BookingCard({
@@ -200,11 +200,12 @@ export default async function Page({ params, searchParams }: PageProps) {
           <p className={styles.eyebrow}>{isEnglish ? "Customer self-service" : "Kundens självservice"}</p>
           <h1 className={styles.title}>{isEnglish ? "Hello" : "Hej"} {data.customer.name}</h1>
           <p className={styles.lead}>{isEnglish ? "Only your own bookings are shown here. Available actions follow the company’s booking rules." : "Här visas endast dina egna bokningar. Tillgängliga åtgärder styrs av företagets bokningsregler."}</p>
-          {isPrimeView ? <Link href="/" className={styles.websiteLink}>PrimeView website</Link> : null}
+          {isPrimeView ? <Link href="/" className={styles.websiteLink}>{isEnglish ? "PrimeView website" : "PrimeViews webbplats"}</Link> : null}
         </header>
 
         {first(query?.changed) === "1" ? <p className={styles.noticeSuccess}>{isEnglish ? "The appointment time has been changed." : "Tiden har ändrats."}</p> : null}
         {first(query?.cancelled) === "1" ? <p className={styles.noticeSuccess}>{isEnglish ? "The booking has been cancelled." : "Bokningen har avbokats."}</p> : null}
+        {first(query?.error) === "cancel" ? <p role="alert" className={styles.noticeError}>{isEnglish ? "The booking could not be cancelled. It may already be cancelled or too close to the appointment time." : "Bokningen kunde inte avbokas. Den kan redan vara avbokad eller ligga för nära starttiden."}</p> : null}
 
         <section className={styles.section}>
           <div className={styles.sectionHeader}><CalendarDays aria-hidden="true" /><h2>{isEnglish ? "Upcoming" : "Kommande"}</h2></div>
@@ -218,7 +219,7 @@ export default async function Page({ params, searchParams }: PageProps) {
 
         <footer className={styles.footer}>
           <span>{companyName}</span>
-          {isPrimeView ? <Link href="/privacy" className={styles.backLink}>Privacy Policy</Link> : <span>{isEnglish ? "Booking self-service via Proffera" : "Bokningssjälvservice via Proffera"}</span>}
+          {isPrimeView ? <Link href="/privacy" className={styles.backLink}>{isEnglish ? "Privacy Policy" : "Integritetspolicy"}</Link> : <span>{isEnglish ? "Booking self-service via Proffera" : "Bokningssjälvservice via Proffera"}</span>}
         </footer>
       </div>
     </main>
