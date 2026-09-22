@@ -2122,6 +2122,25 @@ export function createWorkerReservationAuthority(io) {
     if (!Number.isSafeInteger(id) || id <= 0) throw new Error("reservation creation returned an invalid identity");
     return id;
   };
+  const convergePatch = (id, marker, body, label) => {
+    let lastError = null;
+    for (let attempt = 1; attempt <= 3; attempt += 1) {
+      try {
+        io.assertOwner();
+        io.patch(id, body);
+      } catch (error) {
+        lastError = error;
+      }
+      try {
+        const record = trustedRecord(io.comments(), marker);
+        if (record.id === id && record.body === body) return record;
+        lastError = new Error(`${label} did not persist exactly`);
+      } catch (error) {
+        lastError = error;
+      }
+    }
+    throw lastError instanceof Error ? lastError : new Error(`${label} did not converge`);
+  };
   return {
     acquire(input) {
       io.assertOwner();
@@ -2138,6 +2157,90 @@ export function createWorkerReservationAuthority(io) {
       requirePlan(planWorkerReservation({ ...request, ...final }));
       io.assertOwner();
       return { ok: true, reservation_comment_id: id, head_sha: input.head_sha, reused: plan.own?.body === plan.body };
+    },
+    retargetPr(input) {
+      io.assertOwner();
+      const prNumber = Number(input.pr_number);
+      if (!Number.isSafeInteger(prNumber) || prNumber <= 0 || !SHA_RE.test(input.event_head ?? "")) {
+        throw new Error("Worker PR retarget identity is malformed");
+      }
+      const pr = readPr(prNumber);
+      if (pr.state !== "open" || pr.merged === true || pr.number !== prNumber
+        || pr.base?.ref === "main" || typeof pr.base?.ref !== "string" || !pr.base.ref
+        || pr.head?.repo?.full_name !== EXPECTED_REPOSITORY || pr.user?.login !== TRUSTED_SUPERVISOR_ACTOR
+        || pr.head?.sha !== input.event_head) {
+        throw new Error("stale or untrusted retargeted Worker PR/head");
+      }
+      const packet = parseTaskPacketComment(pr.body);
+      if (packet.branch !== pr.head.ref) throw new Error("Task Packet branch does not match the retargeted PR");
+      const observed = snapshot();
+      const own = reservationRecords(observed.comments).find((record) => record.payload.task_id === packet.task_id);
+      if (!own || !sameReservationPacket(own.payload, packet)) {
+        throw new Error("retargeted Worker PR has no exact original reservation ownership");
+      }
+      const payload = own.payload;
+      const task = trustedRecord(observed.comments, `${TASK_STATE_MARKER_PREFIX}${packet.task_id} -->`);
+      assertWorkerTask(task, packet, payload, prNumber);
+      const dispatchMarker = `<!-- proffera-worker-dispatch-start:${packet.task_id}:${payload.run_id} -->`;
+      const dispatch = trustedRecord(observed.comments, dispatchMarker);
+      if (payload.pr_number !== prNumber || payload.head_sha !== pr.head.sha) {
+        throw new Error("retargeted Worker PR does not match the published reservation binding");
+      }
+      const releasedForRetarget = payload.state === "RELEASED"
+        && payload.recovery?.kind === "retargeted_pr"
+        && typeof payload.recovery?.base_ref === "string"
+        && payload.recovery.base_ref !== "main"
+        && payload.recovery?.reservation_head_sha === pr.head.sha;
+      if (payload.state !== "PUBLISHED" && !releasedForRetarget) {
+        throw new Error("retargeted Worker PR reservation is not publish-bound or provenance-preservingly released");
+      }
+      const candidate = observed.open_prs.filter((entry) => entry.number === prNumber);
+      if (candidate.length !== 1 || !equal({ ...candidate[0], files: undefined }, { ...pr, files: undefined })) {
+        throw new Error("retargeted Worker PR list/live identity is missing or changed");
+      }
+      const bounded = validateChangedFiles(packet, candidate[0].files);
+      if (!bounded.ok) throw new Error(bounded.reason);
+
+      const reason = `Exact Worker PR #${prNumber} was retargeted away from main to '${pr.base.ref}'. Its writable slot is released, but the same task is not redispatchable while that PR/branch remains; retarget this same unchanged PR back to main for exact-provenance re-admission.`;
+      const nextTaskBody = taskStateBody({ packet, state: "WORKER_BLOCKED", reason, run_id: payload.run_id,
+        pr_number: prNumber, head_sha: pr.head.sha });
+      const nextPayload = { ...payload, state: "RELEASED", pr_number: prNumber, head_sha: pr.head.sha,
+        recovery: { kind: "retargeted_pr", base_ref: pr.base.ref, reservation_head_sha: pr.head.sha } };
+      const nextReservationBody = reservationBody(nextPayload);
+      if (!equal(pr, readPr(prNumber)) || !equal(observed, snapshot())) {
+        throw new Error("retargeted Worker PR or reservation evidence changed before reconciliation");
+      }
+
+      if (task.body !== nextTaskBody) {
+        convergePatch(task.id, `${TASK_STATE_MARKER_PREFIX}${packet.task_id} -->`, nextTaskBody, "retargeted Worker task block");
+      }
+      if (!equal(pr, readPr(prNumber))) {
+        throw new Error("retargeted Worker PR changed before reservation release");
+      }
+      let midComments = io.comments();
+      const midTask = trustedRecord(midComments, `${TASK_STATE_MARKER_PREFIX}${packet.task_id} -->`);
+      const midReservation = trustedRecord(midComments, `<!-- proffera-worker-slot-reservation:${packet.task_id} -->`);
+      if (midTask.id !== task.id || midTask.body !== nextTaskBody
+        || midReservation.id !== own.id || (midReservation.body !== own.body && midReservation.body !== nextReservationBody)
+        || !equal(trustedRecord(midComments, dispatchMarker), dispatch)) {
+        throw new Error("retargeted Worker task/reservation evidence changed between durable writes");
+      }
+      if (midReservation.body !== nextReservationBody) {
+        convergePatch(own.id, `<!-- proffera-worker-slot-reservation:${packet.task_id} -->`,
+          nextReservationBody, "retargeted Worker reservation release");
+      }
+
+      const finalPr = readPr(prNumber);
+      const finalComments = io.comments();
+      if (!equal(pr, finalPr)
+        || !equal(trustedRecord(finalComments, `${TASK_STATE_MARKER_PREFIX}${packet.task_id} -->`), { id: task.id, body: nextTaskBody })
+        || !equal(trustedRecord(finalComments, `<!-- proffera-worker-slot-reservation:${packet.task_id} -->`), { id: own.id, body: nextReservationBody })
+        || !equal(trustedRecord(finalComments, dispatchMarker), dispatch)) {
+        throw new Error("retargeted Worker lifecycle did not converge");
+      }
+      io.assertOwner();
+      return { ok: true, reservation_comment_id: own.id, task_id: packet.task_id, task_run_id: payload.run_id,
+        pr_number: prNumber, head_sha: pr.head.sha, base_ref: pr.base.ref, released: true };
     },
     admitPr(input) {
       io.assertOwner();
@@ -2604,10 +2707,14 @@ async function main() {
     process.stdout.write(`${JSON.stringify(reconcileUnboundTasks(parsed))}\n`);
     return;
   }
-  if (mode === "reservation-acquire" || mode === "worker-pr-admit") {
+  if (mode === "reservation-acquire" || mode === "worker-pr-admit" || mode === "retarget-pr-reconcile") {
     assertControlIdentity(parsed);
     const authority = createWorkerReservationAuthority(workerReservationIO(parsed));
-    const result = mode === "reservation-acquire" ? authority.acquire(parsed) : authority.admitPr(parsed);
+    const result = mode === "reservation-acquire"
+      ? authority.acquire(parsed)
+      : mode === "worker-pr-admit"
+        ? authority.admitPr(parsed)
+        : authority.retargetPr(parsed);
     process.stdout.write(`${JSON.stringify(result)}\n`);
     return;
   }
