@@ -62,7 +62,6 @@ function RestaurantV3Hero({
   subtitle,
   description,
   logoUrl,
-  slug,
   defaultLanguage,
   swedishEnabled,
   englishEnabled,
@@ -73,7 +72,6 @@ function RestaurantV3Hero({
   subtitle: string;
   description: string;
   logoUrl: string;
-  slug: string;
   defaultLanguage: "sv" | "en";
   swedishEnabled: boolean;
   englishEnabled: boolean;
@@ -91,10 +89,6 @@ function RestaurantV3Hero({
           <a href="#restaurant-reviews">Omdömen</a>
           <a href="#restaurant-contact">Kontakt</a>
         </nav>
-        <div className="restaurant-v3-languages" aria-label="Language">
-          {swedishEnabled ? <a href={`/boka/${slug}?lang=sv`}>🇸🇪 Svenska</a> : null}
-          {englishEnabled ? <a href={`/boka/${slug}?lang=en`}>English</a> : null}
-        </div>
       </div>
 
       <div className="restaurant-v3-copy">
@@ -298,7 +292,6 @@ export default async function PublicBookingLayout({ children, params }: { childr
             subtitle={themeContent.heroSubtitle}
             description={themeContent.heroDescription}
             logoUrl={experience.logoUrl}
-            slug={slug}
             defaultLanguage={experience.defaultLanguage}
             swedishEnabled={experience.swedishEnabled}
             englishEnabled={experience.englishEnabled}
