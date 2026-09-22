@@ -318,6 +318,7 @@ export default async function PublicBookingPage({ params, searchParams }: PagePr
       <main lang={locale} style={themeStyles} className={styles.page}>
         <div id="restaurant-booking" className={styles.shell}>
           <section id="booking-form" className={styles.bookingPanel}>
+            {languageSwitch}
             {booked ? successNotice : (
               <>
                 <p className={styles.verification}>{t.verification}</p>
