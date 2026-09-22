@@ -349,7 +349,8 @@ describe("public booking human-designed UX contract", () => {
       formData.set(name, String(input.props.value ?? ""));
     }
 
-    await (cancellationForm.props.action as (data: FormData) => Promise<void>)(formData);
+    await expect((cancellationForm.props.action as (data: FormData) => Promise<void>)(formData))
+      .rejects.toThrow("redirect:/mina-bokningar/customer-token?lang=sv&cancelled=1");
     expect(mocks.cancelCustomerCalendarBooking).toHaveBeenCalledWith(
       "customer-token",
       "booking-1",
