@@ -16,9 +16,8 @@ type BookingChangeEmailInput = {
   newEndsAt?: string;
   portalUrl: string;
   timeZone: WorkspaceTimeZone;
+  language: "sv" | "en";
 };
-
-const primeViewLogo = "https://www.primeviewwindowcare.co.uk/brand/primeview-window-care-logo.jpeg";
 
 function escapeHtml(value: string) {
   return value.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;").replaceAll("'", "&#039;");
@@ -51,7 +50,7 @@ async function send(to: { email: string; name: string }, subject: string, text: 
 }
 
 export async function sendBookingChangeEmails(input: BookingChangeEmailInput) {
-  const language: "sv" | "en" = input.companyName.trim().toLowerCase() === "primeview window care" ? "en" : "sv";
+  const language = input.language;
   const isEnglish = language === "en";
   const oldTime = `${formatTime(input.oldStartsAt, input.timeZone, language)}–${formatTime(input.oldEndsAt, input.timeZone, language)}`;
   const newTime = input.newStartsAt && input.newEndsAt ? `${formatTime(input.newStartsAt, input.timeZone, language)}–${formatTime(input.newEndsAt, input.timeZone, language)}` : null;
@@ -76,7 +75,7 @@ export async function sendBookingChangeEmails(input: BookingChangeEmailInput) {
       ].filter(Boolean).join("\n");
 
   const customerHtml = isEnglish
-    ? `<div style="font-family:Arial,sans-serif;line-height:1.6;color:#0b2a4a;max-width:640px;margin:0 auto"><div style="overflow:hidden;border:1px solid #d9e4ef;border-radius:20px;background:#fff"><div style="background:#06183b;color:#fff;padding:20px 24px"><table role="presentation" style="border-collapse:collapse"><tr><td style="padding-right:12px"><img src="${primeViewLogo}" width="44" height="44" alt="PrimeView Window Care" style="display:block;width:44px;height:44px;border-radius:10px;object-fit:cover;border:1px solid rgba(255,255,255,.25)" /></td><td><div style="font-size:12px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:#b8ceff">Booking update</div><div style="font-size:21px;font-weight:700;color:#fff">${escapeHtml(input.companyName)}</div></td></tr></table></div><div style="padding:24px"><p>Hello ${escapeHtml(input.customerName)},</p><p>${changed ? `Your booking with <strong>${escapeHtml(input.companyName)}</strong> has been rescheduled.` : `Your booking with <strong>${escapeHtml(input.companyName)}</strong> has been cancelled.`}</p><ul><li><strong>Service:</strong> ${escapeHtml(input.service)}</li><li><strong>Previous time:</strong> ${escapeHtml(oldTime)}</li>${newTime ? `<li><strong>New time:</strong> ${escapeHtml(newTime)}</li>` : ""}${input.city ? `<li><strong>Location:</strong> ${escapeHtml(input.city)}</li>` : ""}</ul><p><a href="${escapeHtml(input.portalUrl)}" style="display:inline-block;border-radius:12px;background:#0a3c8f;color:#fff;padding:13px 20px;text-decoration:none;font-weight:700">Manage bookings</a></p><p>Kind regards<br><strong>${escapeHtml(input.companyName)}</strong></p></div></div><p style="text-align:center;font-size:12px;color:#8a98aa">PrimeView Window Care · Powered by Proffera</p></div>`
+    ? `<div style="font-family:Arial,sans-serif;line-height:1.6;color:#0b2a4a;max-width:640px;margin:0 auto"><div style="overflow:hidden;border:1px solid #d9e4ef;border-radius:20px;background:#fff"><div style="background:#06183b;color:#fff;padding:20px 24px"><div style="font-size:12px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:#b8ceff">Booking update</div><div style="font-size:21px;font-weight:700;color:#fff">${escapeHtml(input.companyName)}</div></div><div style="padding:24px"><p>Hello ${escapeHtml(input.customerName)},</p><p>${changed ? `Your booking with <strong>${escapeHtml(input.companyName)}</strong> has been rescheduled.` : `Your booking with <strong>${escapeHtml(input.companyName)}</strong> has been cancelled.`}</p><ul><li><strong>Service:</strong> ${escapeHtml(input.service)}</li><li><strong>Previous time:</strong> ${escapeHtml(oldTime)}</li>${newTime ? `<li><strong>New time:</strong> ${escapeHtml(newTime)}</li>` : ""}${input.city ? `<li><strong>Location:</strong> ${escapeHtml(input.city)}</li>` : ""}</ul><p><a href="${escapeHtml(input.portalUrl)}" style="display:inline-block;border-radius:12px;background:#0a3c8f;color:#fff;padding:13px 20px;text-decoration:none;font-weight:700">Manage bookings</a></p><p>Kind regards<br><strong>${escapeHtml(input.companyName)}</strong></p></div></div><p style="text-align:center;font-size:12px;color:#8a98aa">${escapeHtml(input.companyName)} · Powered by Proffera</p></div>`
     : `<div style="font-family:Arial,sans-serif;line-height:1.6;color:#17201a"><p>Hej ${escapeHtml(input.customerName)},</p><p>${changed ? `Din bokning hos <strong>${escapeHtml(input.companyName)}</strong> har flyttats.` : `Din bokning hos <strong>${escapeHtml(input.companyName)}</strong> har avbokats.`}</p><ul><li><strong>Tjänst:</strong> ${escapeHtml(input.service)}</li><li><strong>Tidigare tid:</strong> ${escapeHtml(oldTime)}</li>${newTime ? `<li><strong>Ny tid:</strong> ${escapeHtml(newTime)}</li>` : ""}${input.city ? `<li><strong>Ort:</strong> ${escapeHtml(input.city)}</li>` : ""}</ul><p><a href="${escapeHtml(input.portalUrl)}" style="display:inline-block;border-radius:12px;background:#17452f;color:#fff;padding:13px 20px;text-decoration:none;font-weight:700">Hantera bokningar</a></p><p>Med vänliga hälsningar<br>${escapeHtml(input.companyName)}</p></div>`;
 
   const jobs: Promise<unknown>[] = [send({ email: input.customerEmail, name: input.customerName }, customerSubject, customerText, customerHtml)];
