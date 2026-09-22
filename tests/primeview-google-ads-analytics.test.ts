@@ -266,7 +266,7 @@ describe("PrimeView Google Ads conversion measurement", () => {
     expect(publicBookingSuccessRedirect("primeview", "sv")).toBe("/booking?booked=1");
     expect(publicBookingSuccessRedirect("primeview", "en")).toBe("/booking?booked=1");
     expect(publicBookingSuccessRedirect("example-company", "sv")).toBe(
-      "/boka/example-company?booked=1",
+      "/boka/example-company?booked=1&lang=sv",
     );
     expect(publicBookingSuccessRedirect("example-company", "en")).toBe(
       "/boka/example-company?booked=1&lang=en",
