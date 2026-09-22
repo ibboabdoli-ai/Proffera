@@ -35,7 +35,6 @@ on:
         required: true
         type: string
   pull_request_target:
-    branches: [main]
     types: [opened, reopened, synchronize, edited, closed]
 
 permissions: {}
@@ -84,6 +83,7 @@ jobs:
           live_merged="$(jq -r '.merged == true' <<< "$pr_json")"
           live_head="$(jq -r '.head.sha // ""' <<< "$pr_json")"
           live_ref="$(jq -r '.head.ref // ""' <<< "$pr_json")"
+          live_base="$(jq -r '.base.ref // ""' <<< "$pr_json")"
           live_author="$(jq -r '.user.login // ""' <<< "$pr_json")"
           live_head_repository="$(jq -r '.head.repo.full_name // ""' <<< "$pr_json")"
           body="$(jq -r '.body // ""' <<< "$pr_json")"
@@ -195,6 +195,18 @@ jobs:
             printf '%s' "$control_input" | node "$helper" reservation-mutex-release
           }
           trap 'release_mutex || true' EXIT
+
+          if [ "$live_state" != "closed" ] && [ "$live_base" != "main" ]; then
+            retarget_input="$(jq -c --argjson pr_number "$PR_NUMBER" --arg event_head "$EVENT_HEAD_SHA" --arg actor "$EVENT_ACTOR" '. + {pr_number:$pr_number,event_head:$event_head,actor:$actor}' <<< "$control_input")"
+            retarget="$(printf '%s' "$retarget_input" | node "$helper" retarget-pr-reconcile)"
+            if [ "$(jq -r '.ok == true' <<< "$retarget")" != "true" ]; then
+              jq -r '.reason // "Retarget reconciliation refused."' <<< "$retarget" >&2
+              exit 1
+            fi
+            echo "Worker PR #${PR_NUMBER} was retargeted away from main; durable reservation released with exact provenance."
+            exit 0
+          fi
+
           if [ "$live_state" = "closed" ]; then
             reconcile_status=1
             for reconcile_attempt in $(seq 1 5); do
