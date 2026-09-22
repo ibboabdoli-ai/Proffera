@@ -66,7 +66,7 @@ function formText(formData: FormData, key: string, maxLength = 1200) { return St
 async function requestPublicBooking(formData: FormData) {
   "use server";
   const slug = String(formData.get("slug") ?? "").trim();
-  const lang: WorkspaceLanguage = formData.get("lang") === "en" ? "en" : "sv";
+  let lang: WorkspaceLanguage = formData.get("lang") === "en" ? "en" : "sv";
   const name = formText(formData, "name", 160);
   const email = formText(formData, "email", 320);
   const phone = formText(formData, "phone", 80);
@@ -106,6 +106,15 @@ async function requestPublicBooking(formData: FormData) {
   const workspace = workspaces[0];
   const bookingEnabled = workspace ? await hasWorkspaceFeatureAccessForWorkspace(String(workspace.id), "online_booking") : false;
   if (!workspace || !bookingEnabled) redirect(withLang(slug, lang, "error=unavailable"));
+
+  const actionExperience = await getPublicWorkspaceExperienceSettings(String(workspace.id));
+  lang = lang === "en" && actionExperience.englishEnabled
+    ? "en"
+    : lang === "sv" && actionExperience.swedishEnabled
+      ? "sv"
+      : actionExperience.englishEnabled
+        ? "en"
+        : "sv";
 
   const allowed = await allowPublicSubmission({ scope: "public_booking_verification", requestHeaders: await headers(), identity: `${slug}:${email}`, maxAttempts: 5, windowSeconds: 15 * 60 });
   if (!allowed) redirect(withLang(slug, lang, "error=rate_limit"));
@@ -267,7 +276,7 @@ export default async function PublicBookingPage({ params, searchParams }: PagePr
 
   const serviceQuery = initialServiceId ? `&service_id=${encodeURIComponent(initialServiceId)}` : "";
   const languageSwitch = experience.swedishEnabled && experience.englishEnabled ? (
-    <nav className={styles.languageNav} aria-label="Language">
+    <nav className={styles.languageNav} aria-label={locale === "sv" ? "Språk" : "Language"}>
       <a
         href={`/boka/${slug}?lang=sv${serviceQuery}`}
         className={locale === "sv" ? styles.languageActive : styles.languageLink}
