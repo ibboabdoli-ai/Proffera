@@ -2171,9 +2171,10 @@ export function createWorkerReservationAuthority(io) {
     closeRapidPublishedRetargetReturnPr(input) {
       io.assertOwner();
       const prNumber = Number(input.pr_number);
-      const priorBase = String(input.prior_base_ref ?? "");
+      const priorBase = assertPlainString(String(input.prior_base_ref ?? ""), "prior retarget base", 120);
       if (!Number.isSafeInteger(prNumber) || prNumber <= 0 || !SHA_RE.test(input.event_head ?? "")
-        || !BRANCH_RE.test(priorBase) || priorBase === "main") {
+        || !PATH_RE.test(priorBase) || priorBase === "main"
+        || priorBase.startsWith("/") || priorBase.endsWith("/") || priorBase.includes("//") || priorBase.includes("..")) {
         throw new Error("rapid published retarget-return identity is malformed");
       }
       const pr = readPr(prNumber);
