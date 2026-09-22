@@ -3289,6 +3289,90 @@ esac
     expect(String(readmitted.comments.find((comment) => comment.id === 103)?.body ?? "")).toContain("- State: `WORKER_PR_OPENED`");
   });
 
+  it("releases a retargeted published slot after a concurrent head update without trusting the new head", () => {
+    const evidence = exactReservationEvidence(sha, {
+      state: "PUBLISHED",
+      pr_number: 849,
+      recovery: null,
+    });
+    const concurrentHead = otherSha;
+    const retargeted = runReservationEnforcement({
+      body: evidence.body,
+      comments: [
+        ...evidence.comments,
+        { id: 103, user: { login: "github-actions[bot]" }, body: durableStateBody("CHECKS_PENDING", sha) },
+      ],
+      eventAction: "synchronize",
+      eventHead: concurrentHead,
+      liveHead: concurrentHead,
+      liveBase: "release/other",
+    });
+    expect(retargeted.status, retargeted.stderr).toBe(0);
+    expect(retargeted.stdout).toContain("was retargeted away from main");
+    expect(retargeted.pr).toMatchObject({
+      state: "open",
+      base: { ref: "release/other" },
+      head: { sha: concurrentHead },
+    });
+    expect(prPatchCalls(retargeted.calls)).toHaveLength(0);
+    expect(commentPatchCalls(retargeted.calls, 101)).toHaveLength(1);
+    expect(commentPatchCalls(retargeted.calls, 103)).toHaveLength(1);
+
+    const released = retargeted.comments.find((comment) => comment.id === 101);
+    const releasedB64 = String(released?.body ?? "").match(/^- Reservation payload: `([^`]*)`$/m)?.[1] ?? "";
+    expect(JSON.parse(Buffer.from(releasedB64, "base64").toString("utf8"))).toMatchObject({
+      state: "RELEASED",
+      pr_number: 849,
+      head_sha: sha,
+      recovery: {
+        kind: "retargeted_pr",
+        base_ref: "release/other",
+        reservation_head_sha: sha,
+        observed_head_sha: concurrentHead,
+      },
+    });
+    const blockedBody = String(retargeted.comments.find((comment) => comment.id === 103)?.body ?? "");
+    expect(blockedBody).toContain("- State: `WORKER_BLOCKED`");
+    expect(blockedBody).toContain(`- Head: \`${sha}\``);
+    expect(blockedBody).not.toContain(`- Head: \`${concurrentHead}\``);
+
+    const existing = {
+      version: 1,
+      state: "RESERVED",
+      task_id: "SUP-OTHER-SLOT-1",
+      run_id: "7001",
+      branch: "work/proffera-other-slot",
+      head_sha: otherSha,
+      graph_path: "feature/other-slot",
+      packet_digest: "c".repeat(64),
+      lease_expires_at: "2099-01-01T00:00:00Z",
+      allowed_paths: ["src/features/other-slot/"],
+      changed_files: [],
+      snapshot_finalized: false,
+      pr_number: null,
+      recovery: null,
+    };
+    const freedCapacity = runSlotReservation({ reservation: existing, extraComments: retargeted.comments });
+    expect(freedCapacity.status, freedCapacity.stderr).toBe(0);
+    expect(freedCapacity.comments.some((comment) => comment.id === 999)).toBe(true);
+
+    const mainAtConcurrentHead = runReservationEnforcement({
+      body: evidence.body,
+      comments: retargeted.comments,
+      eventAction: "edited",
+      eventHead: concurrentHead,
+      liveHead: concurrentHead,
+      liveBase: "main",
+    });
+    expect(mainAtConcurrentHead.status, mainAtConcurrentHead.stderr).toBe(0);
+    expect(mainAtConcurrentHead.stdout).toContain("has no exact trusted Supervisor dispatch provenance; leaving it unchanged");
+    expect(prPatchCalls(mainAtConcurrentHead.calls)).toHaveLength(0);
+    expect(commentPatchCalls(mainAtConcurrentHead.calls, 101)).toHaveLength(0);
+    expect(commentPatchCalls(mainAtConcurrentHead.calls, 103)).toHaveLength(0);
+    expect(String(mainAtConcurrentHead.comments.find((comment) => comment.id === 101)?.body ?? "")).toContain("- State: `RELEASED`");
+    expect(String(mainAtConcurrentHead.comments.find((comment) => comment.id === 103)?.body ?? "")).toContain("- State: `WORKER_BLOCKED`");
+  });
+
   it("closes a malformed trusted Worker PR and releases its exact published reservation on the closed event", () => {
     const evidence = exactReservationEvidence(sha, {
       state: "PUBLISHED",

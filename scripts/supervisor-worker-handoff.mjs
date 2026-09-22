@@ -1843,7 +1843,9 @@ function reservationRecords(comments) {
     }
     if (payload.state === "RELEASED" && payload.recovery?.kind === "retargeted_pr"
       && (payload.pr_number == null || typeof payload.recovery.base_ref !== "string" || !payload.recovery.base_ref
-        || payload.recovery.base_ref === "main" || payload.recovery.reservation_head_sha !== payload.head_sha)) {
+        || payload.recovery.base_ref === "main" || payload.recovery.reservation_head_sha !== payload.head_sha
+        || (payload.recovery.observed_head_sha != null
+          && (typeof payload.recovery.observed_head_sha !== "string" || !SHA_RE.test(payload.recovery.observed_head_sha))))) {
       throw new Error("retargeted release provenance is malformed");
     }
     if (payload.activation_task_sha256 != null && (typeof payload.activation_task_sha256 !== "string" || !SHA256_RE.test(payload.activation_task_sha256))) {
@@ -2183,14 +2185,15 @@ export function createWorkerReservationAuthority(io) {
       assertWorkerTask(task, packet, payload, prNumber);
       const dispatchMarker = `<!-- proffera-worker-dispatch-start:${packet.task_id}:${payload.run_id} -->`;
       const dispatch = trustedRecord(observed.comments, dispatchMarker);
-      if (payload.pr_number !== prNumber || payload.head_sha !== pr.head.sha) {
+      const trustedPublishedHead = payload.head_sha;
+      if (payload.pr_number !== prNumber) {
         throw new Error("retargeted Worker PR does not match the published reservation binding");
       }
       const releasedForRetarget = payload.state === "RELEASED"
         && payload.recovery?.kind === "retargeted_pr"
         && typeof payload.recovery?.base_ref === "string"
         && payload.recovery.base_ref !== "main"
-        && payload.recovery?.reservation_head_sha === pr.head.sha;
+        && payload.recovery?.reservation_head_sha === trustedPublishedHead;
       if (payload.state !== "PUBLISHED" && !releasedForRetarget) {
         throw new Error("retargeted Worker PR reservation is not publish-bound or provenance-preservingly released");
       }
@@ -2201,11 +2204,20 @@ export function createWorkerReservationAuthority(io) {
       const bounded = validateChangedFiles(packet, candidate[0].files);
       if (!bounded.ok) throw new Error(bounded.reason);
 
-      const reason = `Exact Worker PR #${prNumber} was retargeted away from main to '${pr.base.ref}'. Its writable slot is released, but the same task is not redispatchable while that PR/branch remains; retarget this same unchanged PR back to main for exact-provenance re-admission.`;
+      const headChangedAfterPublication = trustedPublishedHead !== pr.head.sha;
+      const reason = headChangedAfterPublication
+        ? `Exact Worker PR #${prNumber} was retargeted away from main to '${pr.base.ref}' after trusted published head ${trustedPublishedHead}; observed off-main head ${pr.head.sha} is not trusted or eligible for automatic re-admission. The writable slot is released while preserving the trusted published provenance.`
+        : `Exact Worker PR #${prNumber} was retargeted away from main to '${pr.base.ref}'. Its writable slot is released, but the same task is not redispatchable while that PR/branch remains; retarget this same unchanged PR back to main for exact-provenance re-admission.`;
       const nextTaskBody = taskStateBody({ packet, state: "WORKER_BLOCKED", reason, run_id: payload.run_id,
-        pr_number: prNumber, head_sha: pr.head.sha });
-      const nextPayload = { ...payload, state: "RELEASED", pr_number: prNumber, head_sha: pr.head.sha,
-        recovery: { kind: "retargeted_pr", base_ref: pr.base.ref, reservation_head_sha: pr.head.sha } };
+        pr_number: prNumber, head_sha: trustedPublishedHead });
+      const nextRecovery = {
+        kind: "retargeted_pr",
+        base_ref: pr.base.ref,
+        reservation_head_sha: trustedPublishedHead,
+        ...(headChangedAfterPublication ? { observed_head_sha: pr.head.sha } : {}),
+      };
+      const nextPayload = { ...payload, state: "RELEASED", pr_number: prNumber, head_sha: trustedPublishedHead,
+        recovery: nextRecovery };
       const nextReservationBody = reservationBody(nextPayload);
       if (!equal(pr, readPr(prNumber)) || !equal(observed, snapshot())) {
         throw new Error("retargeted Worker PR or reservation evidence changed before reconciliation");
@@ -2240,7 +2252,7 @@ export function createWorkerReservationAuthority(io) {
       }
       io.assertOwner();
       return { ok: true, reservation_comment_id: own.id, task_id: packet.task_id, task_run_id: payload.run_id,
-        pr_number: prNumber, head_sha: pr.head.sha, base_ref: pr.base.ref, released: true };
+        pr_number: prNumber, head_sha: trustedPublishedHead, observed_head_sha: pr.head.sha, base_ref: pr.base.ref, released: true };
     },
     admitPr(input) {
       io.assertOwner();
