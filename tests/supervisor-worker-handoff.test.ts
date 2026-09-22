@@ -3320,6 +3320,105 @@ esac
   });
 
   it.each([
+    { observation: "missing", staleObservedHead: null },
+    { observation: "stale", staleObservedHead: "c".repeat(40) },
+  ])("closes a changed released retarget return with $observation observed-head evidence", ({ staleObservedHead }) => {
+    const evidence = exactReservationEvidence(sha, {
+      state: "PUBLISHED",
+      pr_number: 849,
+      recovery: null,
+    });
+
+    // Delayed event ordering: release happens while the PR is still at trusted HEAD A,
+    // then HEAD B lands and the PR returns to main before an off-main synchronize run
+    // can durably record B.
+    const releasedAtTrustedHead = runReservationEnforcement({
+      body: evidence.body,
+      comments: [
+        ...evidence.comments,
+        { id: 103, user: { login: "github-actions[bot]" }, body: durableStateBody("CHECKS_PENDING", sha) },
+      ],
+      eventAction: "edited",
+      liveHead: sha,
+      liveBase: "release/other",
+    });
+    expect(releasedAtTrustedHead.status, releasedAtTrustedHead.stderr).toBe(0);
+    expect(releasedAtTrustedHead.pr).toMatchObject({ state: "open", base: { ref: "release/other" }, head: { sha } });
+
+    const reservationIndex = releasedAtTrustedHead.comments.findIndex((comment) => comment.id === 101);
+    const releasedBody = String(releasedAtTrustedHead.comments[reservationIndex]?.body ?? "");
+    const releasedB64 = releasedBody.match(/^- Reservation payload: `([^`]*)`$/m)?.[1] ?? "";
+    const releasedPayload = JSON.parse(Buffer.from(releasedB64, "base64").toString("utf8"));
+    expect(releasedPayload).toMatchObject({
+      state: "RELEASED",
+      pr_number: 849,
+      head_sha: sha,
+      recovery: { kind: "retargeted_pr", base_ref: "release/other", reservation_head_sha: sha },
+    });
+    expect(releasedPayload.recovery.observed_head_sha).toBeUndefined();
+
+    if (staleObservedHead) {
+      releasedPayload.recovery.observed_head_sha = staleObservedHead;
+      releasedAtTrustedHead.comments[reservationIndex] = reservationComment(releasedPayload, 101);
+    }
+
+    const currentHead = otherSha;
+    const returnedToMain = runReservationEnforcement({
+      body: evidence.body,
+      comments: releasedAtTrustedHead.comments,
+      eventAction: "edited",
+      eventHead: currentHead,
+      liveHead: currentHead,
+      liveBase: "main",
+    });
+    expect(returnedToMain.status, returnedToMain.stderr).toBe(0);
+    expect(returnedToMain.stdout).toContain("Closed changed-head released Worker PR #849 fail-closed");
+    expect(returnedToMain.pr).toMatchObject({
+      state: "closed",
+      merged: false,
+      base: { ref: "main" },
+      head: { sha: currentHead },
+    });
+    expect(prPatchCalls(returnedToMain.calls)).toHaveLength(1);
+    expect(commentPatchCalls(returnedToMain.calls, 101)).toHaveLength(0);
+    expect(commentPatchCalls(returnedToMain.calls, 103)).toHaveLength(0);
+
+    const finalReservationBody = String(returnedToMain.comments.find((comment) => comment.id === 101)?.body ?? "");
+    const finalReservationB64 = finalReservationBody.match(/^- Reservation payload: `([^`]*)`$/m)?.[1] ?? "";
+    const finalPayload = JSON.parse(Buffer.from(finalReservationB64, "base64").toString("utf8"));
+    expect(finalPayload).toMatchObject({
+      state: "RELEASED",
+      pr_number: 849,
+      head_sha: sha,
+      recovery: { kind: "retargeted_pr", base_ref: "release/other", reservation_head_sha: sha },
+    });
+    if (staleObservedHead) expect(finalPayload.recovery.observed_head_sha).toBe(staleObservedHead);
+    else expect(finalPayload.recovery.observed_head_sha).toBeUndefined();
+
+    const finalTaskBody = String(returnedToMain.comments.find((comment) => comment.id === 103)?.body ?? "");
+    expect(finalTaskBody).toContain("- State: `WORKER_BLOCKED`");
+    expect(finalTaskBody).toContain(`- Head: \`${sha}\``);
+    expect(finalTaskBody).not.toContain(`- Head: \`${currentHead}\``);
+
+    const replay = runReservationEnforcement({
+      body: evidence.body,
+      comments: returnedToMain.comments,
+      eventAction: "closed",
+      eventHead: currentHead,
+      liveHead: currentHead,
+      liveBase: "main",
+      liveState: "closed",
+    });
+    expect(replay.status, replay.stderr).toBe(0);
+    expect(replay.stdout).toContain("close replay is already converged");
+    expect(prPatchCalls(replay.calls)).toHaveLength(0);
+    expect(commentPatchCalls(replay.calls, 101)).toHaveLength(0);
+    expect(commentPatchCalls(replay.calls, 103)).toHaveLength(0);
+    expect(String(replay.comments.find((comment) => comment.id === 101)?.body ?? "")).toBe(finalReservationBody);
+    expect(String(replay.comments.find((comment) => comment.id === 103)?.body ?? "")).toBe(finalTaskBody);
+  });
+
+  it.each([
     { currentFiles: [], caseName: "an empty current diff" },
     { currentFiles: [".github/workflows/untrusted.yml"], caseName: "a hard-blocked current path" },
   ])("releases a retargeted published slot after a concurrent head update with $caseName", ({ currentFiles }) => {

@@ -142,7 +142,7 @@ jobs:
                 && [ "$recovery_kind" = "retargeted_pr" ] \
                 && [ -n "$recovery_base" ] && [ "$recovery_base" != "main" ] \
                 && [ "$recovery_reservation_head" = "$reserved_head" ] \
-                && [ "$recovery_observed_head" = "$live_head" ] \
+                && { [ -z "$recovery_observed_head" ] || [ "$recovery_observed_head" != "$reserved_head" ]; } \
                 && [ "$reserved_head" != "$live_head" ]; then
                 changed_retarget_return=true
               fi

@@ -2195,7 +2195,7 @@ export function createWorkerReservationAuthority(io) {
         || recovery?.kind !== "retargeted_pr"
         || typeof recovery.base_ref !== "string" || !recovery.base_ref || recovery.base_ref === "main"
         || recovery.reservation_head_sha !== trustedHead
-        || recovery.observed_head_sha !== pr.head.sha
+        || pr.head.sha === trustedHead
         || recovery.observed_head_sha === trustedHead) {
         throw new Error("changed released retarget PR lacks exact historical retarget provenance");
       }
