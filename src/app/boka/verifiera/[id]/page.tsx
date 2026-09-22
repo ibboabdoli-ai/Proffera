@@ -89,7 +89,7 @@ async function verify(formData: FormData) {
   const experience = await getVerificationExperience(id);
   const locale = resolvePublicBusinessLocale(experience, String(formData.get("lang") ?? ""));
   const channel = String(formData.get("channel") ?? "");
-  const result = await verifyPublicBookingCode(id, code);
+  const result = await verifyPublicBookingCode(id, code, locale);
   if (!result.ok) redirect(`/boka/verifiera/${id}?error=${result.error}&lang=${locale}${channelSuffix(channel)}`);
   redirect(publicBookingSuccessRedirect(result.slug, locale));
 }
