@@ -380,8 +380,8 @@ function basePr(overrides: Record<string, unknown> = {}) {
 }
 
 type PreMergeAuthorizationFixture = {
-  finalEvents?: Array<Record<string, unknown>>;
-  finalComments?: Array<Record<string, unknown>>;
+  finalEventPages?: [Array<Record<string, unknown>>, Array<Record<string, unknown>>];
+  finalCommentPages?: [Array<Record<string, unknown>>, Array<Record<string, unknown>>];
 };
 
 function runPreMergeAuthorizationFixture(fixture: PreMergeAuthorizationFixture) {
@@ -432,7 +432,10 @@ if [ "$1" = "api" ] && [[ "$args" == *"/issues/"*"/events"* ]]; then
   if [ "$count" -eq 1 ]; then
     printf '%s\\n' "$FAKE_INITIAL_EVENTS_NDJSON"
   else
-    printf '%s\\n' "$FAKE_FINAL_EVENTS_NDJSON"
+    printf '%s\\n' "$FAKE_FINAL_EVENTS_PAGE1_NDJSON"
+    if [[ "$args" == *"--paginate"* ]] && [ -n "$FAKE_FINAL_EVENTS_PAGE2_NDJSON" ]; then
+      printf '%s\\n' "$FAKE_FINAL_EVENTS_PAGE2_NDJSON"
+    fi
   fi
   exit 0
 fi
@@ -445,7 +448,10 @@ if [ "$1" = "api" ] && [[ "$args" == *"/issues/"*"/comments"* ]]; then
   if [ "$count" -eq 1 ]; then
     printf '%s\\n' "$FAKE_INITIAL_COMMENTS_NDJSON"
   else
-    printf '%s\\n' "$FAKE_FINAL_COMMENTS_NDJSON"
+    printf '%s\\n' "$FAKE_FINAL_COMMENTS_PAGE1_NDJSON"
+    if [[ "$args" == *"--paginate"* ]] && [ -n "$FAKE_FINAL_COMMENTS_PAGE2_NDJSON" ]; then
+      printf '%s\\n' "$FAKE_FINAL_COMMENTS_PAGE2_NDJSON"
+    fi
   fi
   exit 0
 fi
@@ -480,8 +486,8 @@ printf 'PRE_MERGE_OK\\n'
     ...authorization,
     expires_at: "2099-09-30T23:59:59Z",
   };
-  const finalEvents = fixture.finalEvents ?? [initialEvent];
-  const finalComments = fixture.finalComments ?? [initialComment];
+  const finalEventPages = fixture.finalEventPages ?? [[initialEvent], []];
+  const finalCommentPages = fixture.finalCommentPages ?? [[initialComment], []];
   const result = spawnSync("bash", [script], {
     encoding: "utf8",
     env: {
@@ -493,9 +499,11 @@ printf 'PRE_MERGE_OK\\n'
       FAKE_CHANGED_FILES: "src/app/page.tsx\nsrc/lib/utils.ts",
       FAKE_COMMIT_JSON: JSON.stringify({ commit: { message: "Regular commit message" } }),
       FAKE_INITIAL_EVENTS_NDJSON: JSON.stringify(initialEvent),
-      FAKE_FINAL_EVENTS_NDJSON: finalEvents.map((item) => JSON.stringify(item)).join("\n"),
+      FAKE_FINAL_EVENTS_PAGE1_NDJSON: finalEventPages[0].map((item) => JSON.stringify(item)).join("\n"),
+      FAKE_FINAL_EVENTS_PAGE2_NDJSON: finalEventPages[1].map((item) => JSON.stringify(item)).join("\n"),
       FAKE_INITIAL_COMMENTS_NDJSON: JSON.stringify(initialComment),
-      FAKE_FINAL_COMMENTS_NDJSON: finalComments.map((item) => JSON.stringify(item)).join("\n"),
+      FAKE_FINAL_COMMENTS_PAGE1_NDJSON: finalCommentPages[0].map((item) => JSON.stringify(item)).join("\n"),
+      FAKE_FINAL_COMMENTS_PAGE2_NDJSON: finalCommentPages[1].map((item) => JSON.stringify(item)).join("\n"),
     },
   });
 
@@ -726,23 +734,23 @@ describe("Proffera standing automerge authorization", () => {
     expect(fixture.output).not.toContain("REFUSED:");
   });
 
-  it("revalidates label provenance immediately before merge", () => {
+  it("revalidates label provenance from a later event page immediately before merge", () => {
     const fixture = runPreMergeAuthorizationFixture({
-      finalEvents: [
-        {
+      finalEventPages: [
+        [{
           id: 1,
           event: "labeled",
           created_at: "2099-09-05T12:00:00Z",
           label: { name: "ibbo-approved" },
           actor: { login: "ibboabdoli-ai" },
-        },
-        {
+        }],
+        [{
           id: 2,
           event: "labeled",
           created_at: "2099-09-05T12:01:00Z",
           label: { name: "ibbo-approved" },
           actor: { login: "other-user" },
-        },
+        }],
       ],
     });
     expect(fixture.output).toContain("INITIAL_AUTH_OK:fresh-exact-head-owner");
@@ -750,13 +758,33 @@ describe("Proffera standing automerge authorization", () => {
     expect(fixture.output).not.toContain("PRE_MERGE_OK");
   });
 
+  it("finds the canonical final owner approval comment on a later comment page", () => {
+    const fixture = runPreMergeAuthorizationFixture({
+      finalCommentPages: [
+        [{
+          id: 9,
+          user: { login: "other-user" },
+          body: "not approval evidence",
+        }],
+        [{
+          id: 10,
+          user: { login: "ibboabdoli-ai" },
+          body: `<!-- proffera-owner-approval:${"4444444444444444444444444444444444444444"} -->\nIBBO-APPROVED: 4444444444444444444444444444444444444444`,
+        }],
+      ],
+    });
+    expect(fixture.output).toContain("INITIAL_AUTH_OK:fresh-exact-head-owner");
+    expect(fixture.output).toContain("PRE_MERGE_OK");
+    expect(fixture.output).not.toContain("REFUSED:");
+  });
+
   it("revalidates the canonical owner approval comment immediately before merge", () => {
     const fixture = runPreMergeAuthorizationFixture({
-      finalComments: [{
+      finalCommentPages: [[{
         id: 10,
         user: { login: "ibboabdoli-ai" },
         body: `<!-- proffera-owner-approval:${"4444444444444444444444444444444444444444"} -->\nIBBO-APPROVED: 4444444444444444444444444444444444444444\nextra text`,
-      }],
+      }], []],
     });
     expect(fixture.output).toContain("INITIAL_AUTH_OK:fresh-exact-head-owner");
     expect(fixture.output).toContain("REFUSED:Refused: fresh exact-head owner authorization was removed, edited, or otherwise invalid before merge.");
