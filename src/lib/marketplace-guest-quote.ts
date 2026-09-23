@@ -678,7 +678,29 @@ export async function sendMarketplaceGuestQuoteInvitation(input: {
       limit 1
     `;
     if (!Boolean(stateRows[0]?.has_current_authority)) {
-      await sql`
+      await sql.transaction((txn) => [
+        txn`
+          select profile.id
+          from marketplace_quote_invitations invitation
+          join company_directory_profiles profile on profile.id = invitation.profile_id
+          where invitation.id = ${invitationId}::uuid
+          for update of profile
+        `,
+        txn`
+          select facts.profile_id
+          from marketplace_quote_invitations invitation
+          join company_directory_official_facts facts on facts.profile_id = invitation.profile_id
+          where invitation.id = ${invitationId}::uuid
+          for update of facts
+        `,
+        txn`
+          select scb.profile_id
+          from marketplace_quote_invitations invitation
+          join company_directory_scb_enrichment scb on scb.profile_id = invitation.profile_id
+          where invitation.id = ${invitationId}::uuid
+          for update of scb
+        `,
+        txn`
         update marketplace_quote_invitations invitation
         set status = 'cancelled',
             token_hash = encode(digest(invitation.id::text || ':' || gen_random_uuid()::text, 'sha256'), 'hex'),
@@ -724,7 +746,8 @@ export async function sendMarketplaceGuestQuoteInvitation(input: {
               or lower(btrim(authority_scb.workplaces->0->>'municipality')) = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
             )
         )
-      `;
+        `,
+      ]);
       return { ok: false as const, code: "profile_ineligible" };
     }
     return {
@@ -931,7 +954,29 @@ async function loadGuestQuoteView(
   if (!useOptOutToken
       && AUTHORITY_GUARDED_INVITATION_STATUSES.has(String(row.status))
       && !Boolean(row.has_current_authority)) {
-    await sql`
+    await sql.transaction((txn) => [
+      txn`
+        select profile.id
+        from marketplace_quote_invitations invitation
+        join company_directory_profiles profile on profile.id = invitation.profile_id
+        where invitation.id = ${String(row.invitation_id)}::uuid
+        for update of profile
+      `,
+      txn`
+        select facts.profile_id
+        from marketplace_quote_invitations invitation
+        join company_directory_official_facts facts on facts.profile_id = invitation.profile_id
+        where invitation.id = ${String(row.invitation_id)}::uuid
+        for update of facts
+      `,
+      txn`
+        select scb.profile_id
+        from marketplace_quote_invitations invitation
+        join company_directory_scb_enrichment scb on scb.profile_id = invitation.profile_id
+        where invitation.id = ${String(row.invitation_id)}::uuid
+        for update of scb
+      `,
+      txn`
       update marketplace_quote_invitations invitation
       set status = 'cancelled',
             token_hash = encode(digest(invitation.id::text || ':' || gen_random_uuid()::text, 'sha256'), 'hex'),
@@ -977,7 +1022,8 @@ async function loadGuestQuoteView(
               or lower(btrim(authority_scb.workplaces->0->>'municipality')) = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
             )
         )
-    `;
+      `,
+    ]);
     return null;
   }
 
@@ -1094,7 +1140,29 @@ export async function submitMarketplaceGuestQuote(input: {
     return { ok: false as const, code: "closed" };
   }
   if (AUTHORITY_GUARDED_INVITATION_STATUSES.has(String(row.status)) && !Boolean(row.has_current_authority)) {
-    await sql`
+    await sql.transaction((txn) => [
+      txn`
+        select profile.id
+        from marketplace_quote_invitations invitation
+        join company_directory_profiles profile on profile.id = invitation.profile_id
+        where invitation.id = ${String(row.invitation_id)}::uuid
+        for update of profile
+      `,
+      txn`
+        select facts.profile_id
+        from marketplace_quote_invitations invitation
+        join company_directory_official_facts facts on facts.profile_id = invitation.profile_id
+        where invitation.id = ${String(row.invitation_id)}::uuid
+        for update of facts
+      `,
+      txn`
+        select scb.profile_id
+        from marketplace_quote_invitations invitation
+        join company_directory_scb_enrichment scb on scb.profile_id = invitation.profile_id
+        where invitation.id = ${String(row.invitation_id)}::uuid
+        for update of scb
+      `,
+      txn`
       update marketplace_quote_invitations invitation
       set status = 'cancelled',
             token_hash = encode(digest(invitation.id::text || ':' || gen_random_uuid()::text, 'sha256'), 'hex'),
@@ -1140,7 +1208,8 @@ export async function submitMarketplaceGuestQuote(input: {
               or lower(btrim(authority_scb.workplaces->0->>'municipality')) = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
             )
         )
-    `;
+      `,
+    ]);
     return { ok: false as const, code: "closed" };
   }
   const expiresAt = new Date(String(row.expires_at));
@@ -1165,7 +1234,11 @@ export async function submitMarketplaceGuestQuote(input: {
 
   let inserted;
   try {
-    inserted = await sql`
+    const [, , , submitted] = await sql.transaction((txn) => [
+      txn`select id from company_directory_profiles where id = ${String(row.profile_id)}::uuid for update`,
+      txn`select profile_id from company_directory_official_facts where profile_id = ${String(row.profile_id)}::uuid for update`,
+      txn`select profile_id from company_directory_scb_enrichment where profile_id = ${String(row.profile_id)}::uuid for update`,
+      txn`
       with authority_guard as materialized (
         select 1
         from company_directory_profiles authority_profile
@@ -1236,7 +1309,9 @@ export async function submitMarketplaceGuestQuote(input: {
       select null::text as id, exists(select 1 from authority_guard) as authority_current
       where not exists(select 1 from submitted_offer)
       limit 1
-    `;
+      `,
+    ]);
+    inserted = submitted;
   } catch (error) {
     const details = databaseErrorDetails(error);
     if (

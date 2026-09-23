@@ -110,7 +110,29 @@ export async function getMarketplaceGuestQuoteView(token: string): Promise<Marke
 
   if (AUTHORITY_GUARDED_INVITATION_STATUSES.has(String(row.status))
       && !Boolean(row.has_current_authority)) {
-    await sql`
+    await sql.transaction((txn) => [
+      txn`
+        select profile.id
+        from marketplace_quote_invitations invitation
+        join company_directory_profiles profile on profile.id = invitation.profile_id
+        where invitation.id = ${String(row.invitation_id)}::uuid
+        for update of profile
+      `,
+      txn`
+        select facts.profile_id
+        from marketplace_quote_invitations invitation
+        join company_directory_official_facts facts on facts.profile_id = invitation.profile_id
+        where invitation.id = ${String(row.invitation_id)}::uuid
+        for update of facts
+      `,
+      txn`
+        select scb.profile_id
+        from marketplace_quote_invitations invitation
+        join company_directory_scb_enrichment scb on scb.profile_id = invitation.profile_id
+        where invitation.id = ${String(row.invitation_id)}::uuid
+        for update of scb
+      `,
+      txn`
       update marketplace_quote_invitations invitation
       set status = 'cancelled',
             token_hash = encode(digest(invitation.id::text || ':' || gen_random_uuid()::text, 'sha256'), 'hex'),
@@ -156,7 +178,8 @@ export async function getMarketplaceGuestQuoteView(token: string): Promise<Marke
               or lower(btrim(authority_scb.workplaces->0->>'municipality')) = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
             )
         )
-    `;
+      `,
+    ]);
     return null;
   }
 

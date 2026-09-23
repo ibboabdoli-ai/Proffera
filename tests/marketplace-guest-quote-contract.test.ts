@@ -63,7 +63,13 @@ function invitationInput() {
 
 function sqlResponses(...responses: unknown[][]) {
   let index = 0;
-  return vi.fn(async () => responses[index++] ?? []);
+  const sql = vi.fn(async () => responses[index++] ?? []) as ReturnType<typeof vi.fn> & {
+    transaction: ReturnType<typeof vi.fn>;
+  };
+  sql.transaction = vi.fn(async (callback: (txn: typeof sql) => Promise<unknown[]>[]) => (
+    Promise.all(callback(sql))
+  ));
+  return sql;
 }
 
 function queryText(call: unknown[] | undefined) {
@@ -380,6 +386,9 @@ describe("marketplace guest quote safety contract", () => {
         has_current_authority: false,
       }],
       [],
+      [],
+      [],
+      [],
     );
     mocks.getSql.mockReturnValue(sql);
 
@@ -392,8 +401,12 @@ describe("marketplace guest quote safety contract", () => {
     });
 
     expect(result).toEqual({ ok: false, code: "closed" });
-    expect(sql).toHaveBeenCalledTimes(2);
-    const revoke = queryText(sql.mock.calls[1]);
+    expect(sql.transaction).toHaveBeenCalledTimes(1);
+    expect(sql).toHaveBeenCalledTimes(5);
+    expect(queryText(sql.mock.calls[1])).toContain("for update of profile");
+    expect(queryText(sql.mock.calls[2])).toContain("for update of facts");
+    expect(queryText(sql.mock.calls[3])).toContain("for update of scb");
+    const revoke = queryText(sql.mock.calls[4]);
     expect(revoke).toContain("set status = 'cancelled'");
     expect(revoke).toContain("token_hash = encode(digest");
     expect(revoke).toContain("and not exists");
@@ -412,6 +425,9 @@ describe("marketplace guest quote safety contract", () => {
         quote_status: "submitted",
         has_current_authority: true,
       }],
+      [],
+      [],
+      [],
       [{ id: "55555555-5555-4555-8555-555555555555", authority_current: true }],
     );
     mocks.getSql.mockReturnValue(sql);
@@ -425,7 +441,11 @@ describe("marketplace guest quote safety contract", () => {
     });
 
     expect(result).toEqual({ ok: true, offerId: "55555555-5555-4555-8555-555555555555" });
-    const insert = queryText(sql.mock.calls[1]);
+    expect(sql.transaction).toHaveBeenCalledTimes(1);
+    expect(queryText(sql.mock.calls[1])).toContain("for update");
+    expect(queryText(sql.mock.calls[2])).toContain("for update");
+    expect(queryText(sql.mock.calls[3])).toContain("for update");
+    const insert = queryText(sql.mock.calls[4]);
     expect(insert).toContain("authority_guard as materialized");
     expect(insert).toContain("authority_scb.last_synced_at >= now() - interval '7 days'");
     expect(insert).toContain("from authority_guard");
@@ -443,6 +463,9 @@ describe("marketplace guest quote safety contract", () => {
         quote_status: "submitted",
         has_current_authority: true,
       }],
+      [],
+      [],
+      [],
       [{ id: null, authority_current: false }],
     );
     mocks.getSql.mockReturnValue(sql);

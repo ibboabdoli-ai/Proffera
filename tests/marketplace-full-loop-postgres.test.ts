@@ -39,6 +39,7 @@ import {
 } from "@/lib/marketplace-customer-comparison";
 import {
   getMarketplaceGuestQuoteView,
+  hashMarketplaceGuestToken,
   submitMarketplaceGuestQuote,
 } from "@/lib/marketplace-guest-quote";
 import { processMarketplaceAutoWorker } from "@/lib/marketplace-auto-worker";
@@ -161,6 +162,40 @@ if (RUN_POSTGRES_INTEGRATION) {
         }
       }
       throw lastError ?? new Error("PostgreSQL test container did not become ready");
+    }
+
+    async function insertAuthorityRaceInvitation(token: string, suffix: string) {
+      const quote = await client.query<{ id: string }>(`
+        insert into quote_requests (
+          category, service_type, city, postal_code, description,
+          preferred_date, contact_name, contact_email, contact_phone,
+          consent_accepted, status, reference_id
+        ) values (
+          'vvs', 'R?rmokare', 'S?dert?lje', '15100', 'Authority race regression',
+          '2030-01-15', 'Race Customer', 'race.customer@example.test', '0700000000',
+          true, 'submitted', $1
+        )
+        returning id::text
+      `, [`PF-RACE-${suffix}`]);
+      const quoteRequestId = String(quote.rows[0]?.id ?? "");
+      const tokenHash = hashMarketplaceGuestToken(token);
+      const invitation = await client.query<{ id: string }>(`
+        insert into marketplace_quote_invitations (
+          quote_request_id, profile_id, recipient_email, token_hash, status,
+          wave, match_score, match_reasons, contact_basis, expires_at,
+          created_by_admin_user_id
+        ) values (
+          $1::uuid, $2::uuid, $3, $4, 'sent',
+          1, 90, '[]'::jsonb, 'official_business_register', now() + interval '1 day',
+          'authority-race-test'
+        )
+        returning id::text
+      `, [quoteRequestId, profileId, `offers+${suffix}@integration-firm.se`, tokenHash]);
+      return {
+        quoteRequestId,
+        invitationId: String(invitation.rows[0]?.id ?? ""),
+        tokenHash,
+      };
     }
 
     beforeAll(async () => {
@@ -529,6 +564,84 @@ if (RUN_POSTGRES_INTEGRATION) {
         review_invitation_status: "used",
       });
     }, 60_000);
+
+    it("serializes an authority refresh before stale invitation cancellation", async () => {
+      const token = "r".repeat(40);
+      const { invitationId, tokenHash } = await insertAuthorityRaceInvitation(token, "refresh");
+      await client.query(
+        "update company_directory_official_facts set advertising_blocked = true where profile_id = $1",
+        [profileId],
+      );
+
+      const refresher = new Client({ connectionString });
+      await refresher.connect();
+      try {
+        await refresher.query("begin");
+        await refresher.query(
+          "update company_directory_official_facts set advertising_blocked = false where profile_id = $1",
+          [profileId],
+        );
+
+        const viewPromise = getMarketplaceGuestQuoteView(token);
+        const waiting = await Promise.race([
+          viewPromise.then(() => "settled" as const),
+          delay(200).then(() => "blocked" as const),
+        ]);
+        expect(waiting).toBe("blocked");
+
+        await refresher.query("commit");
+        await expect(viewPromise).resolves.toBeNull();
+
+        const state = await client.query<{ status: string; token_hash: string }>(
+          "select status, token_hash from marketplace_quote_invitations where id = $1",
+          [invitationId],
+        );
+        expect(state.rows[0]).toMatchObject({ status: "sent", token_hash: tokenHash });
+      } finally {
+        await refresher.query("rollback").catch(() => undefined);
+        await refresher.end();
+      }
+    }, 30_000);
+
+    it("serializes authority revocation before offer persistence", async () => {
+      const token = "v".repeat(40);
+      const { quoteRequestId } = await insertAuthorityRaceInvitation(token, "revoke");
+
+      const revoker = new Client({ connectionString });
+      await revoker.connect();
+      try {
+        await revoker.query("begin");
+        await revoker.query(
+          "update company_directory_official_facts set advertising_blocked = true where profile_id = $1",
+          [profileId],
+        );
+
+        const offerPromise = submitMarketplaceGuestQuote({
+          token,
+          priceKind: "fixed",
+          amountMinor: 125000,
+          availableDate: "2030-01-15",
+          companyNote: "Authority race regression",
+        });
+        const waiting = await Promise.race([
+          offerPromise.then(() => "settled" as const),
+          delay(200).then(() => "blocked" as const),
+        ]);
+        expect(waiting).toBe("blocked");
+
+        await revoker.query("commit");
+        await expect(offerPromise).resolves.toEqual({ ok: false, code: "closed" });
+
+        const persisted = await client.query<{ count: number }>(
+          "select count(*)::int as count from marketplace_quote_offers where quote_request_id = $1",
+          [quoteRequestId],
+        );
+        expect(persisted.rows[0]?.count).toBe(0);
+      } finally {
+        await revoker.query("rollback").catch(() => undefined);
+        await revoker.end();
+      }
+    }, 30_000);
   });
 } else {
   describe.skip("Marketplace full loop PostgreSQL proof", () => {
