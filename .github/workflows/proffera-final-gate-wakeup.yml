@@ -126,6 +126,17 @@ jobs:
               ;;
           esac
 
+          if [ "$EVENT_NAME" = "pull_request_review" ]; then
+            case "${EVENT_ACTOR:-}" in
+              "coderabbitai[bot]"|"chatgpt-codex-connector[bot]")
+                ;;
+              *)
+                echo "Untrusted pull-request review actor cannot wake the final gate."
+                exit 0
+                ;;
+            esac
+          fi
+
           if [ "$EVENT_NAME" = "issue_comment" ]; then
             case "${EVENT_ACTOR:-}" in
               "coderabbitai[bot]"|"chatgpt-codex-connector[bot]"|"$TRUSTED_CODEX_REQUESTER")

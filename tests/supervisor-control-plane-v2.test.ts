@@ -28,6 +28,145 @@ function workflowRunStep(workflow: string, stepName: string) {
   return script.join("\n");
 }
 
+function runPlannerCapacityStep(controlComments: Array<Record<string, unknown>>) {
+  const workflow = source(".github/workflows/supervisor-planner.yml");
+  const scriptBody = workflowRunStep(workflow, "Skip model call when writable capacity is already full");
+  const dir = mkdtempSync(join(tmpdir(), "proffera-planner-capacity-"));
+  const fakeGh = join(dir, "gh");
+  const script = join(dir, "capacity.sh");
+  const output = join(dir, "github-output.txt");
+
+  writeFileSync(fakeGh, `#!/usr/bin/env node
+const args = process.argv.slice(2);
+const endpoint = args.find((arg) => arg.startsWith("repos/")) || "";
+if (endpoint.includes("/issues/548/comments?per_page=100")) {
+  const comments = JSON.parse(process.env.FAKE_CONTROL_COMMENTS || "[]");
+  for (const comment of comments) process.stdout.write(JSON.stringify(comment) + "\\n");
+  process.exit(0);
+}
+process.stderr.write("unexpected gh call: " + JSON.stringify(args) + "\\n");
+process.exit(91);
+`, { mode: 0o755 });
+
+  writeFileSync(join(dir, "supervisor-context.json"), JSON.stringify({ open_prs: [] }));
+  writeFileSync(script, `#!/usr/bin/env bash
+set -euo pipefail
+gh() { node "${fakeGh.replaceAll("\\", "/")}" "$@"; }
+REPOSITORY=ibboabdoli-ai/Proffera
+GITHUB_OUTPUT="\${GITHUB_OUTPUT}"
+${scriptBody}
+`, { mode: 0o755 });
+
+  const result = spawnSync("bash", [script], {
+    cwd: dir,
+    encoding: "utf8",
+    env: {
+      ...process.env,
+      PATH: process.env.PATH ?? "",
+      FAKE_CONTROL_COMMENTS: JSON.stringify(controlComments),
+      GITHUB_OUTPUT: output,
+    },
+  });
+
+  let outputs = "";
+  try {
+    outputs = readFileSync(output, "utf8");
+  } catch {}
+  rmSync(dir, { recursive: true, force: true });
+  return { result, outputs };
+}
+
+function runPlannerContextStep(largePrBodySize = 180_000) {
+  const workflow = source(".github/workflows/supervisor-planner.yml");
+  const scriptBody = workflowRunStep(workflow, "Build live planning context");
+  const dir = mkdtempSync(join(tmpdir(), "proffera-planner-context-"));
+  const fakeGh = join(dir, "gh");
+  const fakeGit = join(dir, "git");
+  const script = join(dir, "context.sh");
+  const mainSha = "a".repeat(40);
+  const prHead = "b".repeat(40);
+
+  writeFileSync(fakeGit, `#!/usr/bin/env node
+const args = process.argv.slice(2);
+if (args.join(" ") === "rev-parse HEAD") {
+  process.stdout.write(process.env.FAKE_MAIN_SHA + "\\n");
+  process.exit(0);
+}
+process.stderr.write("unexpected git call: " + JSON.stringify(args) + "\\n");
+process.exit(92);
+`, { mode: 0o755 });
+
+  writeFileSync(fakeGh, `#!/usr/bin/env node
+const args = process.argv.slice(2);
+const endpoint = args.find((arg) => arg.startsWith("repos/")) || "";
+if (endpoint.endsWith("/issues/548")) {
+  process.stdout.write(JSON.stringify({ body: "planner body" }) + "\\n");
+  process.exit(0);
+}
+if (endpoint.includes("/pulls?state=open&base=main&per_page=100")) {
+  const body = "y".repeat(Number(process.env.FAKE_LARGE_PR_BODY_SIZE || 0));
+  process.stdout.write(JSON.stringify({
+    number: 849,
+    title: "Large planner fixture",
+    draft: false,
+    head: {
+      ref: "work/proffera-supervisor-auto-fastlane",
+      sha: process.env.FAKE_PR_HEAD,
+      repo: { full_name: "ibboabdoli-ai/Proffera" }
+    },
+    base: { ref: "main" },
+    user: { login: "ibboabdoli-ai" },
+    body
+  }) + "\\n");
+  process.exit(0);
+}
+if (endpoint.includes("/pulls/849/files?per_page=100")) {
+  process.stdout.write("src/large-planner-fixture.ts\\n");
+  process.exit(0);
+}
+process.stderr.write("unexpected gh call: " + JSON.stringify(args) + "\\n");
+process.exit(91);
+`, { mode: 0o755 });
+
+  writeFileSync(script, `#!/usr/bin/env bash
+set -euo pipefail
+gh() { node "${fakeGh.replaceAll("\\", "/")}" "$@"; }
+git() { node "${fakeGit.replaceAll("\\", "/")}" "$@"; }
+base64() {
+  if [ "\${1:-}" = "--decode" ]; then
+    node -e 'let s=""; process.stdin.setEncoding("utf8"); process.stdin.on("data", c => s += c); process.stdin.on("end", () => process.stdout.write(Buffer.from(s.trim(), "base64")));'
+  else
+    command base64 "$@"
+  fi
+}
+REPOSITORY=ibboabdoli-ai/Proffera
+PLANNER_RUN_ID=9001
+PLANNER_WORKFLOW_REF=ibboabdoli-ai/Proffera/.github/workflows/supervisor-planner.yml@refs/heads/main
+RUNNER_TEMP="\${RUNNER_TEMP}"
+${scriptBody}
+`, { mode: 0o755 });
+
+  const result = spawnSync("bash", [script], {
+    cwd: dir,
+    encoding: "utf8",
+    env: {
+      ...process.env,
+      PATH: process.env.PATH ?? "",
+      FAKE_MAIN_SHA: mainSha,
+      FAKE_PR_HEAD: prHead,
+      FAKE_LARGE_PR_BODY_SIZE: String(largePrBodySize),
+      RUNNER_TEMP: dir,
+    },
+  });
+
+  let context: Record<string, unknown> | null = null;
+  try {
+    context = JSON.parse(readFileSync(join(dir, "supervisor-context.json"), "utf8"));
+  } catch {}
+  rmSync(dir, { recursive: true, force: true });
+  return { result, context, mainSha, prHead };
+}
+
 function runReviewRepairPreflight(messages: string[], options: { failPage?: number; liveHead?: string } = {}) {
   const workflow = source(".github/workflows/supervisor-review-repair.yml");
   const scriptBody = workflowRunStep(workflow, "Resolve trusted exact-head Phase-1 PR");
@@ -225,6 +364,11 @@ describe("Supervisor control-plane v2", () => {
     expect(planner).toContain("comments:$comments[0],open_prs:$open_prs[0]");
     expect(planner).not.toContain('--argjson comments "$state_comments"');
     expect(planner).not.toContain('--argjson open_prs "$enriched"');
+    expect(planner).not.toContain('--argjson pr "$pr"');
+    expect(planner).not.toContain('--argjson item "$item"');
+    expect(planner).toContain('--slurpfile pr "$pr_file"');
+    expect(planner).toContain('--slurpfile files "$files_file"');
+    expect(planner).toContain('--slurpfile item "$item_file"');
     const cheapStart = planner.indexOf("Skip model call when writable capacity is already full");
     const modelStart = planner.indexOf("Ask Codex for exactly one next bounded task", cheapStart);
     const cheapCapacity = planner.slice(cheapStart, modelStart);
@@ -233,34 +377,8 @@ describe("Supervisor control-plane v2", () => {
     expect(cheapCapacity).toContain("recovery.expires_at");
     expect(cheapCapacity).toContain('split("\\n")');
     expect(cheapCapacity).not.toContain('Reservation payload:[[:space:]]*`(?<payload>[A-Za-z0-9+/]+={0,2})`[[:space:]]*$"; "m"');
-    const releasedPayload = Buffer.from(JSON.stringify({
-      task_id: "TASK-RELEASED",
-      state: "RELEASED",
-    }), "utf8").toString("base64");
-    const multilineReservation = [
-      "<!-- proffera-worker-slot-reservation:TASK-RELEASED -->",
-      "### Worker slot reservation: TASK-RELEASED",
-      "- State: `RELEASED`",
-      `- Reservation payload: \`${releasedPayload}\``,
-    ].join("\n");
-    const extractedPayload = spawnSync("jq", [
-      "-nr",
-      "--arg",
-      "body",
-      multilineReservation,
-      '$body | split("\\n") | map(try capture("^- Reservation payload:[[:space:]]*`(?<payload>[A-Za-z0-9+/]+={0,2})`[[:space:]]*$").payload catch "") | map(select(length > 0)) | first // ""',
-    ], { encoding: "utf8" });
-    expect(extractedPayload.status, extractedPayload.stderr).toBe(0);
-    expect(extractedPayload.stdout.trim()).toBe(releasedPayload);
-    expect(JSON.parse(Buffer.from(extractedPayload.stdout.trim(), "base64").toString("utf8")).state).toBe("RELEASED");
     expect(cheapCapacity).toContain("fromdateiso8601");
     expect(cheapCapacity).toContain('sub("\\\\.[0-9]+Z$"; "Z")');
-    const fractionalLease = spawnSync("jq", [
-      "-n", "--arg", "ts", "2026-09-20T22:00:00.000Z",
-      '$ts | sub("\\\\.[0-9]+Z$"; "Z") | fromdateiso8601',
-    ], { encoding: "utf8" });
-    expect(fractionalLease.status, fractionalLease.stderr).toBe(0);
-    expect(Number(fractionalLease.stdout.trim())).toBe(Date.parse("2026-09-20T22:00:00.000Z") / 1000);
     expect(cheapCapacity).toContain("reconcile-unbound-tasks sweep");
     expect(cheapCapacity).not.toContain("active_state_ids");
     expect(cheapCapacity).not.toContain('"TASK_CREATED"');
@@ -270,34 +388,59 @@ describe("Supervisor control-plane v2", () => {
     expect(handoff).toContain("if: failure() && needs.preflight.outputs.reservation_comment_id != \'\'");
   });
 
-  it("loads large planner context through rawfile and slurpfile instead of argv", () => {
-    const dir = mkdtempSync(join(tmpdir(), "proffera-planner-file-inputs-"));
-    const bodyFile = join(dir, "issue-body.txt");
-    const prsFile = join(dir, "open-prs.json");
-    const issueBody = "plan:\n" + "x".repeat(180_000);
-    const openPrs = [{ number: 849, body: "y".repeat(180_000) }];
+  it("executes the real planner capacity step and excludes a multiline RELEASED reservation", () => {
+    const releasedPayload = Buffer.from(JSON.stringify({
+      task_id: "TASK-RELEASED",
+      state: "RELEASED",
+    }), "utf8").toString("base64");
+    const activePayload = Buffer.from(JSON.stringify({
+      task_id: "TASK-ACTIVE",
+      state: "RESERVED",
+      lease_expires_at: "2099-09-20T22:00:00.000Z",
+    }), "utf8").toString("base64");
 
-    try {
-      writeFileSync(bodyFile, issueBody);
-      writeFileSync(prsFile, JSON.stringify(openPrs));
-      const result = spawnSync("jq", [
-        "-n",
-        "--rawfile",
-        "issue_body",
-        bodyFile,
-        "--slurpfile",
-        "open_prs",
-        prsFile,
-        "{supervisor_plan:$issue_body,open_prs:$open_prs[0]}",
-      ], { encoding: "utf8" });
+    const result = runPlannerCapacityStep([
+      {
+        user: { login: "github-actions[bot]" },
+        body: [
+          "<!-- proffera-worker-slot-reservation:TASK-RELEASED -->",
+          "### Worker slot reservation: TASK-RELEASED",
+          "- State: `RELEASED`",
+          `- Reservation payload: \`${releasedPayload}\``,
+        ].join("\n"),
+      },
+      {
+        user: { login: "github-actions[bot]" },
+        body: [
+          "<!-- proffera-worker-slot-reservation:TASK-ACTIVE -->",
+          "### Worker slot reservation: TASK-ACTIVE",
+          "- State: `RESERVED`",
+          `- Reservation payload: \`${activePayload}\``,
+        ].join("\n"),
+      },
+    ]);
 
-      expect(result.status, result.stderr).toBe(0);
-      const parsed = JSON.parse(result.stdout);
-      expect(parsed.supervisor_plan).toBe(issueBody);
-      expect(parsed.open_prs).toEqual(openPrs);
-    } finally {
-      rmSync(dir, { recursive: true, force: true });
-    }
+    expect(result.result.status, `${result.result.stderr}\n${String(result.result.error ?? "")}`).toBe(0);
+    expect(result.outputs).toContain("proceed=yes");
+    expect(result.outputs).not.toContain("proceed=no");
+  });
+
+  it("executes the real planner context step with a large PR object without argv-size failure", () => {
+    const result = runPlannerContextStep();
+    expect(result.result.status, `${result.result.stderr}\n${String(result.result.error ?? "")}`).toBe(0);
+    expect(result.context).not.toBeNull();
+
+    const context = result.context as {
+      main_sha: string;
+      supervisor_plan: string;
+      open_prs: Array<{ number: number; body: string; files: string[] }>;
+    };
+    expect(context.main_sha).toBe(result.mainSha);
+    expect(context.supervisor_plan).toBe("planner body");
+    expect(context.open_prs).toHaveLength(1);
+    expect(context.open_prs[0].number).toBe(849);
+    expect(context.open_prs[0].body).toHaveLength(180_000);
+    expect(context.open_prs[0].files).toEqual(["src/large-planner-fixture.ts"]);
   });
 
   it("recovers a preflight reservation even when trusted publication setup never materializes its helper", () => {

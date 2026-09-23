@@ -348,6 +348,8 @@ describe("event-driven final review gate", () => {
     expect(wakeup).toContain("[0-9a-f]{64}");
     expect(wakeup).toContain("Final exact-head review is complete for");
     expect(wakeup).toContain("I found no issues\\\\.");
+    expect(wakeup).toContain("Untrusted pull-request review actor cannot wake the final gate.");
+    expect(wakeup).toContain('"coderabbitai[bot]"|"chatgpt-codex-connector[bot]"');
     expect(wakeup).toContain("Untrusted issue-comment actor cannot wake the final gate.");
     expect(wakeup).toContain('"coderabbitai[bot]"|"chatgpt-codex-connector[bot]"|"$TRUSTED_CODEX_REQUESTER"');
     expect(wakeup).toContain("TRUSTED_CODEX_REQUESTER: ibboabdoli-ai");
@@ -388,6 +390,33 @@ describe("event-driven final review gate", () => {
     expect(`${blocked.result.stdout}${blocked.result.stderr}`).toContain(
       "A blocking review does not need a final-gate rerun.",
     );
+  });
+
+  it("allows final-gate wakeup only from trusted pull-request review bots", () => {
+    const untrusted = runWakeupFixture({
+      sourceEvent: "pull_request_review",
+      actor: "ibboabdoli-ai",
+      body: "",
+      createdAt: "2099-09-05T12:03:00Z",
+      reviewState: "COMMENTED",
+      reviewCommit: reviewHead,
+    });
+    expect(untrusted.result.status).toBe(0);
+    expect(untrusted.rerun).toBe(false);
+    expect(`${untrusted.result.stdout}${untrusted.result.stderr}`).toContain(
+      "Untrusted pull-request review actor cannot wake the final gate.",
+    );
+
+    const trusted = runWakeupFixture({
+      sourceEvent: "pull_request_review",
+      actor: "coderabbitai[bot]",
+      body: "",
+      createdAt: "2099-09-05T12:03:00Z",
+      reviewState: "COMMENTED",
+      reviewCommit: reviewHead,
+    });
+    expect(trusted.result.status).toBe(0);
+    expect(trusted.rerun).toBe(true);
   });
 
   it("wakes for trusted current-head CodeRabbit clean completion comments and rejects spoofed or stale clean evidence", () => {

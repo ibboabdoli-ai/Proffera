@@ -88,8 +88,17 @@ jobs:
             pr="$(printf '%s' "$encoded" | base64 --decode)"
             number="$(jq -r '.number' <<< "$pr")"
             files="$(gh api --paginate "repos/${REPOSITORY}/pulls/${number}/files?per_page=100" --jq '.[] | .filename' | jq -R -s 'split("\n") | map(select(length > 0))')"
-            item="$(jq -n --argjson pr "$pr" --argjson files "$files" '{number:$pr.number,title:$pr.title,draft:$pr.draft,head_ref:$pr.head.ref,head_sha:$pr.head.sha,base_ref:$pr.base.ref,head_repo:($pr.head.repo.full_name // ""),author:($pr.user.login // ""),body:($pr.body // ""),files:$files}')"
-            enriched="$(jq --argjson item "$item" '. + [$item]' <<< "$enriched")"
+            pr_file="$RUNNER_TEMP/proffera-supervisor-pr-${PLANNER_RUN_ID}-${number}.json"
+            files_file="$RUNNER_TEMP/proffera-supervisor-pr-files-${PLANNER_RUN_ID}-${number}.json"
+            item_file="$RUNNER_TEMP/proffera-supervisor-pr-item-${PLANNER_RUN_ID}-${number}.json"
+            printf '%s\n' "$pr" > "$pr_file"
+            printf '%s\n' "$files" > "$files_file"
+            jq -n \
+              --slurpfile pr "$pr_file" \
+              --slurpfile files "$files_file" \
+              '{number:$pr[0].number,title:$pr[0].title,draft:$pr[0].draft,head_ref:$pr[0].head.ref,head_sha:$pr[0].head.sha,base_ref:$pr[0].base.ref,head_repo:($pr[0].head.repo.full_name // ""),author:($pr[0].user.login // ""),body:($pr[0].body // ""),files:$files[0]}' \
+              > "$item_file"
+            enriched="$(jq --slurpfile item "$item_file" '. + [$item[0]]' <<< "$enriched")"
           done < <(jq -r '.[] | @base64' <<< "$pulls")
           printf '%s\n' "$enriched" > "$open_prs_file"
           jq -n \
@@ -248,8 +257,17 @@ jobs:
             pr="$(printf '%s' "$encoded" | base64 --decode)"
             number="$(jq -r '.number' <<< "$pr")"
             files="$(gh api --paginate "repos/${REPOSITORY}/pulls/${number}/files?per_page=100" --jq '.[] | .filename' | jq -R -s 'split("\n") | map(select(length > 0))')"
-            item="$(jq -n --argjson pr "$pr" --argjson files "$files" '{number:$pr.number,head_ref:$pr.head.ref,head_sha:$pr.head.sha,base_ref:$pr.base.ref,head_repo:($pr.head.repo.full_name // ""),author:($pr.user.login // ""),body:($pr.body // ""),files:$files}')"
-            enriched="$(jq --argjson item "$item" '. + [$item]' <<< "$enriched")"
+            pr_file="$RUNNER_TEMP/proffera-supervisor-admission-pr-${PLANNER_RUN_ID}-${number}.json"
+            files_file="$RUNNER_TEMP/proffera-supervisor-admission-pr-files-${PLANNER_RUN_ID}-${number}.json"
+            item_file="$RUNNER_TEMP/proffera-supervisor-admission-pr-item-${PLANNER_RUN_ID}-${number}.json"
+            printf '%s\n' "$pr" > "$pr_file"
+            printf '%s\n' "$files" > "$files_file"
+            jq -n \
+              --slurpfile pr "$pr_file" \
+              --slurpfile files "$files_file" \
+              '{number:$pr[0].number,head_ref:$pr[0].head.ref,head_sha:$pr[0].head.sha,base_ref:$pr[0].base.ref,head_repo:($pr[0].head.repo.full_name // ""),author:($pr[0].user.login // ""),body:($pr[0].body // ""),files:$files[0]}' \
+              > "$item_file"
+            enriched="$(jq --slurpfile item "$item_file" '. + [$item[0]]' <<< "$enriched")"
           done < <(jq -r '.[] | @base64' <<< "$pulls")
 
           printf '%s\n' "$enriched" > "$admission_open_prs_file"
