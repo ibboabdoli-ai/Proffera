@@ -97,6 +97,7 @@ jobs:
               EVENT_ACTOR="$source_actor"
               EVENT_COMMENT_BODY="$(jq -r '.body // ""' <<< "$source_json")"
               EVENT_COMMENT_CREATED_AT="$(jq -r '.created_at // ""' <<< "$source_json")"
+              EVENT_COMMENT_UPDATED_AT="$(jq -r '.updated_at // .created_at // ""' <<< "$source_json")"
               EVENT_EVIDENCE_TIME="$source_time"
               EVENT_REVIEW_STATE=""
               EVENT_REVIEW_COMMIT=""
@@ -114,8 +115,9 @@ jobs:
               EVENT_ACTOR="$source_actor"
               EVENT_COMMENT_BODY=""
               EVENT_COMMENT_CREATED_AT=""
+              EVENT_COMMENT_UPDATED_AT=""
               EVENT_EVIDENCE_TIME="$source_time"
-              EVENT_REVIEW_STATE="$(jq -r '.state // ""' <<< "$source_json")"
+              EVENT_REVIEW_STATE="$(jq -r '(.state // "") | ascii_downcase' <<< "$source_json")"
               EVENT_REVIEW_COMMIT="$source_commit"
               ;;
             *)
@@ -211,8 +213,8 @@ jobs:
               | last
               | .created_at // empty
             ' <<< "$comments_json")"
-            if [ -z "$coderabbit_request_time" ] || [[ "${EVENT_EVIDENCE_TIME}" < "$coderabbit_request_time" ]]; then
-              echo "CodeRabbit clean comment is not ordered after a trusted exact-head review request; refusing to wake the final gate."
+            if [ -z "$coderabbit_request_time" ] || [ -z "${EVENT_COMMENT_CREATED_AT:-}" ] || [[ "${EVENT_COMMENT_CREATED_AT}" < "$coderabbit_request_time" ]]; then
+              echo "CodeRabbit clean comment was not created after a trusted exact-head review request; refusing to wake the final gate."
               exit 0
             fi
 
@@ -310,8 +312,20 @@ jobs:
               [.[] | select(.user.login == "github-actions[bot]") | select((.body // "") == ($marker + "\n@coderabbitai review"))]
               | sort_by(.created_at) | last | .created_at // empty
             ' <<< "$comments_json")"
-            if [ -z "$coderabbit_request_time" ] || [[ "${EVENT_EVIDENCE_TIME:-}" < "$coderabbit_request_time" ]]; then
-              echo "CodeRabbit summary predates the trusted exact-head review request; refusing wakeup."
+            coderabbit_ack_time="$(jq -r --arg request_time "$coderabbit_request_time" '
+              [
+                .[]
+                | select(.user.login == "coderabbitai[bot]")
+                | select($request_time != "")
+                | select((.created_at // "") >= $request_time)
+                | select((.body // "") | test("(^|[\\r\\n])<!-- CodeRabbit review command invocation: v2:[0-9a-f]{64} -->($|[\\r\\n])"))
+              ]
+              | sort_by(.created_at)
+              | first
+              | .created_at // empty
+            ' <<< "$comments_json")"
+            if [ -z "$coderabbit_request_time" ] || [ -z "$coderabbit_ack_time" ] || [ -z "${EVENT_COMMENT_UPDATED_AT:-}" ] || [[ "${EVENT_COMMENT_UPDATED_AT}" < "$coderabbit_ack_time" ]]; then
+              echo "CodeRabbit summary is not bound to a post-request review acknowledgement; refusing wakeup."
               exit 0
             fi
           fi

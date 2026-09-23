@@ -217,12 +217,42 @@ describe("Supervisor control-plane v2", () => {
     expect(plannerJob).toContain("cancel-in-progress: true");
     expect(plannerJob).toContain("issues: read");
     expect(plannerJob).not.toContain("issues: write");
+    expect(planner).toContain('--rawfile issue_body "$issue_body_file"');
+    expect(planner).toContain('--slurpfile open_prs "$open_prs_file"');
+    expect(planner).toContain("open_prs:$open_prs[0]");
+    expect(planner).toContain('--slurpfile comments "$state_comments_file"');
+    expect(planner).toContain('--slurpfile open_prs "$admission_open_prs_file"');
+    expect(planner).toContain("comments:$comments[0],open_prs:$open_prs[0]");
+    expect(planner).not.toContain('--argjson comments "$state_comments"');
+    expect(planner).not.toContain('--argjson open_prs "$enriched"');
     const cheapStart = planner.indexOf("Skip model call when writable capacity is already full");
     const modelStart = planner.indexOf("Ask Codex for exactly one next bounded task", cheapStart);
     const cheapCapacity = planner.slice(cheapStart, modelStart);
     expect(cheapCapacity).toContain("active_reservation_ids");
     expect(cheapCapacity).toContain("lease_expires_at");
     expect(cheapCapacity).toContain("recovery.expires_at");
+    expect(cheapCapacity).toContain('split("\\n")');
+    expect(cheapCapacity).not.toContain('Reservation payload:[[:space:]]*`(?<payload>[A-Za-z0-9+/]+={0,2})`[[:space:]]*$"; "m"');
+    const releasedPayload = Buffer.from(JSON.stringify({
+      task_id: "TASK-RELEASED",
+      state: "RELEASED",
+    }), "utf8").toString("base64");
+    const multilineReservation = [
+      "<!-- proffera-worker-slot-reservation:TASK-RELEASED -->",
+      "### Worker slot reservation: TASK-RELEASED",
+      "- State: `RELEASED`",
+      `- Reservation payload: \`${releasedPayload}\``,
+    ].join("\n");
+    const extractedPayload = spawnSync("jq", [
+      "-nr",
+      "--arg",
+      "body",
+      multilineReservation,
+      '$body | split("\\n") | map(try capture("^- Reservation payload:[[:space:]]*`(?<payload>[A-Za-z0-9+/]+={0,2})`[[:space:]]*$").payload catch "") | map(select(length > 0)) | first // ""',
+    ], { encoding: "utf8" });
+    expect(extractedPayload.status, extractedPayload.stderr).toBe(0);
+    expect(extractedPayload.stdout.trim()).toBe(releasedPayload);
+    expect(JSON.parse(Buffer.from(extractedPayload.stdout.trim(), "base64").toString("utf8")).state).toBe("RELEASED");
     expect(cheapCapacity).toContain("fromdateiso8601");
     expect(cheapCapacity).toContain('sub("\\\\.[0-9]+Z$"; "Z")');
     const fractionalLease = spawnSync("jq", [
@@ -238,6 +268,36 @@ describe("Supervisor control-plane v2", () => {
     expect(plannerDispatchJob).toContain("issues: write");
     expect(handoff).not.toContain("needs.dispatch.outputs.reservation_comment_id");
     expect(handoff).toContain("if: failure() && needs.preflight.outputs.reservation_comment_id != \'\'");
+  });
+
+  it("loads large planner context through rawfile and slurpfile instead of argv", () => {
+    const dir = mkdtempSync(join(tmpdir(), "proffera-planner-file-inputs-"));
+    const bodyFile = join(dir, "issue-body.txt");
+    const prsFile = join(dir, "open-prs.json");
+    const issueBody = "plan:\n" + "x".repeat(180_000);
+    const openPrs = [{ number: 849, body: "y".repeat(180_000) }];
+
+    try {
+      writeFileSync(bodyFile, issueBody);
+      writeFileSync(prsFile, JSON.stringify(openPrs));
+      const result = spawnSync("jq", [
+        "-n",
+        "--rawfile",
+        "issue_body",
+        bodyFile,
+        "--slurpfile",
+        "open_prs",
+        prsFile,
+        "{supervisor_plan:$issue_body,open_prs:$open_prs[0]}",
+      ], { encoding: "utf8" });
+
+      expect(result.status, result.stderr).toBe(0);
+      const parsed = JSON.parse(result.stdout);
+      expect(parsed.supervisor_plan).toBe(issueBody);
+      expect(parsed.open_prs).toEqual(openPrs);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   it("recovers a preflight reservation even when trusted publication setup never materializes its helper", () => {

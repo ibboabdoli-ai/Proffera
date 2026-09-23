@@ -344,12 +344,24 @@ jobs:
               | last
               | .created_at // empty
             ' <<< "$comments_json")"
-            clean_summary_count="$(jq -r --arg sha "$head_sha" --arg request_time "$coderabbit_request_time" '
+            coderabbit_ack_time="$(jq -r --arg request_time "$coderabbit_request_time" '
               [
                 .[]
                 | select(.user.login == "coderabbitai[bot]")
                 | select($request_time != "")
-                | select((.updated_at // .created_at // "") >= $request_time)
+                | select((.created_at // "") >= $request_time)
+                | select((.body // "") | test("(^|[\\r\\n])<!-- CodeRabbit review command invocation: v2:[0-9a-f]{64} -->($|[\\r\\n])"))
+              ]
+              | sort_by(.created_at)
+              | first
+              | .created_at // empty
+            ' <<< "$comments_json")"
+            clean_summary_count="$(jq -r --arg sha "$head_sha" --arg ack_time "$coderabbit_ack_time" '
+              [
+                .[]
+                | select(.user.login == "coderabbitai[bot]")
+                | select($ack_time != "")
+                | select((.updated_at // .created_at // "") >= $ack_time)
                 | select(
                     (.body // "")
                     | test(

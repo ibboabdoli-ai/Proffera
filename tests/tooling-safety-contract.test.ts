@@ -178,6 +178,16 @@ function codeRabbitRequestComments() {
   ];
 }
 
+function codeRabbitAcknowledgementComment(createdAt = "2026-08-31T10:01:00Z") {
+  return {
+    id: 11,
+    user: { login: "coderabbitai[bot]" },
+    body: `${codeRabbitInvocationMarker}\n<details>\n<summary>🧩 Analysis chain</summary>\n</details>`,
+    created_at: createdAt,
+    updated_at: createdAt,
+  };
+}
+
 function cleanCodeRabbitBody(head = reviewHead, marker = codeRabbitInvocationMarker) {
   return `${marker}\n@ibboabdoli-ai Final exact-head review is complete for \`${head}\`.\n\nI found no issues.`;
 }
@@ -193,12 +203,14 @@ function cleanCodeRabbitFinalComment(overrides: Record<string, unknown> = {}) {
   };
 }
 
-function legacyCleanCodeRabbitSummary() {
+function legacyCleanCodeRabbitSummary(overrides: Record<string, unknown> = {}) {
   return {
     id: 13,
     user: { login: "coderabbitai[bot]" },
     body: `<!-- recent_review_start -->\nNo actionable comments were generated in the recent review.\n${reviewHead}\n<!-- recent_review_end -->`,
-    created_at: "2026-08-31T10:03:00Z",
+    created_at: "2026-08-31T09:59:00Z",
+    updated_at: "2026-08-31T10:03:00Z",
+    ...overrides,
   };
 }
 
@@ -366,8 +378,9 @@ describe("tooling safety contract", () => {
   it("accepts only trusted exact-head completed clean CodeRabbit comments", () => {
     const gate = ciReviewGateShellBlock();
     expect(gate).toContain("CodeRabbit review command invocation: v2:[0-9a-f]{64}");
+    expect(gate).toContain("coderabbit_ack_time");
     expect(gate).toContain('select((.created_at // "") >= $request_time)');
-    expect(gate).toContain('select((.updated_at // .created_at // "") >= $request_time)');
+    expect(gate).toContain('select((.updated_at // .created_at // "") >= $ack_time)');
 
     const malformedHeadSha = runCiReviewFixture({
       changedFiles: ".github/workflows/ci.yml",
@@ -402,9 +415,20 @@ describe("tooling safety contract", () => {
     });
     expect(acceptedPlainSha.status).toBe(0);
 
-    const legacySummary = runCiReviewFixture({
+    const editedLegacySummaryWithoutAcknowledgement = runCiReviewFixture({
       changedFiles: ".github/workflows/ci.yml",
       comments: [...codeRabbitRequestComments(), legacyCleanCodeRabbitSummary()],
+      failOnPost: true,
+    });
+    expect(editedLegacySummaryWithoutAcknowledgement.status).toBe(1);
+
+    const legacySummary = runCiReviewFixture({
+      changedFiles: ".github/workflows/ci.yml",
+      comments: [
+        ...codeRabbitRequestComments(),
+        codeRabbitAcknowledgementComment(),
+        legacyCleanCodeRabbitSummary(),
+      ],
       failOnPost: true,
     });
     expect(legacySummary.status).toBe(0);

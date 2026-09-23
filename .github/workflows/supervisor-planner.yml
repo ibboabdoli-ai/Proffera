@@ -78,6 +78,9 @@ jobs:
           set -euo pipefail
           main_sha="$(git rev-parse HEAD)"
           issue_json="$(gh api "repos/${REPOSITORY}/issues/548")"
+          issue_body_file="$RUNNER_TEMP/proffera-supervisor-issue-body-${PLANNER_RUN_ID}.txt"
+          open_prs_file="$RUNNER_TEMP/proffera-supervisor-open-prs-${PLANNER_RUN_ID}.json"
+          jq -j '.body // ""' <<< "$issue_json" > "$issue_body_file"
           pulls="$(gh api --paginate "repos/${REPOSITORY}/pulls?state=open&base=main&per_page=100" --jq '.[]' | jq -s '.')"
           enriched='[]'
           while IFS= read -r encoded; do
@@ -88,7 +91,12 @@ jobs:
             item="$(jq -n --argjson pr "$pr" --argjson files "$files" '{number:$pr.number,title:$pr.title,draft:$pr.draft,head_ref:$pr.head.ref,head_sha:$pr.head.sha,base_ref:$pr.base.ref,head_repo:($pr.head.repo.full_name // ""),author:($pr.user.login // ""),body:($pr.body // ""),files:$files}')"
             enriched="$(jq --argjson item "$item" '. + [$item]' <<< "$enriched")"
           done < <(jq -r '.[] | @base64' <<< "$pulls")
-          jq -n --arg main_sha "$main_sha" --arg issue_body "$(jq -r '.body // ""' <<< "$issue_json")" --argjson open_prs "$enriched" '{main_sha:$main_sha,supervisor_plan:$issue_body,open_prs:$open_prs}' > supervisor-context.json
+          printf '%s\n' "$enriched" > "$open_prs_file"
+          jq -n \
+            --arg main_sha "$main_sha" \
+            --rawfile issue_body "$issue_body_file" \
+            --slurpfile open_prs "$open_prs_file" \
+            '{main_sha:$main_sha,supervisor_plan:$issue_body,open_prs:$open_prs[0]}' > supervisor-context.json
 
       - name: Skip model call when writable capacity is already full
         if: steps.gate.outputs.enabled == 'yes'
@@ -121,7 +129,11 @@ jobs:
               | (.body // "") as $body
               | select($body | contains("<!-- proffera-worker-slot-reservation:"))
               | ($body | try capture("<!-- proffera-worker-slot-reservation:(?<id>[A-Z][A-Z0-9-]{1,63}) -->").id catch "") as $id
-              | ($body | try capture("^- Reservation payload:[[:space:]]*`(?<payload>[A-Za-z0-9+/]+={0,2})`[[:space:]]*$"; "m").payload catch "") as $encoded
+              | ($body
+                  | split("\n")
+                  | map(try capture("^- Reservation payload:[[:space:]]*`(?<payload>[A-Za-z0-9+/]+={0,2})`[[:space:]]*$").payload catch "")
+                  | map(select(length > 0))
+                  | first // "") as $encoded
               | select($id != "")
               | if $encoded == "" then
                   $id
@@ -224,10 +236,11 @@ jobs:
           fi
 
           labels="$(gh api "repos/${REPOSITORY}/issues/548" --jq '[.labels[].name]')"
-          state_comments="$(
-            gh api --paginate "repos/${REPOSITORY}/issues/548/comments?per_page=100" --jq '.[]' \
-              | jq -s '[.[] | select(.user.login == "github-actions[bot]" and ((.body // "") | contains("<!-- proffera-worker-task-state:")))]'
-          )"
+          state_comments_file="$RUNNER_TEMP/proffera-supervisor-state-comments-${PLANNER_RUN_ID}.json"
+          admission_open_prs_file="$RUNNER_TEMP/proffera-supervisor-admission-open-prs-${PLANNER_RUN_ID}.json"
+          gh api --paginate "repos/${REPOSITORY}/issues/548/comments?per_page=100" --jq '.[]' \
+            | jq -s '[.[] | select(.user.login == "github-actions[bot]" and ((.body // "") | contains("<!-- proffera-worker-task-state:")))]' \
+            > "$state_comments_file"
           pulls="$(gh api --paginate "repos/${REPOSITORY}/pulls?state=open&base=main&per_page=100" --jq '.[]' | jq -s '.')"
           enriched='[]'
           while IFS= read -r encoded; do
@@ -239,11 +252,13 @@ jobs:
             enriched="$(jq --argjson item "$item" '. + [$item]' <<< "$enriched")"
           done < <(jq -r '.[] | @base64' <<< "$pulls")
 
+          printf '%s\n' "$enriched" > "$admission_open_prs_file"
+
           packet_sha256="$(printf '%s' "$normalized" | sha256sum | cut -d' ' -f1)"
           branch="$(jq -r '.branch' <<< "$normalized")"
           branch_exists=false
           gh api "repos/${REPOSITORY}/git/ref/heads/${branch}" >/dev/null 2>&1 && branch_exists=true
-          context="$(jq -n --arg repository "$REPOSITORY" --arg comment_body "$comment_body" --arg live_main_sha "$live_main" --arg planner_run_id "$PLANNER_RUN_ID" --arg planner_head_sha "$live_main" --arg planner_packet_sha256 "$packet_sha256" --arg planner_workflow_ref "$PLANNER_WORKFLOW_REF" --argjson labels "$labels" --argjson comments "$state_comments" --argjson open_prs "$enriched" --argjson branch_exists "$branch_exists" '{event:{repository:$repository,issue_number:548,actor:"github-actions[bot]",source:"planner",trusted_internal_dispatch:true,internal_provenance_verified:true,packet_digest_verified:true,planner_run_id:$planner_run_id,planner_head_sha:$planner_head_sha,planner_packet_sha256:$planner_packet_sha256,planner_workflow_ref:$planner_workflow_ref,is_fork:false,comment_body:$comment_body},supervisor_labels:$labels,live_main_sha:$live_main_sha,comments:$comments,open_prs:$open_prs,branch:{exists:$branch_exists},secrets:{openai:true,push:true},run_id:$planner_run_id}')"
+          context="$(jq -n --arg repository "$REPOSITORY" --arg comment_body "$comment_body" --arg live_main_sha "$live_main" --arg planner_run_id "$PLANNER_RUN_ID" --arg planner_head_sha "$live_main" --arg planner_packet_sha256 "$packet_sha256" --arg planner_workflow_ref "$PLANNER_WORKFLOW_REF" --argjson labels "$labels" --slurpfile comments "$state_comments_file" --slurpfile open_prs "$admission_open_prs_file" --argjson branch_exists "$branch_exists" '{event:{repository:$repository,issue_number:548,actor:"github-actions[bot]",source:"planner",trusted_internal_dispatch:true,internal_provenance_verified:true,packet_digest_verified:true,planner_run_id:$planner_run_id,planner_head_sha:$planner_head_sha,planner_packet_sha256:$planner_packet_sha256,planner_workflow_ref:$planner_workflow_ref,is_fork:false,comment_body:$comment_body},supervisor_labels:$labels,live_main_sha:$live_main_sha,comments:$comments[0],open_prs:$open_prs[0],branch:{exists:$branch_exists},secrets:{openai:true,push:true},run_id:$planner_run_id}')"
           decision="$(printf '%s' "$context" | node scripts/supervisor-worker-handoff.mjs evaluate)"
           if [ "$(jq -r '.ok' <<< "$decision")" != "true" ]; then
             echo "Planner selection refused by deterministic admission: $(jq -r '.reason' <<< "$decision")"

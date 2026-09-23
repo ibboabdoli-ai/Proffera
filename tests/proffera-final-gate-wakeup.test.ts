@@ -50,6 +50,9 @@ type WakeupFixture = {
   body: string;
   createdAt?: string;
   updatedAt?: string;
+  sourceEvent?: "issue_comment" | "pull_request_review";
+  reviewState?: string;
+  reviewCommit?: string;
   comments?: Array<Record<string, unknown>>;
   firstReviews?: Array<Record<string, unknown>>;
   laterReviews?: Array<Record<string, unknown>>;
@@ -78,6 +81,10 @@ function runWakeupFixture(fixture: WakeupFixture) {
 set -euo pipefail
 args="$*"
 if [ "$1" = "api" ] && [ "\${2:-}" = "repos/ibboabdoli-ai/Proffera/issues/comments/9001" ]; then
+  printf '%s\\n' "$FAKE_SOURCE_JSON"
+  exit 0
+fi
+if [ "$1" = "api" ] && [ "\${2:-}" = "repos/ibboabdoli-ai/Proffera/pulls/801/reviews/9001" ]; then
   printf '%s\\n' "$FAKE_SOURCE_JSON"
   exit 0
 fi
@@ -138,11 +145,11 @@ EVENT_COMMENT_CREATED_AT=''
 EVENT_REVIEW_STATE=''
 EVENT_REVIEW_COMMIT=''
 INPUT_PR_NUMBER=801
-INPUT_SOURCE_EVENT=issue_comment
+INPUT_SOURCE_EVENT=${fixture.sourceEvent ?? "issue_comment"}
 INPUT_SOURCE_ID=9001
 INPUT_SOURCE_ACTOR='${fixture.actor ?? "coderabbitai[bot]"}'
 INPUT_SOURCE_EVIDENCE_TIME='${fixture.updatedAt ?? fixture.createdAt ?? "2099-09-05T12:03:00Z"}'
-INPUT_SOURCE_REVIEW_COMMIT=''
+INPUT_SOURCE_REVIEW_COMMIT='${fixture.sourceEvent === "pull_request_review" ? (fixture.reviewCommit ?? reviewHead) : ""}'
 TRUSTED_CODEX_REQUESTER=ibboabdoli-ai
 ${wakeupShellBlock()}
 `, { mode: 0o755 });
@@ -153,7 +160,13 @@ ${wakeupShellBlock()}
       ...process.env,
       PATH: `${dir}${delimiter}${process.env.PATH ?? ""}`,
       FAKE_EVENT_BODY: fixture.body,
-      FAKE_SOURCE_JSON: JSON.stringify({
+      FAKE_SOURCE_JSON: JSON.stringify(fixture.sourceEvent === "pull_request_review" ? {
+        id: 9001,
+        user: { login: fixture.actor ?? "coderabbitai[bot]" },
+        state: fixture.reviewState ?? "COMMENTED",
+        submitted_at: fixture.createdAt ?? "2099-09-05T12:03:00Z",
+        commit_id: fixture.reviewCommit ?? reviewHead,
+      } : {
         id: 9001,
         user: { login: fixture.actor ?? "coderabbitai[bot]" },
         body: fixture.body,
@@ -256,6 +269,16 @@ function requestComment(createdAt = "2099-09-05T12:00:00Z") {
   };
 }
 
+function codeRabbitAcknowledgement(createdAt = "2099-09-05T12:01:00Z") {
+  return {
+    id: 9,
+    user: { login: "coderabbitai[bot]" },
+    body: `${codeRabbitInvocationMarker}\n<details>\n<summary>🧩 Analysis chain</summary>\n</details>`,
+    created_at: createdAt,
+    updated_at: createdAt,
+  };
+}
+
 function cleanBody(head = reviewHead, marker = codeRabbitInvocationMarker) {
   return `${marker}\n@ibboabdoli-ai Final exact-head review is complete for \`${head}\`.\n\nI found no issues.`;
 }
@@ -300,8 +323,12 @@ describe("event-driven final review gate", () => {
     expect(router).toContain("-f source_evidence_time=");
     expect(wakeup).toContain("issues/comments/$INPUT_SOURCE_ID");
     expect(wakeup).toContain("INPUT_SOURCE_EVIDENCE_TIME");
-    expect(ci).toContain('select((.updated_at // .created_at // "") >= $request_time)');
-    expect(automerge).toContain('select((.updated_at // .created_at // "") >= $request_time)');
+    expect(ci).toContain("coderabbit_ack_time");
+    expect(ci).toContain('select((.updated_at // .created_at // "") >= $ack_time)');
+    expect(automerge).toContain("coderabbit_ack_time");
+    expect(automerge).toContain('select((.updated_at // .created_at // "") >= $ack_time)');
+    expect(wakeup).toContain("EVENT_COMMENT_CREATED_AT");
+    expect(wakeup).toContain("coderabbit_ack_time");
     expect(wakeup).toContain("<!-- CodeRabbit review command invocation: v2:");
     expect(wakeup).toContain("[0-9a-f]{64}");
     expect(wakeup).toContain("Final exact-head review is complete for");
@@ -329,6 +356,23 @@ describe("event-driven final review gate", () => {
     expect(automerge).toContain("E2E public smoke");
     expect(automerge).not.toContain("pull_request_review:");
     expect(automerge).not.toContain("issue_comment:");
+  });
+
+  it("normalizes REST CHANGES_REQUESTED before the final-gate wakeup guard", () => {
+    const blocked = runWakeupFixture({
+      sourceEvent: "pull_request_review",
+      actor: "coderabbitai[bot]",
+      body: "",
+      createdAt: "2099-09-05T12:03:00Z",
+      reviewState: "CHANGES_REQUESTED",
+      reviewCommit: reviewHead,
+    });
+
+    expect(blocked.result.status).toBe(0);
+    expect(blocked.rerun).toBe(false);
+    expect(`${blocked.result.stdout}${blocked.result.stderr}`).toContain(
+      "A blocking review does not need a final-gate rerun.",
+    );
   });
 
   it("wakes for trusted current-head CodeRabbit clean completion comments and rejects spoofed or stale clean evidence", () => {
@@ -399,7 +443,7 @@ describe("event-driven final review gate", () => {
       updatedAt: "2099-09-05T12:03:00Z",
       comments: [requestComment()],
     });
-    expect(editedPreRequest.rerun).toBe(true);
+    expect(editedPreRequest.rerun).toBe(false);
 
     const incomplete = runWakeupFixture({
       body: `${cleanBody()}\n\nAction not completed: review incomplete`,
@@ -454,7 +498,7 @@ describe("event-driven final review gate", () => {
     expect(`${reviewRace.result.stdout}${reviewRace.result.stderr}`).toContain("CodeRabbit changes were recorded before final-gate wakeup");
   }, 120000);
 
-  it("rejects stale current-head CodeRabbit summaries on workflow_dispatch but accepts a freshly updated summary", () => {
+  it("requires a post-request CodeRabbit acknowledgement before accepting an updated persistent summary", () => {
     const summaryBody = `<!-- recent_review_start -->
 No actionable comments were generated in the recent review.
 ${reviewHead}
@@ -467,18 +511,29 @@ ${reviewHead}
       comments: [requestComment("2099-09-05T12:00:00Z")],
     });
     expect(staleSummary.rerun).toBe(false);
-    expect(`${staleSummary.result.stdout}${staleSummary.result.stderr}`).toContain(
-      "CodeRabbit summary predates the trusted exact-head review request",
-    );
 
-    const updatedSummary = runWakeupFixture({
+    const editedWithoutAcknowledgement = runWakeupFixture({
       body: summaryBody,
       createdAt: "2099-09-05T11:50:00Z",
       updatedAt: "2099-09-05T12:03:00Z",
       comments: [requestComment("2099-09-05T12:00:00Z")],
     });
-    expect(updatedSummary.result.status).toBe(0);
-    expect(updatedSummary.rerun).toBe(true);
+    expect(editedWithoutAcknowledgement.rerun).toBe(false);
+    expect(`${editedWithoutAcknowledgement.result.stdout}${editedWithoutAcknowledgement.result.stderr}`).toContain(
+      "CodeRabbit summary is not bound to a post-request review acknowledgement",
+    );
+
+    const acknowledgedSummary = runWakeupFixture({
+      body: summaryBody,
+      createdAt: "2099-09-05T11:50:00Z",
+      updatedAt: "2099-09-05T12:03:00Z",
+      comments: [
+        requestComment("2099-09-05T12:00:00Z"),
+        codeRabbitAcknowledgement("2099-09-05T12:01:00Z"),
+      ],
+    });
+    expect(acknowledgedSummary.result.status).toBe(0);
+    expect(acknowledgedSummary.rerun).toBe(true);
   }, 120000);
 
   it("does not classify availability/status comments as the new clean CodeRabbit decision", () => {
@@ -501,6 +556,28 @@ ${reviewHead}
     });
     expect(positive.status).toBe(0);
     expect(positive.stdout).toContain("AI_REVIEW_OK");
+
+    const summaryBody = `<!-- recent_review_start -->\nNo actionable comments were generated in the recent review.\n${reviewHead}\n<!-- recent_review_end -->`;
+    const editedSummary = {
+      id: 15,
+      user: { login: "coderabbitai[bot]" },
+      body: summaryBody,
+      created_at: "2099-09-05T11:50:00Z",
+      updated_at: "2099-09-05T12:03:00Z",
+    };
+    const summaryWithoutAcknowledgement = runAutomergeFixture({
+      comments: [requestComment("2099-09-05T12:00:00Z"), editedSummary],
+    });
+    expect(summaryWithoutAcknowledgement.stdout).not.toContain("AI_REVIEW_OK");
+
+    const summaryWithAcknowledgement = runAutomergeFixture({
+      comments: [
+        requestComment("2099-09-05T12:00:00Z"),
+        codeRabbitAcknowledgement("2099-09-05T12:01:00Z"),
+        editedSummary,
+      ],
+    });
+    expect(summaryWithAcknowledgement.stdout).toContain("AI_REVIEW_OK");
 
     const negatives = [
       runAutomergeFixture({
