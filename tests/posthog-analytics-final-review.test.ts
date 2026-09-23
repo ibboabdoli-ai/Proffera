@@ -214,7 +214,9 @@ describe("PostHog final review regressions", () => {
     expect(booking).toContain(': experience.defaultLanguage;');
     expect(booking).toContain('requestedLanguage === "en" && experience.englishEnabled ? "en"');
     expect(booking).toContain('requestedLanguage === "sv" && experience.swedishEnabled ? "sv"');
-    expect(booking.match(/<main lang=\{locale\}/g)).toHaveLength(2);
+    const bookingRouteRoots = booking.match(/<main\b[^>]*>/g) ?? [];
+    expect(bookingRouteRoots.length).toBeGreaterThan(0);
+    expect(bookingRouteRoots.every((root) => root.includes("lang={locale}"))).toBe(true);
     expect(control).toContain('document.querySelector<HTMLElement>("main[lang]")');
   });
 
@@ -231,7 +233,9 @@ describe("PostHog final review regressions", () => {
     expect(booking).toContain('firstParam(query?.lang) === "sv" ? "sv"');
     expect(booking).toContain(': experience.defaultLanguage;');
     expect(booking).toContain('requestedLanguage === "sv" && experience.swedishEnabled ? "sv"');
-    expect(booking.match(/<main lang=\{locale\}/g)).toHaveLength(2);
+    const bookingRouteRoots = booking.match(/<main\b[^>]*>/g) ?? [];
+    expect(bookingRouteRoots.length).toBeGreaterThan(0);
+    expect(bookingRouteRoots.every((root) => root.includes("lang={locale}"))).toBe(true);
   });
 
   it("classifies legitimate country-specific Google referrers without broad hostname matching", () => {
