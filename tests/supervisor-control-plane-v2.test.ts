@@ -105,7 +105,7 @@ if (endpoint.endsWith("/issues/548")) {
 }
 if (endpoint.includes("/pulls?state=open&base=main&per_page=100")) {
   const body = "y".repeat(Number(process.env.FAKE_LARGE_PR_BODY_SIZE || 0));
-  process.stdout.write(JSON.stringify({
+  require("node:fs").writeSync(1, JSON.stringify({
     number: 849,
     title: "Large planner fixture",
     draft: false,
