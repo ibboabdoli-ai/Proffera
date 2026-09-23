@@ -48,7 +48,29 @@ jobs:
           grep -Fq '<!-- proffera-worker-task-packet:v1 -->' <<< "$body"
           head_sha="$(jq -r '.head.sha' <<< "$pr")"
           head_ref="$(jq -r '.head.ref' <<< "$pr")"
-          mapfile -t recent_messages < <(gh api "repos/${REPOSITORY}/pulls/${PR_NUMBER}/commits?per_page=20" --jq '.[-5:][] | .commit.message | split("\n")[0]' | tail -n 5)
+          commits_ndjson="$(mktemp)"
+          for page in 1 2 3; do
+            page_json="$(gh api "repos/${REPOSITORY}/pulls/${PR_NUMBER}/commits?per_page=100&page=${page}")"
+            jq -e 'type == "array"' >/dev/null <<< "$page_json"
+            page_count="$(jq 'length' <<< "$page_json")"
+            jq -c '.[]' <<< "$page_json" >> "$commits_ndjson"
+            if [ "$page" -eq 3 ] && [ "$page_count" -ge 50 ]; then
+              echo "Pull-request commit history reached the 250-commit endpoint limit; refusing automatic repair." >&2
+              exit 1
+            fi
+            if [ "$page_count" -lt 100 ]; then
+              break
+            fi
+          done
+          live_head_after_commits="$(gh api "repos/${REPOSITORY}/pulls/${PR_NUMBER}" --jq '.head.sha')"
+          if [ "$live_head_after_commits" != "$head_sha" ]; then
+            echo "PR head changed while reading repair history; refusing automatic repair." >&2
+            exit 1
+          fi
+          commits_json="$(jq -s '.' "$commits_ndjson")"
+          recent_messages_file="$(mktemp)"
+          jq -r '.[-5:][] | .commit.message | split("\n")[0]' <<< "$commits_json" > "$recent_messages_file"
+          mapfile -t recent_messages < "$recent_messages_file"
           consecutive=0
           for ((i=${#recent_messages[@]}-1; i>=0; i--)); do
             if [[ "${recent_messages[$i]}" == "[review-repair]"* ]]; then consecutive=$((consecutive+1)); else break; fi

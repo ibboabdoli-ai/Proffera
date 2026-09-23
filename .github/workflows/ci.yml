@@ -768,10 +768,12 @@ jobs:
               | last
               | .created_at // empty
             ' <<< "$comments_json")"
-            clean_summary_count="$(jq -r --arg sha "$HEAD_SHA" '
+            clean_summary_count="$(jq -r --arg sha "$HEAD_SHA" --arg request_time "$coderabbit_request_time" '
               [
                 .[]
                 | select(.user.login == "coderabbitai[bot]")
+                | select($request_time != "")
+                | select((.updated_at // .created_at // "") >= $request_time)
                 | select(
                     (.body // "")
                     | test(

@@ -274,4 +274,6 @@ jobs:
       planner_run_id: ${{ github.run_id }}
       planner_head_sha: ${{ needs.plan.outputs.planner_head_sha }}
       planner_workflow_ref: ${{ github.workflow_ref }}
-    secrets: inherit
+    secrets:
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      PROFFERA_AUTOFIX_PUSH_TOKEN: ${{ secrets.PROFFERA_AUTOFIX_PUSH_TOKEN }}

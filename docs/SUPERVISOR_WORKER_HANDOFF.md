@@ -139,7 +139,7 @@ No separate database, queue, SaaS orchestrator, Production service, or provider 
 
 ## Phase 2 control-plane loop
 
-Phase 2 keeps the Phase-1 trust boundaries and adds four orchestration layers:
+Phase 2 keeps the Phase-1 trust boundaries and adds five orchestration layers:
 
 1. `supervisor-event-router.yml` is the only review/comment listener for Supervisor routing. It classifies one GitHub event and dispatches only the relevant handoff, Final Gate, automerge evaluation, or Phase-1 review-repair workflow.
 2. The generic handoff is invoked by trusted `workflow_dispatch` with an immutable source comment ID. It re-fetches that owner-authored #548 comment before admission. Direct comment fan-out is no longer part of the handoff workflow.

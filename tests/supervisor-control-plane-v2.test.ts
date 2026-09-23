@@ -1,11 +1,96 @@
-import { copyFileSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { copyFileSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { delimiter, join, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
 import { describe, expect, it } from "vitest";
 
 const root = process.cwd();
 const source = (path: string) => readFileSync(resolve(root, path), "utf8");
+
+function workflowRunStep(workflow: string, stepName: string) {
+  const lines = workflow.replaceAll("\r\n", "\n").split("\n");
+  const stepIndex = lines.findIndex((line) => line.trim() === `- name: ${stepName}`);
+  expect(stepIndex).toBeGreaterThanOrEqual(0);
+  const runIndex = lines.findIndex((line, index) => index > stepIndex && line.trim() === "run: |");
+  expect(runIndex).toBeGreaterThan(stepIndex);
+  const runIndent = lines[runIndex].match(/^\s*/)?.[0].length ?? 0;
+  const script: string[] = [];
+  for (let index = runIndex + 1; index < lines.length; index += 1) {
+    const line = lines[index];
+    if (line.trim() === "") {
+      script.push("");
+      continue;
+    }
+    const indent = line.match(/^\s*/)?.[0].length ?? 0;
+    if (indent <= runIndent) break;
+    script.push(line.slice(Math.min(line.length, runIndent + 2)));
+  }
+  return script.join("\n");
+}
+
+function runReviewRepairPreflight(messages: string[], options: { failPage?: number; liveHead?: string } = {}) {
+  const workflow = source(".github/workflows/supervisor-review-repair.yml");
+  const scriptBody = workflowRunStep(workflow, "Resolve trusted exact-head Phase-1 PR");
+  const dir = mkdtempSync(join(tmpdir(), "proffera-review-repair-preflight-"));
+  const fakeGh = join(dir, "gh");
+  const script = join(dir, "preflight.sh");
+  const output = join(dir, "github-output.txt");
+  const head = "a".repeat(40);
+  writeFileSync(fakeGh, `#!/usr/bin/env node
+const args = process.argv.slice(2);
+const endpoint = args.find((arg) => arg.startsWith("repos/")) || "";
+const messages = JSON.parse(process.env.FAKE_MESSAGES || "[]");
+if (endpoint.endsWith("/pulls/849")) {
+  if (args.includes("--jq")) {
+    process.stdout.write((process.env.FAKE_LIVE_HEAD || process.env.FAKE_HEAD) + "\\n");
+  } else {
+    process.stdout.write(JSON.stringify({
+      state: "open",
+      head: { sha: process.env.FAKE_HEAD, ref: "work/proffera-supervisor-auto-fastlane", repo: { full_name: "ibboabdoli-ai/Proffera" } },
+      user: { login: "ibboabdoli-ai" },
+      body: "<!-- proffera-worker-task-packet:v1 -->"
+    }) + "\\n");
+  }
+  process.exit(0);
+}
+const match = endpoint.match(/\\/pulls\\/849\\/commits\\?per_page=100&page=(\\d+)$/);
+if (match) {
+  const page = Number(match[1]);
+  if (Number(process.env.FAKE_FAIL_PAGE || 0) === page) process.exit(75);
+  const start = (page - 1) * 100;
+  const slice = messages.slice(start, start + 100).map((message) => ({ commit: { message } }));
+  process.stdout.write(JSON.stringify(slice) + "\\n");
+  process.exit(0);
+}
+process.stderr.write("unexpected gh call: " + JSON.stringify(args) + "\\n");
+process.exit(91);
+`, { mode: 0o755 });
+  writeFileSync(script, `#!/usr/bin/env bash
+set -euo pipefail
+REPOSITORY=ibboabdoli-ai/Proffera
+PR_NUMBER=849
+GITHUB_OUTPUT="\${GITHUB_OUTPUT}"
+${scriptBody}
+`, { mode: 0o755 });
+  const result = spawnSync("bash", [script], {
+    encoding: "utf8",
+    env: {
+      ...process.env,
+      PATH: `${dir}${delimiter}${process.env.PATH ?? ""}`,
+      FAKE_MESSAGES: JSON.stringify(messages),
+      FAKE_FAIL_PAGE: String(options.failPage ?? 0),
+      FAKE_HEAD: head,
+      FAKE_LIVE_HEAD: options.liveHead ?? head,
+      GITHUB_OUTPUT: output,
+    },
+  });
+  let outputs = "";
+  try {
+    outputs = readFileSync(output, "utf8");
+  } catch {}
+  rmSync(dir, { recursive: true, force: true });
+  return { result, outputs };
+}
 
 describe("Supervisor control-plane v2", () => {
   it("routes review/comment fan-out through one event router", () => {
@@ -63,7 +148,13 @@ describe("Supervisor control-plane v2", () => {
     expect(planner).toContain("active_reservation_ids");
     expect(planner).toContain("active_pr_ids");
     expect(planner).toContain("sort -u");
-    expect(planner).not.toContain("PROFFERA_AUTOFIX_PUSH_TOKEN");
+    const plannerPlanStart = planner.indexOf("  plan:");
+    const plannerDispatchBoundary = planner.indexOf("  dispatch:", plannerPlanStart);
+    const plannerPlanJob = planner.slice(plannerPlanStart, plannerDispatchBoundary);
+    expect(plannerPlanJob).not.toContain("PROFFERA_AUTOFIX_PUSH_TOKEN");
+    const plannerDispatchSecrets = planner.slice(plannerDispatchBoundary);
+    expect(plannerDispatchSecrets).toContain("OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}");
+    expect(plannerDispatchSecrets).toContain("PROFFERA_AUTOFIX_PUSH_TOKEN: ${{ secrets.PROFFERA_AUTOFIX_PUSH_TOKEN }}");
     expect(planner).not.toContain('POST "repos/${REPOSITORY}/issues/548/comments"');
     const plannerValidationStart = planner.indexOf("Validate planner output against live state");
     const plannerDispatchStart = planner.indexOf("\n  dispatch:", plannerValidationStart);
@@ -74,8 +165,14 @@ describe("Supervisor control-plane v2", () => {
     expect(plannerValidation).toContain("autonomous dispatch is limited to risk_class 1 or 2");
     expect(helper).toContain('"planner_risk_class_requires_human"');
 
-    const workflowCall = handoff.slice(handoff.indexOf("  workflow_call:"), handoff.indexOf("  workflow_dispatch:"));
-    const manualDispatch = handoff.slice(handoff.indexOf("  workflow_dispatch:"), handoff.indexOf("  pull_request_target:"));
+    const workflowCallStart = handoff.indexOf("  workflow_call:");
+    const manualDispatchStart = handoff.indexOf("  workflow_dispatch:");
+    const pullRequestTargetStart = handoff.indexOf("  pull_request_target:");
+    expect(workflowCallStart).toBeGreaterThanOrEqual(0);
+    expect(manualDispatchStart).toBeGreaterThan(workflowCallStart);
+    expect(pullRequestTargetStart).toBeGreaterThan(manualDispatchStart);
+    const workflowCall = handoff.slice(workflowCallStart, manualDispatchStart);
+    const manualDispatch = handoff.slice(manualDispatchStart, pullRequestTargetStart);
     expect(workflowCall).toContain("planner_packet_b64:");
     expect(workflowCall).toContain("planner_packet_sha256:");
     expect(workflowCall).toContain("planner_run_id:");
@@ -190,6 +287,12 @@ describe("Supervisor control-plane v2", () => {
     expect(repair).toContain("steps.qualify.outputs.repair == 'yes'");
     expect(repair).toContain("consecutive");
     expect(repair).toContain("[review-repair]");
+    expect(repair).toContain('commits?per_page=100&page=${page}');
+    expect(repair).toContain("for page in 1 2 3");
+    expect(repair).toContain("250-commit endpoint limit");
+    expect(repair).toContain("live_head_after_commits");
+    expect(repair).toContain('mapfile -t recent_messages < "$recent_messages_file"');
+    expect(repair).not.toContain("mapfile -t recent_messages < <(");
     const publishStart = repair.indexOf("  publish:");
     expect(publishStart).toBeGreaterThan(0);
     const untrustedRepairJob = repair.slice(0, publishStart);
@@ -206,13 +309,36 @@ describe("Supervisor control-plane v2", () => {
     expect(trustedPublishJob.indexOf("validate-changes")).toBeLessThan(trustedPublishJob.indexOf("PROFFERA_AUTOFIX_PUSH_TOKEN"));
     expect(repair).not.toContain("--force");
   });
+
+  it("enforces the repair ceiling from the actual newest PR commits and fails closed on incomplete evidence", () => {
+    const messages = Array.from({ length: 25 }, (_, index) => `ordinary-${index}`);
+    messages[23] = "[review-repair] first";
+    messages[24] = "[review-repair] second";
+    const ceiling = runReviewRepairPreflight(messages);
+    expect(ceiling.result.status, ceiling.result.stderr).toBe(0);
+    expect(ceiling.outputs).toContain("proceed=no");
+    expect(ceiling.result.stdout).toContain("Automatic repair ceiling reached");
+
+    const apiFailure = runReviewRepairPreflight(
+      Array.from({ length: 101 }, (_, index) => `ordinary-${index}`),
+      { failPage: 2 },
+    );
+    expect(apiFailure.result.status).not.toBe(0);
+
+    const movingHead = runReviewRepairPreflight(["ordinary"], { liveHead: "b".repeat(40) });
+    expect(movingHead.result.status).not.toBe(0);
+    expect(movingHead.result.stderr).toContain("PR head changed while reading repair history");
+
+    const endpointLimit = runReviewRepairPreflight(Array.from({ length: 250 }, (_, index) => `ordinary-${index}`));
+    expect(endpointLimit.result.status).not.toBe(0);
+    expect(endpointLimit.result.stderr).toContain("250-commit endpoint limit");
+  }, 20000);
+
   it("trusted review-repair validation rejects checkout-helper tampering and out-of-scope writes", () => {
     const trustedSource = resolve(root, "scripts/supervisor-worker-handoff.mjs");
     const dir = mkdtempSync(join(tmpdir(), "proffera-review-repair-trust-"));
     const trusted = join(dir, "trusted-helper.mjs");
-    const compromised = join(dir, "workspace-helper.mjs");
     copyFileSync(trustedSource, trusted);
-    writeFileSync(compromised, '#!/usr/bin/env node\nprocess.stdin.resume(); process.stdin.on("end", () => process.stdout.write(JSON.stringify({ok:true})));\n');
 
     const packet = {
       task_id: "SUP-REPAIR-1",
@@ -232,9 +358,17 @@ describe("Supervisor control-plane v2", () => {
       auto_merge_allowed: false,
     };
     const input = JSON.stringify({ packet, changed_files: ["src/outside.ts"] });
-    const forged = spawnSync(process.execPath, [compromised], { input, encoding: "utf8" });
-    expect(forged.status, forged.stderr).toBe(0);
-    expect(JSON.parse(forged.stdout).ok).toBe(true);
+    const repair = source(".github/workflows/supervisor-review-repair.yml");
+    const publishStart = repair.indexOf("  publish:");
+    expect(publishStart).toBeGreaterThan(0);
+    const trustedPublishJob = repair.slice(publishStart);
+    const materializeStart = trustedPublishJob.indexOf("Materialize trusted repair helper in isolated publish job");
+    const validateStart = trustedPublishJob.indexOf("Validate bounded repair with isolated exact-main helper");
+    expect(materializeStart).toBeGreaterThanOrEqual(0);
+    expect(validateStart).toBeGreaterThan(materializeStart);
+    const materializeStep = trustedPublishJob.slice(materializeStart, validateStart);
+    expect(materializeStep).toContain("set -euo pipefail");
+    expect(materializeStep).toContain('test "$(git hash-object "$trusted_helper")" = "$expected_blob_sha"');
 
     const verified = spawnSync(process.execPath, [trusted, "validate-changes"], { input, encoding: "utf8" });
     expect(verified.status, verified.stderr).toBe(0);
@@ -251,5 +385,11 @@ describe("Supervisor control-plane v2", () => {
     expect(sync).toContain("task_count");
     expect(sync).toContain('if [ "$task_count" -ne 1 ]');
     expect(sync).toContain("validate-state");
+    expect(sync).toContain("Release exact Worker reservation mutex");
+    expect(sync).toContain("if: always() && steps.reconcile.outputs.mutex != \'\'");
+    expect(sync).toContain("MUTEX: ${{ steps.reconcile.outputs.mutex }}");
+    expect(sync).toContain("reservation-mutex-release");
+    const checkSync = sync.slice(sync.indexOf("  sync-check-state:"));
+    expect(checkSync).not.toContain("trap \'release_mutex || true\' EXIT");
   });
 });

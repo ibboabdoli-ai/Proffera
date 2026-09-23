@@ -6,7 +6,7 @@ import { spawnSync } from "node:child_process";
 import { describe, expect, it } from "vitest";
 
 function source(path: string) {
-  return readFileSync(resolve(process.cwd(), path), "utf8");
+  return readFileSync(resolve(process.cwd(), path), "utf8").replaceAll("\r\n", "\n");
 }
 
 const workflow = source(".github/workflows/proffera-automerge.yml");
@@ -542,7 +542,7 @@ describe("Proffera standing automerge authorization", () => {
     expect(ci).toContain("Final exact-head review is complete for");
     expect(ci).toContain("I found no issues\\\\.");
     expect(ci).toContain("CodeRabbit review command invocation: v2:[0-9a-f]{64}");
-    expect(workflow).not.toContain("updated_at");
+    expect(workflow).toContain('select((.updated_at // .created_at // "") >= $request_time)');
     expect(workflow).toContain('workflow_run:');
     expect(workflow).toContain('workflows: [CI, Security review regressions]');
     expect(workflow).toContain('E2E public smoke');

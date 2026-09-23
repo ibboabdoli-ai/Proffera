@@ -16,7 +16,7 @@ function workflowSource() {
   return readFileSync(
     resolve(process.cwd(), ".github/workflows/supervisor-worker-handoff.yml"),
     "utf8",
-  );
+  ).replaceAll("\r\n", "\n");
 }
 
 function occurrences(text: string, needle: string) {
@@ -167,8 +167,8 @@ describe("Supervisor Worker handoff large-state safety", () => {
     const marker = 'state_marker="<!-- proffera-worker-task-state:${task_id} -->"';
     const stateOnlyFilter = 'contains("<!-- proffera-worker-task-state:")';
 
-    expect(occurrences(workflow, marker)).toBeGreaterThanOrEqual(1);
-    expect(occurrences(workflow, stateOnlyFilter)).toBeGreaterThanOrEqual(1);
+    expect(occurrences(workflow, marker)).toBe(2);
+    expect(occurrences(workflow, stateOnlyFilter)).toBe(1);
 
     const preflight = workflow.slice(
       workflow.indexOf("Validate trust, freshness, idempotency, graph ownership, and scope"),

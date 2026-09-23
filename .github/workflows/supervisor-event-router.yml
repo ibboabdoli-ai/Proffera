@@ -32,9 +32,12 @@ jobs:
           ISSUE_IS_PR: ${{ github.event.issue.pull_request != null }}
           COMMENT_ID: ${{ github.event.comment.id }}
           COMMENT_BODY: ${{ github.event.comment.body }}
+          COMMENT_UPDATED_AT: ${{ github.event.comment.updated_at }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
+          REVIEW_ID: ${{ github.event.review.id }}
           REVIEW_STATE: ${{ github.event.review.state }}
           REVIEW_COMMIT: ${{ github.event.review.commit_id }}
+          REVIEW_SUBMITTED_AT: ${{ github.event.review.submitted_at }}
         shell: bash
         run: |
           set -euo pipefail
@@ -43,6 +46,37 @@ jobs:
             local workflow="$1"
             local pr_number="$2"
             gh workflow run "$workflow" --repo "$REPOSITORY" -f pr_number="$pr_number"
+          }
+
+          dispatch_final_gate() {
+            local pr_number="$1" source_id source_time source_review_commit
+            case "$EVENT_NAME" in
+              issue_comment)
+                source_id="${COMMENT_ID:-}"
+                source_time="${COMMENT_UPDATED_AT:-}"
+                source_review_commit=""
+                ;;
+              pull_request_review)
+                source_id="${REVIEW_ID:-}"
+                source_time="${REVIEW_SUBMITTED_AT:-}"
+                source_review_commit="${REVIEW_COMMIT:-}"
+                ;;
+              *)
+                echo "Unsupported final-gate source event."
+                return 1
+                ;;
+            esac
+            if ! [[ "$source_id" =~ ^[1-9][0-9]*$ ]] || [ -z "$source_time" ]; then
+              echo "Final-gate source event lacks immutable identity or evidence time."
+              return 1
+            fi
+            gh workflow run proffera-final-gate-wakeup.yml --repo "$REPOSITORY" \
+              -f pr_number="$pr_number" \
+              -f source_event="$EVENT_NAME" \
+              -f source_id="$source_id" \
+              -f source_actor="$ACTOR" \
+              -f source_evidence_time="$source_time" \
+              -f source_review_commit="$source_review_commit"
           }
 
           if [ "$EVENT_NAME" = "issue_comment" ]; then
@@ -81,7 +115,7 @@ jobs:
             esac
 
             if [ "$wake_final" = "yes" ]; then
-              dispatch_pr proffera-final-gate-wakeup.yml "$pr_number"
+              dispatch_final_gate "$pr_number"
             else
               echo "PR comment is unrelated to current final-gate routing."
             fi
@@ -106,7 +140,7 @@ jobs:
             case "$ACTOR" in
               "coderabbitai[bot]"|"chatgpt-codex-connector[bot]")
                 if [ "$live_draft" != "true" ] && [ "${REVIEW_STATE:-}" != "changes_requested" ]; then
-                  dispatch_pr proffera-final-gate-wakeup.yml "$pr_number"
+                  dispatch_final_gate "$pr_number"
                 fi
 
                 repair=no

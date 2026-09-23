@@ -6,7 +6,7 @@ import { delimiter, join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
 function source(path: string) {
-  return readFileSync(resolve(process.cwd(), path), "utf8");
+  return readFileSync(resolve(process.cwd(), path), "utf8").replaceAll("\r\n", "\n");
 }
 
 function runSonarValidation(overrides: Record<string, string>) {
@@ -367,7 +367,7 @@ describe("tooling safety contract", () => {
     const gate = ciReviewGateShellBlock();
     expect(gate).toContain("CodeRabbit review command invocation: v2:[0-9a-f]{64}");
     expect(gate).toContain('select((.created_at // "") >= $request_time)');
-    expect(gate).not.toContain("updated_at");
+    expect(gate).toContain('select((.updated_at // .created_at // "") >= $request_time)');
 
     const malformedHeadSha = runCiReviewFixture({
       changedFiles: ".github/workflows/ci.yml",

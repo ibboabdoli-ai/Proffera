@@ -6,7 +6,7 @@ import { delimiter, join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
 function source(path: string) {
-  return readFileSync(resolve(process.cwd(), path), "utf8");
+  return readFileSync(resolve(process.cwd(), path), "utf8").replaceAll("\r\n", "\n");
 }
 
 const reviewHead = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
@@ -15,7 +15,7 @@ const codeRabbitInvocationMarker = `<!-- CodeRabbit review command invocation: v
 
 function wakeupShellBlock() {
   const wakeup = source(".github/workflows/proffera-final-gate-wakeup.yml");
-  const startMarker = '          pr_number="${EVENT_PR_NUMBER:-}"';
+  const startMarker = '          pr_number="${INPUT_PR_NUMBER:-}"';
   const endMarker = '          echo "Re-ran only the exact-head E2E public smoke final gate after review evidence changed."';
   const start = wakeup.indexOf(startMarker);
   const end = wakeup.indexOf(endMarker, start);
@@ -49,6 +49,7 @@ type WakeupFixture = {
   actor?: string;
   body: string;
   createdAt?: string;
+  updatedAt?: string;
   comments?: Array<Record<string, unknown>>;
   firstReviews?: Array<Record<string, unknown>>;
   laterReviews?: Array<Record<string, unknown>>;
@@ -76,6 +77,10 @@ function runWakeupFixture(fixture: WakeupFixture) {
   writeFileSync(fakeGh, `#!/usr/bin/env bash
 set -euo pipefail
 args="$*"
+if [ "$1" = "api" ] && [ "\${2:-}" = "repos/ibboabdoli-ai/Proffera/issues/comments/9001" ]; then
+  printf '%s\\n' "$FAKE_SOURCE_JSON"
+  exit 0
+fi
 if [ "$1" = "api" ] && [ "\${2:-}" = "repos/ibboabdoli-ai/Proffera/pulls/801" ]; then
   if [[ "$args" == *"--jq .head.sha"* ]]; then
     printf '%s\\n' "\${FAKE_LIVE_HEAD:-$FAKE_HEAD_SHA}"
@@ -124,15 +129,20 @@ exit 91
 set -euo pipefail
 summary() { :; }
 REPOSITORY=ibboabdoli-ai/Proffera
-EVENT_NAME=issue_comment
-EVENT_ACTOR='${fixture.actor ?? "coderabbitai[bot]"}'
+EVENT_NAME=workflow_dispatch
+EVENT_ACTOR=ibboabdoli-ai
 EVENT_PR_NUMBER=''
-EVENT_ISSUE_NUMBER=801
-EVENT_COMMENT_BODY="$FAKE_EVENT_BODY"
-EVENT_COMMENT_CREATED_AT='${fixture.createdAt ?? "2099-09-05T12:03:00Z"}'
+EVENT_ISSUE_NUMBER=''
+EVENT_COMMENT_BODY=''
+EVENT_COMMENT_CREATED_AT=''
 EVENT_REVIEW_STATE=''
 EVENT_REVIEW_COMMIT=''
-INPUT_PR_NUMBER=''
+INPUT_PR_NUMBER=801
+INPUT_SOURCE_EVENT=issue_comment
+INPUT_SOURCE_ID=9001
+INPUT_SOURCE_ACTOR='${fixture.actor ?? "coderabbitai[bot]"}'
+INPUT_SOURCE_EVIDENCE_TIME='${fixture.updatedAt ?? fixture.createdAt ?? "2099-09-05T12:03:00Z"}'
+INPUT_SOURCE_REVIEW_COMMIT=''
 TRUSTED_CODEX_REQUESTER=ibboabdoli-ai
 ${wakeupShellBlock()}
 `, { mode: 0o755 });
@@ -143,6 +153,14 @@ ${wakeupShellBlock()}
       ...process.env,
       PATH: `${dir}${delimiter}${process.env.PATH ?? ""}`,
       FAKE_EVENT_BODY: fixture.body,
+      FAKE_SOURCE_JSON: JSON.stringify({
+        id: 9001,
+        user: { login: fixture.actor ?? "coderabbitai[bot]" },
+        body: fixture.body,
+        created_at: fixture.createdAt ?? "2099-09-05T12:03:00Z",
+        updated_at: fixture.updatedAt ?? fixture.createdAt ?? "2099-09-05T12:03:00Z",
+        issue_url: "https://api.github.com/repos/ibboabdoli-ai/Proffera/issues/801",
+      }),
       FAKE_HEAD_SHA: reviewHead,
       FAKE_LIVE_HEAD: fixture.liveHead ?? "",
       FAKE_COMMENTS: toNdjson(fixture.comments),
@@ -277,6 +295,13 @@ describe("event-driven final review gate", () => {
     expect(router).toContain("proffera-codex-fallback-review-request:");
     expect(router).toContain("@codex review");
     expect(router).toContain("proffera-final-gate-wakeup.yml");
+    expect(router).toContain("-f source_event=");
+    expect(router).toContain("-f source_id=");
+    expect(router).toContain("-f source_evidence_time=");
+    expect(wakeup).toContain("issues/comments/$INPUT_SOURCE_ID");
+    expect(wakeup).toContain("INPUT_SOURCE_EVIDENCE_TIME");
+    expect(ci).toContain('select((.updated_at // .created_at // "") >= $request_time)');
+    expect(automerge).toContain('select((.updated_at // .created_at // "") >= $request_time)');
     expect(wakeup).toContain("<!-- CodeRabbit review command invocation: v2:");
     expect(wakeup).toContain("[0-9a-f]{64}");
     expect(wakeup).toContain("Final exact-head review is complete for");
@@ -371,10 +396,10 @@ describe("event-driven final review gate", () => {
     const editedPreRequest = runWakeupFixture({
       body: cleanBody(),
       createdAt: "2099-09-05T11:59:00Z",
+      updatedAt: "2099-09-05T12:03:00Z",
       comments: [requestComment()],
     });
-    expect(editedPreRequest.rerun).toBe(false);
-    expect(`${editedPreRequest.result.stdout}${editedPreRequest.result.stderr}`).toContain("not ordered after a trusted exact-head review request");
+    expect(editedPreRequest.rerun).toBe(true);
 
     const incomplete = runWakeupFixture({
       body: `${cleanBody()}\n\nAction not completed: review incomplete`,
@@ -427,6 +452,33 @@ describe("event-driven final review gate", () => {
     });
     expect(reviewRace.rerun).toBe(false);
     expect(`${reviewRace.result.stdout}${reviewRace.result.stderr}`).toContain("CodeRabbit changes were recorded before final-gate wakeup");
+  }, 120000);
+
+  it("rejects stale current-head CodeRabbit summaries on workflow_dispatch but accepts a freshly updated summary", () => {
+    const summaryBody = `<!-- recent_review_start -->
+No actionable comments were generated in the recent review.
+${reviewHead}
+<!-- recent_review_end -->`;
+
+    const staleSummary = runWakeupFixture({
+      body: summaryBody,
+      createdAt: "2099-09-05T11:50:00Z",
+      updatedAt: "2099-09-05T11:59:00Z",
+      comments: [requestComment("2099-09-05T12:00:00Z")],
+    });
+    expect(staleSummary.rerun).toBe(false);
+    expect(`${staleSummary.result.stdout}${staleSummary.result.stderr}`).toContain(
+      "CodeRabbit summary predates the trusted exact-head review request",
+    );
+
+    const updatedSummary = runWakeupFixture({
+      body: summaryBody,
+      createdAt: "2099-09-05T11:50:00Z",
+      updatedAt: "2099-09-05T12:03:00Z",
+      comments: [requestComment("2099-09-05T12:00:00Z")],
+    });
+    expect(updatedSummary.result.status).toBe(0);
+    expect(updatedSummary.rerun).toBe(true);
   }, 120000);
 
   it("does not classify availability/status comments as the new clean CodeRabbit decision", () => {
