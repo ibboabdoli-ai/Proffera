@@ -35,6 +35,21 @@ function authorizationShellBlock() {
     .join("\n");
 }
 
+function finalOwnerAuthorizationShellBlock() {
+  const startMarker = '          final_pr_json="$(gh pr view';
+  const endMarker = '          summary "- Fresh exact-head owner authorization revalidated immediately before merge"';
+  const start = workflow.indexOf(startMarker);
+  const end = workflow.indexOf(endMarker, start);
+  expect(start).toBeGreaterThanOrEqual(0);
+  expect(end).toBeGreaterThan(start);
+
+  return workflow
+    .slice(start, end)
+    .split("\n")
+    .map((line) => line.startsWith("          ") ? line.slice(10) : line)
+    .join("\n");
+}
+
 function aiReviewShellBlock() {
   const startMarker = '          file_count="$(grep -c . <<< "$changed_files" || true)"';
   const endMarker = '          checks_json=""';
@@ -240,6 +255,8 @@ type AuthorizationFixture = {
   events?: Array<Record<string, unknown>>;
   reviews?: Array<Record<string, unknown>>;
   comments?: Array<Record<string, unknown>>;
+  eventPages?: [Array<Record<string, unknown>>, Array<Record<string, unknown>>];
+  commentPages?: [Array<Record<string, unknown>>, Array<Record<string, unknown>>];
   changedFiles?: string;
   commitMessage?: string;
 };
@@ -270,11 +287,17 @@ if [ "$1" = "api" ] && [[ "$2" == *"/contents/"* ]]; then
   exit 2
 fi
 if [ "$1" = "api" ] && [[ "$args" == *"/issues/"*"/events"* ]]; then
-  printf '%s\\n' "$FAKE_EVENTS_NDJSON"
+  printf '%s\\n' "$FAKE_EVENTS_PAGE1_NDJSON"
+  if [[ "$args" == *"--paginate"* ]] && [ -n "$FAKE_EVENTS_PAGE2_NDJSON" ]; then
+    printf '%s\\n' "$FAKE_EVENTS_PAGE2_NDJSON"
+  fi
   exit 0
 fi
 if [ "$1" = "api" ] && [[ "$args" == *"/issues/"*"/comments"* ]]; then
-  printf '%s\\n' "$FAKE_COMMENTS_NDJSON"
+  printf '%s\\n' "$FAKE_COMMENTS_PAGE1_NDJSON"
+  if [[ "$args" == *"--paginate"* ]] && [ -n "$FAKE_COMMENTS_PAGE2_NDJSON" ]; then
+    printf '%s\\n' "$FAKE_COMMENTS_PAGE2_NDJSON"
+  fi
   exit 0
 fi
 if [ "$1" = "api" ] && [[ "$args" == *"/pulls/"*"/reviews"* ]]; then
@@ -311,7 +334,8 @@ printf 'AUTH_MODE=%s\\n' "$authorization_mode"
     expires_at: "2099-09-30T23:59:59Z",
   };
   const reviews = fixture.reviews ?? [];
-  const comments = fixture.comments ?? [];
+  const eventPages = fixture.eventPages ?? [fixture.events ?? [], []];
+  const commentPages = fixture.commentPages ?? [fixture.comments ?? [], []];
   const changedFiles = fixture.changedFiles ?? "src/app/page.tsx\nsrc/lib/utils.ts";
   const commitJson = {
     commit: {
@@ -325,8 +349,10 @@ printf 'AUTH_MODE=%s\\n' "$authorization_mode"
       PATH: `${dir}${delimiter}${process.env.PATH ?? ""}`,
       FAKE_PR_JSON: JSON.stringify(fixture.pr),
       FAKE_POLICY_B64: Buffer.from(JSON.stringify(policy), "utf8").toString("base64"),
-      FAKE_EVENTS_NDJSON: (fixture.events ?? []).map((item) => JSON.stringify(item)).join("\n"),
-      FAKE_COMMENTS_NDJSON: comments.map((item) => JSON.stringify(item)).join("\n"),
+      FAKE_EVENTS_PAGE1_NDJSON: eventPages[0].map((item) => JSON.stringify(item)).join("\n"),
+      FAKE_EVENTS_PAGE2_NDJSON: eventPages[1].map((item) => JSON.stringify(item)).join("\n"),
+      FAKE_COMMENTS_PAGE1_NDJSON: commentPages[0].map((item) => JSON.stringify(item)).join("\n"),
+      FAKE_COMMENTS_PAGE2_NDJSON: commentPages[1].map((item) => JSON.stringify(item)).join("\n"),
       FAKE_REVIEWS_NDJSON: reviews.map((item) => JSON.stringify(item)).join("\n"),
       FAKE_CHANGED_FILES: changedFiles,
       FAKE_COMMIT_JSON: JSON.stringify(commitJson),
@@ -351,6 +377,130 @@ function basePr(overrides: Record<string, unknown> = {}) {
     headRepositoryOwner: { login: "ibboabdoli-ai" },
     ...overrides,
   };
+}
+
+type PreMergeAuthorizationFixture = {
+  finalEvents?: Array<Record<string, unknown>>;
+  finalComments?: Array<Record<string, unknown>>;
+};
+
+function runPreMergeAuthorizationFixture(fixture: PreMergeAuthorizationFixture) {
+  const dir = mkdtempSync(join(tmpdir(), "proffera-automerge-pre-merge-"));
+  const fakeGh = join(dir, "gh");
+  const script = join(dir, "pre-merge.sh");
+  const stateDir = join(dir, "state");
+  const headSha = "4444444444444444444444444444444444444444";
+  const initialEvent = {
+    id: 1,
+    event: "labeled",
+    created_at: "2099-09-05T12:00:00Z",
+    label: { name: "ibbo-approved" },
+    actor: { login: "ibboabdoli-ai" },
+  };
+  const initialComment = {
+    id: 10,
+    user: { login: "ibboabdoli-ai" },
+    body: `<!-- proffera-owner-approval:${headSha} -->\nIBBO-APPROVED: ${headSha}`,
+  };
+
+  writeFileSync(fakeGh, `#!/usr/bin/env bash
+set -euo pipefail
+args="$*"
+expected_policy_path="repos/ibboabdoli-ai/Proffera/contents/.github/proffera-standing-merge-authorization.json?ref=main"
+if [ "$1" = "pr" ] && [ "$2" = "view" ]; then
+  printf '%s\\n' "$FAKE_PR_JSON"
+  exit 0
+fi
+if [ "$1" = "pr" ] && [ "$2" = "diff" ]; then
+  printf '%s' "$FAKE_CHANGED_FILES"
+  exit 0
+fi
+if [ "$1" = "api" ] && [ "$2" = "$expected_policy_path" ]; then
+  printf '%s\\n' "$FAKE_POLICY_B64"
+  exit 0
+fi
+if [ "$1" = "api" ] && [[ "$2" == *"/contents/"* ]]; then
+  printf 'standing policy request did not exactly match main path: %s\\n' "$args" >&2
+  exit 2
+fi
+if [ "$1" = "api" ] && [[ "$args" == *"/issues/"*"/events"* ]]; then
+  mkdir -p "$STATE_DIR"
+  count=0
+  [ -f "$STATE_DIR/events" ] && count="$(cat "$STATE_DIR/events")"
+  count=$((count + 1))
+  printf '%s' "$count" > "$STATE_DIR/events"
+  if [ "$count" -eq 1 ]; then
+    printf '%s\\n' "$FAKE_INITIAL_EVENTS_NDJSON"
+  else
+    printf '%s\\n' "$FAKE_FINAL_EVENTS_NDJSON"
+  fi
+  exit 0
+fi
+if [ "$1" = "api" ] && [[ "$args" == *"/issues/"*"/comments"* ]]; then
+  mkdir -p "$STATE_DIR"
+  count=0
+  [ -f "$STATE_DIR/comments" ] && count="$(cat "$STATE_DIR/comments")"
+  count=$((count + 1))
+  printf '%s' "$count" > "$STATE_DIR/comments"
+  if [ "$count" -eq 1 ]; then
+    printf '%s\\n' "$FAKE_INITIAL_COMMENTS_NDJSON"
+  else
+    printf '%s\\n' "$FAKE_FINAL_COMMENTS_NDJSON"
+  fi
+  exit 0
+fi
+if [ "$1" = "api" ] && [[ "$args" == *"/commits/"* ]]; then
+  printf '%s\\n' "$FAKE_COMMIT_JSON"
+  exit 0
+fi
+printf 'unexpected gh invocation: %s\\n' "$args" >&2
+exit 2
+`, { mode: 0o755 });
+
+  writeFileSync(script, `#!/usr/bin/env bash
+set -euo pipefail
+summary() { :; }
+refuse() { printf 'REFUSED:%s\\n' "$1"; exit 0; }
+pr_number=695
+REPOSITORY=ibboabdoli-ai/Proffera
+STANDING_AUTH_PATH=.github/proffera-standing-merge-authorization.json
+HUMAN_APPROVER=ibboabdoli-ai
+${authorizationShellBlock()}
+${finalOwnerAuthorizationShellBlock()}
+printf 'PRE_MERGE_OK\\n'
+`, { mode: 0o755 });
+
+  const pr = basePr({
+    headRefName: "work/proffera-other-manual-path",
+    headRefOid: headSha,
+    labels: [{ name: "ibbo-approved" }],
+  });
+  const policy = {
+    ...authorization,
+    expires_at: "2099-09-30T23:59:59Z",
+  };
+  const finalEvents = fixture.finalEvents ?? [initialEvent];
+  const finalComments = fixture.finalComments ?? [initialComment];
+  const result = spawnSync("bash", [script], {
+    encoding: "utf8",
+    env: {
+      ...process.env,
+      PATH: `${dir}${delimiter}${process.env.PATH ?? ""}`,
+      STATE_DIR: stateDir,
+      FAKE_PR_JSON: JSON.stringify(pr),
+      FAKE_POLICY_B64: Buffer.from(JSON.stringify(policy), "utf8").toString("base64"),
+      FAKE_CHANGED_FILES: "src/app/page.tsx\nsrc/lib/utils.ts",
+      FAKE_COMMIT_JSON: JSON.stringify({ commit: { message: "Regular commit message" } }),
+      FAKE_INITIAL_EVENTS_NDJSON: JSON.stringify(initialEvent),
+      FAKE_FINAL_EVENTS_NDJSON: finalEvents.map((item) => JSON.stringify(item)).join("\n"),
+      FAKE_INITIAL_COMMENTS_NDJSON: JSON.stringify(initialComment),
+      FAKE_FINAL_COMMENTS_NDJSON: finalComments.map((item) => JSON.stringify(item)).join("\n"),
+    },
+  });
+
+  rmSync(dir, { recursive: true, force: true });
+  expect(result.status, result.stderr).toBe(0);
+  return { output: result.stdout, headSha, initialEvent, initialComment };
 }
 
 describe("Proffera standing automerge authorization", () => {
@@ -469,6 +619,46 @@ describe("Proffera standing automerge authorization", () => {
     expect(output).toContain("AUTH_MODE=fresh-exact-head-owner");
   });
 
+  it("uses paginated event and comment history to find owner evidence on a later page", () => {
+    const currentHead = "5555555555555555555555555555555555555555";
+    const output = runAuthorizationFixture({
+      pr: basePr({
+        headRefName: "work/proffera-other-manual-path",
+        headRefOid: currentHead,
+        labels: [{ name: "ibbo-approved" }],
+      }),
+      eventPages: [
+        [{
+          id: 1,
+          event: "unlabeled",
+          created_at: "2099-09-05T11:59:00Z",
+          label: { name: "other-label" },
+          actor: { login: "other-user" },
+        }],
+        [{
+          id: 2,
+          event: "labeled",
+          created_at: "2099-09-05T12:00:00Z",
+          label: { name: "ibbo-approved" },
+          actor: { login: "ibboabdoli-ai" },
+        }],
+      ],
+      commentPages: [
+        [{
+          id: 9,
+          user: { login: "other-user" },
+          body: "not approval evidence",
+        }],
+        [{
+          id: 10,
+          user: { login: "ibboabdoli-ai" },
+          body: `<!-- proffera-owner-approval:${currentHead} -->\nIBBO-APPROVED: ${currentHead}`,
+        }],
+      ],
+    });
+    expect(output).toContain("AUTH_MODE=fresh-exact-head-owner");
+  });
+
   it("rejects a matching standing scope and owner label without an exact-head owner approval comment", () => {
     const output = runAuthorizationFixture({
       pr: basePr({ labels: [{ name: "ibbo-approved" }] }),
@@ -526,6 +716,43 @@ describe("Proffera standing automerge authorization", () => {
     });
     expect(output).toContain("REFUSED:");
     expect(output).not.toContain("AUTH_MODE=");
+  });
+
+  it("revalidates label provenance immediately before merge", () => {
+    const fixture = runPreMergeAuthorizationFixture({
+      finalEvents: [
+        {
+          id: 1,
+          event: "labeled",
+          created_at: "2099-09-05T12:00:00Z",
+          label: { name: "ibbo-approved" },
+          actor: { login: "ibboabdoli-ai" },
+        },
+        {
+          id: 2,
+          event: "labeled",
+          created_at: "2099-09-05T12:01:00Z",
+          label: { name: "ibbo-approved" },
+          actor: { login: "other-user" },
+        },
+      ],
+    });
+    expect(fixture.output).toContain("AUTH_MODE=fresh-exact-head-owner");
+    expect(fixture.output).toContain("REFUSED:Refused: fresh exact-head owner authorization was removed, edited, or otherwise invalid before merge.");
+    expect(fixture.output).not.toContain("PRE_MERGE_OK");
+  });
+
+  it("revalidates the canonical owner approval comment immediately before merge", () => {
+    const fixture = runPreMergeAuthorizationFixture({
+      finalComments: [{
+        id: 10,
+        user: { login: "ibboabdoli-ai" },
+        body: `<!-- proffera-owner-approval:${"4444444444444444444444444444444444444444"} -->\nIBBO-APPROVED: 4444444444444444444444444444444444444444\nextra text`,
+      }],
+    });
+    expect(fixture.output).toContain("AUTH_MODE=fresh-exact-head-owner");
+    expect(fixture.output).toContain("REFUSED:Refused: fresh exact-head owner authorization was removed, edited, or otherwise invalid before merge.");
+    expect(fixture.output).not.toContain("PRE_MERGE_OK");
   });
 
   it("reads standing authorization only from main and keeps current-head safety gates", () => {
