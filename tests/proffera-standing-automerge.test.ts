@@ -466,6 +466,7 @@ REPOSITORY=ibboabdoli-ai/Proffera
 STANDING_AUTH_PATH=.github/proffera-standing-merge-authorization.json
 HUMAN_APPROVER=ibboabdoli-ai
 ${authorizationShellBlock()}
+printf 'INITIAL_AUTH_OK:%s\\n' "$authorization_mode"
 ${finalOwnerAuthorizationShellBlock()}
 printf 'PRE_MERGE_OK\\n'
 `, { mode: 0o755 });
@@ -718,6 +719,13 @@ describe("Proffera standing automerge authorization", () => {
     expect(output).not.toContain("AUTH_MODE=");
   });
 
+  it("keeps unchanged owner authorization valid through final revalidation", () => {
+    const fixture = runPreMergeAuthorizationFixture({});
+    expect(fixture.output).toContain("INITIAL_AUTH_OK:fresh-exact-head-owner");
+    expect(fixture.output).toContain("PRE_MERGE_OK");
+    expect(fixture.output).not.toContain("REFUSED:");
+  });
+
   it("revalidates label provenance immediately before merge", () => {
     const fixture = runPreMergeAuthorizationFixture({
       finalEvents: [
@@ -737,7 +745,7 @@ describe("Proffera standing automerge authorization", () => {
         },
       ],
     });
-    expect(fixture.output).toContain("AUTH_MODE=fresh-exact-head-owner");
+    expect(fixture.output).toContain("INITIAL_AUTH_OK:fresh-exact-head-owner");
     expect(fixture.output).toContain("REFUSED:Refused: fresh exact-head owner authorization was removed, edited, or otherwise invalid before merge.");
     expect(fixture.output).not.toContain("PRE_MERGE_OK");
   });
@@ -750,7 +758,7 @@ describe("Proffera standing automerge authorization", () => {
         body: `<!-- proffera-owner-approval:${"4444444444444444444444444444444444444444"} -->\nIBBO-APPROVED: 4444444444444444444444444444444444444444\nextra text`,
       }],
     });
-    expect(fixture.output).toContain("AUTH_MODE=fresh-exact-head-owner");
+    expect(fixture.output).toContain("INITIAL_AUTH_OK:fresh-exact-head-owner");
     expect(fixture.output).toContain("REFUSED:Refused: fresh exact-head owner authorization was removed, edited, or otherwise invalid before merge.");
     expect(fixture.output).not.toContain("PRE_MERGE_OK");
   });
