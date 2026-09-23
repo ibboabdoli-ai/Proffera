@@ -171,7 +171,7 @@ if (RUN_POSTGRES_INTEGRATION) {
           preferred_date, contact_name, contact_email, contact_phone,
           consent_accepted, status, reference_id
         ) values (
-          'vvs', 'R?rmokare', 'S?dert?lje', '15100', 'Authority race regression',
+          'vvs', 'Rörmokare', 'Södertälje', '15100', 'Authority race regression',
           '2030-01-15', 'Race Customer', 'race.customer@example.test', '0700000000',
           true, 'submitted', $1
         )
