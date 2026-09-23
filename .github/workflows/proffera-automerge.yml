@@ -261,6 +261,7 @@ jobs:
             [
               .[]
               | select(.user.login == $owner)
+              | select((.created_at // "") != "" and (.updated_at // .created_at) == .created_at)
               | select((.body // "") == ($marker + "\n" + $line))
             ]
             | length
@@ -651,6 +652,7 @@ jobs:
             [
               .[]
               | select(.user.login == $owner)
+              | select((.created_at // "") != "" and (.updated_at // .created_at) == .created_at)
               | select((.body // "") == ($marker + "\n" + $line))
             ]
             | length

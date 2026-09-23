@@ -400,6 +400,7 @@ function runPreMergeAuthorizationFixture(fixture: PreMergeAuthorizationFixture) 
   const initialComment = {
     id: 10,
     user: { login: "ibboabdoli-ai" },
+    created_at: "2099-09-05T12:00:00Z",
     body: `<!-- proffera-owner-approval:${headSha} -->\nIBBO-APPROVED: ${headSha}`,
   };
 
@@ -598,6 +599,7 @@ describe("Proffera standing automerge authorization", () => {
       }],
       comments: [{
         user: { login: "ibboabdoli-ai" },
+        created_at: "2099-09-05T12:00:00Z",
         body: `<!-- proffera-owner-approval:${staleHead} -->\nIBBO-APPROVED: ${staleHead}`,
       }],
     });
@@ -622,6 +624,7 @@ describe("Proffera standing automerge authorization", () => {
       }],
       comments: [{
         user: { login: "ibboabdoli-ai" },
+        created_at: "2099-09-05T12:00:00Z",
         body: `<!-- proffera-owner-approval:${currentHead} -->\nIBBO-APPROVED: ${currentHead}`,
       }],
     });
@@ -661,6 +664,7 @@ describe("Proffera standing automerge authorization", () => {
         [{
           id: 10,
           user: { login: "ibboabdoli-ai" },
+          created_at: "2099-09-05T12:00:00Z",
           body: `<!-- proffera-owner-approval:${currentHead} -->\nIBBO-APPROVED: ${currentHead}`,
         }],
       ],
@@ -696,6 +700,7 @@ describe("Proffera standing automerge authorization", () => {
       }],
       comments: [{
         user: { login: "github-actions[bot]" },
+        created_at: "2099-09-05T12:00:00Z",
         body: `<!-- proffera-owner-approval:${currentHead} -->\nIBBO-APPROVED: ${currentHead}`,
       }],
     });
@@ -720,11 +725,38 @@ describe("Proffera standing automerge authorization", () => {
       }],
       comments: [{
         user: { login: "ibboabdoli-ai" },
+        created_at: "2099-09-05T12:00:00Z",
         body: `<!-- proffera-owner-approval:${currentHead} -->\nIBBO-APPROVED: ${currentHead}\nextra text`,
       }],
     });
     expect(output).toContain("REFUSED:");
     expect(output).not.toContain("AUTH_MODE=");
+  });
+
+  it("rejects edited owner approval comments even when the body matches the exact current head", () => {
+    const currentHead = "6666666666666666666666666666666666666666";
+    const output = runAuthorizationFixture({
+      pr: basePr({
+        headRefName: "work/proffera-other-manual-path",
+        headRefOid: currentHead,
+        labels: [{ name: "ibbo-approved" }],
+      }),
+      events: [{
+        id: 1,
+        event: "labeled",
+        created_at: "2099-09-05T12:00:00Z",
+        label: { name: "ibbo-approved" },
+        actor: { login: "ibboabdoli-ai" },
+      }],
+      comments: [{
+        user: { login: "ibboabdoli-ai" },
+        created_at: "2099-09-05T12:00:00Z",
+        updated_at: "2099-09-05T12:01:00Z",
+        body: `<!-- proffera-owner-approval:${currentHead} -->\nIBBO-APPROVED: ${currentHead}`,
+      }],
+    });
+    expect(output).toContain("REFUSED:");
+    expect(output).not.toContain("AUTH_MODE=fresh-exact-head-owner");
   });
 
   it("keeps unchanged owner authorization valid through final revalidation", () => {
@@ -769,6 +801,7 @@ describe("Proffera standing automerge authorization", () => {
         [{
           id: 10,
           user: { login: "ibboabdoli-ai" },
+          created_at: "2099-09-05T12:00:00Z",
           body: `<!-- proffera-owner-approval:${"4444444444444444444444444444444444444444"} -->\nIBBO-APPROVED: 4444444444444444444444444444444444444444`,
         }],
       ],
@@ -783,7 +816,24 @@ describe("Proffera standing automerge authorization", () => {
       finalCommentPages: [[{
         id: 10,
         user: { login: "ibboabdoli-ai" },
+        created_at: "2099-09-05T12:00:00Z",
         body: `<!-- proffera-owner-approval:${"4444444444444444444444444444444444444444"} -->\nIBBO-APPROVED: 4444444444444444444444444444444444444444\nextra text`,
+      }], []],
+    });
+    expect(fixture.output).toContain("INITIAL_AUTH_OK:fresh-exact-head-owner");
+    expect(fixture.output).toContain("REFUSED:Refused: fresh exact-head owner authorization was removed, edited, or otherwise invalid before merge.");
+    expect(fixture.output).not.toContain("PRE_MERGE_OK");
+  });
+
+  it("rejects an edited owner approval comment during final revalidation", () => {
+    const headSha = "4444444444444444444444444444444444444444";
+    const fixture = runPreMergeAuthorizationFixture({
+      finalCommentPages: [[{
+        id: 10,
+        user: { login: "ibboabdoli-ai" },
+        created_at: "2099-09-05T12:00:00Z",
+        updated_at: "2099-09-05T12:01:00Z",
+        body: `<!-- proffera-owner-approval:${headSha} -->\nIBBO-APPROVED: ${headSha}`,
       }], []],
     });
     expect(fixture.output).toContain("INITIAL_AUTH_OK:fresh-exact-head-owner");
@@ -809,7 +859,7 @@ describe("Proffera standing automerge authorization", () => {
     expect(workflow).toContain("Final exact-head review is complete for");
     expect(workflow).toContain("I found no issues.");
     expect(workflow).toContain("CodeRabbit review command invocation: v2:[0-9a-f]{64}");
-    expect(workflow).not.toContain("updated_at");
+    expect(workflow).toContain('select((.created_at // "") != "" and (.updated_at // .created_at) == .created_at)');
     expect(workflow).toContain("clean exact-head completion comment");
     expect(workflow).toContain('workflow_run:');
     expect(workflow).toContain('workflows: [CI, Security review regressions]');
@@ -928,6 +978,7 @@ describe("Proffera standing automerge authorization", () => {
       }],
       comments: [{
         user: { login: "ibboabdoli-ai" },
+        created_at: "2099-09-05T12:00:00Z",
         body: `<!-- proffera-owner-approval:${currentHead} -->\nIBBO-APPROVED: ${currentHead}`,
       }],
       changedFiles: ".github/workflows/proffera-automerge.yml\nAGENTS.md\nWORKER_BOOTSTRAP.md\ndb/migrations/0059_x.sql",
