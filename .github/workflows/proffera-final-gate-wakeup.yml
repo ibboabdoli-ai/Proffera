@@ -312,20 +312,20 @@ jobs:
               [.[] | select(.user.login == "github-actions[bot]") | select((.body // "") == ($marker + "\n@coderabbitai review"))]
               | sort_by(.created_at) | last | .created_at // empty
             ' <<< "$comments_json")"
-            coderabbit_ack_time="$(jq -r --arg request_time "$coderabbit_request_time" '
+            reviews_json="$(gh api --paginate "repos/$REPOSITORY/pulls/$pr_number/reviews?per_page=100" --jq '.[]' | jq -s '.')"
+            current_reviews="$(jq -c --arg sha "$head_sha" '[.[] | select(.user.login == "coderabbitai[bot]" and .commit_id == $sha)]' <<< "$reviews_json")"
+            coderabbit_review_completion_time="$(jq -r --arg request_time "$coderabbit_request_time" '
               [
                 .[]
-                | select(.user.login == "coderabbitai[bot]")
                 | select($request_time != "")
-                | select((.created_at // "") >= $request_time)
-                | select((.body // "") | test("(^|[\\r\\n])<!-- CodeRabbit review command invocation: v2:[0-9a-f]{64} -->($|[\\r\\n])"))
+                | select(.state == "APPROVED" or .state == "COMMENTED")
+                | select((.submitted_at // "") >= $request_time)
+                | .submitted_at
               ]
-              | sort_by(.created_at)
-              | first
-              | .created_at // empty
-            ' <<< "$comments_json")"
-            if [ -z "$coderabbit_request_time" ] || [ -z "$coderabbit_ack_time" ] || [ -z "${EVENT_COMMENT_UPDATED_AT:-}" ] || [[ "${EVENT_COMMENT_UPDATED_AT}" < "$coderabbit_ack_time" ]]; then
-              echo "CodeRabbit summary is not bound to a post-request review acknowledgement; refusing wakeup."
+              | max // empty
+            ' <<< "$current_reviews")"
+            if [ -z "$coderabbit_request_time" ] || [ -z "$coderabbit_review_completion_time" ] || [ -z "${EVENT_COMMENT_UPDATED_AT:-}" ] || [[ "${EVENT_COMMENT_UPDATED_AT}" < "$coderabbit_review_completion_time" ]]; then
+              echo "CodeRabbit summary is not bound to a post-request completed current-head review; refusing wakeup."
               exit 0
             fi
           fi

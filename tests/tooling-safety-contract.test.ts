@@ -178,7 +178,7 @@ function codeRabbitRequestComments() {
   ];
 }
 
-function codeRabbitAcknowledgementComment(createdAt = "2026-08-31T10:01:00Z") {
+function codeRabbitInvocationComment(createdAt = "2026-08-31T10:01:00Z") {
   return {
     id: 11,
     user: { login: "coderabbitai[bot]" },
@@ -378,9 +378,10 @@ describe("tooling safety contract", () => {
   it("accepts only trusted exact-head completed clean CodeRabbit comments", () => {
     const gate = ciReviewGateShellBlock();
     expect(gate).toContain("CodeRabbit review command invocation: v2:[0-9a-f]{64}");
-    expect(gate).toContain("coderabbit_ack_time");
-    expect(gate).toContain('select((.created_at // "") >= $request_time)');
-    expect(gate).toContain('select((.updated_at // .created_at // "") >= $ack_time)');
+    expect(gate).toContain("coderabbit_review_completion_time");
+    expect(gate).toContain('select(.state == "APPROVED" or .state == "COMMENTED")');
+    expect(gate).toContain('select((.submitted_at // "") >= $request_time)');
+    expect(gate).toContain('select((.updated_at // .created_at // "") >= $completion_time)');
 
     const malformedHeadSha = runCiReviewFixture({
       changedFiles: ".github/workflows/ci.yml",
@@ -422,16 +423,29 @@ describe("tooling safety contract", () => {
     });
     expect(editedLegacySummaryWithoutAcknowledgement.status).toBe(1);
 
-    const legacySummary = runCiReviewFixture({
+    const invocationOnlyLegacySummary = runCiReviewFixture({
       changedFiles: ".github/workflows/ci.yml",
       comments: [
         ...codeRabbitRequestComments(),
-        codeRabbitAcknowledgementComment(),
+        codeRabbitInvocationComment(),
         legacyCleanCodeRabbitSummary(),
       ],
       failOnPost: true,
     });
-    expect(legacySummary.status).toBe(0);
+    expect(invocationOnlyLegacySummary.status).toBe(1);
+
+    const completedReviewLegacySummary = runCiReviewFixture({
+      changedFiles: ".github/workflows/ci.yml",
+      comments: [...codeRabbitRequestComments(), legacyCleanCodeRabbitSummary()],
+      firstReviews: [{
+        user: { login: "coderabbitai[bot]" },
+        commit_id: reviewHead,
+        state: "COMMENTED",
+        submitted_at: "2026-08-31T10:02:00Z",
+      }],
+      failOnPost: true,
+    });
+    expect(completedReviewLegacySummary.status).toBe(0);
 
     const reviewSubmission = runCiReviewFixture({
       changedFiles: ".github/workflows/ci.yml",

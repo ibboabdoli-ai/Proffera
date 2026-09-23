@@ -269,13 +269,22 @@ function requestComment(createdAt = "2099-09-05T12:00:00Z") {
   };
 }
 
-function codeRabbitAcknowledgement(createdAt = "2099-09-05T12:01:00Z") {
+function codeRabbitInvocation(createdAt = "2099-09-05T12:01:00Z") {
   return {
     id: 9,
     user: { login: "coderabbitai[bot]" },
     body: `${codeRabbitInvocationMarker}\n<details>\n<summary>🧩 Analysis chain</summary>\n</details>`,
     created_at: createdAt,
     updated_at: createdAt,
+  };
+}
+
+function codeRabbitCompletedReview(submittedAt = "2099-09-05T12:02:00Z", commitId = reviewHead) {
+  return {
+    user: { login: "coderabbitai[bot]" },
+    commit_id: commitId,
+    state: "COMMENTED",
+    submitted_at: submittedAt,
   };
 }
 
@@ -323,12 +332,18 @@ describe("event-driven final review gate", () => {
     expect(router).toContain("-f source_evidence_time=");
     expect(wakeup).toContain("issues/comments/$INPUT_SOURCE_ID");
     expect(wakeup).toContain("INPUT_SOURCE_EVIDENCE_TIME");
-    expect(ci).toContain("coderabbit_ack_time");
-    expect(ci).toContain('select((.updated_at // .created_at // "") >= $ack_time)');
-    expect(automerge).toContain("coderabbit_ack_time");
-    expect(automerge).toContain('select((.updated_at // .created_at // "") >= $ack_time)');
+    expect(ci).toContain("coderabbit_review_completion_time");
+    expect(ci).toContain('select(.state == "APPROVED" or .state == "COMMENTED")');
+    expect(ci).toContain('select((.submitted_at // "") >= $request_time)');
+    expect(ci).toContain('select((.updated_at // .created_at // "") >= $completion_time)');
+    expect(automerge).toContain("coderabbit_review_completion_time");
+    expect(automerge).toContain('select(.state == "APPROVED" or .state == "COMMENTED")');
+    expect(automerge).toContain('select((.submitted_at // "") >= $request_time)');
+    expect(automerge).toContain('select((.updated_at // .created_at // "") >= $completion_time)');
     expect(wakeup).toContain("EVENT_COMMENT_CREATED_AT");
-    expect(wakeup).toContain("coderabbit_ack_time");
+    expect(wakeup).toContain("coderabbit_review_completion_time");
+    expect(wakeup).toContain('select(.state == "APPROVED" or .state == "COMMENTED")');
+    expect(wakeup).toContain('select((.submitted_at // "") >= $request_time)');
     expect(wakeup).toContain("<!-- CodeRabbit review command invocation: v2:");
     expect(wakeup).toContain("[0-9a-f]{64}");
     expect(wakeup).toContain("Final exact-head review is complete for");
@@ -498,42 +513,46 @@ describe("event-driven final review gate", () => {
     expect(`${reviewRace.result.stdout}${reviewRace.result.stderr}`).toContain("CodeRabbit changes were recorded before final-gate wakeup");
   }, 120000);
 
-  it("requires a post-request CodeRabbit acknowledgement before accepting an updated persistent summary", () => {
+  it("requires a post-request completed current-head CodeRabbit review before accepting a persistent summary", () => {
     const summaryBody = `<!-- recent_review_start -->
 No actionable comments were generated in the recent review.
 ${reviewHead}
 <!-- recent_review_end -->`;
 
-    const staleSummary = runWakeupFixture({
+    const invocationAlone = runWakeupFixture({
       body: summaryBody,
-      createdAt: "2099-09-05T11:50:00Z",
-      updatedAt: "2099-09-05T11:59:00Z",
-      comments: [requestComment("2099-09-05T12:00:00Z")],
-    });
-    expect(staleSummary.rerun).toBe(false);
-
-    const editedWithoutAcknowledgement = runWakeupFixture({
-      body: summaryBody,
-      createdAt: "2099-09-05T11:50:00Z",
+      createdAt: "2099-09-05T12:01:30Z",
       updatedAt: "2099-09-05T12:03:00Z",
-      comments: [requestComment("2099-09-05T12:00:00Z")],
+      comments: [
+        requestComment("2099-09-05T12:00:00Z"),
+        codeRabbitInvocation("2099-09-05T12:01:00Z"),
+      ],
     });
-    expect(editedWithoutAcknowledgement.rerun).toBe(false);
-    expect(`${editedWithoutAcknowledgement.result.stdout}${editedWithoutAcknowledgement.result.stderr}`).toContain(
-      "CodeRabbit summary is not bound to a post-request review acknowledgement",
+    expect(invocationAlone.rerun).toBe(false);
+    expect(`${invocationAlone.result.stdout}${invocationAlone.result.stderr}`).toContain(
+      "CodeRabbit summary is not bound to a post-request completed current-head review",
     );
 
-    const acknowledgedSummary = runWakeupFixture({
+    const editedPreRequestSummary = runWakeupFixture({
       body: summaryBody,
       createdAt: "2099-09-05T11:50:00Z",
       updatedAt: "2099-09-05T12:03:00Z",
       comments: [
         requestComment("2099-09-05T12:00:00Z"),
-        codeRabbitAcknowledgement("2099-09-05T12:01:00Z"),
+        codeRabbitInvocation("2099-09-05T12:01:00Z"),
       ],
     });
-    expect(acknowledgedSummary.result.status).toBe(0);
-    expect(acknowledgedSummary.rerun).toBe(true);
+    expect(editedPreRequestSummary.rerun).toBe(false);
+
+    const completedCurrentHeadReview = runWakeupFixture({
+      body: summaryBody,
+      createdAt: "2099-09-05T11:50:00Z",
+      updatedAt: "2099-09-05T12:03:00Z",
+      comments: [requestComment("2099-09-05T12:00:00Z")],
+      firstReviews: [codeRabbitCompletedReview("2099-09-05T12:02:00Z")],
+    });
+    expect(completedCurrentHeadReview.result.status).toBe(0);
+    expect(completedCurrentHeadReview.rerun).toBe(true);
   }, 120000);
 
   it("does not classify availability/status comments as the new clean CodeRabbit decision", () => {
@@ -565,19 +584,25 @@ ${reviewHead}
       created_at: "2099-09-05T11:50:00Z",
       updated_at: "2099-09-05T12:03:00Z",
     };
-    const summaryWithoutAcknowledgement = runAutomergeFixture({
+    const summaryWithoutCompletion = runAutomergeFixture({
       comments: [requestComment("2099-09-05T12:00:00Z"), editedSummary],
     });
-    expect(summaryWithoutAcknowledgement.stdout).not.toContain("AI_REVIEW_OK");
+    expect(summaryWithoutCompletion.stdout).not.toContain("AI_REVIEW_OK");
 
-    const summaryWithAcknowledgement = runAutomergeFixture({
+    const summaryWithInvocationOnly = runAutomergeFixture({
       comments: [
         requestComment("2099-09-05T12:00:00Z"),
-        codeRabbitAcknowledgement("2099-09-05T12:01:00Z"),
+        codeRabbitInvocation("2099-09-05T12:01:00Z"),
         editedSummary,
       ],
     });
-    expect(summaryWithAcknowledgement.stdout).toContain("AI_REVIEW_OK");
+    expect(summaryWithInvocationOnly.stdout).not.toContain("AI_REVIEW_OK");
+
+    const summaryWithCompletedCurrentHeadReview = runAutomergeFixture({
+      comments: [requestComment("2099-09-05T12:00:00Z"), editedSummary],
+      firstReviews: [codeRabbitCompletedReview("2099-09-05T12:02:00Z")],
+    });
+    expect(summaryWithCompletedCurrentHeadReview.stdout).toContain("AI_REVIEW_OK");
 
     const negatives = [
       runAutomergeFixture({
