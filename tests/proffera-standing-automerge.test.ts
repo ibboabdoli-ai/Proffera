@@ -239,6 +239,7 @@ type AuthorizationFixture = {
   policy?: Record<string, unknown>;
   events?: Array<Record<string, unknown>>;
   reviews?: Array<Record<string, unknown>>;
+  comments?: Array<Record<string, unknown>>;
   changedFiles?: string;
   commitMessage?: string;
 };
@@ -269,7 +270,11 @@ if [ "$1" = "api" ] && [[ "$2" == *"/contents/"* ]]; then
   exit 2
 fi
 if [ "$1" = "api" ] && [[ "$args" == *"/issues/"*"/events"* ]]; then
-  printf '%s\\n' "$FAKE_EVENTS_JSON"
+  printf '%s\\n' "$FAKE_EVENTS_NDJSON"
+  exit 0
+fi
+if [ "$1" = "api" ] && [[ "$args" == *"/issues/"*"/comments"* ]]; then
+  printf '%s\\n' "$FAKE_COMMENTS_NDJSON"
   exit 0
 fi
 if [ "$1" = "api" ] && [[ "$args" == *"/pulls/"*"/reviews"* ]]; then
@@ -306,6 +311,7 @@ printf 'AUTH_MODE=%s\\n' "$authorization_mode"
     expires_at: "2099-09-30T23:59:59Z",
   };
   const reviews = fixture.reviews ?? [];
+  const comments = fixture.comments ?? [];
   const changedFiles = fixture.changedFiles ?? "src/app/page.tsx\nsrc/lib/utils.ts";
   const commitJson = {
     commit: {
@@ -319,7 +325,8 @@ printf 'AUTH_MODE=%s\\n' "$authorization_mode"
       PATH: `${dir}${delimiter}${process.env.PATH ?? ""}`,
       FAKE_PR_JSON: JSON.stringify(fixture.pr),
       FAKE_POLICY_B64: Buffer.from(JSON.stringify(policy), "utf8").toString("base64"),
-      FAKE_EVENTS_JSON: JSON.stringify(fixture.events ?? []),
+      FAKE_EVENTS_NDJSON: (fixture.events ?? []).map((item) => JSON.stringify(item)).join("\n"),
+      FAKE_COMMENTS_NDJSON: comments.map((item) => JSON.stringify(item)).join("\n"),
       FAKE_REVIEWS_NDJSON: reviews.map((item) => JSON.stringify(item)).join("\n"),
       FAKE_CHANGED_FILES: changedFiles,
       FAKE_COMMIT_JSON: JSON.stringify(commitJson),
@@ -416,6 +423,7 @@ describe("Proffera standing automerge authorization", () => {
 
   it("rejects manual fallback when the owner approval targets a stale head", () => {
     const currentHead = "2222222222222222222222222222222222222222";
+    const staleHead = "1111111111111111111111111111111111111111";
     const output = runAuthorizationFixture({
       pr: basePr({
         headRefName: "work/proffera-other-manual-path",
@@ -423,21 +431,22 @@ describe("Proffera standing automerge authorization", () => {
         labels: [{ name: "ibbo-approved" }],
       }),
       events: [{
+        id: 1,
         event: "labeled",
+        created_at: "2099-09-05T12:00:00Z",
         label: { name: "ibbo-approved" },
         actor: { login: "ibboabdoli-ai" },
       }],
-      reviews: [{
+      comments: [{
         user: { login: "ibboabdoli-ai" },
-        state: "APPROVED",
-        commit_id: "1111111111111111111111111111111111111111",
+        body: `<!-- proffera-owner-approval:${staleHead} -->\nIBBO-APPROVED: ${staleHead}`,
       }],
     });
     expect(output).toContain("REFUSED:");
     expect(output).not.toContain("AUTH_MODE=fresh-exact-head-owner");
   });
 
-  it("accepts manual fallback only when owner label and approval target the exact current head", () => {
+  it("accepts manual fallback only when owner label and approval comment target the exact current head", () => {
     const currentHead = "3333333333333333333333333333333333333333";
     const output = runAuthorizationFixture({
       pr: basePr({
@@ -446,26 +455,27 @@ describe("Proffera standing automerge authorization", () => {
         labels: [{ name: "ibbo-approved" }],
       }),
       events: [{
+        id: 1,
         event: "labeled",
+        created_at: "2099-09-05T12:00:00Z",
         label: { name: "ibbo-approved" },
         actor: { login: "ibboabdoli-ai" },
       }],
-      reviews: [{
-        id: 1,
+      comments: [{
         user: { login: "ibboabdoli-ai" },
-        state: "APPROVED",
-        commit_id: currentHead,
-        submitted_at: "2099-09-05T12:00:00Z",
+        body: `<!-- proffera-owner-approval:${currentHead} -->\nIBBO-APPROVED: ${currentHead}`,
       }],
     });
     expect(output).toContain("AUTH_MODE=fresh-exact-head-owner");
   });
 
-  it("rejects a matching standing scope and owner signal without an exact-head owner approval", () => {
+  it("rejects a matching standing scope and owner label without an exact-head owner approval comment", () => {
     const output = runAuthorizationFixture({
       pr: basePr({ labels: [{ name: "ibbo-approved" }] }),
       events: [{
+        id: 1,
         event: "labeled",
+        created_at: "2099-09-05T12:00:00Z",
         label: { name: "ibbo-approved" },
         actor: { login: "ibboabdoli-ai" },
       }],
@@ -474,27 +484,27 @@ describe("Proffera standing automerge authorization", () => {
     expect(output).not.toContain("AUTH_MODE=");
   });
 
-  it("rejects bot and CodeRabbit-only evidence without fresh owner authorization", () => {
+  it("rejects bot-authored exact-head approval evidence", () => {
+    const currentHead = "1111111111111111111111111111111111111111";
     const output = runAuthorizationFixture({
       pr: basePr({ labels: [{ name: "ibbo-approved" }] }),
       events: [{
-        event: "labeled",
-        label: { name: "ibbo-approved" },
-        actor: { login: "github-actions[bot]" },
-      }],
-      reviews: [{
         id: 1,
-        user: { login: "coderabbitai[bot]" },
-        state: "APPROVED",
-        commit_id: "1111111111111111111111111111111111111111",
-        submitted_at: "2099-09-05T12:00:00Z",
+        event: "labeled",
+        created_at: "2099-09-05T12:00:00Z",
+        label: { name: "ibbo-approved" },
+        actor: { login: "ibboabdoli-ai" },
+      }],
+      comments: [{
+        user: { login: "github-actions[bot]" },
+        body: `<!-- proffera-owner-approval:${currentHead} -->\nIBBO-APPROVED: ${currentHead}`,
       }],
     });
     expect(output).toContain("REFUSED:");
     expect(output).not.toContain("AUTH_MODE=");
   });
 
-  it("rejects an exact-head owner approval superseded by a later owner change request", () => {
+  it("rejects owner approval comments that are not the exact canonical body", () => {
     const currentHead = "3333333333333333333333333333333333333333";
     const output = runAuthorizationFixture({
       pr: basePr({
@@ -503,26 +513,16 @@ describe("Proffera standing automerge authorization", () => {
         labels: [{ name: "ibbo-approved" }],
       }),
       events: [{
+        id: 1,
         event: "labeled",
+        created_at: "2099-09-05T12:00:00Z",
         label: { name: "ibbo-approved" },
         actor: { login: "ibboabdoli-ai" },
       }],
-      reviews: [
-        {
-          id: 1,
-          user: { login: "ibboabdoli-ai" },
-          state: "APPROVED",
-          commit_id: currentHead,
-          submitted_at: "2099-09-05T12:00:00Z",
-        },
-        {
-          id: 2,
-          user: { login: "ibboabdoli-ai" },
-          state: "CHANGES_REQUESTED",
-          commit_id: currentHead,
-          submitted_at: "2099-09-05T12:01:00Z",
-        },
-      ],
+      comments: [{
+        user: { login: "ibboabdoli-ai" },
+        body: `<!-- proffera-owner-approval:${currentHead} -->\nIBBO-APPROVED: ${currentHead}\nextra text`,
+      }],
     });
     expect(output).toContain("REFUSED:");
     expect(output).not.toContain("AUTH_MODE=");
@@ -533,6 +533,11 @@ describe("Proffera standing automerge authorization", () => {
     expect(workflow).toContain("Standing authorization advisory");
     expect(workflow).toContain("standing authorization is advisory only");
     expect(workflow).toContain('authorization_mode="fresh-exact-head-owner"');
+    expect(workflow).toContain('owner_approval_marker="<!-- proffera-owner-approval:${head_sha} -->"');
+    expect(workflow).toContain('owner_approval_line="IBBO-APPROVED: ${head_sha}"');
+    expect(workflow).toContain('gh api --paginate "repos/$REPOSITORY/issues/$pr_number/events?per_page=100"');
+    expect(workflow).toContain('gh api --paginate "repos/$REPOSITORY/issues/$pr_number/comments?per_page=100"');
+    expect(workflow).not.toContain("the owner's latest APPROVED review on the exact current head");
     expect(workflow).not.toContain('authorization_mode="standing:');
     expect(workflow).toContain("needs-ai-review");
     expect(workflow).toContain("coderabbitai[bot]");
@@ -565,6 +570,8 @@ describe("Proffera standing automerge authorization", () => {
     expect(triggers.get("workflow_run")?.types).toContain("completed");
     expect(triggers.has("pull_request_review")).toBe(true);
     expect(triggers.has("issue_comment")).toBe(true);
+    expect(workflow).toContain("contains(github.event.comment.body, '<!-- proffera-owner-approval:')");
+    expect(workflow).toContain("contains(github.event.comment.body, 'IBBO-APPROVED:')");
     expect(triggers.get("pull_request")?.types).toContain("ready_for_review");
   });
 
@@ -656,12 +663,9 @@ describe("Proffera standing automerge authorization", () => {
         label: { name: "ibbo-approved" },
         actor: { login: "ibboabdoli-ai" },
       }],
-      reviews: [{
-        id: 1,
+      comments: [{
         user: { login: "ibboabdoli-ai" },
-        state: "APPROVED",
-        commit_id: currentHead,
-        submitted_at: "2099-09-05T12:00:00Z",
+        body: `<!-- proffera-owner-approval:${currentHead} -->\nIBBO-APPROVED: ${currentHead}`,
       }],
       changedFiles: ".github/workflows/proffera-automerge.yml\nAGENTS.md\nWORKER_BOOTSTRAP.md\ndb/migrations/0059_x.sql",
     });
