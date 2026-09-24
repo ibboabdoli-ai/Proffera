@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+﻿import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { delimiter, join, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
@@ -286,6 +286,24 @@ if [ "$1" = "api" ] && [[ "$2" == *"/contents/"* ]]; then
   printf 'standing policy request did not exactly match main path: %s\\n' "$args" >&2
   exit 2
 fi
+if [ "$1" = "api" ] && [ "$2" = "graphql" ]; then
+  node_id=""
+  for arg in "$@"; do
+    case "$arg" in
+      id=*) node_id="\${arg#id=}" ;;
+    esac
+  done
+  if [ -z "$node_id" ]; then
+    printf 'missing GraphQL node id\\n' >&2
+    exit 2
+  fi
+  if [[ "$node_id" == EDITED_* ]]; then
+    printf '{"data":{"node":{"__typename":"IssueComment","lastEditedAt":"2099-09-05T12:00:00Z"}}}\\n'
+  else
+    printf '{"data":{"node":{"__typename":"IssueComment","lastEditedAt":null}}}\\n'
+  fi
+  exit 0
+fi
 if [ "$1" = "api" ] && [[ "$args" == *"/issues/"*"/events"* ]]; then
   printf '%s\\n' "$FAKE_EVENTS_PAGE1_NDJSON"
   if [[ "$args" == *"--paginate"* ]] && [ -n "$FAKE_EVENTS_PAGE2_NDJSON" ]; then
@@ -399,6 +417,7 @@ function runPreMergeAuthorizationFixture(fixture: PreMergeAuthorizationFixture) 
   };
   const initialComment = {
     id: 10,
+    node_id: "UNEDITED_PREMERGE_INITIAL",
     user: { login: "ibboabdoli-ai" },
     created_at: "2099-09-05T12:00:00Z",
     body: `<!-- proffera-owner-approval:${headSha} -->\nIBBO-APPROVED: ${headSha}`,
@@ -423,6 +442,24 @@ fi
 if [ "$1" = "api" ] && [[ "$2" == *"/contents/"* ]]; then
   printf 'standing policy request did not exactly match main path: %s\\n' "$args" >&2
   exit 2
+fi
+if [ "$1" = "api" ] && [ "$2" = "graphql" ]; then
+  node_id=""
+  for arg in "$@"; do
+    case "$arg" in
+      id=*) node_id="\${arg#id=}" ;;
+    esac
+  done
+  if [ -z "$node_id" ]; then
+    printf 'missing GraphQL node id\\n' >&2
+    exit 2
+  fi
+  if [[ "$node_id" == EDITED_* ]]; then
+    printf '{"data":{"node":{"__typename":"IssueComment","lastEditedAt":"2099-09-05T12:00:00Z"}}}\\n'
+  else
+    printf '{"data":{"node":{"__typename":"IssueComment","lastEditedAt":null}}}\\n'
+  fi
+  exit 0
 fi
 if [ "$1" = "api" ] && [[ "$args" == *"/issues/"*"/events"* ]]; then
   mkdir -p "$STATE_DIR"
@@ -623,6 +660,7 @@ describe("Proffera standing automerge authorization", () => {
         actor: { login: "ibboabdoli-ai" },
       }],
       comments: [{
+        node_id: "UNEDITED_INITIAL_EXACT",
         user: { login: "ibboabdoli-ai" },
         created_at: "2099-09-05T12:00:00Z",
         body: `<!-- proffera-owner-approval:${currentHead} -->\nIBBO-APPROVED: ${currentHead}`,
@@ -663,6 +701,7 @@ describe("Proffera standing automerge authorization", () => {
         }],
         [{
           id: 10,
+          node_id: "UNEDITED_INITIAL_PAGED",
           user: { login: "ibboabdoli-ai" },
           created_at: "2099-09-05T12:00:00Z",
           body: `<!-- proffera-owner-approval:${currentHead} -->\nIBBO-APPROVED: ${currentHead}`,
@@ -733,7 +772,7 @@ describe("Proffera standing automerge authorization", () => {
     expect(output).not.toContain("AUTH_MODE=");
   });
 
-  it("rejects edited owner approval comments even when the body matches the exact current head", () => {
+  it("rejects GraphQL-edited owner approval comments even when REST timestamps are equal", () => {
     const currentHead = "6666666666666666666666666666666666666666";
     const output = runAuthorizationFixture({
       pr: basePr({
@@ -749,9 +788,10 @@ describe("Proffera standing automerge authorization", () => {
         actor: { login: "ibboabdoli-ai" },
       }],
       comments: [{
+        node_id: "EDITED_INITIAL",
         user: { login: "ibboabdoli-ai" },
         created_at: "2099-09-05T12:00:00Z",
-        updated_at: "2099-09-05T12:01:00Z",
+        updated_at: "2099-09-05T12:00:00Z",
         body: `<!-- proffera-owner-approval:${currentHead} -->\nIBBO-APPROVED: ${currentHead}`,
       }],
     });
@@ -800,6 +840,7 @@ describe("Proffera standing automerge authorization", () => {
         }],
         [{
           id: 10,
+          node_id: "UNEDITED_FINAL_PAGED",
           user: { login: "ibboabdoli-ai" },
           created_at: "2099-09-05T12:00:00Z",
           body: `<!-- proffera-owner-approval:${"4444444444444444444444444444444444444444"} -->\nIBBO-APPROVED: 4444444444444444444444444444444444444444`,
@@ -825,14 +866,15 @@ describe("Proffera standing automerge authorization", () => {
     expect(fixture.output).not.toContain("PRE_MERGE_OK");
   });
 
-  it("rejects an edited owner approval comment during final revalidation", () => {
+  it("rejects a GraphQL-edited owner approval comment during final revalidation when REST timestamps are equal", () => {
     const headSha = "4444444444444444444444444444444444444444";
     const fixture = runPreMergeAuthorizationFixture({
       finalCommentPages: [[{
         id: 10,
+        node_id: "EDITED_FINAL",
         user: { login: "ibboabdoli-ai" },
         created_at: "2099-09-05T12:00:00Z",
-        updated_at: "2099-09-05T12:01:00Z",
+        updated_at: "2099-09-05T12:00:00Z",
         body: `<!-- proffera-owner-approval:${headSha} -->\nIBBO-APPROVED: ${headSha}`,
       }], []],
     });
@@ -859,7 +901,9 @@ describe("Proffera standing automerge authorization", () => {
     expect(workflow).toContain("Final exact-head review is complete for");
     expect(workflow).toContain("I found no issues.");
     expect(workflow).toContain("CodeRabbit review command invocation: v2:[0-9a-f]{64}");
-    expect(workflow).toContain('select((.created_at // "") != "" and (.updated_at // .created_at) == .created_at)');
+    expect(workflow).toContain("... on IssueComment { lastEditedAt }");
+    expect(workflow).toContain('.data.node.__typename == "IssueComment" and .data.node.lastEditedAt == null');
+    expect(workflow).not.toContain('(.updated_at // .created_at) == .created_at');
     expect(workflow).toContain("clean exact-head completion comment");
     expect(workflow).toContain('workflow_run:');
     expect(workflow).toContain('workflows: [CI, Security review regressions]');
@@ -977,6 +1021,7 @@ describe("Proffera standing automerge authorization", () => {
         actor: { login: "ibboabdoli-ai" },
       }],
       comments: [{
+        node_id: "UNEDITED_SENSITIVE_PATH",
         user: { login: "ibboabdoli-ai" },
         created_at: "2099-09-05T12:00:00Z",
         body: `<!-- proffera-owner-approval:${currentHead} -->\nIBBO-APPROVED: ${currentHead}`,
