@@ -94,6 +94,15 @@ jobs:
             fi
 
             pr_number="${ISSUE_NUMBER:-}"
+
+            if [ "$ACTOR" = "ibboabdoli-ai" ] \
+              && grep -Fq '<!-- proffera-owner-approval:' <<< "${COMMENT_BODY:-}" \
+              && grep -Fq 'IBBO-APPROVED:' <<< "${COMMENT_BODY:-}"; then
+              dispatch_pr proffera-automerge.yml "$pr_number"
+              echo "Dispatched gated automerge evaluation for exact-head owner approval comment $COMMENT_ID."
+              exit 0
+            fi
+
             wake_final=no
             case "$ACTOR" in
               "coderabbitai[bot]")

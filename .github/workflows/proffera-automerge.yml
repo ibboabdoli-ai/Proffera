@@ -148,7 +148,7 @@ jobs:
           fi
 
           # Actual merge authorization has exactly one mode: an owner-applied
-          # ibbo-approved label plus the owner's latest APPROVED review anchored
+          # ibbo-approved label plus an owner-authored approval comment anchored
           # to the exact current head. Standing policy is advisory routing/scope
           # context only and can never independently authorize a merge.
           authorization_mode="none"
@@ -222,30 +222,58 @@ jobs:
 
           approval_actor=""
           if [ "$has_label" = "yes" ]; then
-            approval_json="$(gh api "repos/$REPOSITORY/issues/$pr_number/events?per_page=100")"
-            approval_actor="$(jq -r '[.[] | select(.event == "labeled" and .label.name == "ibbo-approved")] | last | .actor.login // ""' <<< "$approval_json")"
+            approval_json="$(gh api --paginate "repos/$REPOSITORY/issues/$pr_number/events?per_page=100" --jq '.[]' | jq -s '.')"
+            approval_actor="$(jq -r '[.[] | select(.event == "labeled" and .label.name == "ibbo-approved")] | sort_by(.created_at // "", .id // 0) | last | .actor.login // ""' <<< "$approval_json")"
           fi
 
-          reviews_json="$(gh api --paginate "repos/$REPOSITORY/pulls/$pr_number/reviews?per_page=100" --jq '.[]' | jq -s '.')"
-          owner_head_approval_count="$(jq -r --arg owner "$HUMAN_APPROVER" --arg sha "$head_sha" '[.[] | select(.user.login == $owner and .state == "APPROVED" and .commit_id == $sha)] | length' <<< "$reviews_json")"
-          owner_head_latest_state="$(jq -r --arg owner "$HUMAN_APPROVER" --arg sha "$head_sha" '[.[] | select(.user.login == $owner and .commit_id == $sha)] | sort_by(.submitted_at // "", .id // 0) | last | .state // ""' <<< "$reviews_json")"
+          owner_approval_marker="<!-- proffera-owner-approval:${head_sha} -->"
+          owner_approval_line="IBBO-APPROVED: ${head_sha}"
+          owner_comments_json="$(gh api --paginate "repos/$REPOSITORY/issues/$pr_number/comments?per_page=100" --jq '.[]' | jq -s '.')"
+          count_unedited_owner_approvals() {
+            local comments_json="$1"
+            local count=0
+            local node_id edit_json edit_status
+
+            while IFS= read -r node_id; do
+              [ -z "$node_id" ] && continue
+              set +e
+              edit_json="$(gh api graphql \
+                -f query='query($id: ID!) { node(id: $id) { __typename ... on IssueComment { lastEditedAt } } }' \
+                -F id="$node_id" 2>/dev/null)"
+              edit_status=$?
+              set -e
+              if [ "$edit_status" -ne 0 ]; then
+                continue
+              fi
+              if jq -e '.data.node.__typename == "IssueComment" and .data.node.lastEditedAt == null' <<< "$edit_json" >/dev/null 2>&1; then
+                count=$((count + 1))
+              fi
+            done < <(jq -r --arg owner "$HUMAN_APPROVER" --arg marker "$owner_approval_marker" --arg line "$owner_approval_line" '
+              .[]
+              | select(.user.login == $owner)
+              | select((.body // "") == ($marker + "\n" + $line))
+              | .node_id // empty
+            ' <<< "$comments_json")
+
+            printf '%s' "$count"
+          }
+
+          owner_head_approval_count="$(count_unedited_owner_approvals "$owner_comments_json")"
 
           summary "### Per-PR human authorization"
           summary "- ibbo-approved present: $has_label"
           summary "- Label actor: ${approval_actor:-none}"
-          summary "- Exact-current-head owner approvals: $owner_head_approval_count"
-          summary "- Latest exact-current-head owner review: ${owner_head_latest_state:-none}"
+          summary "- Exact-current-head owner approval comments: $owner_head_approval_count"
           summary ""
 
           if [ "$has_label" = "yes" ] \
             && [ "$approval_actor" = "$HUMAN_APPROVER" ] \
-            && [ "$owner_head_approval_count" -gt 0 ] \
-            && [ "$owner_head_latest_state" = "APPROVED" ]; then
+            && [ "$owner_head_approval_count" -gt 0 ]; then
             authorization_mode="fresh-exact-head-owner"
           fi
 
           if [ "$authorization_mode" = "none" ]; then
-            refuse "Refused: actual merge eligibility requires both an owner-controlled ibbo-approved label and the owner's latest APPROVED review on the exact current head; standing authorization is advisory only."
+            refuse "Refused: actual merge eligibility requires both an owner-controlled ibbo-approved label and an owner-authored approval comment on the exact current head; standing authorization is advisory only."
           fi
 
           summary "- Authorization mode: $authorization_mode"
@@ -622,17 +650,15 @@ jobs:
             refuse "Refused: PR head moved after fresh owner authorization; current head is $final_head_sha, authorized head is $head_sha."
           fi
 
-          final_approval_json="$(gh api "repos/$REPOSITORY/issues/$pr_number/events?per_page=100")"
-          final_approval_actor="$(jq -r '[.[] | select(.event == "labeled" and .label.name == "ibbo-approved")] | last | .actor.login // ""' <<< "$final_approval_json")"
-          final_owner_reviews_json="$(gh api --paginate "repos/$REPOSITORY/pulls/$pr_number/reviews?per_page=100" --jq '.[]' | jq -s '.')"
-          final_owner_head_approval_count="$(jq -r --arg owner "$HUMAN_APPROVER" --arg sha "$head_sha" '[.[] | select(.user.login == $owner and .state == "APPROVED" and .commit_id == $sha)] | length' <<< "$final_owner_reviews_json")"
-          final_owner_head_latest_state="$(jq -r --arg owner "$HUMAN_APPROVER" --arg sha "$head_sha" '[.[] | select(.user.login == $owner and .commit_id == $sha)] | sort_by(.submitted_at // "", .id // 0) | last | .state // ""' <<< "$final_owner_reviews_json")"
+          final_approval_json="$(gh api --paginate "repos/$REPOSITORY/issues/$pr_number/events?per_page=100" --jq '.[]' | jq -s '.')"
+          final_approval_actor="$(jq -r '[.[] | select(.event == "labeled" and .label.name == "ibbo-approved")] | sort_by(.created_at // "", .id // 0) | last | .actor.login // ""' <<< "$final_approval_json")"
+          final_owner_comments_json="$(gh api --paginate "repos/$REPOSITORY/issues/$pr_number/comments?per_page=100" --jq '.[]' | jq -s '.')"
+          final_owner_head_approval_count="$(count_unedited_owner_approvals "$final_owner_comments_json")"
 
           if [ "$final_has_label" != "yes" ] \
             || [ "$final_approval_actor" != "$HUMAN_APPROVER" ] \
-            || [ "$final_owner_head_approval_count" -eq 0 ] \
-            || [ "$final_owner_head_latest_state" != "APPROVED" ]; then
-            refuse "Refused: fresh exact-head owner authorization was removed, dismissed, superseded, or otherwise invalid before merge."
+            || [ "$final_owner_head_approval_count" -eq 0 ]; then
+            refuse "Refused: fresh exact-head owner authorization was removed, edited, or otherwise invalid before merge."
           fi
 
           summary "- Fresh exact-head owner authorization revalidated immediately before merge"
