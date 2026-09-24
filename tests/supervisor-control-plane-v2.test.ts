@@ -37,12 +37,34 @@ function runPlannerCapacityStep(controlComments: Array<Record<string, unknown>>)
   const output = join(dir, "github-output.txt");
 
   writeFileSync(fakeGh, `#!/usr/bin/env node
+const { spawnSync } = require("node:child_process");
+const { writeSync } = require("node:fs");
 const args = process.argv.slice(2);
 const endpoint = args.find((arg) => arg.startsWith("repos/")) || "";
+const jqIndex = args.indexOf("--jq");
+const emit = (payload) => {
+  const raw = JSON.stringify(payload);
+  if (jqIndex < 0) {
+    writeSync(1, raw + "\\n");
+    process.exit(0);
+  }
+  const expression = args[jqIndex + 1];
+  if (!expression) {
+    process.stderr.write("missing --jq expression\\n");
+    process.exit(93);
+  }
+  const result = spawnSync("jq", ["-r", expression], {
+    input: raw,
+    encoding: "utf8",
+    maxBuffer: 64 * 1024 * 1024,
+  });
+  if (result.stdout) writeSync(1, result.stdout);
+  if (result.stderr) writeSync(2, result.stderr);
+  process.exit(result.status ?? 1);
+};
 if (endpoint.includes("/issues/548/comments?per_page=100")) {
   const comments = JSON.parse(process.env.FAKE_CONTROL_COMMENTS || "[]");
-  for (const comment of comments) process.stdout.write(JSON.stringify(comment) + "\\n");
-  process.exit(0);
+  emit(comments);
 }
 process.stderr.write("unexpected gh call: " + JSON.stringify(args) + "\\n");
 process.exit(91);
@@ -97,15 +119,37 @@ process.exit(92);
 `, { mode: 0o755 });
 
   writeFileSync(fakeGh, `#!/usr/bin/env node
+const { spawnSync } = require("node:child_process");
+const { writeSync } = require("node:fs");
 const args = process.argv.slice(2);
 const endpoint = args.find((arg) => arg.startsWith("repos/")) || "";
+const jqIndex = args.indexOf("--jq");
+const emit = (payload) => {
+  const raw = JSON.stringify(payload);
+  if (jqIndex < 0) {
+    writeSync(1, raw + "\\n");
+    process.exit(0);
+  }
+  const expression = args[jqIndex + 1];
+  if (!expression) {
+    process.stderr.write("missing --jq expression\\n");
+    process.exit(93);
+  }
+  const result = spawnSync("jq", ["-r", expression], {
+    input: raw,
+    encoding: "utf8",
+    maxBuffer: 64 * 1024 * 1024,
+  });
+  if (result.stdout) writeSync(1, result.stdout);
+  if (result.stderr) writeSync(2, result.stderr);
+  process.exit(result.status ?? 1);
+};
 if (endpoint.endsWith("/issues/548")) {
-  process.stdout.write(JSON.stringify({ body: "planner body" }) + "\\n");
-  process.exit(0);
+  emit({ body: "planner body" });
 }
 if (endpoint.includes("/pulls?state=open&base=main&per_page=100")) {
   const body = "y".repeat(Number(process.env.FAKE_LARGE_PR_BODY_SIZE || 0));
-  require("node:fs").writeSync(1, JSON.stringify({
+  emit([{
     number: 849,
     title: "Large planner fixture",
     draft: false,
@@ -117,12 +161,10 @@ if (endpoint.includes("/pulls?state=open&base=main&per_page=100")) {
     base: { ref: "main" },
     user: { login: "ibboabdoli-ai" },
     body
-  }) + "\\n");
-  process.exit(0);
+  }]);
 }
 if (endpoint.includes("/pulls/849/files?per_page=100")) {
-  process.stdout.write("src/large-planner-fixture.ts\\n");
-  process.exit(0);
+  emit([{ filename: "src/large-planner-fixture.ts" }]);
 }
 process.stderr.write("unexpected gh call: " + JSON.stringify(args) + "\\n");
 process.exit(91);
