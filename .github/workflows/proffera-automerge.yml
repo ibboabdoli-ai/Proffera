@@ -257,27 +257,36 @@ jobs:
           owner_approval_marker="<!-- proffera-owner-approval:${head_sha} -->"
           owner_approval_line="IBBO-APPROVED: ${head_sha}"
           owner_comments_json="$(gh api --paginate "repos/$REPOSITORY/issues/$pr_number/comments?per_page=100" --jq '.[]' | jq -s '.')"
-          owner_head_approval_count=0
-          while IFS= read -r owner_comment_node_id; do
-            [ -z "$owner_comment_node_id" ] && continue
-            set +e
-            owner_comment_edit_json="$(gh api graphql \
-              -f query='query($id: ID!) { node(id: $id) { __typename ... on IssueComment { lastEditedAt } } }' \
-              -F id="$owner_comment_node_id" 2>/dev/null)"
-            owner_comment_edit_status=$?
-            set -e
-            if [ "$owner_comment_edit_status" -ne 0 ]; then
-              continue
-            fi
-            if jq -e '.data.node.__typename == "IssueComment" and .data.node.lastEditedAt == null' <<< "$owner_comment_edit_json" >/dev/null 2>&1; then
-              owner_head_approval_count=$((owner_head_approval_count + 1))
-            fi
-          done < <(jq -r --arg owner "$HUMAN_APPROVER" --arg marker "$owner_approval_marker" --arg line "$owner_approval_line" '
-            .[]
-            | select(.user.login == $owner)
-            | select((.body // "") == ($marker + "\n" + $line))
-            | .node_id // empty
-          ' <<< "$owner_comments_json")
+          count_unedited_owner_approvals() {
+            local comments_json="$1"
+            local count=0
+            local node_id edit_json edit_status
+
+            while IFS= read -r node_id; do
+              [ -z "$node_id" ] && continue
+              set +e
+              edit_json="$(gh api graphql \
+                -f query='query($id: ID!) { node(id: $id) { __typename ... on IssueComment { lastEditedAt } } }' \
+                -F id="$node_id" 2>/dev/null)"
+              edit_status=$?
+              set -e
+              if [ "$edit_status" -ne 0 ]; then
+                continue
+              fi
+              if jq -e '.data.node.__typename == "IssueComment" and .data.node.lastEditedAt == null' <<< "$edit_json" >/dev/null 2>&1; then
+                count=$((count + 1))
+              fi
+            done < <(jq -r --arg owner "$HUMAN_APPROVER" --arg marker "$owner_approval_marker" --arg line "$owner_approval_line" '
+              .[]
+              | select(.user.login == $owner)
+              | select((.body // "") == ($marker + "\n" + $line))
+              | .node_id // empty
+            ' <<< "$comments_json")
+
+            printf '%s' "$count"
+          }
+
+          owner_head_approval_count="$(count_unedited_owner_approvals "$owner_comments_json")"
 
           summary "### Per-PR human authorization"
           summary "- ibbo-approved present: $has_label"
@@ -660,27 +669,7 @@ jobs:
           final_approval_json="$(gh api --paginate "repos/$REPOSITORY/issues/$pr_number/events?per_page=100" --jq '.[]' | jq -s '.')"
           final_approval_actor="$(jq -r '[.[] | select(.event == "labeled" and .label.name == "ibbo-approved")] | sort_by(.created_at // "", .id // 0) | last | .actor.login // ""' <<< "$final_approval_json")"
           final_owner_comments_json="$(gh api --paginate "repos/$REPOSITORY/issues/$pr_number/comments?per_page=100" --jq '.[]' | jq -s '.')"
-          final_owner_head_approval_count=0
-          while IFS= read -r final_owner_comment_node_id; do
-            [ -z "$final_owner_comment_node_id" ] && continue
-            set +e
-            final_owner_comment_edit_json="$(gh api graphql \
-              -f query='query($id: ID!) { node(id: $id) { __typename ... on IssueComment { lastEditedAt } } }' \
-              -F id="$final_owner_comment_node_id" 2>/dev/null)"
-            final_owner_comment_edit_status=$?
-            set -e
-            if [ "$final_owner_comment_edit_status" -ne 0 ]; then
-              continue
-            fi
-            if jq -e '.data.node.__typename == "IssueComment" and .data.node.lastEditedAt == null' <<< "$final_owner_comment_edit_json" >/dev/null 2>&1; then
-              final_owner_head_approval_count=$((final_owner_head_approval_count + 1))
-            fi
-          done < <(jq -r --arg owner "$HUMAN_APPROVER" --arg marker "$owner_approval_marker" --arg line "$owner_approval_line" '
-            .[]
-            | select(.user.login == $owner)
-            | select((.body // "") == ($marker + "\n" + $line))
-            | .node_id // empty
-          ' <<< "$final_owner_comments_json")
+          final_owner_head_approval_count="$(count_unedited_owner_approvals "$final_owner_comments_json")"
 
           if [ "$final_has_label" != "yes" ] \
             || [ "$final_approval_actor" != "$HUMAN_APPROVER" ] \

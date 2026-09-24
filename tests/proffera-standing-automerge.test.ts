@@ -299,6 +299,13 @@ if [ "$1" = "api" ] && [ "$2" = "graphql" ]; then
   fi
   if [[ "$node_id" == EDITED_* ]]; then
     printf '{"data":{"node":{"__typename":"IssueComment","lastEditedAt":"2099-09-05T12:00:00Z"}}}\\n'
+  elif [[ "$node_id" == GQLFAIL_* ]]; then
+    printf 'graphql error\\n' >&2
+    exit 1
+  elif [[ "$node_id" == NULLNODE_* ]]; then
+    printf '{"data":{"node":null}}\\n'
+  elif [[ "$node_id" == WRONGTYPE_* ]]; then
+    printf '{"data":{"node":{"__typename":"PullRequest"}}}\\n'
   else
     printf '{"data":{"node":{"__typename":"IssueComment","lastEditedAt":null}}}\\n'
   fi
@@ -456,6 +463,13 @@ if [ "$1" = "api" ] && [ "$2" = "graphql" ]; then
   fi
   if [[ "$node_id" == EDITED_* ]]; then
     printf '{"data":{"node":{"__typename":"IssueComment","lastEditedAt":"2099-09-05T12:00:00Z"}}}\\n'
+  elif [[ "$node_id" == GQLFAIL_* ]]; then
+    printf 'graphql error\\n' >&2
+    exit 1
+  elif [[ "$node_id" == NULLNODE_* ]]; then
+    printf '{"data":{"node":null}}\\n'
+  elif [[ "$node_id" == WRONGTYPE_* ]]; then
+    printf '{"data":{"node":{"__typename":"PullRequest"}}}\\n'
   else
     printf '{"data":{"node":{"__typename":"IssueComment","lastEditedAt":null}}}\\n'
   fi
@@ -799,6 +813,35 @@ describe("Proffera standing automerge authorization", () => {
     expect(output).not.toContain("AUTH_MODE=fresh-exact-head-owner");
   });
 
+  it.each(["GQLFAIL_INITIAL", "NULLNODE_INITIAL", "WRONGTYPE_INITIAL"])(
+    "fails closed when initial owner comment edit status is unknown: %s",
+    (nodeId) => {
+      const currentHead = "7777777777777777777777777777777777777777";
+      const output = runAuthorizationFixture({
+        pr: basePr({
+          headRefName: "work/proffera-other-manual-path",
+          headRefOid: currentHead,
+          labels: [{ name: "ibbo-approved" }],
+        }),
+        events: [{
+          id: 1,
+          event: "labeled",
+          created_at: "2099-09-05T12:00:00Z",
+          label: { name: "ibbo-approved" },
+          actor: { login: "ibboabdoli-ai" },
+        }],
+        comments: [{
+          node_id: nodeId,
+          user: { login: "ibboabdoli-ai" },
+          created_at: "2099-09-05T12:00:00Z",
+          body: `<!-- proffera-owner-approval:${currentHead} -->\nIBBO-APPROVED: ${currentHead}`,
+        }],
+      });
+      expect(output).toContain("REFUSED:");
+      expect(output).not.toContain("AUTH_MODE=fresh-exact-head-owner");
+    },
+  );
+
   it("keeps unchanged owner authorization valid through final revalidation", () => {
     const fixture = runPreMergeAuthorizationFixture({});
     expect(fixture.output).toContain("INITIAL_AUTH_OK:fresh-exact-head-owner");
@@ -883,6 +926,25 @@ describe("Proffera standing automerge authorization", () => {
     expect(fixture.output).not.toContain("PRE_MERGE_OK");
   });
 
+  it.each(["GQLFAIL_FINAL", "NULLNODE_FINAL", "WRONGTYPE_FINAL"])(
+    "fails closed when final owner comment edit status is unknown: %s",
+    (nodeId) => {
+      const headSha = "4444444444444444444444444444444444444444";
+      const fixture = runPreMergeAuthorizationFixture({
+        finalCommentPages: [[{
+          id: 10,
+          node_id: nodeId,
+          user: { login: "ibboabdoli-ai" },
+          created_at: "2099-09-05T12:00:00Z",
+          body: `<!-- proffera-owner-approval:${headSha} -->\nIBBO-APPROVED: ${headSha}`,
+        }], []],
+      });
+      expect(fixture.output).toContain("INITIAL_AUTH_OK:fresh-exact-head-owner");
+      expect(fixture.output).toContain("REFUSED:Refused: fresh exact-head owner authorization was removed, edited, or otherwise invalid before merge.");
+      expect(fixture.output).not.toContain("PRE_MERGE_OK");
+    },
+  );
+
   it("reads standing authorization only from main and keeps current-head safety gates", () => {
     expect(workflow).toContain("contents/$STANDING_AUTH_PATH?ref=main");
     expect(workflow).toContain("Standing authorization advisory");
@@ -903,6 +965,10 @@ describe("Proffera standing automerge authorization", () => {
     expect(workflow).toContain("CodeRabbit review command invocation: v2:[0-9a-f]{64}");
     expect(workflow).toContain("... on IssueComment { lastEditedAt }");
     expect(workflow).toContain('.data.node.__typename == "IssueComment" and .data.node.lastEditedAt == null');
+    expect(workflow).toContain("count_unedited_owner_approvals() {");
+    expect(workflow).toContain('owner_head_approval_count="$(count_unedited_owner_approvals "$owner_comments_json")"');
+    expect(workflow).toContain('final_owner_head_approval_count="$(count_unedited_owner_approvals "$final_owner_comments_json")"');
+    expect((workflow.match(/count_unedited_owner_approvals\(\) \{/g) ?? [])).toHaveLength(1);
     expect(workflow).not.toContain('(.updated_at // .created_at) == .created_at');
     expect(workflow).toContain("clean exact-head completion comment");
     expect(workflow).toContain('workflow_run:');
