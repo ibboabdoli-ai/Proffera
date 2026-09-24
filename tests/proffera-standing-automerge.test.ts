@@ -973,7 +973,7 @@ describe("Proffera standing automerge authorization", () => {
     expect(workflow).toContain("count_unedited_owner_approvals() {");
     expect(workflow).toContain('owner_head_approval_count="$(count_unedited_owner_approvals "$owner_comments_json")"');
     expect(workflow).toContain('final_owner_head_approval_count="$(count_unedited_owner_approvals "$final_owner_comments_json")"');
-    expect((workflow.match(/count_unedited_owner_approvals\\(\\) \\{/g) ?? [])).toHaveLength(1);
+    expect((workflow.match(/count_unedited_owner_approvals\(\) \{/g) ?? [])).toHaveLength(1);
     expect(workflow).not.toContain('(.updated_at // .created_at) == .created_at');
     expect(workflow).toContain('workflow_run:');
     expect(workflow).toContain('workflows: [CI, Security review regressions]');
