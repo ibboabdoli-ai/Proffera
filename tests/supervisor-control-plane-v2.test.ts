@@ -467,6 +467,35 @@ describe("Supervisor control-plane v2", () => {
     expect(result.outputs).not.toContain("proceed=no");
   });
 
+  it("executes the real planner capacity step and blocks when two reservations are active", () => {
+    const reservation = (taskId: string) => {
+      const payload = Buffer.from(JSON.stringify({
+        task_id: taskId,
+        state: "RESERVED",
+        lease_expires_at: "2099-09-20T22:00:00.000Z",
+      }), "utf8").toString("base64");
+
+      return {
+        user: { login: "github-actions[bot]" },
+        body: [
+          `<!-- proffera-worker-slot-reservation:${taskId} -->`,
+          `### Worker slot reservation: ${taskId}`,
+          "- State: `RESERVED`",
+          `- Reservation payload: \`${payload}\``,
+        ].join("\n"),
+      };
+    };
+
+    const result = runPlannerCapacityStep([
+      reservation("TASK-ACTIVE-1"),
+      reservation("TASK-ACTIVE-2"),
+    ]);
+
+    expect(result.result.status, `${result.result.stderr}\n${String(result.result.error ?? "")}`).toBe(0);
+    expect(result.outputs).toContain("proceed=no");
+    expect(result.outputs).not.toContain("proceed=yes");
+  });
+
   it("executes the real planner context step with a large PR object without argv-size failure", () => {
     const result = runPlannerContextStep();
     expect(result.result.status, `${result.result.stderr}\n${String(result.result.error ?? "")}`).toBe(0);
