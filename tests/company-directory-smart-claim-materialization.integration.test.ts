@@ -1,4 +1,6 @@
 import { execFileSync } from "node:child_process";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 
 import { Client } from "pg";
@@ -92,6 +94,9 @@ function postgresSql(client: Client) {
       await client.connect();
 
       await client.query(`
+        create table workspaces (
+          id uuid primary key
+        );
         create table workspace_services (
           id uuid primary key default gen_random_uuid(),
           workspace_id uuid not null,
@@ -124,7 +129,24 @@ function postgresSql(client: Client) {
           auto_public_eligible boolean not null default true,
           official_source text not null default '',
           published_at timestamptz,
+          last_synced_at timestamptz not null default now(),
           updated_at timestamptz not null default now()
+        );
+        create table company_directory_official_facts (
+          profile_id uuid primary key,
+          source_payload_hash text not null default 'facts-hash',
+          last_synced_at timestamptz not null default now(),
+          deregistration_date date,
+          advertising_blocked boolean not null default false,
+          ongoing_procedures jsonb not null default '[]'::jsonb
+        );
+        create table company_directory_scb_enrichment (
+          profile_id uuid primary key,
+          workplaces jsonb not null default '[]'::jsonb,
+          conflicts jsonb not null default '[]'::jsonb,
+          source_payload_hash text not null default 'scb-hash',
+          last_synced_at timestamptz not null default now(),
+          provenance jsonb not null default '{}'::jsonb
         );
         create table company_directory_claims (
           id uuid primary key default gen_random_uuid(),
@@ -146,7 +168,23 @@ function postgresSql(client: Client) {
           public_visible boolean not null default true,
           primary key (profile_id, service_slug)
         );
+        create table proffera_schema_migrations (
+          migration_key text primary key,
+          filename text not null unique,
+          checksum text,
+          git_sha text,
+          applied_at timestamptz not null default now(),
+          applied_by text not null,
+          execution_mode text not null,
+          notes text
+        );
       `);
+
+      const locationMigration = readFileSync(
+        resolve(process.cwd(), "db/migrations/20260824_0067_business_profile_location_foundation.sql"),
+        "utf8",
+      );
+      await client.query(locationMigration);
     }, 120_000);
 
     afterAll(async () => {
@@ -177,6 +215,9 @@ function postgresSql(client: Client) {
 
       await client!.query(`
         truncate table company_directory_profile_services,
+          company_directory_scb_enrichment,
+          company_directory_official_facts,
+          company_directory_profile_locations,
           company_directory_claims,
           workspace_services,
           company_directory_profiles,
@@ -199,6 +240,20 @@ function postgresSql(client: Client) {
           true, 'bolagsverket_vardefulla_datamangder:company', null
         )
       `, [PROFILE_ID, WORKSPACE_ID]);
+      await client!.query(`insert into company_directory_official_facts (profile_id) values ($1::uuid)`, [PROFILE_ID]);
+      await client!.query(`
+        insert into company_directory_scb_enrichment (profile_id, workplaces, conflicts, provenance)
+        select profile.id,
+          '[{"cfarNumber":"12345678","municipality":"Södertälje","visitingAddress":{"addressLine":"Industrivägen 2","postalCode":"151 00","city":"Södertälje"}}]'::jsonb,
+          '[]'::jsonb,
+          jsonb_build_object('comparisonSnapshot', jsonb_build_object(
+            'profileUpdatedToken', profile.updated_at::text,
+            'officialFactsLastSyncedToken', facts.last_synced_at::text
+          ))
+        from company_directory_profiles profile
+        join company_directory_official_facts facts on facts.profile_id = profile.id
+        where profile.id = $1::uuid
+      `, [PROFILE_ID]);
       await client!.query(`
         insert into company_directory_profile_services (
           profile_id, service_slug, is_active, public_visible

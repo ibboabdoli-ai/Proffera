@@ -92,6 +92,8 @@ describe("Production schema health", () => {
     expect(result.missingMigrations).toEqual([
       "20260823_0066",
       "20260824_0067",
+      "20260919_0068",
+      "20260919_0069",
     ]);
   });
 });

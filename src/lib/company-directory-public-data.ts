@@ -14,6 +14,7 @@ import {
   resolveCompanyDirectoryCanonicalWorkplaceAddress,
   type DirectoryPublicAddress,
 } from "@/lib/company-directory-scb-address";
+import { DIRECTORY_PILOT_LOCATIONS } from "@/lib/company-directory-policy";
 import { getSql } from "@/lib/db/server";
 
 export type PublicDirectoryBusinessForRequest = PublicDirectoryBusiness & {
@@ -41,7 +42,10 @@ type ClaimedOwnerPrimaryLocation = {
 type PublishedDirectoryResolution = {
   business: PublicDirectoryBusinessForRequest;
   sharedCacheSafe: boolean;
+  authorityExpiresAt: string | null;
 };
+
+const PILOT_LOCATION_CSV = DIRECTORY_PILOT_LOCATIONS.join(",");
 
 const EMPTY_PHYSICAL_ADDRESS: DirectoryPublicAddress = {
   addressLine1: "",
@@ -211,6 +215,7 @@ async function getPublishedDirectoryContact(business: PublicDirectoryBusiness) {
       contact: emptyContact(),
       claimedWorkspaceId: "",
       officialFactsCheckedAt: "",
+      workplaceAuthorityExpiresAt: null,
     };
   }
 
@@ -227,26 +232,58 @@ async function getPublishedDirectoryContact(business: PublicDirectoryBusiness) {
         from company_directory_official_facts facts
         where facts.profile_id = company_directory_profiles.id
         limit 1
-      ) as official_facts_last_synced_at
+      ) as official_facts_last_synced_at,
+      (
+        select scb.last_synced_at + interval '7 days'
+        from company_directory_scb_enrichment scb
+        where scb.profile_id = company_directory_profiles.id
+        limit 1
+      ) as workplace_authority_expires_at
     from company_directory_profiles
     where id = ${business.id}::uuid
       and publication_status = 'published'
+      and organization_kind = 'juridical_person'
       and privacy_blocked = false
       and auto_public_eligible = true
+      and exists (
+        select 1
+        from company_directory_official_facts published_facts
+        join company_directory_scb_enrichment published_scb
+          on published_scb.profile_id = published_facts.profile_id
+        where published_facts.profile_id = company_directory_profiles.id
+          and published_facts.source_payload_hash <> ''
+          and published_facts.last_synced_at >= company_directory_profiles.last_synced_at
+          and published_facts.deregistration_date is null
+          and coalesce(published_facts.advertising_blocked, false) = false
+          and (
+            case
+              when jsonb_typeof(published_facts.ongoing_procedures) = 'array'
+                then jsonb_array_length(published_facts.ongoing_procedures)
+              else 1
+            end
+          ) = 0
+          and published_scb.source_payload_hash <> ''
+          and published_scb.last_synced_at >= now() - interval '7 days'
+          and published_scb.last_synced_at >= company_directory_profiles.last_synced_at
+          and published_scb.provenance #>> '{comparisonSnapshot,profileUpdatedToken}' = company_directory_profiles.updated_at::text
+          and published_scb.provenance #>> '{comparisonSnapshot,officialFactsLastSyncedToken}' = published_facts.last_synced_at::text
+          and jsonb_typeof(published_scb.conflicts) = 'array'
+          and jsonb_array_length(published_scb.conflicts) = 0
+          and jsonb_typeof(published_scb.workplaces) = 'array'
+          and jsonb_array_length(published_scb.workplaces) = 1
+          and nullif(btrim(published_scb.workplaces->0->'visitingAddress'->>'addressLine'), '') is not null
+          and nullif(btrim(published_scb.workplaces->0->'visitingAddress'->>'postalCode'), '') is not null
+          and nullif(btrim(published_scb.workplaces->0->'visitingAddress'->>'city'), '') is not null
+          and nullif(btrim(published_scb.workplaces->0->>'municipality'), '') is not null
+          and (
+            lower(btrim(published_scb.workplaces->0->'visitingAddress'->>'city')) = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
+            or lower(btrim(published_scb.workplaces->0->>'municipality')) = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
+          )
+      )
     limit 1
   `;
   const row = rows[0];
-  if (!row) {
-    return {
-      organizationNumber: "",
-      primarySniCode: "",
-      legalName: "",
-      address: EMPTY_PHYSICAL_ADDRESS,
-      contact: emptyContact(),
-      claimedWorkspaceId: "",
-      officialFactsCheckedAt: "",
-    };
-  }
+  if (!row) return null;
 
   const scb = await getConflictFreeScbContact(sql, business.id);
   const claimedWorkspaceId = String(row.claimed_workspace_id ?? "");
@@ -272,6 +309,9 @@ async function getPublishedDirectoryContact(business: PublicDirectoryBusiness) {
     officialFactsCheckedAt: row.official_facts_last_synced_at
       ? new Date(String(row.official_facts_last_synced_at)).toISOString()
       : "",
+    workplaceAuthorityExpiresAt: row.workplace_authority_expires_at
+      ? new Date(String(row.workplace_authority_expires_at)).toISOString()
+      : null,
   };
 }
 
@@ -279,6 +319,7 @@ async function resolvePublishedDirectoryBusiness(slug: string): Promise<Publishe
   const published = await getPublicDirectoryBusiness(slug);
   if (!published) return null;
   const publicContact = await getPublishedDirectoryContact(published);
+  if (!publicContact) return null;
   const sharedCacheSafe = Boolean(publicContact.organizationNumber) && !publicContact.claimedWorkspaceId;
   return {
     business: {
@@ -296,6 +337,7 @@ async function resolvePublishedDirectoryBusiness(slug: string): Promise<Publishe
       sharedCacheSafe,
     },
     sharedCacheSafe,
+    authorityExpiresAt: sharedCacheSafe ? publicContact.workplaceAuthorityExpiresAt : null,
   };
 }
 
@@ -350,6 +392,76 @@ async function getSafeClaimedDirectoryFallback(slug: string): Promise<PublicDire
       and profile.is_active = true
       and profile.privacy_blocked = false
       and profile.auto_public_eligible = true
+      and (
+        (
+          profile.organization_kind = 'juridical_person'
+          and exists (
+            select 1
+            from company_directory_official_facts claimed_facts
+            join company_directory_scb_enrichment claimed_scb
+              on claimed_scb.profile_id = claimed_facts.profile_id
+            where claimed_facts.profile_id = profile.id
+              and claimed_facts.source_payload_hash <> ''
+              and claimed_facts.last_synced_at >= profile.last_synced_at
+              and claimed_facts.deregistration_date is null
+              and coalesce(claimed_facts.advertising_blocked, false) = false
+              and (
+                case
+                  when jsonb_typeof(claimed_facts.ongoing_procedures) = 'array'
+                    then jsonb_array_length(claimed_facts.ongoing_procedures)
+                  else 1
+                end
+              ) = 0
+              and claimed_scb.source_payload_hash <> ''
+              and claimed_scb.last_synced_at >= now() - interval '7 days'
+              and claimed_scb.last_synced_at >= profile.last_synced_at
+              and claimed_scb.provenance #>> '{comparisonSnapshot,officialFactsLastSyncedToken}' = claimed_facts.last_synced_at::text
+              and jsonb_typeof(claimed_scb.conflicts) = 'array'
+              and jsonb_array_length(claimed_scb.conflicts) = 0
+              and jsonb_typeof(claimed_scb.workplaces) = 'array'
+              and jsonb_array_length(claimed_scb.workplaces) = 1
+              and nullif(btrim(claimed_scb.workplaces->0->'visitingAddress'->>'addressLine'), '') is not null
+              and nullif(btrim(claimed_scb.workplaces->0->'visitingAddress'->>'postalCode'), '') is not null
+              and nullif(btrim(claimed_scb.workplaces->0->'visitingAddress'->>'city'), '') is not null
+              and nullif(btrim(claimed_scb.workplaces->0->>'municipality'), '') is not null
+              and (
+                lower(btrim(claimed_scb.workplaces->0->'visitingAddress'->>'city')) = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
+                or lower(btrim(claimed_scb.workplaces->0->>'municipality')) = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
+              )
+          )
+        )
+        or (
+          profile.organization_kind = 'sole_trader'
+          and profile.official_source = 'bolagsverket_vardefulla_datamangder:sole_trader_owner'
+          and exists (
+            select 1
+            from company_directory_claims owner_claim
+            where owner_claim.profile_id = profile.id
+              and owner_claim.requested_workspace_id = profile.claimed_workspace_id
+              and owner_claim.status = 'claimed'
+              and owner_claim.verification_method = 'manual_review'
+          )
+          and exists (
+            select 1
+            from company_directory_profile_locations owner_base
+            where owner_base.profile_id = profile.id
+              and owner_base.owner_workspace_id = profile.claimed_workspace_id
+              and owner_base.source_type = 'owner'
+              and owner_base.purpose = 'service_base'
+              and owner_base.is_active = true
+              and owner_base.is_primary = true
+              and owner_base.confirmed_at is not null
+              and owner_base.latitude is not null
+              and owner_base.longitude is not null
+              and not (owner_base.latitude = 0 and owner_base.longitude = 0)
+              and owner_base.geocode_source = 'lantmateriet_belagenhetsadress_v4_2'
+              and owner_base.geocode_precision = 'address'
+              and (
+                lower(btrim(owner_base.city)) = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
+              )
+          )
+        )
+      )
     limit 1
   `;
   const row = rows[0];
@@ -427,7 +539,11 @@ export const getPublicDirectoryBusinessForRequest = cache(async (slug: string): 
     const published = await readPublicDirectoryProfileCache(normalized, async () => {
       const resolved = await resolvePublishedDirectoryBusiness(normalized);
       return resolved?.sharedCacheSafe
-        ? { cache: true, value: resolved.business }
+        ? {
+            cache: true,
+            value: resolved.business,
+            authorityExpiresAt: resolved.authorityExpiresAt,
+          }
         : { cache: false, value: resolved?.business ?? null };
     });
     if (published) return { cache: false, value: published };

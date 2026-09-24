@@ -31,6 +31,7 @@ vi.mock("@/lib/company-directory-scb-transport", () => ({
   createScbCompanyRegistryTransportFromEnv: mocks.createScbTransport,
 }));
 
+import { DIRECTORY_PILOT_LOCATIONS } from "../src/lib/company-directory-policy";
 import { revalidatePublishedCompanyDirectoryBatch } from "../src/lib/company-directory-published-revalidation";
 
 type SqlCall = { query: string; values: unknown[] };
@@ -64,6 +65,18 @@ function candidateRow() {
   };
 }
 
+function workplace(city = "Stockholm", municipality = "Stockholm") {
+  return {
+    cfarNumber: "12345678",
+    municipality,
+    visitingAddress: {
+      addressLine: "Arbetsplatsgatan 2",
+      postalCode: "11122",
+      city,
+    },
+  };
+}
+
 function freshEvaluation(overrides: Record<string, unknown> = {}) {
   return {
     id: PROFILE_ID,
@@ -75,6 +88,10 @@ function freshEvaluation(overrides: Record<string, unknown> = {}) {
     legal_name: "Exempel El AB",
     display_name: "Exempel El AB",
     activity_description: "Elinstallation och service",
+    address_line1: "Registrerad gata 1",
+    postal_code: "151 00",
+    city: "Södertälje",
+    municipality: "Södertälje",
     is_active: true,
     privacy_blocked: false,
     auto_public_eligible: true,
@@ -87,6 +104,7 @@ function freshEvaluation(overrides: Record<string, unknown> = {}) {
     ongoing_procedures: [],
     facts_last_synced_token: FACTS_TOKEN,
     facts_source_payload_hash: FACTS_HASH,
+    scb_workplaces: [workplace()],
     scb_source_payload_hash: SCB_HASH,
     scb_conflict_count: 0,
     official_facts_fresh: true,
@@ -106,7 +124,7 @@ function configureCandidateSql(input: {
 
   sqlResponder = async (query) => {
     if (query.includes("started_at < now() - interval '10 minutes'")) return [];
-    if (query.includes("insert into company_directory_sync_runs")) return [{ id: RUN_ID }];
+    if (query.includes("insert into company_directory_sync_runs")) return [{ id: RUN_ID, cursor_value: "" }];
     if (query.includes("select profile.id::text, profile.organization_number, profile.display_name")) {
       return [candidateRow()];
     }
@@ -203,12 +221,22 @@ describe("published Directory revalidation worker", () => {
     });
     expect(mocks.enrichOfficialFacts).not.toHaveBeenCalled();
     expect(mocks.enrichScb).not.toHaveBeenCalled();
+    const backlog = sqlCalls.find((call) => call.query.includes("select count(*)::int as count"));
+    expect(backlog?.query).toContain("scb.last_synced_at < now() - interval '7 days'");
+    expect(backlog?.query).toContain("jsonb_typeof(scb.workplaces) = 'array'");
+    expect(backlog?.query).toContain("then scb.workplaces");
+    expect(backlog?.query).toContain("else '[]'::jsonb");
+    expect(backlog?.query).toContain("jsonb_typeof(scb.conflicts) = 'array'");
+    expect(backlog?.query).toContain("jsonb_array_length(scb.conflicts) > 0");
+    expect(backlog?.query).toContain("else true");
+    expect(backlog?.query).toContain("string_to_array");
+    expect(backlog?.values).toContain(DIRECTORY_PILOT_LOCATIONS.join(","));
   });
 
   it("finalizes the lease immediately when candidate selection throws", async () => {
     sqlResponder = async (query) => {
       if (query.includes("started_at < now() - interval '10 minutes'")) return [];
-      if (query.includes("insert into company_directory_sync_runs")) return [{ id: RUN_ID }];
+      if (query.includes("insert into company_directory_sync_runs")) return [{ id: RUN_ID, cursor_value: "" }];
       if (query.includes("select profile.id::text, profile.organization_number, profile.display_name")) {
         throw new Error("selection failed");
       }
@@ -226,7 +254,7 @@ describe("published Directory revalidation worker", () => {
     expect(finish?.values).toContain(RUN_ID);
   });
 
-  it("refreshes Official Facts before SCB and keeps fresh 95+ evidence published", async () => {
+  it("refreshes Official Facts before SCB and keeps fresh 95+ pilot-workplace evidence published", async () => {
     configureCandidateSql();
     const order: string[] = [];
     mocks.enrichOfficialFacts.mockImplementation(async () => {
@@ -252,8 +280,77 @@ describe("published Directory revalidation worker", () => {
       call.query.includes("select profile.id::text, profile.organization_number, profile.display_name")
     ));
     expect(selection?.query).toContain("profile.publication_status = 'published'");
+    expect(selection?.query).toContain("normalized_organization_number");
+    expect(selection?.query).toContain("regexp_replace(profile.organization_number");
+    expect(selection?.query).toContain("then 0");
+    expect(selection?.query).toContain("else 1");
     expect(selection?.query).toContain("profile.claimed_workspace_id is null");
+    expect(selection?.query).toContain("jsonb_typeof(scb.workplaces) = 'array'");
+    expect(selection?.query).toContain("then scb.workplaces");
+    expect(selection?.query).toContain("else '[]'::jsonb");
+    expect(selection?.query).toContain("visitingAddress");
+    expect(selection?.query).toContain("scb.last_synced_at < now() - interval '7 days'");
+    expect(selection?.query).toContain("jsonb_typeof(scb.conflicts) = 'array'");
+    expect(selection?.query).toContain("jsonb_array_length(scb.conflicts) > 0");
+    expect(selection?.query).toContain("else true");
+    expect(selection?.query).toContain("string_to_array");
+    expect(selection?.query).not.toContain("'stockholm', 'södertälje'");
+    expect(selection?.values).toContain(DIRECTORY_PILOT_LOCATIONS.join(","));
     expect(selection?.values.at(-1)).toBe(3);
+    const evaluation = sqlCalls.find((call) => (
+      call.query.includes("profile.category_slug")
+      && call.query.includes("scb_snapshot_fresh")
+    ));
+    expect(evaluation?.query).toContain("scb.last_synced_at >= now() - interval '7 days'");
+    expect(evaluation?.query).toContain("case when jsonb_typeof(scb.conflicts) = 'array'");
+    expect(evaluation?.query).toContain("else 1");
+  });
+
+  it("advances the durable cursor even when a stale candidate fails refresh", async () => {
+    configureCandidateSql();
+    mocks.enrichScb.mockRejectedValueOnce(new Error("deterministic SCB failure"));
+
+    await expect(revalidatePublishedCompanyDirectoryBatch(1)).resolves.toMatchObject({
+      selected: 1,
+      errors: 1,
+    });
+
+    const finish = sqlCalls.find((call) => (
+      call.query.includes("update company_directory_sync_runs")
+      && call.query.includes("cursor_value =")
+      && call.query.includes("where id =")
+    ));
+    expect(finish?.values).toContain("5563115707");
+  });
+
+  it("moves a fresh high-confidence profile to Review when the physical workplace is outside the pilot", async () => {
+    configureCandidateSql({
+      evaluation: freshEvaluation({
+        scb_workplaces: [workplace("Uppsala", "Uppsala")],
+      }),
+    });
+
+    await expect(revalidatePublishedCompanyDirectoryBatch(2)).resolves.toMatchObject({
+      revalidated: 1,
+      keptPublished: 0,
+      movedToReview: 1,
+      errors: 0,
+    });
+  });
+
+  it("moves a fresh high-confidence profile to Review when workplace authority is ambiguous", async () => {
+    configureCandidateSql({
+      evaluation: freshEvaluation({
+        scb_workplaces: [workplace(), workplace("Södertälje", "Södertälje")],
+      }),
+    });
+
+    await expect(revalidatePublishedCompanyDirectoryBatch(2)).resolves.toMatchObject({
+      revalidated: 1,
+      keptPublished: 0,
+      movedToReview: 1,
+      errors: 0,
+    });
   });
 
   it("moves fresh evidence below 95 to Review with exact snapshot guards", async () => {

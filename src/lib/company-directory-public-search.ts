@@ -2,6 +2,7 @@ import "server-only";
 
 import { gateDirectoryDirectContact } from "@/lib/company-directory-contact-entitlement";
 import { normalizeDirectoryRadiusKm, parseDirectoryCoordinates } from "@/lib/company-directory-distance";
+import { DIRECTORY_PILOT_LOCATIONS } from "@/lib/company-directory-policy";
 import {
   confirmedCompanyDirectoryServiceAreaCoversSearch,
   normalizeCompanyDirectoryServiceAreaRadius,
@@ -9,6 +10,8 @@ import {
 import { getSql } from "@/lib/db/server";
 import { resolveDirectoryServiceQuery } from "@/lib/company-directory-service-taxonomy";
 import { getWorkspaceDirectoryPublicAccessForWorkspaces } from "@/lib/workspace-feature-entitlement-db";
+
+const PILOT_LOCATION_CSV = DIRECTORY_PILOT_LOCATIONS.join(",");
 
 export type DirectoryMarketplaceConversionMode = "book" | "quote" | "book_or_quote" | "contact";
 export type DirectorySearchSort = "recommended" | "nearest" | "name";
@@ -138,13 +141,121 @@ export async function getPublishedDirectoryLocationSuggestions(limit = 50) {
         limit 1
       ) owner_location on true
       where (
-          profile.publication_status = 'published'
+          (
+            profile.publication_status = 'published'
+            and profile.organization_kind = 'juridical_person'
+            and exists (
+              select 1
+              from company_directory_official_facts published_facts
+              join company_directory_scb_enrichment published_scb
+                on published_scb.profile_id = published_facts.profile_id
+              where published_facts.profile_id = profile.id
+                and published_facts.source_payload_hash <> ''
+                and published_facts.last_synced_at >= profile.last_synced_at
+                and published_facts.deregistration_date is null
+                and coalesce(published_facts.advertising_blocked, false) = false
+                and (
+                  case
+                    when jsonb_typeof(published_facts.ongoing_procedures) = 'array'
+                      then jsonb_array_length(published_facts.ongoing_procedures)
+                    else 1
+                  end
+                ) = 0
+                and published_scb.source_payload_hash <> ''
+                and published_scb.last_synced_at >= now() - interval '7 days'
+                and published_scb.last_synced_at >= profile.last_synced_at
+                and published_scb.provenance #>> '{comparisonSnapshot,profileUpdatedToken}' = profile.updated_at::text
+                and published_scb.provenance #>> '{comparisonSnapshot,officialFactsLastSyncedToken}' = published_facts.last_synced_at::text
+                and jsonb_typeof(published_scb.conflicts) = 'array'
+                and jsonb_array_length(published_scb.conflicts) = 0
+                and jsonb_typeof(published_scb.workplaces) = 'array'
+                and jsonb_array_length(published_scb.workplaces) = 1
+                and nullif(btrim(published_scb.workplaces->0->'visitingAddress'->>'addressLine'), '') is not null
+                and nullif(btrim(published_scb.workplaces->0->'visitingAddress'->>'postalCode'), '') is not null
+                and nullif(btrim(published_scb.workplaces->0->'visitingAddress'->>'city'), '') is not null
+                and nullif(btrim(published_scb.workplaces->0->>'municipality'), '') is not null
+                and (
+                  lower(btrim(published_scb.workplaces->0->'visitingAddress'->>'city')) = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
+                  or lower(btrim(published_scb.workplaces->0->>'municipality')) = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
+                )
+            )
+          )
           or (
             profile.publication_status = 'claimed'
             and profile.claimed_workspace_id is not null
             and profile.published_at is not null
             and profile.auto_public_eligible = true
             and claimed_workspace.status in ('active', 'trial')
+            and (
+              (
+                profile.organization_kind = 'juridical_person'
+                and exists (
+                  select 1
+                  from company_directory_official_facts claimed_facts
+                  join company_directory_scb_enrichment claimed_scb
+                    on claimed_scb.profile_id = claimed_facts.profile_id
+                  where claimed_facts.profile_id = profile.id
+                    and claimed_facts.source_payload_hash <> ''
+                    and claimed_facts.last_synced_at >= profile.last_synced_at
+                    and claimed_facts.deregistration_date is null
+                    and coalesce(claimed_facts.advertising_blocked, false) = false
+                    and (
+                      case
+                        when jsonb_typeof(claimed_facts.ongoing_procedures) = 'array'
+                          then jsonb_array_length(claimed_facts.ongoing_procedures)
+                        else 1
+                      end
+                    ) = 0
+                    and claimed_scb.source_payload_hash <> ''
+                    and claimed_scb.last_synced_at >= now() - interval '7 days'
+                    and claimed_scb.last_synced_at >= profile.last_synced_at
+                    and claimed_scb.provenance #>> '{comparisonSnapshot,officialFactsLastSyncedToken}' = claimed_facts.last_synced_at::text
+                    and jsonb_typeof(claimed_scb.conflicts) = 'array'
+                    and jsonb_array_length(claimed_scb.conflicts) = 0
+                    and jsonb_typeof(claimed_scb.workplaces) = 'array'
+                    and jsonb_array_length(claimed_scb.workplaces) = 1
+                    and nullif(btrim(claimed_scb.workplaces->0->'visitingAddress'->>'addressLine'), '') is not null
+                    and nullif(btrim(claimed_scb.workplaces->0->'visitingAddress'->>'postalCode'), '') is not null
+                    and nullif(btrim(claimed_scb.workplaces->0->'visitingAddress'->>'city'), '') is not null
+                    and nullif(btrim(claimed_scb.workplaces->0->>'municipality'), '') is not null
+                    and (
+                      lower(btrim(claimed_scb.workplaces->0->'visitingAddress'->>'city')) = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
+                      or lower(btrim(claimed_scb.workplaces->0->>'municipality')) = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
+                    )
+                )
+              )
+              or (
+                profile.organization_kind = 'sole_trader'
+                and profile.official_source = 'bolagsverket_vardefulla_datamangder:sole_trader_owner'
+                and exists (
+                  select 1
+                  from company_directory_claims owner_claim
+                  where owner_claim.profile_id = profile.id
+                    and owner_claim.requested_workspace_id = profile.claimed_workspace_id
+                    and owner_claim.status = 'claimed'
+                    and owner_claim.verification_method = 'manual_review'
+                )
+                and exists (
+                  select 1
+                  from company_directory_profile_locations owner_base
+                  where owner_base.profile_id = profile.id
+                    and owner_base.owner_workspace_id = profile.claimed_workspace_id
+                    and owner_base.source_type = 'owner'
+                    and owner_base.purpose = 'service_base'
+                    and owner_base.is_active = true
+                    and owner_base.is_primary = true
+                    and owner_base.confirmed_at is not null
+                    and owner_base.latitude is not null
+                    and owner_base.longitude is not null
+                    and not (owner_base.latitude = 0 and owner_base.longitude = 0)
+                    and owner_base.geocode_source = 'lantmateriet_belagenhetsadress_v4_2'
+                    and owner_base.geocode_precision = 'address'
+                    and (
+                      lower(btrim(owner_base.city)) = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
+                    )
+                )
+              )
+            )
           )
         )
         and profile.is_active = true
@@ -334,13 +445,121 @@ export async function searchPublishedCompanyDirectory(
           end as longitude
       ) public_coordinate
       where (
-          profile.publication_status = 'published'
+          (
+            profile.publication_status = 'published'
+            and profile.organization_kind = 'juridical_person'
+            and exists (
+              select 1
+              from company_directory_official_facts published_facts
+              join company_directory_scb_enrichment published_scb
+                on published_scb.profile_id = published_facts.profile_id
+              where published_facts.profile_id = profile.id
+                and published_facts.source_payload_hash <> ''
+                and published_facts.last_synced_at >= profile.last_synced_at
+                and published_facts.deregistration_date is null
+                and coalesce(published_facts.advertising_blocked, false) = false
+                and (
+                  case
+                    when jsonb_typeof(published_facts.ongoing_procedures) = 'array'
+                      then jsonb_array_length(published_facts.ongoing_procedures)
+                    else 1
+                  end
+                ) = 0
+                and published_scb.source_payload_hash <> ''
+                and published_scb.last_synced_at >= now() - interval '7 days'
+                and published_scb.last_synced_at >= profile.last_synced_at
+                and published_scb.provenance #>> '{comparisonSnapshot,profileUpdatedToken}' = profile.updated_at::text
+                and published_scb.provenance #>> '{comparisonSnapshot,officialFactsLastSyncedToken}' = published_facts.last_synced_at::text
+                and jsonb_typeof(published_scb.conflicts) = 'array'
+                and jsonb_array_length(published_scb.conflicts) = 0
+                and jsonb_typeof(published_scb.workplaces) = 'array'
+                and jsonb_array_length(published_scb.workplaces) = 1
+                and nullif(btrim(published_scb.workplaces->0->'visitingAddress'->>'addressLine'), '') is not null
+                and nullif(btrim(published_scb.workplaces->0->'visitingAddress'->>'postalCode'), '') is not null
+                and nullif(btrim(published_scb.workplaces->0->'visitingAddress'->>'city'), '') is not null
+                and nullif(btrim(published_scb.workplaces->0->>'municipality'), '') is not null
+                and (
+                  lower(btrim(published_scb.workplaces->0->'visitingAddress'->>'city')) = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
+                  or lower(btrim(published_scb.workplaces->0->>'municipality')) = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
+                )
+            )
+          )
           or (
             profile.publication_status = 'claimed'
             and profile.claimed_workspace_id is not null
             and profile.published_at is not null
             and profile.auto_public_eligible = true
             and claimed_workspace.status in ('active', 'trial')
+            and (
+              (
+                profile.organization_kind = 'juridical_person'
+                and exists (
+                  select 1
+                  from company_directory_official_facts claimed_facts
+                  join company_directory_scb_enrichment claimed_scb
+                    on claimed_scb.profile_id = claimed_facts.profile_id
+                  where claimed_facts.profile_id = profile.id
+                    and claimed_facts.source_payload_hash <> ''
+                    and claimed_facts.last_synced_at >= profile.last_synced_at
+                    and claimed_facts.deregistration_date is null
+                    and coalesce(claimed_facts.advertising_blocked, false) = false
+                    and (
+                      case
+                        when jsonb_typeof(claimed_facts.ongoing_procedures) = 'array'
+                          then jsonb_array_length(claimed_facts.ongoing_procedures)
+                        else 1
+                      end
+                    ) = 0
+                    and claimed_scb.source_payload_hash <> ''
+                    and claimed_scb.last_synced_at >= now() - interval '7 days'
+                    and claimed_scb.last_synced_at >= profile.last_synced_at
+                    and claimed_scb.provenance #>> '{comparisonSnapshot,officialFactsLastSyncedToken}' = claimed_facts.last_synced_at::text
+                    and jsonb_typeof(claimed_scb.conflicts) = 'array'
+                    and jsonb_array_length(claimed_scb.conflicts) = 0
+                    and jsonb_typeof(claimed_scb.workplaces) = 'array'
+                    and jsonb_array_length(claimed_scb.workplaces) = 1
+                    and nullif(btrim(claimed_scb.workplaces->0->'visitingAddress'->>'addressLine'), '') is not null
+                    and nullif(btrim(claimed_scb.workplaces->0->'visitingAddress'->>'postalCode'), '') is not null
+                    and nullif(btrim(claimed_scb.workplaces->0->'visitingAddress'->>'city'), '') is not null
+                    and nullif(btrim(claimed_scb.workplaces->0->>'municipality'), '') is not null
+                    and (
+                      lower(btrim(claimed_scb.workplaces->0->'visitingAddress'->>'city')) = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
+                      or lower(btrim(claimed_scb.workplaces->0->>'municipality')) = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
+                    )
+                )
+              )
+              or (
+                profile.organization_kind = 'sole_trader'
+                and profile.official_source = 'bolagsverket_vardefulla_datamangder:sole_trader_owner'
+                and exists (
+                  select 1
+                  from company_directory_claims owner_claim
+                  where owner_claim.profile_id = profile.id
+                    and owner_claim.requested_workspace_id = profile.claimed_workspace_id
+                    and owner_claim.status = 'claimed'
+                    and owner_claim.verification_method = 'manual_review'
+                )
+                and exists (
+                  select 1
+                  from company_directory_profile_locations owner_base
+                  where owner_base.profile_id = profile.id
+                    and owner_base.owner_workspace_id = profile.claimed_workspace_id
+                    and owner_base.source_type = 'owner'
+                    and owner_base.purpose = 'service_base'
+                    and owner_base.is_active = true
+                    and owner_base.is_primary = true
+                    and owner_base.confirmed_at is not null
+                    and owner_base.latitude is not null
+                    and owner_base.longitude is not null
+                    and not (owner_base.latitude = 0 and owner_base.longitude = 0)
+                    and owner_base.geocode_source = 'lantmateriet_belagenhetsadress_v4_2'
+                    and owner_base.geocode_precision = 'address'
+                    and (
+                      lower(btrim(owner_base.city)) = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
+                    )
+                )
+              )
+            )
           )
         )
         and profile.is_active = true
@@ -547,13 +766,121 @@ export async function searchPublishedCompanyDirectory(
         limit 1
       ) service_area on true
       where (
-          profile.publication_status = 'published'
+          (
+            profile.publication_status = 'published'
+            and profile.organization_kind = 'juridical_person'
+            and exists (
+              select 1
+              from company_directory_official_facts published_facts
+              join company_directory_scb_enrichment published_scb
+                on published_scb.profile_id = published_facts.profile_id
+              where published_facts.profile_id = profile.id
+                and published_facts.source_payload_hash <> ''
+                and published_facts.last_synced_at >= profile.last_synced_at
+                and published_facts.deregistration_date is null
+                and coalesce(published_facts.advertising_blocked, false) = false
+                and (
+                  case
+                    when jsonb_typeof(published_facts.ongoing_procedures) = 'array'
+                      then jsonb_array_length(published_facts.ongoing_procedures)
+                    else 1
+                  end
+                ) = 0
+                and published_scb.source_payload_hash <> ''
+                and published_scb.last_synced_at >= now() - interval '7 days'
+                and published_scb.last_synced_at >= profile.last_synced_at
+                and published_scb.provenance #>> '{comparisonSnapshot,profileUpdatedToken}' = profile.updated_at::text
+                and published_scb.provenance #>> '{comparisonSnapshot,officialFactsLastSyncedToken}' = published_facts.last_synced_at::text
+                and jsonb_typeof(published_scb.conflicts) = 'array'
+                and jsonb_array_length(published_scb.conflicts) = 0
+                and jsonb_typeof(published_scb.workplaces) = 'array'
+                and jsonb_array_length(published_scb.workplaces) = 1
+                and nullif(btrim(published_scb.workplaces->0->'visitingAddress'->>'addressLine'), '') is not null
+                and nullif(btrim(published_scb.workplaces->0->'visitingAddress'->>'postalCode'), '') is not null
+                and nullif(btrim(published_scb.workplaces->0->'visitingAddress'->>'city'), '') is not null
+                and nullif(btrim(published_scb.workplaces->0->>'municipality'), '') is not null
+                and (
+                  lower(btrim(published_scb.workplaces->0->'visitingAddress'->>'city')) = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
+                  or lower(btrim(published_scb.workplaces->0->>'municipality')) = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
+                )
+            )
+          )
           or (
             profile.publication_status = 'claimed'
             and profile.claimed_workspace_id is not null
             and profile.published_at is not null
             and profile.auto_public_eligible = true
             and claimed_workspace.status in ('active', 'trial')
+            and (
+              (
+                profile.organization_kind = 'juridical_person'
+                and exists (
+                  select 1
+                  from company_directory_official_facts claimed_facts
+                  join company_directory_scb_enrichment claimed_scb
+                    on claimed_scb.profile_id = claimed_facts.profile_id
+                  where claimed_facts.profile_id = profile.id
+                    and claimed_facts.source_payload_hash <> ''
+                    and claimed_facts.last_synced_at >= profile.last_synced_at
+                    and claimed_facts.deregistration_date is null
+                    and coalesce(claimed_facts.advertising_blocked, false) = false
+                    and (
+                      case
+                        when jsonb_typeof(claimed_facts.ongoing_procedures) = 'array'
+                          then jsonb_array_length(claimed_facts.ongoing_procedures)
+                        else 1
+                      end
+                    ) = 0
+                    and claimed_scb.source_payload_hash <> ''
+                    and claimed_scb.last_synced_at >= now() - interval '7 days'
+                    and claimed_scb.last_synced_at >= profile.last_synced_at
+                    and claimed_scb.provenance #>> '{comparisonSnapshot,officialFactsLastSyncedToken}' = claimed_facts.last_synced_at::text
+                    and jsonb_typeof(claimed_scb.conflicts) = 'array'
+                    and jsonb_array_length(claimed_scb.conflicts) = 0
+                    and jsonb_typeof(claimed_scb.workplaces) = 'array'
+                    and jsonb_array_length(claimed_scb.workplaces) = 1
+                    and nullif(btrim(claimed_scb.workplaces->0->'visitingAddress'->>'addressLine'), '') is not null
+                    and nullif(btrim(claimed_scb.workplaces->0->'visitingAddress'->>'postalCode'), '') is not null
+                    and nullif(btrim(claimed_scb.workplaces->0->'visitingAddress'->>'city'), '') is not null
+                    and nullif(btrim(claimed_scb.workplaces->0->>'municipality'), '') is not null
+                    and (
+                      lower(btrim(claimed_scb.workplaces->0->'visitingAddress'->>'city')) = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
+                      or lower(btrim(claimed_scb.workplaces->0->>'municipality')) = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
+                    )
+                )
+              )
+              or (
+                profile.organization_kind = 'sole_trader'
+                and profile.official_source = 'bolagsverket_vardefulla_datamangder:sole_trader_owner'
+                and exists (
+                  select 1
+                  from company_directory_claims owner_claim
+                  where owner_claim.profile_id = profile.id
+                    and owner_claim.requested_workspace_id = profile.claimed_workspace_id
+                    and owner_claim.status = 'claimed'
+                    and owner_claim.verification_method = 'manual_review'
+                )
+                and exists (
+                  select 1
+                  from company_directory_profile_locations owner_base
+                  where owner_base.profile_id = profile.id
+                    and owner_base.owner_workspace_id = profile.claimed_workspace_id
+                    and owner_base.source_type = 'owner'
+                    and owner_base.purpose = 'service_base'
+                    and owner_base.is_active = true
+                    and owner_base.is_primary = true
+                    and owner_base.confirmed_at is not null
+                    and owner_base.latitude is not null
+                    and owner_base.longitude is not null
+                    and not (owner_base.latitude = 0 and owner_base.longitude = 0)
+                    and owner_base.geocode_source = 'lantmateriet_belagenhetsadress_v4_2'
+                    and owner_base.geocode_precision = 'address'
+                    and (
+                      lower(btrim(owner_base.city)) = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
+                    )
+                )
+              )
+            )
           )
         )
         and profile.is_active = true

@@ -186,12 +186,16 @@ export async function POST(request: Request) {
         ) values (
           ${profileId}::uuid, ${organizationNumber}, 'juridical_person', ${companyName}, ${companyName},
           true, 'vvs', ${TEST_CITY}, ${TEST_MUNICIPALITY}, ${slug},
-          'published', 100, false, true, now()
+          'ready', 100, false, true, null
         )
       `,
       tx`
-        insert into company_directory_official_facts (profile_id, advertising_blocked)
-        values (${profileId}::uuid, false)
+        insert into company_directory_official_facts (
+          profile_id, advertising_blocked, source_payload_hash, last_synced_at
+        )
+        values (
+          ${profileId}::uuid, false, ${`preview-e2e-facts-${suiteRunId}`}, now()
+        )
       `,
       tx`
         insert into company_directory_profile_services (
@@ -213,8 +217,25 @@ export async function POST(request: Request) {
           workplaces, conflicts, provenance, source_payload_hash, last_synced_at
         ) values (
           ${profileId}::uuid, ${organizationNumber}, ${companyName}, ${providerEmail},
-          ${workplaces}::jsonb, '[]'::jsonb, '{"source":"preview_e2e"}'::jsonb,
-          ${`preview-e2e-${suiteRunId}`}, now()
+          ${workplaces}::jsonb,
+          '[]'::jsonb,
+          jsonb_build_object(
+            'source', 'preview_e2e',
+            'comparisonSnapshot', jsonb_build_object(
+              'profileUpdatedToken', (
+                select profile.updated_at::text
+                from company_directory_profiles profile
+                where profile.id = ${profileId}::uuid
+              ),
+              'officialFactsLastSyncedToken', (
+                select facts.last_synced_at::text
+                from company_directory_official_facts facts
+                where facts.profile_id = ${profileId}::uuid
+              )
+            )
+          ),
+          ${`preview-e2e-${suiteRunId}`},
+          now()
         )
       `,
       tx`
@@ -224,6 +245,13 @@ export async function POST(request: Request) {
         ) values (
           ${serviceAreaId}::uuid, ${profileId}::uuid, 'vvs', 25, 'admin', 100, true, now()
         )
+      `,
+      tx`
+        update company_directory_profiles
+        set publication_status = 'published',
+            published_at = now()
+        where id = ${profileId}::uuid
+          and publication_status = 'ready'
       `,
     ]);
   } catch (error) {

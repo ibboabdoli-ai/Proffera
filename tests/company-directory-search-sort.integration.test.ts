@@ -92,6 +92,8 @@ function postgresSql(client: Client) {
           id uuid primary key,
           public_slug text not null,
           display_name text not null,
+          organization_kind text not null default 'juridical_person',
+          official_source text not null default 'bolagsverket_vardefulla_datamangder',
           category_slug text not null,
           publication_status text not null,
           activity_description text not null default '',
@@ -104,7 +106,18 @@ function postgresSql(client: Client) {
           published_at timestamptz,
           auto_public_eligible boolean not null default true,
           is_active boolean not null default true,
-          privacy_blocked boolean not null default false
+          privacy_blocked boolean not null default false,
+          last_synced_at timestamptz not null default now(),
+          updated_at timestamptz not null default now()
+        );
+        create table company_directory_claims (
+          id uuid primary key default gen_random_uuid(),
+          profile_id uuid not null,
+          claimant_user_id text not null default 'test-user',
+          requested_workspace_id uuid,
+          status text not null,
+          verification_method text not null default 'manual_review',
+          requested_at timestamptz not null default now()
         );
         create table company_directory_services (
           slug text primary key,
@@ -140,12 +153,25 @@ function postgresSql(client: Client) {
           municipality text not null default '',
           latitude numeric,
           longitude numeric,
+          geocode_source text not null default '',
+          geocode_precision text not null default 'unknown',
           confirmed_at timestamptz
+        );
+        create table company_directory_official_facts (
+          profile_id uuid primary key,
+          source_payload_hash text not null default 'facts-hash',
+          last_synced_at timestamptz not null default now(),
+          deregistration_date date,
+          advertising_blocked boolean not null default false,
+          ongoing_procedures jsonb not null default '[]'::jsonb
         );
         create table company_directory_scb_enrichment (
           profile_id uuid primary key,
           workplaces jsonb not null default '[]'::jsonb,
-          conflicts jsonb not null default '[]'::jsonb
+          conflicts jsonb not null default '[]'::jsonb,
+          source_payload_hash text not null default 'scb-hash',
+          last_synced_at timestamptz not null default now(),
+          provenance jsonb not null default '{}'::jsonb
         );
         create table workspace_services (
           id uuid primary key,
@@ -185,9 +211,9 @@ function postgresSql(client: Client) {
 
       await client!.query(`
         truncate table company_directory_service_areas, workspace_services,
-          company_directory_scb_enrichment, company_directory_profile_locations,
+          company_directory_scb_enrichment, company_directory_official_facts, company_directory_profile_locations,
           company_directory_business_locations, company_directory_profile_services,
-          company_directory_services, company_directory_profiles, workspaces
+          company_directory_claims, company_directory_services, company_directory_profiles, workspaces
       `);
       await client!.query(`
         insert into company_directory_services (slug, category_slug, label)
@@ -228,6 +254,25 @@ function postgresSql(client: Client) {
             city: "Stockholm",
           },
         }])]);
+        await client!.query(`
+          insert into company_directory_official_facts (profile_id)
+          values ($1)
+        `, [id]);
+        await client!.query(`
+          update company_directory_scb_enrichment scb
+          set provenance = jsonb_build_object(
+            'comparisonSnapshot',
+            jsonb_build_object(
+              'profileUpdatedToken', profile.updated_at::text,
+              'officialFactsLastSyncedToken', facts.last_synced_at::text
+            )
+          )
+          from company_directory_profiles profile,
+               company_directory_official_facts facts
+          where scb.profile_id = $1
+            and profile.id = scb.profile_id
+            and facts.profile_id = scb.profile_id
+        `, [id]);
       }
     });
 

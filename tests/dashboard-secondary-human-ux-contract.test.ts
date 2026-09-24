@@ -79,6 +79,13 @@ describe("dashboard secondary human-designed UX contract", () => {
     expect(staff).toContain('name="staff_id"');
     expect(marketplace).toContain("findProviderProfileByOrganizationNumber");
     expect(marketplace).toContain("activateProviderMarketplaceService");
+    expect(marketplace).toContain("establishPreReleaseSoleTraderServiceBase");
+    expect(marketplace).toContain('name="serviceBaseAddressLine1"');
+    expect(marketplace).toContain('name="serviceBasePostalCode"');
+    expect(marketplace).toContain('name="serviceBaseCity"');
+    expect(marketplace).not.toContain('name="serviceBaseMunicipality"');
+    expect(marketplace).toContain("Adressen verifieras och lagras privat");
+    expect(marketplace).toContain("The address is verified and stored privately");
     expect(marketplace).toContain("DashboardPageHeader");
   });
 });

@@ -10,9 +10,11 @@ import {
 import {
   assessDirectoryCandidate,
   buildDirectoryPublicSlug,
+  DIRECTORY_PILOT_LOCATIONS,
   type NormalizedDirectoryCandidate,
 } from "@/lib/company-directory-policy";
 import { mapPrimarySniToDirectorySearchService } from "@/lib/company-directory-service-taxonomy";
+import { invalidateMarketplaceHomeCompaniesCache } from "@/lib/public-read-cache";
 import {
   fetchOfficialCompanyDirectoryBatch,
   verifyOfficialCompanyCandidate,
@@ -21,6 +23,7 @@ import {
 const PILOT_MAX_PAGES_PER_RUN = 2;
 const PILOT_MAX_BATCH_SIZE = 10;
 const PUBLIC_DIRECTORY_SLUG_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+const PUBLIC_DIRECTORY_PILOT_LOCATION_CSV = DIRECTORY_PILOT_LOCATIONS.join(",");
 
 const PROVENANCE_FIELDS: Array<keyof NormalizedDirectoryCandidate> = [
   "organizationNumber",
@@ -218,6 +221,19 @@ export async function upsertCompanyDirectoryCandidate(candidate: NormalizedDirec
   const profileId = String(rows[0]?.id ?? "");
   if (!profileId) throw new Error(`Directory upsert failed for ${candidate.organizationNumber}`);
 
+  invalidatePersistedPublicProjectionBestEffort({
+    profileId,
+    persistedPublicSlug: rows[0]?.public_slug,
+  });
+  try {
+    invalidateMarketplaceHomeCompaniesCache();
+  } catch (error) {
+    console.error("Failed to invalidate Marketplace cache after committed candidate upsert", {
+      profileId,
+      error,
+    });
+  }
+
   const sniServiceSlug = mapPrimarySniToDirectorySearchService(candidate.primarySniCode);
   if (sniServiceSlug) {
     await sql`
@@ -310,10 +326,6 @@ export async function upsertCompanyDirectoryCandidate(candidate: NormalizedDirec
     `;
   }
 
-  invalidatePersistedPublicProjectionBestEffort({
-    profileId,
-    persistedPublicSlug: rows[0]?.public_slug,
-  });
   return {
     profileId,
     publicationStatus: String(rows[0]?.publication_status ?? desiredStatus),
@@ -487,8 +499,44 @@ export async function getPublicDirectoryBusiness(slug: string): Promise<PublicDi
     ) media on true
     where profile.public_slug = ${normalized}
       and profile.publication_status = 'published'
+      and profile.organization_kind = 'juridical_person'
       and profile.privacy_blocked = false
       and profile.auto_public_eligible = true
+      and exists (
+        select 1
+        from company_directory_official_facts published_facts
+        join company_directory_scb_enrichment published_scb
+          on published_scb.profile_id = published_facts.profile_id
+        where published_facts.profile_id = profile.id
+          and published_facts.source_payload_hash <> ''
+          and published_facts.last_synced_at >= profile.last_synced_at
+          and published_facts.deregistration_date is null
+          and coalesce(published_facts.advertising_blocked, false) = false
+          and (
+            case
+              when jsonb_typeof(published_facts.ongoing_procedures) = 'array'
+                then jsonb_array_length(published_facts.ongoing_procedures)
+              else 1
+            end
+          ) = 0
+          and published_scb.source_payload_hash <> ''
+          and published_scb.last_synced_at >= now() - interval '7 days'
+          and published_scb.last_synced_at >= profile.last_synced_at
+          and published_scb.provenance #>> '{comparisonSnapshot,profileUpdatedToken}' = profile.updated_at::text
+          and published_scb.provenance #>> '{comparisonSnapshot,officialFactsLastSyncedToken}' = published_facts.last_synced_at::text
+          and jsonb_typeof(published_scb.conflicts) = 'array'
+          and jsonb_array_length(published_scb.conflicts) = 0
+          and jsonb_typeof(published_scb.workplaces) = 'array'
+          and jsonb_array_length(published_scb.workplaces) = 1
+          and nullif(btrim(published_scb.workplaces->0->'visitingAddress'->>'addressLine'), '') is not null
+          and nullif(btrim(published_scb.workplaces->0->'visitingAddress'->>'postalCode'), '') is not null
+          and nullif(btrim(published_scb.workplaces->0->'visitingAddress'->>'city'), '') is not null
+          and nullif(btrim(published_scb.workplaces->0->>'municipality'), '') is not null
+          and (
+            lower(btrim(published_scb.workplaces->0->'visitingAddress'->>'city')) = any(string_to_array(${PUBLIC_DIRECTORY_PILOT_LOCATION_CSV}, ','))
+            or lower(btrim(published_scb.workplaces->0->>'municipality')) = any(string_to_array(${PUBLIC_DIRECTORY_PILOT_LOCATION_CSV}, ','))
+          )
+      )
     limit 1
   `;
   const row = rows[0];

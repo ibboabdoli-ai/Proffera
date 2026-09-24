@@ -135,9 +135,27 @@ function postgresSql(client: Client) {
           auto_public_eligible boolean not null default true,
           official_source text not null default '',
           published_at timestamptz,
+          last_synced_at timestamptz not null default now(),
           quality_reasons jsonb not null default '[]'::jsonb,
           created_at timestamptz not null default now(),
           updated_at timestamptz not null default now()
+        );
+        create table company_directory_official_facts (
+          profile_id uuid primary key,
+          source_payload_hash text not null default '',
+          last_synced_at timestamptz not null default now(),
+          deregistration_date date,
+          advertising_blocked boolean not null default false,
+          ongoing_procedures jsonb not null default '[]'::jsonb
+        );
+        create table company_directory_scb_enrichment (
+          profile_id uuid primary key,
+          organization_number text not null,
+          workplaces jsonb not null default '[]'::jsonb,
+          conflicts jsonb not null default '[]'::jsonb,
+          source_payload_hash text not null default '',
+          last_synced_at timestamptz not null default now(),
+          provenance jsonb not null default '{}'::jsonb
         );
         create table company_directory_claims (
           id uuid primary key,
@@ -187,6 +205,27 @@ function postgresSql(client: Client) {
         create unique index company_directory_service_areas_service_unique_idx
           on company_directory_service_areas (profile_id, service_slug)
           where service_slug is not null;
+        create table company_directory_profile_locations (
+          id uuid primary key default gen_random_uuid(),
+          profile_id uuid not null,
+          owner_workspace_id uuid,
+          purpose text not null,
+          visibility text not null default 'private',
+          is_visitable boolean not null default false,
+          is_primary boolean not null default false,
+          is_active boolean not null default true,
+          source_type text not null,
+          address_line1 text not null default '',
+          postal_code text not null default '',
+          city text not null default '',
+          municipality text not null default '',
+          latitude numeric(9,6), longitude numeric(9,6),
+          geocode_source text not null default '',
+          geocode_precision text not null default 'unknown',
+          confirmed_at timestamptz,
+          created_at timestamptz not null default now(),
+          updated_at timestamptz not null default now()
+        );
       `);
     }, 120_000);
 
@@ -218,6 +257,9 @@ function postgresSql(client: Client) {
 
       await client!.query(`
         truncate table company_directory_service_areas,
+          company_directory_scb_enrichment,
+          company_directory_official_facts,
+          company_directory_profile_locations,
           company_directory_profile_services,
           company_directory_claims,
           workspace_services,
@@ -254,6 +296,17 @@ function postgresSql(client: Client) {
           id, workspace_id, name, is_active, public_status, conversion_mode
         ) values ($1::uuid, $2::uuid, 'Fönsterputs', true, 'draft', 'quote')
       `, [SERVICE_ID, WORKSPACE_ID]);
+      await client!.query(`
+        insert into company_directory_profile_locations (
+          profile_id, owner_workspace_id, purpose, visibility, is_visitable, is_primary,
+          is_active, source_type, address_line1, postal_code, city, municipality,
+          latitude, longitude, geocode_source, geocode_precision, confirmed_at
+        ) values (
+          $1::uuid, $2::uuid, 'service_base', 'private', true, true,
+          true, 'owner', 'Industrivägen 2', '151 00', 'Södertälje', '',
+          59.1955, 17.6253, 'lantmateriet_belagenhetsadress_v4_2', 'address', now()
+        )
+      `, [PROFILE_ID, WORKSPACE_ID]);
     });
 
     it("keeps fixture columns aligned with canonical Marketplace migrations", async () => {
@@ -276,6 +329,12 @@ function postgresSql(client: Client) {
       expect(serviceMigration).toContain("category_slug text not null");
       expect(serviceMigration).toContain("label text not null");
       expect(workspaceIdentityMigration).toContain("add column if not exists primary_directory_service_slug text");
+      const scbMigration = readFileSync(
+        new URL("../db/migrations/20260819_0048_company_directory_scb_enrichment.sql", import.meta.url),
+        "utf8",
+      );
+      expect(scbMigration).toContain("organization_number text not null");
+      expect(scbMigration).toContain("source_payload_hash text not null default ''");
 
       const schema = await client!.query<{
         table_name: string;
@@ -409,6 +468,32 @@ function postgresSql(client: Client) {
       expect(service.rows[0]?.public_status).toBe("draft");
     }, 30_000);
 
+    it.each([
+      ["missing", "delete from company_directory_profile_locations where profile_id = $1::uuid"],
+      ["outside pilot", "update company_directory_profile_locations set city = 'Uppsala' where profile_id = $1::uuid"],
+      ["unverified", "update company_directory_profile_locations set geocode_source = 'caller' where profile_id = $1::uuid"],
+    ])("fails closed when owner service-base authority is %s", async (_case, mutation) => {
+      await client!.query(mutation, [PROFILE_ID]);
+
+      await expect(activateProviderMarketplaceService({
+        serviceId: SERVICE_ID,
+        directoryServiceSlug: TARGET_SLUG,
+        conversionMode: "quote",
+        radiusKm: 25,
+      })).rejects.toThrow("service_not_eligible");
+
+      const profile = await client!.query<{ publication_status: string }>(
+        "select publication_status from company_directory_profiles where id = $1::uuid",
+        [PROFILE_ID],
+      );
+      const service = await client!.query<{ public_status: string }>(
+        "select public_status from workspace_services where id = $1::uuid",
+        [SERVICE_ID],
+      );
+      expect(profile.rows[0]?.publication_status).toBe("blocked");
+      expect(service.rows[0]?.public_status).toBe("draft");
+    }, 30_000);
+
     it("fails closed when the claimed manual-review claim belongs to another workspace", async () => {
       await client!.query(`
         update company_directory_claims
@@ -521,6 +606,26 @@ function postgresSql(client: Client) {
           now() - interval '1 day'
         )
       `, [CLAIMED_PROFILE_ID, WORKSPACE_ID]);
+      await client!.query(`
+        insert into company_directory_official_facts (profile_id, source_payload_hash)
+        values ($1::uuid, 'facts-hash')
+      `, [CLAIMED_PROFILE_ID]);
+      await client!.query(`
+        insert into company_directory_scb_enrichment (
+          profile_id, organization_number, workplaces, conflicts, source_payload_hash, provenance
+        )
+        select profile.id, profile.organization_number,
+          '[{"cfarNumber":"12345678","municipality":"Södertälje","visitingAddress":{"addressLine":"Industrivägen 2","postalCode":"151 00","city":"Södertälje"}}]'::jsonb,
+          '[]'::jsonb,
+          'scb-hash',
+          jsonb_build_object('comparisonSnapshot', jsonb_build_object(
+            'profileUpdatedToken', profile.updated_at::text,
+            'officialFactsLastSyncedToken', facts.last_synced_at::text
+          ))
+        from company_directory_profiles profile
+        join company_directory_official_facts facts on facts.profile_id = profile.id
+        where profile.id = $1::uuid
+      `, [CLAIMED_PROFILE_ID]);
 
       await expect(activateProviderMarketplaceService({
         serviceId: SERVICE_ID,

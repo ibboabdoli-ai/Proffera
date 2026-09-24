@@ -13,10 +13,14 @@ import {
   getDirectoryServiceDefinition,
   resolveDirectoryServiceQuery,
 } from "@/lib/company-directory-service-taxonomy";
+import { DIRECTORY_PILOT_LOCATIONS } from "@/lib/company-directory-policy";
+import { invalidatePublicDirectoryPublicProjectionByProfileId } from "@/lib/company-directory-public-cache";
+import { invalidateMarketplaceHomeCompaniesCache } from "@/lib/public-read-cache";
 
 const SOLE_TRADER_OWNER_SOURCE = "bolagsverket_vardefulla_datamangder:sole_trader_owner";
 const SOLE_TRADER_SURROGATE_IDENTITY_PATTERN = "^sole-trader-[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$";
 const SOLE_TRADER_SURROGATE_IDENTITY = new RegExp(SOLE_TRADER_SURROGATE_IDENTITY_PATTERN);
+const PILOT_LOCATION_CSV = DIRECTORY_PILOT_LOCATIONS.join(",");
 
 export type ProviderActivationDirectoryService = {
   slug: string;
@@ -32,6 +36,7 @@ export type ProviderActivationState = {
     companyName: string;
     organizationNumber: string;
     city: string;
+    requiresPrivacyRelease: boolean;
   };
   pendingClaim: null | {
     status: string;
@@ -173,6 +178,64 @@ export async function getProviderActivationState(): Promise<ProviderActivationSt
       and profile.privacy_blocked = false
       and profile.auto_public_eligible = true
       and profile.published_at is not null
+      and (
+        (
+          profile.organization_kind = 'juridical_person'
+          and exists (
+          select 1
+          from company_directory_official_facts claimed_facts
+          join company_directory_scb_enrichment claimed_scb
+            on claimed_scb.profile_id = claimed_facts.profile_id
+          where claimed_facts.profile_id = profile.id
+            and claimed_facts.source_payload_hash <> ''
+            and claimed_facts.last_synced_at >= profile.last_synced_at
+            and claimed_facts.deregistration_date is null
+            and coalesce(claimed_facts.advertising_blocked, false) = false
+            and (
+              case
+                when jsonb_typeof(claimed_facts.ongoing_procedures) = 'array'
+                  then jsonb_array_length(claimed_facts.ongoing_procedures)
+                else 1
+              end
+            ) = 0
+            and claimed_scb.source_payload_hash <> ''
+            and claimed_scb.last_synced_at >= now() - interval '7 days'
+            and claimed_scb.last_synced_at >= profile.last_synced_at
+            and claimed_scb.provenance #>> '{comparisonSnapshot,officialFactsLastSyncedToken}' = claimed_facts.last_synced_at::text
+            and jsonb_typeof(claimed_scb.conflicts) = 'array'
+            and jsonb_array_length(claimed_scb.conflicts) = 0
+            and jsonb_typeof(claimed_scb.workplaces) = 'array'
+            and jsonb_array_length(claimed_scb.workplaces) = 1
+            and nullif(btrim(claimed_scb.workplaces->0->'visitingAddress'->>'addressLine'), '') is not null
+            and nullif(btrim(claimed_scb.workplaces->0->'visitingAddress'->>'postalCode'), '') is not null
+            and nullif(btrim(claimed_scb.workplaces->0->'visitingAddress'->>'city'), '') is not null
+            and nullif(btrim(claimed_scb.workplaces->0->>'municipality'), '') is not null
+            and (
+              lower(btrim(claimed_scb.workplaces->0->'visitingAddress'->>'city')) = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
+              or lower(btrim(claimed_scb.workplaces->0->>'municipality')) = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
+            )
+        )
+        )
+        or (
+          profile.organization_kind = 'sole_trader'
+          and exists (
+            select 1
+            from company_directory_profile_locations owner_base
+            where owner_base.profile_id = profile.id
+              and owner_base.owner_workspace_id = ${access.workspaceId}::uuid
+              and owner_base.source_type = 'owner'
+              and owner_base.purpose = 'service_base'
+              and owner_base.is_primary = true
+              and owner_base.is_active = true
+              and owner_base.confirmed_at is not null
+              and owner_base.geocode_source = 'lantmateriet_belagenhetsadress_v4_2'
+              and owner_base.geocode_precision = 'address'
+              and owner_base.latitude is not null and owner_base.longitude is not null
+              and not (owner_base.latitude = 0 and owner_base.longitude = 0)
+              and lower(btrim(owner_base.city)) = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
+          )
+        )
+      )
       and not exists (
         select 1
         from workspace_services existing
@@ -204,7 +267,57 @@ export async function getProviderActivationState(): Promise<ProviderActivationSt
         profile.privacy_blocked,
         profile.auto_public_eligible,
         profile.official_source,
-        profile.published_at
+        profile.published_at,
+        exists (
+          select 1
+          from company_directory_official_facts claimed_facts
+          join company_directory_scb_enrichment claimed_scb
+            on claimed_scb.profile_id = claimed_facts.profile_id
+          where claimed_facts.profile_id = profile.id
+            and claimed_facts.source_payload_hash <> ''
+            and claimed_facts.last_synced_at >= profile.last_synced_at
+            and claimed_facts.deregistration_date is null
+            and coalesce(claimed_facts.advertising_blocked, false) = false
+            and (
+              case
+                when jsonb_typeof(claimed_facts.ongoing_procedures) = 'array'
+                  then jsonb_array_length(claimed_facts.ongoing_procedures)
+                else 1
+              end
+            ) = 0
+            and claimed_scb.source_payload_hash <> ''
+            and claimed_scb.last_synced_at >= now() - interval '7 days'
+            and claimed_scb.last_synced_at >= profile.last_synced_at
+            and claimed_scb.provenance #>> '{comparisonSnapshot,officialFactsLastSyncedToken}' = claimed_facts.last_synced_at::text
+            and jsonb_typeof(claimed_scb.conflicts) = 'array'
+            and jsonb_array_length(claimed_scb.conflicts) = 0
+            and jsonb_typeof(claimed_scb.workplaces) = 'array'
+            and jsonb_array_length(claimed_scb.workplaces) = 1
+            and nullif(btrim(claimed_scb.workplaces->0->'visitingAddress'->>'addressLine'), '') is not null
+            and nullif(btrim(claimed_scb.workplaces->0->'visitingAddress'->>'postalCode'), '') is not null
+            and nullif(btrim(claimed_scb.workplaces->0->'visitingAddress'->>'city'), '') is not null
+            and nullif(btrim(claimed_scb.workplaces->0->>'municipality'), '') is not null
+            and (
+              lower(btrim(claimed_scb.workplaces->0->'visitingAddress'->>'city')) = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
+              or lower(btrim(claimed_scb.workplaces->0->>'municipality')) = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
+            )
+        ) as has_safe_juridical_workplace,
+        exists (
+          select 1
+          from company_directory_profile_locations owner_base
+          where owner_base.profile_id = profile.id
+            and owner_base.owner_workspace_id = ${access.workspaceId}::uuid
+            and owner_base.source_type = 'owner'
+            and owner_base.purpose = 'service_base'
+            and owner_base.is_primary = true
+            and owner_base.is_active = true
+            and owner_base.confirmed_at is not null
+            and owner_base.geocode_source = 'lantmateriet_belagenhetsadress_v4_2'
+            and owner_base.geocode_precision = 'address'
+            and owner_base.latitude is not null and owner_base.longitude is not null
+            and not (owner_base.latitude = 0 and owner_base.longitude = 0)
+            and lower(btrim(owner_base.city)) = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
+        ) as has_safe_owner_service_base
       from company_directory_profiles profile
       where profile.claimed_workspace_id = ${access.workspaceId}::uuid
       order by
@@ -247,7 +360,12 @@ export async function getProviderActivationState(): Promise<ProviderActivationSt
       `
     : [];
   const releaseClaim = releaseClaimRows[0];
-  const profileCanOpenPublicPage = providerProfileCanOpenPublicPage(profile);
+  const profileKind = String(profile?.organization_kind ?? "");
+  const profileCanOpenPublicPage = providerProfileCanOpenPublicPage(profile)
+    && (
+      (profileKind === "juridical_person" && Boolean(profile?.has_safe_juridical_workplace))
+      || (profileKind === "sole_trader" && Boolean(profile?.has_safe_owner_service_base))
+    );
   const soleTraderCanRelease = providerSoleTraderProfileCanReleaseMarketplace(profile, releaseClaim);
   const profileCanOfferMarketplace = profileCanOpenPublicPage || soleTraderCanRelease;
   const linkedProfile = profile
@@ -257,6 +375,7 @@ export async function getProviderActivationState(): Promise<ProviderActivationSt
         companyName: String(profile.display_name ?? ""),
         organizationNumber: ownerVisibleDirectoryOrganizationNumber(profile.organization_kind, profile.organization_number),
         city: String(profile.city ?? ""),
+        requiresPrivacyRelease: soleTraderCanRelease,
       }
     : null;
 
@@ -341,7 +460,42 @@ export async function findProviderProfileByOrganizationNumber(value: unknown): P
       profile.privacy_blocked,
       profile.auto_public_eligible,
       profile.claimed_workspace_id::text,
-      profile.claim_reservation_id::text
+      profile.claim_reservation_id::text,
+      exists (
+        select 1
+        from company_directory_official_facts facts
+        join company_directory_scb_enrichment scb
+          on scb.profile_id = facts.profile_id
+        where facts.profile_id = profile.id
+          and facts.source_payload_hash <> ''
+          and facts.last_synced_at >= profile.last_synced_at
+          and facts.deregistration_date is null
+          and coalesce(facts.advertising_blocked, false) = false
+          and (
+            case
+              when jsonb_typeof(facts.ongoing_procedures) = 'array'
+                then jsonb_array_length(facts.ongoing_procedures)
+              else 1
+            end
+          ) = 0
+          and scb.source_payload_hash <> ''
+          and scb.last_synced_at >= now() - interval '7 days'
+          and scb.last_synced_at >= profile.last_synced_at
+          and scb.provenance #>> '{comparisonSnapshot,profileUpdatedToken}' = profile.updated_at::text
+          and scb.provenance #>> '{comparisonSnapshot,officialFactsLastSyncedToken}' = facts.last_synced_at::text
+          and jsonb_typeof(scb.conflicts) = 'array'
+          and jsonb_array_length(scb.conflicts) = 0
+          and jsonb_typeof(scb.workplaces) = 'array'
+          and jsonb_array_length(scb.workplaces) = 1
+          and nullif(btrim(scb.workplaces->0->'visitingAddress'->>'addressLine'), '') is not null
+          and nullif(btrim(scb.workplaces->0->'visitingAddress'->>'postalCode'), '') is not null
+          and nullif(btrim(scb.workplaces->0->'visitingAddress'->>'city'), '') is not null
+          and nullif(btrim(scb.workplaces->0->>'municipality'), '') is not null
+          and (
+            lower(btrim(scb.workplaces->0->'visitingAddress'->>'city')) = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
+            or lower(btrim(scb.workplaces->0->>'municipality')) = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
+          )
+      ) as has_current_authority
     from company_directory_profiles profile
     where profile.country_code = 'SE'
       and profile.organization_number = ${organizationNumber}
@@ -363,6 +517,7 @@ export async function findProviderProfileByOrganizationNumber(value: unknown): P
     String(row.publication_status) !== "published"
     || !Boolean(row.is_active)
     || !Boolean(row.auto_public_eligible)
+    || !Boolean(row.has_current_authority)
     || !profileSlug
   ) {
     return { status: "not_ready" };
@@ -404,6 +559,64 @@ export async function activateProviderMarketplaceService(input: {
          and profile.privacy_blocked = false
          and profile.auto_public_eligible = true
          and profile.published_at is not null
+         and (
+           (
+             profile.organization_kind = 'juridical_person'
+             and exists (
+               select 1
+               from company_directory_official_facts claimed_facts
+               join company_directory_scb_enrichment claimed_scb
+                 on claimed_scb.profile_id = claimed_facts.profile_id
+               where claimed_facts.profile_id = profile.id
+                 and claimed_facts.source_payload_hash <> ''
+                 and claimed_facts.last_synced_at >= profile.last_synced_at
+                 and claimed_facts.deregistration_date is null
+                 and coalesce(claimed_facts.advertising_blocked, false) = false
+                 and (
+                   case
+                     when jsonb_typeof(claimed_facts.ongoing_procedures) = 'array'
+                       then jsonb_array_length(claimed_facts.ongoing_procedures)
+                     else 1
+                   end
+                 ) = 0
+                 and claimed_scb.source_payload_hash <> ''
+                 and claimed_scb.last_synced_at >= now() - interval '7 days'
+                 and claimed_scb.last_synced_at >= profile.last_synced_at
+                 and claimed_scb.provenance #>> '{comparisonSnapshot,officialFactsLastSyncedToken}' = claimed_facts.last_synced_at::text
+                 and jsonb_typeof(claimed_scb.conflicts) = 'array'
+                 and jsonb_array_length(claimed_scb.conflicts) = 0
+                 and jsonb_typeof(claimed_scb.workplaces) = 'array'
+                 and jsonb_array_length(claimed_scb.workplaces) = 1
+                 and nullif(btrim(claimed_scb.workplaces->0->'visitingAddress'->>'addressLine'), '') is not null
+                 and nullif(btrim(claimed_scb.workplaces->0->'visitingAddress'->>'postalCode'), '') is not null
+                 and nullif(btrim(claimed_scb.workplaces->0->'visitingAddress'->>'city'), '') is not null
+                 and nullif(btrim(claimed_scb.workplaces->0->>'municipality'), '') is not null
+                 and (
+                   lower(btrim(claimed_scb.workplaces->0->'visitingAddress'->>'city')) = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
+                   or lower(btrim(claimed_scb.workplaces->0->>'municipality')) = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
+                 )
+             )
+           )
+           or (
+             profile.organization_kind = 'sole_trader'
+             and exists (
+               select 1
+               from company_directory_profile_locations owner_base
+               where owner_base.profile_id = profile.id
+                 and owner_base.owner_workspace_id = ${access.workspaceId}::uuid
+                 and owner_base.source_type = 'owner'
+                 and owner_base.purpose = 'service_base'
+                 and owner_base.is_primary = true
+                 and owner_base.is_active = true
+                 and owner_base.confirmed_at is not null
+                 and owner_base.geocode_source = 'lantmateriet_belagenhetsadress_v4_2'
+                 and owner_base.geocode_precision = 'address'
+                 and owner_base.latitude is not null and owner_base.longitude is not null
+                 and not (owner_base.latitude = 0 and owner_base.longitude = 0)
+                 and lower(btrim(owner_base.city)) = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
+             )
+           )
+         )
        )
        or (
          profile.organization_kind = 'sole_trader'
@@ -425,6 +638,23 @@ export async function activateProviderMarketplaceService(input: {
              and owner_claim.requested_workspace_id = ${access.workspaceId}::uuid
              and owner_claim.status = 'claimed'
              and owner_claim.verification_method = 'manual_review'
+         )
+         and exists (
+           select 1
+           from company_directory_profile_locations owner_base
+           where owner_base.profile_id = profile.id
+             and owner_base.owner_workspace_id = ${access.workspaceId}::uuid
+             and owner_base.source_type = 'owner'
+             and owner_base.purpose = 'service_base'
+             and owner_base.visibility = 'private'
+             and owner_base.is_primary = true
+             and owner_base.is_active = true
+             and owner_base.confirmed_at is not null
+             and owner_base.geocode_source = 'lantmateriet_belagenhetsadress_v4_2'
+             and owner_base.geocode_precision = 'address'
+             and owner_base.latitude is not null and owner_base.longitude is not null
+             and not (owner_base.latitude = 0 and owner_base.longitude = 0)
+             and lower(btrim(owner_base.city)) = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
          )
        )
      )
@@ -501,6 +731,65 @@ export async function activateProviderMarketplaceService(input: {
             and profile.privacy_blocked = false
             and profile.auto_public_eligible = true
             and profile.published_at is not null
+            and (
+              (
+                profile.organization_kind = 'juridical_person'
+                and exists (
+          select 1
+          from company_directory_official_facts claimed_facts
+          join company_directory_scb_enrichment claimed_scb
+            on claimed_scb.profile_id = claimed_facts.profile_id
+          where claimed_facts.profile_id = profile.id
+            and claimed_facts.source_payload_hash <> ''
+            and claimed_facts.last_synced_at >= profile.last_synced_at
+            and claimed_facts.deregistration_date is null
+            and coalesce(claimed_facts.advertising_blocked, false) = false
+            and (
+              case
+                when jsonb_typeof(claimed_facts.ongoing_procedures) = 'array'
+                  then jsonb_array_length(claimed_facts.ongoing_procedures)
+                else 1
+              end
+            ) = 0
+            and claimed_scb.source_payload_hash <> ''
+            and claimed_scb.last_synced_at >= now() - interval '7 days'
+            and claimed_scb.last_synced_at >= profile.last_synced_at
+            and claimed_scb.provenance #>> '{comparisonSnapshot,officialFactsLastSyncedToken}' = claimed_facts.last_synced_at::text
+            and jsonb_typeof(claimed_scb.conflicts) = 'array'
+            and jsonb_array_length(claimed_scb.conflicts) = 0
+            and jsonb_typeof(claimed_scb.workplaces) = 'array'
+            and jsonb_array_length(claimed_scb.workplaces) = 1
+            and nullif(btrim(claimed_scb.workplaces->0->'visitingAddress'->>'addressLine'), '') is not null
+            and nullif(btrim(claimed_scb.workplaces->0->'visitingAddress'->>'postalCode'), '') is not null
+            and nullif(btrim(claimed_scb.workplaces->0->'visitingAddress'->>'city'), '') is not null
+            and nullif(btrim(claimed_scb.workplaces->0->>'municipality'), '') is not null
+            and (
+              lower(btrim(claimed_scb.workplaces->0->'visitingAddress'->>'city')) = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
+              or lower(btrim(claimed_scb.workplaces->0->>'municipality')) = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
+            )
+        )
+              )
+              or (
+                profile.organization_kind = 'sole_trader'
+                and exists (
+                  select 1
+                  from company_directory_profile_locations owner_base
+                  where owner_base.profile_id = profile.id
+                    and owner_base.owner_workspace_id = ${access.workspaceId}::uuid
+                    and owner_base.source_type = 'owner'
+                    and owner_base.purpose = 'service_base'
+                    and owner_base.is_primary = true
+                    and owner_base.is_active = true
+                    and owner_base.confirmed_at is not null
+                    and owner_base.geocode_source = 'lantmateriet_belagenhetsadress_v4_2'
+                    and owner_base.geocode_precision = 'address'
+                    and owner_base.latitude is not null and owner_base.longitude is not null
+                    and not (owner_base.latitude = 0 and owner_base.longitude = 0)
+                    and lower(btrim(owner_base.city)) = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
+                  for update
+                )
+              )
+            )
           )
           or (
             ${requiresPrivacyRelease} = true
@@ -523,6 +812,24 @@ export async function activateProviderMarketplaceService(input: {
                 and owner_claim.requested_workspace_id = ${access.workspaceId}::uuid
                 and owner_claim.status = 'claimed'
                 and owner_claim.verification_method = 'manual_review'
+            )
+            and exists (
+              select 1
+              from company_directory_profile_locations owner_base
+              where owner_base.profile_id = profile.id
+                and owner_base.owner_workspace_id = ${access.workspaceId}::uuid
+                and owner_base.source_type = 'owner'
+                and owner_base.purpose = 'service_base'
+                and owner_base.visibility = 'private'
+                and owner_base.is_primary = true
+                and owner_base.is_active = true
+                and owner_base.confirmed_at is not null
+                and owner_base.geocode_source = 'lantmateriet_belagenhetsadress_v4_2'
+                and owner_base.geocode_precision = 'address'
+                and owner_base.latitude is not null and owner_base.longitude is not null
+                and not (owner_base.latitude = 0 and owner_base.longitude = 0)
+                and lower(btrim(owner_base.city)) = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
+              for update
             )
           )
         )
@@ -650,5 +957,23 @@ export async function activateProviderMarketplaceService(input: {
   `;
 
   if (!published[0]?.id) throw new Error("service_update");
+
+  try {
+    await invalidatePublicDirectoryPublicProjectionByProfileId(profileId);
+  } catch (error) {
+    console.error("Failed to invalidate public Directory cache after committed provider activation", {
+      profileId,
+      error,
+    });
+  }
+  try {
+    invalidateMarketplaceHomeCompaniesCache();
+  } catch (error) {
+    console.error("Failed to invalidate Marketplace cache after committed provider activation", {
+      profileId,
+      error,
+    });
+  }
+
   return { serviceId: input.serviceId, directoryServiceSlug: input.directoryServiceSlug, conversionMode: input.conversionMode, radiusKm };
 }

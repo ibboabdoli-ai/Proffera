@@ -10,12 +10,16 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vites
 const mocks = vi.hoisted(() => ({
   getSql: vi.fn(),
   fetchScbCompanyRegistryEnrichment: vi.fn(),
+  invalidateAuthorityCaches: vi.fn(),
 }));
 
 vi.mock("server-only", () => ({}));
 vi.mock("./db/server", () => ({ getSql: mocks.getSql }));
 vi.mock("./company-directory-scb-provider", () => ({
   fetchScbCompanyRegistryEnrichment: mocks.fetchScbCompanyRegistryEnrichment,
+}));
+vi.mock("./company-directory-authority-cache", () => ({
+  invalidateCompanyDirectoryAuthorityCachesBestEffort: mocks.invalidateAuthorityCaches,
 }));
 
 import type { ScbCompanyRegistryEnrichment } from "./company-directory-scb-provider";
@@ -112,6 +116,8 @@ describe("SCB company directory enrichment guards", () => {
   beforeEach(() => {
     mocks.getSql.mockReset();
     mocks.fetchScbCompanyRegistryEnrichment.mockReset();
+    mocks.invalidateAuthorityCaches.mockReset();
+    mocks.invalidateAuthorityCaches.mockResolvedValue(undefined);
   });
 
   it("normalizes Bolagsverket SNI facts without duplicating codes", () => {
@@ -222,13 +228,56 @@ describe("SCB company directory enrichment guards", () => {
     expect(mocks.fetchScbCompanyRegistryEnrichment).toHaveBeenCalledWith("5563115707", undefined);
     expect(sql).toHaveBeenCalledTimes(2);
 
-    const provenanceValue = sql.mock.calls[1]?.[10];
+    const provenanceValue = sql.mock.calls[1]?.[11];
     expect(JSON.parse(String(provenanceValue))).toMatchObject({
       comparisonSnapshot: {
         profileUpdatedToken,
         officialFactsLastSyncedToken: factsLastSyncedToken,
       },
     });
+  });
+
+  it("invalidates when unchanged expired SCB authority becomes fresh", async () => {
+    const profileId = "11111111-1111-4111-8111-111111111111";
+    const sql = vi.fn()
+      .mockResolvedValueOnce([{
+        organization_number: "5563115707",
+        organization_kind: "juridical_person",
+        legal_name: "Exempel El AB",
+        profile_updated_token: "profile-token",
+        sni_codes: [],
+        facts_last_synced_token: "facts-token",
+      }])
+      .mockResolvedValueOnce([{ authority_changed: true }]);
+    mocks.getSql.mockReturnValue(sql);
+    mocks.fetchScbCompanyRegistryEnrichment.mockResolvedValue({ status: "ok", data: scb() });
+
+    await enrichCompanyDirectoryScbForProfile(profileId);
+
+    expect(String(sql.mock.calls[1]?.[0])).toContain("last_synced_at < now() - interval '7 days'");
+    expect(mocks.invalidateAuthorityCaches).toHaveBeenCalledWith(
+      profileId,
+      "committed SCB authority change",
+    );
+  });
+
+  it("does not invalidate an unchanged SCB refresh that was already fresh", async () => {
+    const sql = vi.fn()
+      .mockResolvedValueOnce([{
+        organization_number: "5563115707",
+        organization_kind: "juridical_person",
+        legal_name: "Exempel El AB",
+        profile_updated_token: "profile-token",
+        sni_codes: [],
+        facts_last_synced_token: "facts-token",
+      }])
+      .mockResolvedValueOnce([{ authority_changed: false }]);
+    mocks.getSql.mockReturnValue(sql);
+    mocks.fetchScbCompanyRegistryEnrichment.mockResolvedValue({ status: "ok", data: scb() });
+
+    await enrichCompanyDirectoryScbForProfile("11111111-1111-4111-8111-111111111111");
+
+    expect(mocks.invalidateAuthorityCaches).not.toHaveBeenCalled();
   });
 });
 

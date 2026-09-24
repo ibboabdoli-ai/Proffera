@@ -7,11 +7,14 @@ import {
   type DirectoryGuestOffer,
 } from "./directory-guest";
 import { classifyDirectoryMarketplaceReadiness } from "@/lib/company-directory-marketplace-readiness";
+import { DIRECTORY_PILOT_LOCATIONS } from "@/lib/company-directory-policy";
 import { getSql } from "@/lib/db/server";
 import { serviceCategoryForQuoteCategory } from "@/lib/service-catalog";
 
 type GuestLead = DirectoryGuestLeadMatch["lead"];
 type CandidateRows = Parameters<typeof rankDirectoryGuestCandidates>[1];
+
+const PILOT_LOCATION_CSV = DIRECTORY_PILOT_LOCATIONS.join(",");
 
 function text(value: unknown) {
   return value === null || value === undefined ? "" : String(value).trim();
@@ -146,103 +149,135 @@ export async function getDirectoryGuestLeadMatch(quoteRequestId: string) {
     }
 
     const candidateRows = await sql`
-      select
-        profile.id::text as profile_id,
-        profile.public_slug,
-        profile.display_name,
-        profile.city,
-        profile.municipality,
-        profile.category_slug,
-        profile.quality_score,
-        profile.publication_status,
-        profile.is_active,
-        profile.privacy_blocked,
-        profile.organization_kind,
-        profile.claimed_workspace_id::text as claimed_workspace_id,
-        facts.advertising_blocked,
-        relation.service_slug,
-        service.label as service_name,
-        category.label as service_category,
-        location.latitude::float8 as latitude,
-        location.longitude::float8 as longitude,
-        location.geocode_source,
-        location.geocode_precision,
-        location.geocode_confidence,
-        location.geocoded_at::text as geocoded_at,
-        location.is_public as location_is_public,
-        service_area.radius_km::float8 as service_area_radius_km,
-        scb.email as recipient_email,
-        scb.phone as scb_phone,
-        scb.workplaces as scb_workplaces,
-        scb.conflicts as scb_conflicts
-      from company_directory_profiles profile
-      join company_directory_profile_services relation
-        on relation.profile_id = profile.id
-       and relation.is_active = true
-       and relation.public_visible = true
-      join company_directory_services service
-        on service.slug = relation.service_slug
-       and service.is_active = true
-      join company_directory_service_categories category
-        on category.slug = service.category_slug
-       and category.is_active = true
-      join company_directory_business_locations location
-        on location.profile_id = profile.id
-       and location.latitude is not null
-       and location.longitude is not null
-      join company_directory_official_facts facts
-        on facts.profile_id = profile.id
-       and facts.advertising_blocked is false
-      join company_directory_scb_enrichment scb
-        on scb.profile_id = profile.id
-       and coalesce(scb.email, '') <> ''
-       and jsonb_array_length(coalesce(scb.workplaces, '[]'::jsonb)) > 0
-      left join lateral (
-        select area.radius_km
-        from company_directory_service_areas area
-        where area.profile_id = profile.id
-          and area.public_visible = true
-          and area.confirmed_at is not null
-          and area.radius_km between 1 and 300
-          and (area.service_slug = relation.service_slug or area.service_slug is null)
-        order by case when area.service_slug = relation.service_slug then 0 else 1 end
-        limit 1
-      ) service_area on true
-      where profile.publication_status = 'published'
-        and profile.category_slug = ${requiredCategory}
-        and profile.claimed_workspace_id is null
-        and profile.organization_kind = 'juridical_person'
-        and profile.is_active = true
-        and profile.privacy_blocked = false
-        and (
+      with candidate_pool as (
+        select
+          profile.id::text as profile_id,
+          profile.public_slug,
+          profile.display_name,
+          profile.city,
+          profile.municipality,
+          profile.category_slug,
+          profile.quality_score,
+          profile.publication_status,
+          profile.is_active,
+          profile.privacy_blocked,
+          profile.organization_kind,
+          profile.claimed_workspace_id::text as claimed_workspace_id,
+          facts.advertising_blocked,
+          relation.service_slug,
+          service.label as service_name,
+          category.label as service_category,
+          location.latitude::float8 as latitude,
+          location.longitude::float8 as longitude,
+          location.geocode_source,
+          location.geocode_precision,
+          location.geocode_confidence,
+          location.geocoded_at::text as geocoded_at,
+          location.is_public as location_is_public,
+          service_area.radius_km::float8 as service_area_radius_km,
+          scb.email as recipient_email,
+          scb.phone as scb_phone,
+          scb.workplaces as scb_workplaces,
+          scb.conflicts as scb_conflicts,
           (
-            ${originLatitude}::float8 is not null
-            and ${originLongitude}::float8 is not null
-            and 6371 * 2 * asin(
-              sqrt(
-                least(
-                  1,
-                  power(sin(radians(location.latitude - ${originLatitude}::float8) / 2), 2)
-                  + cos(radians(${originLatitude}::float8))
-                  * cos(radians(location.latitude))
-                  * power(sin(radians(location.longitude - ${originLongitude}::float8) / 2), 2)
-                )
-              )
-            ) <= 300
-          )
-          or (
-            ${originLatitude}::float8 is null
+            facts.source_payload_hash <> ''
+            and facts.last_synced_at >= profile.last_synced_at
+            and facts.deregistration_date is null
+            and coalesce(facts.advertising_blocked, false) = false
+            and case
+              when jsonb_typeof(facts.ongoing_procedures) = 'array'
+                then jsonb_array_length(facts.ongoing_procedures) = 0
+              else false
+            end
+            and scb.source_payload_hash <> ''
+            and scb.last_synced_at >= now() - interval '7 days'
+            and scb.last_synced_at >= profile.last_synced_at
+            and scb.provenance #>> '{comparisonSnapshot,profileUpdatedToken}' = profile.updated_at::text
+            and scb.provenance #>> '{comparisonSnapshot,officialFactsLastSyncedToken}' = facts.last_synced_at::text
+            and jsonb_typeof(scb.conflicts) = 'array'
+            and jsonb_array_length(scb.conflicts) = 0
+            and jsonb_typeof(scb.workplaces) = 'array'
+            and jsonb_array_length(scb.workplaces) = 1
+            and nullif(btrim(scb.workplaces->0->'visitingAddress'->>'addressLine'), '') is not null
+            and nullif(btrim(scb.workplaces->0->'visitingAddress'->>'postalCode'), '') is not null
+            and nullif(btrim(scb.workplaces->0->'visitingAddress'->>'city'), '') is not null
+            and nullif(btrim(scb.workplaces->0->>'municipality'), '') is not null
             and (
-              lower(btrim(profile.city)) = ${locality}
-              or lower(btrim(profile.municipality)) = ${locality}
+              lower(btrim(scb.workplaces->0->'visitingAddress'->>'city')) = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
+              or lower(btrim(scb.workplaces->0->>'municipality')) = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
+            )
+          ) as has_current_authority
+        from company_directory_profiles profile
+        join company_directory_profile_services relation
+          on relation.profile_id = profile.id
+         and relation.is_active = true
+         and relation.public_visible = true
+        join company_directory_services service
+          on service.slug = relation.service_slug
+         and service.is_active = true
+        join company_directory_service_categories category
+          on category.slug = service.category_slug
+         and category.is_active = true
+        join company_directory_business_locations location
+          on location.profile_id = profile.id
+         and location.latitude is not null
+         and location.longitude is not null
+        join company_directory_official_facts facts
+          on facts.profile_id = profile.id
+        join company_directory_scb_enrichment scb
+          on scb.profile_id = profile.id
+         and coalesce(scb.email, '') <> ''
+        left join lateral (
+          select area.radius_km
+          from company_directory_service_areas area
+          where area.profile_id = profile.id
+            and area.public_visible = true
+            and area.confirmed_at is not null
+            and area.radius_km between 1 and 300
+            and (area.service_slug = relation.service_slug or area.service_slug is null)
+          order by case when area.service_slug = relation.service_slug then 0 else 1 end
+          limit 1
+        ) service_area on true
+        where profile.publication_status = 'published'
+          and profile.category_slug = ${requiredCategory}
+          and profile.claimed_workspace_id is null
+          and profile.organization_kind = 'juridical_person'
+          and profile.is_active = true
+          and profile.privacy_blocked = false
+          and (
+            (
+              ${originLatitude}::float8 is not null
+              and ${originLongitude}::float8 is not null
+              and 6371 * 2 * asin(
+                sqrt(
+                  least(
+                    1,
+                    power(sin(radians(location.latitude - ${originLatitude}::float8) / 2), 2)
+                    + cos(radians(${originLatitude}::float8))
+                    * cos(radians(location.latitude))
+                    * power(sin(radians(location.longitude - ${originLongitude}::float8) / 2), 2)
+                  )
+                )
+              ) <= 300
+            )
+            or (
+              ${originLatitude}::float8 is null
+              and (
+                lower(btrim(profile.city)) = ${locality}
+                or lower(btrim(profile.municipality)) = ${locality}
+              )
             )
           )
-        )
-      order by profile.quality_score desc, profile.display_name asc, relation.service_slug asc
+      )
+      select *
+      from candidate_pool
+      where has_current_authority = true
+      order by quality_score desc, display_name asc, service_slug asc
       limit 500
     `;
 
     const candidatesInput = (candidateRows as Record<string, unknown>[]).flatMap((row) => {
+      if (row.has_current_authority !== true) return [];
       const readiness = classifyDirectoryMarketplaceReadiness({
         publicationStatus: row.publication_status,
         isActive: row.is_active,

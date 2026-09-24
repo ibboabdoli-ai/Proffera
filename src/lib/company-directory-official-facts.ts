@@ -16,6 +16,7 @@ import {
   resolveBolagsverketOrganizationRecord,
 } from "@/lib/company-directory-official-facts-errors";
 import { getSql } from "@/lib/db/server";
+import { invalidateCompanyDirectoryAuthorityCachesBestEffort } from "@/lib/company-directory-authority-cache";
 
 type AnyRecord = Record<string, unknown>;
 
@@ -383,45 +384,82 @@ async function saveOfficialFacts(profileId: string, facts: OfficialFacts) {
   const procedures = JSON.stringify(facts.ongoingProcedures);
   const producers = JSON.stringify(facts.dataProducers);
 
-  await sql`
-    insert into company_directory_official_facts (
-      profile_id, registration_country_code, registration_country_label,
-      organization_form_code, organization_form_label, legal_form_code, legal_form_label,
-      registration_date, scb_registered_date, deregistration_date,
-      deregistration_reason_code, deregistration_reason_label, advertising_blocked,
-      co_address, address_country, registered_names, sni_codes, ongoing_procedures,
-      data_producers, source_payload_hash, last_synced_at, updated_at
-    ) values (
-      ${profileId}::uuid, ${facts.registrationCountryCode}, ${facts.registrationCountryLabel},
-      ${facts.organizationFormCode}, ${facts.organizationFormLabel}, ${facts.legalFormCode}, ${facts.legalFormLabel},
-      ${facts.registrationDate}::date, ${facts.scbRegisteredDate}::date, ${facts.deregistrationDate}::timestamptz,
-      ${facts.deregistrationReasonCode}, ${facts.deregistrationReasonLabel}, ${facts.advertisingBlocked},
-      ${facts.coAddress}, ${facts.addressCountry}, ${names}::jsonb, ${sni}::jsonb, ${procedures}::jsonb,
-      ${producers}::jsonb, ${facts.sourcePayloadHash}, now(), now()
+  const saved = await sql`
+    with previous as materialized (
+      select
+        facts.profile_id is not null as facts_exists,
+        facts.source_payload_hash,
+        facts.last_synced_at,
+        profile.last_synced_at as profile_last_synced_at
+      from company_directory_profiles profile
+      left join company_directory_official_facts facts on facts.profile_id = profile.id
+      where profile.id = ${profileId}::uuid
+    ), upserted as (
+      insert into company_directory_official_facts (
+        profile_id, registration_country_code, registration_country_label,
+        organization_form_code, organization_form_label, legal_form_code, legal_form_label,
+        registration_date, scb_registered_date, deregistration_date,
+        deregistration_reason_code, deregistration_reason_label, advertising_blocked,
+        co_address, address_country, registered_names, sni_codes, ongoing_procedures,
+        data_producers, source_payload_hash, last_synced_at, updated_at
+      ) values (
+        ${profileId}::uuid, ${facts.registrationCountryCode}, ${facts.registrationCountryLabel},
+        ${facts.organizationFormCode}, ${facts.organizationFormLabel}, ${facts.legalFormCode}, ${facts.legalFormLabel},
+        ${facts.registrationDate}::date, ${facts.scbRegisteredDate}::date, ${facts.deregistrationDate}::timestamptz,
+        ${facts.deregistrationReasonCode}, ${facts.deregistrationReasonLabel}, ${facts.advertisingBlocked},
+        ${facts.coAddress}, ${facts.addressCountry}, ${names}::jsonb, ${sni}::jsonb, ${procedures}::jsonb,
+        ${producers}::jsonb, ${facts.sourcePayloadHash}, now(), now()
+      )
+      on conflict (profile_id) do update set
+        registration_country_code = excluded.registration_country_code,
+        registration_country_label = excluded.registration_country_label,
+        organization_form_code = excluded.organization_form_code,
+        organization_form_label = excluded.organization_form_label,
+        legal_form_code = excluded.legal_form_code,
+        legal_form_label = excluded.legal_form_label,
+        registration_date = excluded.registration_date,
+        scb_registered_date = excluded.scb_registered_date,
+        deregistration_date = excluded.deregistration_date,
+        deregistration_reason_code = excluded.deregistration_reason_code,
+        deregistration_reason_label = excluded.deregistration_reason_label,
+        advertising_blocked = excluded.advertising_blocked,
+        co_address = excluded.co_address,
+        address_country = excluded.address_country,
+        registered_names = excluded.registered_names,
+        sni_codes = excluded.sni_codes,
+        ongoing_procedures = excluded.ongoing_procedures,
+        data_producers = excluded.data_producers,
+        source_payload_hash = excluded.source_payload_hash,
+        last_synced_at = case
+          when company_directory_official_facts.source_payload_hash is distinct from excluded.source_payload_hash
+            or company_directory_official_facts.last_synced_at < (
+              select previous.profile_last_synced_at from previous
+            )
+          then now()
+          else company_directory_official_facts.last_synced_at
+        end,
+        updated_at = now()
+      returning source_payload_hash, last_synced_at
     )
-    on conflict (profile_id) do update set
-      registration_country_code = excluded.registration_country_code,
-      registration_country_label = excluded.registration_country_label,
-      organization_form_code = excluded.organization_form_code,
-      organization_form_label = excluded.organization_form_label,
-      legal_form_code = excluded.legal_form_code,
-      legal_form_label = excluded.legal_form_label,
-      registration_date = excluded.registration_date,
-      scb_registered_date = excluded.scb_registered_date,
-      deregistration_date = excluded.deregistration_date,
-      deregistration_reason_code = excluded.deregistration_reason_code,
-      deregistration_reason_label = excluded.deregistration_reason_label,
-      advertising_blocked = excluded.advertising_blocked,
-      co_address = excluded.co_address,
-      address_country = excluded.address_country,
-      registered_names = excluded.registered_names,
-      sni_codes = excluded.sni_codes,
-      ongoing_procedures = excluded.ongoing_procedures,
-      data_producers = excluded.data_producers,
-      source_payload_hash = excluded.source_payload_hash,
-      last_synced_at = now(),
-      updated_at = now()
+    select
+      not coalesce((select facts_exists from previous), false)
+      or exists (
+        select 1
+        from previous, upserted
+        where previous.source_payload_hash is distinct from upserted.source_payload_hash
+          or (
+            previous.last_synced_at < previous.profile_last_synced_at
+            and upserted.last_synced_at >= previous.profile_last_synced_at
+          )
+      ) as authority_changed
   `;
+
+  if (saved[0]?.authority_changed === true) {
+    await invalidateCompanyDirectoryAuthorityCachesBestEffort(
+      profileId,
+      "committed Official Facts authority change",
+    );
+  }
 }
 
 function boundedLimit(value: unknown) {

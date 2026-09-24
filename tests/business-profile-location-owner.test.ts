@@ -5,11 +5,19 @@ const mocks = vi.hoisted(() => ({
   getPlatformAdmin: vi.fn(),
   getUserWorkspaceAccess: vi.fn(),
   canManageWorkspaceSettings: vi.fn(),
+  invalidatePublicDirectoryPublicProjectionByProfileId: vi.fn(),
+  invalidateMarketplaceHomeCompaniesCache: vi.fn(),
 }));
 
 vi.mock("server-only", () => ({}));
 vi.mock("@/lib/db/server", () => ({ getSql: mocks.getSql }));
 vi.mock("@/lib/platform-admin", () => ({ getPlatformAdmin: mocks.getPlatformAdmin }));
+vi.mock("@/lib/company-directory-public-cache", () => ({
+  invalidatePublicDirectoryPublicProjectionByProfileId: mocks.invalidatePublicDirectoryPublicProjectionByProfileId,
+}));
+vi.mock("@/lib/public-read-cache", () => ({
+  invalidateMarketplaceHomeCompaniesCache: mocks.invalidateMarketplaceHomeCompaniesCache,
+}));
 vi.mock("@/lib/workspace-access", () => ({
   getUserWorkspaceAccess: mocks.getUserWorkspaceAccess,
   canManageWorkspaceSettings: mocks.canManageWorkspaceSettings,
@@ -163,7 +171,24 @@ describe("Business Profile claimed-owner location boundary", () => {
     expect(queries[0]?.values).toEqual([WORKSPACE_ID, WORKSPACE_ID]);
   });
 
-  it("creates owner provenance from the verified Workspace and serializes primary changes inside one transaction", async () => {
+  it("creates an owner service base and invalidates Marketplace after commit", async () => {
+    const { sql } = createSqlMock(async (query) => {
+      if (query.text.startsWith("select profile.id")) return [{ id: PROFILE_ID }];
+      if (query.text.startsWith("insert into company_directory_profile_locations")) return [{ id: LOCATION_ID }];
+      return [];
+    });
+    mocks.getSql.mockReturnValue(sql);
+
+    await expect(createOwnerBusinessProfileLocation(validInput({
+      purpose: "service_base",
+      isPrimary: false,
+    }))).resolves.toEqual({ id: LOCATION_ID });
+
+    expect(mocks.invalidatePublicDirectoryPublicProjectionByProfileId).toHaveBeenCalledWith(PROFILE_ID);
+    expect(mocks.invalidateMarketplaceHomeCompaniesCache).toHaveBeenCalledTimes(1);
+  });
+
+  it("replaces the primary owner service base and invalidates Marketplace after commit", async () => {
     const { sql, queries } = createSqlMock(async (query) => {
       if (query.text.startsWith("select profile.id")) return [{ id: PROFILE_ID }];
       if (query.text.startsWith("insert into company_directory_profile_locations")) return [{ id: LOCATION_ID }];
@@ -171,7 +196,10 @@ describe("Business Profile claimed-owner location boundary", () => {
     });
     mocks.getSql.mockReturnValue(sql);
 
-    const result = await createOwnerBusinessProfileLocation(validInput({ isPrimary: true }));
+    const result = await createOwnerBusinessProfileLocation(validInput({
+      purpose: "service_base",
+      isPrimary: true,
+    }));
 
     expect(result).toEqual({ id: LOCATION_ID });
     expect(sql.transaction).toHaveBeenCalledTimes(1);
@@ -181,6 +209,48 @@ describe("Business Profile claimed-owner location boundary", () => {
     expect(queries[2]?.text).toContain("'owner'");
     expect(queries[2]?.text).toContain("profile.claimed_workspace_id = ?::uuid");
     expect(queries[2]?.values).toContain(WORKSPACE_ID);
+    expect(mocks.invalidatePublicDirectoryPublicProjectionByProfileId).toHaveBeenCalledWith(PROFILE_ID);
+    expect(mocks.invalidateMarketplaceHomeCompaniesCache).toHaveBeenCalledTimes(1);
+  });
+
+  it("updates an owner service base and invalidates Marketplace after commit", async () => {
+    const { sql } = createSqlMock(async (query) => {
+      if (query.text.startsWith("select profile.id")) return [{ id: PROFILE_ID }];
+      if (query.text.startsWith("update company_directory_profile_locations")) return [{ id: LOCATION_ID }];
+      return [];
+    });
+    mocks.getSql.mockReturnValue(sql);
+
+    await expect(updateOwnerBusinessProfileLocation(validInput({
+      id: LOCATION_ID,
+      purpose: "service_base",
+    }) as WriteBusinessProfileLocationInput & { id: string })).resolves.toEqual({ id: LOCATION_ID });
+
+    expect(mocks.invalidatePublicDirectoryPublicProjectionByProfileId).toHaveBeenCalledWith(PROFILE_ID);
+    expect(mocks.invalidateMarketplaceHomeCompaniesCache).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps a committed owner-location write successful when Directory invalidation fails", async () => {
+    const cacheError = new Error("directory cache invalidate failed");
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const { sql } = createSqlMock(async (query) => {
+      if (query.text.startsWith("select profile.id")) return [{ id: PROFILE_ID }];
+      if (query.text.startsWith("insert into company_directory_profile_locations")) return [{ id: LOCATION_ID }];
+      return [];
+    });
+    mocks.getSql.mockReturnValue(sql);
+    mocks.invalidatePublicDirectoryPublicProjectionByProfileId.mockRejectedValueOnce(cacheError);
+
+    await expect(createOwnerBusinessProfileLocation(validInput({
+      purpose: "service_base",
+    }))).resolves.toEqual({ id: LOCATION_ID });
+
+    expect(mocks.invalidateMarketplaceHomeCompaniesCache).toHaveBeenCalledTimes(1);
+    expect(consoleError).toHaveBeenCalledWith(
+      "Failed to invalidate public Directory cache after committed owner-location mutation",
+      { profileId: PROFILE_ID, locationId: LOCATION_ID, error: cacheError },
+    );
+    consoleError.mockRestore();
   });
 
   it("fails closed for an unclaimed Workspace profile", async () => {
@@ -241,6 +311,8 @@ describe("Business Profile claimed-owner location boundary", () => {
     expect(queries[1]?.text).toContain("location.owner_workspace_id = ?::uuid");
     expect(queries[1]?.text).toContain("profile.claimed_workspace_id = ?::uuid");
     expect(queries[1]?.text).toContain("visibility = 'private'");
+    expect(mocks.invalidatePublicDirectoryPublicProjectionByProfileId).toHaveBeenCalledWith(PROFILE_ID);
+    expect(mocks.invalidateMarketplaceHomeCompaniesCache).toHaveBeenCalledTimes(1);
   });
 
   it("keeps super-admin inspection behind the existing platform-admin boundary", async () => {

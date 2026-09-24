@@ -10,6 +10,7 @@ import {
   getProviderActivationState,
 } from "@/lib/company-directory-provider-activation";
 import { canManageWorkspaceSettings, getUserWorkspaceAccess } from "@/lib/workspace-access";
+import { establishPreReleaseSoleTraderServiceBase } from "@/lib/business-profile-location-owner";
 
 export const dynamic = "force-dynamic";
 
@@ -33,6 +34,11 @@ const copy = {
     marketplaceService: "Tjänst i Proffera",
     action: "Kundens primära väg",
     radius: "Serviceområde, radie i km",
+    serviceBase: "Privat servicebas",
+    serviceBaseHelp: "Adressen verifieras och lagras privat. Endast orten används för att avgöra pilotområdet.",
+    addressLine1: "Gatuadress",
+    postalCode: "Postnummer",
+    city: "Ort",
     activate: "Publicera på marknadsplatsen",
     activeTitle: "Aktiva marknadsplatstjänster",
     noneActive: "Ingen tjänst är publicerad på marknadsplatsen ännu.",
@@ -64,6 +70,11 @@ const copy = {
     marketplaceService: "Proffera service",
     action: "Primary customer action",
     radius: "Service area radius, km",
+    serviceBase: "Private service base",
+    serviceBaseHelp: "The address is verified and stored privately. Only the city is used to determine pilot eligibility.",
+    addressLine1: "Street address",
+    postalCode: "Postal code",
+    city: "City",
     activate: "Publish to marketplace",
     activeTitle: "Active marketplace services",
     noneActive: "No service has been published in the marketplace yet.",
@@ -135,6 +146,13 @@ async function activateMarketplaceServiceAction(formData: FormData) {
   const locale: Locale = formData.get("lang") === "en" ? "en" : "sv";
   let status = "service_ok";
   try {
+    if (formData.get("requiresPrivacyRelease") === "true") {
+      await establishPreReleaseSoleTraderServiceBase({
+        addressLine1: String(formData.get("serviceBaseAddressLine1") ?? ""),
+        postalCode: String(formData.get("serviceBasePostalCode") ?? ""),
+        city: String(formData.get("serviceBaseCity") ?? ""),
+      });
+    }
     await activateProviderMarketplaceService({
       serviceId: String(formData.get("serviceId") ?? ""),
       directoryServiceSlug: String(formData.get("directoryServiceSlug") ?? ""),
@@ -265,6 +283,16 @@ export default async function MarketplaceActivationPage({
             ) : (
               <form action={activateMarketplaceServiceAction} className="mt-6 grid gap-4 md:grid-cols-2">
                 <input type="hidden" name="lang" value={locale} />
+                <input type="hidden" name="requiresPrivacyRelease" value={String(linkedProfile.requiresPrivacyRelease)} />
+                {linkedProfile.requiresPrivacyRelease ? (
+                  <fieldset className="grid gap-4 rounded-card border border-line bg-surface-subtle p-4 md:col-span-2 md:grid-cols-3">
+                    <legend className="px-2 text-sm font-black text-ink">{t.serviceBase}</legend>
+                    <p className="text-sm leading-6 text-ink-muted md:col-span-3">{t.serviceBaseHelp}</p>
+                    <label className="grid gap-2 text-sm font-bold text-ink">{t.addressLine1}<input name="serviceBaseAddressLine1" required autoComplete="street-address" className="min-h-12 rounded-xl border border-line bg-surface px-3 text-base sm:text-sm" /></label>
+                    <label className="grid gap-2 text-sm font-bold text-ink">{t.postalCode}<input name="serviceBasePostalCode" required autoComplete="postal-code" className="min-h-12 rounded-xl border border-line bg-surface px-3 text-base sm:text-sm" /></label>
+                    <label className="grid gap-2 text-sm font-bold text-ink">{t.city}<input name="serviceBaseCity" required autoComplete="address-level2" className="min-h-12 rounded-xl border border-line bg-surface px-3 text-base sm:text-sm" /></label>
+                  </fieldset>
+                ) : null}
                 <label className="grid gap-2 text-sm font-bold text-ink">
                   {t.workspaceService}
                   <select name="serviceId" required className="min-h-12 rounded-xl border border-line bg-surface px-3 text-base sm:text-sm">

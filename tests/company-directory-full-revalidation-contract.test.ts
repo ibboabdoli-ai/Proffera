@@ -6,6 +6,7 @@ const mocks = vi.hoisted(() => ({
   enrichOfficialFacts: vi.fn(),
   enrichScb: vi.fn(),
   createScbTransport: vi.fn(),
+  invalidateByProfileId: vi.fn(),
 }));
 
 vi.mock("server-only", () => ({}));
@@ -21,6 +22,10 @@ vi.mock("@/lib/company-directory-scb-enrichment", () => ({
 }));
 vi.mock("@/lib/company-directory-scb-transport", () => ({
   createScbCompanyRegistryTransportFromEnv: mocks.createScbTransport,
+}));
+vi.mock("@/lib/company-directory-public-cache", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/company-directory-public-cache")>()),
+  invalidatePublicDirectoryPublicProjectionByProfileId: mocks.invalidateByProfileId,
 }));
 
 import { revalidateAllCompanyDirectoryBatch } from "../src/lib/company-directory-full-revalidation";
@@ -57,6 +62,18 @@ function candidate(status = "ready") {
   };
 }
 
+function workplace(city = "Stockholm", municipality = "Stockholm") {
+  return {
+    cfarNumber: "12345678",
+    municipality,
+    visitingAddress: {
+      addressLine: "Arbetsplatsgatan 2",
+      postalCode: "11122",
+      city,
+    },
+  };
+}
+
 function evaluation(status = "ready", overrides: Record<string, unknown> = {}) {
   return {
     id: PROFILE_ID,
@@ -68,6 +85,10 @@ function evaluation(status = "ready", overrides: Record<string, unknown> = {}) {
     legal_name: "Exempel El AB",
     display_name: "Exempel El AB",
     activity_description: "Elinstallation och service",
+    address_line1: "Registrerad gata 1",
+    postal_code: "11122",
+    city: "Stockholm",
+    municipality: "Stockholm",
     is_active: true,
     privacy_blocked: false,
     auto_public_eligible: true,
@@ -80,6 +101,7 @@ function evaluation(status = "ready", overrides: Record<string, unknown> = {}) {
     ongoing_procedures: [],
     facts_last_synced_token: FACTS_TOKEN,
     facts_source_payload_hash: FACTS_HASH,
+    scb_workplaces: [workplace()],
     scb_source_payload_hash: SCB_HASH,
     scb_conflict_count: 0,
     official_facts_fresh: true,
@@ -166,6 +188,93 @@ describe("full Company Directory revalidation", () => {
     expect(mocks.enrichScb).not.toHaveBeenCalled();
   });
 
+  it("moves a published profile to Review when the refreshed canonical workplace is outside the pilot", async () => {
+    configureWorker({
+      status: "published",
+      evaluation: evaluation("published", {
+        scb_workplaces: [workplace("Uppsala", "Uppsala")],
+      }),
+    });
+
+    const result = await revalidateAllCompanyDirectoryBatch(10);
+
+    expect(result).toMatchObject({
+      selected: 1,
+      refreshed: 1,
+      movedToReview: 1,
+      errors: 0,
+    });
+    expect(sqlCalls.some((call) => call.query.includes("set publication_status = 'review'"))).toBe(true);
+    expect(mocks.invalidateByProfileId).toHaveBeenCalledWith(PROFILE_ID);
+  });
+
+  it("moves a published profile to Review when refreshed ongoing procedures are malformed", async () => {
+    configureWorker({
+      status: "published",
+      evaluation: evaluation("published", {
+        ongoing_procedures: { malformed: true },
+      }),
+    });
+
+    const result = await revalidateAllCompanyDirectoryBatch(10);
+
+    expect(result).toMatchObject({
+      selected: 1,
+      refreshed: 1,
+      movedToReview: 1,
+      errors: 0,
+    });
+    expect(sqlCalls.some((call) => call.query.includes("set publication_status = 'review'"))).toBe(true);
+    expect(mocks.enrichScb).not.toHaveBeenCalled();
+  });
+
+  it("keeps a committed published demotion counted when public cache invalidation fails", async () => {
+    const cacheError = new Error("cache invalidate failed");
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    mocks.invalidateByProfileId.mockRejectedValueOnce(cacheError);
+    configureWorker({
+      status: "published",
+      evaluation: evaluation("published", {
+        scb_workplaces: [workplace("Uppsala", "Uppsala")],
+      }),
+    });
+
+    const result = await revalidateAllCompanyDirectoryBatch(10);
+
+    expect(result).toMatchObject({
+      selected: 1,
+      refreshed: 1,
+      movedToReview: 1,
+      errors: 0,
+    });
+    expect(consoleError).toHaveBeenCalledWith(
+      "Failed to invalidate public Directory cache after committed full-revalidation demotion",
+      { profileId: PROFILE_ID, error: cacheError },
+    );
+    consoleError.mockRestore();
+  });
+
+  it("keeps an outside-pilot Review profile in Review instead of recovering it to Ready", async () => {
+    configureWorker({
+      status: "review",
+      evaluation: evaluation("review", {
+        scb_workplaces: [workplace("Uppsala", "Uppsala")],
+      }),
+    });
+
+    const result = await revalidateAllCompanyDirectoryBatch(10);
+
+    expect(result).toMatchObject({
+      selected: 1,
+      refreshed: 1,
+      recoveredToReady: 0,
+      movedToReview: 0,
+      kept: 1,
+      errors: 0,
+    });
+    expect(sqlCalls.some((call) => call.query.includes("set publication_status = 'ready'"))).toBe(false);
+  });
+
   it("refreshes a low-confidence Ready profile and moves it to Review", async () => {
     configureWorker({ status: "ready" });
     mocks.assessConfidence.mockReturnValue({ score: 90, officialFactsReady: true, reasons: [] });
@@ -222,8 +331,35 @@ describe("full Company Directory revalidation", () => {
     expect(recovery?.query).toContain("profile.claimed_workspace_id is null");
     expect(recovery?.query).toContain("company_directory_discovery_queue queue");
     expect(recovery?.query).toContain("queue.state = 'failed'");
-    expect(recovery?.query).toContain("jsonb_array_length(coalesce(scb.conflicts, '[]'::jsonb)) = 0");
+    expect(recovery?.query).toContain("when jsonb_typeof(scb.conflicts) = 'array'");
+    expect(recovery?.query).toContain("then jsonb_array_length(scb.conflicts)");
+    expect(recovery?.query).toContain("else 1");
     expect(recovery?.query).not.toContain("set publication_status = 'published'");
+  });
+
+  it("treats malformed SCB conflicts as fail-closed revalidation work", async () => {
+    responder = async (query) => {
+      if (query.includes("started_at < now() - interval '10 minutes'")) return [];
+      if (query.includes("insert into company_directory_sync_runs")) return [{ id: RUN_ID }];
+      if (query.includes("select profile.id::text, profile.organization_number, profile.display_name, profile.publication_status")) {
+        expect(query).toContain("jsonb_typeof(scb.conflicts) is distinct from 'array'");
+        expect(query).toContain("when jsonb_typeof(scb.conflicts) = 'array'");
+        return [];
+      }
+      if (query.includes("update company_directory_sync_runs") && query.includes("where id =")) return [];
+      if (query.includes("select count(*)::int as count")) {
+        expect(query).toContain("jsonb_typeof(scb.conflicts) is distinct from 'array'");
+        expect(query).toContain("when jsonb_typeof(scb.conflicts) = 'array'");
+        return [{ count: 0 }];
+      }
+      throw new Error(`Unexpected SQL in malformed-conflicts guard test: ${query}`);
+    };
+
+    await expect(revalidateAllCompanyDirectoryBatch(10)).resolves.toMatchObject({
+      selected: 0,
+      errors: 0,
+      remaining: 0,
+    });
   });
 
   it("keeps a failed discovery-queue Review profile out of recovery work and backlog", async () => {
@@ -355,6 +491,7 @@ describe("full Company Directory revalidation", () => {
     expect(mocks.enrichOfficialFacts).toHaveBeenCalledTimes(1);
     expect(mocks.enrichScb).toHaveBeenCalledTimes(1);
     expect(sqlCalls.some((call) => call.query.includes("update company_directory_profiles profile"))).toBe(false);
+    expect(mocks.invalidateByProfileId).not.toHaveBeenCalled();
   });
 
   it("stops before starting SCB when the deadline expires during a candidate", async () => {

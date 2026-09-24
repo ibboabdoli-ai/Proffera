@@ -36,8 +36,7 @@ async function releaseOwnReservation(input: {
       update company_directory_profiles
       set claim_reservation_id = null,
           claim_reservation_token = null,
-          claim_reserved_at = null,
-          updated_at = now()
+          claim_reserved_at = null
       where id = ${input.profileId}::uuid
         and claim_reservation_id = ${input.claimId}::uuid
         and claim_reservation_token = ${input.reservationToken}::uuid
@@ -273,8 +272,7 @@ export async function tryAutoProvisionMarketplaceCompanyClaim(input: {
     update company_directory_profiles profile
     set claim_reservation_id = ${input.claimId}::uuid,
         claim_reservation_token = ${reservationToken}::uuid,
-        claim_reserved_at = now(),
-        updated_at = now()
+        claim_reserved_at = now()
     where profile.id = ${profileId}::uuid
       and profile.claimed_workspace_id is null
       and (profile.claim_reservation_id is null or profile.claim_reservation_id = ${input.claimId}::uuid)

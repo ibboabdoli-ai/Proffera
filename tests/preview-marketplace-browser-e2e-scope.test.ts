@@ -7,6 +7,11 @@ const source = readFileSync(
   "utf8",
 );
 
+const fixtureSource = readFileSync(
+  path.join(process.cwd(), "src/app/api/e2e/marketplace/fixture/route.ts"),
+  "utf8",
+);
+
 describe("Marketplace Preview browser E2E scope", () => {
   it("covers the full customer-provider-review lifecycle and isolation assertions", () => {
     expect(source).toContain("Skicka förfrågan");
@@ -51,5 +56,23 @@ describe("Marketplace Preview browser E2E scope", () => {
     expect(source).toContain("Omdömet har redan skickats");
     expect(source).toContain("Omdömeslänken är ogiltig");
     expect(source).toContain("providerExists).toBe(false)");
+  });
+
+  it("seeds Preview provider evidence before the guarded Ready-to-Published transition", () => {
+    const profileInsert = fixtureSource.indexOf("insert into company_directory_profiles");
+    const factsInsert = fixtureSource.indexOf("insert into company_directory_official_facts");
+    const scbInsert = fixtureSource.indexOf("insert into company_directory_scb_enrichment");
+    const publishUpdate = fixtureSource.indexOf("set publication_status = 'published'");
+
+    expect(profileInsert).toBeGreaterThanOrEqual(0);
+    expect(fixtureSource).toContain("'ready', 100, false, true, null");
+    expect(factsInsert).toBeGreaterThan(profileInsert);
+    expect(fixtureSource).toContain("source_payload_hash, last_synced_at");
+    expect(scbInsert).toBeGreaterThan(factsInsert);
+    expect(fixtureSource).toContain("'comparisonSnapshot', jsonb_build_object");
+    expect(publishUpdate).toBeGreaterThan(scbInsert);
+    expect(fixtureSource).toContain("and publication_status = 'ready'");
+    const publicationTransition = fixtureSource.slice(publishUpdate, fixtureSource.indexOf("where id =", publishUpdate));
+    expect(publicationTransition).not.toContain("updated_at = now()");
   });
 });

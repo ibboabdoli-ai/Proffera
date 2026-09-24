@@ -6,6 +6,8 @@ import {
   verifyCustomerAddress,
 } from "@/lib/lantmateriet-address-verification";
 import { getPlatformAdmin } from "@/lib/platform-admin";
+import { invalidatePublicDirectoryPublicProjectionByProfileId } from "@/lib/company-directory-public-cache";
+import { invalidateMarketplaceHomeCompaniesCache } from "@/lib/public-read-cache";
 import { canManageWorkspaceSettings, getUserWorkspaceAccess } from "@/lib/workspace-access";
 
 export const editableBusinessProfileLocationPurposes = [
@@ -41,6 +43,12 @@ export type WriteBusinessProfileLocationInput = {
   longitude?: number | string | null;
   geocodeSource?: string;
   geocodePrecision?: BusinessProfileLocationGeocodePrecision;
+};
+
+export type EstablishPreReleaseSoleTraderServiceBaseInput = {
+  addressLine1: string;
+  postalCode: string;
+  city: string;
 };
 
 export type DashboardBusinessProfileLocation = {
@@ -473,12 +481,255 @@ async function writeOwnerBusinessProfileLocation(input: WriteBusinessProfileLoca
   if (!id) {
     throw new Error("Business Profile location is not owned by the currently claimed Workspace");
   }
+  const profileId = String(profileRows[0]?.id ?? "");
+
+  try {
+    await invalidatePublicDirectoryPublicProjectionByProfileId(profileId);
+  } catch (error) {
+    console.error("Failed to invalidate public Directory cache after committed owner-location mutation", {
+      profileId,
+      locationId: id,
+      error,
+    });
+  }
+
+  try {
+    invalidateMarketplaceHomeCompaniesCache();
+  } catch (error) {
+    console.error("Failed to invalidate Marketplace cache after committed owner-location mutation", {
+      locationId: id,
+      error,
+    });
+  }
+
   return { id };
 }
 
 export async function createOwnerBusinessProfileLocation(input: WriteBusinessProfileLocationInput) {
   if (input.id) throw new Error("A new Business Profile location must not include an id");
   return writeOwnerBusinessProfileLocation(input);
+}
+
+export async function establishPreReleaseSoleTraderServiceBase(
+  input: EstablishPreReleaseSoleTraderServiceBaseInput,
+) {
+  const access = await requireLocationManagingWorkspace();
+  const normalized = normalizeBusinessProfileLocationWrite({
+    purpose: "service_base",
+    visibility: "private",
+    isVisitable: true,
+    isPrimary: true,
+    confirmed: true,
+    addressLine1: input.addressLine1,
+    postalCode: input.postalCode,
+    city: input.city,
+    municipality: "",
+  });
+  const sql = getSql();
+  if (!sql) throw new Error("Database is not configured");
+
+  const authority = await sql`
+    select profile.id::text as profile_id
+    from company_directory_profiles profile
+    where profile.claimed_workspace_id = ${access.workspaceId}::uuid
+      and profile.organization_kind = 'sole_trader'
+      and profile.organization_number ~ '^sole-trader-[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'
+      and profile.publication_status = 'blocked'
+      and profile.is_active = true
+      and profile.privacy_blocked = true
+      and profile.auto_public_eligible = false
+      and profile.published_at is null
+      and profile.official_source = 'bolagsverket_vardefulla_datamangder:sole_trader_owner'
+      and coalesce(trim(profile.display_name), '') <> ''
+      and coalesce(trim(profile.legal_form), '') <> ''
+      and profile.organization_status = 'Registrerad'
+      and coalesce(trim(profile.address_line1), '') = ''
+      and coalesce(trim(profile.postal_code), '') = ''
+      and exists (
+        select 1
+        from company_directory_claims owner_claim
+        where owner_claim.profile_id = profile.id
+          and owner_claim.requested_workspace_id = ${access.workspaceId}::uuid
+          and owner_claim.status = 'claimed'
+          and owner_claim.verification_method = 'manual_review'
+      )
+    limit 1
+  `;
+  if (!authority[0]?.profile_id) {
+    throw new Error("The active Workspace does not own an eligible blocked sole-trader profile");
+  }
+
+  const verified = await verifyCustomerAddress({
+    addressLine1: normalized.addressLine1,
+    postalCode: normalized.postalCode,
+    city: normalized.city,
+  });
+  if (verified.status !== "matched") {
+    throw new Error(`Service base address verification failed: ${verified.status}:${verified.reason}`);
+  }
+  const transformedRows = await sql`
+    select
+      st_y(transformed.point)::float8 as latitude,
+      st_x(transformed.point)::float8 as longitude
+    from (
+      select st_transform(
+        st_setsrid(st_makepoint(${verified.easting}::float8, ${verified.northing}::float8), 3006),
+        4326
+      ) as point
+    ) transformed
+  `;
+  const latitude = storedCoordinate(transformedRows[0]?.latitude, -90, 90);
+  const longitude = storedCoordinate(transformedRows[0]?.longitude, -180, 180);
+  if (latitude === null || longitude === null || (latitude === 0 && longitude === 0)) {
+    throw new Error("Service base address verification returned invalid coordinates");
+  }
+
+  const lockAuthority = sql`
+      select profile.id
+      from company_directory_profiles profile
+      join company_directory_claims owner_claim
+        on owner_claim.profile_id = profile.id
+       and owner_claim.requested_workspace_id = ${access.workspaceId}::uuid
+       and owner_claim.status = 'claimed'
+       and owner_claim.verification_method = 'manual_review'
+      where profile.id = ${String(authority[0].profile_id)}::uuid
+        and profile.claimed_workspace_id = ${access.workspaceId}::uuid
+        and profile.organization_kind = 'sole_trader'
+        and profile.publication_status = 'blocked'
+        and profile.is_active = true
+        and profile.privacy_blocked = true
+        and profile.auto_public_eligible = false
+        and profile.published_at is null
+        and profile.official_source = 'bolagsverket_vardefulla_datamangder:sole_trader_owner'
+        and coalesce(trim(profile.display_name), '') <> ''
+        and coalesce(trim(profile.legal_form), '') <> ''
+        and profile.organization_status = 'Registrerad'
+        and coalesce(trim(profile.address_line1), '') = ''
+        and coalesce(trim(profile.postal_code), '') = ''
+      for update of profile, owner_claim
+  `;
+  const clearPrimary = sql`
+      update company_directory_profile_locations location
+      set is_primary = false, updated_at = now()
+      where location.profile_id = ${String(authority[0].profile_id)}::uuid
+        and location.is_primary = true
+        and location.is_active = true
+        and exists (
+          select 1
+          from company_directory_profiles profile
+          join company_directory_claims owner_claim
+            on owner_claim.profile_id = profile.id
+           and owner_claim.requested_workspace_id = ${access.workspaceId}::uuid
+           and owner_claim.status = 'claimed'
+           and owner_claim.verification_method = 'manual_review'
+          where profile.id = location.profile_id
+            and profile.claimed_workspace_id = ${access.workspaceId}::uuid
+            and profile.publication_status = 'blocked'
+            and profile.is_active = true
+            and profile.privacy_blocked = true
+            and profile.organization_kind = 'sole_trader'
+            and profile.organization_number ~ '^sole-trader-[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'
+            and profile.auto_public_eligible = false
+            and profile.published_at is null
+            and profile.official_source = 'bolagsverket_vardefulla_datamangder:sole_trader_owner'
+            and coalesce(trim(profile.display_name), '') <> ''
+            and coalesce(trim(profile.legal_form), '') <> ''
+            and profile.organization_status = 'Registrerad'
+            and coalesce(trim(profile.address_line1), '') = ''
+            and coalesce(trim(profile.postal_code), '') = ''
+        )
+      returning location.id
+  `;
+  const writeLocation = sql`
+    with selected_location as (
+      select location.id
+      from company_directory_profile_locations location
+      where location.profile_id = ${String(authority[0].profile_id)}::uuid
+        and location.source_type = 'owner'
+        and location.owner_workspace_id = ${access.workspaceId}::uuid
+        and location.purpose = 'service_base'
+        and location.is_active = true
+        and exists (
+          select 1
+          from company_directory_profiles profile
+          join company_directory_claims owner_claim
+            on owner_claim.profile_id = profile.id
+           and owner_claim.requested_workspace_id = ${access.workspaceId}::uuid
+           and owner_claim.status = 'claimed'
+           and owner_claim.verification_method = 'manual_review'
+          where profile.id = location.profile_id
+            and profile.claimed_workspace_id = ${access.workspaceId}::uuid
+            and profile.publication_status = 'blocked'
+            and profile.is_active = true
+            and profile.privacy_blocked = true
+            and profile.organization_kind = 'sole_trader'
+            and profile.organization_number ~ '^sole-trader-[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'
+            and profile.auto_public_eligible = false
+            and profile.published_at is null
+            and profile.official_source = 'bolagsverket_vardefulla_datamangder:sole_trader_owner'
+            and coalesce(trim(profile.display_name), '') <> ''
+            and coalesce(trim(profile.legal_form), '') <> ''
+            and profile.organization_status = 'Registrerad'
+            and coalesce(trim(profile.address_line1), '') = ''
+            and coalesce(trim(profile.postal_code), '') = ''
+        )
+      order by location.updated_at desc, location.id
+      limit 1
+      for update
+    ), updated_location as (
+      update company_directory_profile_locations location
+      set visibility = 'private', is_visitable = true, is_primary = true, is_active = true,
+          address_line1 = ${normalized.addressLine1}, postal_code = ${normalized.postalCode},
+          city = ${normalized.city}, municipality = '', latitude = ${latitude}, longitude = ${longitude},
+          geocode_source = ${verified.source}, geocode_precision = 'address',
+          confirmed_at = now(), updated_at = now()
+      where location.id = (select id from selected_location)
+      returning location.id::text
+    ), inserted_location as (
+      insert into company_directory_profile_locations (
+        profile_id, owner_workspace_id, purpose, visibility, is_visitable, is_primary,
+        is_active, source_type, address_line1, postal_code, city, municipality,
+        latitude, longitude, geocode_source, geocode_precision, confirmed_at
+      )
+      select profile.id, ${access.workspaceId}::uuid, 'service_base', 'private', true, true,
+        true, 'owner', ${normalized.addressLine1}, ${normalized.postalCode}, ${normalized.city}, '',
+        ${latitude}, ${longitude}, ${verified.source}, 'address', now()
+      from company_directory_profiles profile
+      join company_directory_claims owner_claim
+        on owner_claim.profile_id = profile.id
+       and owner_claim.requested_workspace_id = ${access.workspaceId}::uuid
+       and owner_claim.status = 'claimed'
+       and owner_claim.verification_method = 'manual_review'
+      where profile.id = ${String(authority[0].profile_id)}::uuid
+        and profile.claimed_workspace_id = ${access.workspaceId}::uuid
+        and profile.publication_status = 'blocked'
+        and profile.is_active = true
+        and profile.privacy_blocked = true
+        and profile.organization_kind = 'sole_trader'
+        and profile.organization_number ~ '^sole-trader-[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'
+        and profile.auto_public_eligible = false
+        and profile.published_at is null
+        and profile.official_source = 'bolagsverket_vardefulla_datamangder:sole_trader_owner'
+        and coalesce(trim(profile.display_name), '') <> ''
+        and coalesce(trim(profile.legal_form), '') <> ''
+        and profile.organization_status = 'Registrerad'
+        and coalesce(trim(profile.address_line1), '') = ''
+        and coalesce(trim(profile.postal_code), '') = ''
+        and not exists (select 1 from updated_location)
+      returning id::text
+    )
+    select id from updated_location
+    union all
+    select id from inserted_location
+    limit 1
+  `;
+  const [lockedRows, , rows] = await sql.transaction([lockAuthority, clearPrimary, writeLocation]);
+  if (!lockedRows?.[0]?.id) {
+    throw new Error("The blocked sole-trader profile changed before its service base was stored");
+  }
+  const id = String(rows[0]?.id ?? "");
+  if (!id) throw new Error("The blocked sole-trader profile changed before its service base was stored");
+  return { id };
 }
 
 export async function updateOwnerBusinessProfileLocation(input: WriteBusinessProfileLocationInput & { id: string }) {
@@ -525,6 +776,26 @@ export async function deactivateOwnerBusinessProfileLocation(locationId: string)
     throw new Error("The active Workspace does not own an eligible claimed Business Profile");
   }
   if (!rows?.[0]?.id) throw new Error("Business Profile location is not editable by the active Workspace");
+  const profileId = String(profileRows[0]?.id ?? "");
+
+  try {
+    await invalidatePublicDirectoryPublicProjectionByProfileId(profileId);
+  } catch (error) {
+    console.error("Failed to invalidate public Directory cache after committed owner-location deactivation", {
+      profileId,
+      locationId: id,
+      error,
+    });
+  }
+
+  try {
+    invalidateMarketplaceHomeCompaniesCache();
+  } catch (error) {
+    console.error("Failed to invalidate Marketplace cache after committed owner-location deactivation", {
+      locationId: id,
+      error,
+    });
+  }
 }
 
 export async function listAdminBusinessProfileLocations(profileId: string): Promise<DashboardBusinessProfileLocation[]> {

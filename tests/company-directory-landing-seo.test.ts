@@ -72,11 +72,23 @@ describe("Company Directory service-city SEO landings", () => {
     ]);
 
     expect(mocks.query).toContain("profile.publication_status = 'published'");
+    expect(mocks.query).toContain("profile.organization_kind = 'juridical_person'");
     expect(mocks.query).toContain("profile.is_active = true");
     expect(mocks.query).toContain("profile.privacy_blocked = false");
     expect(mocks.query).toContain("profile.claimed_workspace_id is null");
-    expect(mocks.query).toContain("jsonb_array_length(coalesce(scb.workplaces, '[]'::jsonb)) = 1");
+    expect(mocks.query).toContain("facts.source_payload_hash <> ''");
+    expect(mocks.query).toContain("facts.last_synced_at >= profile.last_synced_at");
+    expect(mocks.query).toContain("facts.deregistration_date is null");
+    expect(mocks.query).toContain("coalesce(facts.advertising_blocked, false) = false");
+    expect(mocks.query).toContain("scb.source_payload_hash <> ''");
+    expect(mocks.query).toContain("scb.last_synced_at >= now() - interval '7 days'");
+    expect(mocks.query).toContain("comparisonSnapshot,profileUpdatedToken");
+    expect(mocks.query).toContain("comparisonSnapshot,officialFactsLastSyncedToken");
+    expect(mocks.query).toContain("jsonb_typeof(scb.conflicts) = 'array'");
+    expect(mocks.query).toContain("jsonb_typeof(scb.workplaces) = 'array'");
+    expect(mocks.query).toContain("jsonb_array_length(scb.workplaces) = 1");
     expect(mocks.query).toContain("{visitingAddress,city}");
+    expect(mocks.query).toContain("string_to_array");
     expect(mocks.query).not.toContain("profile.municipality");
     expect(mocks.query).toContain("having count(distinct id) >=");
   });

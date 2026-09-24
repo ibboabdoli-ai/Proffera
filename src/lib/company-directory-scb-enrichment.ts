@@ -13,6 +13,7 @@ import {
   type ScbCompanyRegistryTransport,
 } from "./company-directory-scb-provider";
 import { getSql } from "./db/server";
+import { invalidateCompanyDirectoryAuthorityCachesBestEffort } from "./company-directory-authority-cache";
 
 type ScbConflict = {
   field: "legal_name" | "sni_codes";
@@ -142,7 +143,14 @@ async function saveScbEnrichment(
     .update(JSON.stringify(data))
     .digest("hex");
 
-  await sql`
+  const saved = await sql`
+    with previous as materialized (
+      select source_payload_hash, conflicts, workplaces, last_synced_at,
+        provenance #>> '{comparisonSnapshot,profileUpdatedToken}' as profile_token,
+        provenance #>> '{comparisonSnapshot,officialFactsLastSyncedToken}' as facts_token
+      from company_directory_scb_enrichment
+      where profile_id = ${profileId}::uuid
+    ), upserted as (
     insert into company_directory_scb_enrichment (
       profile_id, organization_number, observed_company_name,
       phone, email, postal_address, municipality, sni_codes,
@@ -169,7 +177,24 @@ async function saveScbEnrichment(
       source_payload_hash = excluded.source_payload_hash,
       last_synced_at = now(),
       updated_at = now()
+    returning source_payload_hash, conflicts, workplaces,
+      provenance #>> '{comparisonSnapshot,profileUpdatedToken}' as profile_token,
+      provenance #>> '{comparisonSnapshot,officialFactsLastSyncedToken}' as facts_token
+    )
+    select not exists (select 1 from previous) or exists (
+      select 1 from previous, upserted
+      where previous.source_payload_hash is distinct from upserted.source_payload_hash
+         or previous.conflicts is distinct from upserted.conflicts
+         or previous.workplaces is distinct from upserted.workplaces
+         or previous.profile_token is distinct from upserted.profile_token
+         or previous.facts_token is distinct from upserted.facts_token
+         or previous.last_synced_at < now() - interval '7 days'
+    ) as authority_changed
   `;
+
+  if (saved[0]?.authority_changed === true) {
+    await invalidateCompanyDirectoryAuthorityCachesBestEffort(profileId, "committed SCB authority change");
+  }
 
   // Keep conflicting SCB evidence for review/audit, but never project location
   // fields into the profile when the cross-source identity/category check failed.

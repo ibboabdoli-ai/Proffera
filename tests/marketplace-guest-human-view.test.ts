@@ -29,6 +29,17 @@ function queryText(call: unknown[] | undefined) {
   return (strings ?? []).join(" ? ").replace(/\s+/g, " ").trim();
 }
 
+function transactionalSqlResponses(...responses: unknown[][]) {
+  let index = 0;
+  const sql = vi.fn(async () => responses[index++] ?? []) as ReturnType<typeof vi.fn> & {
+    transaction: ReturnType<typeof vi.fn>;
+  };
+  sql.transaction = vi.fn(async (callback: (txn: typeof sql) => Promise<unknown[]>[]) => (
+    Promise.all(callback(sql))
+  ));
+  return sql;
+}
+
 function guestRow(overrides: Record<string, unknown> = {}) {
   return {
     invitation_id: "11111111-1111-4111-8111-111111111111",
@@ -37,6 +48,7 @@ function guestRow(overrides: Record<string, unknown> = {}) {
     recipient_suppressed: false,
     quote_status: "submitted",
     offer_status: null,
+    has_current_authority: true,
     display_name: "Rör AB",
     public_slug: "ror-ab",
     reference_id: "PF-1234",
@@ -76,6 +88,31 @@ describe("marketplace guest human-view tracking", () => {
     expect(sql).toHaveBeenCalledTimes(1);
     expect(queryText(sql.mock.calls[0])).toContain("where i.token_hash =");
     expect(sql.mock.calls.some((call) => queryText(call).includes("set status = 'viewed'"))).toBe(false);
+  });
+
+  it("revokes an active guest link when workplace authority is no longer current", async () => {
+    const sql = transactionalSqlResponses(
+      [guestRow({ has_current_authority: false })],
+      [],
+      [],
+      [],
+      [],
+    );
+    mocks.getSql.mockReturnValue(sql);
+
+    const view = await getMarketplaceGuestQuoteView("a".repeat(40));
+
+    expect(view).toBeNull();
+    expect(sql.transaction).toHaveBeenCalledTimes(1);
+    expect(sql).toHaveBeenCalledTimes(5);
+    expect(queryText(sql.mock.calls[0])).toContain("authority_scb.last_synced_at >= now() - interval '7 days'");
+    expect(queryText(sql.mock.calls[1])).toContain("for update of profile");
+    expect(queryText(sql.mock.calls[2])).toContain("for update of facts");
+    expect(queryText(sql.mock.calls[3])).toContain("for update of scb");
+    expect(queryText(sql.mock.calls[4])).toContain("set status = 'cancelled'");
+    expect(queryText(sql.mock.calls[4])).toContain("token_hash = encode(digest");
+    expect(queryText(sql.mock.calls[4])).toContain("and not exists");
+    expect(queryText(sql.mock.calls[4])).toContain("authority_scb.last_synced_at >= now() - interval '7 days'");
   });
 
   it("unlocks customer contact only for the selected winner after the request closes", async () => {

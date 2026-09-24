@@ -65,7 +65,9 @@ const juridicalLegalForms = [
   "filial",
 ];
 
-const pilotLocations = new Set(["stockholm", "södertälje"]);
+export const DIRECTORY_PILOT_LOCATIONS = ["stockholm", "södertälje"] as const;
+
+const pilotLocations = new Set<string>(DIRECTORY_PILOT_LOCATIONS);
 
 function normalizeLocation(value: unknown) {
   return String(value ?? "").trim().toLocaleLowerCase("sv-SE");
@@ -211,12 +213,13 @@ export function assessDirectoryCandidate(candidate: NormalizedDirectoryCandidate
   else reasons.push("tax_status_not_confirmed");
 
   const privacyBlocked = candidate.organizationKind !== "juridical_person";
+  // Pilot geography is authorized later from canonical SCB physical-workplace
+  // evidence. Keep this flag limited to non-location publication eligibility so
+  // a registered/profile address outside the pilot cannot veto a safe workplace.
   const autoPublicEligible = candidate.isActive
     && !privacyBlocked
     && Boolean(category)
-    && primarySniVerified
-    && Boolean(candidate.city.trim())
-    && pilotLocation;
+    && primarySniVerified;
 
   let publicationStatus: DirectoryQualityAssessment["publicationStatus"] = "review";
   if (!candidate.isActive) publicationStatus = "inactive";

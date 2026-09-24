@@ -39,6 +39,7 @@ const eligibleRow = {
   privacy_blocked: false,
   organization_kind: "juridical_person",
   claimed_workspace_id: null,
+  has_current_authority: true,
 };
 
 type FixtureOptions = {
@@ -131,8 +132,11 @@ function createSql({
       return [];
     }
 
-    if (query.includes("select status") && query.includes("from marketplace_quote_invitations")) {
-      return state.status === "none" ? [] : [{ status: state.status }];
+    if (query.includes("invitation.status") && query.includes("from marketplace_quote_invitations invitation")) {
+      return state.status === "none" ? [] : [{
+        status: state.status,
+        has_current_authority: true,
+      }];
     }
 
     if (query.includes("provider_message_id =") && query.includes("invitation.status = 'pending'")) {

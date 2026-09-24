@@ -22,6 +22,7 @@ vi.mock("@/lib/lantmateriet-address-verification", () => ({
 
 import {
   createOwnerBusinessProfileLocation,
+  establishPreReleaseSoleTraderServiceBase,
   updateOwnerBusinessProfileLocation,
 } from "@/lib/business-profile-location-owner";
 
@@ -134,6 +135,47 @@ describe("owner service-base verification boundary", () => {
     expect(insert?.values).not.toContain(1);
     expect(insert?.values).not.toContain(2);
     expect(sql.transaction).toHaveBeenCalledTimes(1);
+  });
+
+  it("stores one verified private primary service base for the reviewed blocked sole-trader boundary", async () => {
+    const { sql, queries } = createSqlMock(async (query) => {
+      if (query.text.startsWith("select profile.id::text as profile_id")) return [{ profile_id: PROFILE_ID }];
+      if (query.text.includes("st_y(transformed.point)::float8 as latitude")) {
+        return [{ latitude: 59.1955, longitude: 17.6253 }];
+      }
+      if (query.text.startsWith("select profile.id from company_directory_profiles")) return [{ id: PROFILE_ID }];
+      if (query.text.startsWith("with selected_location as")) return [{ id: LOCATION_ID }];
+      return [];
+    });
+    mocks.getSql.mockReturnValue(sql);
+    mocks.verifyCustomerAddress.mockResolvedValue({
+      status: "matched",
+      source: "lantmateriet_belagenhetsadress_v4_2",
+      referenceId: "44444444-4444-4444-8444-444444444444",
+      easting: 658123,
+      northing: 6570123,
+    });
+
+    await expect(establishPreReleaseSoleTraderServiceBase({
+      addressLine1: "Industrivägen 2",
+      postalCode: "151 00",
+      city: "Södertälje",
+    })).resolves.toEqual({ id: LOCATION_ID });
+
+    expect(queries[0]?.text).toContain("profile.publication_status = 'blocked'");
+    expect(queries[0]?.text).toContain("owner_claim.verification_method = 'manual_review'");
+    expect(sql.transaction).toHaveBeenCalledTimes(1);
+    const transactionQueries = sql.transaction.mock.calls[0]?.[0] as Promise<unknown[]>[];
+    expect(transactionQueries).toHaveLength(3);
+    expect(queries[2]?.text).toContain("for update of profile, owner_claim");
+    expect(queries[3]?.text).toContain("set is_primary = false");
+    const write = queries.find((query) => query.text.startsWith("with selected_location as"));
+    expect(write?.text).toContain("'service_base', 'private', true, true");
+    expect(write?.text).toContain("order by location.updated_at desc, location.id");
+    expect(write?.text).toContain("municipality = ''");
+    expect(write?.values).toContain("lantmateriet_belagenhetsadress_v4_2");
+    expect(write?.values).toContain(59.1955);
+    expect(write?.values).toContain(17.6253);
   });
 
   it("makes no provider call for an unconfirmed service base and clears supplied geocoding", async () => {

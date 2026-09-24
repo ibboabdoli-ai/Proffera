@@ -33,6 +33,7 @@ import {
   invalidatePublicDirectoryProfileCache,
   publicDirectoryExtrasCacheTag,
   publicDirectoryProfileCacheTag,
+  readPublicDirectoryProfileCache,
   setPublicDirectoryCacheAdapterForTests,
   type PublicDirectoryCacheAdapter,
   type PublicDirectoryCacheReadInput,
@@ -141,6 +142,54 @@ afterEach(() => {
 });
 
 describe("company directory shared-cache route contract", () => {
+  it("fails published public profile reads closed on canonical fresh workplace authority", () => {
+    const engineSource = source("src/lib/company-directory-engine.ts");
+    const publicDataSource = source("src/lib/company-directory-public-data.ts");
+
+    for (const candidate of [engineSource, publicDataSource]) {
+      expect(candidate).toContain("published_facts.source_payload_hash <> ''");
+      expect(candidate).toContain("published_facts.last_synced_at >=");
+      expect(candidate).toContain("published_facts.deregistration_date is null");
+      expect(candidate).toContain("coalesce(published_facts.advertising_blocked, false) = false");
+      expect(candidate).toContain("published_scb.source_payload_hash <> ''");
+      expect(candidate).toContain("published_scb.last_synced_at >= now() - interval '7 days'");
+      expect(candidate).toContain("comparisonSnapshot,profileUpdatedToken");
+      expect(candidate).toContain("comparisonSnapshot,officialFactsLastSyncedToken");
+      expect(candidate).toContain("jsonb_typeof(published_scb.conflicts) = 'array'");
+      expect(candidate).toContain("jsonb_typeof(published_scb.workplaces) = 'array'");
+      expect(candidate).toContain("jsonb_array_length(published_scb.workplaces) = 1");
+      expect(candidate).toContain("DIRECTORY_PILOT_LOCATIONS");
+    }
+  });
+
+  it("fails claimed public fallback and routing closed on fresh snapshot-bound pilot workplace authority", () => {
+    const publicDataSource = source("src/lib/company-directory-public-data.ts");
+    const routingSource = source("src/lib/company-directory-routing.ts");
+    for (const candidate of [publicDataSource, routingSource]) {
+      expect(candidate).toContain("claimed_facts.last_synced_at >= profile.last_synced_at");
+      expect(candidate).toContain("claimed_scb.last_synced_at >= now() - interval '7 days'");
+      expect(candidate).toContain("claimed_scb.last_synced_at >= profile.last_synced_at");
+      expect(candidate).not.toContain("claimed_scb.provenance #>> '{comparisonSnapshot,profileUpdatedToken}' = profile.updated_at::text");
+      expect(candidate).toContain("comparisonSnapshot,officialFactsLastSyncedToken");
+      expect(candidate).toContain("profile.organization_kind = 'sole_trader'");
+      expect(candidate).toContain("bolagsverket_vardefulla_datamangder:sole_trader_owner");
+      expect(candidate).toContain("owner_claim.status = 'claimed'");
+      expect(candidate).toContain("owner_claim.verification_method = 'manual_review'");
+      expect(candidate).toContain("company_directory_profile_locations owner_base");
+      expect(candidate).toContain("owner_base.purpose = 'service_base'");
+      expect(candidate).toContain("owner_base.geocode_source = 'lantmateriet_belagenhetsadress_v4_2'");
+      expect(candidate).toContain("owner_base.geocode_precision = 'address'");
+      expect(candidate).toContain("lower(btrim(owner_base.city)) = any");
+      expect(candidate).not.toContain("lower(btrim(owner_base.municipality)) = any");
+      expect(candidate).toContain("claimed_facts.deregistration_date is null");
+      expect(candidate).toContain("coalesce(claimed_facts.advertising_blocked, false) = false");
+      expect(candidate).toContain("jsonb_typeof(claimed_facts.ongoing_procedures) = 'array'");
+      expect(candidate).toContain("jsonb_typeof(claimed_scb.conflicts) = 'array'");
+      expect(candidate).toContain("jsonb_typeof(claimed_scb.workplaces) = 'array'");
+      expect(candidate).toContain("DIRECTORY_PILOT_LOCATIONS");
+    }
+  });
+
   it("keeps both public routes dynamic and on the common resolver path", () => {
     const swedishRoute = source("src/app/foretag/listad/[slug]/page.tsx");
     const englishRoute = source("src/app/en/companies/[slug]/page.tsx");
@@ -158,6 +207,35 @@ describe("company directory shared-cache route contract", () => {
 });
 
 describe("directory shared-cache behavior", () => {
+  it("rechecks a cached positive at its exact workplace-authority deadline", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-09-20T12:00:00.000Z"));
+    const loader = vi.fn()
+      .mockResolvedValueOnce({
+        cache: true,
+        value: publicBusiness(),
+        authorityExpiresAt: "2026-09-20T13:00:00.000Z",
+      })
+      .mockResolvedValue({ cache: false, value: null });
+
+    try {
+      expect(await readPublicDirectoryProfileCache("test-company-ab", loader)).toMatchObject({
+        companyName: "Test Brand AB",
+      });
+      vi.setSystemTime(new Date("2026-09-20T12:59:59.999Z"));
+      expect(await readPublicDirectoryProfileCache("test-company-ab", loader)).toMatchObject({
+        companyName: "Test Brand AB",
+      });
+      expect(loader).toHaveBeenCalledTimes(1);
+
+      vi.setSystemTime(new Date("2026-09-20T13:00:00.000Z"));
+      expect(await readPublicDirectoryProfileCache("test-company-ab", loader)).toBeNull();
+      expect(loader).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("turns 50 safe juridical reads into one underlying public lookup", async () => {
     mocks.getSql.mockReturnValue(publishedSql());
     mocks.getPublicDirectoryBusiness.mockResolvedValue(publicBusiness());
