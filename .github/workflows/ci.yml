@@ -620,7 +620,7 @@ jobs:
     if: always()
     needs: [e2e_public_smoke_run, route_ai_review]
     runs-on: ubuntu-latest
-    timeout-minutes: 12
+    timeout-minutes: 15
     permissions:
       pull-requests: write
 
@@ -778,12 +778,49 @@ jobs:
               ]
               | max // empty
             ' <<< "$current_reviews")"
-            clean_summary_count="$(jq -r --arg sha "$HEAD_SHA" --arg completion_time "$coderabbit_review_completion_time" '
+            coderabbit_command_start_time="$(jq -r --arg request_time "$coderabbit_request_time" '
               [
                 .[]
                 | select(.user.login == "coderabbitai[bot]")
-                | select($completion_time != "")
-                | select((.updated_at // .created_at // "") >= $completion_time)
+                | select($request_time != "")
+                | select((.created_at // "") >= $request_time)
+                | (.body // "") as $body
+                | select($body | test("(^|[\\r\\n])<!-- CodeRabbit review command invocation: v2:[0-9a-f]{64} -->($|[\\r\\n])"))
+                | select($body | test("<summary>[^<]*Action performed</summary>[\\s\\S]*Review finished\\."))
+                | select(($body | test("Review limit reached|Review rate[ -]?limited|rate[ -]?limit|Action not completed|Review skipped|temporarily unavailable|service unavailable|incomplete|did not complete"; "i")) | not)
+              ]
+              | sort_by(.updated_at // .created_at // "")
+              | last
+              | .created_at // empty
+            ' <<< "$comments_json")"
+            coderabbit_command_finish_time="$(jq -r --arg request_time "$coderabbit_request_time" '
+              [
+                .[]
+                | select(.user.login == "coderabbitai[bot]")
+                | select($request_time != "")
+                | select((.created_at // "") >= $request_time)
+                | (.body // "") as $body
+                | select($body | test("(^|[\\r\\n])<!-- CodeRabbit review command invocation: v2:[0-9a-f]{64} -->($|[\\r\\n])"))
+                | select($body | test("<summary>[^<]*Action performed</summary>[\\s\\S]*Review finished\\."))
+                | select(($body | test("Review limit reached|Review rate[ -]?limited|rate[ -]?limit|Action not completed|Review skipped|temporarily unavailable|service unavailable|incomplete|did not complete"; "i")) | not)
+              ]
+              | sort_by(.updated_at // .created_at // "")
+              | last
+              | (.updated_at // .created_at // empty)
+            ' <<< "$comments_json")"
+            coderabbit_success_time="$(jq -rn --arg review_time "$coderabbit_review_completion_time" --arg command_time "$coderabbit_command_finish_time" '
+              [$review_time, $command_time] | map(select(. != "")) | max // empty
+            ')"
+            clean_summary_count="$(jq -r --arg sha "$HEAD_SHA" --arg review_completion_time "$coderabbit_review_completion_time" --arg command_start_time "$coderabbit_command_start_time" '
+              [
+                .[]
+                | select(.user.login == "coderabbitai[bot]")
+                | (.updated_at // .created_at // "") as $summary_time
+                | select(
+                    (($review_completion_time != "") and ($summary_time >= $review_completion_time))
+                    or
+                    (($command_start_time != "") and ($summary_time >= $command_start_time))
+                  )
                 | select(
                     (.body // "")
                     | test(
@@ -863,11 +900,12 @@ jobs:
 
             if [ "$fallback_eligible" != "true" ]; then
               if [ -n "$coderabbit_request_time" ]; then
-                high_risk_unavailable_count="$(jq -r --arg request_time "$coderabbit_request_time" '
+                high_risk_unavailable_count="$(jq -r --arg request_time "$coderabbit_request_time" --arg success_time "$coderabbit_success_time" '
                   [
                     .[]
                     | select(.user.login == "coderabbitai[bot]")
                     | select((.created_at // "") >= $request_time)
+                    | select(($success_time == "") or ((.created_at // "") > $success_time))
                     | select((.body // "") | test("Review limit reached|Review rate limited|Action not completed: Review rate limited|temporarily unavailable|service unavailable"; "i"))
                   ]
                   | length
@@ -884,11 +922,12 @@ jobs:
               coderabbit_unavailable=false
 
               if [ -n "$coderabbit_request_time" ]; then
-                unavailable_count="$(jq -r --arg request_time "$coderabbit_request_time" '
+                unavailable_count="$(jq -r --arg request_time "$coderabbit_request_time" --arg success_time "$coderabbit_success_time" '
                   [
                     .[]
                     | select(.user.login == "coderabbitai[bot]")
                     | select((.created_at // "") >= $request_time)
+                    | select(($success_time == "") or ((.created_at // "") > $success_time))
                     | select((.body // "") | test("Review limit reached|Review rate limited|Action not completed: Review rate limited|Review skipped|temporarily unavailable|service unavailable"; "i"))
                   ]
                   | length

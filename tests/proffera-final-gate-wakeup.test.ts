@@ -288,6 +288,16 @@ function codeRabbitCompletedReview(submittedAt = "2099-09-05T12:02:00Z", commitI
   };
 }
 
+function codeRabbitFinished(createdAt = "2099-09-05T12:01:00Z", updatedAt = "2099-09-05T12:04:00Z") {
+  return {
+    id: 16,
+    user: { login: "coderabbitai[bot]" },
+    body: `${codeRabbitInvocationMarker}\n<details>\n<summary>✅ Action performed</summary>\n\nReview finished.\n</details>`,
+    created_at: createdAt,
+    updated_at: updatedAt,
+  };
+}
+
 function cleanBody(head = reviewHead, marker = codeRabbitInvocationMarker) {
   return `${marker}\n@ibboabdoli-ai Final exact-head review is complete for \`${head}\`.\n\nI found no issues.`;
 }
@@ -324,6 +334,7 @@ describe("event-driven final review gate", () => {
     expect(router).toContain('"chatgpt-codex-connector[bot]"');
     expect(router).toContain('"ibboabdoli-ai"');
     expect(router).toContain("Final exact-head review is complete for");
+    expect(router).toContain("Review finished\\.");
     expect(router).toContain("proffera-codex-fallback-review-request:");
     expect(router).toContain("@codex review");
     expect(router).toContain("proffera-final-gate-wakeup.yml");
@@ -333,15 +344,21 @@ describe("event-driven final review gate", () => {
     expect(wakeup).toContain("issues/comments/$INPUT_SOURCE_ID");
     expect(wakeup).toContain("INPUT_SOURCE_EVIDENCE_TIME");
     expect(ci).toContain("coderabbit_review_completion_time");
+    expect(ci).toContain("coderabbit_command_start_time");
+    expect(ci).toContain("coderabbit_command_finish_time");
     expect(ci).toContain('select(.state == "APPROVED" or .state == "COMMENTED")');
     expect(ci).toContain('select((.submitted_at // "") >= $request_time)');
     expect(ci).toContain('select((.updated_at // .created_at // "") >= $completion_time)');
     expect(automerge).toContain("coderabbit_review_completion_time");
+    expect(automerge).toContain("coderabbit_command_start_time");
+    expect(automerge).toContain("coderabbit_command_finish_time");
     expect(automerge).toContain('select(.state == "APPROVED" or .state == "COMMENTED")');
     expect(automerge).toContain('select((.submitted_at // "") >= $request_time)');
     expect(automerge).toContain('select((.updated_at // .created_at // "") >= $completion_time)');
     expect(wakeup).toContain("EVENT_COMMENT_CREATED_AT");
     expect(wakeup).toContain("coderabbit_review_completion_time");
+    expect(wakeup).toContain("coderabbit_command_start_time");
+    expect(wakeup).toContain("new_coderabbit_completion_event");
     expect(wakeup).toContain('select(.state == "APPROVED" or .state == "COMMENTED")');
     expect(wakeup).toContain('select((.submitted_at // "") >= $request_time)');
     expect(wakeup).toContain("<!-- CodeRabbit review command invocation: v2:");
@@ -573,6 +590,18 @@ ${reviewHead}
     });
     expect(editedPreRequestSummary.rerun).toBe(false);
 
+    const completedCommandSummary = runWakeupFixture({
+      body: summaryBody,
+      createdAt: "2099-09-05T11:50:00Z",
+      updatedAt: "2099-09-05T12:03:00Z",
+      comments: [
+        requestComment("2099-09-05T12:00:00Z"),
+        codeRabbitFinished("2099-09-05T12:01:00Z", "2099-09-05T12:04:00Z"),
+      ],
+    });
+    expect(completedCommandSummary.result.status).toBe(0);
+    expect(completedCommandSummary.rerun).toBe(true);
+
     const completedCurrentHeadReview = runWakeupFixture({
       body: summaryBody,
       createdAt: "2099-09-05T11:50:00Z",
@@ -582,6 +611,30 @@ ${reviewHead}
     });
     expect(completedCurrentHeadReview.result.status).toBe(0);
     expect(completedCurrentHeadReview.rerun).toBe(true);
+  }, 120000);
+
+  it("wakes when a successful CodeRabbit command completes after updating a clean exact-head summary", () => {
+    const summaryBody = `<!-- recent_review_start -->
+No actionable comments were generated in the recent review.
+${reviewHead}
+<!-- recent_review_end -->`;
+    const result = runWakeupFixture({
+      body: codeRabbitFinished().body as string,
+      createdAt: "2099-09-05T12:01:00Z",
+      updatedAt: "2099-09-05T12:04:00Z",
+      comments: [
+        requestComment("2099-09-05T12:00:00Z"),
+        {
+          id: 17,
+          user: { login: "coderabbitai[bot]" },
+          body: summaryBody,
+          created_at: "2099-09-05T11:50:00Z",
+          updated_at: "2099-09-05T12:03:00Z",
+        },
+      ],
+    });
+    expect(result.result.status).toBe(0);
+    expect(result.rerun).toBe(true);
   }, 120000);
 
   it("does not classify availability/status comments as the new clean CodeRabbit decision", () => {
@@ -626,6 +679,15 @@ ${reviewHead}
       ],
     });
     expect(summaryWithInvocationOnly.stdout).not.toContain("AI_REVIEW_OK");
+
+    const summaryWithCompletedCommand = runAutomergeFixture({
+      comments: [
+        requestComment("2099-09-05T12:00:00Z"),
+        codeRabbitFinished("2099-09-05T12:01:00Z", "2099-09-05T12:04:00Z"),
+        editedSummary,
+      ],
+    });
+    expect(summaryWithCompletedCommand.stdout).toContain("AI_REVIEW_OK");
 
     const summaryWithCompletedCurrentHeadReview = runAutomergeFixture({
       comments: [requestComment("2099-09-05T12:00:00Z"), editedSummary],

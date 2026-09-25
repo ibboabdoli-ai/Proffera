@@ -106,7 +106,7 @@ jobs:
             wake_final=no
             case "$ACTOR" in
               "coderabbitai[bot]")
-                if grep -Eqi 'recent_review_start|Final exact-head review is complete for|Review limit reached|Review rate[ -]?limited|Review skipped|temporarily unavailable|service unavailable' <<< "${COMMENT_BODY:-}"; then
+                if grep -Eqi 'recent_review_start|Final exact-head review is complete for|Review finished\.|Review limit reached|Review rate[ -]?limited|Review skipped|temporarily unavailable|service unavailable' <<< "${COMMENT_BODY:-}"; then
                   wake_final=yes
                 fi
                 ;;
