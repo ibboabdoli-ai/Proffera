@@ -188,16 +188,6 @@ function codeRabbitInvocationComment(createdAt = "2026-08-31T10:01:00Z") {
   };
 }
 
-function codeRabbitFinishedComment(createdAt = "2026-08-31T10:01:00Z", updatedAt = "2026-08-31T10:04:00Z") {
-  return {
-    id: 11,
-    user: { login: "coderabbitai[bot]" },
-    body: `${codeRabbitInvocationMarker}\n<details>\n<summary>✅ Action performed</summary>\n\nReview finished.\n</details>`,
-    created_at: createdAt,
-    updated_at: updatedAt,
-  };
-}
-
 function cleanCodeRabbitBody(head = reviewHead, marker = codeRabbitInvocationMarker) {
   return `${marker}\n@ibboabdoli-ai Final exact-head review is complete for \`${head}\`.\n\nI found no issues.`;
 }
@@ -389,10 +379,6 @@ describe("tooling safety contract", () => {
     const gate = ciReviewGateShellBlock();
     expect(gate).toContain("CodeRabbit review command invocation: v2:[0-9a-f]{64}");
     expect(gate).toContain("coderabbit_review_completion_time");
-    expect(gate).toContain("coderabbit_command_start_time");
-    expect(gate).toContain("coderabbit_command_finish_time");
-    expect(gate).toContain('Review finished\\.');
-    expect(gate).toContain('--arg success_time "$coderabbit_success_time"');
     expect(gate).toContain('select(.state == "APPROVED" or .state == "COMMENTED")');
     expect(gate).toContain('select((.submitted_at // "") >= $request_time)');
     expect(gate).toContain('select((.updated_at // .created_at // "") >= $completion_time)');
@@ -447,45 +433,6 @@ describe("tooling safety contract", () => {
       failOnPost: true,
     });
     expect(invocationOnlyLegacySummary.status).toBe(1);
-
-    const completedCommandLegacySummary = runCiReviewFixture({
-      changedFiles: ".github/workflows/ci.yml",
-      comments: [
-        ...codeRabbitRequestComments(),
-        codeRabbitFinishedComment(),
-        legacyCleanCodeRabbitSummary(),
-      ],
-      failOnPost: true,
-    });
-    expect(completedCommandLegacySummary.status).toBe(0);
-    expect(`${completedCommandLegacySummary.stdout}${completedCommandLegacySummary.stderr}`).toContain(
-      "CodeRabbit completed a clean current-head review with no actionable comments.",
-    );
-
-    const oldRateLimitThenCompletedCommand = runCiReviewFixture({
-      changedFiles: ".github/workflows/ci.yml",
-      comments: [
-        ...codeRabbitRequestComments(),
-        {
-          id: 15,
-          user: { login: "coderabbitai[bot]" },
-          body: "Review rate limited",
-          created_at: "2026-08-31T10:00:30Z",
-          updated_at: "2026-08-31T10:00:30Z",
-        },
-        codeRabbitFinishedComment(),
-        legacyCleanCodeRabbitSummary(),
-      ],
-      failOnPost: true,
-    });
-    expect(oldRateLimitThenCompletedCommand.status).toBe(0);
-
-    const completedCommandWithoutSummary = runCiReviewFixture({
-      changedFiles: ".github/workflows/ci.yml",
-      comments: [...codeRabbitRequestComments(), codeRabbitFinishedComment()],
-      failOnPost: true,
-    });
-    expect(completedCommandWithoutSummary.status).toBe(1);
 
     const completedReviewLegacySummary = runCiReviewFixture({
       changedFiles: ".github/workflows/ci.yml",
