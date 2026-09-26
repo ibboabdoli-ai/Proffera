@@ -447,6 +447,27 @@ describe("tooling safety contract", () => {
     });
     expect(completedReviewWithoutSummary.status).toBe(0);
 
+    const commentedReviewWithInlineFinding = runCiReviewFixture({
+      changedFiles: ".github/workflows/ci.yml",
+      comments: codeRabbitRequestComments(),
+      firstReviews: [{
+        user: { login: "coderabbitai[bot]" },
+        commit_id: reviewHead,
+        state: "COMMENTED",
+        submitted_at: "2026-08-31T10:02:00Z",
+      }],
+      inlineComments: [{
+        user: { login: "coderabbitai[bot]" },
+        commit_id: reviewHead,
+        created_at: "2026-08-31T10:02:00Z",
+      }],
+      failOnPost: true,
+    });
+    expect(commentedReviewWithInlineFinding.status).toBe(1);
+    expect(`${commentedReviewWithInlineFinding.stdout}${commentedReviewWithInlineFinding.stderr}`).toContain(
+      "CodeRabbit posted current-head review findings",
+    );
+
     const reviewSubmission = runCiReviewFixture({
       changedFiles: ".github/workflows/ci.yml",
       comments: codeRabbitRequestComments(),

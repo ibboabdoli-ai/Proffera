@@ -1889,6 +1889,19 @@ function githubIssueComments(repository) {
 
 const RESERVATION_MUTEX = "proffera-worker-slot-reservation-mutex-v1";
 
+class ReservationMutexNotOwnedError extends Error {
+  constructor(message) {
+    super(message);
+    this.name = "ReservationMutexNotOwnedError";
+  }
+}
+
+function isGitHubNotFoundError(error) {
+  const stderr = typeof error?.stderr === "string" ? error.stderr : String(error?.stderr ?? "");
+  const message = error instanceof Error ? error.message : String(error ?? "");
+  return /HTTP 404/iu.test(`${stderr}\n${message}`);
+}
+
 function assertControlIdentity({ repository, run_id }) {
   if (repository !== EXPECTED_REPOSITORY || !/^[0-9]+$/.test(String(run_id ?? ""))) {
     throw new Error("control repository or run identity is malformed");
@@ -1938,8 +1951,32 @@ export function acquireReservationMutex(input) {
 }
 
 export function releaseReservationMutex(input) {
-  assertReservationMutex(input);
-  execFileSync("gh", ["api", "--method", "DELETE", `repos/${input.repository}/labels/${RESERVATION_MUTEX}`], { stdio: "pipe" });
+  assertControlIdentity(input);
+  if (typeof input.mutex !== "string" || !input.mutex.startsWith(`run=${input.run_id};`)) {
+    throw new Error("reservation mutex release input is malformed");
+  }
+
+  let observed;
+  try {
+    observed = githubApiJson([`repos/${input.repository}/labels/${RESERVATION_MUTEX}`]).description;
+  } catch (error) {
+    if (isGitHubNotFoundError(error)) {
+      throw new ReservationMutexNotOwnedError("reservation mutex is already released");
+    }
+    throw error;
+  }
+  if (observed !== input.mutex) {
+    throw new ReservationMutexNotOwnedError("reservation mutex ownership changed before release");
+  }
+
+  try {
+    execFileSync("gh", ["api", "--method", "DELETE", `repos/${input.repository}/labels/${RESERVATION_MUTEX}`], { stdio: "pipe" });
+  } catch (error) {
+    if (isGitHubNotFoundError(error)) {
+      throw new ReservationMutexNotOwnedError("reservation mutex is already released");
+    }
+    throw error;
+  }
 }
 
 function trustedRecord(comments, marker, required = true) {
@@ -3401,8 +3438,20 @@ async function main() {
     return;
   }
   if (mode === "reservation-mutex-release" || mode === "reservation-mutex-check") {
-    if (mode === "reservation-mutex-release") releaseReservationMutex(parsed);
-    else assertReservationMutex(parsed);
+    if (mode === "reservation-mutex-release") {
+      try {
+        releaseReservationMutex(parsed);
+      } catch (error) {
+        if (error instanceof ReservationMutexNotOwnedError) {
+          process.stderr.write(`${error.message}\n`);
+          process.exitCode = 3;
+          return;
+        }
+        throw error;
+      }
+    } else {
+      assertReservationMutex(parsed);
+    }
     return;
   }
   if (mode === "reconcile-unbound-tasks") {

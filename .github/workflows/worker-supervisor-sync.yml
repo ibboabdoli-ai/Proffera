@@ -289,11 +289,13 @@ jobs:
           set -euo pipefail
           helper="scripts/supervisor-worker-handoff.mjs"
           control_input="$(jq -cn --arg repository "$REPOSITORY" --arg run_id "$RUN_ID" --arg mutex "$MUTEX" '{repository:$repository,run_id:$run_id,mutex:$mutex}')"
-          if printf '%s' "$control_input" | node "$helper" reservation-mutex-release; then
-            echo "Released Worker lifecycle reservation mutex owned by run $RUN_ID."
-          else
-            echo "Worker lifecycle reservation mutex was already released or ownership changed; no unsafe deletion was attempted."
-          fi
+          release_status=0
+          printf '%s' "$control_input" | node "$helper" reservation-mutex-release || release_status=$?
+          case "$release_status" in
+            0) echo "Released Worker lifecycle reservation mutex owned by run $RUN_ID." ;;
+            3) echo "Worker lifecycle reservation mutex was already released or ownership changed; no unsafe deletion was attempted." ;;
+            *) echo "reservation-mutex-release failed (status ${release_status}); mutex may still be held." >&2; exit 1 ;;
+          esac
 
   sync-check-state:
     name: Reconcile exact-head checks into task state
@@ -498,8 +500,10 @@ jobs:
           set -euo pipefail
           helper="scripts/supervisor-worker-handoff.mjs"
           control_input="$(jq -cn --arg repository "$REPOSITORY" --arg run_id "$RUN_ID" --arg mutex "$MUTEX" '{repository:$repository,run_id:$run_id,mutex:$mutex}')"
-          if printf '%s' "$control_input" | node "$helper" reservation-mutex-release; then
-            echo "Released Worker reservation mutex owned by run $RUN_ID."
-          else
-            echo "Worker reservation mutex was already released or ownership changed; no unsafe deletion was attempted."
-          fi
+          release_status=0
+          printf '%s' "$control_input" | node "$helper" reservation-mutex-release || release_status=$?
+          case "$release_status" in
+            0) echo "Released Worker reservation mutex owned by run $RUN_ID." ;;
+            3) echo "Worker reservation mutex was already released or ownership changed; no unsafe deletion was attempted." ;;
+            *) echo "reservation-mutex-release failed (status ${release_status}); mutex may still be held." >&2; exit 1 ;;
+          esac

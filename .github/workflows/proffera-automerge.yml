@@ -359,6 +359,8 @@ jobs:
             latest_changes="$(jq -r '[.[] | select(.state == "CHANGES_REQUESTED") | .submitted_at] | max // empty' <<< "$current_reviews")"
             latest_approval="$(jq -r '[.[] | select(.state == "APPROVED") | .submitted_at] | max // empty' <<< "$current_reviews")"
             terminal_count="$(jq -r '[.[] | select(.state == "APPROVED" or .state == "COMMENTED")] | length' <<< "$current_reviews")"
+            coderabbit_inline_json="$(gh api --paginate "repos/$REPOSITORY/pulls/$pr_number/comments?per_page=100" --jq '.[]' | jq -s '.')"
+            coderabbit_inline_count="$(jq -r --arg sha "$head_sha" '[.[] | select(.user.login == "coderabbitai[bot]" and .commit_id == $sha)] | length' <<< "$coderabbit_inline_json")"
 
             comments_json="$(gh api --paginate "repos/$REPOSITORY/issues/$pr_number/comments?per_page=100" --jq '.[]' | jq -s '.')"
             coderabbit_marker="<!-- proffera-coderabbit-final-review-request:${head_sha} -->"
@@ -388,6 +390,10 @@ jobs:
               ]
               | length
             ' <<< "$comments_json")"
+
+            if [ "$coderabbit_inline_count" -gt 0 ]; then
+              refuse "Refused: CodeRabbit posted current-head review findings; review acceptance is blocked."
+            fi
 
             if [ -n "$latest_changes" ]; then
               if [ -z "$latest_approval" ] || [[ ! "$latest_approval" > "$latest_changes" ]]; then

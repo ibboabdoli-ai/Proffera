@@ -3090,12 +3090,23 @@ describe("Supervisor ↔ Worker Phase-1 handoff", () => {
     const lifecycleHeader = sync.slice(lifecycleStart, sync.indexOf("    runs-on:", lifecycleStart));
     const lifecycleJob = sync.slice(lifecycleStart, checksStart);
     const lifecycleStep = workflowRunStep(sync, "Record or update Worker lifecycle state in Supervisor issue");
+    const lifecycleRelease = workflowRunStep(sync, "Release exact Worker lifecycle reservation mutex");
+    const checksRelease = workflowRunStep(sync, "Release exact Worker reservation mutex");
     const checksHeader = sync.slice(checksStart, sync.indexOf("    runs-on:", checksStart));
+    const helperSource = source("scripts/supervisor-worker-handoff.mjs");
     expect(lifecycleHeader).toContain("cancel-in-progress: false");
     expect(lifecycleStep).toContain('echo "mutex=$mutex" >> "$GITHUB_OUTPUT"');
     expect(lifecycleStep).not.toContain("trap 'release_mutex || true' EXIT");
     expect(lifecycleJob).toContain("Release exact Worker lifecycle reservation mutex");
     expect(lifecycleJob).toContain("if: always() && steps.lifecycle.outputs.mutex != ''");
+    for (const releaseStep of [lifecycleRelease, checksRelease]) {
+      expect(releaseStep).toContain("release_status=0");
+      expect(releaseStep).toContain("3) echo");
+      expect(releaseStep).toContain("reservation-mutex-release failed");
+      expect(releaseStep).toContain("exit 1");
+    }
+    expect(helperSource).toContain("ReservationMutexNotOwnedError");
+    expect(helperSource).toContain("process.exitCode = 3");
     expect(checksHeader).toContain("cancel-in-progress: false");
     expect(checksHeader).not.toContain("cancel-in-progress: true");
   });
