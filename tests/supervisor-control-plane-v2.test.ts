@@ -8,6 +8,16 @@ import { describe, expect, it } from "vitest";
 const root = process.cwd();
 const source = (path: string) => readFileSync(resolve(root, path), "utf8");
 
+function workflowJob(workflow: string, jobName: string) {
+  const lines = workflow.replaceAll("\r\n", "\n").split("\n");
+  const jobStart = lines.findIndex((line) => line === `  ${jobName}:`);
+  expect(jobStart, `Missing workflow job: ${jobName}`).toBeGreaterThanOrEqual(0);
+  const nextJob = lines.findIndex((line, index) =>
+    index > jobStart && /^ {2}[A-Za-z_][A-Za-z0-9_-]*:\s*$/.test(line),
+  );
+  return lines.slice(jobStart, nextJob < 0 ? undefined : nextJob).join("\n");
+}
+
 function workflowRunStep(workflow: string, stepName: string) {
   const lines = workflow.replaceAll("\r\n", "\n").split("\n");
   const stepIndex = lines.findIndex((line) => line.trim() === `- name: ${stepName}`);
@@ -434,7 +444,11 @@ describe("Supervisor control-plane v2", () => {
     const routerHeader = router.slice(0, router.indexOf("jobs:"));
     expect(routerHeader).toContain("permissions: {}");
     expect(routerHeader).not.toContain("actions: write");
-    expect(router.slice(router.indexOf("  route:"))).toContain("actions: write # Required for gh workflow run dispatches.");
+    const routeJob = workflowJob(router, "route");
+    expect(routeJob).toContain("actions: write # Required for gh workflow run dispatches.");
+    expect(routeJob).toContain("contents: read");
+    expect(routeJob).toContain("pull-requests: read");
+    expect(routeJob).not.toMatch(/^\s+issues:/m);
     expect(routerHeader).toContain("cancel-in-progress: false");
     expect(routerHeader).not.toContain("cancel-in-progress: true");
     expect(routerHeader).toContain("github.event.comment.id");
@@ -792,8 +806,14 @@ describe("Supervisor control-plane v2", () => {
       expect(validationJob).toContain(command);
       expect(trustedPublishJob).not.toContain(command);
     }
-    expect(validationJob.indexOf("Verify candidate artifact integrity")).toBeLessThan(validationJob.indexOf("Apply candidate patch"));
-    expect(validationJob.indexOf("Apply candidate patch")).toBeLessThan(validationJob.indexOf("Install repository dependencies"));
+    const integrityStepIndex = validationJob.indexOf("Verify candidate artifact integrity");
+    const applyStepIndex = validationJob.indexOf("Apply candidate patch");
+    const installStepIndex = validationJob.indexOf("Install repository dependencies");
+    expect(integrityStepIndex).toBeGreaterThanOrEqual(0);
+    expect(applyStepIndex).toBeGreaterThanOrEqual(0);
+    expect(installStepIndex).toBeGreaterThanOrEqual(0);
+    expect(integrityStepIndex).toBeLessThan(applyStepIndex);
+    expect(applyStepIndex).toBeLessThan(installStepIndex);
     expect(validationJob).toContain("Confirm validated tree matches uploaded candidate");
     expect(trustedPublishJob).toContain("needs: [repair, validate]");
     expect(trustedPublishJob).toContain("needs.validate.result == 'success'");
@@ -815,8 +835,8 @@ describe("Supervisor control-plane v2", () => {
   it("rejects altered repair artifacts before execution in validation and publication", () => {
     const workflow = source(".github/workflows/supervisor-review-repair.yml");
     for (const jobName of ["validate", "publish"]) {
-      const jobStart = workflow.indexOf("  " + jobName + ":");
-      const script = workflowRunStep(workflow.slice(jobStart), "Verify candidate artifact integrity");
+      const job = workflowJob(workflow, jobName);
+      const script = workflowRunStep(job, "Verify candidate artifact integrity");
       for (const mode of ["valid", "tampered", "malformed-hash", "missing-sidecar"]) {
         const dir = mkdtempSync(join(tmpdir(), "proffera-repair-integrity-"));
         try {
@@ -842,6 +862,26 @@ describe("Supervisor control-plane v2", () => {
       }
     }
   }, 20000);
+
+  it.each(["\n", "\r\n"])("does not borrow a missing validation integrity step from publication (%j)", (newline) => {
+    const workflow = source(".github/workflows/supervisor-review-repair.yml").replaceAll("\r\n", "\n");
+    const validationJob = workflowJob(workflow, "validate");
+    const stepName = "Verify candidate artifact integrity";
+    expect(validationJob).toContain(stepName);
+    const missingIntegrity = validationJob.replace(
+      /      - name: Verify candidate artifact integrity\n[\s\S]*?(?=      - name: )/u,
+      "",
+    );
+    expect(missingIntegrity).not.toContain(stepName);
+    const mutated = workflow.replace(validationJob, missingIntegrity).replaceAll("\n", newline);
+    expect(() => workflowRunStep(workflowJob(mutated, "validate"), stepName)).toThrow();
+    expect(workflowRunStep(workflowJob(mutated, "publish"), stepName)).toContain("downloaded_patch_sha256");
+  });
+
+  it("rejects a missing workflow job before extracting its integrity step", () => {
+    const workflow = source(".github/workflows/supervisor-review-repair.yml");
+    expect(() => workflowJob(workflow, "missing-job")).toThrow();
+  });
 
   it("materializes large review evidence through files instead of argv", () => {
     const result = runReviewRepairEvidenceStep();
