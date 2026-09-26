@@ -66,11 +66,11 @@ Documentation impact: none
 
 The bootstrap baseline must match the PR base SHA used for the validated work. If `main` advances and the branch is refreshed, update the line before rerunning CI.
 
-Never add or remove `ibbo-approved`. That label remains per-PR human merge authorization only; when used as the automerge fallback, it must also be backed by a repository-owner `APPROVED` review anchored to the exact current PR head commit.
+Never add or remove `ibbo-approved`. That label remains per-PR human merge authorization only. Actual merge eligibility requires the owner-controlled label plus an unedited repository-owner approval comment anchored to the exact current PR head commit; a human `APPROVED` review or the standing policy does not substitute for that exact-head owner comment.
 
 ## Standing merge authorization
 
-A separate repository-owner authorization may be committed on `main` in `.github/proffera-standing-merge-authorization.json` for a narrowly defined phase. This is a durable authorization source for gated automerge and is not worker self-approval.
+A separate repository-owner standing policy may be committed on `main` in `.github/proffera-standing-merge-authorization.json` for a narrowly defined phase. The workflow treats this policy as advisory routing/scope context only: it never independently authorizes a merge and is not worker self-approval.
 
 Rules:
 
