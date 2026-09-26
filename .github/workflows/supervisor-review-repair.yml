@@ -113,10 +113,19 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          issue_comments="$(gh api --paginate "repos/${REPOSITORY}/issues/${PR_NUMBER}/comments?per_page=100" --jq '.[]' | jq -s '[.[] | select(.user.login == "coderabbitai[bot]" or .user.login == "chatgpt-codex-connector[bot]")] | .[-40:]')"
-          reviews="$(gh api --paginate "repos/${REPOSITORY}/pulls/${PR_NUMBER}/reviews?per_page=100" --jq '.[]' | jq -s '[.[] | select(.user.login == "coderabbitai[bot]" or .user.login == "chatgpt-codex-connector[bot]")] | .[-40:]')"
-          inline="$(gh api --paginate "repos/${REPOSITORY}/pulls/${PR_NUMBER}/comments?per_page=100" --jq '.[]' | jq -s '[.[] | select(.user.login == "coderabbitai[bot]" or .user.login == "chatgpt-codex-connector[bot]")] | .[-80:]')"
-          jq -n --arg head "$HEAD_SHA" --argjson issue_comments "$issue_comments" --argjson reviews "$reviews" --argjson inline "$inline" '{head_sha:$head,issue_comments:$issue_comments,reviews:$reviews,inline_comments:$inline}' > supervisor-review-evidence.json
+          evidence_dir="$(mktemp -d)"
+          bots='select(.user.login == "coderabbitai[bot]" or .user.login == "chatgpt-codex-connector[bot]")'
+          gh api --paginate "repos/${REPOSITORY}/issues/${PR_NUMBER}/comments?per_page=100" --jq '.[]' | jq -s "[.[] | ${bots}] | .[-40:]" > "$evidence_dir/issue_comments.json"
+          gh api --paginate "repos/${REPOSITORY}/pulls/${PR_NUMBER}/reviews?per_page=100" --jq '.[]' | jq -s "[.[] | ${bots}] | .[-40:]" > "$evidence_dir/reviews.json"
+          gh api --paginate "repos/${REPOSITORY}/pulls/${PR_NUMBER}/comments?per_page=100" --jq '.[]' | jq -s "[.[] | ${bots}] | .[-80:]" > "$evidence_dir/inline.json"
+          jq -e 'type == "array"' "$evidence_dir/issue_comments.json" >/dev/null
+          jq -e 'type == "array"' "$evidence_dir/reviews.json" >/dev/null
+          jq -e 'type == "array"' "$evidence_dir/inline.json" >/dev/null
+          jq -n --arg head "$HEAD_SHA" \
+            --slurpfile issue_comments "$evidence_dir/issue_comments.json" \
+            --slurpfile reviews "$evidence_dir/reviews.json" \
+            --slurpfile inline "$evidence_dir/inline.json" \
+            '{head_sha:$head,issue_comments:$issue_comments[0],reviews:$reviews[0],inline_comments:$inline[0]}' > supervisor-review-evidence.json
 
       - name: Qualify current-head material findings before model repair
         if: steps.preflight.outputs.proceed == 'yes'

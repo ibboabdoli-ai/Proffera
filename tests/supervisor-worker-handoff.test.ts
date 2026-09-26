@@ -2980,12 +2980,15 @@ describe("Supervisor ↔ Worker Phase-1 handoff", () => {
     expect(commit).toContain("git diff --check HEAD");
   });
 
-  it("serializes durable lifecycle writes and cancels only superseded check reconciliation", () => {
+  it("serializes both durable lifecycle writes and exact-head check reconciliation without cancellation", () => {
     const sync = source(".github/workflows/worker-supervisor-sync.yml");
     expect(sync).toContain("proffera-worker-lifecycle-${{ needs.resolve_worker_mutation_lane.outputs.branch }}");
     expect(sync).toContain("proffera-worker-checks-${{ needs.resolve_worker_mutation_lane.outputs.branch }}");
-    expect(sync).toContain("cancel-in-progress: false");
-    expect(sync).toContain("cancel-in-progress: true");
+    const lifecycleHeader = sync.slice(sync.indexOf("  sync-pr-event:"), sync.indexOf("    runs-on:", sync.indexOf("  sync-pr-event:")));
+    const checksHeader = sync.slice(sync.indexOf("  sync-check-state:"), sync.indexOf("    runs-on:", sync.indexOf("  sync-check-state:")));
+    expect(lifecycleHeader).toContain("cancel-in-progress: false");
+    expect(checksHeader).toContain("cancel-in-progress: false");
+    expect(checksHeader).not.toContain("cancel-in-progress: true");
   });
 
   it("fails closed on an invalid trusted Phase-1 lifecycle packet", () => {
@@ -5694,7 +5697,8 @@ esac
     const lifecycleHeader = sync.slice(sync.indexOf("  sync-pr-event:"), sync.indexOf("    runs-on:", sync.indexOf("  sync-pr-event:")));
     const checksHeader = sync.slice(sync.indexOf("  sync-check-state:"), sync.indexOf("    runs-on:", sync.indexOf("  sync-check-state:")));
     expect(lifecycleHeader).toContain("cancel-in-progress: false");
-    expect(checksHeader).toContain("cancel-in-progress: true");
+    expect(checksHeader).toContain("cancel-in-progress: false");
+    expect(checksHeader).not.toContain("cancel-in-progress: true");
     const syncPrHeader = sync.slice(sync.indexOf("  sync-pr-event:"), sync.indexOf("    runs-on:", sync.indexOf("  sync-pr-event:")));
     expect(syncPrHeader).not.toContain("github.event.action != 'closed'");
     expectShellAndJqSyntax(workflowRunStep(sync, "Record or update Worker lifecycle state in Supervisor issue"));

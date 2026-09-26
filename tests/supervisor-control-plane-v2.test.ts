@@ -273,6 +273,118 @@ ${scriptBody}
   return { result, outputs };
 }
 
+function runReviewRepairEvidenceStep(largeBodySize = 800_000) {
+  const workflow = source(".github/workflows/supervisor-review-repair.yml");
+  const scriptBody = workflowRunStep(workflow, "Materialize current-head review evidence");
+  const dir = mkdtempSync(join(tmpdir(), "proffera-review-repair-evidence-"));
+  const fakeGh = join(dir, "gh");
+  const script = join(dir, "evidence.sh");
+  const head = "c".repeat(40);
+
+  writeFileSync(fakeGh, `#!/usr/bin/env node
+const { spawnSync } = require("node:child_process");
+const { writeSync } = require("node:fs");
+const args = process.argv.slice(2);
+const endpoint = args.find((arg) => arg.startsWith("repos/")) || "";
+const jqIndex = args.indexOf("--jq");
+const body = "x".repeat(Number(process.env.FAKE_LARGE_REVIEW_BODY_SIZE || 0));
+let payload;
+if (endpoint.includes("/issues/849/comments?per_page=100")) {
+  payload = [{ user: { login: "coderabbitai[bot]" }, body }];
+} else if (endpoint.includes("/pulls/849/reviews?per_page=100")) {
+  payload = [{ user: { login: "coderabbitai[bot]" }, body, commit_id: process.env.FAKE_HEAD, state: "CHANGES_REQUESTED" }];
+} else if (endpoint.includes("/pulls/849/comments?per_page=100")) {
+  payload = [{ user: { login: "chatgpt-codex-connector[bot]" }, body, commit_id: process.env.FAKE_HEAD }];
+} else {
+  process.stderr.write("unexpected gh call: " + JSON.stringify(args) + "\\n");
+  process.exit(91);
+}
+const raw = JSON.stringify(payload);
+if (jqIndex < 0) {
+  writeSync(1, raw + "\\n");
+  process.exit(0);
+}
+const expression = args[jqIndex + 1];
+const result = spawnSync("jq", ["-c", expression], {
+  input: raw,
+  encoding: "utf8",
+  maxBuffer: 64 * 1024 * 1024,
+});
+if (result.stdout) writeSync(1, result.stdout);
+if (result.stderr) writeSync(2, result.stderr);
+process.exit(result.status ?? 1);
+`, { mode: 0o755 });
+
+  writeFileSync(script, `#!/usr/bin/env bash
+set -euo pipefail
+gh() { node "${fakeGh.replaceAll("\\", "/")}" "$@"; }
+REPOSITORY=ibboabdoli-ai/Proffera
+PR_NUMBER=849
+HEAD_SHA=${head}
+${scriptBody}
+`, { mode: 0o755 });
+
+  const result = spawnSync("bash", [script], {
+    cwd: dir,
+    encoding: "utf8",
+    env: {
+      ...process.env,
+      PATH: process.env.PATH ?? "",
+      TMPDIR: dir,
+      FAKE_HEAD: head,
+      FAKE_LARGE_REVIEW_BODY_SIZE: String(largeBodySize),
+    },
+    maxBuffer: 64 * 1024 * 1024,
+  });
+
+  let evidence: Record<string, unknown> | null = null;
+  try {
+    evidence = JSON.parse(readFileSync(join(dir, "supervisor-review-evidence.json"), "utf8"));
+  } catch {}
+  rmSync(dir, { recursive: true, force: true });
+  return { result, evidence, head };
+}
+
+function runInvalidCloseReconcileFunction(mode: "nonzero" | "malformed" | "ok") {
+  const sync = source(".github/workflows/worker-supervisor-sync.yml").replaceAll("\r\n", "\n");
+  const start = sync.indexOf("          reconcile_invalid_closed_pr() {");
+  const endMarker = "\n          }\n\n          if";
+  const end = sync.indexOf(endMarker, start);
+  expect(start).toBeGreaterThanOrEqual(0);
+  expect(end).toBeGreaterThan(start);
+  const functionBody = sync
+    .slice(start, end + "\n          }".length)
+    .split("\n")
+    .map((line) => line.startsWith("          ") ? line.slice(10) : line)
+    .join("\n");
+
+  const dir = mkdtempSync(join(tmpdir(), "proffera-invalid-close-"));
+  const script = join(dir, "invalid-close.sh");
+  writeFileSync(script, `#!/usr/bin/env bash
+set -euo pipefail
+REPOSITORY=ibboabdoli-ai/Proffera
+RUN_ID=9001
+helper=ignored
+node() {
+  cat >/dev/null
+  case "${mode}" in
+    nonzero) return 73 ;;
+    malformed) printf '%s' 'not-json'; return 0 ;;
+    ok) printf '%s' '{"ok":true,"code":"reconciled"}'; return 0 ;;
+  esac
+}
+${functionBody}
+if reconcile_invalid_closed_pr 849 fixture; then
+  echo reconciled
+else
+  echo valid-task-packet
+fi
+`, { mode: 0o755 });
+  const result = spawnSync("bash", [script], { encoding: "utf8" });
+  rmSync(dir, { recursive: true, force: true });
+  return result;
+}
+
 describe("Supervisor control-plane v2", () => {
   it("routes review/comment fan-out through one event router", () => {
     const router = source(".github/workflows/supervisor-event-router.yml");
@@ -567,6 +679,15 @@ describe("Supervisor control-plane v2", () => {
     expect(repair).toContain("live_head_after_commits");
     expect(repair).toContain('mapfile -t recent_messages < "$recent_messages_file"');
     expect(repair).not.toContain("mapfile -t recent_messages < <(");
+    expect(repair).toContain('--slurpfile issue_comments "$evidence_dir/issue_comments.json"');
+    expect(repair).toContain('--slurpfile reviews "$evidence_dir/reviews.json"');
+    expect(repair).toContain('--slurpfile inline "$evidence_dir/inline.json"');
+    expect(repair).toContain("issue_comments:$issue_comments[0]");
+    expect(repair).toContain("reviews:$reviews[0]");
+    expect(repair).toContain("inline_comments:$inline[0]");
+    expect(repair).not.toContain('--argjson issue_comments "$issue_comments"');
+    expect(repair).not.toContain('--argjson reviews "$reviews"');
+    expect(repair).not.toContain('--argjson inline "$inline"');
     const publishStart = repair.indexOf("  publish:");
     expect(publishStart).toBeGreaterThan(0);
     const untrustedRepairJob = repair.slice(0, publishStart);
@@ -583,6 +704,24 @@ describe("Supervisor control-plane v2", () => {
     expect(trustedPublishJob.indexOf("validate-changes")).toBeLessThan(trustedPublishJob.indexOf("PROFFERA_AUTOFIX_PUSH_TOKEN"));
     expect(repair).not.toContain("--force");
   });
+
+  it("materializes large review evidence through files instead of argv", () => {
+    const result = runReviewRepairEvidenceStep();
+    expect(result.result.status, `${result.result.stderr}\n${String(result.result.error ?? "")}`).toBe(0);
+    expect(result.evidence).not.toBeNull();
+    const evidence = result.evidence as {
+      head_sha: string;
+      issue_comments: Array<{ body: string }>;
+      reviews: Array<{ body: string; state: string }>;
+      inline_comments: Array<{ body: string }>;
+    };
+    expect(evidence.head_sha).toBe(result.head);
+    expect(evidence.issue_comments).toHaveLength(1);
+    expect(evidence.reviews).toHaveLength(1);
+    expect(evidence.inline_comments).toHaveLength(1);
+    expect(evidence.issue_comments[0].body).toHaveLength(800_000);
+    expect(evidence.reviews[0].state).toBe("CHANGES_REQUESTED");
+  }, 20000);
 
   it("enforces the repair ceiling from the actual newest PR commits and fails closed on incomplete evidence", () => {
     const messages = Array.from({ length: 25 }, (_, index) => `ordinary-${index}`);
@@ -649,13 +788,49 @@ describe("Supervisor control-plane v2", () => {
     expect(JSON.parse(verified.stdout)).toMatchObject({ ok: false, code: "out_of_scope_change" });
   });
 
-  it("serializes durable lifecycle transitions while cancelling superseded check reconciliation", () => {
+  it("fails closed when invalid-close reconciliation crashes or returns malformed output", () => {
+    const sync = source(".github/workflows/worker-supervisor-sync.yml");
+    expect((sync.match(/result helper_status=0/g) ?? []).length).toBe(2);
+    expect((sync.match(/\|\| helper_status=\$\?/g) ?? []).length).toBe(2);
+    expect((sync.match(/jq -e 'type == "object"'/g) ?? []).length).toBe(2);
+    expect((sync.match(/refusing to report convergence/g) ?? []).length).toBe(2);
+
+    const nonzero = runInvalidCloseReconcileFunction("nonzero");
+    expect(nonzero.status).toBe(1);
+    expect(nonzero.stderr).toContain("invalid-close-reconcile failed or returned invalid JSON");
+
+    const malformed = runInvalidCloseReconcileFunction("malformed");
+    expect(malformed.status).toBe(1);
+    expect(malformed.stderr).toContain("invalid-close-reconcile failed or returned invalid JSON");
+
+    const ok = runInvalidCloseReconcileFunction("ok");
+    expect(ok.status, ok.stderr).toBe(0);
+    expect(ok.stdout).toContain("reconciled");
+  });
+
+  it("documents both trusted Phase-2 handoff paths without claiming planner comment publication", () => {
+    const docs = source("docs/SUPERVISOR_WORKER_HANDOFF.md");
+    expect(docs).toContain("two trusted entry points");
+    expect(docs).toContain("workflow_dispatch");
+    expect(docs).toContain("immutable source comment ID");
+    expect(docs).toContain("re-fetches that owner-authored #548 comment");
+    expect(docs).toContain("workflow_call");
+    expect(docs).toContain("planner_packet_b64");
+    expect(docs).toContain("planner_packet_sha256");
+    expect(docs).toContain("planner run ID");
+    expect(docs).toContain("planner head SHA");
+    expect(docs).toContain("planner workflow ref");
+    expect(docs).toContain("passed internally to `supervisor-worker-handoff.yml`");
+    expect(docs).toContain("does not publish a Task Packet comment to #548");
+    expect(docs).not.toContain("before one Task Packet comment can be published");
+  });
+
+  it("serializes durable lifecycle and exact-head check reconciliation without cancellation", () => {
     const sync = source(".github/workflows/worker-supervisor-sync.yml");
 
     expect(sync).toContain("proffera-worker-lifecycle-");
     expect(sync).toContain("proffera-worker-checks-");
     expect(sync).toContain("cancel-in-progress: false");
-    expect(sync).toContain("cancel-in-progress: true");
     expect(sync).toContain("task_count");
     expect(sync).toContain('if [ "$task_count" -ne 1 ]');
     expect(sync).toContain("validate-state");
@@ -663,7 +838,16 @@ describe("Supervisor control-plane v2", () => {
     expect(sync).toContain("if: always() && steps.reconcile.outputs.mutex != \'\'");
     expect(sync).toContain("MUTEX: ${{ steps.reconcile.outputs.mutex }}");
     expect(sync).toContain("reservation-mutex-release");
-    const checkSync = sync.slice(sync.indexOf("  sync-check-state:"));
+    const lifecycleStart = sync.indexOf("  sync-pr-event:");
+    const checkStart = sync.indexOf("  sync-check-state:");
+    expect(lifecycleStart).toBeGreaterThanOrEqual(0);
+    expect(checkStart).toBeGreaterThan(lifecycleStart);
+    const lifecycle = sync.slice(lifecycleStart, checkStart);
+    const checkSync = sync.slice(checkStart);
+    expect(lifecycle).toContain("cancel-in-progress: false");
+    expect(checkSync).toContain("group: proffera-worker-checks-");
+    expect(checkSync).toContain("cancel-in-progress: false");
+    expect(checkSync).not.toContain("cancel-in-progress: true");
     expect(checkSync).not.toContain("trap \'release_mutex || true\' EXIT");
   });
 });
