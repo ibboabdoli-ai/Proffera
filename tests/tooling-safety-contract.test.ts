@@ -469,6 +469,28 @@ describe("tooling safety contract", () => {
       "CodeRabbit posted current-head review findings",
     );
 
+    const noRequestMarkerInlineFinding = runCiReviewFixture({
+      changedFiles: ".github/workflows/ci.yml",
+      comments: [],
+      firstReviews: [{
+        user: { login: "coderabbitai[bot]" },
+        commit_id: reviewHead,
+        state: "COMMENTED",
+        submitted_at: "2026-08-31T10:02:00Z",
+      }],
+      inlineComments: [{
+        user: { login: "coderabbitai[bot]" },
+        original_commit_id: reviewHead,
+        commit_id: reviewHead,
+        created_at: "2026-08-31T10:02:00Z",
+      }],
+      failOnPost: true,
+    });
+    expect(noRequestMarkerInlineFinding.status).toBe(1);
+    expect(`${noRequestMarkerInlineFinding.stdout}${noRequestMarkerInlineFinding.stderr}`).toContain(
+      "CodeRabbit posted current-head review findings",
+    );
+
     const reanchoredOldInlineFinding = runCiReviewFixture({
       changedFiles: ".github/workflows/ci.yml",
       comments: codeRabbitRequestComments(),

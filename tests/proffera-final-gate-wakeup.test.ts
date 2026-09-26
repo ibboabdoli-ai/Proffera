@@ -708,6 +708,21 @@ ${reviewHead}
       "Refused: CodeRabbit posted current-head review findings; review acceptance is blocked.",
     );
 
+    const noRequestMarkerInlineFinding = runAutomergeFixture({
+      comments: [],
+      firstReviews: [codeRabbitCompletedReview("2099-09-05T12:02:00Z")],
+      inlineComments: [{
+        user: { login: "coderabbitai[bot]" },
+        original_commit_id: reviewHead,
+        commit_id: reviewHead,
+        created_at: "2099-09-05T12:02:00Z",
+      }],
+    });
+    expect(noRequestMarkerInlineFinding.stdout).not.toContain("AI_REVIEW_OK");
+    expect(noRequestMarkerInlineFinding.stdout).toContain(
+      "Refused: CodeRabbit posted current-head review findings; review acceptance is blocked.",
+    );
+
     const reanchoredOldInlineFinding = runAutomergeFixture({
       comments: [requestComment()],
       firstReviews: [codeRabbitCompletedReview("2099-09-05T12:02:00Z")],

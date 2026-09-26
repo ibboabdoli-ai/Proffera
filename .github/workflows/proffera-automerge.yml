@@ -378,8 +378,7 @@ jobs:
                 .[]
                 | select(.user.login == "coderabbitai[bot]")
                 | select((.original_commit_id // .commit_id) == $sha)
-                | select($request_time != "")
-                | select((.created_at // "") >= $request_time)
+                | select(($request_time == "") or ((.created_at // "") >= $request_time))
               ]
               | length
             ' <<< "$coderabbit_inline_json")"
