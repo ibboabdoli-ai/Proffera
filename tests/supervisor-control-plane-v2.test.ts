@@ -382,6 +382,7 @@ function runInvalidCloseReconcileFunction(
 set -euo pipefail
 REPOSITORY=ibboabdoli-ai/Proffera
 RUN_ID=9001
+mutex=fixture-mutex
 helper=ignored
 MODE="${mode}"
 node() {
@@ -846,9 +847,10 @@ describe("Supervisor control-plane v2", () => {
 
   it("fails closed in both invalid-close reconciliation copies and preserves valid-packet fallthrough", () => {
     const sync = source(".github/workflows/worker-supervisor-sync.yml");
-    expect((sync.match(/result helper_status=0/g) ?? []).length).toBe(2);
-    expect((sync.match(/\|\| helper_status=\$\?/g) ?? []).length).toBe(2);
-    expect((sync.match(/jq -e 'type == "object"'/g) ?? []).length).toBe(2);
+    expect((sync.match(/reconcile_invalid_closed_pr\(\) \{/g) ?? []).length).toBe(2);
+    expect((sync.match(/invalid-close-reconcile\)"/g) ?? []).length).toBe(2);
+    expect((sync.match(/\|\| helper_status=\$\?/g) ?? []).length).toBeGreaterThanOrEqual(2);
+    expect((sync.match(/jq -e 'type == "object"'/g) ?? []).length).toBeGreaterThanOrEqual(2);
     expect((sync.match(/refusing to report convergence/g) ?? []).length).toBeGreaterThanOrEqual(2);
 
     const retryableModes = [
@@ -911,9 +913,12 @@ describe("Supervisor control-plane v2", () => {
     expect(sync).toContain("proffera-worker-lifecycle-");
     expect(sync).toContain("proffera-worker-checks-");
     expect(sync).toContain("cancel-in-progress: false");
-    expect(sync).toContain("task_count");
-    expect(sync).toContain('if [ "$task_count" -ne 1 ]');
-    expect(sync).toContain("validate-state");
+    expect((sync.match(/node "\$helper" valid-close-reconcile/g) ?? []).length).toBe(2);
+    const helper = source("scripts/supervisor-worker-handoff.mjs");
+    expect(helper).toContain("planValidWorkerPrClose");
+    expect(helper).toContain("validateTaskStateBinding");
+    expect(helper).toContain("activation_task_sha256");
+    expect(helper).toContain("terminal_not_converged");
     expect(sync).toContain("Release exact Worker reservation mutex");
     expect(sync).toContain("if: always() && steps.reconcile.outputs.mutex != \'\'");
     expect(sync).toContain("MUTEX: ${{ steps.reconcile.outputs.mutex }}");

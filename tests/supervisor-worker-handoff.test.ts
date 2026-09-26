@@ -316,6 +316,12 @@ if (method !== "GET") {
   } else if (method === "PATCH" && bodyArg && commentMatch) {
     const comment = state.comments.find((entry) => String(entry.id) === commentMatch[1]);
     if (!comment) process.exit(3);
+    if (commentMatch[1] === "103" && state.failTaskPatchRemaining > 0) {
+      state.failTaskPatchRemaining -= 1;
+      writeFileSync(process.env.GH_STUB_STATE_FILE, JSON.stringify(state));
+      process.stderr.write("simulated terminal task persistence interruption\\n");
+      process.exit(75);
+    }
     comment.body = bodyArg.slice("body=".length);
     writeFileSync(process.env.GH_STUB_STATE_FILE, JSON.stringify(state));
   } else if (method === "POST" && bodyArg && endpoint === "repos/ibboabdoli-ai/Proffera/issues/548/comments") {
@@ -1478,6 +1484,7 @@ type SyncCheckOptions = {
   liveRef?: string;
   liveState?: string;
   failPagedCommentReads?: number;
+  failTaskPatchOnce?: boolean;
   mutateHeadOnPrFetch?: number;
   mutateReservationOnCommentFetch?: number;
   mutateTaskOnCommentFetch?: number;
@@ -1496,6 +1503,7 @@ function runSyncCheckReconciliation({
   liveRef = "work/proffera-test-task",
   liveState = "closed",
   failPagedCommentReads = 0,
+  failTaskPatchOnce = false,
   mutateHeadOnPrFetch = 0,
   mutateReservationOnCommentFetch = 0,
   mutateTaskOnCommentFetch = 0,
@@ -1527,6 +1535,7 @@ function runSyncCheckReconciliation({
     commentFetches: 0,
     comments,
     failPagedCommentReads,
+    failTaskPatchRemaining: failTaskPatchOnce ? 1 : 0,
     mutateHeadOnPrFetch,
     mutateReservationOnCommentFetch,
     mutateTaskOnCommentFetch,
@@ -1555,6 +1564,12 @@ if (method !== "GET") {
   } else if (method === "PATCH" && bodyArg && commentMatch) {
     const comment = state.comments.find((entry) => String(entry.id) === commentMatch[1]);
     if (!comment) process.exit(3);
+    if (commentMatch[1] === "103" && state.failTaskPatchRemaining > 0) {
+      state.failTaskPatchRemaining -= 1;
+      writeFileSync(process.env.GH_STUB_STATE_FILE, JSON.stringify(state));
+      process.stderr.write("simulated terminal task persistence interruption\\n");
+      process.exit(75);
+    }
     comment.body = bodyArg.slice("body=".length);
     writeFileSync(process.env.GH_STUB_STATE_FILE, JSON.stringify(state));
   } else if (method === "POST" && bodyArg && endpoint === "repos/ibboabdoli-ai/Proffera/issues/548/comments") {
@@ -3951,16 +3966,18 @@ esac
   }, 30_000);
 
   it("converges both partial malformed-close outcomes across an unrecorded repair head", () => {
+    const releasedTaskBody = durableStateBody("CHECKS_PENDING", sha);
     const released = exactReservationEvidence(otherSha, {
       state: "RELEASED",
       pr_number: 849,
+      activation_task_sha256: createHash("sha256").update(releasedTaskBody).digest("hex"),
       recovery: { kind: "closed_pr_invalid_packet", merged: false, reservation_head_sha: sha },
     });
     const reservationAlreadyReleased = runSyncCheckReconciliation({
       body: "missing packet",
       comments: [
         ...released.comments,
-        { id: 103, user: { login: "github-actions[bot]" }, body: durableStateBody("CHECKS_PENDING", sha) },
+        { id: 103, user: { login: "github-actions[bot]" }, body: releasedTaskBody },
       ],
       liveHead: otherSha,
     });
@@ -3981,6 +3998,46 @@ esac
     expect(commentPatchCalls(taskAlreadyTerminal.calls, 101)).toHaveLength(1);
     expect(commentPatchCalls(taskAlreadyTerminal.calls, 103)).toHaveLength(0);
   });
+
+  it("recovers a released malformed-close split after terminal task persistence fails in both sync paths", () => {
+    for (const reconcile of [runLifecycleReconciliation, runSyncCheckReconciliation]) {
+      const taskBody = durableStateBody("CHECKS_PENDING");
+      const evidence = exactReservationEvidence(sha, { state: "PUBLISHED", pr_number: 849, recovery: null });
+      const interrupted = reconcile({
+        body: "missing packet",
+        comments: [
+          ...evidence.comments,
+          { id: 103, user: { login: "github-actions[bot]" }, body: taskBody },
+        ],
+        failTaskPatchOnce: true,
+      });
+      expect(interrupted.status).toBe(1);
+      expect(commentPatchCalls(interrupted.calls, 101)).toHaveLength(1);
+      expect(String(interrupted.comments.find((comment) => comment.id === 103)?.body)).toContain("- State: `CHECKS_PENDING`");
+
+      const reservation = interrupted.comments.find((comment) => comment.id === 101);
+      const payloadBase64 = String(reservation?.body ?? "").match(/^- Reservation payload: `([^`]*)`$/m)?.[1] ?? "";
+      expect(JSON.parse(Buffer.from(payloadBase64, "base64").toString("utf8"))).toMatchObject({
+        state: "RELEASED",
+        pr_number: 849,
+        activation_task_sha256: createHash("sha256").update(taskBody).digest("hex"),
+        recovery: {
+          kind: "closed_pr_invalid_packet",
+          merged: false,
+          reservation_head_sha: sha,
+        },
+      });
+
+      const recovered = reconcile({
+        body: "missing packet",
+        comments: interrupted.comments,
+      });
+      expect(recovered.status, recovered.stderr).toBe(0);
+      expect(commentPatchCalls(recovered.calls, 101)).toHaveLength(0);
+      expect(commentPatchCalls(recovered.calls, 103)).toHaveLength(1);
+      expect(String(recovered.comments.find((comment) => comment.id === 103)?.body)).toContain("- State: `CLOSED_UNMERGED`");
+    }
+  }, 60_000);
 
   it("keeps malformed-close convergence idempotent in every replacement writer", () => {
     for (const reconcile of [runLifecycleReconciliation, runSyncCheckReconciliation]) {
@@ -4145,16 +4202,18 @@ esac
     expect(commentPatchCalls(taskAlreadyTerminal.calls, 103)).toHaveLength(0);
     expect(String(taskAlreadyTerminal.comments.find((comment) => comment.id === 103)?.body)).toContain("- Run ID: `9001`");
 
+    const releasedTaskBody = durableStateBody("CHECKS_PENDING");
     const released = exactReservationEvidence(sha, {
       state: "RELEASED",
       pr_number: 849,
-      recovery: { kind: "closed_pr_invalid_packet", merged: false },
+      activation_task_sha256: createHash("sha256").update(releasedTaskBody).digest("hex"),
+      recovery: { kind: "closed_pr_invalid_packet", merged: false, reservation_head_sha: sha },
     });
     const reservationAlreadyReleased = runSyncCheckReconciliation({
       body: "missing packet",
       comments: [
         ...released.comments,
-        { id: 103, user: { login: "github-actions[bot]" }, body: durableStateBody("CHECKS_PENDING") },
+        { id: 103, user: { login: "github-actions[bot]" }, body: releasedTaskBody },
       ],
     });
     expect(reservationAlreadyReleased.status, reservationAlreadyReleased.stderr).toBe(0);
@@ -4709,6 +4768,138 @@ esac
       }
     }
   });
+
+  it("recovers a released-valid split close after terminal task persistence fails in both sync paths", () => {
+    let recoveredForCapacity: Array<Record<string, unknown>> | null = null;
+    for (const reconcile of [runLifecycleReconciliation, runSyncCheckReconciliation]) {
+      for (const liveMerged of [false, true]) {
+        const taskBody = durableStateBody("CHECKS_PENDING");
+        const evidence = exactReservationEvidence(sha, { state: "PUBLISHED", pr_number: 849, recovery: null });
+        const interrupted = reconcile({
+          action: "closed",
+          comments: [
+            ...evidence.comments,
+            { id: 103, user: { login: "github-actions[bot]" }, body: taskBody },
+          ],
+          liveMerged,
+          failTaskPatchOnce: true,
+        });
+        expect(interrupted.status).toBe(1);
+        expect(commentPatchCalls(interrupted.calls, 101)).toHaveLength(1);
+        expect(commentPatchCalls(interrupted.calls, 103)).toHaveLength(1);
+        expect(String(interrupted.comments.find((comment) => comment.id === 103)?.body)).toContain("- State: `CHECKS_PENDING`");
+
+        const releasedReservation = interrupted.comments.find((comment) => comment.id === 101);
+        const payloadBase64 = String(releasedReservation?.body ?? "").match(/^- Reservation payload: `([^`]*)`$/m)?.[1] ?? "";
+        const releasedPayload = JSON.parse(Buffer.from(payloadBase64, "base64").toString("utf8"));
+        expect(releasedPayload).toMatchObject({
+          state: "RELEASED",
+          pr_number: 849,
+          head_sha: sha,
+          activation_task_sha256: createHash("sha256").update(taskBody).digest("hex"),
+          recovery: {
+            kind: "closed_pr",
+            merged: liveMerged,
+            reservation_head_sha: sha,
+          },
+        });
+
+        const recovered = reconcile({
+          action: "closed",
+          comments: interrupted.comments,
+          liveMerged,
+        });
+        expect(recovered.status, recovered.stderr).toBe(0);
+        expect(commentPatchCalls(recovered.calls, 101)).toHaveLength(0);
+        expect(commentPatchCalls(recovered.calls, 103)).toHaveLength(1);
+        const terminalBody = String(recovered.comments.find((comment) => comment.id === 103)?.body);
+        expect(terminalBody).toContain(liveMerged ? "- State: `MERGED`" : "- State: `CLOSED_UNMERGED`");
+
+        const replay = reconcile({
+          action: "closed",
+          comments: recovered.comments,
+          liveMerged,
+        });
+        expect(replay.status, replay.stderr).toBe(0);
+        expect(commentPatchCalls(replay.calls, 101)).toHaveLength(0);
+        expect(commentPatchCalls(replay.calls, 103)).toHaveLength(0);
+
+        if (!liveMerged && recoveredForCapacity === null) recoveredForCapacity = recovered.comments;
+      }
+    }
+
+    expect(recoveredForCapacity).not.toBeNull();
+    const existing = {
+      version: 1,
+      state: "RESERVED",
+      task_id: "SUP-OTHER-SLOT-1",
+      run_id: "7001",
+      branch: "work/proffera-other-slot",
+      head_sha: otherSha,
+      graph_path: "feature/other-slot",
+      packet_digest: "c".repeat(64),
+      lease_expires_at: "2099-01-01T00:00:00Z",
+      allowed_paths: ["src/features/other-slot/"],
+      changed_files: [],
+      snapshot_finalized: false,
+      pr_number: null,
+      recovery: null,
+    };
+    const capacity = runSlotReservation({ reservation: existing, extraComments: recoveredForCapacity ?? [] });
+    expect(capacity.status, capacity.stderr).toBe(0);
+    expect(capacity.comments.some((comment) => comment.id === 999)).toBe(true);
+  }, 90_000);
+
+  it("fails closed on released-valid recovery provenance mismatches without mutation", () => {
+    const taskBody = durableStateBody("CHECKS_PENDING");
+    const exactReleasedPayload = {
+      state: "RELEASED",
+      pr_number: 849,
+      head_sha: sha,
+      activation_task_sha256: createHash("sha256").update(taskBody).digest("hex"),
+      recovery: { kind: "closed_pr", merged: false, reservation_head_sha: sha },
+    };
+    const exact = exactReservationEvidence(sha, exactReleasedPayload);
+    const exactPayloadBase64 = String(exact.comments[0].body).match(/^- Reservation payload: `([^`]*)`$/m)?.[1] ?? "";
+    const payload = JSON.parse(Buffer.from(exactPayloadBase64, "base64").toString("utf8"));
+
+    const taskDigestMismatch = [
+      ...exact.comments,
+      { id: 103, user: { login: "github-actions[bot]" }, body: taskBody.replace("Behavior-test durable state.", "Changed durable state.") },
+    ];
+    const prMismatch = [
+      reservationComment({ ...payload, pr_number: 850 }, 101),
+      exact.comments[1],
+      { id: 103, user: { login: "github-actions[bot]" }, body: taskBody },
+    ];
+    const headMismatch = [
+      reservationComment({ ...payload, head_sha: otherSha }, 101),
+      exact.comments[1],
+      { id: 103, user: { login: "github-actions[bot]" }, body: taskBody },
+    ];
+    const wrongRunTask = durableStateBody("CHECKS_PENDING").replace("- Run ID: `9001`", "- Run ID: `8001`");
+    const runMismatch = [
+      reservationComment({
+        ...payload,
+        activation_task_sha256: createHash("sha256").update(wrongRunTask).digest("hex"),
+      }, 101),
+      exact.comments[1],
+      { id: 103, user: { login: "github-actions[bot]" }, body: wrongRunTask },
+    ];
+    const dispatchMismatch = [
+      exact.comments[0],
+      { ...exact.comments[1], body: String(exact.comments[1].body).replace(":9001 -->", ":8001 -->") },
+      { id: 103, user: { login: "github-actions[bot]" }, body: taskBody },
+    ];
+
+    for (const comments of [taskDigestMismatch, prMismatch, headMismatch, runMismatch, dispatchMismatch]) {
+      for (const reconcile of [runLifecycleReconciliation, runSyncCheckReconciliation]) {
+        const result = reconcile({ action: "closed", comments });
+        expect(result.status, result.stderr).toBe(0);
+        expect(durableMutationCalls(result.calls)).toHaveLength(0);
+      }
+    }
+  }, 60_000);
 
   it("makes repeated live-closed lifecycle replacement idempotent", () => {
     const evidence = exactReservationEvidence(sha, { state: "PUBLISHED", pr_number: 849, recovery: null });

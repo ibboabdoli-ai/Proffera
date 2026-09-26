@@ -1577,6 +1577,9 @@ export function planInvalidWorkerPrClose(input) {
         return invalidCloseResult(false, "invalid_task_run", "trusted task state run ID is missing or ambiguous");
       }
     }
+    const activationTaskSha256 = taskMatches.length === 1
+      ? createHash("sha256").update(String(taskMatches[0].body ?? "")).digest("hex")
+      : null;
     let nextReservationBody = reservation.body;
     let applyReservation = false;
     if (reservation.payload.state !== "RELEASED") {
@@ -1590,6 +1593,7 @@ export function planInvalidWorkerPrClose(input) {
           merged,
           reservation_head_sha: reservation.reservedHead,
         },
+        ...(activationTaskSha256 ? { activation_task_sha256: activationTaskSha256 } : {}),
       };
       const encoded = Buffer.from(JSON.stringify(nextPayload), "utf8").toString("base64");
       nextReservationBody = [
@@ -1611,6 +1615,22 @@ export function planInvalidWorkerPrClose(input) {
       try {
         const currentBody = String(taskMatches[0].body ?? "");
         const currentTaskState = parseTaskStateBody(currentBody);
+        if (reservation.payload.state === "RELEASED" && !TERMINAL_TASK_STATES.has(currentTaskState.state)) {
+          const recovery = reservation.payload.recovery;
+          const exactTaskDigest = createHash("sha256").update(currentBody).digest("hex");
+          if (reservation.reservedHead !== headSha
+            || recovery?.kind !== "closed_pr_invalid_packet"
+            || recovery.merged !== merged
+            || !SHA_RE.test(String(recovery.reservation_head_sha ?? ""))
+            || !SHA256_RE.test(String(reservation.payload.activation_task_sha256 ?? ""))
+            || reservation.payload.activation_task_sha256 !== exactTaskDigest) {
+            return invalidCloseResult(
+              false,
+              "released_task_digest_mismatch",
+              "released malformed-close reservation does not prove the exact pre-terminal task state",
+            );
+          }
+        }
         const validatedTerminalBody = terminalTaskStateBodyFromExisting({
           current_body: currentBody,
           task_id: reservation.taskId,
@@ -2719,13 +2739,324 @@ export function reconcileUnboundTasks(input) {
   return { reclaimed };
 }
 
+function validClosePlanInput(repository, prNumber, runId, livePr, comments, packet) {
+  return { repository, pr_number: prNumber, run_id: runId, live_pr: livePr, comments, packet };
+}
+
+export function planValidWorkerPrClose(input) {
+  try {
+    if (input?.repository !== EXPECTED_REPOSITORY) {
+      return invalidCloseResult(false, "wrong_repository", "repository is not trusted");
+    }
+    const prNumber = Number(input?.pr_number);
+    const runId = String(input?.run_id ?? "");
+    const pr = input?.live_pr ?? {};
+    const state = String(pr.state ?? "");
+    const merged = pr.merged === true;
+    const author = String(pr.user?.login ?? "");
+    const headRepository = String(pr.head?.repo?.full_name ?? "");
+    const branch = String(pr.head?.ref ?? "");
+    const headSha = String(pr.head?.sha ?? "").toLowerCase();
+    if (!Number.isInteger(prNumber) || prNumber <= 0 || !/^[0-9]+$/.test(runId)) {
+      return invalidCloseResult(false, "invalid_identity", "PR or run identity is malformed");
+    }
+    if (state !== "closed" || author !== TRUSTED_SUPERVISOR_ACTOR || headRepository !== EXPECTED_REPOSITORY) {
+      return invalidCloseResult(false, "untrusted_pr", "live PR is not a closed trusted same-repository owner PR");
+    }
+    if (!BRANCH_RE.test(branch) || !SHA_RE.test(headSha)) {
+      return invalidCloseResult(false, "invalid_head", "live Worker branch or head is malformed");
+    }
+
+    const livePacket = parseTaskPacketComment(String(pr.body ?? ""));
+    const packet = input?.packet == null ? livePacket : normalizeTaskPacket(input.packet);
+    if (JSON.stringify(packet) !== JSON.stringify(livePacket)) {
+      return invalidCloseResult(false, "packet_changed", "supplied Task Packet does not match the live closed PR");
+    }
+    if (packet.branch !== branch) {
+      return invalidCloseResult(false, "branch_mismatch", "live Worker branch does not match the exact Task Packet");
+    }
+
+    const comments = Array.isArray(input?.comments) ? input.comments : [];
+    const matchingReservations = reservationRecords(comments).filter(({ payload }) => payload.task_id === packet.task_id);
+    if (matchingReservations.length !== 1) {
+      return invalidCloseResult(false, "ambiguous_reservation", "closed Worker PR has missing or ambiguous exact reservation provenance");
+    }
+    const reservation = matchingReservations[0];
+    const payload = reservation.payload;
+    if (!["PUBLISHED", "RELEASED"].includes(payload.state)
+      || payload.pr_number !== prNumber
+      || payload.branch !== packet.branch
+      || payload.graph_path !== packet.graph_path
+      || payload.packet_digest !== packetDigest(packet)
+      || JSON.stringify(payload.allowed_paths) !== JSON.stringify(packet.allowed_paths)) {
+      return invalidCloseResult(false, "reservation_mismatch", "closed Worker PR does not match its exact durable reservation");
+    }
+
+    const reservedRun = String(payload.run_id ?? "");
+    const dispatchMarker = `<!-- proffera-worker-dispatch-start:${packet.task_id}:${reservedRun} -->`;
+    const dispatchMatches = comments.filter((comment) => comment?.user?.login === "github-actions[bot]"
+      && countOccurrences(String(comment?.body ?? ""), dispatchMarker) === 1);
+    if (dispatchMatches.length !== 1) {
+      return invalidCloseResult(false, "ambiguous_dispatch", "closed Worker PR has missing or ambiguous exact dispatch provenance");
+    }
+
+    const task = trustedRecord(comments, `${TASK_STATE_MARKER_PREFIX}${packet.task_id} -->`);
+    const currentBody = task.body;
+    const binding = validateTaskStateBinding({
+      packet,
+      body: currentBody,
+      pr_number: prNumber,
+      run_id: reservedRun,
+    });
+    const terminalState = merged ? "MERGED" : "CLOSED_UNMERGED";
+    if (TERMINAL_TASK_STATES.has(binding.state)
+      && binding.state !== terminalState
+      && !(binding.state === "CLOSED_UNMERGED" && terminalState === "MERGED")) {
+      return invalidCloseResult(false, "terminal_conflict", "trusted task state conflicts with the live canonical terminal state");
+    }
+
+    let reservationHead = String(payload.head_sha ?? "").toLowerCase();
+    if (!SHA_RE.test(reservationHead)) {
+      return invalidCloseResult(false, "reservation_head_mismatch", "reservation head provenance is malformed");
+    }
+    if (payload.state === "RELEASED") {
+      const recovery = payload.recovery;
+      if (recovery?.kind !== "closed_pr"
+        || recovery.merged !== merged
+        || payload.pr_number !== prNumber
+        || payload.head_sha !== headSha) {
+        return invalidCloseResult(false, "released_recovery_mismatch", "released reservation does not match the live closed PR recovery provenance");
+      }
+      const recordedReservationHead = String(recovery.reservation_head_sha ?? "").toLowerCase();
+      const currentDigest = createHash("sha256").update(currentBody).digest("hex");
+      if (!TERMINAL_TASK_STATES.has(binding.state)) {
+        if (!SHA256_RE.test(String(payload.activation_task_sha256 ?? ""))
+          || payload.activation_task_sha256 !== currentDigest) {
+          return invalidCloseResult(false, "released_task_digest_mismatch", "released reservation does not prove the exact pre-terminal task state");
+        }
+        if (recordedReservationHead) {
+          if (!SHA_RE.test(recordedReservationHead)) {
+            return invalidCloseResult(false, "released_head_mismatch", "released reservation recovery head is malformed");
+          }
+          reservationHead = recordedReservationHead;
+        } else if (SHA_RE.test(binding.head_sha)) {
+          reservationHead = binding.head_sha;
+        } else {
+          return invalidCloseResult(false, "released_head_mismatch", "released reservation cannot prove the pre-terminal task head");
+        }
+      } else if (recordedReservationHead) {
+        if (!SHA_RE.test(recordedReservationHead)) {
+          return invalidCloseResult(false, "released_head_mismatch", "released reservation recovery head is malformed");
+        }
+        reservationHead = recordedReservationHead;
+      } else if (SHA_RE.test(binding.head_sha)) {
+        reservationHead = binding.head_sha;
+      }
+    } else if (binding.head_sha && binding.head_sha !== reservationHead && binding.head_sha !== headSha) {
+      return invalidCloseResult(false, "task_head_mismatch", "trusted task state matches neither the reservation head nor the live closed PR head");
+    }
+
+    const terminalReason = merged
+      ? "Worker PR is live-verified as merged through the repository merge path."
+      : "Worker PR is live-verified as closed without merge.";
+    const terminalBody = terminalTaskStateBodyFromExisting({
+      current_body: currentBody,
+      task_id: packet.task_id,
+      graph_path: packet.graph_path,
+      branch: packet.branch,
+      packet_digest: packetDigest(packet),
+      state: terminalState,
+      reason: terminalReason,
+      run_id: reservedRun,
+      pr_number: prNumber,
+      head_sha: headSha,
+      reservation_head_sha: reservationHead,
+    });
+    const transition = evaluateTaskStateTransition({
+      current_body: currentBody,
+      source: "lifecycle",
+      requested_state: terminalState,
+      requested_head: headSha,
+      live_head: headSha,
+      live_pr_state: "closed",
+      live_merged: merged,
+    });
+    if (!transition.ok) {
+      return invalidCloseResult(false, "transition_refused", transition.reason);
+    }
+    const desiredTaskBody = transition.apply ? terminalBody : currentBody;
+
+    let nextReservationBody = reservation.body;
+    let applyReservation = false;
+    if (payload.state !== "RELEASED") {
+      const taskBodyDigest = createHash("sha256").update(currentBody).digest("hex");
+      const nextPayload = {
+        ...payload,
+        state: "RELEASED",
+        pr_number: prNumber,
+        head_sha: headSha,
+        activation_task_sha256: taskBodyDigest,
+        recovery: {
+          kind: "closed_pr",
+          merged,
+          reservation_head_sha: reservationHead,
+        },
+      };
+      nextReservationBody = reservationBody(nextPayload);
+      applyReservation = true;
+    }
+
+    return invalidCloseResult(true, "trusted_valid_close", "exact valid closed-PR provenance is trusted", {
+      task_id: packet.task_id,
+      terminal_state: terminalState,
+      reservation: {
+        id: reservation.id,
+        expected_body: reservation.body,
+        body: nextReservationBody,
+        apply: applyReservation,
+      },
+      task: {
+        id: task.id,
+        expected_body: currentBody,
+        body: desiredTaskBody,
+        apply: desiredTaskBody !== currentBody,
+      },
+    });
+  } catch (error) {
+    return invalidCloseResult(false, "invalid_evidence", error instanceof Error ? error.message : "invalid closed-PR evidence");
+  }
+}
+
+export function reconcileValidWorkerPrClose(input) {
+  const repository = input?.repository;
+  const prNumber = Number(input?.pr_number);
+  const runId = String(input?.run_id ?? "");
+  try {
+    assertReservationMutex(input);
+  } catch (error) {
+    return invalidCloseResult(false, "mutex_mismatch", error instanceof Error ? error.message : "reservation mutex ownership is invalid", { retryable: true });
+  }
+  if (repository !== EXPECTED_REPOSITORY || !Number.isInteger(prNumber) || prNumber <= 0 || !/^[0-9]+$/.test(runId)) {
+    return invalidCloseResult(false, "invalid_identity", "repository, PR, or run identity is malformed");
+  }
+
+  const readPlan = () => {
+    const livePr = retryGitHubRead(() => githubApiJson([`repos/${repository}/pulls/${prNumber}`]));
+    const comments = githubIssueComments(repository);
+    return planValidWorkerPrClose(validClosePlanInput(repository, prNumber, runId, livePr, comments, input.packet));
+  };
+
+  let plan;
+  let confirmPlan;
+  try {
+    plan = readPlan();
+    if (!plan.ok) return plan;
+    confirmPlan = readPlan();
+  } catch {
+    return invalidCloseResult(false, "evidence_unavailable", "GitHub close evidence was unavailable after bounded retries", { retryable: true });
+  }
+  if (JSON.stringify(confirmPlan) !== JSON.stringify(plan)) {
+    return invalidCloseResult(false, "evidence_changed", "closed-PR evidence changed before mutation", { retryable: true });
+  }
+
+  let reservation_mutated = false;
+  let task_mutated = false;
+  if (plan.reservation.apply) {
+    try {
+      patchControlRecord(input, plan.reservation.id, plan.reservation.body);
+      reservation_mutated = true;
+    } catch {
+      return invalidCloseResult(false, "reservation_write_failed", "reservation release write failed; reconciliation must be retried", {
+        retryable: true,
+        reservation_mutated,
+        task_mutated,
+      });
+    }
+  }
+
+  let afterPlan;
+  try {
+    afterPlan = readPlan();
+  } catch {
+    return invalidCloseResult(false, "evidence_unavailable", "GitHub close evidence was unavailable after reservation reconciliation", {
+      retryable: true,
+      reservation_mutated,
+      task_mutated,
+    });
+  }
+  if (!afterPlan.ok || afterPlan.reservation.apply) {
+    return invalidCloseResult(false, "release_not_converged", "closed-PR reservation release did not converge", {
+      retryable: true,
+      reservation_mutated,
+      task_mutated,
+    });
+  }
+
+  const desiredTaskBody = String(plan.task?.body ?? "");
+  const currentTaskBody = String(afterPlan.task?.expected_body ?? "");
+  if (currentTaskBody !== desiredTaskBody) {
+    if (!afterPlan.task?.apply
+      || currentTaskBody !== String(plan.task?.expected_body ?? "")
+      || String(afterPlan.task?.body ?? "") !== desiredTaskBody
+      || afterPlan.task?.id !== plan.task?.id) {
+      return invalidCloseResult(false, "task_evidence_changed", "closed-PR task evidence changed before terminal reconciliation", {
+        retryable: true,
+        reservation_mutated,
+        task_mutated,
+      });
+    }
+    try {
+      patchControlRecord(input, afterPlan.task.id, desiredTaskBody);
+      task_mutated = true;
+    } catch {
+      return invalidCloseResult(false, "task_write_failed", "reservation is released but the terminal task write failed; reconciliation must be retried", {
+        retryable: true,
+        reservation_mutated,
+        task_mutated,
+      });
+    }
+  }
+
+  let finalPlan;
+  try {
+    finalPlan = readPlan();
+  } catch {
+    return invalidCloseResult(false, "evidence_unavailable", "GitHub close evidence was unavailable during final convergence verification", {
+      retryable: true,
+      reservation_mutated,
+      task_mutated,
+    });
+  }
+  if (!finalPlan.ok || finalPlan.reservation.apply || finalPlan.task?.apply
+    || finalPlan.terminal_state !== plan.terminal_state) {
+    return invalidCloseResult(false, "terminal_not_converged", "closed-PR durable state did not converge to its exact terminal state", {
+      retryable: true,
+      reservation_mutated,
+      task_mutated,
+    });
+  }
+
+  return invalidCloseResult(true, "reconciled", "closed Worker PR converged durably", {
+    task_id: plan.task_id,
+    terminal_state: plan.terminal_state,
+    reservation_mutated,
+    task_mutated,
+  });
+}
+
 function invalidClosePlanInput(repository, prNumber, runId, livePr, comments) {
   return { repository, pr_number: prNumber, run_id: runId, live_pr: livePr, comments };
 }
 
-export function reconcileInvalidWorkerPrClose({ repository, pr_number, run_id }) {
-  const prNumber = Number(pr_number);
-  const runId = String(run_id ?? "");
+export function reconcileInvalidWorkerPrClose(input) {
+  const repository = input?.repository;
+  const prNumber = Number(input?.pr_number);
+  const runId = String(input?.run_id ?? "");
+  try {
+    assertReservationMutex(input);
+  } catch (error) {
+    return invalidCloseResult(false, "mutex_mismatch", error instanceof Error ? error.message : "reservation mutex ownership is invalid", { retryable: true });
+  }
   if (repository !== EXPECTED_REPOSITORY || !Number.isInteger(prNumber) || prNumber <= 0 || !/^[0-9]+$/.test(runId)) {
     return invalidCloseResult(false, "invalid_identity", "repository, PR, or run identity is malformed");
   }
@@ -2736,7 +3067,7 @@ export function reconcileInvalidWorkerPrClose({ repository, pr_number, run_id })
     livePr = retryGitHubRead(() => githubApiJson([`repos/${repository}/pulls/${prNumber}`]));
     comments = githubIssueComments(repository);
   } catch {
-    return invalidCloseResult(false, "evidence_unavailable", "GitHub close evidence was unavailable after bounded retries");
+    return invalidCloseResult(false, "evidence_unavailable", "GitHub close evidence was unavailable after bounded retries", { retryable: true });
   }
   const plan = planInvalidWorkerPrClose(invalidClosePlanInput(repository, prNumber, runId, livePr, comments));
   if (!plan.ok) return plan;
@@ -2747,25 +3078,26 @@ export function reconcileInvalidWorkerPrClose({ repository, pr_number, run_id })
     confirmPr = retryGitHubRead(() => githubApiJson([`repos/${repository}/pulls/${prNumber}`]));
     confirmComments = githubIssueComments(repository);
   } catch {
-    return invalidCloseResult(false, "evidence_unavailable", "GitHub close evidence was unavailable after bounded retries");
+    return invalidCloseResult(false, "evidence_unavailable", "GitHub close evidence was unavailable after bounded retries", { retryable: true });
   }
   const confirmPlan = planInvalidWorkerPrClose(invalidClosePlanInput(repository, prNumber, runId, confirmPr, confirmComments));
   if (JSON.stringify(confirmPlan) !== JSON.stringify(plan)) {
-    return invalidCloseResult(false, "evidence_changed", "malformed-close evidence changed before mutation");
+    return invalidCloseResult(false, "evidence_changed", "malformed-close evidence changed before mutation", { retryable: true });
   }
 
   let reservation_mutated = false;
   let task_mutated = false;
   if (plan.reservation.apply) {
-    execFileSync("gh", [
-      "api",
-      "--method",
-      "PATCH",
-      `repos/${repository}/issues/comments/${plan.reservation.id}`,
-      "-f",
-      `body=${plan.reservation.body}`,
-    ], { stdio: ["ignore", "ignore", "pipe"] });
-    reservation_mutated = true;
+    try {
+      patchControlRecord(input, plan.reservation.id, plan.reservation.body);
+      reservation_mutated = true;
+    } catch {
+      return invalidCloseResult(false, "reservation_write_failed", "malformed-close reservation release write failed; reconciliation must be retried", {
+        retryable: true,
+        reservation_mutated,
+        task_mutated,
+      });
+    }
   }
 
   const desiredTaskBody = String(plan.task?.body ?? "");
@@ -2777,6 +3109,7 @@ export function reconcileInvalidWorkerPrClose({ repository, pr_number, run_id })
       afterComments = githubIssueComments(repository);
     } catch {
       return invalidCloseResult(false, "evidence_unavailable", "GitHub close evidence was unavailable after bounded retries", {
+        retryable: true,
         reservation_mutated,
         task_mutated,
       });
@@ -2784,6 +3117,7 @@ export function reconcileInvalidWorkerPrClose({ repository, pr_number, run_id })
     const afterPlan = planInvalidWorkerPrClose(invalidClosePlanInput(repository, prNumber, runId, afterPr, afterComments));
     if (!afterPlan.ok || afterPlan.reservation.apply) {
       return invalidCloseResult(false, "release_not_converged", "malformed-close evidence did not converge after reservation release", {
+        retryable: true,
         reservation_mutated,
         task_mutated,
       });
@@ -2796,20 +3130,43 @@ export function reconcileInvalidWorkerPrClose({ repository, pr_number, run_id })
         || !Number.isInteger(afterPlan.task?.id)
         || afterPlan.task.id <= 0) {
         return invalidCloseResult(false, "task_evidence_changed", "malformed-close task evidence changed before terminal reconciliation", {
+          retryable: true,
           reservation_mutated,
           task_mutated,
         });
       }
-      execFileSync("gh", [
-        "api",
-        "--method",
-        "PATCH",
-        `repos/${repository}/issues/comments/${afterPlan.task.id}`,
-        "-f",
-        `body=${desiredTaskBody}`,
-      ], { stdio: ["ignore", "ignore", "pipe"] });
-      task_mutated = true;
+      try {
+        patchControlRecord(input, afterPlan.task.id, desiredTaskBody);
+        task_mutated = true;
+      } catch {
+        return invalidCloseResult(false, "task_write_failed", "malformed-close reservation is released but the terminal task write failed; reconciliation must be retried", {
+          retryable: true,
+          reservation_mutated,
+          task_mutated,
+        });
+      }
     }
+  }
+
+  let finalPr;
+  let finalComments;
+  try {
+    finalPr = retryGitHubRead(() => githubApiJson([`repos/${repository}/pulls/${prNumber}`]));
+    finalComments = githubIssueComments(repository);
+  } catch {
+    return invalidCloseResult(false, "evidence_unavailable", "GitHub close evidence was unavailable during final malformed-close convergence verification", {
+      retryable: true,
+      reservation_mutated,
+      task_mutated,
+    });
+  }
+  const finalPlan = planInvalidWorkerPrClose(invalidClosePlanInput(repository, prNumber, runId, finalPr, finalComments));
+  if (!finalPlan.ok || finalPlan.reservation.apply || finalPlan.task?.apply) {
+    return invalidCloseResult(false, "terminal_not_converged", "malformed closed Worker PR durable state did not converge to its exact terminal state", {
+      retryable: true,
+      reservation_mutated,
+      task_mutated,
+    });
   }
 
   return invalidCloseResult(true, "reconciled", "malformed closed Worker PR converged", {
@@ -3020,6 +3377,10 @@ async function main() {
   }
   if (mode === "invalid-close-plan") {
     process.stdout.write(`${JSON.stringify(planInvalidWorkerPrClose(parsed))}\n`);
+    return;
+  }
+  if (mode === "valid-close-reconcile") {
+    process.stdout.write(`${JSON.stringify(reconcileValidWorkerPrClose(parsed))}\n`);
     return;
   }
   if (mode === "invalid-close-reconcile") {

@@ -204,20 +204,16 @@ jobs:
 
           release_trusted_reservation_after_invalid_close() {
             local reason="$1" result
-            result="$(jq -cn --arg repository "$REPOSITORY" --argjson pr_number "$PR_NUMBER" --arg run_id "$RUN_ID" '{repository:$repository,pr_number:$pr_number,run_id:$run_id}' | node "$helper" invalid-close-reconcile)"
+            result="$(jq -cn --arg repository "$REPOSITORY" --argjson pr_number "$PR_NUMBER" --arg run_id "$RUN_ID" --arg mutex "$mutex" '{repository:$repository,pr_number:$pr_number,run_id:$run_id,mutex:$mutex}' | node "$helper" invalid-close-reconcile)"
             if [ "$(jq -r '.code // ""' <<< "$result")" = "valid_task_packet" ]; then
               return 1
             fi
             if [ "$(jq -r '.ok == true' <<< "$result")" != "true" ]; then
               echo "Closed malformed Worker PR was not mutation-safe: $(jq -r '.reason' <<< "$result")" >&2
-              case "$(jq -r '.code // ""' <<< "$result")" in
-                evidence_unavailable|evidence_changed|task_evidence_changed|release_not_converged)
-                  return 3
-                  ;;
-                *)
-                  return 2
-                  ;;
-              esac
+              if [ "$(jq -r '(.retryable == true) or (.reservation_mutated == true) or (.task_mutated == true)' <<< "$result")" = "true" ]; then
+                return 3
+              fi
+              return 2
             fi
             if [ "$(jq -r '.reservation_mutated == true' <<< "$result")" = "true" ]; then
               echo "Released trusted Worker slot reservation $(jq -r '.task_id' <<< "$result") after malformed PR #${PR_NUMBER} closed (${reason})."

@@ -130,7 +130,7 @@ jobs:
 
           reconcile_invalid_closed_pr() {
             local current_pr_number="$1" reason="$2" result helper_status=0
-            result="$(jq -cn --arg repository "$REPOSITORY" --argjson pr_number "$current_pr_number" --arg run_id "$RUN_ID" '{repository:$repository,pr_number:$pr_number,run_id:$run_id}' | node "$helper" invalid-close-reconcile)" || helper_status=$?
+            result="$(jq -cn --arg repository "$REPOSITORY" --argjson pr_number "$current_pr_number" --arg run_id "$RUN_ID" --arg mutex "$mutex" '{repository:$repository,pr_number:$pr_number,run_id:$run_id,mutex:$mutex}' | node "$helper" invalid-close-reconcile)" || helper_status=$?
             if [ "$helper_status" -ne 0 ] || ! jq -e 'type == "object"' >/dev/null 2>&1 <<< "$result"; then
               echo "invalid-close-reconcile failed or returned invalid JSON (status ${helper_status}); refusing to report convergence." >&2
               exit 1
@@ -146,8 +146,8 @@ jobs:
                   exit 1
                   ;;
               esac
-              if [ "$(jq -r '(.reservation_mutated == true) or (.task_mutated == true)' <<< "$result")" = "true" ]; then
-                echo "invalid-close-reconcile partially mutated state; refusing to report convergence." >&2
+              if [ "$(jq -r '(.retryable == true) or (.reservation_mutated == true) or (.task_mutated == true)' <<< "$result")" = "true" ]; then
+                echo "invalid-close-reconcile is retryable or partially mutated state; refusing to report convergence." >&2
                 exit 1
               fi
               echo "Malformed closed Worker PR has no mutation-safe exact provenance: $(jq -r '.reason' <<< "$result")"
@@ -187,192 +187,22 @@ jobs:
               fi
 
               reconcile_closed_pr() {
-                local packet_graph packet_allowed packet_digest reservation_marker comments_json reservations reservation_count
-                local reservation_id reservation_body payload_b64 payload state reserved_task reserved_run reserved_branch
-                local reserved_head reserved_pr reserved_graph reserved_allowed reserved_digest dispatch_marker dispatch_matches
-                local terminal_state terminal_reason terminal_task_marker comment_id current_body transition_json transition_apply
-                local expected_head expected_ref expected_merged expected_body confirm_comments confirm_reservations
-                local confirm_reservation_body confirm_task_body confirm_dispatch_matches release_reservation new_body
-                local terminal_state_json terminal_body
-
-                packet_graph="$(jq -r '.graph_path' <<< "$packet")"
-                packet_allowed="$(jq -c '.allowed_paths' <<< "$packet")"
-                packet_digest="$(printf '%s' "$packet" | sha256sum | cut -d' ' -f1)"
-                reservation_marker="<!-- proffera-worker-slot-reservation:${task_id} -->"
-                comments_json="$(gh api --paginate "repos/${REPOSITORY}/issues/548/comments?per_page=100" --jq '.[]' | jq -s '.')"
-                reservations="$(jq --arg marker "$reservation_marker" '[.[] | select(.user.login == "github-actions[bot]" and ((.body // "") | contains($marker)))]' <<< "$comments_json")"
-                reservation_count="$(jq 'length' <<< "$reservations")"
-                if [ "$reservation_count" -ne 1 ]; then
-                  echo "Closed Worker PR has missing or ambiguous durable reservation provenance; leaving it unchanged."
+                local result helper_status=0
+                result="$(jq -cn --arg repository "$REPOSITORY" --argjson pr_number "$PR_NUMBER" --arg run_id "$RUN_ID" --arg mutex "$mutex" --argjson packet "$packet" '{repository:$repository,pr_number:$pr_number,run_id:$run_id,mutex:$mutex,packet:$packet}' | node "$helper" valid-close-reconcile)" || helper_status=$?
+                if [ "$helper_status" -ne 0 ] || ! jq -e 'type == "object"' >/dev/null 2>&1 <<< "$result"; then
+                  echo "valid-close-reconcile failed or returned invalid JSON (status ${helper_status}); refusing to report convergence." >&2
+                  exit 1
+                fi
+                if [ "$(jq -r '.ok == true' <<< "$result")" != "true" ]; then
+                  jq -r '.reason // "valid closed-PR reconciliation refused"' <<< "$result" >&2
+                  if [ "$(jq -r '(.retryable == true) or (.reservation_mutated == true) or (.task_mutated == true)' <<< "$result")" = "true" ]; then
+                    exit 1
+                  fi
                   return 0
                 fi
-
-                reservation_id="$(jq -r '.[0].id' <<< "$reservations")"
-                reservation_body="$(jq -r '.[0].body // ""' <<< "$reservations")"
-                payload_b64="$(sed -n 's/^- Reservation payload: `\([^`]*\)`$/\1/p' <<< "$reservation_body")"
-                payload="$(printf '%s' "$payload_b64" | base64 --decode 2>/dev/null || true)"
-                if ! jq -e . >/dev/null 2>&1 <<< "$payload"; then
-                  echo "Closed Worker PR reservation payload is malformed; leaving it unchanged."
-                  return 0
-                fi
-
-                state="$(jq -r '.state // ""' <<< "$payload")"
-                reserved_task="$(jq -r '.task_id // ""' <<< "$payload")"
-                reserved_run="$(jq -r '.run_id // ""' <<< "$payload")"
-                reserved_branch="$(jq -r '.branch // ""' <<< "$payload")"
-                reserved_head="$(jq -r '.head_sha // ""' <<< "$payload")"
-                reserved_pr="$(jq -r '.pr_number // empty' <<< "$payload")"
-                reserved_graph="$(jq -r '.graph_path // ""' <<< "$payload")"
-                reserved_allowed="$(jq -c '.allowed_paths // []' <<< "$payload")"
-                reserved_digest="$(jq -r '.packet_digest // ""' <<< "$payload")"
-                case "$state" in RESERVED|PUBLISHED|RECOVERABLE|RELEASED) ;; *) return 0 ;; esac
-                if [ -z "$reserved_run" ] \
-                  || [ "$reserved_task" != "$task_id" ] \
-                  || [ "$reserved_branch" != "$head_ref" ] \
-                  || { [ "$reserved_head" != "$live_head_sha" ] \
-                    && { [ "$reserved_pr" != "$PR_NUMBER" ] \
-                      || { [ "$state" != "PUBLISHED" ] && [ "$state" != "RELEASED" ]; }; }; } \
-                  || [ "$reserved_graph" != "$packet_graph" ] \
-                  || [ "$reserved_allowed" != "$packet_allowed" ] \
-                  || [ "$reserved_digest" != "$packet_digest" ] \
-                  || { [ -n "$reserved_pr" ] && [ "$reserved_pr" != "$PR_NUMBER" ]; }; then
-                  echo "Closed Worker PR does not match its durable reservation binding; leaving it unchanged."
-                  return 0
-                fi
-                dispatch_marker="<!-- proffera-worker-dispatch-start:${task_id}:${reserved_run} -->"
-                dispatch_matches="$(jq --arg marker "$dispatch_marker" '[.[] | select(.user.login == "github-actions[bot]" and ((.body // "") | contains($marker)))] | length' <<< "$comments_json")"
-                if [ "$dispatch_matches" -ne 1 ]; then
-                  echo "Closed Worker PR has no exact bot-authored dispatch provenance; leaving it unchanged."
-                  return 0
-                fi
-
-                if [ "$live_merged" = "true" ]; then
-                  terminal_state="MERGED"
-                  terminal_reason="Worker PR is live-verified as merged through the repository merge path."
-                else
-                  terminal_state="CLOSED_UNMERGED"
-                  terminal_reason="Worker PR is live-verified as closed without merge."
-                fi
-                terminal_task_marker="<!-- proffera-worker-task-state:${task_id} -->"
-                task_matches="$(jq --arg marker "$terminal_task_marker" '[.[] | select(.user.login == "github-actions[bot]" and ((.body // "") | contains($marker)))]' <<< "$comments_json")"
-                task_count="$(jq 'length' <<< "$task_matches")"
-                if [ "$task_count" -ne 1 ]; then
-                  echo "Closed Worker PR has missing or duplicate canonical task-state evidence; leaving reservation and task state unchanged."
-                  return 0
-                fi
-                comment_id="$(jq -r '.[0].id' <<< "$task_matches")"
-                current_body="$(jq -r '.[0].body // ""' <<< "$task_matches")"
-                validate_canonical_task_state() {
-                  local body_value="$1" expected_pr="$2" expected_run="$3"
-                  local packet_file body_file status
-                  packet_file="$(mktemp)"
-                  body_file="$(mktemp)"
-                  printf '%s' "$packet" > "$packet_file"
-                  printf '%s' "$body_value" > "$body_file"
-                  node "$helper" validate-state-files "$packet_file" "$body_file" "$expected_pr" "$expected_run"
-                  status=$?
-                  rm -f "$packet_file" "$body_file"
-                  return "$status"
-                }
-                binding_error="$(mktemp)"
-                set +e
-                binding="$(validate_canonical_task_state "$current_body" "$PR_NUMBER" "$reserved_run" 2>"$binding_error")"
-                binding_status=$?
-                set -e
-                if [ "$binding_status" -ne 0 ] || ! jq -e '.ok == true' >/dev/null 2>&1 <<< "${binding:-}"; then
-                  echo "Closed Worker PR canonical task-state binding is invalid; no mutation performed: $(tr '\n' ' ' < "$binding_error" | head -c 300)"
-                  return 0
-                fi
-                binding_head="$(jq -r '.head_sha // ""' <<< "$binding")"
-                if [ "$binding_head" != "$reserved_head" ] && [ "$binding_head" != "$live_head_sha" ]; then
-                  echo "Closed Worker PR canonical task-state head binding is stale; no mutation performed."
-                  return 0
-                fi
-                transition_json="$(jq -n \
-                  --arg current_body "$current_body" \
-                  --arg source lifecycle \
-                  --arg requested_state "$terminal_state" \
-                  --arg requested_head "$live_head_sha" \
-                  --arg live_head "$live_head_sha" \
-                  --arg live_pr_state "$live_pr_state" \
-                  --argjson live_merged "$live_merged" \
-                  '{current_body:$current_body,source:$source,requested_state:$requested_state,requested_head:$requested_head,live_head:$live_head,live_pr_state:$live_pr_state,live_merged:$live_merged}' \
-                  | node "$helper" transition)"
-                transition_apply="$(jq -r '.apply == true' <<< "$transition_json")"
-
-                expected_head="$live_head_sha"
-                expected_ref="$head_ref"
-                expected_merged="$live_merged"
-                expected_body="$pr_body"
-                read_live_pr
-                if [ "$live_pr_state" != "closed" ] \
-                  || [ "$live_merged" != "$expected_merged" ] \
-                  || [ "$live_head_sha" != "$expected_head" ] \
-                  || [ "$head_ref" != "$expected_ref" ] \
-                  || [ "$pr_body" != "$expected_body" ] \
-                  || [ "$pr_author" != "ibboabdoli-ai" ] \
-                  || [ "$head_repo" != "$REPOSITORY" ]; then
-                  echo "Closed Worker PR changed before convergent lifecycle reconciliation; leaving it unchanged."
-                  return 0
-                fi
-
-                confirm_comments="$(gh api --paginate "repos/${REPOSITORY}/issues/548/comments?per_page=100" --jq '.[]' | jq -s '.')"
-                confirm_reservations="$(jq --arg marker "$reservation_marker" '[.[] | select(.user.login == "github-actions[bot]" and ((.body // "") | contains($marker)))]' <<< "$confirm_comments")"
-                confirm_reservation_body="$(jq -r 'if length == 1 then .[0].body // "" else "" end' <<< "$confirm_reservations")"
-                confirm_task_matches="$(jq --arg marker "$terminal_task_marker" '[.[] | select(.user.login == "github-actions[bot]" and ((.body // "") | contains($marker)))]' <<< "$confirm_comments")"
-                if [ "$(jq 'length' <<< "$confirm_task_matches")" -ne 1 ] || [ "$(jq -r '.[0].id' <<< "$confirm_task_matches")" != "$comment_id" ]; then
-                  echo "Canonical task-state identity changed before closed-PR mutation; leaving reservation and task state unchanged."
-                  return 0
-                fi
-                confirm_task_body="$(jq -r '.[0].body // ""' <<< "$confirm_task_matches")"
-                set +e
-                confirm_binding="$(validate_canonical_task_state "$confirm_task_body" "$PR_NUMBER" "$reserved_run" 2>/dev/null)"
-                confirm_binding_status=$?
-                set -e
-                if [ "$confirm_binding_status" -ne 0 ] || ! jq -e '.ok == true' >/dev/null 2>&1 <<< "${confirm_binding:-}"; then
-                  echo "Canonical task-state binding changed before closed-PR mutation; leaving reservation and task state unchanged."
-                  return 0
-                fi
-                confirm_binding_head="$(jq -r '.head_sha // ""' <<< "$confirm_binding")"
-                if [ "$confirm_binding_head" != "$reserved_head" ] && [ "$confirm_binding_head" != "$live_head_sha" ]; then
-                  echo "Canonical task-state head binding changed before closed-PR mutation; leaving reservation and task state unchanged."
-                  return 0
-                fi
-                confirm_dispatch_matches="$(jq --arg marker "$dispatch_marker" '[.[] | select(.user.login == "github-actions[bot]" and ((.body // "") | contains($marker)))] | length' <<< "$confirm_comments")"
-                if [ "$confirm_reservation_body" != "$reservation_body" ] \
-                  || [ "$confirm_task_body" != "$current_body" ] \
-                  || [ "$confirm_dispatch_matches" -ne 1 ]; then
-                  echo "Worker provenance or task state changed before convergent lifecycle close mutation; leaving it unchanged."
-                  return 0
-                fi
-
-                release_reservation=yes
-                if [ "$state" = "RELEASED" ]; then
-                  release_reservation=no
-                fi
-                if [ "$release_reservation" = "yes" ]; then
-                  task_body_digest="$(jq -j '.[0].body // ""' <<< "$task_matches" | sha256sum | cut -d' ' -f1)"
-                  payload="$(jq -c --arg state RELEASED --argjson pr_number "$PR_NUMBER" --arg head "$live_head_sha" --argjson merged "$live_merged" --arg task_body_digest "$task_body_digest" '.state=$state | .pr_number=$pr_number | .head_sha=$head | .activation_task_sha256=$task_body_digest | .recovery={kind:"closed_pr",merged:$merged}' <<< "$payload")"
-                  payload_b64="$(printf '%s' "$payload" | base64 -w0)"
-                  new_body="$(cat <<EOF
-          <!-- proffera-worker-slot-reservation:${task_id} -->
-          ### Worker slot reservation: ${task_id}
-          - State: \`RELEASED\`
-          - Reservation payload: \`${payload_b64}\`
-          EOF
-                  )"
-                  gh api --method PATCH "repos/${REPOSITORY}/issues/comments/${reservation_id}" -f body="$new_body" >/dev/null
-                fi
-
-                if [ "$transition_apply" = "true" ]; then
-                  terminal_state_json="$(jq -n --argjson packet "$packet" --arg state "$terminal_state" --arg reason "$terminal_reason" --arg run_id "$reserved_run" --argjson pr_number "$PR_NUMBER" --arg head_sha "$live_head_sha" '{packet:$packet,state:$state,reason:$reason,run_id:$run_id,pr_number:$pr_number,head_sha:$head_sha}')"
-                  terminal_body="$(printf '%s' "$terminal_state_json" | node "$helper" state-body)"
-                  gh api --method PATCH "repos/${REPOSITORY}/issues/comments/${comment_id}" -f body="$terminal_body" >/dev/null
-                fi
-                echo "Converged live-closed lifecycle event for PR #${PR_NUMBER} to reservation RELEASED and task ${terminal_state}."
+                echo "Converged live-closed lifecycle event for PR #${PR_NUMBER} to reservation RELEASED and task $(jq -r '.terminal_state' <<< "$result")."
                 gh workflow run supervisor-planner.yml --repo "$REPOSITORY" || echo "Planner terminal-event dispatch could not be queued; hourly fallback remains available."
               }
-
               if [ "$live_pr_state" = "closed" ]; then
                 reconcile_closed_pr
                 exit 0
@@ -528,7 +358,7 @@ jobs:
           echo "mutex=$mutex" >> "$GITHUB_OUTPUT"
           reconcile_invalid_closed_pr() {
             local current_pr_number="$1" reason="$2" result helper_status=0
-            result="$(jq -cn --arg repository "$REPOSITORY" --argjson pr_number "$current_pr_number" --arg run_id "$RUN_ID" '{repository:$repository,pr_number:$pr_number,run_id:$run_id}' | node "$helper" invalid-close-reconcile)" || helper_status=$?
+            result="$(jq -cn --arg repository "$REPOSITORY" --argjson pr_number "$current_pr_number" --arg run_id "$RUN_ID" --arg mutex "$mutex" '{repository:$repository,pr_number:$pr_number,run_id:$run_id,mutex:$mutex}' | node "$helper" invalid-close-reconcile)" || helper_status=$?
             if [ "$helper_status" -ne 0 ] || ! jq -e 'type == "object"' >/dev/null 2>&1 <<< "$result"; then
               echo "invalid-close-reconcile failed or returned invalid JSON (status ${helper_status}); refusing to report convergence." >&2
               exit 1
@@ -544,8 +374,8 @@ jobs:
                   exit 1
                   ;;
               esac
-              if [ "$(jq -r '(.reservation_mutated == true) or (.task_mutated == true)' <<< "$result")" = "true" ]; then
-                echo "invalid-close-reconcile partially mutated state; refusing to report convergence." >&2
+              if [ "$(jq -r '(.retryable == true) or (.reservation_mutated == true) or (.task_mutated == true)' <<< "$result")" = "true" ]; then
+                echo "invalid-close-reconcile is retryable or partially mutated state; refusing to report convergence." >&2
                 exit 1
               fi
               echo "Malformed closed Worker PR has no mutation-safe exact provenance: $(jq -r '.reason' <<< "$result")"
@@ -584,191 +414,21 @@ jobs:
           fi
 
           reconcile_closed_pr() {
-            local packet_graph packet_allowed packet_digest reservation_marker comments_json reservations reservation_count
-            local reservation_id reservation_body payload_b64 payload state reserved_task reserved_run reserved_branch
-            local reserved_head reserved_pr reserved_graph reserved_allowed reserved_digest dispatch_marker dispatch_matches
-            local terminal_state terminal_reason task_marker comment_id current_body transition_json transition_apply
-            local expected_head expected_ref expected_merged expected_body confirm_comments confirm_reservations
-            local confirm_reservation_body confirm_task_body confirm_dispatch_matches release_reservation new_body
-            local state_json body
-
-            packet_graph="$(jq -r '.graph_path' <<< "$packet")"
-            packet_allowed="$(jq -c '.allowed_paths' <<< "$packet")"
-            packet_digest="$(printf '%s' "$packet" | sha256sum | cut -d' ' -f1)"
-            reservation_marker="<!-- proffera-worker-slot-reservation:${task_id} -->"
-            comments_json="$(gh api --paginate "repos/${REPOSITORY}/issues/548/comments?per_page=100" --jq '.[]' | jq -s '.')"
-            reservations="$(jq --arg marker "$reservation_marker" '[.[] | select(.user.login == "github-actions[bot]" and ((.body // "") | contains($marker)))]' <<< "$comments_json")"
-            reservation_count="$(jq 'length' <<< "$reservations")"
-            if [ "$reservation_count" -ne 1 ]; then
-              echo "Closed Worker PR has missing or ambiguous durable reservation provenance; leaving it unchanged."
+            local result helper_status=0
+            result="$(jq -cn --arg repository "$REPOSITORY" --argjson pr_number "$pr_number" --arg run_id "$RUN_ID" --arg mutex "$mutex" --argjson packet "$packet" '{repository:$repository,pr_number:$pr_number,run_id:$run_id,mutex:$mutex,packet:$packet}' | node "$helper" valid-close-reconcile)" || helper_status=$?
+            if [ "$helper_status" -ne 0 ] || ! jq -e 'type == "object"' >/dev/null 2>&1 <<< "$result"; then
+              echo "valid-close-reconcile failed or returned invalid JSON (status ${helper_status}); refusing to report convergence." >&2
+              exit 1
+            fi
+            if [ "$(jq -r '.ok == true' <<< "$result")" != "true" ]; then
+              jq -r '.reason // "valid closed-PR reconciliation refused"' <<< "$result" >&2
+              if [ "$(jq -r '(.retryable == true) or (.reservation_mutated == true) or (.task_mutated == true)' <<< "$result")" = "true" ]; then
+                exit 1
+              fi
               return 0
             fi
-
-            reservation_id="$(jq -r '.[0].id' <<< "$reservations")"
-            reservation_body="$(jq -r '.[0].body // ""' <<< "$reservations")"
-            payload_b64="$(sed -n 's/^- Reservation payload: `\([^`]*\)`$/\1/p' <<< "$reservation_body")"
-            payload="$(printf '%s' "$payload_b64" | base64 --decode 2>/dev/null || true)"
-            if ! jq -e . >/dev/null 2>&1 <<< "$payload"; then
-              echo "Closed Worker PR reservation payload is malformed; leaving it unchanged."
-              return 0
-            fi
-
-            state="$(jq -r '.state // ""' <<< "$payload")"
-            reserved_task="$(jq -r '.task_id // ""' <<< "$payload")"
-            reserved_run="$(jq -r '.run_id // ""' <<< "$payload")"
-            reserved_branch="$(jq -r '.branch // ""' <<< "$payload")"
-            reserved_head="$(jq -r '.head_sha // ""' <<< "$payload")"
-            reserved_pr="$(jq -r '.pr_number // empty' <<< "$payload")"
-            reserved_graph="$(jq -r '.graph_path // ""' <<< "$payload")"
-            reserved_allowed="$(jq -c '.allowed_paths // []' <<< "$payload")"
-            reserved_digest="$(jq -r '.packet_digest // ""' <<< "$payload")"
-            case "$state" in RESERVED|PUBLISHED|RECOVERABLE|RELEASED) ;; *) return 0 ;; esac
-            if [ -z "$reserved_run" ] \
-              || [ "$reserved_task" != "$task_id" ] \
-              || [ "$reserved_branch" != "$head_ref" ] \
-              || { [ "$reserved_head" != "$head_sha" ] \
-                && { [ "$reserved_pr" != "$pr_number" ] \
-                  || { [ "$state" != "PUBLISHED" ] && [ "$state" != "RELEASED" ]; }; }; } \
-              || [ "$reserved_graph" != "$packet_graph" ] \
-              || [ "$reserved_allowed" != "$packet_allowed" ] \
-              || [ "$reserved_digest" != "$packet_digest" ] \
-              || { [ -n "$reserved_pr" ] && [ "$reserved_pr" != "$pr_number" ]; }; then
-              echo "Closed Worker PR does not match its durable reservation binding; leaving it unchanged."
-              return 0
-            fi
-            dispatch_marker="<!-- proffera-worker-dispatch-start:${task_id}:${reserved_run} -->"
-            dispatch_matches="$(jq --arg marker "$dispatch_marker" '[.[] | select(.user.login == "github-actions[bot]" and ((.body // "") | contains($marker)))] | length' <<< "$comments_json")"
-            if [ "$dispatch_matches" -ne 1 ]; then
-              echo "Closed Worker PR has no exact bot-authored dispatch provenance; leaving it unchanged."
-              return 0
-            fi
-
-            if [ "$pr_merged" = "true" ]; then
-              terminal_state="MERGED"
-              terminal_reason="Worker PR is live-verified as merged through the repository merge path."
-            else
-              terminal_state="CLOSED_UNMERGED"
-              terminal_reason="Worker PR is live-verified as closed without merge."
-            fi
-            task_marker="<!-- proffera-worker-task-state:${task_id} -->"
-            task_matches="$(jq --arg marker "$task_marker" '[.[] | select(.user.login == "github-actions[bot]" and ((.body // "") | contains($marker)))]' <<< "$comments_json")"
-            task_count="$(jq 'length' <<< "$task_matches")"
-            if [ "$task_count" -ne 1 ]; then
-              echo "Closed Worker PR has missing or duplicate canonical task-state evidence; leaving reservation and task state unchanged."
-              return 0
-            fi
-            comment_id="$(jq -r '.[0].id' <<< "$task_matches")"
-            current_body="$(jq -r '.[0].body // ""' <<< "$task_matches")"
-            validate_canonical_task_state() {
-              local body_value="$1" expected_pr="$2" expected_run="$3"
-              local packet_file body_file status
-              packet_file="$(mktemp)"
-              body_file="$(mktemp)"
-              printf '%s' "$packet" > "$packet_file"
-              printf '%s' "$body_value" > "$body_file"
-              node "$helper" validate-state-files "$packet_file" "$body_file" "$expected_pr" "$expected_run"
-              status=$?
-              rm -f "$packet_file" "$body_file"
-              return "$status"
-            }
-            binding_error="$(mktemp)"
-            set +e
-            binding="$(validate_canonical_task_state "$current_body" "$pr_number" "$reserved_run" 2>"$binding_error")"
-            binding_status=$?
-            set -e
-            if [ "$binding_status" -ne 0 ] || ! jq -e '.ok == true' >/dev/null 2>&1 <<< "${binding:-}"; then
-              echo "Closed Worker PR canonical task-state binding is invalid; no mutation performed: $(tr '\n' ' ' < "$binding_error" | head -c 300)"
-              return 0
-            fi
-            binding_head="$(jq -r '.head_sha // ""' <<< "$binding")"
-            if [ "$binding_head" != "$reserved_head" ] && [ "$binding_head" != "$head_sha" ]; then
-              echo "Closed Worker PR canonical task-state head binding is stale; no mutation performed."
-              return 0
-            fi
-            transition_json="$(jq -n \
-              --arg current_body "$current_body" \
-              --arg source lifecycle \
-              --arg requested_state "$terminal_state" \
-              --arg requested_head "$head_sha" \
-              --arg live_head "$head_sha" \
-              --arg live_pr_state "$pr_state" \
-              --argjson live_merged "$pr_merged" \
-              '{current_body:$current_body,source:$source,requested_state:$requested_state,requested_head:$requested_head,live_head:$live_head,live_pr_state:$live_pr_state,live_merged:$live_merged}' \
-              | node "$helper" transition)"
-            transition_apply="$(jq -r '.apply == true' <<< "$transition_json")"
-
-            expected_head="$head_sha"
-            expected_ref="$head_ref"
-            expected_merged="$pr_merged"
-            expected_body="$pr_body"
-            read_live_pr
-            if [ "$pr_state" != "closed" ] \
-              || [ "$pr_merged" != "$expected_merged" ] \
-              || [ "$head_sha" != "$expected_head" ] \
-              || [ "$head_ref" != "$expected_ref" ] \
-              || [ "$pr_body" != "$expected_body" ] \
-              || [ "$pr_author" != "ibboabdoli-ai" ] \
-              || [ "$head_repo" != "$REPOSITORY" ]; then
-              echo "Closed Worker PR changed before convergent reconciliation; leaving it unchanged."
-              return 0
-            fi
-
-            confirm_comments="$(gh api --paginate "repos/${REPOSITORY}/issues/548/comments?per_page=100" --jq '.[]' | jq -s '.')"
-            confirm_reservations="$(jq --arg marker "$reservation_marker" '[.[] | select(.user.login == "github-actions[bot]" and ((.body // "") | contains($marker)))]' <<< "$confirm_comments")"
-            confirm_reservation_body="$(jq -r 'if length == 1 then .[0].body // "" else "" end' <<< "$confirm_reservations")"
-            confirm_task_matches="$(jq --arg marker "$task_marker" '[.[] | select(.user.login == "github-actions[bot]" and ((.body // "") | contains($marker)))]' <<< "$confirm_comments")"
-            if [ "$(jq 'length' <<< "$confirm_task_matches")" -ne 1 ] || [ "$(jq -r '.[0].id' <<< "$confirm_task_matches")" != "$comment_id" ]; then
-              echo "Canonical task-state identity changed before closed-PR mutation; leaving reservation and task state unchanged."
-              return 0
-            fi
-            confirm_task_body="$(jq -r '.[0].body // ""' <<< "$confirm_task_matches")"
-            set +e
-            confirm_binding="$(validate_canonical_task_state "$confirm_task_body" "$pr_number" "$reserved_run" 2>/dev/null)"
-            confirm_binding_status=$?
-            set -e
-            if [ "$confirm_binding_status" -ne 0 ] || ! jq -e '.ok == true' >/dev/null 2>&1 <<< "${confirm_binding:-}"; then
-              echo "Canonical task-state binding changed before closed-PR mutation; leaving reservation and task state unchanged."
-              return 0
-            fi
-            confirm_binding_head="$(jq -r '.head_sha // ""' <<< "$confirm_binding")"
-            if [ "$confirm_binding_head" != "$reserved_head" ] && [ "$confirm_binding_head" != "$head_sha" ]; then
-              echo "Canonical task-state head binding changed before closed-PR mutation; leaving reservation and task state unchanged."
-              return 0
-            fi
-            confirm_dispatch_matches="$(jq --arg marker "$dispatch_marker" '[.[] | select(.user.login == "github-actions[bot]" and ((.body // "") | contains($marker)))] | length' <<< "$confirm_comments")"
-            if [ "$confirm_reservation_body" != "$reservation_body" ] \
-              || [ "$confirm_task_body" != "$current_body" ] \
-              || [ "$confirm_dispatch_matches" -ne 1 ]; then
-              echo "Worker provenance or task state changed before convergent close mutation; leaving it unchanged."
-              return 0
-            fi
-
-            release_reservation=yes
-            if [ "$state" = "RELEASED" ]; then
-              release_reservation=no
-            fi
-            if [ "$release_reservation" = "yes" ]; then
-              task_body_digest="$(jq -j '.[0].body // ""' <<< "$task_matches" | sha256sum | cut -d' ' -f1)"
-              payload="$(jq -c --arg state RELEASED --argjson pr_number "$pr_number" --arg head "$head_sha" --argjson merged "$pr_merged" --arg task_body_digest "$task_body_digest" '.state=$state | .pr_number=$pr_number | .head_sha=$head | .activation_task_sha256=$task_body_digest | .recovery={kind:"closed_pr",merged:$merged}' <<< "$payload")"
-              payload_b64="$(printf '%s' "$payload" | base64 -w0)"
-              new_body="$(cat <<EOF
-          <!-- proffera-worker-slot-reservation:${task_id} -->
-          ### Worker slot reservation: ${task_id}
-          - State: \`RELEASED\`
-          - Reservation payload: \`${payload_b64}\`
-          EOF
-              )"
-              gh api --method PATCH "repos/${REPOSITORY}/issues/comments/${reservation_id}" -f body="$new_body" >/dev/null
-            fi
-
-            if [ "$transition_apply" = "true" ]; then
-              state_json="$(jq -n --argjson packet "$packet" --arg state "$terminal_state" --arg reason "$terminal_reason" --arg run_id "$reserved_run" --argjson pr_number "$pr_number" --arg head_sha "$head_sha" '{packet:$packet,state:$state,reason:$reason,run_id:$run_id,pr_number:$pr_number,head_sha:$head_sha}')"
-              body="$(printf '%s' "$state_json" | node "$helper" state-body)"
-              gh api --method PATCH "repos/${REPOSITORY}/issues/comments/${comment_id}" -f body="$body" >/dev/null
-            fi
-            echo "Converged closed Worker PR #${pr_number} to reservation RELEASED and task ${terminal_state}."
+            echo "Converged closed Worker PR #${pr_number} to reservation RELEASED and task $(jq -r '.terminal_state' <<< "$result")."
           }
-
           if [ "$pr_state" = "closed" ]; then
             reconcile_closed_pr
             exit 0
