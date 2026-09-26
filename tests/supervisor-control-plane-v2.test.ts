@@ -421,6 +421,10 @@ describe("Supervisor control-plane v2", () => {
     expect(router).toContain("pull_request_review:");
     expect(router).toContain("supervisor-worker-handoff.yml");
     expect(router).toContain("proffera-final-gate-wakeup.yml");
+    expect(router).toContain(".github/workflows/proffera-final-gate-wakeup.yml?ref=main");
+    expect(router).toContain("source_event source_id source_actor source_evidence_time source_review_commit");
+    expect(router).toContain("Final-gate provenance dispatch schema is not deployed on main yet");
+    expect(router).not.toContain('--ref "$live_head"');
     expect(router).toContain('REVIEW_STATE:-}" = "approved"');
     const routerHeader = router.slice(0, router.indexOf("jobs:"));
     expect(routerHeader).toContain("cancel-in-progress: false");

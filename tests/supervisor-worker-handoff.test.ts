@@ -4201,7 +4201,8 @@ esac
       { mutateReservationOnCommentFetch: 2 },
     ]) {
       const result = runSyncCheckReconciliation({ body: "missing packet", comments, ...current });
-      expect(result.status, result.stderr).toBe(0);
+      expect(result.status).toBe(1);
+      expect(result.stderr).toContain("invalid-close-reconcile did not converge (evidence_changed); failing for retry.");
       expect(durableMutationCalls(result.calls)).toHaveLength(0);
     }
 
@@ -4210,7 +4211,8 @@ esac
       comments,
       mutateTaskOnCommentFetch: 3,
     });
-    expect(changedTask.status, changedTask.stderr).toBe(0);
+    expect(changedTask.status).toBe(1);
+    expect(changedTask.stderr).toContain("invalid-close-reconcile did not converge (task_evidence_changed); failing for retry.");
     expect(commentPatchCalls(changedTask.calls, 101)).toHaveLength(1);
     expect(commentPatchCalls(changedTask.calls, 103)).toHaveLength(0);
   });
@@ -4233,8 +4235,8 @@ esac
       comments: [...evidence.comments, taskState],
       failPagedCommentReads: 3,
     });
-    expect(unavailable.status, unavailable.stderr).toBe(0);
-    expect(unavailable.stdout).toContain("unavailable after bounded retries");
+    expect(unavailable.status).toBe(1);
+    expect(unavailable.stderr).toContain("invalid-close-reconcile did not converge (evidence_unavailable); failing for retry.");
     expect(durableMutationCalls(unavailable.calls)).toHaveLength(0);
 
     const recoveryNoise = Array.from({ length: 100 }, (_, index) => ({
