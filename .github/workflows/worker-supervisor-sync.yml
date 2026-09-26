@@ -94,6 +94,7 @@ jobs:
           persist-credentials: false
 
       - name: Record or update Worker lifecycle state in Supervisor issue
+        id: lifecycle
         env:
           GH_TOKEN: ${{ github.token }}
           REPOSITORY: ${{ github.repository }}
@@ -124,21 +125,13 @@ jobs:
           read_live_pr
           control_input="$(jq -cn --arg repository "$REPOSITORY" --arg run_id "$RUN_ID" '{repository:$repository,run_id:$run_id}')"
           mutex="$(printf '%s' "$control_input" | node "$helper" reservation-mutex-acquire)"
+          echo "mutex=$mutex" >> "$GITHUB_OUTPUT"
           control_input="$(jq -c --arg mutex "$mutex" '. + {mutex:$mutex}' <<< "$control_input")"
-          release_mutex() {
-            printf '%s' "$control_input" | node "$helper" reservation-mutex-release
-          }
-          trap 'release_mutex || true' EXIT
 
           reconcile_invalid_closed_pr() {
             local current_pr_number="$1" reason="$2" result helper_status=0
-            result="$({
-              jq -cn --arg repository "$REPOSITORY" --argjson pr_number "$current_pr_number" --arg run_id "$RUN_ID" \
-                '{repository:$repository,pr_number:$pr_number,run_id:$run_id}' \
-              | node "$helper" invalid-close-reconcile
-            })"
-            helper_status=$?
-            if [ "$helper_status" -ne 0 ] || [ -z "$result" ] || ! jq -e 'type == "object"' >/dev/null 2>&1 <<< "$result"; then
+            result="$(jq -cn --arg repository "$REPOSITORY" --argjson pr_number "$current_pr_number" --arg run_id "$RUN_ID" '{repository:$repository,pr_number:$pr_number,run_id:$run_id}' | node "$helper" invalid-close-reconcile)" || helper_status=$?
+            if [ "$helper_status" -ne 0 ] || ! jq -e 'type == "object"' >/dev/null 2>&1 <<< "$result"; then
               echo "invalid-close-reconcile failed or returned invalid JSON (status ${helper_status}); refusing to report convergence." >&2
               exit 1
             fi
@@ -146,6 +139,17 @@ jobs:
               return 1
             fi
             if [ "$(jq -r '.ok == true' <<< "$result")" != "true" ]; then
+              result_code="$(jq -r '.code // ""' <<< "$result")"
+              case "$result_code" in
+                evidence_unavailable|evidence_changed|release_not_converged|task_evidence_changed)
+                  echo "invalid-close-reconcile did not converge (${result_code}); failing for retry." >&2
+                  exit 1
+                  ;;
+              esac
+              if [ "$(jq -r '(.reservation_mutated == true) or (.task_mutated == true)' <<< "$result")" = "true" ]; then
+                echo "invalid-close-reconcile partially mutated state; refusing to report convergence." >&2
+                exit 1
+              fi
               echo "Malformed closed Worker PR has no mutation-safe exact provenance: $(jq -r '.reason' <<< "$result")"
               return 0
             fi
@@ -346,7 +350,7 @@ jobs:
                 fi
                 if [ "$release_reservation" = "yes" ]; then
                   task_body_digest="$(jq -j '.[0].body // ""' <<< "$task_matches" | sha256sum | cut -d' ' -f1)"
-                  payload="$(jq -c --arg state RELEASED --argjson pr_number "$PR_NUMBER" --arg head "$live_head_sha" --argjson merged "$live_merged" --arg task_body_digest "$task_body_digest" '.state=$state | .pr_number=$pr_number | .head_sha=$head | .merged=$merged | .task_body_digest=$task_body_digest' <<< "$payload")"
+                  payload="$(jq -c --arg state RELEASED --argjson pr_number "$PR_NUMBER" --arg head "$live_head_sha" --argjson merged "$live_merged" --arg task_body_digest "$task_body_digest" '.state=$state | .pr_number=$pr_number | .head_sha=$head | .activation_task_sha256=$task_body_digest | .recovery={kind:"closed_pr",merged:$merged}' <<< "$payload")"
                   payload_b64="$(printf '%s' "$payload" | base64 -w0)"
                   new_body="$(cat <<EOF
           <!-- proffera-worker-slot-reservation:${task_id} -->
@@ -359,7 +363,7 @@ jobs:
                 fi
 
                 if [ "$transition_apply" = "true" ]; then
-                  terminal_state_json="$(jq -n --argjson packet "$packet" --arg state "$terminal_state" --arg reason "$terminal_reason" --arg run_id "$reserved_run" --argjson pr_number "$PR_NUMBER" --arg head "$live_head_sha" '{packet:$packet,state:$state,reason:$reason,run_id:$run_id,pr_number:$pr_number,head:$head}' | node "$helper" state-body)"
+                  terminal_state_json="$(jq -n --argjson packet "$packet" --arg state "$terminal_state" --arg reason "$terminal_reason" --arg run_id "$reserved_run" --argjson pr_number "$PR_NUMBER" --arg head_sha "$live_head_sha" '{packet:$packet,state:$state,reason:$reason,run_id:$run_id,pr_number:$pr_number,head_sha:$head_sha}')"
                   terminal_body="$(printf '%s' "$terminal_state_json" | node "$helper" state-body)"
                   gh api --method PATCH "repos/${REPOSITORY}/issues/comments/${comment_id}" -f body="$terminal_body" >/dev/null
                 fi
@@ -376,6 +380,7 @@ jobs:
                 exit 0
               fi
 
+
               if [ "$ACTION" = "opened" ] || [ "$ACTION" = "reopened" ]; then
                 state="WORKER_PR_OPENED"
                 reason="Worker PR is live-verified open; exact-head checks and review are pending."
@@ -391,7 +396,7 @@ jobs:
                 reason="${reason} Task Packet bootstrap remains ${packet_base}; current PR base is ${base_sha}."
               fi
 
-              admission_input="$(jq -c --argjson pr_number "$PR_NUMBER" --arg event_head "$EVENT_HEAD_SHA" --arg actor "$ACTOR" --arg source "lifecycle" --arg requested_state "$state" --arg reason "$reason" --arg branch "$head_ref" --arg base_sha "$base_sha" '{pr_number:$pr_number,event_head:$event_head,actor:$actor,source:$source,requested_state:$requested_state,reason:$reason,branch:$branch,base_sha:$base_sha}')"
+              admission_input="$(jq -c --argjson pr_number "$PR_NUMBER" --arg event_head "$EVENT_HEAD_SHA" --arg actor "$ACTOR" --arg source "lifecycle" --arg requested_state "$state" --arg reason "$reason" '. + {pr_number:$pr_number,event_head:$event_head,actor:$actor,source:$source,requested_state:$requested_state,reason:$reason}' <<< "$control_input")"
               admission="$(printf '%s' "$admission_input" | node "$helper" worker-pr-admit)"
               if [ "$(jq -r '.ok == true' <<< "$admission")" != "true" ]; then
                 jq -r '.reason' <<< "$admission" >&2
@@ -439,6 +444,24 @@ jobs:
           LEGACY
           )"
           gh issue comment 548 --repo "$REPOSITORY" --body "$body"
+
+      - name: Release exact Worker lifecycle reservation mutex
+        if: always() && steps.lifecycle.outputs.mutex != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          RUN_ID: ${{ github.run_id }}
+          MUTEX: ${{ steps.lifecycle.outputs.mutex }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          helper="scripts/supervisor-worker-handoff.mjs"
+          control_input="$(jq -cn --arg repository "$REPOSITORY" --arg run_id "$RUN_ID" --arg mutex "$MUTEX" '{repository:$repository,run_id:$run_id,mutex:$mutex}')"
+          if printf '%s' "$control_input" | node "$helper" reservation-mutex-release; then
+            echo "Released Worker lifecycle reservation mutex owned by run $RUN_ID."
+          else
+            echo "Worker lifecycle reservation mutex was already released or ownership changed; no unsafe deletion was attempted."
+          fi
 
   sync-check-state:
     name: Reconcile exact-head checks into task state
@@ -503,13 +526,8 @@ jobs:
           echo "mutex=$mutex" >> "$GITHUB_OUTPUT"
           reconcile_invalid_closed_pr() {
             local current_pr_number="$1" reason="$2" result helper_status=0
-            result="$({
-              jq -cn --arg repository "$REPOSITORY" --argjson pr_number "$current_pr_number" --arg run_id "$RUN_ID" \
-                '{repository:$repository,pr_number:$pr_number,run_id:$run_id}' \
-              | node "$helper" invalid-close-reconcile
-            })"
-            helper_status=$?
-            if [ "$helper_status" -ne 0 ] || [ -z "$result" ] || ! jq -e 'type == "object"' >/dev/null 2>&1 <<< "$result"; then
+            result="$(jq -cn --arg repository "$REPOSITORY" --argjson pr_number "$current_pr_number" --arg run_id "$RUN_ID" '{repository:$repository,pr_number:$pr_number,run_id:$run_id}' | node "$helper" invalid-close-reconcile)" || helper_status=$?
+            if [ "$helper_status" -ne 0 ] || ! jq -e 'type == "object"' >/dev/null 2>&1 <<< "$result"; then
               echo "invalid-close-reconcile failed or returned invalid JSON (status ${helper_status}); refusing to report convergence." >&2
               exit 1
             fi
@@ -517,6 +535,17 @@ jobs:
               return 1
             fi
             if [ "$(jq -r '.ok == true' <<< "$result")" != "true" ]; then
+              result_code="$(jq -r '.code // ""' <<< "$result")"
+              case "$result_code" in
+                evidence_unavailable|evidence_changed|release_not_converged|task_evidence_changed)
+                  echo "invalid-close-reconcile did not converge (${result_code}); failing for retry." >&2
+                  exit 1
+                  ;;
+              esac
+              if [ "$(jq -r '(.reservation_mutated == true) or (.task_mutated == true)' <<< "$result")" = "true" ]; then
+                echo "invalid-close-reconcile partially mutated state; refusing to report convergence." >&2
+                exit 1
+              fi
               echo "Malformed closed Worker PR has no mutation-safe exact provenance: $(jq -r '.reason' <<< "$result")"
               return 0
             fi
@@ -716,7 +745,7 @@ jobs:
             fi
             if [ "$release_reservation" = "yes" ]; then
               task_body_digest="$(jq -j '.[0].body // ""' <<< "$task_matches" | sha256sum | cut -d' ' -f1)"
-              payload="$(jq -c --arg state RELEASED --argjson pr_number "$pr_number" --arg head "$head_sha" --argjson merged "$pr_merged" --arg task_body_digest "$task_body_digest" '.state=$state | .pr_number=$pr_number | .head_sha=$head | .merged=$merged | .task_body_digest=$task_body_digest' <<< "$payload")"
+              payload="$(jq -c --arg state RELEASED --argjson pr_number "$pr_number" --arg head "$head_sha" --argjson merged "$pr_merged" --arg task_body_digest "$task_body_digest" '.state=$state | .pr_number=$pr_number | .head_sha=$head | .activation_task_sha256=$task_body_digest | .recovery={kind:"closed_pr",merged:$merged}' <<< "$payload")"
               payload_b64="$(printf '%s' "$payload" | base64 -w0)"
               new_body="$(cat <<EOF
           <!-- proffera-worker-slot-reservation:${task_id} -->
@@ -729,7 +758,7 @@ jobs:
             fi
 
             if [ "$transition_apply" = "true" ]; then
-              state_json="$(jq -n --argjson packet "$packet" --arg state "$terminal_state" --arg reason "$terminal_reason" --arg run_id "$reserved_run" --argjson pr_number "$pr_number" --arg head "$head_sha" '{packet:$packet,state:$state,reason:$reason,run_id:$run_id,pr_number:$pr_number,head:$head}' | node "$helper" state-body)"
+              state_json="$(jq -n --argjson packet "$packet" --arg state "$terminal_state" --arg reason "$terminal_reason" --arg run_id "$reserved_run" --argjson pr_number "$pr_number" --arg head_sha "$head_sha" '{packet:$packet,state:$state,reason:$reason,run_id:$run_id,pr_number:$pr_number,head_sha:$head_sha}')"
               body="$(printf '%s' "$state_json" | node "$helper" state-body)"
               gh api --method PATCH "repos/${REPOSITORY}/issues/comments/${comment_id}" -f body="$body" >/dev/null
             fi
@@ -748,6 +777,7 @@ jobs:
             echo "PR #$pr_number is neither open nor closed; nothing to reconcile."
             exit 0
           fi
+
 
           compute_evidence() {
             runs_json="$(gh api --paginate "repos/${REPOSITORY}/actions/runs?head_sha=${head_sha}&event=pull_request&per_page=100" --jq '.workflow_runs[]' | jq -s '.')"
@@ -783,7 +813,7 @@ jobs:
             exit 0
           fi
           compute_evidence
-          admission_input="$(jq -c --argjson pr_number "$pr_number" --arg event_head "$EVENT_HEAD_SHA" --arg actor "$ACTOR" --arg source "checks" --arg requested_state "$state" --arg reason "$reason" '{pr_number:$pr_number,event_head:$event_head,actor:$actor,source:$source,requested_state:$requested_state,reason:$reason}')"
+          admission_input="$(jq -c --argjson pr_number "$pr_number" --arg event_head "$EVENT_HEAD_SHA" --arg actor "$ACTOR" --arg source "checks" --arg requested_state "$state" --arg reason "$reason" '. + {pr_number:$pr_number,event_head:$event_head,actor:$actor,source:$source,requested_state:$requested_state,reason:$reason}' <<< "$control_input")"
           admission="$(printf '%s' "$admission_input" | node "$helper" worker-pr-admit)"
           if [ "$(jq -r '.ok == true' <<< "$admission")" != "true" ]; then
             jq -r '.reason' <<< "$admission" >&2

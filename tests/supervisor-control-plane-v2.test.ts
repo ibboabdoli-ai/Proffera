@@ -345,9 +345,27 @@ ${scriptBody}
   return { result, evidence, head };
 }
 
-function runInvalidCloseReconcileFunction(mode: "nonzero" | "malformed" | "ok") {
+function runInvalidCloseReconcileFunction(
+  mode:
+    | "nonzero"
+    | "malformed"
+    | "ok"
+    | "valid_packet"
+    | "safe_refusal"
+    | "evidence_unavailable"
+    | "evidence_changed"
+    | "release_not_converged"
+    | "task_evidence_changed"
+    | "reservation_mutated"
+    | "task_mutated",
+  occurrence: 0 | 1 = 0,
+) {
   const sync = source(".github/workflows/worker-supervisor-sync.yml").replaceAll("\r\n", "\n");
-  const start = sync.indexOf("          reconcile_invalid_closed_pr() {");
+  const signature = "          reconcile_invalid_closed_pr() {";
+  let start = sync.indexOf(signature);
+  for (let index = 0; index < occurrence && start >= 0; index += 1) {
+    start = sync.indexOf(signature, start + signature.length);
+  }
   const endMarker = "\n          }\n\n          if";
   const end = sync.indexOf(endMarker, start);
   expect(start).toBeGreaterThanOrEqual(0);
@@ -365,12 +383,19 @@ set -euo pipefail
 REPOSITORY=ibboabdoli-ai/Proffera
 RUN_ID=9001
 helper=ignored
+MODE="${mode}"
 node() {
   cat >/dev/null
-  case "${mode}" in
+  case "$MODE" in
     nonzero) return 73 ;;
     malformed) printf '%s' 'not-json'; return 0 ;;
     ok) printf '%s' '{"ok":true,"code":"reconciled"}'; return 0 ;;
+    valid_packet) printf '%s' '{"ok":false,"code":"valid_task_packet","reason":"fixture"}'; return 0 ;;
+    safe_refusal) printf '%s' '{"ok":false,"code":"no_exact_provenance","reason":"fixture"}'; return 0 ;;
+    evidence_unavailable|evidence_changed|release_not_converged|task_evidence_changed)
+      printf '{"ok":false,"code":"%s","reason":"fixture"}' "$MODE"; return 0 ;;
+    reservation_mutated) printf '%s' '{"ok":false,"code":"no_exact_provenance","reason":"fixture","reservation_mutated":true}'; return 0 ;;
+    task_mutated) printf '%s' '{"ok":false,"code":"no_exact_provenance","reason":"fixture","task_mutated":true}'; return 0 ;;
   esac
 }
 ${functionBody}
@@ -427,7 +452,12 @@ describe("Supervisor control-plane v2", () => {
 
     expect(planner).toContain("worker-dispatch-enabled");
     expect(planner).toContain("supervisor-autopilot-enabled");
-    expect(planner).toContain("supervisor-worker-handoff.mjs evaluate");
+    expect(planner).toContain("Snapshot trusted admission helper");
+    expect(planner).toContain('trusted_helper="$RUNNER_TEMP/trusted-supervisor-worker-handoff.mjs"');
+    expect(planner).toContain('node "$trusted_helper" parse');
+    expect(planner).toContain('node "$trusted_helper" evaluate');
+    expect(planner).not.toContain("node scripts/supervisor-worker-handoff.mjs parse");
+    expect(planner).not.toContain("node scripts/supervisor-worker-handoff.mjs evaluate");
     expect(planner).toContain("supervisor-next-task.json");
     expect(planner).toContain('cron: "17 * * * *"');
     expect(planner).toContain("planner_packet_b64");
@@ -523,8 +553,14 @@ describe("Supervisor control-plane v2", () => {
     expect(planner).toContain('--slurpfile pr "$pr_file"');
     expect(planner).toContain('--slurpfile files "$files_file"');
     expect(planner).toContain('--slurpfile item "$item_file"');
-    const cheapStart = planner.indexOf("Skip model call when writable capacity is already full");
+    const contextStart = planner.indexOf("Build live planning context");
+    const snapshotStart = planner.indexOf("Snapshot trusted admission helper", contextStart);
+    const cheapStart = planner.indexOf("Skip model call when writable capacity is already full", snapshotStart);
     const modelStart = planner.indexOf("Ask Codex for exactly one next bounded task", cheapStart);
+    expect(contextStart).toBeGreaterThanOrEqual(0);
+    expect(snapshotStart).toBeGreaterThan(contextStart);
+    expect(snapshotStart).toBeLessThan(modelStart);
+    expect(planner.slice(snapshotStart, cheapStart)).toContain('chmod 0444 "$trusted_helper"');
     const cheapCapacity = planner.slice(cheapStart, modelStart);
     expect(cheapCapacity).toContain("active_reservation_ids");
     expect(cheapCapacity).toContain("lease_expires_at");
@@ -696,7 +732,12 @@ describe("Supervisor control-plane v2", () => {
     expect(untrustedRepairJob).toContain("actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02");
     expect(untrustedRepairJob).not.toContain("PROFFERA_AUTOFIX_PUSH_TOKEN");
     expect(untrustedRepairJob).not.toContain("validate-changes");
+    expect(repair).toContain("patch_sha256: ${{ steps.diff.outputs.patch_sha256 }}");
     expect(trustedPublishJob).toContain("actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0");
+    expect(trustedPublishJob).toContain("EXPECTED_PATCH_SHA256: ${{ needs.repair.outputs.patch_sha256 }}");
+    expect(trustedPublishJob).toContain('[[ "$EXPECTED_PATCH_SHA256" =~ ^[0-9a-f]{64}$ ]]');
+    expect(trustedPublishJob).toContain('sha256sum "$artifact_dir/repair.patch"');
+    expect(trustedPublishJob).toContain('test "$downloaded_patch_sha256" = "$EXPECTED_PATCH_SHA256"');
     expect(trustedPublishJob).toContain("Materialize trusted repair helper in isolated publish job");
     expect(trustedPublishJob).toContain("git hash-object");
     expect(trustedPublishJob).toContain("validate-changes");
@@ -788,25 +829,49 @@ describe("Supervisor control-plane v2", () => {
     expect(JSON.parse(verified.stdout)).toMatchObject({ ok: false, code: "out_of_scope_change" });
   });
 
-  it("fails closed when invalid-close reconciliation crashes or returns malformed output", () => {
+  it("fails closed in both invalid-close reconciliation copies and preserves valid-packet fallthrough", () => {
     const sync = source(".github/workflows/worker-supervisor-sync.yml");
     expect((sync.match(/result helper_status=0/g) ?? []).length).toBe(2);
     expect((sync.match(/\|\| helper_status=\$\?/g) ?? []).length).toBe(2);
     expect((sync.match(/jq -e 'type == "object"'/g) ?? []).length).toBe(2);
-    expect((sync.match(/refusing to report convergence/g) ?? []).length).toBe(2);
+    expect((sync.match(/refusing to report convergence/g) ?? []).length).toBeGreaterThanOrEqual(2);
 
-    const nonzero = runInvalidCloseReconcileFunction("nonzero");
-    expect(nonzero.status).toBe(1);
-    expect(nonzero.stderr).toContain("invalid-close-reconcile failed or returned invalid JSON");
+    const retryableModes = [
+      "evidence_unavailable",
+      "evidence_changed",
+      "release_not_converged",
+      "task_evidence_changed",
+      "reservation_mutated",
+      "task_mutated",
+    ] as const;
 
-    const malformed = runInvalidCloseReconcileFunction("malformed");
-    expect(malformed.status).toBe(1);
-    expect(malformed.stderr).toContain("invalid-close-reconcile failed or returned invalid JSON");
+    for (const occurrence of [0, 1] as const) {
+      const nonzero = runInvalidCloseReconcileFunction("nonzero", occurrence);
+      expect(nonzero.status).toBe(1);
+      expect(nonzero.stderr).toContain("invalid-close-reconcile failed or returned invalid JSON");
 
-    const ok = runInvalidCloseReconcileFunction("ok");
-    expect(ok.status, ok.stderr).toBe(0);
-    expect(ok.stdout).toContain("reconciled");
-  });
+      const malformed = runInvalidCloseReconcileFunction("malformed", occurrence);
+      expect(malformed.status).toBe(1);
+      expect(malformed.stderr).toContain("invalid-close-reconcile failed or returned invalid JSON");
+
+      const ok = runInvalidCloseReconcileFunction("ok", occurrence);
+      expect(ok.status, ok.stderr).toBe(0);
+      expect(ok.stdout).toContain("reconciled");
+
+      const validPacket = runInvalidCloseReconcileFunction("valid_packet", occurrence);
+      expect(validPacket.status, validPacket.stderr).toBe(0);
+      expect(validPacket.stdout).toContain("valid-task-packet");
+
+      const safeRefusal = runInvalidCloseReconcileFunction("safe_refusal", occurrence);
+      expect(safeRefusal.status, safeRefusal.stderr).toBe(0);
+      expect(safeRefusal.stdout).toContain("reconciled");
+
+      for (const mode of retryableModes) {
+        const retryable = runInvalidCloseReconcileFunction(mode, occurrence);
+        expect(retryable.status, `${mode}: ${retryable.stderr}`).toBe(1);
+      }
+    }
+  }, 30000);
 
   it("documents both trusted Phase-2 handoff paths without claiming planner comment publication", () => {
     const docs = source("docs/SUPERVISOR_WORKER_HANDOFF.md");
@@ -844,10 +909,17 @@ describe("Supervisor control-plane v2", () => {
     expect(checkStart).toBeGreaterThan(lifecycleStart);
     const lifecycle = sync.slice(lifecycleStart, checkStart);
     const checkSync = sync.slice(checkStart);
+    const lifecycleStep = workflowRunStep(sync, "Record or update Worker lifecycle state in Supervisor issue");
     expect(lifecycle).toContain("cancel-in-progress: false");
+    expect(lifecycle).toContain("id: lifecycle");
+    expect(lifecycleStep).toContain('echo "mutex=$mutex" >> "$GITHUB_OUTPUT"');
+    expect(lifecycleStep).not.toContain("trap 'release_mutex || true' EXIT");
+    expect(lifecycle).toContain("Release exact Worker lifecycle reservation mutex");
+    expect(lifecycle).toContain("if: always() && steps.lifecycle.outputs.mutex != ''");
+    expect(lifecycle).toContain("MUTEX: ${{ steps.lifecycle.outputs.mutex }}");
     expect(checkSync).toContain("group: proffera-worker-checks-");
     expect(checkSync).toContain("cancel-in-progress: false");
     expect(checkSync).not.toContain("cancel-in-progress: true");
-    expect(checkSync).not.toContain("trap \'release_mutex || true\' EXIT");
+    expect(checkSync).not.toContain("trap 'release_mutex || true' EXIT");
   });
 });

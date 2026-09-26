@@ -1508,9 +1508,11 @@ function runSyncCheckReconciliation({
   const bin = join(root, "bin");
   const log = join(root, "gh-calls.jsonl");
   const stateFile = join(root, "gh-state.json");
+  const githubOutput = join(root, "github-output.txt");
   mkdirSync(join(repo, "scripts"), { recursive: true });
   mkdirSync(bin, { recursive: true });
   copyFileSync(helper, join(repo, "scripts", "supervisor-worker-handoff.mjs"));
+  writeFileSync(githubOutput, "");
   const pr = {
     number: 849,
     state: liveState,
@@ -1627,6 +1629,7 @@ process.exit(2);
       GH_STUB_LOG: log,
       GH_STUB_STATE_FILE: stateFile,
       GH_STUB_PR_JSON: JSON.stringify(pr),
+      GITHUB_OUTPUT: githubOutput,
       REPOSITORY: "ibboabdoli-ai/Proffera",
       ACTION: action,
       ACTOR: "ibboabdoli-ai",
@@ -2984,9 +2987,17 @@ describe("Supervisor ↔ Worker Phase-1 handoff", () => {
     const sync = source(".github/workflows/worker-supervisor-sync.yml");
     expect(sync).toContain("proffera-worker-lifecycle-${{ needs.resolve_worker_mutation_lane.outputs.branch }}");
     expect(sync).toContain("proffera-worker-checks-${{ needs.resolve_worker_mutation_lane.outputs.branch }}");
-    const lifecycleHeader = sync.slice(sync.indexOf("  sync-pr-event:"), sync.indexOf("    runs-on:", sync.indexOf("  sync-pr-event:")));
-    const checksHeader = sync.slice(sync.indexOf("  sync-check-state:"), sync.indexOf("    runs-on:", sync.indexOf("  sync-check-state:")));
+    const lifecycleStart = sync.indexOf("  sync-pr-event:");
+    const checksStart = sync.indexOf("  sync-check-state:");
+    const lifecycleHeader = sync.slice(lifecycleStart, sync.indexOf("    runs-on:", lifecycleStart));
+    const lifecycleJob = sync.slice(lifecycleStart, checksStart);
+    const lifecycleStep = workflowRunStep(sync, "Record or update Worker lifecycle state in Supervisor issue");
+    const checksHeader = sync.slice(checksStart, sync.indexOf("    runs-on:", checksStart));
     expect(lifecycleHeader).toContain("cancel-in-progress: false");
+    expect(lifecycleStep).toContain('echo "mutex=$mutex" >> "$GITHUB_OUTPUT"');
+    expect(lifecycleStep).not.toContain("trap 'release_mutex || true' EXIT");
+    expect(lifecycleJob).toContain("Release exact Worker lifecycle reservation mutex");
+    expect(lifecycleJob).toContain("if: always() && steps.lifecycle.outputs.mutex != ''");
     expect(checksHeader).toContain("cancel-in-progress: false");
     expect(checksHeader).not.toContain("cancel-in-progress: true");
   });
@@ -2995,6 +3006,7 @@ describe("Supervisor ↔ Worker Phase-1 handoff", () => {
     const sync = source(".github/workflows/worker-supervisor-sync.yml");
     const lifecycleScript = workflowRunStep(sync, "Record or update Worker lifecycle state in Supervisor issue");
     const root = mkdtempSync(join(tmpdir(), "proffera-lifecycle-fail-closed-"));
+    const lifecyclePath = join(root, "lifecycle.sh");
     const repo = join(root, "repo");
     const bin = join(root, "bin");
     const ghLog = join(root, "gh.log");
@@ -3049,7 +3061,8 @@ esac
       { encoding: "utf8", mode: 0o755 },
     );
 
-    const result = spawnSync("bash", ["-c", lifecycleScript], {
+    writeFileSync(lifecyclePath, lifecycleScript, { encoding: "utf8", mode: 0o755 });
+    const result = spawnSync("bash", [lifecyclePath], {
       cwd: repo,
       encoding: "utf8",
       env: {
@@ -3058,6 +3071,7 @@ esac
         GH_LOG: ghLog,
         PR_JSON_FILE: prJsonFile,
         GH_TOKEN: "test-token",
+        GITHUB_OUTPUT: join(root, "github-output.txt"),
         REPOSITORY: "ibboabdoli-ai/Proffera",
         ACTION: "opened",
         PR_NUMBER: "900",
