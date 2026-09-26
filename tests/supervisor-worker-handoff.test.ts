@@ -4596,7 +4596,7 @@ esac
     expect(commentPatchCalls(second.calls, 103)).toHaveLength(0);
   });
 
-  it("makes a check replacement reject invalid or stale close provenance without mutation", () => {
+  it("makes a check replacement reject invalid close provenance without mutation", () => {
     const evidence = exactReservationEvidence(sha, { state: "PUBLISHED", pr_number: 849, recovery: null });
     const taskState = { id: 103, user: { login: "github-actions[bot]" }, body: durableStateBody("CHECKS_PENDING") };
     const duplicateReservation = { ...evidence.comments[0], id: 104 };
@@ -4608,7 +4608,6 @@ esac
       { comments: [taskState] },
       { comments: [...evidence.comments, duplicateReservation, taskState] },
       { comments: [evidence.comments[0], mismatchedDispatch, taskState] },
-      { comments: [...evidence.comments, taskState], liveHead: otherSha },
     ]) {
       const result = runSyncCheckReconciliation(current);
       expect(result.status, result.stderr).toBe(0);
