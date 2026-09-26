@@ -4,9 +4,19 @@ import { tmpdir } from "node:os";
 import { delimiter, join, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
 import { describe, expect, it } from "vitest";
+import { workflowJobPermissions } from "./github-workflow-yaml";
 
 const root = process.cwd();
 const source = (path: string) => readFileSync(resolve(root, path), "utf8");
+
+/** Check actual router permissions, not matching text in comments or commands. */
+function expectRouterPermissions(workflow: string) {
+  expect(workflowJobPermissions(workflow, "route")).toStrictEqual({
+    actions: "write",
+    contents: "read",
+    "pull-requests": "read",
+  });
+}
 
 function workflowJob(workflow: string, jobName: string) {
   const lines = workflow.replaceAll("\r\n", "\n").split("\n");
@@ -444,11 +454,7 @@ describe("Supervisor control-plane v2", () => {
     const routerHeader = router.slice(0, router.indexOf("jobs:"));
     expect(routerHeader).toContain("permissions: {}");
     expect(routerHeader).not.toContain("actions: write");
-    const routeJob = workflowJob(router, "route");
-    expect(routeJob).toContain("actions: write # Required for gh workflow run dispatches.");
-    expect(routeJob).toContain("contents: read");
-    expect(routeJob).toContain("pull-requests: read");
-    expect(routeJob).not.toMatch(/^\s+issues:/m);
+    expectRouterPermissions(router);
     expect(routerHeader).toContain("cancel-in-progress: false");
     expect(routerHeader).not.toContain("cancel-in-progress: true");
     expect(routerHeader).toContain("github.event.comment.id");
@@ -461,6 +467,84 @@ describe("Supervisor control-plane v2", () => {
     expect(automerge).not.toContain("pull_request_review:");
     expect(handoff).not.toContain("issue_comment:");
     expect(handoff).toContain("comment_id:");
+  });
+
+  describe("parsed router permission contract", () => {
+    const permissionBlock = /^    permissions:\n(?: {6}[^\n]*\n)+/m;
+    const routerSource = () => source(".github/workflows/supervisor-event-router.yml").replaceAll("\r\n", "\n");
+    const replacePermissions = (replacement: string) => {
+      const router = routerSource();
+      expect(router.match(new RegExp(permissionBlock.source, "gm"))).toHaveLength(1);
+      return router.replace(permissionBlock, replacement);
+    };
+
+    it.each(["actions", "contents", "pull-requests"])("rejects %s present only in a comment", (permission) => {
+      const router = routerSource();
+      const declaration = "      " + permission + ": " + workflowJobPermissions(router, "route")[permission];
+      expect(router.split(declaration)).toHaveLength(2);
+      const mutated = router.replace(declaration, "      # " + declaration.trim());
+      expect(workflowJobPermissions(mutated, "route")).not.toHaveProperty(permission);
+      expect(() => expectRouterPermissions(mutated)).toThrow();
+    });
+
+    it.each([
+      ["actions", "read"],
+      ["contents", "write"],
+      ["pull-requests", "write"],
+    ])("rejects changed %s even when a comment retains its expected value", (permission, value) => {
+      const router = routerSource();
+      const declaration = "      " + permission + ": " + workflowJobPermissions(router, "route")[permission];
+      expect(router.split(declaration)).toHaveLength(2);
+      const mutated = router.replace(declaration, "      " + permission + ": " + value + " # " + declaration.trim());
+      expect(workflowJobPermissions(mutated, "route")).toHaveProperty(permission, value);
+      expect(() => expectRouterPermissions(mutated)).toThrow();
+    });
+
+    it.each(["issues: read", '"issues": write', "'issues': none", "issues: null", "statuses: write"])(
+      "rejects an additional permission: %s",
+      (extraPermission) => {
+        const mutated = routerSource().replace("    permissions:\n", "    permissions:\n      " + extraPermission + "\n");
+        expect(Object.keys(workflowJobPermissions(mutated, "route"))).toHaveLength(4);
+        expect(() => expectRouterPermissions(mutated)).toThrow();
+      },
+    );
+
+    it.each(["\n", "\r\n"])("accepts equivalent quoted/reordered YAML and flow maps (%j)", (newline) => {
+      for (const mapping of [
+        "    permissions:\n      'pull-requests': read\n      contents: 'read'\n      \"actions\": write # Still job-local.\n",
+        "    permissions: { 'pull-requests': read, contents: read, actions: write }\n",
+      ]) {
+        expectRouterPermissions(replacePermissions(mapping).replaceAll("\n", newline));
+      }
+    });
+
+    it("rejects additional issues access in a flow mapping", () => {
+      const mutated = replacePermissions("    permissions: { actions: write, contents: read, pull-requests: read, issues: write }\n");
+      expect(workflowJobPermissions(mutated, "route")).toHaveProperty("issues", "write");
+      expect(() => expectRouterPermissions(mutated)).toThrow();
+    });
+
+    it("does not substitute workflow defaults or another job's permissions", () => {
+      const inheritedOnly = replacePermissions("").replace(
+        "permissions: {}",
+        "permissions: { actions: write, contents: read, pull-requests: read }",
+      );
+      const otherJobOnly = routerSource().replace("  route:\n", "  other:\n")
+        + "\n  route:\n    runs-on: ubuntu-latest\n    steps: []\n";
+      for (const mutated of [inheritedOnly, otherJobOnly, routerSource().replace("  route:\n", "  other:\n")]) {
+        expect(() => workflowJobPermissions(mutated, "route")).toThrow("must define a permissions mapping");
+      }
+    });
+
+    it.each(["read-all", "write-all", "null", "[]"])("rejects a non-mapping permissions value: %s", (value) => {
+      const mutated = replacePermissions("    permissions: " + value + "\n");
+      expect(() => workflowJobPermissions(mutated, "route")).toThrow("must define a permissions mapping");
+    });
+
+    it("rejects duplicate permission keys instead of accepting the later value", () => {
+      const mutated = routerSource().replace("    permissions:\n", "    permissions:\n      contents: write\n");
+      expect(() => workflowJobPermissions(mutated, "route")).toThrow(/duplicated mapping key/);
+    });
   });
 
   it("enforces a deterministic two-writable-worker union ceiling", () => {
