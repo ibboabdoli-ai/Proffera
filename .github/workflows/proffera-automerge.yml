@@ -372,33 +372,6 @@ jobs:
               | last
               | .created_at // empty
             ' <<< "$comments_json")"
-            coderabbit_review_completion_time="$(jq -r --arg request_time "$coderabbit_request_time" '
-              [
-                .[]
-                | select($request_time != "")
-                | select(.state == "APPROVED" or .state == "COMMENTED")
-                | select((.submitted_at // "") >= $request_time)
-                | .submitted_at
-              ]
-              | max // empty
-            ' <<< "$current_reviews")"
-            clean_summary_count="$(jq -r --arg sha "$head_sha" --arg completion_time "$coderabbit_review_completion_time" '
-              [
-                .[]
-                | select(.user.login == "coderabbitai[bot]")
-                | select($completion_time != "")
-                | select((.updated_at // .created_at // "") >= $completion_time)
-                | select(
-                    (.body // "")
-                    | test(
-                        "<!-- recent_review_start -->[\\s\\S]*No actionable comments were generated in the recent review\\.[\\s\\S]*"
-                        + $sha
-                        + "[\\s\\S]*<!-- recent_review_end -->"
-                      )
-                  )
-              ]
-              | length
-            ' <<< "$comments_json")"
             clean_final_comment_count="$(jq -r --arg sha "$head_sha" --arg request_time "$coderabbit_request_time" '
               [
                 .[]
@@ -423,8 +396,6 @@ jobs:
               summary "- Current-head CodeRabbit decision: APPROVED after latest change request"
             elif [ "$terminal_count" -gt 0 ]; then
               summary "- Current-head CodeRabbit decision: non-blocking review completed"
-            elif [ "$clean_summary_count" -gt 0 ]; then
-              summary "- Current-head CodeRabbit decision: clean review with no actionable comments"
             elif [ "$clean_final_comment_count" -gt 0 ]; then
               guard_head_sha="$(gh api "repos/$REPOSITORY/pulls/$pr_number" --jq '.head.sha')"
               if [ "$guard_head_sha" != "$head_sha" ]; then

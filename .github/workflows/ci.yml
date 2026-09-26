@@ -768,33 +768,6 @@ jobs:
               | last
               | .created_at // empty
             ' <<< "$comments_json")"
-            coderabbit_review_completion_time="$(jq -r --arg request_time "$coderabbit_request_time" '
-              [
-                .[]
-                | select($request_time != "")
-                | select(.state == "APPROVED" or .state == "COMMENTED")
-                | select((.submitted_at // "") >= $request_time)
-                | .submitted_at
-              ]
-              | max // empty
-            ' <<< "$current_reviews")"
-            clean_summary_count="$(jq -r --arg sha "$HEAD_SHA" --arg completion_time "$coderabbit_review_completion_time" '
-              [
-                .[]
-                | select(.user.login == "coderabbitai[bot]")
-                | select($completion_time != "")
-                | select((.updated_at // .created_at // "") >= $completion_time)
-                | select(
-                    (.body // "")
-                    | test(
-                        "<!-- recent_review_start -->[\\s\\S]*No actionable comments were generated in the recent review\\.[\\s\\S]*"
-                        + $sha
-                        + "[\\s\\S]*<!-- recent_review_end -->"
-                      )
-                  )
-              ]
-              | length
-            ' <<< "$comments_json")"
             clean_final_comment_count="$(jq -r --arg sha "$HEAD_SHA" --arg request_time "$coderabbit_request_time" '
               [
                 .[]
@@ -832,11 +805,6 @@ jobs:
 
             if [ "$terminal_count" -gt 0 ]; then
               echo "CodeRabbit completed a non-blocking review for the current head."
-              exit 0
-            fi
-
-            if [ "$clean_summary_count" -gt 0 ]; then
-              echo "CodeRabbit completed a clean current-head review with no actionable comments."
               exit 0
             fi
 

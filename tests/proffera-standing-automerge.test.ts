@@ -964,10 +964,9 @@ describe("Proffera standing automerge authorization", () => {
     expect(ci).toContain("Final exact-head review is complete for");
     expect(ci).toContain("I found no issues\\\\.");
     expect(ci).toContain("CodeRabbit review command invocation: v2:[0-9a-f]{64}");
-    expect(workflow).toContain("coderabbit_review_completion_time");
-    expect(workflow).toContain('select(.state == "APPROVED" or .state == "COMMENTED")');
-    expect(workflow).toContain('select((.submitted_at // "") >= $request_time)');
-    expect(workflow).toContain('select((.updated_at // .created_at // "") >= $completion_time)');
+    expect(workflow).not.toContain("clean_summary_count");
+    expect(workflow).not.toContain("coderabbit_review_completion_time");
+    expect(workflow).toContain('terminal_count="$(jq -r');
     expect(workflow).toContain("... on IssueComment { lastEditedAt }");
     expect(workflow).toContain('.data.node.__typename == "IssueComment" and .data.node.lastEditedAt == null');
     expect(workflow).toContain("count_unedited_owner_approvals() {");

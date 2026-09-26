@@ -456,8 +456,10 @@ describe("Supervisor control-plane v2", () => {
 
     expect(planner).toContain("worker-dispatch-enabled");
     expect(planner).toContain("supervisor-autopilot-enabled");
-    expect(planner).toContain("Snapshot trusted admission helper");
+    expect(planner).toContain("Snapshot trusted admission helper and CI scope classifier");
     expect(planner).toContain('trusted_helper="$RUNNER_TEMP/trusted-supervisor-worker-handoff.mjs"');
+    expect(planner).toContain('trusted_classifier="$RUNNER_TEMP/trusted-ci-scope-plan.mjs"');
+    expect(planner).toContain('cp scripts/ci-scope-plan.mjs "$trusted_classifier"');
     expect(planner).toContain('node "$trusted_helper" parse');
     expect(planner).toContain('node "$trusted_helper" evaluate');
     expect(planner).not.toContain("node scripts/supervisor-worker-handoff.mjs parse");
@@ -480,6 +482,7 @@ describe("Supervisor control-plane v2", () => {
     const plannerPlanJob = planner.slice(plannerPlanStart, plannerDispatchBoundary);
     expect(plannerPlanJob).not.toContain("PROFFERA_AUTOFIX_PUSH_TOKEN");
     const plannerDispatchSecrets = planner.slice(plannerDispatchBoundary);
+    expect(plannerDispatchSecrets).toContain("issues: write");
     expect(plannerDispatchSecrets).toContain("OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}");
     expect(plannerDispatchSecrets).toContain("PROFFERA_AUTOFIX_PUSH_TOKEN: ${{ secrets.PROFFERA_AUTOFIX_PUSH_TOKEN }}");
     expect(planner).not.toContain('POST "repos/${REPOSITORY}/issues/548/comments"');
@@ -490,6 +493,9 @@ describe("Supervisor control-plane v2", () => {
     expect(plannerValidation).toContain("PLANNER_WORKFLOW_REF: ${{ github.workflow_ref }}");
     expect(planner).toContain("risk_class 1..2 only");
     expect(plannerValidation).toContain("autonomous dispatch is limited to risk_class 1 or 2");
+    expect(plannerValidation).toContain('node "$trusted_classifier"');
+    expect(plannerValidation).toContain(".fullCiStillRequired");
+    expect(plannerValidation).toContain("allowed_paths require the repository's full/sensitive CI scope");
     expect(helper).toContain('"planner_risk_class_requires_human"');
 
     const workflowCallStart = handoff.indexOf("  workflow_call:");
@@ -539,6 +545,8 @@ describe("Supervisor control-plane v2", () => {
 
     const plannerHeader = planner.slice(0, planner.indexOf("jobs:"));
     expect(plannerHeader).not.toContain("concurrency:");
+    expect(plannerHeader).toContain("issues: read");
+    expect(plannerHeader).not.toContain("issues: write");
     const plannerJob = planner.slice(planner.indexOf("  plan:"), planner.indexOf("  dispatch:"));
     expect(plannerJob).toContain("group: proffera-supervisor-planner-plan");
     expect(plannerJob).toContain("cancel-in-progress: true");
@@ -558,13 +566,16 @@ describe("Supervisor control-plane v2", () => {
     expect(planner).toContain('--slurpfile files "$files_file"');
     expect(planner).toContain('--slurpfile item "$item_file"');
     const contextStart = planner.indexOf("Build live planning context");
-    const snapshotStart = planner.indexOf("Snapshot trusted admission helper", contextStart);
+    const snapshotStart = planner.indexOf("Snapshot trusted admission helper and CI scope classifier", contextStart);
     const cheapStart = planner.indexOf("Skip model call when writable capacity is already full", snapshotStart);
     const modelStart = planner.indexOf("Ask Codex for exactly one next bounded task", cheapStart);
     expect(contextStart).toBeGreaterThanOrEqual(0);
     expect(snapshotStart).toBeGreaterThan(contextStart);
     expect(snapshotStart).toBeLessThan(modelStart);
-    expect(planner.slice(snapshotStart, cheapStart)).toContain('chmod 0444 "$trusted_helper"');
+    const trustedSnapshot = planner.slice(snapshotStart, cheapStart);
+    expect(trustedSnapshot).toContain('cp scripts/supervisor-worker-handoff.mjs "$trusted_helper"');
+    expect(trustedSnapshot).toContain('cp scripts/ci-scope-plan.mjs "$trusted_classifier"');
+    expect(trustedSnapshot).toContain('chmod 0444 "$trusted_helper" "$trusted_classifier"');
     const cheapCapacity = planner.slice(cheapStart, modelStart);
     expect(cheapCapacity).toContain("active_reservation_ids");
     expect(cheapCapacity).toContain("lease_expires_at");

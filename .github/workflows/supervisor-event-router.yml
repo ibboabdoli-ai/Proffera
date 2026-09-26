@@ -172,8 +172,9 @@ jobs:
 
             case "$ACTOR" in
               "coderabbitai[bot]"|"chatgpt-codex-connector[bot]")
+                final_gate_status=0
                 if [ "$live_draft" != "true" ] && [ "${REVIEW_STATE:-}" != "changes_requested" ]; then
-                  dispatch_final_gate "$pr_number"
+                  dispatch_final_gate "$pr_number" || final_gate_status=$?
                 fi
 
                 repair=no
@@ -192,6 +193,10 @@ jobs:
                 if [ "$repair" = "yes" ] \
                   && grep -Fq '<!-- proffera-worker-task-packet:v1 -->' <<< "$(jq -r '.body // ""' <<< "$pr_json")"; then
                   gh workflow run supervisor-review-repair.yml --repo "$REPOSITORY" -f pr_number="$pr_number"
+                fi
+                if [ "$final_gate_status" -ne 0 ]; then
+                  echo "Final-gate routing failed after review-repair routing was evaluated." >&2
+                  exit "$final_gate_status"
                 fi
                 ;;
               "ibboabdoli-ai")

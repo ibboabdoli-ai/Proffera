@@ -4681,30 +4681,33 @@ esac
     }
   });
 
-  it("lets both alternate close writers release a published reservation after an unrecorded repair head", () => {
+  it("lets both alternate close writers accept reserved-head or live-head task binding after an unrecorded repair head", () => {
     for (const reconcile of [runLifecycleReconciliation, runSyncCheckReconciliation]) {
-      const evidence = exactReservationEvidence(sha, { state: "PUBLISHED", pr_number: 849, recovery: null });
-      const result = reconcile({
-        action: "synchronize",
-        comments: [
-          ...evidence.comments,
-          { id: 103, user: { login: "github-actions[bot]" }, body: durableStateBody("CHECKS_PENDING", otherSha) },
-        ],
-        eventHead: sha,
-        liveHead: otherSha,
-        liveState: "closed",
-      });
-      expect(result.status, result.stderr).toBe(0);
-      expect(commentPatchCalls(result.calls, 101)).toHaveLength(1);
-      const reservation = result.comments.find((comment) => comment.id === 101);
-      const payloadBase64 = String(reservation?.body ?? "").match(/^- Reservation payload: `([^`]*)`$/m)?.[1] ?? "";
-      expect(JSON.parse(Buffer.from(payloadBase64, "base64").toString("utf8"))).toMatchObject({
-        state: "RELEASED",
-        pr_number: 849,
-        head_sha: otherSha,
-        recovery: { kind: "closed_pr", merged: false },
-        activation_task_sha256: createHash("sha256").update(durableStateBody("CHECKS_PENDING", otherSha)).digest("hex"),
-      });
+      for (const taskBindingHead of [sha, otherSha]) {
+        const evidence = exactReservationEvidence(sha, { state: "PUBLISHED", pr_number: 849, recovery: null });
+        const taskBody = durableStateBody("CHECKS_PENDING", taskBindingHead);
+        const result = reconcile({
+          action: "synchronize",
+          comments: [
+            ...evidence.comments,
+            { id: 103, user: { login: "github-actions[bot]" }, body: taskBody },
+          ],
+          eventHead: sha,
+          liveHead: otherSha,
+          liveState: "closed",
+        });
+        expect(result.status, result.stderr).toBe(0);
+        expect(commentPatchCalls(result.calls, 101)).toHaveLength(1);
+        const reservation = result.comments.find((comment) => comment.id === 101);
+        const payloadBase64 = String(reservation?.body ?? "").match(/^- Reservation payload: `([^`]*)`$/m)?.[1] ?? "";
+        expect(JSON.parse(Buffer.from(payloadBase64, "base64").toString("utf8"))).toMatchObject({
+          state: "RELEASED",
+          pr_number: 849,
+          head_sha: otherSha,
+          recovery: { kind: "closed_pr", merged: false },
+          activation_task_sha256: createHash("sha256").update(taskBody).digest("hex"),
+        });
+      }
     }
   });
 

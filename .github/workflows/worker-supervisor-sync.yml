@@ -283,7 +283,8 @@ jobs:
                   echo "Closed Worker PR canonical task-state binding is invalid; no mutation performed: $(tr '\n' ' ' < "$binding_error" | head -c 300)"
                   return 0
                 fi
-                if [ "$(jq -r '.head_sha // ""' <<< "$binding")" != "$live_head_sha" ]; then
+                binding_head="$(jq -r '.head_sha // ""' <<< "$binding")"
+                if [ "$binding_head" != "$reserved_head" ] && [ "$binding_head" != "$live_head_sha" ]; then
                   echo "Closed Worker PR canonical task-state head binding is stale; no mutation performed."
                   return 0
                 fi
@@ -332,7 +333,8 @@ jobs:
                   echo "Canonical task-state binding changed before closed-PR mutation; leaving reservation and task state unchanged."
                   return 0
                 fi
-                if [ "$(jq -r '.head_sha // ""' <<< "$confirm_binding")" != "$live_head_sha" ]; then
+                confirm_binding_head="$(jq -r '.head_sha // ""' <<< "$confirm_binding")"
+                if [ "$confirm_binding_head" != "$reserved_head" ] && [ "$confirm_binding_head" != "$live_head_sha" ]; then
                   echo "Canonical task-state head binding changed before closed-PR mutation; leaving reservation and task state unchanged."
                   return 0
                 fi
@@ -678,7 +680,8 @@ jobs:
               echo "Closed Worker PR canonical task-state binding is invalid; no mutation performed: $(tr '\n' ' ' < "$binding_error" | head -c 300)"
               return 0
             fi
-            if [ "$(jq -r '.head_sha // ""' <<< "$binding")" != "$head_sha" ]; then
+            binding_head="$(jq -r '.head_sha // ""' <<< "$binding")"
+            if [ "$binding_head" != "$reserved_head" ] && [ "$binding_head" != "$head_sha" ]; then
               echo "Closed Worker PR canonical task-state head binding is stale; no mutation performed."
               return 0
             fi
@@ -727,7 +730,8 @@ jobs:
               echo "Canonical task-state binding changed before closed-PR mutation; leaving reservation and task state unchanged."
               return 0
             fi
-            if [ "$(jq -r '.head_sha // ""' <<< "$confirm_binding")" != "$head_sha" ]; then
+            confirm_binding_head="$(jq -r '.head_sha // ""' <<< "$confirm_binding")"
+            if [ "$confirm_binding_head" != "$reserved_head" ] && [ "$confirm_binding_head" != "$head_sha" ]; then
               echo "Canonical task-state head binding changed before closed-PR mutation; leaving reservation and task state unchanged."
               return 0
             fi
