@@ -378,10 +378,10 @@ describe("tooling safety contract", () => {
   it("accepts only trusted exact-head completed clean CodeRabbit comments", () => {
     const gate = ciReviewGateShellBlock();
     expect(gate).toContain("CodeRabbit review command invocation: v2:[0-9a-f]{64}");
-    expect(gate).toContain("coderabbit_review_completion_time");
+    expect(gate).not.toContain("clean_summary_count");
+    expect(gate).not.toContain("coderabbit_review_completion_time");
+    expect(gate).toContain('terminal_count="$(jq -r');
     expect(gate).toContain('select(.state == "APPROVED" or .state == "COMMENTED")');
-    expect(gate).toContain('select((.submitted_at // "") >= $request_time)');
-    expect(gate).toContain('select((.updated_at // .created_at // "") >= $completion_time)');
 
     const malformedHeadSha = runCiReviewFixture({
       changedFiles: ".github/workflows/ci.yml",
@@ -434,9 +434,9 @@ describe("tooling safety contract", () => {
     });
     expect(invocationOnlyLegacySummary.status).toBe(1);
 
-    const completedReviewLegacySummary = runCiReviewFixture({
+    const completedReviewWithoutSummary = runCiReviewFixture({
       changedFiles: ".github/workflows/ci.yml",
-      comments: [...codeRabbitRequestComments(), legacyCleanCodeRabbitSummary()],
+      comments: codeRabbitRequestComments(),
       firstReviews: [{
         user: { login: "coderabbitai[bot]" },
         commit_id: reviewHead,
@@ -445,7 +445,7 @@ describe("tooling safety contract", () => {
       }],
       failOnPost: true,
     });
-    expect(completedReviewLegacySummary.status).toBe(0);
+    expect(completedReviewWithoutSummary.status).toBe(0);
 
     const reviewSubmission = runCiReviewFixture({
       changedFiles: ".github/workflows/ci.yml",
