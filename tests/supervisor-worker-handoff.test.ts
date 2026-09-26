@@ -2489,6 +2489,86 @@ describe("Supervisor ↔ Worker Phase-1 handoff", () => {
     expect(evaluate(badHead).code).toBe("planner_head_mismatch");
   });
 
+
+  it("enforces Planner human-authorization ownership independently from CI scope heuristics", () => {
+    const plannerContextFor = (taskPacket: ReturnType<typeof packet>) => baseContext({
+      event: {
+        repository: "ibboabdoli-ai/Proffera",
+        issue_number: 548,
+        actor: "github-actions[bot]",
+        source: "planner",
+        trusted_internal_dispatch: true,
+        internal_provenance_verified: true,
+        packet_digest_verified: true,
+        planner_run_id: "1001",
+        planner_head_sha: sha,
+        planner_packet_sha256: createHash("sha256").update(JSON.stringify(taskPacket)).digest("hex"),
+        planner_workflow_ref: "ibboabdoli-ai/Proffera/.github/workflows/supervisor-planner.yml@refs/heads/main",
+        is_fork: false,
+        comment_body: packetComment(taskPacket),
+      },
+      supervisor_labels: ["worker-dispatch-enabled", "supervisor-autopilot-enabled"],
+    });
+
+    const concreteActivationFile = "src/app/aktivera/[token]/actions.ts";
+    const activationOwnershipScope = "src/app/aktivera/";
+    expect(ciPlan([concreteActivationFile]).fullCiStillRequired).toBe(false);
+
+    for (const [label, allowed_paths] of [
+      ["account activation ownership", [activationOwnershipScope]],
+      ["parent scope covering account activation", ["src/app/"]],
+      ["auth library", ["src/lib/auth-session.ts"]],
+      ["auth API", ["src/app/api/auth/"]],
+      ["workspace invitation authority", ["src/features/company/workspace-invitation.ts"]],
+      ["payment authority", ["src/lib/stripe.ts"]],
+      ["API contract authority", ["src/app/api/public-business/contact/"]],
+    ] as const) {
+      for (const risk_class of [1, 2]) {
+        const sensitivePacket = packet({ allowed_paths: [...allowed_paths], risk_class });
+        const decision = evaluate(plannerContextFor(sensitivePacket));
+        expect(decision.code, `${label} risk ${risk_class}`).toBe("planner_scope_requires_human");
+      }
+    }
+
+    const lowRiskPacket = packet({
+      allowed_paths: ["src/features/test/"],
+      risk_class: 1,
+    });
+    expect(evaluate(plannerContextFor(lowRiskPacket)).status).toBe("TASK_CREATED");
+
+    const scopeDecision = run("planner-scope-authorize", {
+      allowed_paths: [activationOwnershipScope],
+    });
+    expect(scopeDecision).toMatchObject({
+      ok: true,
+      allowed: false,
+      code: "planner_scope_requires_human",
+    });
+
+    const malformedScopeDecision = run("planner-scope-authorize", {
+      allowed_paths: ["../outside"],
+    });
+    expect(malformedScopeDecision).toMatchObject({
+      ok: false,
+      allowed: false,
+      code: "planner_scope_policy_invalid",
+    });
+
+    const ownerAuthorizedSensitive = baseContext({
+      event: {
+        repository: "ibboabdoli-ai/Proffera",
+        issue_number: 548,
+        actor: "ibboabdoli-ai",
+        is_fork: false,
+        comment_body: packetComment(packet({
+          allowed_paths: [activationOwnershipScope],
+          risk_class: 2,
+        })),
+      },
+    });
+    expect(evaluate(ownerAuthorizedSensitive).status).toBe("TASK_CREATED");
+  });
+
   it("rejects malformed task JSON", () => {
     const context = baseContext();
     (context.event as Record<string, unknown>).comment_body = `${taskMarker}\n\`\`\`json\n{broken}\n\`\`\``;

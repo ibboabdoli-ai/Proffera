@@ -457,10 +457,10 @@ describe("Supervisor control-plane v2", () => {
 
     expect(planner).toContain("worker-dispatch-enabled");
     expect(planner).toContain("supervisor-autopilot-enabled");
-    expect(planner).toContain("Snapshot trusted admission helper and CI scope classifier");
+    expect(planner).toContain("Snapshot trusted admission helper");
     expect(planner).toContain('trusted_helper="$RUNNER_TEMP/trusted-supervisor-worker-handoff.mjs"');
-    expect(planner).toContain('trusted_classifier="$RUNNER_TEMP/trusted-ci-scope-plan.mjs"');
-    expect(planner).toContain('cp scripts/ci-scope-plan.mjs "$trusted_classifier"');
+    expect(planner).not.toContain("trusted-ci-scope-plan.mjs");
+    expect(planner).not.toContain("scripts/ci-scope-plan.mjs");
     expect(planner).toContain('node "$trusted_helper" parse');
     expect(planner).toContain('node "$trusted_helper" evaluate');
     expect(planner).not.toContain("node scripts/supervisor-worker-handoff.mjs parse");
@@ -494,10 +494,14 @@ describe("Supervisor control-plane v2", () => {
     expect(plannerValidation).toContain("PLANNER_WORKFLOW_REF: ${{ github.workflow_ref }}");
     expect(planner).toContain("risk_class 1..2 only");
     expect(plannerValidation).toContain("autonomous dispatch is limited to risk_class 1 or 2");
-    expect(plannerValidation).toContain('node "$trusted_classifier"');
-    expect(plannerValidation).toContain(".fullCiStillRequired");
-    expect(plannerValidation).toContain("allowed_paths require the repository's full/sensitive CI scope");
+    expect(plannerValidation).toContain('node "$trusted_helper" planner-scope-authorize');
+    expect(plannerValidation).not.toContain(".fullCiStillRequired");
+    expect(plannerValidation).not.toContain("ci-scope-plan.mjs");
+    expect(plannerValidation).toContain("Planner scope authorization failed closed");
     expect(helper).toContain('"planner_risk_class_requires_human"');
+    expect(helper).toContain('"planner_scope_requires_human"');
+    expect(helper).toContain("PLANNER_HUMAN_AUTH_OWNERSHIP");
+    expect(helper).toContain("evaluatePlannerScopeAuthorization");
 
     const workflowCallStart = handoff.indexOf("  workflow_call:");
     const manualDispatchStart = handoff.indexOf("  workflow_dispatch:");
@@ -567,7 +571,7 @@ describe("Supervisor control-plane v2", () => {
     expect(planner).toContain('--slurpfile files "$files_file"');
     expect(planner).toContain('--slurpfile item "$item_file"');
     const contextStart = planner.indexOf("Build live planning context");
-    const snapshotStart = planner.indexOf("Snapshot trusted admission helper and CI scope classifier", contextStart);
+    const snapshotStart = planner.indexOf("Snapshot trusted admission helper", contextStart);
     const cheapStart = planner.indexOf("Skip model call when writable capacity is already full", snapshotStart);
     const modelStart = planner.indexOf("Ask Codex for exactly one next bounded task", cheapStart);
     expect(contextStart).toBeGreaterThanOrEqual(0);
@@ -575,8 +579,8 @@ describe("Supervisor control-plane v2", () => {
     expect(snapshotStart).toBeLessThan(modelStart);
     const trustedSnapshot = planner.slice(snapshotStart, cheapStart);
     expect(trustedSnapshot).toContain('cp scripts/supervisor-worker-handoff.mjs "$trusted_helper"');
-    expect(trustedSnapshot).toContain('cp scripts/ci-scope-plan.mjs "$trusted_classifier"');
-    expect(trustedSnapshot).toContain('chmod 0444 "$trusted_helper" "$trusted_classifier"');
+    expect(trustedSnapshot).not.toContain("ci-scope-plan.mjs");
+    expect(trustedSnapshot).toContain('chmod 0444 "$trusted_helper"');
     const cheapCapacity = planner.slice(cheapStart, modelStart);
     expect(cheapCapacity).toContain("active_reservation_ids");
     expect(cheapCapacity).toContain("lease_expires_at");

@@ -44,6 +44,65 @@ export const HARD_BLOCKED_SCOPES = Object.freeze([
   "yarn.lock",
 ]);
 
+export const PLANNER_HUMAN_AUTH_OWNERSHIP = Object.freeze([
+  Object.freeze({
+    owner: "authentication-account-lifecycle",
+    scopes: Object.freeze([
+      Object.freeze({ kind: "scope", value: "src/app/aktivera/" }),
+      Object.freeze({ kind: "prefix", value: "src/lib/auth" }),
+      Object.freeze({ kind: "scope", value: "src/features/company/workspace-invitation.ts" }),
+      Object.freeze({ kind: "scope", value: "src/features/company/workspace-member-invitation.ts" }),
+      Object.freeze({ kind: "scope", value: "src/features/company/workspace-provisioning.ts" }),
+      Object.freeze({ kind: "scope", value: "src/lib/admin-authorization.ts" }),
+    ]),
+  }),
+  Object.freeze({
+    owner: "api-contracts-handlers",
+    scopes: Object.freeze([
+      Object.freeze({ kind: "scope", value: "src/app/api/" }),
+    ]),
+  }),
+  Object.freeze({
+    owner: "tenant-workspace-access-isolation",
+    scopes: Object.freeze([
+      Object.freeze({ kind: "scope", value: "src/lib/workspace-access.ts" }),
+      Object.freeze({ kind: "scope", value: "src/lib/workspace-access-selection.ts" }),
+      Object.freeze({ kind: "scope", value: "src/lib/workspace-role-policy.ts" }),
+      Object.freeze({ kind: "scope", value: "src/lib/workspace-feature-access.ts" }),
+      Object.freeze({ kind: "scope", value: "src/lib/db/workspace-tenant-context.ts" }),
+      Object.freeze({ kind: "scope", value: "src/app/admin/workspaces/" }),
+    ]),
+  }),
+  Object.freeze({
+    owner: "background-jobs-automation",
+    scopes: Object.freeze([
+      Object.freeze({ kind: "scope", value: "src/features/matching/marketplace-auto-queue.ts" }),
+      Object.freeze({ kind: "scope", value: "src/lib/company-directory-admin-queue.ts" }),
+      Object.freeze({ kind: "scope", value: "src/lib/company-directory-discovery-queue.ts" }),
+    ]),
+  }),
+  Object.freeze({
+    owner: "payments-financial",
+    scopes: Object.freeze([
+      Object.freeze({ kind: "prefix", value: "src/lib/stripe" }),
+      Object.freeze({ kind: "prefix", value: "src/lib/billing-" }),
+      Object.freeze({ kind: "scope", value: "src/app/admin/billing/" }),
+      Object.freeze({ kind: "scope", value: "src/lib/workspace-billing.ts" }),
+      Object.freeze({ kind: "scope", value: "src/lib/workspace-payments-db.ts" }),
+      Object.freeze({ kind: "scope", value: "src/lib/workspace-service-job-payments.ts" }),
+      Object.freeze({ kind: "scope", value: "src/lib/service-job-payment-policy.ts" }),
+    ]),
+  }),
+  Object.freeze({
+    owner: "deployment-runtime-configuration",
+    scopes: Object.freeze([
+      Object.freeze({ kind: "prefix", value: "next.config." }),
+      Object.freeze({ kind: "prefix", value: "middleware." }),
+      Object.freeze({ kind: "prefix", value: "src/proxy." }),
+    ]),
+  }),
+]);
+
 const ACTIVE_TASK_STATES = new Set([
   "TASK_CREATED",
   "TASK_DISPATCHED",
@@ -147,6 +206,74 @@ function scopesIntersect(left, right) {
   if (left.endsWith("/")) return right.startsWith(left);
   if (right.endsWith("/")) return left.startsWith(right);
   return left === right;
+}
+
+function scopeIntersectsPlannerOwnership(allowedScope, policyScope) {
+  const kind = policyScope?.kind;
+  const value = policyScope?.value;
+  if (kind !== "scope" && kind !== "prefix") {
+    throw new Error("Planner ownership policy has an unsupported scope kind");
+  }
+  if (typeof value !== "string" || !value || value.startsWith("/") || value.includes("//")) {
+    throw new Error("Planner ownership policy contains a malformed scope");
+  }
+  if (kind === "scope") return scopesIntersect(allowedScope, value);
+  if (allowedScope.endsWith("/")) return value.startsWith(allowedScope) || allowedScope.startsWith(value);
+  return allowedScope.startsWith(value) || value.startsWith(allowedScope + "/");
+}
+
+export function evaluatePlannerScopeAuthorization(allowedPathsInput) {
+  try {
+    const allowedPaths = normalizeScopeArray(allowedPathsInput, "allowed_paths");
+    const matches = [];
+    for (const ownership of PLANNER_HUMAN_AUTH_OWNERSHIP) {
+      if (!ownership || typeof ownership !== "object" || Array.isArray(ownership)
+        || typeof ownership.owner !== "string" || !ownership.owner
+        || !Array.isArray(ownership.scopes) || ownership.scopes.length === 0) {
+        throw new Error("Planner ownership policy is malformed");
+      }
+      for (const policyScope of ownership.scopes) {
+        for (const allowedPath of allowedPaths) {
+          if (scopeIntersectsPlannerOwnership(allowedPath, policyScope)) {
+            matches.push({
+              owner: ownership.owner,
+              allowed_path: allowedPath,
+              policy_scope: policyScope.value,
+              match_kind: policyScope.kind,
+            });
+          }
+        }
+      }
+    }
+    const uniqueMatches = [...new Map(matches.map((match) => [
+      [match.owner, match.allowed_path, match.policy_scope, match.match_kind].join("\n"),
+      match,
+    ])).values()];
+    if (uniqueMatches.length > 0) {
+      return {
+        ok: true,
+        allowed: false,
+        code: "planner_scope_requires_human",
+        reason: "autonomous Planner scope intersects a repository ownership boundary that requires explicit human authorization",
+        matches: uniqueMatches,
+      };
+    }
+    return {
+      ok: true,
+      allowed: true,
+      code: "planner_scope_authorized",
+      reason: "autonomous Planner scope does not intersect a human-authorization ownership boundary",
+      matches: [],
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      allowed: false,
+      code: "planner_scope_policy_invalid",
+      reason: error instanceof Error ? error.message : "Planner ownership policy evaluation failed",
+      matches: [],
+    };
+  }
 }
 
 function graphPathsIntersect(left, right) {
@@ -390,6 +517,24 @@ export function evaluateDispatchContext(context) {
       packet,
       "planner_risk_class_requires_human",
     );
+  }
+  if (trustedPlannerDispatch) {
+    const plannerScope = evaluatePlannerScopeAuthorization(packet.allowed_paths);
+    if (plannerScope.ok !== true) {
+      return blocked(
+        `autonomous Planner scope policy failed closed: ${plannerScope.reason}`,
+        packet,
+        "planner_scope_policy_invalid",
+      );
+    }
+    if (plannerScope.allowed !== true) {
+      const firstMatch = plannerScope.matches[0];
+      return blocked(
+        `autonomous Planner scope '${firstMatch?.allowed_path ?? "unknown"}' requires explicit human authorization under ownership '${firstMatch?.owner ?? "unknown"}'`,
+        packet,
+        "planner_scope_requires_human",
+      );
+    }
   }
 
   if (context?.secrets?.openai !== true || context?.secrets?.push !== true) {
@@ -3276,6 +3421,11 @@ async function main() {
   }
   if (mode === "evaluate") {
     process.stdout.write(`${JSON.stringify(evaluateDispatchContext(parsed))}\n`);
+    return;
+  }
+  if (mode === "planner-scope-authorize") {
+    const allowedPaths = Array.isArray(parsed) ? parsed : parsed?.allowed_paths;
+    process.stdout.write(`${JSON.stringify(evaluatePlannerScopeAuthorization(allowedPaths))}\n`);
     return;
   }
   if (mode === "validate-changes") {

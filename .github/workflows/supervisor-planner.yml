@@ -107,18 +107,15 @@ jobs:
             --slurpfile open_prs "$open_prs_file" \
             '{main_sha:$main_sha,supervisor_plan:$issue_body,open_prs:$open_prs[0]}' > supervisor-context.json
 
-      - name: Snapshot trusted admission helper and CI scope classifier
+      - name: Snapshot trusted admission helper
         if: steps.gate.outputs.enabled == 'yes'
         shell: bash
         run: |
           set -euo pipefail
           trusted_helper="$RUNNER_TEMP/trusted-supervisor-worker-handoff.mjs"
-          trusted_classifier="$RUNNER_TEMP/trusted-ci-scope-plan.mjs"
           cp scripts/supervisor-worker-handoff.mjs "$trusted_helper"
-          cp scripts/ci-scope-plan.mjs "$trusted_classifier"
           test -s "$trusted_helper"
-          test -s "$trusted_classifier"
-          chmod 0444 "$trusted_helper" "$trusted_classifier"
+          chmod 0444 "$trusted_helper"
 
       - name: Skip model call when writable capacity is already full
         if: steps.gate.outputs.enabled == 'yes'
@@ -245,9 +242,7 @@ jobs:
           fi
 
           trusted_helper="$RUNNER_TEMP/trusted-supervisor-worker-handoff.mjs"
-          trusted_classifier="$RUNNER_TEMP/trusted-ci-scope-plan.mjs"
           test -s "$trusted_helper"
-          test -s "$trusted_classifier"
           packet="$(jq -c '.packet' supervisor-next-task.json)"
           live_main="$(gh api "repos/${REPOSITORY}/git/ref/heads/main" --jq '.object.sha')"
           test "$(jq -r '.base_sha' <<< "$packet")" = "$live_main"
@@ -261,11 +256,18 @@ jobs:
             exit 0
           fi
 
-          scope_plan="$(jq -r '.allowed_paths[]' <<< "$normalized" | node "$trusted_classifier")"
-          jq -e '.policyVersion >= 2 and (.fullCiStillRequired | type == "boolean")' >/dev/null <<< "$scope_plan"
-          if [ "$(jq -r '.fullCiStillRequired' <<< "$scope_plan")" = "true" ]; then
-            echo "Planner selection refused: allowed_paths require the repository's full/sensitive CI scope and therefore require explicit human authorization."
-            jq -r '.reasons[]?' <<< "$scope_plan"
+          scope_auth="$(printf '%s' "$normalized" | node "$trusted_helper" planner-scope-authorize)"
+          if ! jq -e 'type == "object" and (.ok | type == "boolean") and (.allowed | type == "boolean") and (.code | type == "string")' >/dev/null <<< "$scope_auth"; then
+            echo "Planner scope authorization returned malformed evidence; refusing dispatch." >&2
+            exit 1
+          fi
+          if [ "$(jq -r '.ok' <<< "$scope_auth")" != "true" ]; then
+            echo "Planner scope authorization failed closed: $(jq -r '.reason // "unknown policy failure"' <<< "$scope_auth")" >&2
+            exit 1
+          fi
+          if [ "$(jq -r '.allowed' <<< "$scope_auth")" != "true" ]; then
+            echo "Planner selection refused: $(jq -r '.reason' <<< "$scope_auth")"
+            jq -r '.matches[]? | "- \(.owner): \(.allowed_path) intersects \(.policy_scope)"' <<< "$scope_auth"
             echo "dispatch=no" >> "$GITHUB_OUTPUT"
             exit 0
           fi
