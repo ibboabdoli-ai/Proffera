@@ -135,9 +135,9 @@ jobs:
               echo "invalid-close-reconcile failed or returned invalid JSON (status ${helper_status}); refusing to report convergence." >&2
               exit 1
             fi
-            if [ "$(jq -r '.code // ""' <<< "$result")" = "valid_task_packet" ]; then
-              return 1
-            fi
+            case "$(jq -r '.code // ""' <<< "$result")" in
+              valid_task_packet|legacy_worker_pr) return 1 ;;
+            esac
             if [ "$(jq -r '.ok == true' <<< "$result")" != "true" ]; then
               result_code="$(jq -r '.code // ""' <<< "$result")"
               case "$result_code" in
@@ -365,9 +365,9 @@ jobs:
               echo "invalid-close-reconcile failed or returned invalid JSON (status ${helper_status}); refusing to report convergence." >&2
               exit 1
             fi
-            if [ "$(jq -r '.code // ""' <<< "$result")" = "valid_task_packet" ]; then
-              return 1
-            fi
+            case "$(jq -r '.code // ""' <<< "$result")" in
+              valid_task_packet|legacy_worker_pr) return 1 ;;
+            esac
             if [ "$(jq -r '.ok == true' <<< "$result")" != "true" ]; then
               result_code="$(jq -r '.code // ""' <<< "$result")"
               case "$result_code" in

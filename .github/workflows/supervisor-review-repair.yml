@@ -100,10 +100,6 @@ jobs:
           node-version: 22
           cache: npm
 
-      - name: Install repository dependencies
-        if: steps.preflight.outputs.proceed == 'yes'
-        run: npm ci --no-audit --no-fund
-
       - name: Materialize current-head review evidence
         if: steps.preflight.outputs.proceed == 'yes'
         env:
@@ -159,6 +155,8 @@ jobs:
 
             Treat the Task Packet contract as authoritative data boundaries, but do not rely on or modify the checkout copy of the control helper to authorize publication. The workflow independently validates scope with an immutable default-branch helper after you return. Obey allowed_paths / forbidden_paths. Verify every review finding against the current code before changing anything. Ignore stale, duplicate, non-actionable, or already-fixed comments. Batch all still-valid current-head findings into one coherent repair.
 
+            Produce a candidate patch only. Do not execute repository or package scripts, tests, or builds here; the isolated validation job owns all candidate execution.
+
             Do not touch any file outside the Task Packet, install packages, commit, push, open/merge PRs, approve, deploy, mutate Production, change secrets/config, or alter migrations. If there is no valid finding, leave the tree unchanged.
 
       - name: Capture candidate repair patch
@@ -195,8 +193,68 @@ jobs:
           if-no-files-found: error
           retention-days: 1
 
+  validate:
+    name: Validate repair without model or push credentials
+    needs: repair
+    if: needs.repair.outputs.changed == 'yes'
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    permissions:
+      actions: read
+      contents: read
+    steps:
+      - name: Checkout exact pre-repair PR head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ needs.repair.outputs.head_sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 22
+
+      - name: Download exact candidate repair patch
+        uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5
+        with:
+          name: supervisor-review-repair-${{ github.run_id }}-${{ needs.repair.outputs.head_sha }}
+          path: ${{ runner.temp }}/proffera-review-repair-candidate
+
+      - name: Verify candidate artifact integrity
+        shell: bash
+        env:
+          EXPECTED_PATCH_SHA256: ${{ needs.repair.outputs.patch_sha256 }}
+        run: |
+          set -euo pipefail
+          artifact_dir="$RUNNER_TEMP/proffera-review-repair-candidate"
+          test -s "$artifact_dir/repair.patch"
+          test -s "$artifact_dir/repair.patch.sha256"
+          (cd "$artifact_dir" && sha256sum --check --status repair.patch.sha256)
+          [[ "$EXPECTED_PATCH_SHA256" =~ ^[0-9a-f]{64}$ ]] || {
+            echo "Expected repair patch SHA-256 is malformed; refusing publication." >&2
+            exit 1
+          }
+          downloaded_patch_sha256="$(sha256sum "$artifact_dir/repair.patch" | cut -d' ' -f1)"
+          test "$downloaded_patch_sha256" = "$EXPECTED_PATCH_SHA256" || {
+            echo "Downloaded repair patch does not match the expected repair-job hash; refusing publication." >&2
+            exit 1
+          }
+
+      - name: Apply candidate patch without executing PR-controlled code
+        shell: bash
+        run: |
+          set -euo pipefail
+          patch="$RUNNER_TEMP/proffera-review-repair-candidate/repair.patch"
+          git apply --check --binary "$patch"
+          git apply --binary "$patch"
+          git add --all --intent-to-add
+          git diff --check HEAD
+
+      - name: Install repository dependencies
+        run: npm ci --no-audit --no-fund
+
       - name: Validate one repair batch
-        if: steps.diff.outputs.changed == 'yes'
         run: |
           set -euo pipefail
           npm run lint
@@ -206,9 +264,8 @@ jobs:
           git diff --check HEAD
 
       - name: Confirm validated tree matches uploaded candidate
-        if: steps.diff.outputs.changed == 'yes'
         env:
-          EXPECTED_PATCH_SHA256: ${{ steps.diff.outputs.patch_sha256 }}
+          EXPECTED_PATCH_SHA256: ${{ needs.repair.outputs.patch_sha256 }}
         shell: bash
         run: |
           set -euo pipefail
@@ -221,8 +278,8 @@ jobs:
 
   publish:
     name: Publish verified repair from isolated trusted job
-    needs: repair
-    if: needs.repair.outputs.changed == 'yes'
+    needs: [repair, validate]
+    if: needs.repair.outputs.changed == 'yes' && needs.validate.result == 'success'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -265,7 +322,7 @@ jobs:
           }
           downloaded_patch_sha256="$(sha256sum "$artifact_dir/repair.patch" | cut -d' ' -f1)"
           test "$downloaded_patch_sha256" = "$EXPECTED_PATCH_SHA256" || {
-            echo "Downloaded repair patch does not match the validated repair-job hash; refusing publication." >&2
+            echo "Downloaded repair patch does not match the expected repair-job hash; refusing publication." >&2
             exit 1
           }
 

@@ -1,4 +1,5 @@
-import { copyFileSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { delimiter, join, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
@@ -28,7 +29,10 @@ function workflowRunStep(workflow: string, stepName: string) {
   return script.join("\n");
 }
 
-function runPlannerCapacityStep(controlComments: Array<Record<string, unknown>>) {
+function runPlannerCapacityStep(
+  controlComments: Array<Record<string, unknown>>,
+  openPrs: Array<Record<string, unknown>> = [],
+) {
   const workflow = source(".github/workflows/supervisor-planner.yml");
   const scriptBody = workflowRunStep(workflow, "Skip model call when writable capacity is already full");
   const dir = mkdtempSync(join(tmpdir(), "proffera-planner-capacity-"));
@@ -70,7 +74,7 @@ process.stderr.write("unexpected gh call: " + JSON.stringify(args) + "\\n");
 process.exit(91);
 `, { mode: 0o755 });
 
-  writeFileSync(join(dir, "supervisor-context.json"), JSON.stringify({ open_prs: [] }));
+  writeFileSync(join(dir, "supervisor-context.json"), JSON.stringify({ open_prs: openPrs }));
   writeFileSync(script, `#!/usr/bin/env bash
 set -euo pipefail
 gh() { node "${fakeGh.replaceAll("\\", "/")}" "$@"; }
@@ -428,6 +432,9 @@ describe("Supervisor control-plane v2", () => {
     expect(router).not.toContain('--ref "$live_head"');
     expect(router).toContain('REVIEW_STATE:-}" = "approved"');
     const routerHeader = router.slice(0, router.indexOf("jobs:"));
+    expect(routerHeader).toContain("permissions: {}");
+    expect(routerHeader).not.toContain("actions: write");
+    expect(router.slice(router.indexOf("  route:"))).toContain("actions: write # Required for gh workflow run dispatches.");
     expect(routerHeader).toContain("cancel-in-progress: false");
     expect(routerHeader).not.toContain("cancel-in-progress: true");
     expect(routerHeader).toContain("github.event.comment.id");
@@ -636,7 +643,7 @@ describe("Supervisor control-plane v2", () => {
     expect(result.outputs).not.toContain("proceed=no");
   });
 
-  it("executes the real planner capacity step and blocks when two reservations are active", () => {
+  it("enforces real planner capacity across reservations and multiline trusted PRs", () => {
     const reservation = (taskId: string) => {
       const payload = Buffer.from(JSON.stringify({
         task_id: taskId,
@@ -663,6 +670,22 @@ describe("Supervisor control-plane v2", () => {
     expect(result.result.status, `${result.result.stderr}\n${String(result.result.error ?? "")}`).toBe(0);
     expect(result.outputs).toContain("proceed=no");
     expect(result.outputs).not.toContain("proceed=yes");
+
+    const trustedPr = (taskId: string) => ({
+      head_repo: "ibboabdoli-ai/Proffera",
+      author: "ibboabdoli-ai",
+      head_ref: "work/proffera-" + taskId.toLowerCase(),
+      body: ["Summary", "<!-- proffera-worker-task-packet:v1 -->", "Task ID: " + taskId, "More"].join("\n"),
+    });
+    const twoPrs = runPlannerCapacityStep([], [trustedPr("TASK-PR-1"), trustedPr("TASK-PR-2")]);
+    expect(twoPrs.result.status, twoPrs.result.stderr).toBe(0);
+    expect(twoPrs.outputs).toContain("proceed=no");
+    expect(twoPrs.outputs).not.toContain("proceed=yes");
+
+    const deduplicated = runPlannerCapacityStep([reservation("TASK-PR-1")], [trustedPr("TASK-PR-1")]);
+    expect(deduplicated.result.status, deduplicated.result.stderr).toBe(0);
+    expect(deduplicated.outputs).toContain("proceed=yes");
+    expect(deduplicated.outputs).not.toContain("proceed=no");
   });
 
   it("executes the real planner context step with a large PR object without argv-size failure", () => {
@@ -748,12 +771,32 @@ describe("Supervisor control-plane v2", () => {
     expect(repair).not.toContain('--argjson inline "$inline"');
     const publishStart = repair.indexOf("  publish:");
     expect(publishStart).toBeGreaterThan(0);
-    const untrustedRepairJob = repair.slice(0, publishStart);
+    const validateStart = repair.indexOf("  validate:");
+    expect(validateStart).toBeGreaterThan(0);
+    expect(validateStart).toBeLessThan(publishStart);
+    const untrustedRepairJob = repair.slice(0, validateStart);
+    const validationJob = repair.slice(validateStart, publishStart);
     const trustedPublishJob = repair.slice(publishStart);
     expect(untrustedRepairJob).toContain("Run one batched exact-head repair");
     expect(untrustedRepairJob).toContain("actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02");
     expect(untrustedRepairJob).not.toContain("PROFFERA_AUTOFIX_PUSH_TOKEN");
     expect(untrustedRepairJob).not.toContain("validate-changes");
+    expect(untrustedRepairJob).not.toContain("npm ci");
+    expect(untrustedRepairJob).not.toContain("npm test");
+    expect(untrustedRepairJob).not.toContain("npm run ");
+    expect(validationJob).not.toContain("secrets.");
+    expect(validationJob).not.toContain("codex-action@");
+    expect(validationJob).toContain("persist-credentials: false");
+    expect(validationJob).toContain("npm ci --no-audit --no-fund");
+    for (const command of ["npm run lint", "npm run typecheck", "npm test", "npm run build"]) {
+      expect(validationJob).toContain(command);
+      expect(trustedPublishJob).not.toContain(command);
+    }
+    expect(validationJob.indexOf("Verify candidate artifact integrity")).toBeLessThan(validationJob.indexOf("Apply candidate patch"));
+    expect(validationJob.indexOf("Apply candidate patch")).toBeLessThan(validationJob.indexOf("Install repository dependencies"));
+    expect(validationJob).toContain("Confirm validated tree matches uploaded candidate");
+    expect(trustedPublishJob).toContain("needs: [repair, validate]");
+    expect(trustedPublishJob).toContain("needs.validate.result == 'success'");
     expect(repair).toContain("patch_sha256: ${{ steps.diff.outputs.patch_sha256 }}");
     expect(trustedPublishJob).toContain("actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0");
     expect(trustedPublishJob).toContain("EXPECTED_PATCH_SHA256: ${{ needs.repair.outputs.patch_sha256 }}");
@@ -767,6 +810,38 @@ describe("Supervisor control-plane v2", () => {
     expect(trustedPublishJob.indexOf("validate-changes")).toBeLessThan(trustedPublishJob.indexOf("PROFFERA_AUTOFIX_PUSH_TOKEN"));
     expect(repair).not.toContain("--force");
   });
+
+
+  it("rejects altered repair artifacts before execution in validation and publication", () => {
+    const workflow = source(".github/workflows/supervisor-review-repair.yml");
+    for (const jobName of ["validate", "publish"]) {
+      const jobStart = workflow.indexOf("  " + jobName + ":");
+      const script = workflowRunStep(workflow.slice(jobStart), "Verify candidate artifact integrity");
+      for (const mode of ["valid", "tampered", "malformed-hash", "missing-sidecar"]) {
+        const dir = mkdtempSync(join(tmpdir(), "proffera-repair-integrity-"));
+        try {
+          const artifact = join(dir, "proffera-review-repair-candidate");
+          mkdirSync(artifact);
+          const original = "exact candidate bytes\n";
+          const bytes = mode === "tampered" ? "different candidate bytes\n" : original;
+          const digest = (value: string) => createHash("sha256").update(value).digest("hex");
+          writeFileSync(join(artifact, "repair.patch"), bytes);
+          if (mode !== "missing-sidecar") {
+            writeFileSync(join(artifact, "repair.patch.sha256"), digest(bytes) + "  repair.patch\n");
+          }
+          const result = spawnSync("bash", ["-c", script], {
+            encoding: "utf8",
+            env: { ...process.env, RUNNER_TEMP: dir.replaceAll("\\", "/"), EXPECTED_PATCH_SHA256: mode === "malformed-hash" ? "bad" : digest(original) },
+          });
+          expect(result.error).toBeUndefined();
+          if (mode === "valid") expect(result.status, result.stderr).toBe(0);
+          else expect(result.status, jobName + ":" + mode).not.toBe(0);
+        } finally {
+          rmSync(dir, { recursive: true, force: true });
+        }
+      }
+    }
+  }, 20000);
 
   it("materializes large review evidence through files instead of argv", () => {
     const result = runReviewRepairEvidenceStep();

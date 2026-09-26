@@ -6,11 +6,7 @@ on:
   pull_request_review:
     types: [submitted]
 
-permissions:
-  actions: write
-  contents: read
-  issues: read
-  pull-requests: read
+permissions: {}
 
 concurrency:
   group: proffera-supervisor-event-router-${{ github.event_name == 'issue_comment' && github.event.comment.id || github.event.review.id || github.run_id }}
@@ -21,6 +17,11 @@ jobs:
     name: Route one control-plane event
     runs-on: ubuntu-latest
     timeout-minutes: 3
+    permissions:
+      actions: write # Required for gh workflow run dispatches.
+      contents: read
+      issues: read
+      pull-requests: read
     steps:
       - name: Route relevant evidence only
         env:

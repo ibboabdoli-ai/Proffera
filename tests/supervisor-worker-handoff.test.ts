@@ -1554,6 +1554,14 @@ const method = methodIndex >= 0 ? args[methodIndex + 1] : "GET";
 const endpoint = args.find((arg) => arg.startsWith("repos/")) || "";
 const state = JSON.parse(readFileSync(process.env.GH_STUB_STATE_FILE, "utf8"));
 ${reservationControlApiStub()}
+if (args[0] === "issue" && args[1] === "comment" && args[2] === "548") {
+  const bodyIndex = args.indexOf("--body");
+  if (bodyIndex < 0 || !args[bodyIndex + 1]) process.exit(92);
+  state.comments.push({ id: 999, user: { login: "github-actions[bot]" }, body: args[bodyIndex + 1] });
+  writeFileSync(process.env.GH_STUB_STATE_FILE, JSON.stringify(state));
+  process.stdout.write("legacy comment recorded\\n");
+  process.exit(0);
+}
 if (args[0] !== "api" || !endpoint) process.exit(2);
 if (method !== "GET") {
   const bodyArg = args.find((arg) => arg.startsWith("body="));
@@ -3907,6 +3915,56 @@ esac
     expect(result.stdout).toContain("has no exact trusted Supervisor dispatch provenance; leaving it unchanged");
     expect(prPatchCalls(result.calls)).toHaveLength(0);
     expect(result.calls.filter((args) => args.includes("repos/ibboabdoli-ai/Proffera/issues/comments/101"))).toHaveLength(0);
+  });
+
+
+  it.each([false, true])("preserves closed legacy lifecycle records with merged=%s", (liveMerged) => {
+    const unrelated = exactReservationEvidence(sha, {
+      branch: "work/proffera-unrelated-task", pr_number: 987, state: "PUBLISHED",
+    });
+    for (const comments of [[], unrelated.comments]) {
+      const result = runLifecycleReconciliation({
+        action: "closed", body: "Legacy Worker result", comments, liveMerged,
+      });
+      expect(result.status, result.stderr).toBe(0);
+      expect(prPatchCalls(result.calls)).toHaveLength(0);
+      expect(commentPatchCalls(result.calls, 101)).toHaveLength(0);
+      const record = result.comments.find((comment) => comment.id === 999);
+      expect(String(record?.body)).toContain(liveMerged ? "MERGED" : "CLOSED_UNMERGED");
+      expect(result.comments).toHaveLength(comments.length + 1);
+    }
+  });
+
+  it("never treats ambiguous Phase-1 reservation evidence as a legacy close", () => {
+    const exact = exactReservationEvidence(sha, { state: "PUBLISHED", pr_number: 849 });
+    const cases = [
+      { body: "Legacy-looking result", comments: [...exact.comments, { ...exact.comments[0], id: 105 }] },
+      { body: "Legacy-looking result", comments: exactReservationEvidence(sha, { state: "PUBLISHED", pr_number: 998 }).comments },
+      { body: "Legacy-looking result", comments: exactReservationEvidence(sha, { packet_digest: "invalid" }).comments },
+      { body: "Legacy-looking result", comments: [{ id: 105, user: { login: "github-actions[bot]" }, body: "<!-- proffera-worker-slot-reservation:TASK-BROKEN -->\n- Reservation payload: invalid" }] },
+      { body: taskMarker + "\ninvalid packet", comments: [] },
+    ];
+    for (const current of cases) {
+      for (const reconcile of [runLifecycleReconciliation, runSyncCheckReconciliation]) {
+        const result = reconcile({ action: "closed", ...current });
+        expect(result.status, result.stderr).toBe(0);
+        expect(durableMutationCalls(result.calls)).toHaveLength(0);
+        expect(result.comments).toEqual(current.comments);
+      }
+    }
+  }, 30000);
+
+  it("requires complete trusted evidence before identifying an unreserved legacy PR", () => {
+    const input = {
+      repository: "ibboabdoli-ai/Proffera", pr_number: 849, run_id: "9003",
+      live_pr: { state: "closed", merged: false, user: { login: "ibboabdoli-ai" },
+        head: { ref: "work/proffera-test-task", sha, repo: { full_name: "ibboabdoli-ai/Proffera" } },
+        body: "Legacy Worker result" },
+      comments: [],
+    };
+    expect(run("invalid-close-plan", input).code).toBe("legacy_worker_pr");
+    expect(run("invalid-close-plan", { ...input, comments: null }).code).toBe("ambiguous_reservation");
+    expect(run("invalid-close-plan", { ...input, live_pr: { ...input.live_pr, state: "open" } }).code).toBe("untrusted_pr");
   });
 
   it("routes closed pull_request_target events through lifecycle reconciliation", () => {

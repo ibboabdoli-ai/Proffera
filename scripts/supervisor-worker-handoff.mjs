@@ -1632,21 +1632,37 @@ export function planInvalidWorkerPrClose(input) {
 
     const comments = Array.isArray(input?.comments) ? input.comments : [];
     const reservations = [];
+    let hasReservationEvidence = false;
     for (const comment of comments) {
       if (comment?.user?.login !== "github-actions[bot]") continue;
       const body = String(comment?.body ?? "");
       const payloadMatches = [...body.matchAll(/^- Reservation payload: `([A-Za-z0-9+/]+={0,2})`$/gmu)];
-      if (payloadMatches.length !== 1) continue;
+      const reservationLike = body.includes("<!-- proffera-worker-slot-reservation:")
+        || body.includes("- Reservation payload:");
+      if (payloadMatches.length !== 1) {
+        hasReservationEvidence ||= reservationLike;
+        continue;
+      }
       const encoded = payloadMatches[0][1];
-      if (encoded.length % 4 !== 0) continue;
+      if (encoded.length % 4 !== 0) { hasReservationEvidence = true; continue; }
       const decoded = Buffer.from(encoded, "base64");
-      if (decoded.toString("base64") !== encoded) continue;
+      if (decoded.toString("base64") !== encoded) { hasReservationEvidence = true; continue; }
       let payload;
       try {
         payload = JSON.parse(decoded.toString("utf8"));
       } catch {
+        hasReservationEvidence = true;
         continue;
       }
+      // Legacy fallback needs positive absence, not merely zero valid bindings.
+      // Malformed, aliased, or potentially related reservation evidence stays fail-closed.
+      hasReservationEvidence ||= !payload || typeof payload !== "object" || Array.isArray(payload)
+        || typeof payload.branch !== "string" || !BRANCH_RE.test(payload.branch)
+        || payload.branch === branch
+        || (payload.pr_number != null
+          && (!Number.isInteger(payload.pr_number) || payload.pr_number <= 0 || payload.pr_number === prNumber))
+        || body.includes("- Branch: `" + branch + "`")
+        || body.split("\n").some((line) => line === `- PR: #${prNumber}`);
       const reservationState = String(payload?.state ?? "");
       const taskId = String(payload?.task_id ?? "");
       const reservedRun = String(payload?.run_id ?? "");
@@ -1689,6 +1705,10 @@ export function planInvalidWorkerPrClose(input) {
         graphPath,
         packetDigest,
       });
+    }
+    if (Array.isArray(input?.comments) && reservations.length === 0 && !hasReservationEvidence
+      && !String(pr.body ?? "").includes(TASK_PACKET_MARKER)) {
+      return invalidCloseResult(false, "legacy_worker_pr", "closed legacy Worker PR has no Task Packet or related reservation evidence");
     }
     if (reservations.length !== 1) {
       return invalidCloseResult(false, "ambiguous_reservation", "closed malformed Worker PR has missing or ambiguous exact reservation provenance");
