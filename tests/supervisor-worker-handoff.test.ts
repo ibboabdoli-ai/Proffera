@@ -2924,8 +2924,8 @@ describe("Supervisor ↔ Worker Phase-1 handoff", () => {
     const sync = source(".github/workflows/worker-supervisor-sync.yml");
     expect(workflow).toContain("proffera-worker-task-state:${task_id}");
     expect(workflow).toContain("--method PATCH");
-    expect(sync).toContain("proffera-worker-task-state:${task_id}");
-    expect(sync).toContain("--method PATCH");
+    expect(sync).toContain('node "$helper" valid-close-reconcile');
+    expect(source("scripts/supervisor-worker-handoff.mjs")).toContain("TASK_STATE_MARKER_PREFIX");
   });
 
   it("Worker PR lifecycle still reconciles through exact-head checks", () => {
@@ -2937,7 +2937,8 @@ describe("Supervisor ↔ Worker Phase-1 handoff", () => {
     expect(sync).toContain("MERGED");
     expect(sync).toContain('required=("CI" "CodeQL" "Targeted CI shadow" "Production base health")');
     expect(sync).toContain("EVENT_HEAD_SHA");
-    expect(sync).toContain('node "$helper" transition');
+    expect(sync).toContain('node "$helper" valid-close-reconcile');
+    expect(source("scripts/supervisor-worker-handoff.mjs")).toContain("evaluateTaskStateTransition");
   });
 
   it("sensitive or Production permission cannot be granted by a Task Packet", () => {
@@ -4271,7 +4272,7 @@ esac
       mutateTaskOnCommentFetch: 3,
     });
     expect(changedTask.status).toBe(1);
-    expect(changedTask.stderr).toContain("invalid-close-reconcile did not converge (task_evidence_changed); failing for retry.");
+    expect(changedTask.stderr).toContain("invalid-close-reconcile did not converge (release_not_converged); failing for retry.");
     expect(commentPatchCalls(changedTask.calls, 101)).toHaveLength(1);
     expect(commentPatchCalls(changedTask.calls, 103)).toHaveLength(0);
   });
@@ -4681,6 +4682,7 @@ esac
         ...evidence.comments,
         { id: 103, user: { login: "github-actions[bot]" }, body: durableStateBody("MERGED") },
       ],
+      liveMerged: true,
     });
     expect(result.status, result.stderr).toBe(0);
     expect(commentPatchCalls(result.calls, 101)).toHaveLength(1);
