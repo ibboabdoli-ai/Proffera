@@ -44,15 +44,26 @@ export const HARD_BLOCKED_SCOPES = Object.freeze([
   "yarn.lock",
 ]);
 
+// Explicit repository authorization ownership boundaries for autonomous Planner admission.
+// This is an authorization policy, not a filename-sensitivity heuristic used by CI lane selection.
 export const PLANNER_HUMAN_AUTH_OWNERSHIP = Object.freeze([
   Object.freeze({
     owner: "authentication-account-lifecycle",
     scopes: Object.freeze([
       Object.freeze({ kind: "scope", value: "src/app/aktivera/" }),
+      Object.freeze({ kind: "scope", value: "src/app/logga-in/" }),
+      Object.freeze({ kind: "scope", value: "src/app/glomt-losenord/" }),
+      Object.freeze({ kind: "scope", value: "src/app/aterstall-losenord/" }),
+      Object.freeze({ kind: "scope", value: "src/components/auth/" }),
+      Object.freeze({ kind: "scope", value: "src/features/admin/session.ts" }),
+      Object.freeze({ kind: "scope", value: "src/features/email/password-reset-email.ts" }),
       Object.freeze({ kind: "prefix", value: "src/lib/auth" }),
+      Object.freeze({ kind: "scope", value: "src/lib/claim-login-return.ts" }),
+      Object.freeze({ kind: "scope", value: "src/lib/password-reset-rate-limit.ts" }),
       Object.freeze({ kind: "scope", value: "src/features/company/workspace-invitation.ts" }),
       Object.freeze({ kind: "scope", value: "src/features/company/workspace-member-invitation.ts" }),
       Object.freeze({ kind: "scope", value: "src/features/company/workspace-provisioning.ts" }),
+      Object.freeze({ kind: "scope", value: "src/lib/company-directory-existing-workspace-claim.ts" }),
       Object.freeze({ kind: "scope", value: "src/lib/admin-authorization.ts" }),
     ]),
   }),

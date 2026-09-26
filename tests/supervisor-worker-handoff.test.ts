@@ -2516,8 +2516,10 @@ describe("Supervisor ↔ Worker Phase-1 handoff", () => {
 
     for (const [label, allowed_paths] of [
       ["account activation ownership", [activationOwnershipScope]],
+      ["login ownership", ["src/app/logga-in/"]],
       ["parent scope covering account activation", ["src/app/"]],
       ["auth library", ["src/lib/auth-session.ts"]],
+      ["workspace claim authority", ["src/lib/company-directory-existing-workspace-claim.ts"]],
       ["auth API", ["src/app/api/auth/"]],
       ["workspace invitation authority", ["src/features/company/workspace-invitation.ts"]],
       ["payment authority", ["src/lib/stripe.ts"]],
