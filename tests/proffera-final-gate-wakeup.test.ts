@@ -6,7 +6,7 @@ import { delimiter, join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
 function source(path: string) {
-  return readFileSync(resolve(process.cwd(), path), "utf8");
+  return readFileSync(resolve(process.cwd(), path), "utf8").replaceAll("\r\n", "\n");
 }
 
 const reviewHead = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
@@ -15,7 +15,7 @@ const codeRabbitInvocationMarker = `<!-- CodeRabbit review command invocation: v
 
 function wakeupShellBlock() {
   const wakeup = source(".github/workflows/proffera-final-gate-wakeup.yml");
-  const startMarker = '          pr_number="${EVENT_PR_NUMBER:-}"';
+  const startMarker = '          pr_number="${INPUT_PR_NUMBER:-}"';
   const endMarker = '          echo "Re-ran only the exact-head E2E public smoke final gate after review evidence changed."';
   const start = wakeup.indexOf(startMarker);
   const end = wakeup.indexOf(endMarker, start);
@@ -49,6 +49,14 @@ type WakeupFixture = {
   actor?: string;
   body: string;
   createdAt?: string;
+  updatedAt?: string;
+  sourceEvent?: "issue_comment" | "pull_request_review";
+  reviewState?: string;
+  reviewCommit?: string;
+  routedActor?: string;
+  routedEvidenceTime?: string;
+  routedReviewCommit?: string;
+  sourceIssueUrl?: string;
   comments?: Array<Record<string, unknown>>;
   firstReviews?: Array<Record<string, unknown>>;
   laterReviews?: Array<Record<string, unknown>>;
@@ -59,6 +67,7 @@ type AutomergeFixture = {
   comments?: Array<Record<string, unknown>>;
   firstReviews?: Array<Record<string, unknown>>;
   laterReviews?: Array<Record<string, unknown>>;
+  inlineComments?: Array<Record<string, unknown>>;
   liveHead?: string;
 };
 
@@ -76,6 +85,14 @@ function runWakeupFixture(fixture: WakeupFixture) {
   writeFileSync(fakeGh, `#!/usr/bin/env bash
 set -euo pipefail
 args="$*"
+if [ "$1" = "api" ] && [ "\${2:-}" = "repos/ibboabdoli-ai/Proffera/issues/comments/9001" ]; then
+  printf '%s\\n' "$FAKE_SOURCE_JSON"
+  exit 0
+fi
+if [ "$1" = "api" ] && [ "\${2:-}" = "repos/ibboabdoli-ai/Proffera/pulls/801/reviews/9001" ]; then
+  printf '%s\\n' "$FAKE_SOURCE_JSON"
+  exit 0
+fi
 if [ "$1" = "api" ] && [ "\${2:-}" = "repos/ibboabdoli-ai/Proffera/pulls/801" ]; then
   if [[ "$args" == *"--jq .head.sha"* ]]; then
     printf '%s\\n' "\${FAKE_LIVE_HEAD:-$FAKE_HEAD_SHA}"
@@ -124,15 +141,20 @@ exit 91
 set -euo pipefail
 summary() { :; }
 REPOSITORY=ibboabdoli-ai/Proffera
-EVENT_NAME=issue_comment
-EVENT_ACTOR='${fixture.actor ?? "coderabbitai[bot]"}'
+EVENT_NAME=workflow_dispatch
+EVENT_ACTOR=ibboabdoli-ai
 EVENT_PR_NUMBER=''
-EVENT_ISSUE_NUMBER=801
-EVENT_COMMENT_BODY="$FAKE_EVENT_BODY"
-EVENT_COMMENT_CREATED_AT='${fixture.createdAt ?? "2099-09-05T12:03:00Z"}'
+EVENT_ISSUE_NUMBER=''
+EVENT_COMMENT_BODY=''
+EVENT_COMMENT_CREATED_AT=''
 EVENT_REVIEW_STATE=''
 EVENT_REVIEW_COMMIT=''
-INPUT_PR_NUMBER=''
+INPUT_PR_NUMBER=801
+INPUT_SOURCE_EVENT=${fixture.sourceEvent ?? "issue_comment"}
+INPUT_SOURCE_ID=9001
+INPUT_SOURCE_ACTOR='${fixture.routedActor ?? fixture.actor ?? "coderabbitai[bot]"}'
+INPUT_SOURCE_EVIDENCE_TIME='${fixture.routedEvidenceTime ?? fixture.updatedAt ?? fixture.createdAt ?? "2099-09-05T12:03:00Z"}'
+INPUT_SOURCE_REVIEW_COMMIT='${fixture.sourceEvent === "pull_request_review" ? (fixture.routedReviewCommit ?? fixture.reviewCommit ?? reviewHead) : ""}'
 TRUSTED_CODEX_REQUESTER=ibboabdoli-ai
 ${wakeupShellBlock()}
 `, { mode: 0o755 });
@@ -143,6 +165,20 @@ ${wakeupShellBlock()}
       ...process.env,
       PATH: `${dir}${delimiter}${process.env.PATH ?? ""}`,
       FAKE_EVENT_BODY: fixture.body,
+      FAKE_SOURCE_JSON: JSON.stringify(fixture.sourceEvent === "pull_request_review" ? {
+        id: 9001,
+        user: { login: fixture.actor ?? "coderabbitai[bot]" },
+        state: fixture.reviewState ?? "COMMENTED",
+        submitted_at: fixture.createdAt ?? "2099-09-05T12:03:00Z",
+        commit_id: fixture.reviewCommit ?? reviewHead,
+      } : {
+        id: 9001,
+        user: { login: fixture.actor ?? "coderabbitai[bot]" },
+        body: fixture.body,
+        created_at: fixture.createdAt ?? "2099-09-05T12:03:00Z",
+        updated_at: fixture.updatedAt ?? fixture.createdAt ?? "2099-09-05T12:03:00Z",
+        issue_url: fixture.sourceIssueUrl ?? "https://api.github.com/repos/ibboabdoli-ai/Proffera/issues/801",
+      }),
       FAKE_HEAD_SHA: reviewHead,
       FAKE_LIVE_HEAD: fixture.liveHead ?? "",
       FAKE_COMMENTS: toNdjson(fixture.comments),
@@ -189,6 +225,10 @@ if [[ "$args" == *"/issues/695/comments?per_page=100"* ]]; then
   printf '%s\\n' "$FAKE_COMMENTS"
   exit 0
 fi
+if [[ "$args" == *"/pulls/695/comments?per_page=100"* ]]; then
+  printf '%s\\n' "$FAKE_INLINE_COMMENTS"
+  exit 0
+fi
 if [ "$1" = "api" ] && [ "\${2:-}" = "repos/ibboabdoli-ai/Proffera/pulls/695" ] && [[ "$args" == *"--jq .head.sha"* ]]; then
   printf '%s\\n' "\${FAKE_LIVE_HEAD:-$FAKE_HEAD_SHA}"
   exit 0
@@ -221,6 +261,7 @@ printf 'AI_REVIEW_OK\\n'
       FAKE_COMMENTS: toNdjson(fixture.comments),
       FAKE_FIRST_REVIEWS: toNdjson(fixture.firstReviews),
       FAKE_LATER_REVIEWS: toNdjson(fixture.laterReviews ?? fixture.firstReviews),
+      FAKE_INLINE_COMMENTS: toNdjson(fixture.inlineComments),
       FAKE_REVIEW_STATE: reviewState,
     },
   });
@@ -235,6 +276,25 @@ function requestComment(createdAt = "2099-09-05T12:00:00Z") {
     user: { login: "github-actions[bot]" },
     body: `<!-- proffera-coderabbit-final-review-request:${reviewHead} -->\n@coderabbitai review`,
     created_at: createdAt,
+  };
+}
+
+function codeRabbitInvocation(createdAt = "2099-09-05T12:01:00Z") {
+  return {
+    id: 9,
+    user: { login: "coderabbitai[bot]" },
+    body: `${codeRabbitInvocationMarker}\n<details>\n<summary>🧩 Analysis chain</summary>\n</details>`,
+    created_at: createdAt,
+    updated_at: createdAt,
+  };
+}
+
+function codeRabbitCompletedReview(submittedAt = "2099-09-05T12:02:00Z", commitId = reviewHead) {
+  return {
+    user: { login: "coderabbitai[bot]" },
+    commit_id: commitId,
+    state: "COMMENTED",
+    submitted_at: submittedAt,
   };
 }
 
@@ -264,20 +324,47 @@ describe("event-driven final review gate", () => {
     expect(ci).toContain("CodeRabbit high-risk availability timeout reached; exact-head Codex fallback will be allowed on the next poll.");
     expect(ci).toContain('echo "CodeRabbit changes remain requested for current head; Codex fallback cannot clear them."\n              exit 1');
 
-    expect(wakeup).toContain("pull_request_review:");
-    expect(wakeup).toContain("issue_comment:");
+    const router = source(".github/workflows/supervisor-event-router.yml");
+    expect(wakeup).not.toContain("pull_request_review:");
+    expect(wakeup).not.toContain("issue_comment:");
     expect(wakeup).toContain("workflow_dispatch:");
-    expect(wakeup).toContain("github.actor == 'coderabbitai[bot]'");
+    expect(router).toContain("pull_request_review:");
+    expect(router).toContain("issue_comment:");
+    expect(router).toContain('"coderabbitai[bot]"');
+    expect(router).toContain('"chatgpt-codex-connector[bot]"');
+    expect(router).toContain('"ibboabdoli-ai"');
+    expect(router).toContain("Final exact-head review is complete for");
+    expect(router).toContain("proffera-codex-fallback-review-request:");
+    expect(router).toContain("@codex review");
+    expect(router).toContain("proffera-final-gate-wakeup.yml");
+    expect(router).toContain("-f source_event=");
+    expect(router).toContain("-f source_id=");
+    expect(router).toContain("-f source_evidence_time=");
+    expect(router).toContain('dispatch_final_gate "$pr_number" || final_gate_status=$?');
+    const reviewRepairDispatch = router.indexOf("gh workflow run supervisor-review-repair.yml");
+    const finalGateFailure = router.indexOf('if [ "$final_gate_status" -ne 0 ]', reviewRepairDispatch);
+    expect(reviewRepairDispatch).toBeGreaterThanOrEqual(0);
+    expect(finalGateFailure).toBeGreaterThan(reviewRepairDispatch);
+    expect(wakeup).toContain("issues/comments/$INPUT_SOURCE_ID");
+    expect(wakeup).toContain("INPUT_SOURCE_EVIDENCE_TIME");
+    expect(ci).not.toContain("clean_summary_count");
+    expect(ci).not.toContain("coderabbit_review_completion_time");
+    expect(automerge).not.toContain("clean_summary_count");
+    expect(automerge).not.toContain("coderabbit_review_completion_time");
+    expect(ci).toContain('terminal_count="$(jq -r');
+    expect(automerge).toContain('terminal_count="$(jq -r');
+    expect(wakeup).toContain("EVENT_COMMENT_CREATED_AT");
+    expect(wakeup).toContain("coderabbit_review_completion_time");
+    expect(wakeup).toContain('select(.state == "APPROVED" or .state == "COMMENTED")');
+    expect(wakeup).toContain('select((.submitted_at // "") >= $request_time)');
     expect(wakeup).toContain("<!-- CodeRabbit review command invocation: v2:");
     expect(wakeup).toContain("[0-9a-f]{64}");
     expect(wakeup).toContain("Final exact-head review is complete for");
-    expect(wakeup).toContain("I found no issues.");
+    expect(wakeup).toContain("I found no issues\\\\.");
+    expect(wakeup).toContain("Untrusted pull-request review actor cannot wake the final gate.");
+    expect(wakeup).toContain('"coderabbitai[bot]"|"chatgpt-codex-connector[bot]"');
     expect(wakeup).toContain("Untrusted issue-comment actor cannot wake the final gate.");
     expect(wakeup).toContain('"coderabbitai[bot]"|"chatgpt-codex-connector[bot]"|"$TRUSTED_CODEX_REQUESTER"');
-    expect(wakeup).toContain("github.actor == 'chatgpt-codex-connector[bot]'");
-    expect(wakeup).toContain("github.actor == 'ibboabdoli-ai'");
-    expect(wakeup).toContain("proffera-codex-fallback-review-request:");
-    expect(wakeup).toContain("@codex review");
     expect(wakeup).toContain("TRUSTED_CODEX_REQUESTER: ibboabdoli-ai");
     expect(wakeup).toContain('codex_marker="<!-- proffera-codex-fallback-review-request:${head_sha} -->"');
     expect(wakeup).toContain("EVENT_REVIEW_COMMIT");
@@ -294,11 +381,103 @@ describe("event-driven final review gate", () => {
     expect(wakeup).not.toContain("sleep ");
     expect(wakeup).not.toContain("seq 1");
 
-    expect(automerge).toContain("Final exact-head review is complete for");
-    expect(automerge).toContain("I found no issues.");
-    expect(automerge).toContain("<!-- CodeRabbit review command invocation: v2:");
-    expect(automerge).toContain("clean exact-head completion comment");
-    expect(automerge).toContain("clean comments cannot clear them");
+    expect(automerge).toContain("workflow_run:");
+    expect(automerge).toContain("workflows: [CI, Security review regressions]");
+    expect(automerge).toContain("E2E public smoke");
+    expect(automerge).not.toContain("pull_request_review:");
+    expect(automerge).not.toContain("issue_comment:");
+  });
+
+  it("normalizes REST CHANGES_REQUESTED before the final-gate wakeup guard", () => {
+    const blocked = runWakeupFixture({
+      sourceEvent: "pull_request_review",
+      actor: "coderabbitai[bot]",
+      body: "",
+      createdAt: "2099-09-05T12:03:00Z",
+      reviewState: "CHANGES_REQUESTED",
+      reviewCommit: reviewHead,
+    });
+
+    expect(blocked.result.status).toBe(0);
+    expect(blocked.rerun).toBe(false);
+    expect(`${blocked.result.stdout}${blocked.result.stderr}`).toContain(
+      "A blocking review does not need a final-gate rerun.",
+    );
+  });
+
+  it("allows final-gate wakeup only from trusted pull-request review bots", () => {
+    const untrusted = runWakeupFixture({
+      sourceEvent: "pull_request_review",
+      actor: "ibboabdoli-ai",
+      body: "",
+      createdAt: "2099-09-05T12:03:00Z",
+      reviewState: "COMMENTED",
+      reviewCommit: reviewHead,
+    });
+    expect(untrusted.result.status).toBe(0);
+    expect(untrusted.rerun).toBe(false);
+    expect(`${untrusted.result.stdout}${untrusted.result.stderr}`).toContain(
+      "Untrusted pull-request review actor cannot wake the final gate.",
+    );
+
+    const trusted = runWakeupFixture({
+      sourceEvent: "pull_request_review",
+      actor: "coderabbitai[bot]",
+      body: "",
+      createdAt: "2099-09-05T12:03:00Z",
+      reviewState: "COMMENTED",
+      reviewCommit: reviewHead,
+    });
+    expect(trusted.result.status).toBe(0);
+    expect(trusted.rerun).toBe(true);
+  });
+
+  it("fails closed when routed final-gate source provenance differs from fetched evidence", () => {
+    const wrongPr = runWakeupFixture({
+      body: cleanBody(),
+      sourceIssueUrl: "https://api.github.com/repos/ibboabdoli-ai/Proffera/issues/802",
+    });
+    expect(wrongPr.result.status).toBe(0);
+    expect(wrongPr.rerun).toBe(false);
+    expect(`${wrongPr.result.stdout}${wrongPr.result.stderr}`).toContain(
+      "Source comment changed or does not belong to this exact dispatch; refusing wakeup.",
+    );
+
+    const wrongActor = runWakeupFixture({
+      body: cleanBody(),
+      routedActor: "other-review-bot[bot]",
+    });
+    expect(wrongActor.result.status).toBe(0);
+    expect(wrongActor.rerun).toBe(false);
+    expect(`${wrongActor.result.stdout}${wrongActor.result.stderr}`).toContain(
+      "Source comment changed or does not belong to this exact dispatch; refusing wakeup.",
+    );
+
+    const wrongEvidenceTime = runWakeupFixture({
+      body: cleanBody(),
+      updatedAt: "2099-09-05T12:03:00Z",
+      routedEvidenceTime: "2099-09-05T12:02:59Z",
+    });
+    expect(wrongEvidenceTime.result.status).toBe(0);
+    expect(wrongEvidenceTime.rerun).toBe(false);
+    expect(`${wrongEvidenceTime.result.stdout}${wrongEvidenceTime.result.stderr}`).toContain(
+      "Source comment changed or does not belong to this exact dispatch; refusing wakeup.",
+    );
+
+    const wrongReviewCommit = runWakeupFixture({
+      sourceEvent: "pull_request_review",
+      actor: "coderabbitai[bot]",
+      body: "",
+      createdAt: "2099-09-05T12:03:00Z",
+      reviewState: "COMMENTED",
+      reviewCommit: reviewHead,
+      routedReviewCommit: oldHead,
+    });
+    expect(wrongReviewCommit.result.status).toBe(0);
+    expect(wrongReviewCommit.rerun).toBe(false);
+    expect(`${wrongReviewCommit.result.stdout}${wrongReviewCommit.result.stderr}`).toContain(
+      "Source review changed or does not match the routed evidence; refusing wakeup.",
+    );
   });
 
   it("wakes for trusted current-head CodeRabbit clean completion comments and rejects spoofed or stale clean evidence", () => {
@@ -366,10 +545,13 @@ describe("event-driven final review gate", () => {
     const editedPreRequest = runWakeupFixture({
       body: cleanBody(),
       createdAt: "2099-09-05T11:59:00Z",
+      updatedAt: "2099-09-05T12:03:00Z",
       comments: [requestComment()],
     });
     expect(editedPreRequest.rerun).toBe(false);
-    expect(`${editedPreRequest.result.stdout}${editedPreRequest.result.stderr}`).toContain("not ordered after a trusted exact-head review request");
+    expect(`${editedPreRequest.result.stdout}${editedPreRequest.result.stderr}`).toContain(
+      "CodeRabbit clean comment was not created after a trusted exact-head review request",
+    );
 
     const incomplete = runWakeupFixture({
       body: `${cleanBody()}\n\nAction not completed: review incomplete`,
@@ -424,6 +606,72 @@ describe("event-driven final review gate", () => {
     expect(`${reviewRace.result.stdout}${reviewRace.result.stderr}`).toContain("CodeRabbit changes were recorded before final-gate wakeup");
   }, 120000);
 
+  it("requires a post-request completed current-head CodeRabbit review before accepting a persistent summary", () => {
+    const summaryBody = `<!-- recent_review_start -->
+No actionable comments were generated in the recent review.
+${reviewHead}
+<!-- recent_review_end -->`;
+
+    const invocationAlone = runWakeupFixture({
+      body: summaryBody,
+      createdAt: "2099-09-05T12:01:30Z",
+      updatedAt: "2099-09-05T12:03:00Z",
+      comments: [
+        requestComment("2099-09-05T12:00:00Z"),
+        codeRabbitInvocation("2099-09-05T12:01:00Z"),
+      ],
+    });
+    expect(invocationAlone.rerun).toBe(false);
+    expect(`${invocationAlone.result.stdout}${invocationAlone.result.stderr}`).toContain(
+      "CodeRabbit summary is not bound to a post-request completed current-head review",
+    );
+
+    const reviewBeforeRequest = runWakeupFixture({
+      body: summaryBody,
+      createdAt: "2099-09-05T12:01:30Z",
+      updatedAt: "2099-09-05T12:03:00Z",
+      comments: [requestComment("2099-09-05T12:00:00Z")],
+      firstReviews: [codeRabbitCompletedReview("2099-09-05T11:59:00Z")],
+    });
+    expect(reviewBeforeRequest.rerun).toBe(false);
+    expect(`${reviewBeforeRequest.result.stdout}${reviewBeforeRequest.result.stderr}`).toContain(
+      "CodeRabbit summary is not bound to a post-request completed current-head review",
+    );
+
+    const summaryOlderThanReview = runWakeupFixture({
+      body: summaryBody,
+      createdAt: "2099-09-05T12:01:00Z",
+      updatedAt: "2099-09-05T12:01:30Z",
+      comments: [requestComment("2099-09-05T12:00:00Z")],
+      firstReviews: [codeRabbitCompletedReview("2099-09-05T12:02:00Z")],
+    });
+    expect(summaryOlderThanReview.rerun).toBe(false);
+    expect(`${summaryOlderThanReview.result.stdout}${summaryOlderThanReview.result.stderr}`).toContain(
+      "CodeRabbit summary is not bound to a post-request completed current-head review",
+    );
+
+    const editedPreRequestSummary = runWakeupFixture({
+      body: summaryBody,
+      createdAt: "2099-09-05T11:50:00Z",
+      updatedAt: "2099-09-05T12:03:00Z",
+      comments: [
+        requestComment("2099-09-05T12:00:00Z"),
+        codeRabbitInvocation("2099-09-05T12:01:00Z"),
+      ],
+    });
+    expect(editedPreRequestSummary.rerun).toBe(false);
+
+    const completedCurrentHeadReview = runWakeupFixture({
+      body: summaryBody,
+      createdAt: "2099-09-05T11:50:00Z",
+      updatedAt: "2099-09-05T12:03:00Z",
+      comments: [requestComment("2099-09-05T12:00:00Z")],
+      firstReviews: [codeRabbitCompletedReview("2099-09-05T12:02:00Z")],
+    });
+    expect(completedCurrentHeadReview.result.status).toBe(0);
+    expect(completedCurrentHeadReview.rerun).toBe(true);
+  }, 120000);
+
   it("does not classify availability/status comments as the new clean CodeRabbit decision", () => {
     const wakeup = source(".github/workflows/proffera-final-gate-wakeup.yml");
     const cleanPredicateStart = wakeup.indexOf('clean_comment_match="$(jq -rn');
@@ -444,6 +692,90 @@ describe("event-driven final review gate", () => {
     });
     expect(positive.status).toBe(0);
     expect(positive.stdout).toContain("AI_REVIEW_OK");
+
+    const commentedReviewWithInlineFinding = runAutomergeFixture({
+      comments: [requestComment()],
+      firstReviews: [codeRabbitCompletedReview("2099-09-05T12:02:00Z")],
+      inlineComments: [{
+        user: { login: "coderabbitai[bot]" },
+        original_commit_id: reviewHead,
+        commit_id: reviewHead,
+        created_at: "2099-09-05T12:02:00Z",
+      }],
+    });
+    expect(commentedReviewWithInlineFinding.stdout).not.toContain("AI_REVIEW_OK");
+    expect(commentedReviewWithInlineFinding.stdout).toContain(
+      "Refused: CodeRabbit posted current-head review findings; review acceptance is blocked.",
+    );
+
+    const noRequestMarkerInlineFinding = runAutomergeFixture({
+      comments: [],
+      firstReviews: [codeRabbitCompletedReview("2099-09-05T12:02:00Z")],
+      inlineComments: [{
+        user: { login: "coderabbitai[bot]" },
+        original_commit_id: reviewHead,
+        commit_id: reviewHead,
+        created_at: "2099-09-05T12:02:00Z",
+      }],
+    });
+    expect(noRequestMarkerInlineFinding.stdout).not.toContain("AI_REVIEW_OK");
+    expect(noRequestMarkerInlineFinding.stdout).toContain(
+      "Refused: CodeRabbit posted current-head review findings; review acceptance is blocked.",
+    );
+
+    const reanchoredOldInlineFinding = runAutomergeFixture({
+      comments: [requestComment()],
+      firstReviews: [codeRabbitCompletedReview("2099-09-05T12:02:00Z")],
+      inlineComments: [{
+        user: { login: "coderabbitai[bot]" },
+        original_commit_id: oldHead,
+        commit_id: reviewHead,
+        created_at: "2099-09-05T12:02:00Z",
+      }],
+    });
+    expect(reanchoredOldInlineFinding.status).toBe(0);
+    expect(reanchoredOldInlineFinding.stdout).toContain("AI_REVIEW_OK");
+
+    const preRequestInlineFinding = runAutomergeFixture({
+      comments: [requestComment("2099-09-05T12:00:00Z")],
+      firstReviews: [codeRabbitCompletedReview("2099-09-05T12:02:00Z")],
+      inlineComments: [{
+        user: { login: "coderabbitai[bot]" },
+        original_commit_id: reviewHead,
+        commit_id: reviewHead,
+        created_at: "2099-09-05T11:59:59Z",
+      }],
+    });
+    expect(preRequestInlineFinding.status).toBe(0);
+    expect(preRequestInlineFinding.stdout).toContain("AI_REVIEW_OK");
+
+    const summaryBody = `<!-- recent_review_start -->\nNo actionable comments were generated in the recent review.\n${reviewHead}\n<!-- recent_review_end -->`;
+    const editedSummary = {
+      id: 15,
+      user: { login: "coderabbitai[bot]" },
+      body: summaryBody,
+      created_at: "2099-09-05T11:50:00Z",
+      updated_at: "2099-09-05T12:03:00Z",
+    };
+    const summaryWithoutCompletion = runAutomergeFixture({
+      comments: [requestComment("2099-09-05T12:00:00Z"), editedSummary],
+    });
+    expect(summaryWithoutCompletion.stdout).not.toContain("AI_REVIEW_OK");
+
+    const summaryWithInvocationOnly = runAutomergeFixture({
+      comments: [
+        requestComment("2099-09-05T12:00:00Z"),
+        codeRabbitInvocation("2099-09-05T12:01:00Z"),
+        editedSummary,
+      ],
+    });
+    expect(summaryWithInvocationOnly.stdout).not.toContain("AI_REVIEW_OK");
+
+    const summaryWithCompletedCurrentHeadReview = runAutomergeFixture({
+      comments: [requestComment("2099-09-05T12:00:00Z"), editedSummary],
+      firstReviews: [codeRabbitCompletedReview("2099-09-05T12:02:00Z")],
+    });
+    expect(summaryWithCompletedCurrentHeadReview.stdout).toContain("AI_REVIEW_OK");
 
     const negatives = [
       runAutomergeFixture({

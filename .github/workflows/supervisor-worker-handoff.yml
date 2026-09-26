@@ -1,25 +1,496 @@
 name: Supervisor Worker handoff
 
 on:
-  issue_comment:
-    types: [created, edited]
+  workflow_call:
+    inputs:
+      planner_packet_b64:
+        description: Normalized validated Planner Task Packet bytes
+        required: true
+        type: string
+      planner_packet_sha256:
+        description: SHA-256 of the exact normalized Planner Task Packet bytes
+        required: true
+        type: string
+      planner_run_id:
+        description: Originating Supervisor planner workflow run ID
+        required: true
+        type: string
+      planner_head_sha:
+        description: Exact default-branch Planner workflow head SHA
+        required: true
+        type: string
+      planner_workflow_ref:
+        description: Exact originating Supervisor planner workflow ref
+        required: true
+        type: string
+    secrets:
+      OPENAI_API_KEY:
+        required: true
+      PROFFERA_AUTOFIX_PUSH_TOKEN:
+        required: true
+  workflow_dispatch:
+    inputs:
+      comment_id:
+        description: Trusted owner Task Packet comment ID from Supervisor issue #548
+        required: true
+        type: string
+  pull_request_target:
+    types: [opened, reopened, synchronize, edited, closed]
 
 permissions: {}
 
-concurrency:
-  group: proffera-supervisor-worker-handoff-${{ github.event.issue.number || github.run_id }}
-  cancel-in-progress: false
-
 jobs:
+  enforce-reserved-worker-pr:
+    name: Enforce durable Worker slot reservation
+    if: >-
+      github.event_name == 'pull_request_target' &&
+      startsWith(github.event.pull_request.head.ref, 'work/proffera-')
+    concurrency:
+      group: proffera-worker-task-state-${{ github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.user.login == github.repository_owner && github.event.pull_request.head.ref || format('untrusted-pr-{0}', github.event.pull_request.number) }}
+      cancel-in-progress: false
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: read
+      contents: read
+      issues: write
+      pull-requests: write
+
+    steps:
+      - name: Checkout trusted default-branch control logic
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: main
+          persist-credentials: false
+
+      - name: Require exact durable reservation before accepting Worker PR
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          EVENT_ACTION: ${{ github.event.action }}
+          EVENT_ACTOR: ${{ github.actor }}
+          EVENT_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          EVENT_HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          EVENT_BASE_REF: ${{ github.event.pull_request.base.ref }}
+          EVENT_PREVIOUS_BASE_REF: ${{ github.event.changes.base.ref.from }}
+          RUN_ID: ${{ github.run_id }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          helper="scripts/supervisor-worker-handoff.mjs"
+          task_marker='<!-- proffera-worker-task-packet:v1 -->'
+          pr_json="$(gh api "repos/${REPOSITORY}/pulls/${PR_NUMBER}")"
+          live_state="$(jq -r '.state // ""' <<< "$pr_json")"
+          live_merged="$(jq -r '.merged == true' <<< "$pr_json")"
+          live_head="$(jq -r '.head.sha // ""' <<< "$pr_json")"
+          live_ref="$(jq -r '.head.ref // ""' <<< "$pr_json")"
+          live_base="$(jq -r '.base.ref // ""' <<< "$pr_json")"
+          live_author="$(jq -r '.user.login // ""' <<< "$pr_json")"
+          live_head_repository="$(jq -r '.head.repo.full_name // ""' <<< "$pr_json")"
+          body="$(jq -r '.body // ""' <<< "$pr_json")"
+          trusted_reservation_id=""
+          trusted_reservation_body=""
+          trusted_reservation_payload=""
+          trusted_changed_retarget_return="false"
+          trusted_published_retarget_return="false"
+          trusted_published_retarget_prior_base=""
+
+          close_unreserved() {
+            local reason="$1"
+            gh api --method PATCH "repos/${REPOSITORY}/pulls/${PR_NUMBER}" -f state=closed >/dev/null
+            gh api --method POST "repos/${REPOSITORY}/issues/${PR_NUMBER}/comments" -f body="Worker PR closed fail-closed: ${reason}. A durable Supervisor slot reservation is required before branch publication / PR creation." >/dev/null || true
+            echo "Refused unreserved Worker PR #${PR_NUMBER}: ${reason}" >&2
+            exit 1
+          }
+
+          has_trusted_dispatch_provenance() {
+            local comments reservation_matches=0 trusted_matches=0 encoded reservation_json reservation_id reservation_body payload_b64 payload state reserved_task reserved_run reserved_branch reserved_head reserved_pr head_matches dispatch_marker dispatch_matches changed_retarget_return published_retarget_return prior_nonmain_base recovery_kind recovery_base recovery_reservation_head recovery_observed_head
+            trusted_reservation_id=""
+            trusted_reservation_body=""
+            trusted_reservation_payload=""
+            trusted_changed_retarget_return="false"
+            trusted_published_retarget_return="false"
+            trusted_published_retarget_prior_base=""
+            [ "$live_author" = "${REPOSITORY%%/*}" ] && [ "$live_head_repository" = "$REPOSITORY" ] || return 1
+            if ! comments="$(gh api --paginate "repos/${REPOSITORY}/issues/548/comments?per_page=100" --jq '.[]' | jq -s '.')"; then
+              return 1
+            fi
+            while IFS= read -r encoded; do
+              reservation_json="$(printf '%s' "$encoded" | base64 --decode 2>/dev/null || true)"
+              reservation_id="$(jq -r '.id // empty' <<< "$reservation_json")"
+              reservation_body="$(jq -r '.body // ""' <<< "$reservation_json")"
+              payload_b64="$(sed -n 's/^- Reservation payload: `\([^`]*\)`$/\1/p' <<< "$reservation_body")"
+              payload="$(printf '%s' "$payload_b64" | base64 --decode 2>/dev/null || true)"
+              jq -e . >/dev/null 2>&1 <<< "$payload" || continue
+              state="$(jq -r '.state // ""' <<< "$payload")"
+              reserved_task="$(jq -r '.task_id // ""' <<< "$payload")"
+              reserved_run="$(jq -r '.run_id // ""' <<< "$payload")"
+              reserved_branch="$(jq -r '.branch // ""' <<< "$payload")"
+              reserved_head="$(jq -r '.head_sha // ""' <<< "$payload")"
+              reserved_pr="$(jq -r '.pr_number // empty' <<< "$payload")"
+              recovery_kind="$(jq -r '.recovery.kind // ""' <<< "$payload")"
+              recovery_base="$(jq -r '.recovery.base_ref // ""' <<< "$payload")"
+              recovery_reservation_head="$(jq -r '.recovery.reservation_head_sha // ""' <<< "$payload")"
+              recovery_observed_head="$(jq -r '.recovery.observed_head_sha // ""' <<< "$payload")"
+              case "$state" in
+                RESERVED|PUBLISHED|RECOVERABLE) ;;
+                RELEASED) ;;
+                *) continue ;;
+              esac
+              [ -n "$reserved_task" ] && [ -n "$reserved_run" ] && [ -n "$reserved_head" ] || continue
+              [ -z "$reserved_pr" ] || [ "$reserved_pr" = "$PR_NUMBER" ] || continue
+              changed_retarget_return=false
+              if [ "$state" = "RELEASED" ] \
+                && [ "$reserved_pr" = "$PR_NUMBER" ] \
+                && [ "$live_base" = "main" ] \
+                && { [ "$live_state" = "open" ] || [ "$live_state" = "closed" ]; } \
+                && [ "$recovery_kind" = "retargeted_pr" ] \
+                && [ -n "$recovery_base" ] && [ "$recovery_base" != "main" ] \
+                && [ "$recovery_reservation_head" = "$reserved_head" ] \
+                && { [ -z "$recovery_observed_head" ] || [ "$recovery_observed_head" != "$reserved_head" ]; } \
+                && [ "$reserved_head" != "$live_head" ]; then
+                changed_retarget_return=true
+              fi
+
+              prior_nonmain_base=""
+              case "$EVENT_ACTION" in
+                synchronize|edited)
+                  if [ -n "${EVENT_BASE_REF:-}" ] && [ "$EVENT_BASE_REF" != "main" ]; then
+                    prior_nonmain_base="$EVENT_BASE_REF"
+                  elif [ "$EVENT_ACTION" = "edited" ] \
+                    && [ -n "${EVENT_PREVIOUS_BASE_REF:-}" ] && [ "$EVENT_PREVIOUS_BASE_REF" != "main" ]; then
+                    prior_nonmain_base="$EVENT_PREVIOUS_BASE_REF"
+                  fi
+                  ;;
+              esac
+              published_retarget_return=false
+              if [ "$state" = "PUBLISHED" ] \
+                && [ "$reserved_pr" = "$PR_NUMBER" ] \
+                && [ "$live_state" = "open" ] \
+                && [ "$live_base" = "main" ] \
+                && [ "$reserved_head" != "$live_head" ] \
+                && [ -n "$prior_nonmain_base" ]; then
+                published_retarget_return=true
+              fi
+              head_matches=false
+              if [ "$reserved_head" = "$live_head" ] \
+                || [ "$changed_retarget_return" = "true" ] \
+                || [ "$published_retarget_return" = "true" ] \
+                || { [ "$reserved_pr" = "$PR_NUMBER" ] \
+                  && { { [ "$state" = "PUBLISHED" ] \
+                    && { [ "$live_state" = "closed" ] \
+                      || { [ "$EVENT_ACTOR" = "${REPOSITORY%%/*}" ] \
+                        && { [ "$EVENT_ACTION" = "synchronize" ] || [ "$EVENT_ACTION" = "edited" ] || [ "$EVENT_ACTION" = "reopened" ]; }; }; }; } \
+                    || { [ "$state" = "RELEASED" ] && [ "$live_state" = "closed" ]; }; }; }; then
+                head_matches=true
+              fi
+              [ "$reserved_branch" = "$live_ref" ] && [ "$head_matches" = "true" ] || continue
+              reservation_matches=$((reservation_matches + 1))
+              dispatch_marker="<!-- proffera-worker-dispatch-start:${reserved_task}:${reserved_run} -->"
+              dispatch_matches="$(jq --arg marker "$dispatch_marker" '[.[] | select(.user.login == "github-actions[bot]" and ((.body // "") | contains($marker)))] | length' <<< "$comments")"
+              if [ "$dispatch_matches" -eq 1 ]; then
+                trusted_matches=$((trusted_matches + 1))
+                trusted_reservation_id="$reservation_id"
+                trusted_reservation_body="$reservation_body"
+                trusted_reservation_payload="$payload"
+                trusted_changed_retarget_return="$changed_retarget_return"
+                trusted_published_retarget_return="$published_retarget_return"
+                trusted_published_retarget_prior_base="$prior_nonmain_base"
+              fi
+            done < <(jq -r '.[] | select(.user.login == "github-actions[bot]" and ((.body // "") | contains("<!-- proffera-worker-slot-reservation:"))) | @base64' <<< "$comments")
+            [ "$reservation_matches" -eq 1 ] && [ "$trusted_matches" -eq 1 ]
+          }
+
+          release_trusted_reservation_after_invalid_close() {
+            local reason="$1" result
+            result="$(jq -cn --arg repository "$REPOSITORY" --argjson pr_number "$PR_NUMBER" --arg run_id "$RUN_ID" --arg mutex "$mutex" '{repository:$repository,pr_number:$pr_number,run_id:$run_id,mutex:$mutex}' | node "$helper" invalid-close-reconcile)"
+            if [ "$(jq -r '.code // ""' <<< "$result")" = "valid_task_packet" ]; then
+              return 1
+            fi
+            if [ "$(jq -r '.ok == true' <<< "$result")" != "true" ]; then
+              echo "Closed malformed Worker PR was not mutation-safe: $(jq -r '.reason' <<< "$result")" >&2
+              if [ "$(jq -r '(.retryable == true) or (.reservation_mutated == true) or (.task_mutated == true)' <<< "$result")" = "true" ]; then
+                return 3
+              fi
+              return 2
+            fi
+            if [ "$(jq -r '.reservation_mutated == true' <<< "$result")" = "true" ]; then
+              echo "Released trusted Worker slot reservation $(jq -r '.task_id' <<< "$result") after malformed PR #${PR_NUMBER} closed (${reason})."
+            else
+              echo "Malformed closed Worker PR reservation $(jq -r '.task_id' <<< "$result") was already released idempotently."
+            fi
+            if [ "$(jq -r '.task_mutated == true' <<< "$result")" = "true" ]; then
+              echo "Reconciled malformed closed Worker PR task $(jq -r '.task_id' <<< "$result") to its live terminal state."
+            fi
+          }
+
+          if [ "$live_state" != "closed" ] \
+            && { [ "$live_head" != "$EVENT_HEAD_SHA" ] || [ "$live_ref" != "$EVENT_HEAD_REF" ]; }; then
+            echo "PR changed before reservation enforcement; newer event will reconcile it."
+            exit 0
+          fi
+          if ! has_trusted_dispatch_provenance; then
+            echo "PR #${PR_NUMBER} has no exact trusted Supervisor dispatch provenance; leaving it unchanged."
+            exit 0
+          fi
+          control_input="$(jq -cn --arg repository "$REPOSITORY" --arg run_id "$RUN_ID" '{repository:$repository,run_id:$run_id}')"
+          mutex="$(printf '%s' "$control_input" | node "$helper" reservation-mutex-acquire)"
+          control_input="$(jq -c --arg mutex "$mutex" '. + {mutex:$mutex}' <<< "$control_input")"
+          release_mutex() {
+            printf '%s' "$control_input" | node "$helper" reservation-mutex-release
+          }
+          trap 'release_mutex || true' EXIT
+
+          if [ "$trusted_published_retarget_return" = "true" ]; then
+            enforcement_input="$(jq -c --argjson pr_number "$PR_NUMBER" --arg event_head "$EVENT_HEAD_SHA" --arg prior_base_ref "$trusted_published_retarget_prior_base" '. + {pr_number:$pr_number,event_head:$event_head,prior_base_ref:$prior_base_ref}' <<< "$control_input")"
+            enforcement="$(printf '%s' "$enforcement_input" | node "$helper" published-retarget-return-enforce)"
+            if [ "$(jq -r '.ok == true' <<< "$enforcement")" != "true" ]; then
+              jq -r '.reason // "Rapid published retarget-return enforcement refused."' <<< "$enforcement" >&2
+              exit 1
+            fi
+            echo "Closed rapid changed-head PUBLISHED Worker PR #${PR_NUMBER} fail-closed while preserving trusted historical provenance."
+            exit 0
+          fi
+
+          if [ "$trusted_changed_retarget_return" = "true" ]; then
+            enforcement_input="$(jq -c --argjson pr_number "$PR_NUMBER" --arg event_head "$EVENT_HEAD_SHA" '. + {pr_number:$pr_number,event_head:$event_head}' <<< "$control_input")"
+            enforcement="$(printf '%s' "$enforcement_input" | node "$helper" released-retarget-return-enforce)"
+            if [ "$(jq -r '.ok == true' <<< "$enforcement")" != "true" ]; then
+              jq -r '.reason // "Changed released retarget PR enforcement refused."' <<< "$enforcement" >&2
+              exit 1
+            fi
+            if [ "$(jq -r '.closed == true' <<< "$enforcement")" = "true" ]; then
+              echo "Closed changed-head released Worker PR #${PR_NUMBER} fail-closed without trusting or publishing the observed head."
+            else
+              echo "Changed-head released Worker PR #${PR_NUMBER} close replay is already converged; trusted historical provenance remains unchanged."
+            fi
+            exit 0
+          fi
+
+          if [ "$live_state" != "closed" ] && [ "$live_base" != "main" ]; then
+            retarget_input="$(jq -c --argjson pr_number "$PR_NUMBER" --arg event_head "$EVENT_HEAD_SHA" --arg actor "$EVENT_ACTOR" '. + {pr_number:$pr_number,event_head:$event_head,actor:$actor}' <<< "$control_input")"
+            retarget="$(printf '%s' "$retarget_input" | node "$helper" retarget-pr-reconcile)"
+            if [ "$(jq -r '.ok == true' <<< "$retarget")" != "true" ]; then
+              jq -r '.reason // "Retarget reconciliation refused."' <<< "$retarget" >&2
+              exit 1
+            fi
+            echo "Worker PR #${PR_NUMBER} was retargeted away from main; durable reservation released with exact provenance."
+            exit 0
+          fi
+
+          if [ "$live_state" = "closed" ]; then
+            reconcile_status=1
+            for reconcile_attempt in $(seq 1 5); do
+              if release_trusted_reservation_after_invalid_close "missing or reservation-mismatched bounded Task Packet"; then
+                echo "Closed trusted Worker PR had no exact reservation-bound Task Packet; its durable state was reconciled."
+                exit 0
+              else
+                reconcile_status=$?
+              fi
+              if [ "$reconcile_status" -eq 1 ]; then
+                break
+              fi
+              if [ "$reconcile_status" -ne 3 ]; then
+                exit "$reconcile_status"
+              fi
+              if [ "$reconcile_attempt" -lt 5 ]; then
+                echo "Transient malformed-close reconciliation failure; retrying (${reconcile_attempt}/5)." >&2
+                sleep 5
+              fi
+            done
+            if [ "$reconcile_status" -ne 1 ]; then
+              exit "$reconcile_status"
+            fi
+          fi
+          if ! grep -Fq "$task_marker" <<< "$body"; then
+            if [ "$live_state" = "closed" ]; then
+              release_trusted_reservation_after_invalid_close "missing bounded Task Packet"
+              echo "Closed trusted Worker PR had no bounded Task Packet; its durable reservation was reconciled."
+              exit 0
+            fi
+            close_unreserved "missing bounded Task Packet"
+          fi
+          packet_file="$(mktemp)"
+          if ! printf '%s' "$body" | node "$helper" parse > "$packet_file" 2>/dev/null || ! jq -e . "$packet_file" >/dev/null 2>&1; then
+            if [ "$live_state" = "closed" ]; then
+              release_trusted_reservation_after_invalid_close "invalid bounded Task Packet"
+              echo "Closed trusted Worker PR had an invalid Task Packet; its durable reservation was reconciled."
+              exit 0
+            fi
+            close_unreserved "invalid bounded Task Packet"
+          fi
+          packet="$(cat "$packet_file")"
+          task_id="$(jq -r '.task_id' <<< "$packet")"
+          packet_branch="$(jq -r '.branch' <<< "$packet")"
+          packet_graph="$(jq -r '.graph_path' <<< "$packet")"
+          packet_allowed="$(jq -c '.allowed_paths' <<< "$packet")"
+          packet_digest="$(printf '%s' "$packet" | sha256sum | cut -d' ' -f1)"
+          if [ "$packet_branch" != "$live_ref" ]; then
+            if [ "$live_state" = "closed" ]; then
+              release_trusted_reservation_after_invalid_close "Task Packet branch does not match PR head"
+              echo "Closed trusted Worker PR had a Task Packet branch mismatch; its durable reservation was reconciled."
+              exit 0
+            fi
+            close_unreserved "Task Packet branch does not match PR head"
+          fi
+
+          marker="<!-- proffera-worker-slot-reservation:${task_id} -->"
+
+          if [ "$live_state" = "closed" ]; then
+            repository_owner="${REPOSITORY%%/*}"
+            if [ "$live_author" != "$repository_owner" ] || [ "$live_head_repository" != "$REPOSITORY" ]; then
+              echo "Refused: closed Worker PR is not owned by the trusted same-repository owner." >&2
+              exit 1
+            fi
+            if [ "$live_state" != "closed" ]; then
+              echo "Close event is stale; live PR is not closed."
+              exit 0
+            fi
+            comments="$(gh api --paginate "repos/${REPOSITORY}/issues/548/comments?per_page=100" --jq '.[]' | jq -s --arg marker "$marker" '[.[] | select(.user.login == "github-actions[bot]" and ((.body // "") | contains($marker)))]')"
+            reservation_count="$(jq 'length' <<< "$comments")"
+            if [ "$reservation_count" -eq 0 ]; then
+              echo "Closed Worker PR #${PR_NUMBER} has no durable reservation record to release."
+              exit 0
+            fi
+            if [ "$reservation_count" -ne 1 ]; then
+              echo "Refused: closed Worker PR has ambiguous duplicate reservation records." >&2
+              exit 1
+            fi
+            reservation_id="$(jq -r '.[0].id' <<< "$comments")"
+            reservation_body="$(jq -r '.[0].body // ""' <<< "$comments")"
+            payload_b64="$(sed -n 's/^- Reservation payload: `\([^`]*\)`$/\1/p' <<< "$reservation_body")"
+            payload="$(printf '%s' "$payload_b64" | base64 --decode 2>/dev/null || true)"
+            if ! jq -e . >/dev/null 2>&1 <<< "$payload"; then
+              echo "Refused: closed Worker PR reservation payload is malformed." >&2
+              exit 1
+            fi
+            state="$(jq -r '.state // ""' <<< "$payload")"
+            reserved_task="$(jq -r '.task_id // ""' <<< "$payload")"
+            reserved_run="$(jq -r '.run_id // ""' <<< "$payload")"
+            reserved_branch="$(jq -r '.branch // ""' <<< "$payload")"
+            reserved_pr="$(jq -r '.pr_number // empty' <<< "$payload")"
+            reserved_graph="$(jq -r '.graph_path // ""' <<< "$payload")"
+            reserved_allowed="$(jq -c '.allowed_paths // []' <<< "$payload")"
+            reserved_digest="$(jq -r '.packet_digest // ""' <<< "$payload")"
+            reserved_head="$(jq -r '.head_sha // ""' <<< "$payload")"
+            if ! [[ "$reserved_run" =~ ^[0-9]+$ ]] \
+              || [ "$reserved_task" != "$task_id" ] \
+              || [ "$reserved_branch" != "$live_ref" ] \
+              || [ "$reserved_graph" != "$packet_graph" ] \
+              || [ "$reserved_allowed" != "$packet_allowed" ] \
+              || [ "$reserved_digest" != "$packet_digest" ]; then
+              echo "Refused: closed Worker PR does not match durable reservation ownership." >&2
+              exit 1
+            fi
+            if [ -n "$reserved_pr" ] && [ "$reserved_pr" != "$PR_NUMBER" ]; then
+              echo "Refused: reservation belongs to PR #${reserved_pr}, not closed PR #${PR_NUMBER}." >&2
+              exit 1
+            fi
+            if [ -z "$reserved_pr" ] && [ "$reserved_head" != "$live_head" ]; then
+              echo "Refused: unbound reservation head does not match the closed Worker PR." >&2
+              exit 1
+            fi
+            release_reservation=yes
+            if [ "$state" = "RELEASED" ]; then
+              release_reservation=no
+            else
+              case "$state" in
+                RESERVED|PUBLISHED|RECOVERABLE) ;;
+                *)
+                  echo "Reservation ${task_id} is already terminal/non-active (${state}); no slot release needed."
+                  exit 0
+                  ;;
+              esac
+            fi
+
+            if [ "$live_merged" = "true" ]; then
+              terminal_state="MERGED"
+              terminal_reason="Worker PR is live-verified as merged through the repository merge path."
+            else
+              terminal_state="CLOSED_UNMERGED"
+              terminal_reason="Worker PR is live-verified as closed without merge."
+            fi
+            terminal_task_marker="<!-- proffera-worker-task-state:${task_id} -->"
+            task_comments="$(gh api --paginate "repos/${REPOSITORY}/issues/548/comments?per_page=100" --jq '.[]' | jq -s --arg marker "$terminal_task_marker" '[.[] | select(.user.login == "github-actions[bot]" and ((.body // "") | contains($marker)))]')"
+            task_state_comment_id="$(jq -r 'last | .id // empty' <<< "$task_comments")"
+            current_task_body="$(jq -r 'last | .body // ""' <<< "$task_comments")"
+            transition="$(jq -n \
+              --arg current_body "$current_task_body" \
+              --arg source lifecycle \
+              --arg requested_state "$terminal_state" \
+              --arg requested_head "$live_head" \
+              --arg live_head "$live_head" \
+              --arg live_pr_state "$live_state" \
+              --argjson live_merged "$live_merged" \
+              '{current_body:$current_body,source:$source,requested_state:$requested_state,requested_head:$requested_head,live_head:$live_head,live_pr_state:$live_pr_state,live_merged:$live_merged}' \
+              | node "$helper" transition)"
+            transition_apply="$(jq -r '.apply == true' <<< "$transition")"
+
+            confirm_pr="$(gh api "repos/${REPOSITORY}/pulls/${PR_NUMBER}")"
+            if [ "$(jq -r '.state // ""' <<< "$confirm_pr")" != "closed" ] \
+              || [ "$(jq -r '.merged == true' <<< "$confirm_pr")" != "$live_merged" ] \
+              || [ "$(jq -r '.head.sha // ""' <<< "$confirm_pr")" != "$live_head" ] \
+              || [ "$(jq -r '.head.ref // ""' <<< "$confirm_pr")" != "$live_ref" ] \
+              || [ "$(jq -r '.user.login // ""' <<< "$confirm_pr")" != "${REPOSITORY%%/*}" ] \
+              || [ "$(jq -r '.head.repo.full_name // ""' <<< "$confirm_pr")" != "$REPOSITORY" ]; then
+              echo "Closed Worker PR changed before terminal reconciliation; leaving reservation and task state unchanged."
+              exit 0
+            fi
+
+            if [ "$release_reservation" = "yes" ]; then
+              task_body_digest="$(jq -j 'last | .body // ""' <<< "$task_comments" | sha256sum | cut -d' ' -f1)"
+              payload="$(jq -c --arg state RELEASED --argjson pr_number "$PR_NUMBER" --arg head "$live_head" --argjson merged "$live_merged" --arg task_body_digest "$task_body_digest" '.state=$state | .pr_number=$pr_number | .head_sha=$head | .activation_task_sha256=$task_body_digest | .recovery={kind:"closed_pr",merged:$merged}' <<< "$payload")"
+              payload_b64="$(printf '%s' "$payload" | base64 -w0)"
+              new_body="$(cat <<EOF
+          <!-- proffera-worker-slot-reservation:${task_id} -->
+          ### Worker slot reservation: ${task_id}
+          - State: \`RELEASED\`
+          - Reservation payload: \`${payload_b64}\`
+          EOF
+              )"
+              gh api --method PATCH "repos/${REPOSITORY}/issues/comments/${reservation_id}" -f body="$new_body" >/dev/null
+              echo "Released writable Worker slot reservation ${task_id} after PR #${PR_NUMBER} closed (merged=${live_merged})."
+            else
+              echo "Reservation ${task_id} was already released idempotently."
+            fi
+
+            if [ "$transition_apply" = "true" ]; then
+              task_state_json="$(jq -n --argjson packet "$packet" --arg state "$terminal_state" --arg reason "$terminal_reason" --arg run_id "$reserved_run" --argjson pr_number "$PR_NUMBER" --arg head_sha "$live_head" '{packet:$packet,state:$state,reason:$reason,run_id:$run_id,pr_number:$pr_number,head_sha:$head_sha}')"
+              task_state_body="$(printf '%s' "$task_state_json" | node "$helper" state-body)"
+              if [ -n "$task_state_comment_id" ]; then
+                gh api --method PATCH "repos/${REPOSITORY}/issues/comments/${task_state_comment_id}" -f body="$task_state_body" >/dev/null
+              else
+                gh api --method POST "repos/${REPOSITORY}/issues/548/comments" -f body="$task_state_body" >/dev/null
+              fi
+              echo "Reconciled task ${task_id} to ${terminal_state} in the same close writer."
+            else
+              echo "Terminal task state was already reconciled idempotently."
+            fi
+            exit 0
+          fi
+
+          admission_input="$(jq -c --argjson pr_number "$PR_NUMBER" --arg event_head "$EVENT_HEAD_SHA" --arg actor "$EVENT_ACTOR" '. + {pr_number:$pr_number,event_head:$event_head,actor:$actor}' <<< "$control_input")"
+          admission="$(printf '%s' "$admission_input" | node "$helper" worker-pr-admit)"
+          if [ "$(jq -r '.ok == true' <<< "$admission")" != "true" ]; then
+            jq -r '.reason' <<< "$admission" >&2
+            echo "A capacity-blocked reopen stays non-active. Reopen the same unchanged PR after a slot is available; no new Worker dispatch is needed." >&2
+            exit 1
+          fi
+          echo "Worker PR #${PR_NUMBER} is bound to durable reservation ${task_id}@${live_head}."
+
   preflight:
     name: Validate bounded Task Packet
     if: >-
-      github.event.issue.number == 548 &&
-      github.actor == 'ibboabdoli-ai' &&
-      contains(github.event.comment.body, '<!-- proffera-worker-task-packet:v1 -->')
+      inputs.planner_packet_b64 != '' ||
+      (github.event_name == 'workflow_dispatch' && inputs.comment_id != '')
+    concurrency:
+      group: proffera-supervisor-worker-admission-${{ inputs.comment_id || inputs.planner_run_id || github.run_id }}
+      cancel-in-progress: false
     runs-on: ubuntu-latest
     timeout-minutes: 8
     permissions:
+      actions: read
       contents: read
       issues: write
       pull-requests: read
@@ -31,6 +502,10 @@ jobs:
       base_sha: ${{ steps.evaluate.outputs.base_sha }}
       task_title: ${{ steps.evaluate.outputs.task_title }}
       state_comment_id: ${{ steps.evaluate.outputs.state_comment_id }}
+      source_comment_id: ${{ steps.evaluate.outputs.source_comment_id }}
+      source_mode: ${{ steps.evaluate.outputs.source_mode }}
+      reservation_comment_id: ${{ steps.reserve.outputs.reservation_comment_id }}
+      capacity_blocked: ${{ steps.reserve.outputs.capacity_blocked }}
 
     steps:
       - name: Checkout trusted default-branch control logic
@@ -50,10 +525,12 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           REPOSITORY: ${{ github.repository }}
-          EVENT_ACTOR: ${{ github.actor }}
-          EVENT_ISSUE_NUMBER: ${{ github.event.issue.number }}
-          EVENT_COMMENT_ID: ${{ github.event.comment.id }}
-          EVENT_COMMENT_BODY: ${{ github.event.comment.body }}
+          INPUT_COMMENT_ID: ${{ inputs.comment_id }}
+          PLANNER_PACKET_B64: ${{ inputs.planner_packet_b64 }}
+          PLANNER_PACKET_SHA256: ${{ inputs.planner_packet_sha256 }}
+          PLANNER_RUN_ID: ${{ inputs.planner_run_id }}
+          PLANNER_HEAD_SHA: ${{ inputs.planner_head_sha }}
+          PLANNER_WORKFLOW_REF: ${{ inputs.planner_workflow_ref }}
           RUN_ID: ${{ github.run_id }}
           OPENAI_AVAILABLE: ${{ secrets.OPENAI_API_KEY != '' }}
           PUSH_AVAILABLE: ${{ secrets.PROFFERA_AUTOFIX_PUSH_TOKEN != '' }}
@@ -67,9 +544,98 @@ jobs:
             exit 1
           fi
 
+          source_mode=comment
+          EVENT_COMMENT_ID=""
+          EVENT_ACTOR=""
+          EVENT_COMMENT_BODY=""
+          EVENT_ISSUE_NUMBER="548"
+          internal_provenance_verified=false
+          packet_digest_verified=false
+
+          if [ -n "${PLANNER_PACKET_B64:-}" ]; then
+            if [ -n "${INPUT_COMMENT_ID:-}" ]; then
+              echo "Refused: choose owner-comment or internal planner dispatch, not both." >&2
+              exit 1
+            fi
+            if ! [[ "${PLANNER_RUN_ID:-}" =~ ^[1-9][0-9]*$ ]] \
+              || ! [[ "${PLANNER_HEAD_SHA:-}" =~ ^[0-9a-f]{40}$ ]] \
+              || ! [[ "${PLANNER_PACKET_SHA256:-}" =~ ^[0-9a-f]{64}$ ]]; then
+              echo "Refused: internal Planner provenance inputs are malformed." >&2
+              exit 1
+            fi
+            if [ "$PLANNER_RUN_ID" != "$RUN_ID" ]; then
+              echo "Refused: internal Planner run ID does not match this reusable-workflow run." >&2
+              exit 1
+            fi
+            default_branch="$(gh api "repos/${REPOSITORY}" --jq '.default_branch // ""')"
+            if [ "$default_branch" != "main" ]; then
+              echo "Refused: repository default branch is not the trusted main branch." >&2
+              exit 1
+            fi
+            expected_workflow_ref="${REPOSITORY}/.github/workflows/supervisor-planner.yml@refs/heads/main"
+            if [ "${PLANNER_WORKFLOW_REF:-}" != "$expected_workflow_ref" ]; then
+              echo "Refused: internal Planner workflow ref is not the exact default-branch planner." >&2
+              exit 1
+            fi
+            planner_run="$(gh api "repos/${REPOSITORY}/actions/runs/${PLANNER_RUN_ID}")"
+            if [ "$(jq -r '.repository.full_name // ""' <<< "$planner_run")" != "$REPOSITORY" ] \
+              || [ "$(jq -r '.path // ""' <<< "$planner_run")" != ".github/workflows/supervisor-planner.yml" ] \
+              || [ "$(jq -r '.head_branch // ""' <<< "$planner_run")" != "main" ] \
+              || [ "$(jq -r '.head_sha // ""' <<< "$planner_run")" != "$PLANNER_HEAD_SHA" ]; then
+              echo "Refused: internal Planner workflow run provenance is not exact." >&2
+              exit 1
+            fi
+            planner_event="$(jq -r '.event // ""' <<< "$planner_run")"
+            case "$planner_event" in
+              schedule|workflow_dispatch) ;;
+              *)
+                echo "Refused: internal Planner run event is not trusted." >&2
+                exit 1
+                ;;
+            esac
+
+            planner_packet="$(printf '%s' "$PLANNER_PACKET_B64" | base64 --decode)"
+            jq -e . <<< "$planner_packet" >/dev/null
+            actual_packet_sha256="$(printf '%s' "$planner_packet" | sha256sum | cut -d' ' -f1)"
+            if [ "$actual_packet_sha256" != "$PLANNER_PACKET_SHA256" ]; then
+              echo "Refused: internal Planner packet digest does not match the received bytes." >&2
+              exit 1
+            fi
+            EVENT_COMMENT_BODY="$(printf '<!-- proffera-worker-task-packet:v1 -->\n```json\n%s\n```\n' "$(jq '.' <<< "$planner_packet")")"
+            canonical_packet="$(printf '%s' "$EVENT_COMMENT_BODY" | node "$helper" parse)"
+            if [ "$canonical_packet" != "$planner_packet" ] \
+              || [ "$(printf '%s' "$canonical_packet" | sha256sum | cut -d' ' -f1)" != "$PLANNER_PACKET_SHA256" ]; then
+              echo "Refused: internal Planner packet is not the exact normalized packet bound to its digest." >&2
+              exit 1
+            fi
+            source_mode=planner
+            EVENT_ACTOR="github-actions[bot]"
+            internal_provenance_verified=true
+            packet_digest_verified=true
+          else
+            if ! [[ "${INPUT_COMMENT_ID:-}" =~ ^[1-9][0-9]*$ ]]; then
+              echo "Refused: workflow_dispatch comment_id must be a positive integer." >&2
+              exit 1
+            fi
+            source_comment_json="$(gh api "repos/${REPOSITORY}/issues/comments/${INPUT_COMMENT_ID}")"
+            EVENT_COMMENT_ID="$INPUT_COMMENT_ID"
+            EVENT_ACTOR="$(jq -r '.user.login // ""' <<< "$source_comment_json")"
+            EVENT_COMMENT_BODY="$(jq -r '.body // ""' <<< "$source_comment_json")"
+            issue_url="$(jq -r '.issue_url // ""' <<< "$source_comment_json")"
+            EVENT_ISSUE_NUMBER="${issue_url##*/}"
+            if [ "$EVENT_ISSUE_NUMBER" != "548" ] || [ "$EVENT_ACTOR" != "ibboabdoli-ai" ] || [[ "$EVENT_COMMENT_BODY" != *"<!-- proffera-worker-task-packet:v1 -->"* ]]; then
+              echo "Refused: source comment is not a trusted owner Task Packet on Supervisor issue #548." >&2
+              exit 1
+            fi
+          fi
+
           upsert_rejection() {
             local reason="$1"
             local rejection_json rejection_body marker comments_json comment_id
+            if [ "$source_mode" = "planner" ]; then
+              echo "Planner packet rejected before state creation: $reason" >&2
+              return 0
+            fi
             rejection_json="$(jq -n --argjson comment_id "$EVENT_COMMENT_ID" --arg reason "$reason" '{comment_id:$comment_id,reason:$reason}')"
             rejection_body="$(printf '%s' "$rejection_json" | node "$helper" rejection-body)"
             marker="<!-- proffera-worker-task-rejection:${EVENT_COMMENT_ID} -->"
@@ -102,13 +668,41 @@ jobs:
           base_sha="$(jq -r '.base_sha' <<< "$packet")"
           task_title="$(jq -r '.task_title' <<< "$packet")"
           state_marker="<!-- proffera-worker-task-state:${task_id} -->"
+          control_input="$(jq -cn --arg repository "$REPOSITORY" --arg run_id "$RUN_ID" '{repository:$repository,run_id:$run_id}')"
+
+          initial_comments_json="$(printf '%s' "$control_input" | node "$helper" task-comments)"
+          initial_state_matches="$(jq -c --arg marker "$state_marker" '[.[] | select(.user.login == "github-actions[bot]" and ((.body // "") | contains($marker)))]' <<< "$initial_comments_json")"
+          initial_state_count="$(jq 'length' <<< "$initial_state_matches")"
+          if [ "$initial_state_count" -gt 1 ]; then
+            echo "proceed=no" >> "$GITHUB_OUTPUT"
+            echo "Refused read-only: duplicate canonical task-state records exist for $task_id." >&2
+            exit 1
+          fi
+          # A single retryable state can require canonical recovery after an expired
+          # reservation or interrupted TASK_CREATED write. Reconciliation runs under
+          # the global reservation mutex and validates exact packet/run/branch
+          # provenance before any mutation. The canonical result is re-fetched and
+          # validated below before any dispatch-state mutation.
+
+          mutex="$(printf '%s' "$control_input" | node "$helper" reservation-mutex-acquire)"
+          control_input="$(jq -c --arg mutex "$mutex" '. + {mutex:$mutex}' <<< "$control_input")"
+          release_mutex() {
+            printf '%s' "$control_input" | node "$helper" reservation-mutex-release
+          }
+          trap 'release_mutex || true' EXIT
 
           supervisor_json="$(gh api "repos/${REPOSITORY}/issues/548")"
           supervisor_labels="$(jq -c '[.labels[].name]' <<< "$supervisor_json")"
           live_main_sha="$(gh api "repos/${REPOSITORY}/git/ref/heads/main" --jq '.object.sha')"
-          comments_json="$(gh api --paginate "repos/${REPOSITORY}/issues/548/comments?per_page=100" --jq '.[]' | jq -s --arg marker "$state_marker" '[.[] | select(.user.login == "github-actions[bot]" and ((.body // "") | contains($marker)))]')"
+          pulls_json="$(gh api --paginate "repos/${REPOSITORY}/pulls?state=open&base=main&per_page=100" --jq '.[]' | jq -s --arg repository "$REPOSITORY" '[.[] | select((.head.repo.full_name // "") == $repository)]')"
+          branch_refs_json="$(gh api "repos/${REPOSITORY}/git/matching-refs/heads/${branch}")"
 
-          pulls_json="$(gh api --paginate "repos/${REPOSITORY}/pulls?state=open&base=main&per_page=100" --jq '.[]' | jq -s '.')"
+          reconcile_input="$(jq -c --argjson packet "$packet" '. + {packet:$packet}' <<< "$control_input")"
+          printf '%s' "$reconcile_input" | node "$helper" reconcile-unbound-tasks
+          all_comments_json="$(printf '%s' "$control_input" | node "$helper" task-comments)"
+          active_state_comments_json="$(jq '[.[] | select(.user.login == "github-actions[bot]" and ((.body // "") | contains("<!-- proffera-worker-task-state:")))]' <<< "$all_comments_json")"
+          comments_json="$(jq --arg marker "$state_marker" '[.[] | select(.user.login == "github-actions[bot]" and ((.body // "") | contains($marker)))]' <<< "$all_comments_json")"
+
           enriched_prs='[]'
           while IFS= read -r encoded; do
             [ -z "$encoded" ] && continue
@@ -122,10 +716,13 @@ jobs:
             enriched_prs="$(jq --argjson item "$item" '. + [$item]' <<< "$enriched_prs")"
           done < <(jq -r '.[] | @base64' <<< "$pulls_json")
 
-          branch_exists=false
-          if gh api "repos/${REPOSITORY}/git/ref/heads/${branch}" >/dev/null 2>&1; then
-            branch_exists=true
+          branch_count="$(jq --arg ref "refs/heads/${branch}" '[.[] | select(.ref == $ref)] | length' <<< "$branch_refs_json")"
+          if [ "$branch_count" -gt 1 ]; then
+            echo "Refused: live branch evidence is ambiguous." >&2
+            exit 1
           fi
+          branch_exists=false
+          [ "$branch_count" -eq 0 ] || branch_exists=true
 
           openai_available="${OPENAI_AVAILABLE:-false}"
           push_available="${PUSH_AVAILABLE:-false}"
@@ -134,16 +731,23 @@ jobs:
             --arg repository "$REPOSITORY" \
             --argjson issue_number "$EVENT_ISSUE_NUMBER" \
             --arg actor "$EVENT_ACTOR" \
+            --arg source "$source_mode" \
+            --arg planner_run_id "${PLANNER_RUN_ID:-}" \
+            --arg planner_head_sha "${PLANNER_HEAD_SHA:-}" \
+            --arg planner_packet_sha256 "${PLANNER_PACKET_SHA256:-}" \
+            --arg planner_workflow_ref "${PLANNER_WORKFLOW_REF:-}" \
+            --argjson internal_provenance_verified "$internal_provenance_verified" \
+            --argjson packet_digest_verified "$packet_digest_verified" \
             --arg comment_body "$EVENT_COMMENT_BODY" \
             --arg live_main_sha "$live_main_sha" \
             --arg run_id "$RUN_ID" \
             --argjson supervisor_labels "$supervisor_labels" \
-            --argjson comments "$comments_json" \
+            --argjson comments "$active_state_comments_json" \
             --argjson open_prs "$enriched_prs" \
             --argjson branch_exists "$branch_exists" \
             --argjson openai "$openai_available" \
             --argjson push "$push_available" \
-            '{event:{repository:$repository,issue_number:$issue_number,actor:$actor,is_fork:false,comment_body:$comment_body},supervisor_labels:$supervisor_labels,live_main_sha:$live_main_sha,comments:$comments,open_prs:$open_prs,branch:{exists:$branch_exists},secrets:{openai:$openai,push:$push},run_id:$run_id}')"
+            '{event:{repository:$repository,issue_number:$issue_number,actor:$actor,source:$source,trusted_internal_dispatch:($source == "planner"),internal_provenance_verified:$internal_provenance_verified,packet_digest_verified:$packet_digest_verified,planner_run_id:$planner_run_id,planner_head_sha:$planner_head_sha,planner_packet_sha256:$planner_packet_sha256,planner_workflow_ref:$planner_workflow_ref,is_fork:false,comment_body:$comment_body},supervisor_labels:$supervisor_labels,live_main_sha:$live_main_sha,comments:$comments,open_prs:$open_prs,branch:{exists:$branch_exists},secrets:{openai:$openai,push:$push},run_id:$run_id}')"
 
           decision="$(printf '%s' "$context" | node "$helper" evaluate)"
           decision_status="$(jq -r '.status' <<< "$decision")"
@@ -155,13 +759,54 @@ jobs:
             state=TASK_CREATED
           fi
 
+          printf '%s' "$control_input" | node "$helper" reservation-mutex-check
           state_input="$(jq -n --argjson packet "$packet" --arg state "$state" --arg reason "$decision_reason" --arg run_id "$RUN_ID" '{packet:$packet,state:$state,reason:$reason,run_id:$run_id}')"
           state_body="$(printf '%s' "$state_input" | node "$helper" state-body)"
-          state_comment_id="$(jq -r --arg marker "$state_marker" '[.[] | select(.user.login == "github-actions[bot]" and ((.body // "") | contains($marker)))] | last | .id // empty' <<< "$comments_json")"
-          if [ -n "$state_comment_id" ]; then
-            gh api --method PATCH "repos/${REPOSITORY}/issues/comments/${state_comment_id}" -f body="$state_body" >/dev/null
+          state_matches="$(jq -c --arg marker "$state_marker" '[.[] | select(.user.login == "github-actions[bot]" and ((.body // "") | contains($marker)))]' <<< "$all_comments_json")"
+          state_count="$(jq 'length' <<< "$state_matches")"
+          if [ "$state_count" -gt 1 ]; then
+            echo "Refused: duplicate durable task-state records exist for ${task_id}; no state was mutated and no Worker was dispatched." >&2
+            exit 1
+          fi
+          if [ "$state_count" -eq 1 ]; then
+            state_comment_id="$(jq -r '.[0].id // empty' <<< "$state_matches")"
+            current_state_body="$(jq -r '.[0].body // ""' <<< "$state_matches")"
+            state_binding="$(jq -n --argjson packet "$packet" --arg body "$current_state_body" '{packet:$packet,body:$body}' | node "$helper" validate-state)"
+            test "$(jq -r '.ok == true' <<< "$state_binding")" = "true"
+            expected_state_body="$current_state_body"
+            current_state="$(sed -n 's/^- State: `\([A-Z][A-Z0-9_]*\)`$/\1/p' <<< "$current_state_body")"
+            current_run="$(sed -n 's/^- Run ID: `\([0-9][0-9]*\)`$/\1/p' <<< "$current_state_body")"
+            state_marker_count="$(jq -r --arg marker "$state_marker" '.[0].body as $body | [$body | indices($marker)] | length' <<< "$state_matches")"
+            if ! [[ "$state_comment_id" =~ ^[1-9][0-9]*$ ]] \
+              || [ "$state_marker_count" -ne 1 ] \
+              || [ "$(grep -Ec '^- State: `[A-Z][A-Z0-9_]*`$' <<< "$current_state_body" || true)" -ne 1 ] \
+              || [ "$(grep -Ec '^- Run ID: `[0-9]+`$' <<< "$current_state_body" || true)" -ne 1 ]; then
+              echo "Refused: canonical task-state record is malformed or ambiguous; no mutation was attempted." >&2
+              exit 1
+            fi
+            if [ "$current_state" = "TASK_BLOCKED" ] \
+              || { [ "$proceed" = "yes" ] && [ "$current_state" = "TASK_CREATED" ] && [ "$current_run" = "$RUN_ID" ]; }; then
+              confirmed_state_body="$(gh api "repos/${REPOSITORY}/issues/comments/${state_comment_id}" --jq '.body // ""')"
+              if [ "$confirmed_state_body" != "$current_state_body" ]; then
+                echo "Refused: task state changed before canonical preflight transition." >&2
+                exit 1
+              fi
+              gh api --method PATCH "repos/${REPOSITORY}/issues/comments/${state_comment_id}" -f body="$state_body" >/dev/null
+              expected_state_body="$state_body"
+            else
+              proceed=no
+              echo "Preserved existing canonical task state ${current_state}; duplicate or stale delivery cannot rewrite it."
+            fi
           else
             state_comment_id="$(gh api --method POST "repos/${REPOSITORY}/issues/548/comments" -f body="$state_body" --jq '.id')"
+            expected_state_body="$state_body"
+          fi
+          persisted_comments_json="$(printf '%s' "$control_input" | node "$helper" task-comments)"
+          persisted_state_matches="$(jq -c --arg marker "$state_marker" '[.[] | select(.user.login == "github-actions[bot]" and ((.body // "") | contains($marker)))]' <<< "$persisted_comments_json")"
+          if [ "$(jq 'length' <<< "$persisted_state_matches")" -ne 1 ] \
+            || [ "$(jq -r --argjson id "$state_comment_id" 'if .[0].id == $id then .[0].body // "" else "" end' <<< "$persisted_state_matches")" != "$expected_state_body" ]; then
+            echo "Refused: canonical task-state upsert did not converge to exactly one exact record." >&2
+            exit 1
           fi
 
           packet_b64="$(printf '%s' "$packet" | base64 -w0)"
@@ -173,6 +818,8 @@ jobs:
             echo "base_sha=$base_sha"
             echo "task_title=$task_title"
             echo "state_comment_id=$state_comment_id"
+            echo "source_comment_id=${EVENT_COMMENT_ID:-}"
+            echo "source_mode=$source_mode"
           } >> "$GITHUB_OUTPUT"
 
           if [ "$proceed" != "yes" ]; then
@@ -180,77 +827,20 @@ jobs:
           else
             echo "Task $task_id accepted for one bounded Worker dispatch."
           fi
-
-  dispatch:
-    name: Run bounded Codex Worker
-    needs: preflight
-    if: needs.preflight.outputs.proceed == 'yes'
-    runs-on: ubuntu-latest
-    timeout-minutes: 45
-    permissions:
-      contents: read
-      issues: write
-      pull-requests: read
-
-    steps:
-      - name: Checkout exact Task Packet baseline
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-        with:
-          ref: ${{ needs.preflight.outputs.base_sha }}
-          fetch-depth: 0
-          persist-credentials: false
-
-      - name: Setup Node
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
-        with:
-          node-version: 22
-          cache: npm
-
-      - name: Install repository dependencies
-        run: npm ci --no-audit --no-fund
-
-      - name: Materialize immutable trusted handoff helper outside Worker workspace
-        shell: bash
-        run: |
-          set -euo pipefail
-          source_helper="scripts/supervisor-worker-handoff.mjs"
-          trusted_dir="$RUNNER_TEMP/proffera-trusted-control"
-          trusted_helper="$trusted_dir/supervisor-worker-handoff.mjs"
-          trusted_manifest="$trusted_dir/supervisor-worker-handoff.sha256"
-          test -f "$source_helper"
-          rm -rf "$trusted_dir"
-          mkdir -p "$trusted_dir"
-          cp -- "$source_helper" "$trusted_helper"
-          sha256sum "$trusted_helper" > "$trusted_manifest"
-          chmod 0444 "$trusted_helper" "$trusted_manifest"
-          chmod 0555 "$trusted_dir"
-          sha256sum --check --status "$trusted_manifest"
-
-      - name: Materialize untrusted Task Packet outside repository
-        env:
-          PACKET_B64: ${{ needs.preflight.outputs.packet_b64 }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          packet_file="$RUNNER_TEMP/proffera-task-packet.json"
-          printf '%s' "$PACKET_B64" | base64 --decode > "$packet_file"
-          jq -e . "$packet_file" >/dev/null
-
       - name: Refuse duplicate Worker dispatch on workflow rerun
-        if: ${{ github.run_attempt > 1 }}
+        if: steps.evaluate.outputs.proceed == 'yes' && github.run_attempt > 1
         env:
           GH_TOKEN: ${{ github.token }}
           REPOSITORY: ${{ github.repository }}
-          PACKET_B64: ${{ needs.preflight.outputs.packet_b64 }}
-          STATE_COMMENT_ID: ${{ needs.preflight.outputs.state_comment_id }}
+          PACKET_B64: ${{ steps.evaluate.outputs.packet_b64 }}
+          STATE_COMMENT_ID: ${{ steps.evaluate.outputs.state_comment_id }}
           RUN_ID: ${{ github.run_id }}
         shell: bash
         run: |
           set -euo pipefail
-          helper="$RUNNER_TEMP/proffera-trusted-control/supervisor-worker-handoff.mjs"
-          manifest="$RUNNER_TEMP/proffera-trusted-control/supervisor-worker-handoff.sha256"
-          test -f "$helper" -a -f "$manifest"
-          sha256sum --check --status "$manifest"
+          helper="scripts/supervisor-worker-handoff.mjs"
+          test -f "$helper"
+          node --check "$helper"
           test -n "$STATE_COMMENT_ID"
           packet="$(printf '%s' "$PACKET_B64" | base64 --decode)"
           task_id="$(jq -r '.task_id' <<< "$packet")"
@@ -280,11 +870,138 @@ jobs:
             exit 1
           fi
 
-      - name: Persist trusted Worker dispatch-start evidence
+      - name: Atomically reserve writable Worker slot
+        if: steps.evaluate.outputs.proceed == 'yes'
+        id: reserve
         env:
           GH_TOKEN: ${{ github.token }}
           REPOSITORY: ${{ github.repository }}
-          PACKET_B64: ${{ needs.preflight.outputs.packet_b64 }}
+          PACKET_B64: ${{ steps.evaluate.outputs.packet_b64 }}
+          SOURCE_COMMENT_ID: ${{ steps.evaluate.outputs.source_comment_id }}
+          SOURCE_MODE: ${{ steps.evaluate.outputs.source_mode }}
+          BASE_SHA: ${{ steps.evaluate.outputs.base_sha }}
+          RUN_ID: ${{ github.run_id }}
+          PLANNER_RUN_ID: ${{ inputs.planner_run_id }}
+          PLANNER_HEAD_SHA: ${{ inputs.planner_head_sha }}
+          PLANNER_PACKET_SHA256: ${{ inputs.planner_packet_sha256 }}
+          PLANNER_WORKFLOW_REF: ${{ inputs.planner_workflow_ref }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          helper="scripts/supervisor-worker-handoff.mjs"
+          test -f "$helper"
+          node --check "$helper"
+          packet="$(printf '%s' "$PACKET_B64" | base64 --decode)"
+          internal_provenance_verified=false
+          packet_digest_verified=false
+          planner_evidence='null'
+          if [ "${SOURCE_MODE:-comment}" = "planner" ]; then
+            EVENT_ACTOR="github-actions[bot]"
+            EVENT_ISSUE_NUMBER="548"
+            EVENT_COMMENT_BODY="$(printf '<!-- proffera-worker-task-packet:v1 -->\n```json\n%s\n```\n' "$(jq '.' <<< "$packet")")"
+            expected_workflow_ref="${REPOSITORY}/.github/workflows/supervisor-planner.yml@refs/heads/main"
+            actual_packet_sha256="$(printf '%s' "$packet" | sha256sum | cut -d' ' -f1)"
+            test "${PLANNER_RUN_ID:-}" = "$RUN_ID"
+            test "${PLANNER_HEAD_SHA:-}" = "$BASE_SHA"
+            test "${PLANNER_PACKET_SHA256:-}" = "$actual_packet_sha256"
+            test "${PLANNER_WORKFLOW_REF:-}" = "$expected_workflow_ref"
+            internal_provenance_verified=true
+            packet_digest_verified=true
+            canonical_packet_b64="$(printf '%s' "$packet" | base64 -w0)"
+            planner_evidence="$(jq -n --arg source planner --arg packet_b64 "$canonical_packet_b64" --arg planner_packet_sha256 "$actual_packet_sha256" --arg planner_run_id "$PLANNER_RUN_ID" --arg planner_head_sha "$PLANNER_HEAD_SHA" --arg planner_workflow_ref "$PLANNER_WORKFLOW_REF" '{source:$source,packet_b64:$packet_b64,planner_packet_sha256:$planner_packet_sha256,planner_run_id:$planner_run_id,planner_head_sha:$planner_head_sha,planner_workflow_ref:$planner_workflow_ref}')"
+          else
+            source_comment_json="$(gh api "repos/${REPOSITORY}/issues/comments/${SOURCE_COMMENT_ID}")"
+            EVENT_ACTOR="$(jq -r '.user.login // ""' <<< "$source_comment_json")"
+            EVENT_COMMENT_BODY="$(jq -r '.body // ""' <<< "$source_comment_json")"
+            issue_url="$(jq -r '.issue_url // ""' <<< "$source_comment_json")"
+            EVENT_ISSUE_NUMBER="${issue_url##*/}"
+            test "$EVENT_ISSUE_NUMBER" = "548"
+            test "$EVENT_ACTOR" = "ibboabdoli-ai"
+          fi
+          task_id="$(jq -r '.task_id' <<< "$packet")"
+          branch="$(jq -r '.branch' <<< "$packet")"
+          graph_path="$(jq -r '.graph_path' <<< "$packet")"
+          allowed_paths="$(jq -c '.allowed_paths' <<< "$packet")"
+          packet_digest="$(printf '%s' "$packet" | sha256sum | cut -d' ' -f1)"
+          head_sha="$(git rev-parse HEAD)"
+          test "$head_sha" = "$BASE_SHA"
+          changed_json='[]'
+          control_input="$(jq -cn --arg repository "$REPOSITORY" --arg run_id "$RUN_ID" '{repository:$repository,run_id:$run_id}')"
+          mutex="$(printf '%s' "$control_input" | node "$helper" reservation-mutex-acquire)"
+          control_input="$(jq -c --arg mutex "$mutex" '. + {mutex:$mutex}' <<< "$control_input")"
+          release_mutex() {
+            printf '%s' "$control_input" | node "$helper" reservation-mutex-release
+          }
+          trap 'release_mutex || true' EXIT
+
+          live_main_sha="$(gh api "repos/${REPOSITORY}/git/ref/heads/main" --jq '.object.sha')"
+          if [ "$live_main_sha" != "$BASE_SHA" ]; then
+            echo "Refused: main advanced before slot reservation." >&2
+            exit 1
+          fi
+          supervisor_json="$(gh api "repos/${REPOSITORY}/issues/548")"
+          supervisor_labels="$(jq -c '[.labels[].name]' <<< "$supervisor_json")"
+          reconcile_input="$(jq -c '. + {all:true}' <<< "$control_input")"
+          printf '%s' "$reconcile_input" | node "$helper" reconcile-unbound-tasks
+          comments_json="$(gh api --paginate "repos/${REPOSITORY}/issues/548/comments?per_page=100" --jq '.[]' | jq -s '.')"
+          pulls_json="$(gh api --paginate "repos/${REPOSITORY}/pulls?state=open&base=main&per_page=100" --jq '.[]' | jq -s --arg repository "$REPOSITORY" '[.[] | select((.head.repo.full_name // "") == $repository)]')"
+          enriched_prs='[]'
+          while IFS= read -r encoded; do
+            [ -z "$encoded" ] && continue
+            pr_json="$(printf '%s' "$encoded" | base64 --decode)"
+            pr_number="$(jq -r '.number' <<< "$pr_json")"
+            files_json="$(gh api --paginate "repos/${REPOSITORY}/pulls/${pr_number}/files?per_page=100" --jq '.[] | .filename' | jq -R -s 'split("\n") | map(select(length > 0))')"
+            item="$(jq -n --argjson pr "$pr_json" --argjson files "$files_json" '{number:$pr.number,head_ref:$pr.head.ref,head_sha:$pr.head.sha,base_ref:$pr.base.ref,head_repo:($pr.head.repo.full_name // ""),author:($pr.user.login // ""),body:($pr.body // ""),files:$files}')"
+            enriched_prs="$(jq --argjson item "$item" '. + [$item]' <<< "$enriched_prs")"
+          done < <(jq -r '.[] | @base64' <<< "$pulls_json")
+          branch_exists=false
+          if gh api "repos/${REPOSITORY}/git/ref/heads/${branch}" >/dev/null 2>&1; then branch_exists=true; fi
+          context="$(jq -n \
+            --arg repository "$REPOSITORY" \
+            --argjson issue_number "$EVENT_ISSUE_NUMBER" \
+            --arg actor "$EVENT_ACTOR" \
+            --arg source "$SOURCE_MODE" \
+            --arg planner_run_id "${PLANNER_RUN_ID:-}" \
+            --arg planner_head_sha "${PLANNER_HEAD_SHA:-}" \
+            --arg planner_packet_sha256 "${PLANNER_PACKET_SHA256:-}" \
+            --arg planner_workflow_ref "${PLANNER_WORKFLOW_REF:-}" \
+            --argjson internal_provenance_verified "$internal_provenance_verified" \
+            --argjson packet_digest_verified "$packet_digest_verified" \
+            --arg comment_body "$EVENT_COMMENT_BODY" \
+            --arg live_main_sha "$live_main_sha" \
+            --arg run_id "$RUN_ID" \
+            --argjson supervisor_labels "$supervisor_labels" \
+            --argjson comments "$comments_json" \
+            --argjson open_prs "$enriched_prs" \
+            --argjson branch_exists "$branch_exists" \
+            '{event:{repository:$repository,issue_number:$issue_number,actor:$actor,source:$source,trusted_internal_dispatch:($source == "planner"),internal_provenance_verified:$internal_provenance_verified,packet_digest_verified:$packet_digest_verified,planner_run_id:$planner_run_id,planner_head_sha:$planner_head_sha,planner_packet_sha256:$planner_packet_sha256,planner_workflow_ref:$planner_workflow_ref,is_fork:false,comment_body:$comment_body},supervisor_labels:$supervisor_labels,live_main_sha:$live_main_sha,comments:$comments,open_prs:$open_prs,branch:{exists:$branch_exists},secrets:{openai:true,push:true},run_id:$run_id}')"
+          decision="$(printf '%s' "$context" | node "$helper" evaluate)"
+          if [ "$(jq -r '.ok' <<< "$decision")" != "true" ]; then
+            jq -r '.reason' <<< "$decision" >&2
+            exit 1
+          fi
+
+          acquire_input="$(jq -c --argjson packet "$packet" --arg head_sha "$head_sha" --argjson planner_evidence "$planner_evidence" '. + {packet:$packet,head_sha:$head_sha,planner_evidence:$planner_evidence}' <<< "$control_input")"
+          reservation_result="$(printf '%s' "$acquire_input" | node "$helper" reservation-acquire)"
+          if [ "$(jq -r '.ok == true' <<< "$reservation_result")" != "true" ]; then
+            if [ "$(jq -r '.code' <<< "$reservation_result")" = "capacity_blocked" ]; then
+              echo "capacity_blocked=true" >> "$GITHUB_OUTPUT"
+            fi
+            jq -r '.reason' <<< "$reservation_result" >&2
+            exit 1
+          fi
+          echo "reservation_comment_id=$(jq -r '.reservation_comment_id' <<< "$reservation_result")" >> "$GITHUB_OUTPUT"
+          echo "head_sha=$head_sha" >> "$GITHUB_OUTPUT"
+          release_mutex
+          trap - EXIT
+          echo "Reserved one writable Worker slot through canonical ownership admission for ${task_id}@${head_sha}."
+
+      - name: Persist trusted Worker dispatch-start evidence
+        if: steps.evaluate.outputs.proceed == 'yes'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          PACKET_B64: ${{ steps.evaluate.outputs.packet_b64 }}
           RUN_ID: ${{ github.run_id }}
           RUN_ATTEMPT: ${{ github.run_attempt }}
         shell: bash
@@ -301,6 +1018,52 @@ jobs:
           EOF
           )"
           gh api --method POST "repos/${REPOSITORY}/issues/548/comments" -f body="$dispatch_body" >/dev/null
+
+
+  dispatch:
+    name: Run bounded Codex Worker
+    needs: preflight
+    if: needs.preflight.outputs.proceed == 'yes'
+    concurrency:
+      group: proffera-worker-task-state-${{ needs.preflight.outputs.branch }}
+      cancel-in-progress: false
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    outputs:
+      candidate_ready: ${{ steps.capture_candidate.outputs.ready }}
+      candidate_patch_sha256: ${{ steps.capture_candidate.outputs.patch_sha256 }}
+    permissions:
+      actions: read
+      contents: read
+      issues: read
+      pull-requests: read
+
+    steps:
+      - name: Checkout exact Task Packet baseline
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ needs.preflight.outputs.base_sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install repository dependencies
+        run: npm ci --no-audit --no-fund
+
+      - name: Materialize untrusted Task Packet outside repository
+        env:
+          PACKET_B64: ${{ needs.preflight.outputs.packet_b64 }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          packet_file="$RUNNER_TEMP/proffera-task-packet.json"
+          printf '%s' "$PACKET_B64" | base64 --decode > "$packet_file"
+          jq -e . "$packet_file" >/dev/null
 
       - name: Run one bounded implementation Worker
         id: codex
@@ -320,6 +1083,153 @@ jobs:
 
             Do not commit, push, open/approve/merge a PR, enable auto-merge, apply ibbo-approved, deploy, mutate Production, access Production databases/providers, rotate/configure secrets, or perform outreach. Do not install new packages. You may inspect the checked-out repository and run already-installed targeted checks. If the task cannot be completed safely within its exact scope, leave the checkout unchanged and explain the blocker.
 
+      - name: Capture untrusted Worker candidate patch
+        id: capture_candidate
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -f "$RUNNER_TEMP/proffera-task-packet.json"
+          git add --all --intent-to-add
+          if git diff --quiet HEAD; then
+            echo "Worker produced no repository change." >&2
+            exit 1
+          fi
+          git diff --check HEAD
+          artifact_dir="$RUNNER_TEMP/proffera-worker-candidate"
+          rm -rf "$artifact_dir"
+          mkdir -p "$artifact_dir"
+          patch="$artifact_dir/worker.patch"
+          git diff --binary --full-index HEAD > "$patch"
+          test -s "$patch"
+          patch_sha256="$(sha256sum "$patch" | cut -d' ' -f1)"
+          printf '%s  %s\n' "$patch_sha256" "worker.patch" > "$artifact_dir/worker.patch.sha256"
+          echo "ready=yes" >> "$GITHUB_OUTPUT"
+          echo "patch_sha256=$patch_sha256" >> "$GITHUB_OUTPUT"
+
+      - name: Upload exact Worker candidate patch
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: proffera-worker-candidate-${{ github.run_id }}-${{ needs.preflight.outputs.task_id }}
+          path: ${{ runner.temp }}/proffera-worker-candidate
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 0
+          overwrite: false
+
+      - name: Run full pre-publish validation for sensitive dispatch path
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm run lint
+          npm run typecheck
+          npm test
+          npm run build
+          git diff --check HEAD
+
+      - name: Confirm validated Worker tree matches uploaded candidate
+        env:
+          EXPECTED_PATCH_SHA256: ${{ steps.capture_candidate.outputs.patch_sha256 }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          git add --all --intent-to-add
+          current_patch="$(mktemp)"
+          git diff --binary --full-index HEAD > "$current_patch"
+          current_sha256="$(sha256sum "$current_patch" | cut -d' ' -f1)"
+          test "$current_sha256" = "$EXPECTED_PATCH_SHA256"
+          git diff --check HEAD
+
+  publish:
+    name: Verify and publish bounded Worker result
+    needs: [preflight, dispatch]
+    if: always() && needs.preflight.outputs.proceed == 'yes'
+    concurrency:
+      group: proffera-worker-publication-${{ needs.preflight.outputs.branch }}
+      cancel-in-progress: false
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    permissions:
+      actions: read
+      contents: read
+      issues: write
+      pull-requests: read
+
+    steps:
+      - name: Checkout exact Task Packet baseline for trusted publication
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ needs.preflight.outputs.base_sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Setup Node for trusted publication
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 22
+
+      - name: Materialize trusted publication helper in isolated job
+        env:
+          BASE_SHA: ${{ needs.preflight.outputs.base_sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          source_helper="scripts/supervisor-worker-handoff.mjs"
+          trusted_dir="$RUNNER_TEMP/proffera-trusted-publish"
+          trusted_helper="$trusted_dir/supervisor-worker-handoff.mjs"
+          trusted_manifest="$trusted_dir/supervisor-worker-handoff.sha256"
+          test "$(git rev-parse HEAD)" = "$BASE_SHA"
+          expected_blob="$(git rev-parse "${BASE_SHA}:scripts/supervisor-worker-handoff.mjs")"
+          test -f "$source_helper"
+          rm -rf "$trusted_dir"
+          mkdir -p "$trusted_dir"
+          cp -- "$source_helper" "$trusted_helper"
+          test "$(git hash-object "$trusted_helper")" = "$expected_blob"
+          sha256sum "$trusted_helper" > "$trusted_manifest"
+          chmod 0444 "$trusted_helper" "$trusted_manifest"
+          chmod 0555 "$trusted_dir"
+          sha256sum --check --status "$trusted_manifest"
+          node --check "$trusted_helper"
+
+      - name: Refuse failed or unvalidated Worker candidate
+        if: needs.dispatch.result != 'success' || needs.dispatch.outputs.candidate_ready != 'yes'
+        shell: bash
+        run: |
+          echo "Builder job did not produce one fully validated candidate patch; trusted publication is refused." >&2
+          exit 1
+
+      - name: Download exact Worker candidate patch
+        if: needs.dispatch.result == 'success' && needs.dispatch.outputs.candidate_ready == 'yes'
+        uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5
+        with:
+          name: proffera-worker-candidate-${{ github.run_id }}-${{ needs.preflight.outputs.task_id }}
+          path: ${{ runner.temp }}/proffera-worker-candidate
+
+      - name: Verify Worker candidate artifact integrity
+        if: needs.dispatch.result == 'success' && needs.dispatch.outputs.candidate_ready == 'yes'
+        env:
+          EXPECTED_PATCH_SHA256: ${{ needs.dispatch.outputs.candidate_patch_sha256 }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          artifact_dir="$RUNNER_TEMP/proffera-worker-candidate"
+          patch="$artifact_dir/worker.patch"
+          test -s "$patch"
+          test -s "$artifact_dir/worker.patch.sha256"
+          (cd "$artifact_dir" && sha256sum --check --status worker.patch.sha256)
+          actual_sha256="$(sha256sum "$patch" | cut -d' ' -f1)"
+          test -n "$EXPECTED_PATCH_SHA256"
+          test "$actual_sha256" = "$EXPECTED_PATCH_SHA256"
+
+      - name: Apply Worker candidate without executing PR-controlled code
+        if: needs.dispatch.result == 'success' && needs.dispatch.outputs.candidate_ready == 'yes'
+        shell: bash
+        run: |
+          set -euo pipefail
+          patch="$RUNNER_TEMP/proffera-worker-candidate/worker.patch"
+          git apply --check --binary "$patch"
+          git apply --binary "$patch"
+          git add --all --intent-to-add
+          git diff --check HEAD
       - name: Verify Worker diff is nonempty and packet-bounded with immutable helper
         id: verify_diff
         env:
@@ -327,8 +1237,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          helper="$RUNNER_TEMP/proffera-trusted-control/supervisor-worker-handoff.mjs"
-          manifest="$RUNNER_TEMP/proffera-trusted-control/supervisor-worker-handoff.sha256"
+          helper="$RUNNER_TEMP/proffera-trusted-publish/supervisor-worker-handoff.mjs"
+          manifest="$RUNNER_TEMP/proffera-trusted-publish/supervisor-worker-handoff.sha256"
           test -f "$helper" -a -f "$manifest"
           sha256sum --check --status "$manifest"
           rm -f "$RUNNER_TEMP/proffera-task-packet.json"
@@ -346,33 +1256,50 @@ jobs:
           git diff --check HEAD
           printf '%s\n' "$changed_files"
 
-      - name: Run full pre-publish validation for sensitive dispatch path
-        shell: bash
-        run: |
-          set -euo pipefail
-          npm run lint
-          npm run typecheck
-          npm test
-          npm run build
-          git diff --check HEAD
-
       - name: Reconcile live state again immediately before publication
         env:
           GH_TOKEN: ${{ github.token }}
           REPOSITORY: ${{ github.repository }}
           PACKET_B64: ${{ needs.preflight.outputs.packet_b64 }}
-          EVENT_COMMENT_BODY: ${{ github.event.comment.body }}
-          EVENT_ACTOR: ${{ github.actor }}
-          EVENT_ISSUE_NUMBER: ${{ github.event.issue.number }}
+          SOURCE_COMMENT_ID: ${{ needs.preflight.outputs.source_comment_id }}
+          SOURCE_MODE: ${{ needs.preflight.outputs.source_mode }}
           RUN_ID: ${{ github.run_id }}
+          PLANNER_RUN_ID: ${{ inputs.planner_run_id }}
+          PLANNER_HEAD_SHA: ${{ inputs.planner_head_sha }}
+          PLANNER_PACKET_SHA256: ${{ inputs.planner_packet_sha256 }}
+          PLANNER_WORKFLOW_REF: ${{ inputs.planner_workflow_ref }}
         shell: bash
         run: |
           set -euo pipefail
-          helper="$RUNNER_TEMP/proffera-trusted-control/supervisor-worker-handoff.mjs"
-          manifest="$RUNNER_TEMP/proffera-trusted-control/supervisor-worker-handoff.sha256"
+          helper="$RUNNER_TEMP/proffera-trusted-publish/supervisor-worker-handoff.mjs"
+          manifest="$RUNNER_TEMP/proffera-trusted-publish/supervisor-worker-handoff.sha256"
           test -f "$helper" -a -f "$manifest"
           sha256sum --check --status "$manifest"
           packet="$(printf '%s' "$PACKET_B64" | base64 --decode)"
+          internal_provenance_verified=false
+          packet_digest_verified=false
+          if [ "${SOURCE_MODE:-comment}" = "planner" ]; then
+            EVENT_ACTOR="github-actions[bot]"
+            EVENT_ISSUE_NUMBER="548"
+            EVENT_COMMENT_BODY="$(printf '<!-- proffera-worker-task-packet:v1 -->\n```json\n%s\n```\n' "$(jq '.' <<< "$packet")")"
+            packet_base_sha="$(jq -r '.base_sha' <<< "$packet")"
+            expected_workflow_ref="${REPOSITORY}/.github/workflows/supervisor-planner.yml@refs/heads/main"
+            actual_packet_sha256="$(printf '%s' "$packet" | sha256sum | cut -d' ' -f1)"
+            test "${PLANNER_RUN_ID:-}" = "$RUN_ID"
+            test "${PLANNER_HEAD_SHA:-}" = "$packet_base_sha"
+            test "${PLANNER_PACKET_SHA256:-}" = "$actual_packet_sha256"
+            test "${PLANNER_WORKFLOW_REF:-}" = "$expected_workflow_ref"
+            internal_provenance_verified=true
+            packet_digest_verified=true
+          else
+            source_comment_json="$(gh api "repos/${REPOSITORY}/issues/comments/${SOURCE_COMMENT_ID}")"
+            EVENT_ACTOR="$(jq -r '.user.login // ""' <<< "$source_comment_json")"
+            EVENT_COMMENT_BODY="$(jq -r '.body // ""' <<< "$source_comment_json")"
+            issue_url="$(jq -r '.issue_url // ""' <<< "$source_comment_json")"
+            EVENT_ISSUE_NUMBER="${issue_url##*/}"
+            test "$EVENT_ISSUE_NUMBER" = "548"
+            test "$EVENT_ACTOR" = "ibboabdoli-ai"
+          fi
           task_id="$(jq -r '.task_id' <<< "$packet")"
           branch="$(jq -r '.branch' <<< "$packet")"
           state_marker="<!-- proffera-worker-task-state:${task_id} -->"
@@ -380,7 +1307,7 @@ jobs:
           supervisor_json="$(gh api "repos/${REPOSITORY}/issues/548")"
           supervisor_labels="$(jq -c '[.labels[].name]' <<< "$supervisor_json")"
           comments_json="$(gh api --paginate "repos/${REPOSITORY}/issues/548/comments?per_page=100" --jq '.[]' | jq -s --arg marker "$state_marker" '[.[] | select(.user.login == "github-actions[bot]" and ((.body // "") | contains($marker)))]')"
-          pulls_json="$(gh api --paginate "repos/${REPOSITORY}/pulls?state=open&base=main&per_page=100" --jq '.[]' | jq -s '.')"
+          pulls_json="$(gh api --paginate "repos/${REPOSITORY}/pulls?state=open&base=main&per_page=100" --jq '.[]' | jq -s --arg repository "$REPOSITORY" '[.[] | select((.head.repo.full_name // "") == $repository)]')"
           enriched_prs='[]'
           while IFS= read -r encoded; do
             [ -z "$encoded" ] && continue
@@ -396,7 +1323,25 @@ jobs:
             branch_exists=true
           fi
 
-          context="$(jq -n --arg repository "$REPOSITORY" --argjson issue_number "$EVENT_ISSUE_NUMBER" --arg actor "$EVENT_ACTOR" --arg comment_body "$EVENT_COMMENT_BODY" --arg live_main_sha "$live_main_sha" --arg run_id "$RUN_ID" --argjson supervisor_labels "$supervisor_labels" --argjson comments "$comments_json" --argjson open_prs "$enriched_prs" --argjson branch_exists "$branch_exists" '{event:{repository:$repository,issue_number:$issue_number,actor:$actor,is_fork:false,comment_body:$comment_body},supervisor_labels:$supervisor_labels,live_main_sha:$live_main_sha,comments:$comments,open_prs:$open_prs,branch:{exists:$branch_exists},secrets:{openai:true,push:true},run_id:$run_id}')"
+          context="$(jq -n \
+            --arg repository "$REPOSITORY" \
+            --argjson issue_number "$EVENT_ISSUE_NUMBER" \
+            --arg actor "$EVENT_ACTOR" \
+            --arg source "$SOURCE_MODE" \
+            --arg planner_run_id "${PLANNER_RUN_ID:-}" \
+            --arg planner_head_sha "${PLANNER_HEAD_SHA:-}" \
+            --arg planner_packet_sha256 "${PLANNER_PACKET_SHA256:-}" \
+            --arg planner_workflow_ref "${PLANNER_WORKFLOW_REF:-}" \
+            --argjson internal_provenance_verified "$internal_provenance_verified" \
+            --argjson packet_digest_verified "$packet_digest_verified" \
+            --arg comment_body "$EVENT_COMMENT_BODY" \
+            --arg live_main_sha "$live_main_sha" \
+            --arg run_id "$RUN_ID" \
+            --argjson supervisor_labels "$supervisor_labels" \
+            --argjson comments "$comments_json" \
+            --argjson open_prs "$enriched_prs" \
+            --argjson branch_exists "$branch_exists" \
+            '{event:{repository:$repository,issue_number:$issue_number,actor:$actor,source:$source,trusted_internal_dispatch:($source == "planner"),internal_provenance_verified:$internal_provenance_verified,packet_digest_verified:$packet_digest_verified,planner_run_id:$planner_run_id,planner_head_sha:$planner_head_sha,planner_packet_sha256:$planner_packet_sha256,planner_workflow_ref:$planner_workflow_ref,is_fork:false,comment_body:$comment_body},supervisor_labels:$supervisor_labels,live_main_sha:$live_main_sha,comments:$comments,open_prs:$open_prs,branch:{exists:$branch_exists},secrets:{openai:true,push:true},run_id:$run_id}')"
           decision="$(printf '%s' "$context" | node "$helper" evaluate)"
           if [ "$(jq -r '.ok' <<< "$decision")" != "true" ]; then
             jq -r '.reason' <<< "$decision" >&2
@@ -430,8 +1375,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          helper="$RUNNER_TEMP/proffera-trusted-control/supervisor-worker-handoff.mjs"
-          manifest="$RUNNER_TEMP/proffera-trusted-control/supervisor-worker-handoff.sha256"
+          helper="$RUNNER_TEMP/proffera-trusted-publish/supervisor-worker-handoff.mjs"
+          manifest="$RUNNER_TEMP/proffera-trusted-publish/supervisor-worker-handoff.sha256"
           test -f "$helper" -a -f "$manifest"
           sha256sum --check --status "$manifest"
           packet="$(printf '%s' "$PACKET_B64" | base64 --decode)"
@@ -441,32 +1386,345 @@ jobs:
           jq -n --argjson packet "$packet" --argjson changed_files "$changed_json" '{packet:$packet,changed_files:$changed_files}' | node "$helper" pr-body > "$pr_body_file"
           test -s "$pr_body_file"
 
-      - name: Publish branch atomically and open one PR
+      - name: Finalize reserved Worker snapshot before publication
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          RESERVATION_COMMENT_ID: ${{ needs.preflight.outputs.reservation_comment_id }}
+          PACKET_B64: ${{ needs.preflight.outputs.packet_b64 }}
+          BASE_SHA: ${{ needs.preflight.outputs.base_sha }}
+          RUN_ID: ${{ github.run_id }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          helper="$RUNNER_TEMP/proffera-trusted-publish/supervisor-worker-handoff.mjs"
+          manifest="$RUNNER_TEMP/proffera-trusted-publish/supervisor-worker-handoff.sha256"
+          test -f "$helper" -a -f "$manifest"
+          sha256sum --check --status "$manifest"
+          test -n "$RESERVATION_COMMENT_ID"
+          packet="$(printf '%s' "$PACKET_B64" | base64 --decode)"
+          task_id="$(jq -r '.task_id' <<< "$packet")"
+          branch="$(jq -r '.branch' <<< "$packet")"
+          graph_path="$(jq -r '.graph_path' <<< "$packet")"
+          allowed_paths="$(jq -c '.allowed_paths' <<< "$packet")"
+          packet_digest="$(printf '%s' "$packet" | sha256sum | cut -d' ' -f1)"
+          snapshot_file="$RUNNER_TEMP/proffera-worker-changed-files.txt"
+          test -s "$snapshot_file"
+          changed_files="$(git diff --name-only "$BASE_SHA...HEAD")"
+          current_snapshot="$(mktemp)"
+          printf '%s\n' "$changed_files" > "$current_snapshot"
+          diff -u "$snapshot_file" "$current_snapshot"
+          changed_json="$(printf '%s\n' "$changed_files" | jq -R -s 'split("\n") | map(select(length > 0))')"
+          head_sha="$(git rev-parse HEAD)"
+          target_tree_sha="$(git rev-parse HEAD^{tree})"
+          [[ "$target_tree_sha" =~ ^[0-9a-f]{40}$ ]]
+
+          comment="$(gh api "repos/${REPOSITORY}/issues/comments/${RESERVATION_COMMENT_ID}")"
+          test "$(jq -r '.user.login // ""' <<< "$comment")" = "github-actions[bot]"
+          body="$(jq -r '.body // ""' <<< "$comment")"
+          payload_b64="$(sed -n 's/^- Reservation payload: `\([^`]*\)`$/\1/p' <<< "$body")"
+          payload="$(printf '%s' "$payload_b64" | base64 --decode)"
+          jq -e . >/dev/null <<< "$payload"
+
+          if [ "$(jq -r '.state // ""' <<< "$payload")" = "RESERVED" ] \
+            && [ "$(jq -r '.task_id // ""' <<< "$payload")" = "$task_id" ] \
+            && [ "$(jq -r '.run_id // ""' <<< "$payload")" = "$RUN_ID" ] \
+            && [ "$(jq -r '.head_sha // ""' <<< "$payload")" = "$head_sha" ] \
+            && [ "$(jq -r '.target_tree_sha // ""' <<< "$payload")" = "$target_tree_sha" ] \
+            && [ "$(jq -c '.changed_files // []' <<< "$payload")" = "$changed_json" ] \
+            && [ "$(jq -r '.snapshot_finalized == true' <<< "$payload")" = "true" ]; then
+            echo "Exact finalized reservation snapshot is idempotently reused."
+            exit 0
+          fi
+
+          test "$(jq -r '.state // ""' <<< "$payload")" = "RESERVED"
+          test "$(jq -r '.task_id // ""' <<< "$payload")" = "$task_id"
+          test "$(jq -r '.run_id // ""' <<< "$payload")" = "$RUN_ID"
+          test "$(jq -r '.branch // ""' <<< "$payload")" = "$branch"
+          test "$(jq -r '.graph_path // ""' <<< "$payload")" = "$graph_path"
+          test "$(jq -c '.allowed_paths // []' <<< "$payload")" = "$allowed_paths"
+          test "$(jq -r '.packet_digest // ""' <<< "$payload")" = "$packet_digest"
+          test "$(jq -r '.head_sha // ""' <<< "$payload")" = "$BASE_SHA"
+          test "$(jq -r '.target_tree_sha // empty' <<< "$payload")" = ""
+          test "$(jq -c '.changed_files // []' <<< "$payload")" = '[]'
+          test "$(jq -r '.snapshot_finalized == false' <<< "$payload")" = "true"
+          test "$(jq -r '.pr_number // empty' <<< "$payload")" = ""
+          test "$(gh api "repos/${REPOSITORY}/git/ref/heads/main" --jq '.object.sha')" = "$BASE_SHA"
+          confirm_body="$(gh api "repos/${REPOSITORY}/issues/comments/${RESERVATION_COMMENT_ID}" --jq '.body // ""')"
+          test "$confirm_body" = "$body"
+
+          payload="$(jq -c --arg head "$head_sha" --arg target_tree_sha "$target_tree_sha" --argjson changed_files "$changed_json" '.head_sha=$head | .target_tree_sha=$target_tree_sha | .changed_files=$changed_files | .snapshot_finalized=true' <<< "$payload")"
+          payload_b64="$(printf '%s' "$payload" | base64 -w0)"
+          new_body="$(printf '%s\n' "<!-- proffera-worker-slot-reservation:${task_id} -->" "### Worker slot reservation: ${task_id}" '- State: `RESERVED`' "- Reservation payload: \`${payload_b64}\`")"
+          gh api --method PATCH "repos/${REPOSITORY}/issues/comments/${RESERVATION_COMMENT_ID}" -f body="$new_body" >/dev/null
+          echo "Finalized reserved Worker snapshot ${task_id}@${head_sha} before publication."
+
+      - name: Publish branch normally or persist validated recovery artifact
         id: publish
         env:
+          GH_TOKEN: ${{ github.token }}
           REPOSITORY: ${{ github.repository }}
           BRANCH: ${{ needs.preflight.outputs.branch }}
+          TASK_ID: ${{ needs.preflight.outputs.task_id }}
           TASK_TITLE: ${{ needs.preflight.outputs.task_title }}
+          BASE_SHA: ${{ needs.preflight.outputs.base_sha }}
+          PACKET_B64: ${{ needs.preflight.outputs.packet_b64 }}
+          RUN_ID: ${{ github.run_id }}
           DISPATCH_PUSH_TOKEN: ${{ secrets.PROFFERA_AUTOFIX_PUSH_TOKEN }}
         shell: bash
         run: |
           set -euo pipefail
+          helper="$RUNNER_TEMP/proffera-trusted-publish/supervisor-worker-handoff.mjs"
+          artifact="$RUNNER_TEMP/proffera-publication-artifact.json"
           pr_body_file="$RUNNER_TEMP/proffera-worker-pr-body.md"
+          packet="$(printf '%s' "$PACKET_B64" | base64 --decode)"
           test -s "$pr_body_file"
-          test -n "${DISPATCH_PUSH_TOKEN:-}"
+          live_source="$(gh api "repos/${REPOSITORY}/git/ref/heads/main" --jq '.object.sha')"
+          test "$live_source" = "$BASE_SHA"
 
-          git config --local credential.helper '!f() { echo username=x-access-token; echo "password=$DISPATCH_PUSH_TOKEN"; }; f'
-          git remote set-url origin "https://github.com/${REPOSITORY}.git"
-          GIT_TERMINAL_PROMPT=0 git push origin --force-with-lease="refs/heads/${BRANCH}:" "HEAD:refs/heads/${BRANCH}"
-          git config --local --unset credential.helper || true
+          pushed=false
+          if [ -n "${DISPATCH_PUSH_TOKEN:-}" ]; then
+            git config --local credential.helper '!f() { echo username=x-access-token; echo "password=$DISPATCH_PUSH_TOKEN"; }; f'
+            git remote set-url origin "https://github.com/${REPOSITORY}.git"
+            if GIT_TERMINAL_PROMPT=0 git push --force-with-lease="refs/heads/${BRANCH}:" origin "HEAD:refs/heads/${BRANCH}"; then pushed=true; fi
+            git config --local --unset credential.helper || true
+          fi
+          if [ "$pushed" = "true" ]; then
+            set +e
+            GH_TOKEN="$DISPATCH_PUSH_TOKEN" gh pr create --repo "$REPOSITORY" --base main --head "$BRANCH" --title "$TASK_TITLE" --body-file "$pr_body_file" >/dev/null
+            create_status=$?
+            set -e
+            pr_number="$(GH_TOKEN="$DISPATCH_PUSH_TOKEN" gh pr view "$BRANCH" --repo "$REPOSITORY" --json number --jq '.number' 2>/dev/null || true)"
+            if [ -z "$pr_number" ]; then
+              echo "Refused: branch publication succeeded but no Worker PR can be proven (gh pr create status=${create_status}); forcing recovery." >&2
+              exit 1
+            fi
+            echo "pr_number=$pr_number" >> "$GITHUB_OUTPUT"
+          else
+            # Build and validate deterministic publication artifact only after normal publication fails.
+            target_head="$(git rev-parse HEAD)"
+            target_tree_sha="$(git rev-parse HEAD^{tree})"
+            jq -n --argjson packet "$packet" --arg source_head "$BASE_SHA" --arg target_head "$target_head" --arg run_id "$RUN_ID" \
+              '{packet:$packet,source_head:$source_head,target_head:$target_head,run_id:$run_id}' \
+              | node "$helper" build-publication > "$artifact"
+            live_source="$(gh api "repos/${REPOSITORY}/git/ref/heads/main" --jq '.object.sha')"
+            validation="$(jq -n --argjson packet "$packet" --arg current_source_head "$live_source" --arg expected_target_head "$target_head" --arg expected_target_tree_sha "$target_tree_sha" --arg expected_run_id "$RUN_ID" --slurpfile artifact "$artifact" '{packet:$packet,current_source_head:$current_source_head,expected_target_head:$expected_target_head,expected_target_tree_sha:$expected_target_tree_sha,expected_run_id:$expected_run_id,artifact:$artifact[0]}' | node "$helper" validate-publication)"
+            test "$(jq -r '.ok' <<< "$validation")" = "true"
+            test -s "$artifact"
+            digest="$(sha256sum "$artifact" | cut -d' ' -f1)"
+            echo "recovery_artifact=yes" >> "$GITHUB_OUTPUT"
+            echo "recovery_digest=$digest" >> "$GITHUB_OUTPUT"
+          fi
+          echo "head_sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
-          GH_TOKEN="$DISPATCH_PUSH_TOKEN" gh pr create --repo "$REPOSITORY" --base main --head "$BRANCH" --title "$TASK_TITLE" --body-file "$pr_body_file" >/dev/null
-          pr_number="$(GH_TOKEN="$DISPATCH_PUSH_TOKEN" gh pr view "$BRANCH" --repo "$REPOSITORY" --json number --jq '.number')"
-          head_sha="$(git rev-parse HEAD)"
-          {
-            echo "pr_number=$pr_number"
-            echo "head_sha=$head_sha"
-          } >> "$GITHUB_OUTPUT"
+      - name: Mark reservation published
+        if: steps.publish.outputs.pr_number != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          RESERVATION_COMMENT_ID: ${{ needs.preflight.outputs.reservation_comment_id }}
+          TASK_ID: ${{ needs.preflight.outputs.task_id }}
+          RUN_ID: ${{ github.run_id }}
+          PR_NUMBER: ${{ steps.publish.outputs.pr_number }}
+          HEAD_SHA: ${{ steps.publish.outputs.head_sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          helper="$RUNNER_TEMP/proffera-trusted-publish/supervisor-worker-handoff.mjs"
+          manifest="$RUNNER_TEMP/proffera-trusted-publish/supervisor-worker-handoff.sha256"
+          test -f "$helper" -a -f "$manifest"
+          sha256sum --check --status "$manifest"
+          control_input="$(jq -cn --arg repository "$REPOSITORY" --arg run_id "$RUN_ID" '{repository:$repository,run_id:$run_id}')"
+          mutex="$(printf '%s' "$control_input" | node "$helper" reservation-mutex-acquire)"
+          control_input="$(jq -c --arg mutex "$mutex" '. + {mutex:$mutex}' <<< "$control_input")"
+          release_mutex() {
+            printf '%s' "$control_input" | node "$helper" reservation-mutex-release
+          }
+          trap 'release_mutex || true' EXIT
+
+          comment="$(gh api "repos/${REPOSITORY}/issues/comments/${RESERVATION_COMMENT_ID}")"
+          body="$(jq -r '.body // ""' <<< "$comment")"
+          payload_b64="$(sed -n 's/^- Reservation payload: `\([^`]*\)`$/\1/p' <<< "$body")"
+          payload="$(printf '%s' "$payload_b64" | base64 --decode)"
+          test "$(jq -r '.task_id' <<< "$payload")" = "$TASK_ID"
+          test "$(jq -r '.run_id' <<< "$payload")" = "$RUN_ID"
+          test "$(jq -r '.head_sha' <<< "$payload")" = "$HEAD_SHA"
+          test "$(jq -r '.state' <<< "$payload")" = "RESERVED"
+          test "$(jq -r '.snapshot_finalized == true' <<< "$payload")" = "true"
+          pr="$(gh api "repos/${REPOSITORY}/pulls/${PR_NUMBER}")"
+          test "$(jq -r '.state' <<< "$pr")" = "open"
+          test "$(jq -r '.head.sha' <<< "$pr")" = "$HEAD_SHA"
+          test "$(jq -r '.head.repo.full_name' <<< "$pr")" = "$REPOSITORY"
+          test "$(jq -r '.user.login' <<< "$pr")" = "${REPOSITORY%%/*}"
+          payload="$(jq -c --arg state PUBLISHED --argjson pr_number "$PR_NUMBER" '.state=$state | .pr_number=$pr_number | .recovery=null' <<< "$payload")"
+          payload_b64="$(printf '%s' "$payload" | base64 -w0)"
+          new_body="$(cat <<EOF
+          <!-- proffera-worker-slot-reservation:${TASK_ID} -->
+          ### Worker slot reservation: ${TASK_ID}
+          - State: \`PUBLISHED\`
+          - Reservation payload: \`${payload_b64}\`
+          EOF
+          )"
+          test "$(gh api "repos/${REPOSITORY}/issues/comments/${RESERVATION_COMMENT_ID}" --jq '.body // ""')" = "$body"
+          pr_guard="$(gh api "repos/${REPOSITORY}/pulls/${PR_NUMBER}")"
+          test "$(jq -r '.state' <<< "$pr_guard")" = "open"
+          test "$(jq -r '.head.sha' <<< "$pr_guard")" = "$HEAD_SHA"
+          test "$(jq -r '.head.repo.full_name' <<< "$pr_guard")" = "$REPOSITORY"
+          test "$(jq -r '.user.login' <<< "$pr_guard")" = "${REPOSITORY%%/*}"
+          gh api --method PATCH "repos/${REPOSITORY}/issues/comments/${RESERVATION_COMMENT_ID}" -f body="$new_body" >/dev/null
+          if [ "$(gh api "repos/${REPOSITORY}/pulls/${PR_NUMBER}" --jq '.state')" != "open" ]; then
+            echo "Worker PR closed while its reservation was being published; refusing to resurrect the reservation." >&2
+            exit 1
+          fi
+          release_mutex
+          trap - EXIT
+
+      - name: Persist validated recovery artifact atomically
+        id: recovery_upload
+        if: steps.publish.outputs.recovery_artifact == 'yes'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: proffera-publication-recovery-${{ needs.preflight.outputs.task_id }}-${{ steps.publish.outputs.recovery_digest }}
+          path: ${{ runner.temp }}/proffera-publication-artifact.json
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 9
+          overwrite: false
+
+      - name: Mark reservation recoverable after durable artifact upload
+        if: steps.publish.outputs.recovery_artifact == 'yes'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          RESERVATION_COMMENT_ID: ${{ needs.preflight.outputs.reservation_comment_id }}
+          TASK_ID: ${{ needs.preflight.outputs.task_id }}
+          RUN_ID: ${{ github.run_id }}
+          HEAD_SHA: ${{ steps.publish.outputs.head_sha }}
+          BASE_SHA: ${{ needs.preflight.outputs.base_sha }}
+          PACKET_B64: ${{ needs.preflight.outputs.packet_b64 }}
+          RECOVERY_DIGEST: ${{ steps.publish.outputs.recovery_digest }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          helper="$RUNNER_TEMP/proffera-trusted-publish/supervisor-worker-handoff.mjs"
+          manifest="$RUNNER_TEMP/proffera-trusted-publish/supervisor-worker-handoff.sha256"
+          artifact="$RUNNER_TEMP/proffera-publication-artifact.json"
+          test -f "$helper" -a -f "$manifest" -a -s "$artifact"
+          sha256sum --check --status "$manifest"
+          comment="$(gh api "repos/${REPOSITORY}/issues/comments/${RESERVATION_COMMENT_ID}")"
+          body="$(jq -r '.body // ""' <<< "$comment")"
+          payload_b64="$(sed -n 's/^- Reservation payload: `\([^`]*\)`$/\1/p' <<< "$body")"
+          payload="$(printf '%s' "$payload_b64" | base64 --decode)"
+          test "$(jq -r '.task_id' <<< "$payload")" = "$TASK_ID"
+          test "$(jq -r '.run_id' <<< "$payload")" = "$RUN_ID"
+          test "$(jq -r '.head_sha' <<< "$payload")" = "$HEAD_SHA"
+          test "$(jq -r '.state' <<< "$payload")" = "RESERVED"
+          test "$(jq -r '.snapshot_finalized == true' <<< "$payload")" = "true"
+          target_tree_sha="$(jq -r '.target_tree_sha // ""' <<< "$payload")"
+          [[ "$target_tree_sha" =~ ^[0-9a-f]{40}$ ]]
+          test "$HEAD_SHA" != "$BASE_SHA"
+          reserved_paths="$(jq -c '.changed_files // [] | sort' <<< "$payload")"
+          test "$(jq 'length' <<< "$reserved_paths")" -gt 0
+          test "$(sha256sum "$artifact" | cut -d' ' -f1)" = "$RECOVERY_DIGEST"
+          test "$(jq -r '.target_head // ""' "$artifact")" = "$HEAD_SHA"
+          test "$(jq -r '.target_tree_sha // ""' "$artifact")" = "$target_tree_sha"
+          packet="$(printf '%s' "$PACKET_B64" | base64 --decode)"
+          live_source="$(gh api "repos/${REPOSITORY}/git/ref/heads/main" --jq '.object.sha')"
+          test "$live_source" = "$BASE_SHA"
+          validation="$(jq -n --argjson packet "$packet" --arg current_source_head "$live_source" --arg expected_target_head "$HEAD_SHA" --arg expected_target_tree_sha "$target_tree_sha" --arg expected_run_id "$RUN_ID" --slurpfile artifact "$artifact" '{packet:$packet,current_source_head:$current_source_head,expected_target_head:$expected_target_head,expected_target_tree_sha:$expected_target_tree_sha,expected_run_id:$expected_run_id,artifact:$artifact[0]}' | node "$helper" validate-publication)"
+          test "$(jq -r '.ok // false' <<< "$validation")" = "true"
+          test "$(jq -c '.paths | sort' <<< "$validation")" = "$reserved_paths"
+          recovery_expires_at="$(date -u -d '+6 days' +%Y-%m-%dT%H:%M:%SZ)"
+          payload="$(jq -c --arg state RECOVERABLE --arg digest "$RECOVERY_DIGEST" --arg expires "$recovery_expires_at" '.state=$state | .recovery={kind:"artifact",digest:$digest,expires_at:$expires}' <<< "$payload")"
+          payload_b64="$(printf '%s' "$payload" | base64 -w0)"
+          new_body="$(cat <<EOF
+          <!-- proffera-worker-slot-reservation:${TASK_ID} -->
+          ### Worker slot reservation: ${TASK_ID}
+          - State: \`RECOVERABLE\`
+          - Reservation payload: \`${payload_b64}\`
+          EOF
+          )"
+          gh api --method PATCH "repos/${REPOSITORY}/issues/comments/${RESERVATION_COMMENT_ID}" -f body="$new_body" >/dev/null
+
+      - name: Mirror validated recovery artifact to Supervisor comments
+        id: recovery_mirror
+        if: steps.publish.outputs.recovery_artifact == 'yes'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          TASK_ID: ${{ needs.preflight.outputs.task_id }}
+          BASE_SHA: ${{ needs.preflight.outputs.base_sha }}
+          RECOVERY_DIGEST: ${{ steps.publish.outputs.recovery_digest }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          artifact="$RUNNER_TEMP/proffera-publication-artifact.json"
+          mirror_complete=yes
+          if [ ! -s "$artifact" ]; then
+            echo "::warning::Canonical recovery artifact was uploaded, but the local mirror source is unavailable."
+            echo "recovery_chunks=0" >> "$GITHUB_OUTPUT"
+            echo "recovery_mirror_complete=no" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          digest="$(sha256sum "$artifact" | cut -d' ' -f1)"
+          if [ "$digest" != "$RECOVERY_DIGEST" ]; then
+            echo "::warning::Local recovery artifact digest no longer matches the canonical uploaded artifact."
+            echo "recovery_chunks=0" >> "$GITHUB_OUTPUT"
+            echo "recovery_mirror_complete=no" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          payload="$(gzip -9 -n -c "$artifact" | base64 -w0)"
+          chunk_size=45000
+          total=$(( (${#payload} + chunk_size - 1) / chunk_size ))
+          if [ "$total" -lt 1 ] || [ "$total" -gt 50 ]; then
+            echo "::warning::Recovery comment mirror chunk count is outside the bounded limit; canonical workflow artifact remains durable."
+            echo "recovery_chunks=0" >> "$GITHUB_OUTPUT"
+            echo "recovery_mirror_complete=no" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "recovery_chunks=$total" >> "$GITHUB_OUTPUT"
+
+          for number in $(seq 1 "$total"); do
+            chunk="${payload:$(( (number - 1) * chunk_size )):$chunk_size}"
+            marker="<!-- proffera-publication-recovery:${TASK_ID}:${BASE_SHA}:${digest}:${number}/${total} -->"
+            printf -v body '%s\nTask: %s\nSource: %s\nArtifact SHA-256: %s\nChunk: %s/%s\n```BASE64_GZIP_JSON\n%s\n```' \
+              "$marker" "$TASK_ID" "$BASE_SHA" "$digest" "$number" "$total" "$chunk"
+            comments_file="$(mktemp)"
+            if ! gh api --paginate "repos/${REPOSITORY}/issues/548/comments?per_page=100" --jq '.[]' > "$comments_file"; then
+              echo "::warning::Could not inspect existing recovery comments for chunk ${number}/${total}; canonical workflow artifact remains durable."
+              mirror_complete=no
+              break
+            fi
+            comments="$(jq -s --arg marker "$marker" '[.[] | select((.body // "") | contains($marker))]' < "$comments_file")"
+            if [ "$(jq 'length' <<< "$comments")" -eq 0 ]; then
+              if ! gh api --method POST "repos/${REPOSITORY}/issues/548/comments" -f body="$body" >/dev/null; then
+                echo "::warning::Failed to mirror recovery chunk ${number}/${total}; canonical workflow artifact remains durable."
+                mirror_complete=no
+              fi
+            fi
+          done
+
+          if [ "$mirror_complete" = yes ]; then
+            complete_marker="<!-- proffera-publication-recovery-complete:${TASK_ID}:${BASE_SHA}:${digest} -->"
+            printf -v complete_body '%s\nValidated deterministic same-branch recovery artifact persisted in %s contiguous chunk(s). Canonical payload is also stored atomically as a GitHub Actions artifact. No merge authority is granted.' \
+              "$complete_marker" "$total"
+            comments_file="$(mktemp)"
+            if ! gh api --paginate "repos/${REPOSITORY}/issues/548/comments?per_page=100" --jq '.[]' > "$comments_file"; then
+              echo "::warning::Could not inspect recovery completion markers; canonical workflow artifact remains durable."
+              mirror_complete=no
+            else
+              comments="$(jq -s --arg marker "$complete_marker" '[.[] | select((.body // "") | contains($marker))]' < "$comments_file")"
+              if [ "$(jq 'length' <<< "$comments")" -eq 0 ]; then
+                if ! gh api --method POST "repos/${REPOSITORY}/issues/548/comments" -f body="$complete_body" >/dev/null; then
+                  echo "::warning::Failed to mirror the recovery completion marker; canonical workflow artifact remains durable."
+                  mirror_complete=no
+                fi
+              fi
+            fi
+          fi
+          echo "recovery_mirror_complete=$mirror_complete" >> "$GITHUB_OUTPUT"
 
       - name: Record dispatched Worker PR in stable Supervisor task state
         if: steps.publish.outputs.pr_number != ''
@@ -481,12 +1739,48 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          helper="$RUNNER_TEMP/proffera-trusted-control/supervisor-worker-handoff.mjs"
-          manifest="$RUNNER_TEMP/proffera-trusted-control/supervisor-worker-handoff.sha256"
+          helper="$RUNNER_TEMP/proffera-trusted-publish/supervisor-worker-handoff.mjs"
+          manifest="$RUNNER_TEMP/proffera-trusted-publish/supervisor-worker-handoff.sha256"
+          test -f "$helper" -a -f "$manifest"
+          sha256sum --check --status "$manifest"
+          control_input="$(jq -cn --arg repository "$REPOSITORY" --arg run_id "$RUN_ID" '{repository:$repository,run_id:$run_id}')"
+          mutex="$(printf '%s' "$control_input" | node "$helper" reservation-mutex-acquire)"
+          control_input="$(jq -c --arg mutex "$mutex" '. + {mutex:$mutex}' <<< "$control_input")"
+          release_mutex() {
+            printf '%s' "$control_input" | node "$helper" reservation-mutex-release
+          }
+          trap 'release_mutex || true' EXIT
+          admission_input="$(jq -c --argjson pr_number "$PR_NUMBER" --arg event_head "$HEAD_SHA" --arg actor "${REPOSITORY%%/*}" '. + {pr_number:$pr_number,event_head:$event_head,actor:$actor}' <<< "$control_input")"
+          admission="$(printf '%s' "$admission_input" | node "$helper" worker-pr-admit)"
+          if [ "$(jq -r '.ok == true' <<< "$admission")" != "true" ]; then
+            jq -r '.reason' <<< "$admission" >&2
+            echo "A capacity-blocked reopen stays non-active. Reopen the same unchanged PR after a slot is available; no new Worker dispatch is needed." >&2
+            exit 1
+          fi
+
+      - name: Record persisted recovery artifact in stable Supervisor task state
+        if: steps.publish.outputs.recovery_artifact == 'yes'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          PACKET_B64: ${{ needs.preflight.outputs.packet_b64 }}
+          STATE_COMMENT_ID: ${{ needs.preflight.outputs.state_comment_id }}
+          HEAD_SHA: ${{ steps.publish.outputs.head_sha }}
+          RECOVERY_DIGEST: ${{ steps.publish.outputs.recovery_digest }}
+          RECOVERY_CHUNKS: ${{ steps.recovery_mirror.outputs.recovery_chunks }}
+          RECOVERY_MIRROR_COMPLETE: ${{ steps.recovery_mirror.outputs.recovery_mirror_complete }}
+          RECOVERY_ARTIFACT_NAME: proffera-publication-recovery-${{ needs.preflight.outputs.task_id }}-${{ steps.publish.outputs.recovery_digest }}
+          RUN_ID: ${{ github.run_id }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          helper="$RUNNER_TEMP/proffera-trusted-publish/supervisor-worker-handoff.mjs"
+          manifest="$RUNNER_TEMP/proffera-trusted-publish/supervisor-worker-handoff.sha256"
           test -f "$helper" -a -f "$manifest"
           sha256sum --check --status "$manifest"
           packet="$(printf '%s' "$PACKET_B64" | base64 --decode)"
-          state_json="$(jq -n --argjson packet "$packet" --arg state "WORKER_PR_OPENED" --arg reason "Bounded Worker implementation was published as one PR; downstream checks/review remain authoritative." --arg run_id "$RUN_ID" --argjson pr_number "$PR_NUMBER" --arg head_sha "$HEAD_SHA" '{packet:$packet,state:$state,reason:$reason,run_id:$run_id,pr_number:$pr_number,head_sha:$head_sha}')"
+          reason="Validated recovery artifact durably persisted as GitHub Actions artifact ${RECOVERY_ARTIFACT_NAME}: sha256=${RECOVERY_DIGEST}; chunks=${RECOVERY_CHUNKS:-0}; mirror_complete=${RECOVERY_MIRROR_COMPLETE:-no}; target_head=${HEAD_SHA}. Connected same-branch publication can recover from the durable artifact; no merge authority is granted."
+          state_json="$(jq -n --argjson packet "$packet" --arg state "WORKER_BLOCKED" --arg reason "$reason" --arg run_id "$RUN_ID" --arg head_sha "$HEAD_SHA" '{packet:$packet,state:$state,reason:$reason,run_id:$run_id,head_sha:$head_sha}')"
           state_body="$(printf '%s' "$state_json" | node "$helper" state-body)"
           gh api --method PATCH "repos/${REPOSITORY}/issues/comments/${STATE_COMMENT_ID}" -f body="$state_body" >/dev/null
 
@@ -498,14 +1792,693 @@ jobs:
           PACKET_B64: ${{ needs.preflight.outputs.packet_b64 }}
           STATE_COMMENT_ID: ${{ needs.preflight.outputs.state_comment_id }}
           RUN_ID: ${{ github.run_id }}
+          CAPACITY_BLOCKED: ${{ needs.preflight.outputs.capacity_blocked }}
+          RESERVATION_COMMENT_ID: ${{ needs.preflight.outputs.reservation_comment_id }}
         shell: bash
         run: |
           set -euo pipefail
-          helper="$RUNNER_TEMP/proffera-trusted-control/supervisor-worker-handoff.mjs"
-          manifest="$RUNNER_TEMP/proffera-trusted-control/supervisor-worker-handoff.sha256"
+          helper="$RUNNER_TEMP/proffera-trusted-publish/supervisor-worker-handoff.mjs"
+          manifest="$RUNNER_TEMP/proffera-trusted-publish/supervisor-worker-handoff.sha256"
           test -f "$helper" -a -f "$manifest"
           sha256sum --check --status "$manifest"
           packet="$(printf '%s' "$PACKET_B64" | base64 --decode)"
-          state_json="$(jq -n --argjson packet "$packet" --arg state "WORKER_BLOCKED" --arg reason "Dispatch stopped fail-closed before successful PR handoff. Inspect this workflow run; retries will not create a second Worker when a trusted active state or branch exists." --arg run_id "$RUN_ID" '{packet:$packet,state:$state,reason:$reason,run_id:$run_id}')"
+          state="WORKER_BLOCKED"
+          reason="Dispatch stopped fail-closed before successful PR handoff. Inspect this workflow run; retries will not create a second Worker when a trusted active state or branch exists."
+          if [ -z "${RESERVATION_COMMENT_ID:-}" ]; then
+            state="TASK_BLOCKED"
+            if [ "${CAPACITY_BLOCKED:-false}" = "true" ]; then
+              reason="Both writable Worker slots are durably occupied. No reservation was acquired and no Worker was invoked; the same task may be resubmitted after capacity is released."
+            else
+              reason="Dispatch failed before a durable Worker reservation was acquired. No Worker was invoked; the same task may be resubmitted safely."
+            fi
+          fi
+          state_json="$(jq -n --argjson packet "$packet" --arg state "$state" --arg reason "$reason" --arg run_id "$RUN_ID" '{packet:$packet,state:$state,reason:$reason,run_id:$run_id}')"
           state_body="$(printf '%s' "$state_json" | node "$helper" state-body)"
           gh api --method PATCH "repos/${REPOSITORY}/issues/comments/${STATE_COMMENT_ID}" -f body="$state_body" >/dev/null || true
+
+      - name: Release or recover reservation on dispatch failure
+        if: failure() && needs.preflight.outputs.reservation_comment_id != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          RESERVATION_COMMENT_ID: ${{ needs.preflight.outputs.reservation_comment_id }}
+          STATE_COMMENT_ID: ${{ needs.preflight.outputs.state_comment_id }}
+          TASK_ID: ${{ needs.preflight.outputs.task_id }}
+          BRANCH: ${{ needs.preflight.outputs.branch }}
+          RUN_ID: ${{ github.run_id }}
+          PACKET_B64: ${{ needs.preflight.outputs.packet_b64 }}
+          ARTIFACT_UPLOADED: ${{ steps.recovery_upload.outcome == 'success' }}
+          PR_NUMBER: ${{ steps.publish.outputs.pr_number }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          helper="$RUNNER_TEMP/proffera-trusted-publish/supervisor-worker-handoff.mjs"
+          manifest="$RUNNER_TEMP/proffera-trusted-publish/supervisor-worker-handoff.sha256"
+          test -f "$helper" -a -f "$manifest"
+          sha256sum --check --status "$manifest"
+          control_input="$(jq -cn --arg repository "$REPOSITORY" --arg run_id "$RUN_ID" '{repository:$repository,run_id:$run_id}')"
+          mutex="$(printf '%s' "$control_input" | node "$helper" reservation-mutex-acquire)"
+          control_input="$(jq -c --arg mutex "$mutex" '. + {mutex:$mutex}' <<< "$control_input")"
+          release_mutex() {
+            printf '%s' "$control_input" | node "$helper" reservation-mutex-release
+          }
+          trap 'release_mutex || true' EXIT
+          comment="$(gh api "repos/${REPOSITORY}/issues/comments/${RESERVATION_COMMENT_ID}" 2>/dev/null || true)"
+          [ -z "$comment" ] && exit 0
+          body="$(jq -r '.body // ""' <<< "$comment")"
+          payload_b64="$(sed -n 's/^- Reservation payload: `\([^`]*\)`$/\1/p' <<< "$body")"
+          payload="$(printf '%s' "$payload_b64" | base64 --decode 2>/dev/null || true)"
+          if ! jq -e . >/dev/null 2>&1 <<< "$payload"; then exit 0; fi
+          if [ "$(jq -r '.task_id // ""' <<< "$payload")" != "$TASK_ID" ] || [ "$(jq -r '.run_id // ""' <<< "$payload")" != "$RUN_ID" ]; then exit 0; fi
+          state="$(jq -r '.state // ""' <<< "$payload")"
+          if [ "$state" = "PUBLISHED" ] || [ "$state" = "RECOVERABLE" ] || [ "$state" = "RELEASED" ]; then exit 0; fi
+          reservation_before="$payload"
+          head_sha="$(jq -r '.head_sha // ""' <<< "$payload")"
+          packet="$(printf '%s' "$PACKET_B64" | base64 --decode)"
+          packet_digest="$(printf '%s' "$packet" | sha256sum | cut -d' ' -f1)"
+          repository_owner="${REPOSITORY%%/*}"
+          discover_exact_dispatch_prs() {
+            gh api --paginate "repos/${REPOSITORY}/pulls?state=all&per_page=100" --jq '.[]' \
+              | jq -s --arg branch "$BRANCH" --arg head "$head_sha" --arg repo "$REPOSITORY" --arg owner "$repository_owner" \
+                '[.[] | select(.head.ref == $branch and .head.sha == $head and .head.repo.full_name == $repo and .user.login == $owner)]'
+          }
+          validate_exact_dispatch_pr_main_open() {
+            local candidate_pr="$1" live_pr
+            live_pr="$(gh api "repos/${REPOSITORY}/pulls/${candidate_pr}" 2>/dev/null || true)"
+            [ -n "$live_pr" ] || return 1
+            [ "$(jq -r '.head.ref // ""' <<< "$live_pr")" = "$BRANCH" ] || return 1
+            [ "$(jq -r '.head.sha // ""' <<< "$live_pr")" = "$head_sha" ] || return 1
+            [ "$(jq -r '.head.repo.full_name // ""' <<< "$live_pr")" = "$REPOSITORY" ] || return 1
+            [ "$(jq -r '.user.login // ""' <<< "$live_pr")" = "$repository_owner" ] || return 1
+            [ "$(jq -r '.state // ""' <<< "$live_pr")" = "open" ] || return 2
+            [ "$(jq -r '.base.ref // ""' <<< "$live_pr")" = "main" ] || return 3
+            return 0
+          }
+          defer_exceptional_exact_pr() {
+            local candidate_pr="$1" status
+            if validate_exact_dispatch_pr_main_open "$candidate_pr"; then
+              status=0
+            else
+              status=$?
+            fi
+            if [ "$status" -eq 0 ]; then return 1; fi
+            if [ "$status" -eq 2 ] || [ "$status" -eq 3 ]; then
+              echo "Exact Worker PR #${candidate_pr} is not an open main-target PR; deferring convergence to independent cleanup."
+              release_mutex
+              trap - EXIT
+              exit 0
+            fi
+            echo "Refused: exact Worker PR identity changed during dispatch-failure recovery." >&2
+            exit 1
+          }
+
+          pr_number=""
+          if [ -n "${PR_NUMBER:-}" ]; then
+            if ! [[ "$PR_NUMBER" =~ ^[1-9][0-9]*$ ]]; then
+              echo "Refused: publish output PR identity is malformed." >&2
+              exit 1
+            fi
+            direct_pr="$(gh api "repos/${REPOSITORY}/pulls/${PR_NUMBER}" 2>/dev/null || true)"
+            if [ -z "$direct_pr" ]; then
+              echo "Refused: publish output PR evidence is unavailable." >&2
+              exit 1
+            fi
+            if [ "$(jq -r '.head.ref // ""' <<< "$direct_pr")" != "$BRANCH" ] \
+              || [ "$(jq -r '.head.sha // ""' <<< "$direct_pr")" != "$head_sha" ] \
+              || [ "$(jq -r '.head.repo.full_name // ""' <<< "$direct_pr")" != "$REPOSITORY" ] \
+              || [ "$(jq -r '.user.login // ""' <<< "$direct_pr")" != "$repository_owner" ]; then
+              echo "Refused: publish output PR does not match exact Worker identity." >&2
+              exit 1
+            fi
+            direct_body="$(jq -r '.body // ""' <<< "$direct_pr")"
+            direct_packet="$(printf '%s' "$direct_body" | node "$helper" parse 2>/dev/null || true)"
+            if ! jq -e . >/dev/null 2>&1 <<< "$direct_packet" \
+              || [ "$(printf '%s' "$direct_packet" | sha256sum | cut -d' ' -f1)" != "$packet_digest" ]; then
+              echo "Refused: publish output PR does not carry the reservation-bound Task Packet." >&2
+              exit 1
+            fi
+            pr_number="$PR_NUMBER"
+            defer_exceptional_exact_pr "$pr_number" || true
+          fi
+
+          prs="$(discover_exact_dispatch_prs)"
+          pr_match_count="$(jq 'length' <<< "$prs")"
+          if [ "$pr_match_count" -gt 1 ]; then
+            echo "Refused: dispatch-failure recovery found ambiguous exact Worker PR ownership." >&2
+            exit 1
+          fi
+          if [ "$pr_match_count" -eq 1 ]; then
+            candidate_body="$(jq -r '.[0].body // ""' <<< "$prs")"
+            candidate_packet="$(printf '%s' "$candidate_body" | node "$helper" parse 2>/dev/null || true)"
+            if ! jq -e . >/dev/null 2>&1 <<< "$candidate_packet" \
+              || [ "$(printf '%s' "$candidate_packet" | sha256sum | cut -d' ' -f1)" != "$packet_digest" ]; then
+              echo "Refused: discovered exact Worker PR does not carry the reservation-bound Task Packet." >&2
+              exit 1
+            fi
+            discovered_pr_number="$(jq -r '.[0].number' <<< "$prs")"
+            if [ -n "$pr_number" ] && [ "$pr_number" != "$discovered_pr_number" ]; then
+              echo "Refused: publish output PR identity disagrees with exact all-state PR evidence." >&2
+              exit 1
+            fi
+            pr_number="$discovered_pr_number"
+            defer_exceptional_exact_pr "$pr_number" || true
+          fi
+          if [ -n "$pr_number" ]; then
+            payload="$(jq -c --arg state PUBLISHED --argjson pr_number "$pr_number" '.state=$state | .pr_number=$pr_number | .recovery=null' <<< "$payload")"
+            label=PUBLISHED
+          elif [ "$ARTIFACT_UPLOADED" = "true" ]; then
+            echo "Artifact upload succeeded, but artifact-backed recovery is deferred to the independent exact-artifact cleanup validator."
+            exit 0
+          elif gh api "repos/${REPOSITORY}/git/ref/heads/${BRANCH}" >/dev/null 2>&1; then
+            recovery_expires_at="$(date -u -d '+6 days' +%Y-%m-%dT%H:%M:%SZ)"
+            payload="$(jq -c --arg state RECOVERABLE --arg expires "$recovery_expires_at" '.state=$state | .recovery={kind:"branch",expires_at:$expires}' <<< "$payload")"
+            label=RECOVERABLE
+          else
+            payload="$(jq -c --arg state RELEASED '.state=$state | .recovery=null' <<< "$payload")"
+            label=RELEASED
+          fi
+          retryable_state_body=""
+          if [ "$label" = "RELEASED" ]; then
+            verify_no_live_publication() {
+              local refs live_pulls
+              refs="$(gh api "repos/${REPOSITORY}/git/matching-refs/heads/${BRANCH}")" || return 1
+              if [ "$(jq -r --arg ref "refs/heads/${BRANCH}" '[.[] | select(.ref == $ref)] | length' <<< "$refs")" -ne 0 ]; then return 1; fi
+              live_pulls="$(gh api --paginate "repos/${REPOSITORY}/pulls?state=open&base=main&per_page=100" --jq '.[]' | jq -s --arg branch "$BRANCH" --arg repo "$REPOSITORY" '[.[] | select(.head.ref == $branch and (.head.repo.full_name // "") == $repo)]')" || return 1
+              [ "$(jq 'length' <<< "$live_pulls")" -eq 0 ]
+            }
+            if ! [[ "$STATE_COMMENT_ID" =~ ^[1-9][0-9]*$ ]]; then
+              echo "Refused: released reservation has no exact durable task-state identity." >&2
+              exit 1
+            fi
+            task_comment="$(gh api "repos/${REPOSITORY}/issues/comments/${STATE_COMMENT_ID}")"
+            task_author="$(jq -r '.user.login // ""' <<< "$task_comment")"
+            task_body="$(jq -r '.body // ""' <<< "$task_comment")"
+            if [ "$task_author" != "github-actions[bot]" ]; then
+              echo "Refused: released reservation task state is not bot-authored." >&2
+              exit 1
+            fi
+            retryable_input="$(jq -n --arg current_body "$task_body" --argjson reservation "$reservation_before" --argjson packet "$packet" '{current_body:$current_body,reservation:$reservation,packet:$packet}')"
+            retryable_state_body="$(printf '%s' "$retryable_input" | node "$helper" released-reservation-retry-body)"
+
+            confirmed_reservation_body="$(gh api "repos/${REPOSITORY}/issues/comments/${RESERVATION_COMMENT_ID}" --jq '.body // ""')"
+            confirmed_task_comment="$(gh api "repos/${REPOSITORY}/issues/comments/${STATE_COMMENT_ID}")"
+            if [ "$confirmed_reservation_body" != "$body" ] \
+              || [ "$(jq -r '.user.login // ""' <<< "$confirmed_task_comment")" != "github-actions[bot]" ] \
+              || [ "$(jq -r '.body // ""' <<< "$confirmed_task_comment")" != "$task_body" ]; then
+              echo "Refused: reservation or task-state evidence changed before coupled release." >&2
+              exit 1
+            fi
+            if ! verify_no_live_publication; then
+              echo "Refused: branch or open PR evidence appeared before coupled release." >&2
+              exit 1
+            fi
+
+            gh api --method PATCH "repos/${REPOSITORY}/issues/comments/${STATE_COMMENT_ID}" -f body="$retryable_state_body" >/dev/null
+            persisted_task_comment="$(gh api "repos/${REPOSITORY}/issues/comments/${STATE_COMMENT_ID}")"
+            if [ "$(jq -r '.user.login // ""' <<< "$persisted_task_comment")" != "github-actions[bot]" ] \
+              || [ "$(jq -r '.body // ""' <<< "$persisted_task_comment")" != "$retryable_state_body" ]; then
+              echo "Refused: retryable task state did not persist before reservation release." >&2
+              exit 1
+            fi
+            if [ "$(gh api "repos/${REPOSITORY}/issues/comments/${RESERVATION_COMMENT_ID}" --jq '.body // ""')" != "$body" ]; then
+              echo "Refused: reservation changed while persisting retryable task state." >&2
+              exit 1
+            fi
+            if ! verify_no_live_publication; then
+              echo "Refused: branch or open PR evidence appeared while persisting retryable task state." >&2
+              exit 1
+            fi
+          fi
+          payload_b64="$(printf '%s' "$payload" | base64 -w0)"
+          new_body="$(cat <<EOF
+          <!-- proffera-worker-slot-reservation:${TASK_ID} -->
+          ### Worker slot reservation: ${TASK_ID}
+          - State: \`${label}\`
+          - Reservation payload: \`${payload_b64}\`
+          EOF
+          )"
+          if [ "$(gh api "repos/${REPOSITORY}/issues/comments/${RESERVATION_COMMENT_ID}" --jq '.body // ""')" != "$body" ]; then
+            echo "Refused: reservation changed before dispatch-failure recovery mutation." >&2
+            exit 1
+          fi
+          final_prs="$(discover_exact_dispatch_prs)"
+          final_pr_count="$(jq 'length' <<< "$final_prs")"
+          if [ "$label" = "PUBLISHED" ]; then
+            defer_exceptional_exact_pr "$pr_number" || true
+            if [ "$final_pr_count" -gt 1 ] \
+              || { [ "$final_pr_count" -eq 1 ] && [ "$(jq -r '.[0].number' <<< "$final_prs")" != "$pr_number" ]; }; then
+              echo "Exact PR list evidence changed before PUBLISHED mutation; deferring to independent cleanup."
+              release_mutex
+              trap - EXIT
+              exit 0
+            fi
+          elif [ "$final_pr_count" -ne 0 ]; then
+            echo "Exact PR evidence appeared before non-PR recovery mutation; deferring to independent cleanup."
+            release_mutex
+            trap - EXIT
+            exit 0
+          fi
+          if [ "$label" = "RELEASED" ]; then
+            gh api --method PATCH "repos/${REPOSITORY}/issues/comments/${RESERVATION_COMMENT_ID}" -f body="$new_body" >/dev/null
+            persisted_reservation_body="$(gh api "repos/${REPOSITORY}/issues/comments/${RESERVATION_COMMENT_ID}" --jq '.body // ""')"
+            persisted_task_body="$(gh api "repos/${REPOSITORY}/issues/comments/${STATE_COMMENT_ID}" --jq '.body // ""')"
+            if [ "$persisted_reservation_body" != "$new_body" ] || [ "$persisted_task_body" != "$retryable_state_body" ]; then
+              echo "Refused: coupled RELEASED/TASK_BLOCKED transition did not persist exactly." >&2
+              exit 1
+            fi
+          else
+            gh api --method PATCH "repos/${REPOSITORY}/issues/comments/${RESERVATION_COMMENT_ID}" -f body="$new_body" >/dev/null || true
+          fi
+          echo "Reservation ${TASK_ID}@${head_sha} moved to ${label} after dispatch failure."
+          release_mutex
+          trap - EXIT
+
+
+  cleanup:
+    name: Recover stranded preflight reservation
+    needs: [preflight, dispatch, publish]
+    if: >-
+      always() &&
+      needs.preflight.outputs.proceed == 'yes' &&
+      needs.preflight.outputs.reservation_comment_id != '' &&
+      (needs.dispatch.result != 'success' || needs.publish.result != 'success')
+    concurrency:
+      group: proffera-worker-cleanup-${{ needs.preflight.outputs.branch }}
+      cancel-in-progress: false
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      actions: read
+      contents: read
+      issues: write
+      pull-requests: read
+    steps:
+      - name: Checkout exact cleanup baseline
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ needs.preflight.outputs.base_sha }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Materialize exact baseline cleanup helper independently
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          BASE_SHA: ${{ needs.preflight.outputs.base_sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          trusted_dir="$RUNNER_TEMP/proffera-trusted-cleanup"
+          helper="$trusted_dir/supervisor-worker-handoff.mjs"
+          rm -rf "$trusted_dir"
+          mkdir -p "$trusted_dir"
+          helper_json="$(gh api "repos/${REPOSITORY}/contents/scripts/supervisor-worker-handoff.mjs?ref=${BASE_SHA}")"
+          expected_blob="$(jq -r '.sha // ""' <<< "$helper_json")"
+          jq -r '.content' <<< "$helper_json" | tr -d '\n' | base64 --decode > "$helper"
+          test -s "$helper"
+          test "$(git hash-object "$helper")" = "$expected_blob"
+          node --check "$helper"
+
+      - name: Reconcile exact stranded reservation after publish setup failure
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          BASE_SHA: ${{ needs.preflight.outputs.base_sha }}
+          RESERVATION_COMMENT_ID: ${{ needs.preflight.outputs.reservation_comment_id }}
+          STATE_COMMENT_ID: ${{ needs.preflight.outputs.state_comment_id }}
+          TASK_ID: ${{ needs.preflight.outputs.task_id }}
+          BRANCH: ${{ needs.preflight.outputs.branch }}
+          RUN_ID: ${{ github.run_id }}
+          PACKET_B64: ${{ needs.preflight.outputs.packet_b64 }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          helper="$RUNNER_TEMP/proffera-trusted-cleanup/supervisor-worker-handoff.mjs"
+          test -s "$helper"
+          packet="$(printf '%s' "$PACKET_B64" | base64 --decode)"
+          test "$(jq -r '.task_id' <<< "$packet")" = "$TASK_ID"
+          test "$(jq -r '.branch' <<< "$packet")" = "$BRANCH"
+          test "$(jq -r '.base_sha' <<< "$packet")" = "$BASE_SHA"
+          packet_digest="$(printf '%s' "$packet" | sha256sum | cut -d' ' -f1)"
+
+          control_input="$(jq -cn --arg repository "$REPOSITORY" --arg run_id "$RUN_ID" '{repository:$repository,run_id:$run_id}')"
+          mutex="$(printf '%s' "$control_input" | node "$helper" reservation-mutex-acquire)"
+          control_input="$(jq -c --arg mutex "$mutex" '. + {mutex:$mutex}' <<< "$control_input")"
+          release_mutex() {
+            printf '%s' "$control_input" | node "$helper" reservation-mutex-release
+          }
+          trap 'release_mutex || true' EXIT
+
+          reservation_comment="$(gh api "repos/${REPOSITORY}/issues/comments/${RESERVATION_COMMENT_ID}")"
+          test "$(jq -r '.user.login // ""' <<< "$reservation_comment")" = "github-actions[bot]"
+          reservation_body="$(jq -r '.body // ""' <<< "$reservation_comment")"
+          payload_b64="$(sed -n 's/^- Reservation payload: `\([^`]*\)`$/\1/p' <<< "$reservation_body")"
+          payload="$(printf '%s' "$payload_b64" | base64 --decode)"
+          jq -e . >/dev/null <<< "$payload"
+          test "$(jq -r '.task_id // ""' <<< "$payload")" = "$TASK_ID"
+          test "$(jq -r '.run_id // ""' <<< "$payload")" = "$RUN_ID"
+          test "$(jq -r '.branch // ""' <<< "$payload")" = "$BRANCH"
+          test "$(jq -r '.packet_digest // ""' <<< "$payload")" = "$packet_digest"
+          state="$(jq -r '.state // ""' <<< "$payload")"
+          recovery_kind="$(jq -r '.recovery.kind // ""' <<< "$payload")"
+          case "$state" in
+            RELEASED)
+              case "$recovery_kind" in
+                prebind_head_changed|retargeted_pr|closed_pr)
+                  echo "Reservation is already RELEASED with exceptional PR provenance; verifying task convergence before treating cleanup as complete."
+                  ;;
+                *)
+                  echo "Reservation already converged to RELEASED; fallback cleanup is idempotent."
+                  release_mutex
+                  trap - EXIT
+                  exit 0
+                  ;;
+              esac
+              ;;
+            RESERVED|PUBLISHED|RECOVERABLE) ;;
+            *)
+              echo "Refused: stranded reservation state is malformed or unsupported: $state" >&2
+              exit 1
+              ;;
+          esac
+
+          head_sha="$(jq -r '.head_sha // ""' <<< "$payload")"
+          test "$head_sha" != ""
+          snapshot_finalized="$(jq -r '.snapshot_finalized == true' <<< "$payload")"
+          target_tree_sha="$(jq -r '.target_tree_sha // ""' <<< "$payload")"
+          reserved_paths="$(jq -c '.changed_files // [] | sort' <<< "$payload")"
+          repository_owner="${REPOSITORY%%/*}"
+          validate_exact_cleanup_dispatch() {
+            local dispatch_marker dispatch_matches
+            dispatch_marker="<!-- proffera-worker-dispatch-start:${TASK_ID}:${RUN_ID} -->"
+            dispatch_matches="$(gh api --paginate "repos/${REPOSITORY}/issues/548/comments?per_page=100" --jq '.[]' \
+              | jq -s --arg marker "$dispatch_marker" '[.[] | select(.user.login == "github-actions[bot]" and ((.body // "") | contains($marker)))]')" || return 1
+            [ "$(jq 'length' <<< "$dispatch_matches")" -eq 1 ]
+          }
+          prebind_cleanup_mode=false
+          if [ "$state" = "RESERVED" ] && [ "$(jq -r '.pr_number // empty' <<< "$payload")" = "" ]; then
+            prebind_cleanup_mode=true
+          elif [ "$state" = "RELEASED" ] && [ "$recovery_kind" = "prebind_head_changed" ]; then
+            prebind_cleanup_mode=true
+          fi
+
+          discover_exact_cleanup_pr_number() {
+            local matches candidate_matches count encoded candidate candidate_body candidate_packet candidate_number
+            matches="$(gh api --paginate "repos/${REPOSITORY}/pulls?state=all&per_page=100" --jq '.[]' \
+              | jq -s --arg branch "$BRANCH" --arg head "$head_sha" --arg repo "$REPOSITORY" --arg owner "$repository_owner" \
+                '[.[] | select(.head.ref == $branch and .head.repo.full_name == $repo and .user.login == $owner)]')"
+            if [ "$prebind_cleanup_mode" != "true" ]; then
+              matches="$(jq --arg head "$head_sha" '[.[] | select(.head.sha == $head)]' <<< "$matches")"
+            fi
+            candidate_matches='[]'
+            while IFS= read -r encoded; do
+              [ -n "$encoded" ] || continue
+              candidate="$(printf '%s' "$encoded" | base64 --decode)"
+              candidate_body="$(jq -r '.body // ""' <<< "$candidate")"
+              candidate_packet="$(printf '%s' "$candidate_body" | node "$helper" parse 2>/dev/null || true)"
+              if jq -e . >/dev/null 2>&1 <<< "$candidate_packet" \
+                && [ "$(printf '%s' "$candidate_packet" | sha256sum | cut -d' ' -f1)" = "$packet_digest" ]; then
+                candidate_matches="$(jq --argjson candidate "$candidate" '. + [$candidate]' <<< "$candidate_matches")"
+              fi
+            done < <(jq -r '.[] | @base64' <<< "$matches")
+            count="$(jq 'length' <<< "$candidate_matches")"
+            [ "$count" -le 1 ] || { echo "Refused: stranded reservation has ambiguous reservation-bound Worker PR ownership." >&2; return 1; }
+            if [ "$count" -eq 0 ]; then printf '%s' ""; return 0; fi
+            candidate_number="$(jq -r '.[0].number // ""' <<< "$candidate_matches")"
+            [[ "$candidate_number" =~ ^[1-9][0-9]*$ ]] || return 1
+            printf '%s' "$candidate_number"
+          }
+
+          refresh_exact_cleanup_pr() {
+            local live_packet
+            exact_pr_number="$(discover_exact_cleanup_pr_number)" || return 1
+            exact_pr_class=none
+            exact_pr_base=""
+            exact_pr_head=""
+            exact_pr_merged=false
+            exact_pr_json=""
+            [ -n "$exact_pr_number" ] || return 0
+            exact_pr_json="$(gh api "repos/${REPOSITORY}/pulls/${exact_pr_number}" 2>/dev/null || true)"
+            [ -n "$exact_pr_json" ] || return 1
+            [ "$(jq -r '.head.ref // ""' <<< "$exact_pr_json")" = "$BRANCH" ] || return 1
+            [ "$(jq -r '.head.repo.full_name // ""' <<< "$exact_pr_json")" = "$REPOSITORY" ] || return 1
+            [ "$(jq -r '.user.login // ""' <<< "$exact_pr_json")" = "$repository_owner" ] || return 1
+            live_packet="$(jq -r '.body // ""' <<< "$exact_pr_json" | node "$helper" parse 2>/dev/null || true)"
+            jq -e . >/dev/null 2>&1 <<< "$live_packet" || return 1
+            [ "$(printf '%s' "$live_packet" | sha256sum | cut -d' ' -f1)" = "$packet_digest" ] || return 1
+            exact_pr_head="$(jq -r '.head.sha // ""' <<< "$exact_pr_json")"
+            [[ "$exact_pr_head" =~ ^[0-9a-f]{40}$ ]] || return 1
+            exact_pr_base="$(jq -r '.base.ref // ""' <<< "$exact_pr_json")"
+            exact_pr_merged="$(jq -r '.merged == true' <<< "$exact_pr_json")"
+            if [ "$exact_pr_head" != "$head_sha" ]; then
+              [ "$prebind_cleanup_mode" = "true" ] || return 1
+              if ! validate_exact_cleanup_dispatch; then
+                echo "Refused: pre-bind head-change cleanup has missing or ambiguous exact dispatch provenance." >&2
+                return 1
+              fi
+              [ "$(jq -r '.state // ""' <<< "$exact_pr_json")" = "open" ] || return 1
+              [ "$exact_pr_base" = "main" ] || return 1
+              if [ "$state" = "RELEASED" ]; then
+                [ "$(jq -r '.pr_number // empty' <<< "$payload")" = "$exact_pr_number" ] || return 1
+                [ "$(jq -r '.recovery.reservation_head_sha // ""' <<< "$payload")" = "$head_sha" ] || return 1
+                [ "$(jq -r '.recovery.observed_head_sha // ""' <<< "$payload")" = "$exact_pr_head" ] || return 1
+              fi
+              exact_pr_class=prebind_head_changed
+              return 0
+            fi
+            if [ "$(jq -r '.state // ""' <<< "$exact_pr_json")" = "closed" ]; then exact_pr_class=closed
+            elif [ "$exact_pr_base" = "main" ]; then exact_pr_class=main_open
+            else exact_pr_class=retargeted_open
+            fi
+          }
+
+          validate_task_before_exceptional_convergence() {
+            local task_comment task_author validation_input validation exceptional_task_pr exceptional_task_head
+            task_comment="$(gh api "repos/${REPOSITORY}/issues/comments/${STATE_COMMENT_ID}")"
+            task_author="$(jq -r '.user.login // ""' <<< "$task_comment")"
+            exceptional_task_body_before="$(jq -r '.body // ""' <<< "$task_comment")"
+            [ "$task_author" = "github-actions[bot]" ] || return 1
+            validation_input="$(jq -n --argjson packet "$packet" --arg body "$exceptional_task_body_before" --arg run_id "$RUN_ID" '{packet:$packet,body:$body,run_id:$run_id}')"
+            validation="$(printf '%s' "$validation_input" | node "$helper" validate-state)"
+            exceptional_task_state="$(jq -r '.state // ""' <<< "$validation")"
+            exceptional_task_pr="$(jq -r '.pr_number // empty' <<< "$validation")"
+            exceptional_task_head="$(jq -r '.head_sha // ""' <<< "$validation")"
+            [ -z "$exceptional_task_pr" ] || [ "$exceptional_task_pr" = "$exact_pr_number" ] || { echo "Refused: exceptional task PR binding does not match the exact Worker PR." >&2; return 1; }
+            [ -z "$exceptional_task_head" ] || [ "$exceptional_task_head" = "$head_sha" ] || { echo "Refused: exceptional task head binding does not match the reservation head." >&2; return 1; }
+          }
+
+          converge_exceptional_exact_pr() {
+            local expected_class expected_number expected_base expected_head expected_merged terminal_state reason next_task_json next_task_body next_payload payload_b64 next_reservation_body merged_for_main current_task_body current_reservation_body task_converged reservation_converged
+            refresh_exact_cleanup_pr || return 1
+            expected_class="$exact_pr_class"; expected_number="$exact_pr_number"; expected_base="$exact_pr_base"; expected_head="$exact_pr_head"; expected_merged="$exact_pr_merged"
+            if [ "$expected_class" = "none" ] || [ "$expected_class" = "main_open" ]; then
+              if [ "$state" = "RELEASED" ] && { [ "$recovery_kind" = "retargeted_pr" ] || [ "$recovery_kind" = "closed_pr" ]; }; then
+                echo "Exceptional reservation is already RELEASED and live PR evidence no longer requires cleanup mutation."
+                release_mutex; trap - EXIT; exit 0
+              fi
+              return 10
+            fi
+            validate_task_before_exceptional_convergence || return 1
+            if [ "$expected_class" = "retargeted_open" ] && { [ "$exceptional_task_state" = "MERGED" ] || [ "$exceptional_task_state" = "CLOSED_UNMERGED" ]; }; then
+              echo "Refused: a live retargeted PR conflicts with terminal task state $exceptional_task_state." >&2
+              return 1
+            fi
+
+            if [ "$expected_class" = "prebind_head_changed" ]; then
+              reason="Reservation-bound Worker PR #${expected_number} advanced from trusted generated head ${head_sha} to observed head ${expected_head} before publication binding completed. The observed head is untrusted and is not eligible for automatic publication or admission; the writable slot is released."
+              next_task_json="$(jq -n --argjson packet "$packet" --arg state WORKER_BLOCKED --arg reason "$reason" --arg run_id "$RUN_ID" --argjson pr_number "$expected_number" --arg head_sha "$head_sha" '{packet:$packet,state:$state,reason:$reason,run_id:$run_id,pr_number:$pr_number,head_sha:$head_sha}')"
+              next_task_body="$(printf '%s' "$next_task_json" | node "$helper" state-body)"
+              next_payload="$(jq -c --arg state RELEASED --argjson pr_number "$expected_number" --arg base_ref "$expected_base" --arg reservation_head_sha "$head_sha" --arg observed_head_sha "$expected_head" '.state=$state | .pr_number=$pr_number | .head_sha=$reservation_head_sha | .recovery={kind:"prebind_head_changed",base_ref:$base_ref,reservation_head_sha:$reservation_head_sha,observed_head_sha:$observed_head_sha}' <<< "$payload")"
+            elif [ "$expected_class" = "retargeted_open" ]; then
+              reason="Exact Worker PR #${expected_number} was retargeted away from main to '${expected_base}'. Its writable slot is released, but the same task is not redispatchable while that PR/branch remains; retarget this same unchanged PR back to main for exact-provenance re-admission."
+              next_task_json="$(jq -n --argjson packet "$packet" --arg state WORKER_BLOCKED --arg reason "$reason" --arg run_id "$RUN_ID" --argjson pr_number "$expected_number" --arg head_sha "$head_sha" '{packet:$packet,state:$state,reason:$reason,run_id:$run_id,pr_number:$pr_number,head_sha:$head_sha}')"
+              next_task_body="$(printf '%s' "$next_task_json" | node "$helper" state-body)"
+              next_payload="$(jq -c --arg state RELEASED --argjson pr_number "$expected_number" --arg base_ref "$expected_base" --arg reservation_head_sha "$head_sha" '.state=$state | .pr_number=$pr_number | .head_sha=$reservation_head_sha | .recovery={kind:"retargeted_pr",base_ref:$base_ref,reservation_head_sha:$reservation_head_sha}' <<< "$payload")"
+            else
+              if [ "$exact_pr_base" = "main" ] && [ "$exact_pr_merged" = "true" ]; then terminal_state=MERGED; else terminal_state=CLOSED_UNMERGED; fi
+              reason="Exact Worker PR #${expected_number} is live-verified closed during fallback cleanup; durable reservation ownership is released without inventing retryable branch/PR absence."
+              if [ "$exceptional_task_state" = "$terminal_state" ]; then
+                next_task_body="$exceptional_task_body_before"
+              else
+                next_task_json="$(jq -n --argjson packet "$packet" --arg state "$terminal_state" --arg reason "$reason" --arg run_id "$RUN_ID" --argjson pr_number "$expected_number" --arg head_sha "$head_sha" '{packet:$packet,state:$state,reason:$reason,run_id:$run_id,pr_number:$pr_number,head_sha:$head_sha}')"
+                next_task_body="$(printf '%s' "$next_task_json" | node "$helper" state-body)"
+              fi
+              merged_for_main="$exact_pr_merged"
+              next_payload="$(jq -c --arg state RELEASED --argjson pr_number "$expected_number" --argjson merged "$merged_for_main" --arg reservation_head_sha "$head_sha" '.state=$state | .pr_number=$pr_number | .head_sha=$reservation_head_sha | .recovery={kind:"closed_pr",merged:$merged,reservation_head_sha:$reservation_head_sha}' <<< "$payload")"
+            fi
+            payload_b64="$(printf '%s' "$next_payload" | base64 -w0)"
+            next_reservation_body="$(printf '%s\n' "<!-- proffera-worker-slot-reservation:${TASK_ID} -->" "### Worker slot reservation: ${TASK_ID}" "- State: \`RELEASED\`" "- Reservation payload: \`${payload_b64}\`")"
+
+            current_task_body="$(gh api "repos/${REPOSITORY}/issues/comments/${STATE_COMMENT_ID}" --jq '.body // ""')"
+            current_reservation_body="$(gh api "repos/${REPOSITORY}/issues/comments/${RESERVATION_COMMENT_ID}" --jq '.body // ""')"
+            if [ "$current_task_body" = "$next_task_body" ]; then
+              task_converged=true
+            elif [ "$current_task_body" = "$exceptional_task_body_before" ]; then
+              task_converged=false
+            else
+              echo "Refused: exceptional task evidence changed before convergence." >&2
+              return 1
+            fi
+            if [ "$current_reservation_body" = "$next_reservation_body" ]; then
+              reservation_converged=true
+            elif [ "$current_reservation_body" = "$reservation_body" ]; then
+              reservation_converged=false
+            else
+              echo "Refused: exceptional reservation evidence changed before convergence." >&2
+              return 1
+            fi
+
+            if [ "$reservation_converged" != "true" ]; then
+              if [ "$task_converged" != "true" ]; then
+                [ "$(gh api "repos/${REPOSITORY}/issues/comments/${RESERVATION_COMMENT_ID}" --jq '.body // ""')" = "$reservation_body" ] || return 1
+                [ "$(gh api "repos/${REPOSITORY}/issues/comments/${STATE_COMMENT_ID}" --jq '.body // ""')" = "$exceptional_task_body_before" ] || return 1
+                refresh_exact_cleanup_pr || return 1
+                [ "$exact_pr_class" = "$expected_class" ] && [ "$exact_pr_number" = "$expected_number" ] && [ "$exact_pr_base" = "$expected_base" ] && [ "$exact_pr_head" = "$expected_head" ] && [ "$exact_pr_merged" = "$expected_merged" ] || return 1
+
+                gh api --method PATCH "repos/${REPOSITORY}/issues/comments/${STATE_COMMENT_ID}" -f body="$next_task_body" >/dev/null
+                task_converged=true
+              fi
+
+              [ "$(gh api "repos/${REPOSITORY}/issues/comments/${STATE_COMMENT_ID}" --jq '.body // ""')" = "$next_task_body" ] || return 1
+              [ "$(gh api "repos/${REPOSITORY}/issues/comments/${RESERVATION_COMMENT_ID}" --jq '.body // ""')" = "$reservation_body" ] || return 1
+              refresh_exact_cleanup_pr || return 1
+              [ "$exact_pr_class" = "$expected_class" ] && [ "$exact_pr_number" = "$expected_number" ] && [ "$exact_pr_base" = "$expected_base" ] && [ "$exact_pr_head" = "$expected_head" ] && [ "$exact_pr_merged" = "$expected_merged" ] || return 1
+
+              gh api --method PATCH "repos/${REPOSITORY}/issues/comments/${RESERVATION_COMMENT_ID}" -f body="$next_reservation_body" >/dev/null
+              reservation_converged=true
+            elif [ "$task_converged" != "true" ]; then
+              [ "$(gh api "repos/${REPOSITORY}/issues/comments/${RESERVATION_COMMENT_ID}" --jq '.body // ""')" = "$next_reservation_body" ] || return 1
+              [ "$(gh api "repos/${REPOSITORY}/issues/comments/${STATE_COMMENT_ID}" --jq '.body // ""')" = "$exceptional_task_body_before" ] || return 1
+              refresh_exact_cleanup_pr || return 1
+              [ "$exact_pr_class" = "$expected_class" ] && [ "$exact_pr_number" = "$expected_number" ] && [ "$exact_pr_base" = "$expected_base" ] && [ "$exact_pr_head" = "$expected_head" ] && [ "$exact_pr_merged" = "$expected_merged" ] || return 1
+
+              gh api --method PATCH "repos/${REPOSITORY}/issues/comments/${STATE_COMMENT_ID}" -f body="$next_task_body" >/dev/null
+              task_converged=true
+            fi
+
+            [ "$(gh api "repos/${REPOSITORY}/issues/comments/${STATE_COMMENT_ID}" --jq '.body // ""')" = "$next_task_body" ] || return 1
+            [ "$(gh api "repos/${REPOSITORY}/issues/comments/${RESERVATION_COMMENT_ID}" --jq '.body // ""')" = "$next_reservation_body" ] || return 1
+            refresh_exact_cleanup_pr || return 1
+            [ "$exact_pr_class" = "$expected_class" ] && [ "$exact_pr_number" = "$expected_number" ] && [ "$exact_pr_base" = "$expected_base" ] && [ "$exact_pr_head" = "$expected_head" ] && [ "$exact_pr_merged" = "$expected_merged" ] || return 1
+            echo "Fallback cleanup converged exact PR #${expected_number} from ${expected_class} to a provenance-preserving RELEASED reservation."
+            release_mutex; trap - EXIT; exit 0
+          }
+
+          if converge_exceptional_exact_pr; then
+            :
+          else
+            exceptional_status=$?
+            [ "$exceptional_status" -eq 10 ] || exit "$exceptional_status"
+          fi
+          pr_number="$exact_pr_number"
+          label=""
+          if [ -n "$pr_number" ]; then
+            payload="$(jq -c --arg state PUBLISHED --argjson pr_number "$pr_number" '.state=$state | .pr_number=$pr_number | .recovery=null' <<< "$payload")"
+            label=PUBLISHED
+          else
+            branch_ref="$(gh api "repos/${REPOSITORY}/git/ref/heads/${BRANCH}" 2>/dev/null || true)"
+            if [ -n "$branch_ref" ]; then
+              test "$(jq -r '.object.sha // ""' <<< "$branch_ref")" = "$head_sha"
+              recovery_expires_at="$(date -u -d '+6 days' +%Y-%m-%dT%H:%M:%SZ)"
+              payload="$(jq -c --arg state RECOVERABLE --arg expires "$recovery_expires_at" '.state=$state | .recovery={kind:"branch",expires_at:$expires}' <<< "$payload")"
+              label=RECOVERABLE
+            else
+              artifacts="$(gh api "repos/${REPOSITORY}/actions/runs/${RUN_ID}/artifacts?per_page=100")"
+              artifact_prefix="proffera-publication-recovery-${TASK_ID}-"
+              artifact_matches="$(jq -c --arg prefix "$artifact_prefix" '[.artifacts[]? | select((.expired // true) == false) | select((.name // "") | startswith($prefix)) | select(((.name // "") | sub("^" + $prefix; "")) | test("^[0-9a-f]{64}$"))]' <<< "$artifacts")"
+              artifact_count="$(jq 'length' <<< "$artifact_matches")"
+              if [ "$artifact_count" -gt 1 ]; then
+                echo "Refused: stranded reservation has ambiguous recovery artifacts." >&2
+                exit 1
+              fi
+              if [ "$artifact_count" -eq 1 ]; then
+                test "$snapshot_finalized" = "true"
+                [[ "$target_tree_sha" =~ ^[0-9a-f]{40}$ ]]
+                test "$head_sha" != "$BASE_SHA"
+                test "$(jq 'length' <<< "$reserved_paths")" -gt 0
+                artifact_id="$(jq -r '.[0].id // ""' <<< "$artifact_matches")"
+                artifact_name="$(jq -r '.[0].name // ""' <<< "$artifact_matches")"
+                artifact_expired="$(jq -r '.[0].expired // true' <<< "$artifact_matches")"
+                recovery_digest="${artifact_name#${artifact_prefix}}"
+                [[ "$artifact_id" =~ ^[1-9][0-9]*$ ]]
+                [[ "$artifact_name" =~ ^proffera-publication-recovery-${TASK_ID}-[0-9a-f]{64}$ ]]
+                [[ "$recovery_digest" =~ ^[0-9a-f]{64}$ ]]
+                test "$artifact_expired" = "false"
+
+                archive="$RUNNER_TEMP/proffera-publication-recovery-${TASK_ID}.zip"
+                recovery_artifact="$RUNNER_TEMP/proffera-publication-recovery-${TASK_ID}.json"
+                rm -f "$archive" "$recovery_artifact"
+                gh api "repos/${REPOSITORY}/actions/artifacts/${artifact_id}/zip" > "$archive"
+                test -s "$archive"
+                archive_entries="$(unzip -Z1 "$archive")"
+                test "$archive_entries" = "proffera-publication-artifact.json"
+                unzip -p "$archive" proffera-publication-artifact.json > "$recovery_artifact"
+                test -s "$recovery_artifact"
+                jq -e . "$recovery_artifact" >/dev/null
+
+                actual_recovery_digest="$(sha256sum "$recovery_artifact" | cut -d' ' -f1)"
+                test "$actual_recovery_digest" = "$recovery_digest"
+                live_source="$(gh api "repos/${REPOSITORY}/git/ref/heads/main" --jq '.object.sha')"
+                test "$live_source" = "$BASE_SHA"
+                recovery_validation="$(jq -n --argjson packet "$packet" --arg current_source_head "$live_source" --arg expected_target_head "$head_sha" --arg expected_target_tree_sha "$target_tree_sha" --arg expected_run_id "$RUN_ID" --slurpfile artifact "$recovery_artifact" '{packet:$packet,current_source_head:$current_source_head,expected_target_head:$expected_target_head,expected_target_tree_sha:$expected_target_tree_sha,expected_run_id:$expected_run_id,artifact:$artifact[0]}' | node "$helper" validate-publication)"
+                test "$(jq -r '.ok // false' <<< "$recovery_validation")" = "true"
+                test "$(jq -r '.target_head // ""' <<< "$recovery_validation")" = "$head_sha"
+                test "$(jq -r '.target_tree_sha // ""' <<< "$recovery_validation")" = "$target_tree_sha"
+                test "$(jq -r '.run_id // ""' <<< "$recovery_validation")" = "$RUN_ID"
+                test "$(jq -c '.paths | sort' <<< "$recovery_validation")" = "$reserved_paths"
+
+                recovery_expires_at="$(date -u -d '+6 days' +%Y-%m-%dT%H:%M:%SZ)"
+                payload="$(jq -c --arg state RECOVERABLE --arg digest "$recovery_digest" --arg expires "$recovery_expires_at" '.state=$state | .recovery={kind:"artifact",digest:$digest,expires_at:$expires}' <<< "$payload")"
+                label=RECOVERABLE
+              else
+                payload="$(jq -c --arg state RELEASED '.state=$state | .recovery=null' <<< "$payload")"
+                label=RELEASED
+              fi
+            fi
+          fi
+
+          if [ "$label" = "RELEASED" ]; then
+            [[ "$STATE_COMMENT_ID" =~ ^[1-9][0-9]*$ ]]
+            task_comment="$(gh api "repos/${REPOSITORY}/issues/comments/${STATE_COMMENT_ID}")"
+            test "$(jq -r '.user.login // ""' <<< "$task_comment")" = "github-actions[bot]"
+            task_body="$(jq -r '.body // ""' <<< "$task_comment")"
+            retryable_input="$(jq -n --arg current_body "$task_body" --argjson reservation "$(printf '%s' "$payload" | jq '.state="RESERVED"')" --argjson packet "$packet" '{current_body:$current_body,reservation:$reservation,packet:$packet}')"
+            retryable_state_body="$(printf '%s' "$retryable_input" | node "$helper" released-reservation-retry-body)"
+
+            test "$(gh api "repos/${REPOSITORY}/issues/comments/${RESERVATION_COMMENT_ID}" --jq '.body // ""')" = "$reservation_body"
+            test "$(gh api "repos/${REPOSITORY}/issues/comments/${STATE_COMMENT_ID}" --jq '.body // ""')" = "$task_body"
+            if [ -z "$pr_number" ]; then
+              if gh api "repos/${REPOSITORY}/git/ref/heads/${BRANCH}" >/dev/null 2>&1; then
+                echo "Refused: branch appeared before fallback release." >&2
+                exit 1
+              fi
+              live_pulls="$(gh api --paginate "repos/${REPOSITORY}/pulls?state=open&per_page=100" --jq '.[]' | jq -s --arg branch "$BRANCH" --arg repo "$REPOSITORY" '[.[] | select(.head.ref == $branch and (.head.repo.full_name // "") == $repo)]')"
+              test "$(jq 'length' <<< "$live_pulls")" -eq 0
+            fi
+            gh api --method PATCH "repos/${REPOSITORY}/issues/comments/${STATE_COMMENT_ID}" -f body="$retryable_state_body" >/dev/null
+          fi
+
+          payload_b64="$(printf '%s' "$payload" | base64 -w0)"
+          new_body="$(printf '%s\n' "<!-- proffera-worker-slot-reservation:${TASK_ID} -->" "### Worker slot reservation: ${TASK_ID}" "- State: \`${label}\`" "- Reservation payload: \`${payload_b64}\`")"
+          test "$(gh api "repos/${REPOSITORY}/issues/comments/${RESERVATION_COMMENT_ID}" --jq '.body // ""')" = "$reservation_body"
+          if converge_exceptional_exact_pr; then
+            :
+          else
+            exceptional_status=$?
+            [ "$exceptional_status" -eq 10 ] || exit "$exceptional_status"
+          fi
+          if [ "$label" = "PUBLISHED" ]; then
+            [ "$exact_pr_class" = "main_open" ] && [ "$exact_pr_number" = "$pr_number" ] || exit 1
+          else
+            [ "$exact_pr_class" = "none" ] || exit 1
+          fi
+          gh api --method PATCH "repos/${REPOSITORY}/issues/comments/${RESERVATION_COMMENT_ID}" -f body="$new_body" >/dev/null
+
+          if [ "$label" = "RELEASED" ]; then
+            test "$(gh api "repos/${REPOSITORY}/issues/comments/${STATE_COMMENT_ID}" --jq '.body // ""')" = "$retryable_state_body"
+          fi
+          test "$(gh api "repos/${REPOSITORY}/issues/comments/${RESERVATION_COMMENT_ID}" --jq '.body // ""')" = "$new_body"
+          echo "Fallback cleanup converged stranded reservation ${TASK_ID}@${head_sha} to ${label}."
+
+          release_mutex
+          trap - EXIT
