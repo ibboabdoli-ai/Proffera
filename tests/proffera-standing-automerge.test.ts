@@ -86,6 +86,10 @@ if [[ "$args" == *"/issues/695/comments?per_page=100"* ]]; then
   printf '\\n'
   exit 0
 fi
+if [[ "$args" == *"/pulls/695/comments?per_page=100"* ]]; then
+  printf '\\n'
+  exit 0
+fi
 printf 'unexpected gh invocation: %s\\n' "$args" >&2
 exit 2
 `, { mode: 0o755 });
