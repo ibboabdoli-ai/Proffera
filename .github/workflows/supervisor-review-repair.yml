@@ -136,7 +136,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          current_inline="$(jq -r --arg head "$HEAD_SHA" '[.inline_comments[] | select(.commit_id == $head)] | length' supervisor-review-evidence.json)"
+          current_inline="$(jq -r --arg head "$HEAD_SHA" '[.inline_comments[] | select(.original_commit_id == $head)] | length' supervisor-review-evidence.json)"
           blocking_reviews="$(jq -r --arg head "$HEAD_SHA" '[.reviews[] | select(.commit_id == $head and .state == "CHANGES_REQUESTED")] | length' supervisor-review-evidence.json)"
           if [ "$current_inline" -eq 0 ] && [ "$blocking_reviews" -eq 0 ]; then
             echo "repair=no" >> "$GITHUB_OUTPUT"

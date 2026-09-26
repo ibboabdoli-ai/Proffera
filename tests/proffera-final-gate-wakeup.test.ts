@@ -698,6 +698,7 @@ ${reviewHead}
       firstReviews: [codeRabbitCompletedReview("2099-09-05T12:02:00Z")],
       inlineComments: [{
         user: { login: "coderabbitai[bot]" },
+        original_commit_id: reviewHead,
         commit_id: reviewHead,
         created_at: "2099-09-05T12:02:00Z",
       }],
@@ -706,6 +707,32 @@ ${reviewHead}
     expect(commentedReviewWithInlineFinding.stdout).toContain(
       "Refused: CodeRabbit posted current-head review findings; review acceptance is blocked.",
     );
+
+    const reanchoredOldInlineFinding = runAutomergeFixture({
+      comments: [requestComment()],
+      firstReviews: [codeRabbitCompletedReview("2099-09-05T12:02:00Z")],
+      inlineComments: [{
+        user: { login: "coderabbitai[bot]" },
+        original_commit_id: oldHead,
+        commit_id: reviewHead,
+        created_at: "2099-09-05T12:02:00Z",
+      }],
+    });
+    expect(reanchoredOldInlineFinding.status).toBe(0);
+    expect(reanchoredOldInlineFinding.stdout).toContain("AI_REVIEW_OK");
+
+    const preRequestInlineFinding = runAutomergeFixture({
+      comments: [requestComment("2099-09-05T12:00:00Z")],
+      firstReviews: [codeRabbitCompletedReview("2099-09-05T12:02:00Z")],
+      inlineComments: [{
+        user: { login: "coderabbitai[bot]" },
+        original_commit_id: reviewHead,
+        commit_id: reviewHead,
+        created_at: "2099-09-05T11:59:59Z",
+      }],
+    });
+    expect(preRequestInlineFinding.status).toBe(0);
+    expect(preRequestInlineFinding.stdout).toContain("AI_REVIEW_OK");
 
     const summaryBody = `<!-- recent_review_start -->\nNo actionable comments were generated in the recent review.\n${reviewHead}\n<!-- recent_review_end -->`;
     const editedSummary = {

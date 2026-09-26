@@ -458,6 +458,7 @@ describe("tooling safety contract", () => {
       }],
       inlineComments: [{
         user: { login: "coderabbitai[bot]" },
+        original_commit_id: reviewHead,
         commit_id: reviewHead,
         created_at: "2026-08-31T10:02:00Z",
       }],
@@ -467,6 +468,44 @@ describe("tooling safety contract", () => {
     expect(`${commentedReviewWithInlineFinding.stdout}${commentedReviewWithInlineFinding.stderr}`).toContain(
       "CodeRabbit posted current-head review findings",
     );
+
+    const reanchoredOldInlineFinding = runCiReviewFixture({
+      changedFiles: ".github/workflows/ci.yml",
+      comments: codeRabbitRequestComments(),
+      firstReviews: [{
+        user: { login: "coderabbitai[bot]" },
+        commit_id: reviewHead,
+        state: "COMMENTED",
+        submitted_at: "2026-08-31T10:02:00Z",
+      }],
+      inlineComments: [{
+        user: { login: "coderabbitai[bot]" },
+        original_commit_id: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        commit_id: reviewHead,
+        created_at: "2026-08-31T10:02:00Z",
+      }],
+      failOnPost: true,
+    });
+    expect(reanchoredOldInlineFinding.status).toBe(0);
+
+    const preRequestInlineFinding = runCiReviewFixture({
+      changedFiles: ".github/workflows/ci.yml",
+      comments: codeRabbitRequestComments(),
+      firstReviews: [{
+        user: { login: "coderabbitai[bot]" },
+        commit_id: reviewHead,
+        state: "COMMENTED",
+        submitted_at: "2026-08-31T10:02:00Z",
+      }],
+      inlineComments: [{
+        user: { login: "coderabbitai[bot]" },
+        original_commit_id: reviewHead,
+        commit_id: reviewHead,
+        created_at: "2026-08-31T09:59:59Z",
+      }],
+      failOnPost: true,
+    });
+    expect(preRequestInlineFinding.status).toBe(0);
 
     const reviewSubmission = runCiReviewFixture({
       changedFiles: ".github/workflows/ci.yml",

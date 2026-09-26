@@ -183,7 +183,7 @@ jobs:
                 else
                   inline_count="$(
                     gh api --paginate "repos/${REPOSITORY}/pulls/${pr_number}/comments?per_page=100" --jq '.[]' \
-                      | jq -s --arg actor "$ACTOR" --arg head "$live_head" '[.[] | select(.user.login == $actor and .commit_id == $head)] | length'
+                      | jq -s --arg actor "$ACTOR" --arg head "$live_head" '[.[] | select(.user.login == $actor and .original_commit_id == $head)] | length'
                   )"
                   if [ "$inline_count" -gt 0 ]; then
                     repair=yes

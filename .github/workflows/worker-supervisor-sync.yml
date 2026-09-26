@@ -356,8 +356,8 @@ jobs:
           read_live_pr
           control_input="$(jq -cn --arg repository "$REPOSITORY" --arg run_id "$RUN_ID" '{repository:$repository,run_id:$run_id}')"
           mutex="$(printf '%s' "$control_input" | node "$helper" reservation-mutex-acquire)"
-          control_input="$(jq -c --arg mutex "$mutex" '. + {mutex:$mutex}' <<< "$control_input")"
           echo "mutex=$mutex" >> "$GITHUB_OUTPUT"
+          control_input="$(jq -c --arg mutex "$mutex" '. + {mutex:$mutex}' <<< "$control_input")"
           reconcile_invalid_closed_pr() {
             local current_pr_number="$1" reason="$2" result helper_status=0
             result="$(jq -cn --arg repository "$REPOSITORY" --argjson pr_number "$current_pr_number" --arg run_id "$RUN_ID" --arg mutex "$mutex" '{repository:$repository,pr_number:$pr_number,run_id:$run_id,mutex:$mutex}' | node "$helper" invalid-close-reconcile)" || helper_status=$?

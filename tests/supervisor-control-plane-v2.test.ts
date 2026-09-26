@@ -432,6 +432,7 @@ describe("Supervisor control-plane v2", () => {
     expect(routerHeader).not.toContain("cancel-in-progress: true");
     expect(routerHeader).toContain("github.event.comment.id");
     expect(routerHeader).toContain("github.event.review.id");
+    expect(router).toContain(".original_commit_id == $head");
 
     expect(wakeup).not.toContain("issue_comment:");
     expect(wakeup).not.toContain("pull_request_review:");
@@ -725,6 +726,7 @@ describe("Supervisor control-plane v2", () => {
     expect(repair).toContain("sleep 45");
     expect(repair).toContain("Qualify current-head material findings before model repair");
     expect(repair).toContain("current_inline");
+    expect(repair).toContain(".original_commit_id == $head");
     expect(repair).toContain("blocking_reviews");
     expect(repair).toContain("steps.qualify.outputs.repair == 'yes'");
     expect(repair).toContain("consecutive");
@@ -934,6 +936,13 @@ describe("Supervisor control-plane v2", () => {
     const lifecycle = sync.slice(lifecycleStart, checkStart);
     const checkSync = sync.slice(checkStart);
     const lifecycleStep = workflowRunStep(sync, "Record or update Worker lifecycle state in Supervisor issue");
+    const reconcileStep = workflowRunStep(sync, "Reconcile required current-head workflow evidence");
+    const reconcileAcquire = reconcileStep.indexOf('reservation-mutex-acquire');
+    const reconcileOutput = reconcileStep.indexOf('echo "mutex=$mutex" >> "$GITHUB_OUTPUT"', reconcileAcquire);
+    const reconcileBind = reconcileStep.indexOf('control_input="$(jq -c --arg mutex "$mutex"', reconcileAcquire);
+    expect(reconcileAcquire).toBeGreaterThanOrEqual(0);
+    expect(reconcileOutput).toBeGreaterThan(reconcileAcquire);
+    expect(reconcileBind).toBeGreaterThan(reconcileOutput);
     expect(lifecycle).toContain("cancel-in-progress: false");
     expect(lifecycle).toContain("id: lifecycle");
     expect(lifecycleStep).toContain('echo "mutex=$mutex" >> "$GITHUB_OUTPUT"');
