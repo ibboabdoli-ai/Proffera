@@ -109,6 +109,12 @@ describe("single-request Marketplace readiness gate", () => {
     expect(result.match?.candidates).toHaveLength(1);
     expect(result.match?.candidates[0]?.recipientEmail).toBe("offert@rorfirma.se");
     expect(result.match?.candidates[0]?.coverageState).toBe("locality_fallback");
+    const candidateCall = (sql.mock.calls as unknown[][])[2] ?? [];
+    const candidateQuery = String(candidateCall[0]).replace(/\s+/g, " ");
+    expect(candidateQuery).toContain("scb.workplaces->0->'visitingAddress'->>'city' as city");
+    expect(candidateQuery).toContain("scb.workplaces->0->>'municipality' as municipality");
+    expect(candidateQuery).toContain("lower(btrim(scb.workplaces->0->'visitingAddress'->>'city'))");
+    expect(candidateQuery).not.toContain("lower(btrim(profile.city))");
   });
 
   it("propagates verified provider evidence into confirmed_inside when customer geometry is usable", async () => {
@@ -416,6 +422,38 @@ describe("single-request Marketplace readiness gate", () => {
       expect(result.ok).toBe(true);
       expect(result.match?.candidates).toHaveLength(1);
       expect(result.match?.candidates[0]?.profileId).toBe(candidateRow.profile_id);
+    });
+
+    it("uses canonical SCB workplace locality instead of registered profile locality without customer geometry", async () => {
+      if (!client) throw new Error("PostgreSQL test client is not initialized");
+      await client.query(
+        "update company_directory_profiles set city = 'Malmö', municipality = 'Malmö' where id = $1::uuid",
+        [candidateRow.profile_id],
+      );
+      await client.query(`
+        update company_directory_scb_enrichment scb
+        set provenance = jsonb_set(
+          scb.provenance,
+          '{comparisonSnapshot,profileUpdatedToken}',
+          to_jsonb(profile.updated_at::text)
+        )
+        from company_directory_profiles profile
+        where scb.profile_id = profile.id
+          and profile.id = $1::uuid
+      `, [candidateRow.profile_id]);
+
+      const canonicalLocality = await getDirectoryGuestLeadMatch(leadRow.id);
+      expect(canonicalLocality.ok).toBe(true);
+      expect(canonicalLocality.match?.candidates).toHaveLength(1);
+      expect(canonicalLocality.match?.candidates[0]?.city).toBe("SÖDERTÄLJE");
+
+      await client.query(
+        "update quote_requests set city = 'Malmö' where id = $1::uuid",
+        [leadRow.id],
+      );
+      const registeredLocality = await getDirectoryGuestLeadMatch(leadRow.id);
+      expect(registeredLocality.ok).toBe(true);
+      expect(registeredLocality.match?.candidates).toEqual([]);
     });
 
     it.each([
