@@ -328,7 +328,7 @@ const initialPrices: Record<string, string> = Object.fromEntries(
 
 export function DonisTrattoriaExperience() {
   const [lang, setLang] = useState<Lang>("sv");
-  const [adminOpen, setAdminOpen] = useState(false);
+  const [adminOpen, setAdminOpen] = useState(false);\n  const [europeOpen, setEuropeOpen] = useState(false);
   const [showSaved, setShowSaved] = useState(false);
   const [heroImage, setHeroImage] = useState(defaultHeroImage);
   const [heroTitle, setHeroTitle] = useState<Record<Lang, string>>({
@@ -363,7 +363,7 @@ export function DonisTrattoriaExperience() {
   };
 
   return (
-    <div className="min-h-screen bg-[#f7f3eb] text-[#1d1b18] selection:bg-[#9c2f25] selection:text-white">
+    <div lang={lang} className="min-h-screen bg-[#f7f3eb] text-[#1d1b18] selection:bg-[#9c2f25] selection:text-white">
       <div className="sticky top-0 z-[80] flex min-h-10 items-center justify-between gap-3 bg-[#15120f] px-4 py-2 text-white sm:px-6">
         <p className="text-[9px] font-bold uppercase tracking-[0.22em] text-white/50">
           {c.preview}
@@ -542,13 +542,21 @@ export function DonisTrattoriaExperience() {
                 <p className="max-w-xl text-base font-medium leading-7 text-white/72">
                   {c.europeText}
                 </p>
-                <a
-                  href="#europa"
+                <button
+                  type="button"
+                  onClick={() => {
+                    setEuropeOpen(true);
+                    window.requestAnimationFrame(() => {
+                      document
+                        .getElementById("europa")
+                        ?.scrollIntoView({ behavior: "smooth", block: "start" });
+                    });
+                  }}
                   className="mt-6 inline-flex items-center gap-2 border-b border-white/45 pb-1 text-xs font-black uppercase tracking-[0.16em] text-white"
                 >
                   {c.discover}
                   <ArrowRight className="h-4 w-4" />
-                </a>
+                </button>
               </div>
             </div>
           </div>
@@ -602,7 +610,9 @@ export function DonisTrattoriaExperience() {
 
             <details
               id="europa"
-              className="group mt-12 border-y border-[#7c2f28]/25 bg-[#f7f3eb]"
+              open={europeOpen}
+              onToggle={(event) => setEuropeOpen(event.currentTarget.open)}
+              className="group mt-12 border-y border-[#7c2f28]/25 bg-[#f7f3eb] scroll-mt-16"
             >
               <summary className="flex cursor-pointer list-none items-center justify-between gap-6 px-5 py-6 sm:px-8 [&::-webkit-details-marker]:hidden">
                 <div>
