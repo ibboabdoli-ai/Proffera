@@ -341,6 +341,99 @@ async function resolvePublishedDirectoryBusiness(slug: string): Promise<Publishe
   };
 }
 
+async function hasCurrentClaimedDirectoryAuthority(input: {
+  sql: NonNullable<ReturnType<typeof getSql>>;
+  profileId: string;
+  workspaceId: string;
+  publicSlug: string;
+}) {
+  const rows = await input.sql`
+    select profile.id::text as claimed_authority_profile_id
+    from company_directory_profiles profile
+    join workspaces workspace on workspace.id = profile.claimed_workspace_id
+    where profile.id = ${input.profileId}::uuid
+      and profile.public_slug = ${input.publicSlug}
+      and profile.publication_status = 'claimed'
+      and profile.claimed_workspace_id = ${input.workspaceId}::uuid
+      and workspace.status in ('active', 'trial')
+      and profile.published_at is not null
+      and profile.is_active = true
+      and profile.privacy_blocked = false
+      and profile.auto_public_eligible = true
+      and (
+        (
+          profile.organization_kind = 'juridical_person'
+          and exists (
+            select 1
+            from company_directory_official_facts claimed_facts
+            join company_directory_scb_enrichment claimed_scb
+              on claimed_scb.profile_id = claimed_facts.profile_id
+            where claimed_facts.profile_id = profile.id
+              and claimed_facts.source_payload_hash <> ''
+              and claimed_facts.last_synced_at >= profile.last_synced_at
+              and claimed_facts.deregistration_date is null
+              and coalesce(claimed_facts.advertising_blocked, false) = false
+              and (
+                case
+                  when jsonb_typeof(claimed_facts.ongoing_procedures) = 'array'
+                    then jsonb_array_length(claimed_facts.ongoing_procedures)
+                  else 1
+                end
+              ) = 0
+              and claimed_scb.source_payload_hash <> ''
+              and claimed_scb.last_synced_at >= now() - interval '7 days'
+              and claimed_scb.last_synced_at >= profile.last_synced_at
+              and claimed_scb.provenance #>> '{comparisonSnapshot,officialFactsLastSyncedToken}' = claimed_facts.last_synced_at::text
+              and jsonb_typeof(claimed_scb.conflicts) = 'array'
+              and jsonb_array_length(claimed_scb.conflicts) = 0
+              and jsonb_typeof(claimed_scb.workplaces) = 'array'
+              and jsonb_array_length(claimed_scb.workplaces) = 1
+              and nullif(btrim(claimed_scb.workplaces->0->'visitingAddress'->>'addressLine'), '') is not null
+              and nullif(btrim(claimed_scb.workplaces->0->'visitingAddress'->>'postalCode'), '') is not null
+              and nullif(btrim(claimed_scb.workplaces->0->'visitingAddress'->>'city'), '') is not null
+              and nullif(btrim(claimed_scb.workplaces->0->>'municipality'), '') is not null
+              and (
+                lower(btrim(claimed_scb.workplaces->0->'visitingAddress'->>'city')) = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
+                or lower(btrim(claimed_scb.workplaces->0->>'municipality')) = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
+              )
+          )
+        )
+        or (
+          profile.organization_kind = 'sole_trader'
+          and profile.official_source = 'bolagsverket_vardefulla_datamangder:sole_trader_owner'
+          and exists (
+            select 1
+            from company_directory_claims owner_claim
+            where owner_claim.profile_id = profile.id
+              and owner_claim.requested_workspace_id = profile.claimed_workspace_id
+              and owner_claim.status = 'claimed'
+              and owner_claim.verification_method = 'manual_review'
+          )
+          and exists (
+            select 1
+            from company_directory_profile_locations owner_base
+            where owner_base.profile_id = profile.id
+              and owner_base.owner_workspace_id = profile.claimed_workspace_id
+              and owner_base.source_type = 'owner'
+              and owner_base.purpose = 'service_base'
+              and owner_base.is_active = true
+              and owner_base.is_primary = true
+              and owner_base.confirmed_at is not null
+              and owner_base.latitude is not null
+              and owner_base.longitude is not null
+              and not (owner_base.latitude = 0 and owner_base.longitude = 0)
+              and owner_base.geocode_source = 'lantmateriet_belagenhetsadress_v4_2'
+              and owner_base.geocode_precision = 'address'
+              and lower(btrim(owner_base.city)) = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
+          )
+        )
+      )
+    limit 1
+  `;
+
+  return Boolean(rows[0]);
+}
+
 async function getSafeClaimedDirectoryFallback(slug: string): Promise<PublicDirectoryBusinessForRequest | null> {
   const normalized = slug.trim().toLowerCase();
   if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(normalized)) return null;
@@ -489,6 +582,17 @@ async function getSafeClaimedDirectoryFallback(slug: string): Promise<PublicDire
     email: scb?.email,
     website: row.website_url,
   }, entitled);
+
+  // The claimed projection is assembled across several reads. Revalidate the
+  // authority boundary after those dependent reads so a concurrent withdrawal
+  // cannot leak a stale claimed public profile for this request.
+  const authorityStillValid = await hasCurrentClaimedDirectoryAuthority({
+    sql,
+    profileId,
+    workspaceId,
+    publicSlug,
+  });
+  if (!authorityStillValid) return null;
 
   return {
     id: profileId,

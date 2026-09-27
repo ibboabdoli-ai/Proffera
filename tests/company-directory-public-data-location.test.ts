@@ -108,9 +108,15 @@ function claimedRow() {
   };
 }
 
-function claimedSql(ownerLocation: Record<string, unknown> | null = null) {
+function claimedSql(
+  ownerLocation: Record<string, unknown> | null = null,
+  authorityRecheck = true,
+) {
   return vi.fn(async (strings: TemplateStringsArray) => {
     const query = strings.join(" ");
+    if (query.includes("claimed_authority_profile_id")) {
+      return authorityRecheck ? [{ claimed_authority_profile_id: PROFILE_ID }] : [];
+    }
     if (query.includes("from company_directory_profiles profile")) return [claimedRow()];
     if (query.includes("from company_directory_scb_enrichment")) {
       return [{ phone: "", email: "", workplaces: [scbWorkplace()] }];
@@ -201,6 +207,21 @@ describe("public Directory physical-location read contract", () => {
     const claimedQuery = String((sql.mock.calls[0]?.[0] ?? []).join(" ")).replace(/\s+/g, " ");
     expect(claimedQuery).toContain("join workspaces workspace on workspace.id = profile.claimed_workspace_id");
     expect(claimedQuery).toContain("workspace.status in ('active', 'trial')");
+  });
+
+  it("fails closed when claimed authority disappears after dependent reads", async () => {
+    mocks.getPublicDirectoryBusiness.mockResolvedValue(null);
+    mocks.hasActivePaidDirectoryContactAccess.mockResolvedValue(true);
+    const sql = claimedSql(null, false);
+    mocks.getSql.mockReturnValue(sql);
+
+    const result = await getPublicDirectoryBusinessForRequest("physical-location-ab");
+
+    expect(result).toBeNull();
+    const queries = sql.mock.calls.map((call) => String((call[0] ?? []).join(" ")).replace(/\s+/g, " "));
+    expect(queries.some((query) => query.includes("from company_directory_scb_enrichment"))).toBe(true);
+    expect(queries.some((query) => query.includes("from company_directory_profile_locations"))).toBe(true);
+    expect(queries.at(-1)).toContain("claimed_authority_profile_id");
   });
 
   it("uses the claimed Workspace primary public owner location over SCB", async () => {
