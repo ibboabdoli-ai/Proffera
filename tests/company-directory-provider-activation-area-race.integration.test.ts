@@ -191,12 +191,6 @@ function postgresSql(client: Client) {
         where profile.id = $1::uuid
       `, [PROFILE_ID]);
       await client!.query(`
-        insert into company_directory_profile_services (
-          profile_id, service_slug, source_type, confidence, is_primary,
-          is_active, public_visible, confirmed_at
-        ) values ($1::uuid, $2, 'owner', 100, true, true, true, now())
-      `, [PROFILE_ID, TARGET_SLUG]);
-      await client!.query(`
         insert into workspace_services (
           id, workspace_id, name, is_active, public_status, conversion_mode
         ) values ($1::uuid, $2, 'Fönsterputs', true, 'draft', 'quote')
