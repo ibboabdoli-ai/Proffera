@@ -1,4 +1,8 @@
--- A site is provisioned for a verified owner workspace by an operator. No public slug can be claimed from the dashboard.
+-- A site is provisioned for a verified owner workspace by an operator.
+-- No public slug can be claimed from the dashboard.
+
+begin;
+
 create table if not exists restaurant_sites (
   id uuid primary key default gen_random_uuid(),
   workspace_id uuid not null unique references workspaces(id) on delete cascade,
@@ -14,4 +18,28 @@ create table if not exists restaurant_sites (
   constraint restaurant_site_published_object_check check (published is null or jsonb_typeof(published) = 'object')
 );
 
-create index if not exists restaurant_sites_public_slug_idx on restaurant_sites(public_slug) where published is not null;
+create index if not exists restaurant_sites_public_slug_idx
+  on restaurant_sites(public_slug)
+  where published is not null;
+
+insert into proffera_schema_migrations (
+  migration_key,
+  filename,
+  checksum,
+  git_sha,
+  applied_by,
+  execution_mode,
+  notes
+)
+values (
+  '20260927_0068',
+  '20260927_0068_restaurant_sites.sql',
+  null,
+  null,
+  'migration-0068',
+  'canonical-migration',
+  'Adds operator-provisioned restaurant-site draft/published snapshots scoped one-to-one to an existing Workspace. No public slug can be claimed from the dashboard and no customer content is seeded.'
+)
+on conflict (migration_key) do nothing;
+
+commit;
