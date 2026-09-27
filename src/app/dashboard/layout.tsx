@@ -10,6 +10,7 @@ import { SettingsLocaleBoundary } from "@/app/dashboard/installningar/settings-l
 import { SettingsResidualLocaleFix } from "@/app/dashboard/installningar/settings-residual-locale-fix";
 import { canManageWorkspaceSettings, getUserWorkspaceAccess, getUserWorkspaceOptions } from "@/lib/workspace-access";
 import { getDashboardEnabledFeatureKeys, getDashboardModuleAccess } from "@/lib/workspace-module-access";
+import { hasRestaurantSite } from "@/lib/restaurant-site-db";
 
 export const dynamic = "force-dynamic";
 
@@ -38,12 +39,12 @@ export default async function DashboardLayout({ children }: Readonly<{ children:
   }
 
   const canManageSettings = canManageWorkspaceSettings(access);
-  const [moduleAccess, enabledFeatures, workspaceOptions] = await Promise.all([
-    getDashboardModuleAccess(), getDashboardEnabledFeatureKeys(), getUserWorkspaceOptions(),
+  const [moduleAccess, enabledFeatures, workspaceOptions, restaurantEnabled] = await Promise.all([
+    getDashboardModuleAccess(), getDashboardEnabledFeatureKeys(), getUserWorkspaceOptions(), hasRestaurantSite(access.workspaceId),
   ]);
 
   return (
-    <DashboardShell workspaceName={access.workspaceName} workspaceId={access.workspaceId} workspaceOptions={workspaceOptions} moduleAccess={moduleAccess} enabledFeatures={enabledFeatures} canManageSettings={canManageSettings}>
+    <DashboardShell workspaceName={access.workspaceName} workspaceId={access.workspaceId} workspaceOptions={workspaceOptions} moduleAccess={moduleAccess} enabledFeatures={enabledFeatures} canManageSettings={canManageSettings} restaurantEnabled={restaurantEnabled}>
       <DashboardLanguageSwitchFix />
       <DashboardStripeCheckoutFix />
       <DashboardGlobalLocaleBoundary>
