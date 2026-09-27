@@ -138,10 +138,9 @@ export function validateRestaurantSite(value: unknown) {
     const bookingHost = bookingUrl.hostname.toLowerCase();
     const bookingPath = bookingUrl.pathname;
     const isGoogleHost =
-      bookingHost === "google.com" ||
-      bookingHost === "www.google.com" ||
-      bookingHost === "maps.google.com" ||
-      bookingHost.startsWith("maps.google.");
+      /^(?:www\.|maps\.)?google\.(?:com|[a-z]{2,3}|co\.[a-z]{2}|com\.[a-z]{2})$/i.test(
+        bookingHost,
+      );
     const isGoogleReserve =
       isGoogleHost && /^\/maps\/reserve(?:\/|$)/i.test(bookingPath);
     const isMapsShortLink =
