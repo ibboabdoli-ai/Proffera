@@ -111,6 +111,36 @@ describe("public read cache contract", () => {
     expect(query).toContain("scb.provenance #>> '{comparisonSnapshot,officialFactsLastSyncedToken}' = facts.last_synced_at::text");
   });
 
+  it("bypasses a stale nonempty location cache candidate when canonical authority changes during fill", async () => {
+    mocks.locationSuggestions
+      .mockResolvedValueOnce(["Södertälje"])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([]);
+    mocks.getSql.mockReturnValue(vi.fn(async () => [{
+      juridical_count: 0,
+      authority_expires_at: null,
+    }]));
+
+    await expect(getCachedPublishedDirectoryLocationSuggestions(24)).resolves.toEqual([]);
+    expect(mocks.locationSuggestions).toHaveBeenCalledTimes(3);
+  });
+
+  it("bypasses a stale Marketplace cache candidate when canonical authority changes during fill", async () => {
+    const profileId = "11111111-1111-4111-8111-111111111111";
+    mocks.marketplaceHomeCompanies
+      .mockResolvedValueOnce({ results: [{ id: profileId }], totalCount: 1 })
+      .mockResolvedValueOnce({ results: [], totalCount: 0 })
+      .mockResolvedValueOnce({ results: [], totalCount: 0 });
+    mocks.getSql.mockReturnValue(vi.fn(async () => [{
+      profile_count: 0,
+      juridical_count: 0,
+      authority_expires_at: null,
+    }]));
+
+    await expect(getCachedMarketplaceHomeCompanies(4)).resolves.toMatchObject({ results: [] });
+    expect(mocks.marketplaceHomeCompanies).toHaveBeenCalledTimes(3);
+  });
+
   it("rechecks Directory location suggestions once workplace authority reaches its exact deadline", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-09-20T13:00:00.000Z"));

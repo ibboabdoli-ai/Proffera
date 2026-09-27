@@ -33,13 +33,34 @@ type MarketplaceHomeCompaniesCacheEnvelope = {
   authorityExpiresAt: string | null;
 };
 
-async function locationSuggestionsAuthorityBoundary(value: DirectoryLocationSuggestions) {
+function sameOrderedStrings(left: string[], right: string[]) {
+  return left.length === right.length
+    && left.every((value, index) => value === right[index]);
+}
+
+function normalizedLocationLabels(value: DirectoryLocationSuggestions) {
+  return value.map((label) => String(label).trim()).filter(Boolean);
+}
+
+function normalizedMarketplaceProfileIds(value: MarketplaceHomeCompanies) {
+  return value.results.map((result) => String(result.id ?? "").trim().toLowerCase());
+}
+
+async function locationSuggestionsAuthorityBoundary(value: DirectoryLocationSuggestions, limit: number) {
   if (value.length === 0) {
     return { authorityBound: true, authorityExpiresAt: null };
   }
 
   const sql = getSql();
   if (!sql) return { authorityBound: false, authorityExpiresAt: null };
+
+  const currentValue = await getPublishedDirectoryLocationSuggestions(limit);
+  if (!sameOrderedStrings(
+    normalizedLocationLabels(value),
+    normalizedLocationLabels(currentValue),
+  )) {
+    return { authorityBound: false, authorityExpiresAt: null };
+  }
 
   try {
     const rows = await sql`
@@ -108,7 +129,7 @@ async function locationSuggestionsAuthorityBoundary(value: DirectoryLocationSugg
   }
 }
 
-async function marketplaceHomeAuthorityBoundary(value: MarketplaceHomeCompanies) {
+async function marketplaceHomeAuthorityBoundary(value: MarketplaceHomeCompanies, limit: number) {
   const profileIds = value.results
     .map((result) => String(result.id ?? "").trim().toLowerCase())
     .filter((profileId) => UUID_PATTERN.test(profileId));
@@ -122,6 +143,14 @@ async function marketplaceHomeAuthorityBoundary(value: MarketplaceHomeCompanies)
 
   const sql = getSql();
   if (!sql) return { authorityBound: false, authorityExpiresAt: null };
+
+  const currentValue = await searchPublishedBusinessProfiles({ limit, sort: "recommended" });
+  if (!sameOrderedStrings(
+    normalizedMarketplaceProfileIds(value),
+    normalizedMarketplaceProfileIds(currentValue),
+  )) {
+    return { authorityBound: false, authorityExpiresAt: null };
+  }
 
   try {
     const profileIdCsv = profileIds.join(",");
@@ -160,7 +189,7 @@ async function marketplaceHomeAuthorityBoundary(value: MarketplaceHomeCompanies)
 const readCachedPublishedDirectoryLocationSuggestions = unstable_cache(
   async (limit: number): Promise<DirectoryLocationSuggestionsCacheEnvelope> => {
     const value = await getPublishedDirectoryLocationSuggestions(limit);
-    const authority = await locationSuggestionsAuthorityBoundary(value);
+    const authority = await locationSuggestionsAuthorityBoundary(value, limit);
     return { value, ...authority };
   },
   ["public-directory-location-suggestions-v5"],
@@ -173,7 +202,7 @@ const readCachedPublishedDirectoryLocationSuggestions = unstable_cache(
 const readCachedMarketplaceHomeCompanies = unstable_cache(
   async (limit: number): Promise<MarketplaceHomeCompaniesCacheEnvelope> => {
     const value = await searchPublishedBusinessProfiles({ limit, sort: "recommended" });
-    const authority = await marketplaceHomeAuthorityBoundary(value);
+    const authority = await marketplaceHomeAuthorityBoundary(value, limit);
     return { value, ...authority };
   },
   ["marketplace-home-companies-v4"],
