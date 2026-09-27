@@ -115,6 +115,24 @@ describe("marketplace guest human-view tracking", () => {
     expect(queryText(sql.mock.calls[4])).toContain("authority_scb.last_synced_at >= now() - interval '7 days'");
   });
 
+  it("keeps the human guest view when authority is restored before locked cancellation", async () => {
+    const sql = transactionalSqlResponses(
+      [guestRow({ has_current_authority: false })],
+      [],
+      [],
+      [],
+      [],
+    );
+    mocks.getSql.mockReturnValue(sql);
+
+    const view = await getMarketplaceGuestQuoteView("a".repeat(40));
+
+    expect(view?.status).toBe("sent");
+    expect(view?.customerContact).toBeNull();
+    expect(sql.transaction).toHaveBeenCalledTimes(1);
+    expect(queryText(sql.mock.calls[4])).toContain("returning invitation.id::text");
+  });
+
   it("unlocks customer contact only for the selected winner after the request closes", async () => {
     const sql = vi.fn(async () => [guestRow({
       status: "responded",
