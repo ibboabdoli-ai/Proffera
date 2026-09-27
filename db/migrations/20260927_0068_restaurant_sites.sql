@@ -1,5 +1,7 @@
 -- A site is provisioned for a verified owner workspace by an operator.
 -- No public slug can be claimed from the dashboard.
+-- Validate this canonical migration on an isolated Neon Preview branch before Production execution.
+-- Merging this file is not evidence that the Production schema has been migrated.
 
 begin;
 
