@@ -2,11 +2,7 @@ name: Proffera gated automerge
 
 on:
   pull_request:
-    types: [synchronize, ready_for_review, labeled, unlabeled]
-  pull_request_review:
-    types: [submitted]
-  issue_comment:
-    types: [created, edited]
+    types: [labeled, unlabeled]
   workflow_run:
     workflows: [CI, Security review regressions]
     types: [completed]
@@ -35,31 +31,7 @@ jobs:
       (github.event_name == 'pull_request' &&
         github.event.pull_request.draft == false &&
         (github.event.action == 'labeled' || github.event.action == 'unlabeled') &&
-        github.event.label.name == 'ibbo-approved') ||
-      (github.event_name == 'pull_request_review' &&
-        github.event.pull_request.draft == false &&
-        (github.event.review.commit_id == null || github.event.review.commit_id == github.event.pull_request.head.sha) &&
-        (github.actor == 'ibboabdoli-ai' ||
-          github.actor == 'coderabbitai[bot]' ||
-          github.actor == 'chatgpt-codex-connector[bot]')) ||
-      (github.event_name == 'issue_comment' &&
-        github.event.issue.pull_request != null &&
-        ((github.actor == 'ibboabdoli-ai' &&
-          contains(github.event.comment.body, '<!-- proffera-owner-approval:') &&
-          contains(github.event.comment.body, 'IBBO-APPROVED:')) ||
-          (github.actor == 'coderabbitai[bot]' &&
-          (contains(github.event.comment.body, 'recent_review_start') ||
-            (contains(github.event.comment.body, '<!-- CodeRabbit review command invocation: v2:') &&
-              contains(github.event.comment.body, 'Final exact-head review is complete for') &&
-              contains(github.event.comment.body, 'I found no issues.')) ||
-            contains(github.event.comment.body, 'Review limit reached') ||
-            contains(github.event.comment.body, 'Review rate limited') ||
-            contains(github.event.comment.body, 'Review skipped') ||
-            contains(github.event.comment.body, 'temporarily unavailable') ||
-            contains(github.event.comment.body, 'service unavailable'))) ||
-          (github.actor == 'chatgpt-codex-connector[bot]' &&
-            contains(github.event.comment.body, 'Codex Review: Didn') &&
-            contains(github.event.comment.body, 'Reviewed commit:'))))
+        github.event.label.name == 'ibbo-approved')
     concurrency:
       group: proffera-automerge-${{ github.event.pull_request.number || github.event.issue.number || github.event.workflow_run.pull_requests[0].number || inputs.pr_number || github.run_id }}
       cancel-in-progress: true
@@ -400,21 +372,16 @@ jobs:
               | last
               | .created_at // empty
             ' <<< "$comments_json")"
-            clean_summary_count="$(jq -r --arg sha "$head_sha" '
+            coderabbit_inline_json="$(gh api --paginate "repos/$REPOSITORY/pulls/$pr_number/comments?per_page=100" --jq '.[]' | jq -s '.')"
+            coderabbit_inline_count="$(jq -r --arg sha "$head_sha" --arg request_time "$coderabbit_request_time" '
               [
                 .[]
                 | select(.user.login == "coderabbitai[bot]")
-                | select(
-                    (.body // "")
-                    | test(
-                        "<!-- recent_review_start -->[\\s\\S]*No actionable comments were generated in the recent review\\.[\\s\\S]*"
-                        + $sha
-                        + "[\\s\\S]*<!-- recent_review_end -->"
-                      )
-                  )
+                | select((.original_commit_id // .commit_id) == $sha)
+                | select(($request_time == "") or ((.created_at // "") >= $request_time))
               ]
               | length
-            ' <<< "$comments_json")"
+            ' <<< "$coderabbit_inline_json")"
             clean_final_comment_count="$(jq -r --arg sha "$head_sha" --arg request_time "$coderabbit_request_time" '
               [
                 .[]
@@ -432,6 +399,10 @@ jobs:
               | length
             ' <<< "$comments_json")"
 
+            if [ "$coderabbit_inline_count" -gt 0 ]; then
+              refuse "Refused: CodeRabbit posted current-head review findings; review acceptance is blocked."
+            fi
+
             if [ -n "$latest_changes" ]; then
               if [ -z "$latest_approval" ] || [[ ! "$latest_approval" > "$latest_changes" ]]; then
                 refuse "Refused: CodeRabbit changes remain requested on the current PR head; Codex fallback can never clear them."
@@ -439,8 +410,6 @@ jobs:
               summary "- Current-head CodeRabbit decision: APPROVED after latest change request"
             elif [ "$terminal_count" -gt 0 ]; then
               summary "- Current-head CodeRabbit decision: non-blocking review completed"
-            elif [ "$clean_summary_count" -gt 0 ]; then
-              summary "- Current-head CodeRabbit decision: clean review with no actionable comments"
             elif [ "$clean_final_comment_count" -gt 0 ]; then
               guard_head_sha="$(gh api "repos/$REPOSITORY/pulls/$pr_number" --jq '.head.sha')"
               if [ "$guard_head_sha" != "$head_sha" ]; then

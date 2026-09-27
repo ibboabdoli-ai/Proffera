@@ -16,7 +16,7 @@ function workflowSource() {
   return readFileSync(
     resolve(process.cwd(), ".github/workflows/supervisor-worker-handoff.yml"),
     "utf8",
-  );
+  ).replaceAll("\r\n", "\n");
 }
 
 function occurrences(text: string, needle: string) {
@@ -28,12 +28,17 @@ function workflowStepScript(name: string) {
   const stepStart = workflow.indexOf(`      - name: ${name}`);
   expect(stepStart).toBeGreaterThanOrEqual(0);
   const runStart = workflow.indexOf("        run: |\n", stepStart);
-  const nextStep = workflow.indexOf("\n      - name:", runStart + 1);
+  const scriptStart = runStart + "        run: |\n".length;
+  const nextStep = workflow.indexOf("\n      - name:", scriptStart);
+  const nextJobOffset = workflow.slice(scriptStart).search(/\n  [A-Za-z0-9_-]+:\n/u);
+  const nextJob = nextJobOffset >= 0 ? scriptStart + nextJobOffset : -1;
+  const boundaries = [nextStep, nextJob].filter((index) => index > scriptStart);
+  const scriptEnd = boundaries.length > 0 ? Math.min(...boundaries) : workflow.length;
   expect(runStart).toBeGreaterThan(stepStart);
-  expect(nextStep).toBeGreaterThan(runStart);
+  expect(scriptEnd).toBeGreaterThan(scriptStart);
 
   return workflow
-    .slice(runStart + "        run: |\n".length, nextStep)
+    .slice(scriptStart, scriptEnd)
     .split("\n")
     .map((line) => line.replace(/^ {10}/, ""))
     .join("\n");
@@ -157,21 +162,20 @@ fi
 }
 
 describe("Supervisor Worker handoff large-state safety", () => {
-  it("filters Supervisor comments to the current task marker before jq argv construction", () => {
+  it("filters Supervisor state evidence before constructing control-plane argv", () => {
     const workflow = workflowSource();
     const marker = 'state_marker="<!-- proffera-worker-task-state:${task_id} -->"';
-    const boundedComments =
-      'jq -s --arg marker "$state_marker" \'[.[] | select(.user.login == "github-actions[bot]" and ((.body // "") | contains($marker)))]\'';
+    const stateOnlyFilter = 'contains("<!-- proffera-worker-task-state:")';
 
     expect(occurrences(workflow, marker)).toBe(2);
-    expect(occurrences(workflow, boundedComments)).toBe(2);
+    expect(occurrences(workflow, stateOnlyFilter)).toBe(1);
 
     const preflight = workflow.slice(
-      workflow.indexOf("packet=\"$(cat \"$packet_file\")\""),
+      workflow.indexOf("Validate trust, freshness, idempotency, graph ownership, and scope"),
       workflow.indexOf("  dispatch:"),
     );
-    const preflightFilter = preflight.indexOf('--arg marker "$state_marker"');
-    const preflightContext = preflight.indexOf('--argjson comments "$comments_json"');
+    const preflightFilter = preflight.indexOf(stateOnlyFilter);
+    const preflightContext = preflight.indexOf('--argjson comments "$active_state_comments_json"');
     expect(preflightFilter).toBeGreaterThanOrEqual(0);
     expect(preflightContext).toBeGreaterThan(preflightFilter);
 

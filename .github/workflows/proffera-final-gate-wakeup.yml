@@ -1,15 +1,32 @@
 name: Proffera final gate wakeup
 
 on:
-  pull_request_review:
-    types: [submitted]
-  issue_comment:
-    types: [created, edited]
   workflow_dispatch:
     inputs:
       pr_number:
         description: Pull request number whose final gate should be re-evaluated
         required: true
+        type: string
+      source_event:
+        description: Trusted router source event type
+        required: true
+        type: string
+      source_id:
+        description: Immutable source comment or review ID
+        required: true
+        type: string
+      source_actor:
+        description: Source actor observed by the router
+        required: true
+        type: string
+      source_evidence_time:
+        description: Source updated_at or submitted_at observed by the router
+        required: true
+        type: string
+      source_review_commit:
+        description: Review commit observed by the router when applicable
+        required: false
+        default: ""
         type: string
 
 permissions: {}
@@ -17,31 +34,7 @@ permissions: {}
 jobs:
   wake-final-gate:
     name: Wake final gate
-    if: >-
-      github.event_name == 'workflow_dispatch' ||
-      (github.event_name == 'pull_request_review' &&
-        github.event.pull_request.draft == false &&
-        github.event.review.state != 'changes_requested' &&
-        (github.event.review.commit_id == null || github.event.review.commit_id == github.event.pull_request.head.sha) &&
-        (github.actor == 'coderabbitai[bot]' || github.actor == 'chatgpt-codex-connector[bot]')) ||
-      (github.event_name == 'issue_comment' &&
-        github.event.issue.pull_request != null &&
-        ((github.actor == 'coderabbitai[bot]' &&
-          (contains(github.event.comment.body, 'recent_review_start') ||
-            (contains(github.event.comment.body, '<!-- CodeRabbit review command invocation: v2:') &&
-              contains(github.event.comment.body, 'Final exact-head review is complete for') &&
-              contains(github.event.comment.body, 'I found no issues.')) ||
-            contains(github.event.comment.body, 'Review limit reached') ||
-            contains(github.event.comment.body, 'Review rate limited') ||
-            contains(github.event.comment.body, 'Review skipped') ||
-            contains(github.event.comment.body, 'temporarily unavailable') ||
-            contains(github.event.comment.body, 'service unavailable'))) ||
-          (github.actor == 'chatgpt-codex-connector[bot]' &&
-            contains(github.event.comment.body, 'Codex Review: Didn') &&
-            contains(github.event.comment.body, 'Reviewed commit:')) ||
-          (github.actor == 'ibboabdoli-ai' &&
-            contains(github.event.comment.body, 'proffera-codex-fallback-review-request:') &&
-            contains(github.event.comment.body, '@codex review'))))
+    if: github.event_name == 'workflow_dispatch'
     concurrency:
       group: proffera-final-gate-wakeup-${{ github.event.pull_request.number || github.event.issue.number || inputs.pr_number || github.run_id }}
       cancel-in-progress: true
@@ -65,6 +58,11 @@ jobs:
           EVENT_REVIEW_STATE: ${{ github.event.review.state }}
           EVENT_REVIEW_COMMIT: ${{ github.event.review.commit_id }}
           INPUT_PR_NUMBER: ${{ inputs.pr_number }}
+          INPUT_SOURCE_EVENT: ${{ inputs.source_event }}
+          INPUT_SOURCE_ID: ${{ inputs.source_id }}
+          INPUT_SOURCE_ACTOR: ${{ inputs.source_actor }}
+          INPUT_SOURCE_EVIDENCE_TIME: ${{ inputs.source_evidence_time }}
+          INPUT_SOURCE_REVIEW_COMMIT: ${{ inputs.source_review_commit }}
           TRUSTED_CODEX_REQUESTER: ibboabdoli-ai
         shell: bash
         run: |
@@ -74,17 +72,69 @@ jobs:
             echo "$1" >> "$GITHUB_STEP_SUMMARY"
           }
 
-          pr_number="${EVENT_PR_NUMBER:-}"
-          if [ -z "$pr_number" ] && [ "$EVENT_NAME" = "issue_comment" ]; then
-            pr_number="${EVENT_ISSUE_NUMBER:-}"
+          pr_number="${INPUT_PR_NUMBER:-}"
+          if ! [[ "$pr_number" =~ ^[1-9][0-9]*$ ]] || ! [[ "${INPUT_SOURCE_ID:-}" =~ ^[1-9][0-9]*$ ]]; then
+            echo "Final-gate dispatch lacks a valid PR or source event ID."
+            exit 0
           fi
-          if [ -z "$pr_number" ]; then
-            pr_number="${INPUT_PR_NUMBER:-}"
+          if [ -z "${INPUT_SOURCE_ACTOR:-}" ] || [ -z "${INPUT_SOURCE_EVIDENCE_TIME:-}" ]; then
+            echo "Final-gate dispatch lacks source actor or evidence time."
+            exit 0
           fi
 
-          if ! [[ "$pr_number" =~ ^[1-9][0-9]*$ ]]; then
-            echo "No valid pull request number is available; nothing to wake."
-            exit 0
+          case "${INPUT_SOURCE_EVENT:-}" in
+            issue_comment)
+              source_json="$(gh api "repos/$REPOSITORY/issues/comments/$INPUT_SOURCE_ID")"
+              source_pr_number="$(jq -r '.issue_url // ""' <<< "$source_json")"
+              source_pr_number="${source_pr_number##*/}"
+              source_actor="$(jq -r '.user.login // ""' <<< "$source_json")"
+              source_time="$(jq -r '.updated_at // ""' <<< "$source_json")"
+              if [ "$source_pr_number" != "$pr_number" ] || [ "$source_actor" != "$INPUT_SOURCE_ACTOR" ] || [ "$source_time" != "$INPUT_SOURCE_EVIDENCE_TIME" ]; then
+                echo "Source comment changed or does not belong to this exact dispatch; refusing wakeup."
+                exit 0
+              fi
+              EVENT_NAME="issue_comment"
+              EVENT_ACTOR="$source_actor"
+              EVENT_COMMENT_BODY="$(jq -r '.body // ""' <<< "$source_json")"
+              EVENT_COMMENT_CREATED_AT="$(jq -r '.created_at // ""' <<< "$source_json")"
+              EVENT_COMMENT_UPDATED_AT="$(jq -r '.updated_at // .created_at // ""' <<< "$source_json")"
+              EVENT_EVIDENCE_TIME="$source_time"
+              EVENT_REVIEW_STATE=""
+              EVENT_REVIEW_COMMIT=""
+              ;;
+            pull_request_review)
+              source_json="$(gh api "repos/$REPOSITORY/pulls/$pr_number/reviews/$INPUT_SOURCE_ID")"
+              source_actor="$(jq -r '.user.login // ""' <<< "$source_json")"
+              source_time="$(jq -r '.submitted_at // ""' <<< "$source_json")"
+              source_commit="$(jq -r '.commit_id // ""' <<< "$source_json")"
+              if [ "$source_actor" != "$INPUT_SOURCE_ACTOR" ] || [ "$source_time" != "$INPUT_SOURCE_EVIDENCE_TIME" ] || [ "$source_commit" != "${INPUT_SOURCE_REVIEW_COMMIT:-}" ]; then
+                echo "Source review changed or does not match the routed evidence; refusing wakeup."
+                exit 0
+              fi
+              EVENT_NAME="pull_request_review"
+              EVENT_ACTOR="$source_actor"
+              EVENT_COMMENT_BODY=""
+              EVENT_COMMENT_CREATED_AT=""
+              EVENT_COMMENT_UPDATED_AT=""
+              EVENT_EVIDENCE_TIME="$source_time"
+              EVENT_REVIEW_STATE="$(jq -r '(.state // "") | ascii_downcase' <<< "$source_json")"
+              EVENT_REVIEW_COMMIT="$source_commit"
+              ;;
+            *)
+              echo "Unsupported final-gate source event."
+              exit 0
+              ;;
+          esac
+
+          if [ "$EVENT_NAME" = "pull_request_review" ]; then
+            case "${EVENT_ACTOR:-}" in
+              "coderabbitai[bot]"|"chatgpt-codex-connector[bot]")
+                ;;
+              *)
+                echo "Untrusted pull-request review actor cannot wake the final gate."
+                exit 0
+                ;;
+            esac
           fi
 
           if [ "$EVENT_NAME" = "issue_comment" ]; then
@@ -141,8 +191,8 @@ jobs:
           fi
 
           if [ "$new_coderabbit_clean_event" = "true" ]; then
-            if [ -z "${EVENT_COMMENT_CREATED_AT:-}" ]; then
-              echo "CodeRabbit clean comment has no creation timestamp; refusing to wake the final gate."
+            if [ -z "${EVENT_EVIDENCE_TIME:-}" ]; then
+              echo "CodeRabbit clean comment has no verified evidence timestamp; refusing to wake the final gate."
               exit 0
             fi
 
@@ -174,8 +224,8 @@ jobs:
               | last
               | .created_at // empty
             ' <<< "$comments_json")"
-            if [ -z "$coderabbit_request_time" ] || [[ "${EVENT_COMMENT_CREATED_AT}" < "$coderabbit_request_time" ]]; then
-              echo "CodeRabbit clean comment is not ordered after a trusted exact-head review request; refusing to wake the final gate."
+            if [ -z "$coderabbit_request_time" ] || [ -z "${EVENT_COMMENT_CREATED_AT:-}" ] || [[ "${EVENT_COMMENT_CREATED_AT}" < "$coderabbit_request_time" ]]; then
+              echo "CodeRabbit clean comment was not created after a trusted exact-head review request; refusing to wake the final gate."
               exit 0
             fi
 
@@ -211,8 +261,8 @@ jobs:
               echo "Codex clean comment does not reference the exact current head $head_sha; ignoring stale or malformed evidence."
               exit 0
             fi
-            if [ -z "${EVENT_COMMENT_CREATED_AT:-}" ]; then
-              echo "Codex clean comment has no creation timestamp; refusing to wake the final gate."
+            if [ -z "${EVENT_EVIDENCE_TIME:-}" ]; then
+              echo "Codex clean comment has no verified evidence timestamp; refusing to wake the final gate."
               exit 0
             fi
 
@@ -243,7 +293,7 @@ jobs:
               --arg marker "$codex_marker" \
               --arg requester "$TRUSTED_CODEX_REQUESTER" \
               --arg primary_time "$coderabbit_request_time" \
-              --arg result_time "$EVENT_COMMENT_CREATED_AT" '
+              --arg result_time "$EVENT_EVIDENCE_TIME" '
               [
                 .[]
                 | select(.user.login == $requester)
@@ -262,10 +312,33 @@ jobs:
 
           if [ "$EVENT_NAME" = "issue_comment" ] \
             && [ "${EVENT_ACTOR:-}" = "coderabbitai[bot]" ] \
-            && grep -Fq '<!-- recent_review_start -->' <<< "${EVENT_COMMENT_BODY:-}" \
-            && ! grep -Fq "$head_sha" <<< "${EVENT_COMMENT_BODY:-}"; then
-            echo "CodeRabbit summary does not reference the current head; ignoring stale evidence."
-            exit 0
+            && grep -Fq '<!-- recent_review_start -->' <<< "${EVENT_COMMENT_BODY:-}"; then
+            if ! grep -Fq "$head_sha" <<< "${EVENT_COMMENT_BODY:-}"; then
+              echo "CodeRabbit summary does not reference the current head; ignoring stale evidence."
+              exit 0
+            fi
+            comments_json="$(gh api --paginate "repos/$REPOSITORY/issues/$pr_number/comments?per_page=100" --jq '.[]' | jq -s '.')"
+            coderabbit_marker="<!-- proffera-coderabbit-final-review-request:${head_sha} -->"
+            coderabbit_request_time="$(jq -r --arg marker "$coderabbit_marker" '
+              [.[] | select(.user.login == "github-actions[bot]") | select((.body // "") == ($marker + "\n@coderabbitai review"))]
+              | sort_by(.created_at) | last | .created_at // empty
+            ' <<< "$comments_json")"
+            reviews_json="$(gh api --paginate "repos/$REPOSITORY/pulls/$pr_number/reviews?per_page=100" --jq '.[]' | jq -s '.')"
+            current_reviews="$(jq -c --arg sha "$head_sha" '[.[] | select(.user.login == "coderabbitai[bot]" and .commit_id == $sha)]' <<< "$reviews_json")"
+            coderabbit_review_completion_time="$(jq -r --arg request_time "$coderabbit_request_time" '
+              [
+                .[]
+                | select($request_time != "")
+                | select(.state == "APPROVED" or .state == "COMMENTED")
+                | select((.submitted_at // "") >= $request_time)
+                | .submitted_at
+              ]
+              | max // empty
+            ' <<< "$current_reviews")"
+            if [ -z "$coderabbit_request_time" ] || [ -z "$coderabbit_review_completion_time" ] || [ -z "${EVENT_COMMENT_UPDATED_AT:-}" ] || [[ "${EVENT_COMMENT_UPDATED_AT}" < "$coderabbit_review_completion_time" ]]; then
+              echo "CodeRabbit summary is not bound to a post-request completed current-head review; refusing wakeup."
+              exit 0
+            fi
           fi
 
           runs_json="$(
