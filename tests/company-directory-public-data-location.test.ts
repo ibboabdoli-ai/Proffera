@@ -81,11 +81,13 @@ function sqlForPublished(
   });
 }
 
-function claimedRow() {
+function claimedRow(overrides: Record<string, unknown> = {}) {
   return {
     id: PROFILE_ID,
     public_slug: "physical-location-ab",
     organization_number: "5560000000",
+    organization_kind: "juridical_person",
+    legal_name: "Physical Location AB",
     display_name: "Physical Location AB",
     legal_form: "AB",
     organization_status: "Aktivt",
@@ -104,7 +106,22 @@ function claimedRow() {
     source_updated_at: "2026-08-25T00:00:00.000Z",
     official_facts_last_synced_at: "2026-09-02T09:15:00.000Z",
     claimed_workspace_id: WORKSPACE_ID,
+    scb_phone: "",
+    scb_email: "",
+    scb_workplaces: [scbWorkplace()],
+    owner_location_id: null,
+    owner_location_visibility: null,
+    owner_location_is_visitable: null,
+    owner_location_confirmed_at: null,
+    owner_location_address_line1: null,
+    owner_location_postal_code: null,
+    owner_location_city: null,
+    owner_location_municipality: null,
+    contact_plan_key: "starter",
+    contact_plan_status: "active",
+    contact_plan_current_period_end: "2099-01-01T00:00:00.000Z",
     media_url: null,
+    ...overrides,
   };
 }
 
@@ -114,20 +131,21 @@ function claimedSql(
 ) {
   return vi.fn(async (strings: TemplateStringsArray) => {
     const query = strings.join(" ");
-    if (query.includes("claimed_authority_profile_id")) {
-      return authorityRecheck ? [{ claimed_authority_profile_id: PROFILE_ID }] : [];
-    }
-    if (query.includes("from company_directory_profiles profile")) return [claimedRow()];
-    if (query.includes("from company_directory_scb_enrichment")) {
-      return [{ phone: "", email: "", workplaces: [scbWorkplace()] }];
-    }
-    if (query.includes("from company_directory_profile_locations")) {
-      return ownerLocation ? [ownerLocation] : [];
-    }
-    return [];
+    if (!query.includes("from company_directory_profiles profile")) return [];
+    if (!authorityRecheck) return [];
+    return [{
+      ...claimedRow(),
+      owner_location_id: ownerLocation ? "33333333-3333-4333-8333-333333333333" : null,
+      owner_location_visibility: ownerLocation?.visibility ?? null,
+      owner_location_is_visitable: ownerLocation?.is_visitable ?? null,
+      owner_location_confirmed_at: ownerLocation?.confirmed_at ?? null,
+      owner_location_address_line1: ownerLocation?.address_line1 ?? null,
+      owner_location_postal_code: ownerLocation?.postal_code ?? null,
+      owner_location_city: ownerLocation?.city ?? null,
+      owner_location_municipality: ownerLocation?.municipality ?? null,
+    }];
   });
 }
-
 describe("public Directory physical-location read contract", () => {
   beforeEach(() => {
     mocks.getSql.mockReset();
@@ -209,21 +227,29 @@ describe("public Directory physical-location read contract", () => {
     expect(claimedQuery).toContain("workspace.status in ('active', 'trial')");
   });
 
-  it("fails closed when claimed authority disappears after dependent reads", async () => {
+  it("assembles claimed authority and disclosure inputs in one database snapshot", async () => {
     mocks.getPublicDirectoryBusiness.mockResolvedValue(null);
-    mocks.hasActivePaidDirectoryContactAccess.mockResolvedValue(true);
-    const sql = claimedSql(null, false);
+    const sql = claimedSql();
     mocks.getSql.mockReturnValue(sql);
 
     const result = await getPublicDirectoryBusinessForRequest("physical-location-ab");
 
-    expect(result).toBeNull();
-    const queries = sql.mock.calls.map((call) => String((call[0] ?? []).join(" ")).replace(/\s+/g, " "));
-    expect(queries.some((query) => query.includes("from company_directory_scb_enrichment"))).toBe(true);
-    expect(queries.some((query) => query.includes("from company_directory_profile_locations"))).toBe(true);
-    expect(queries.at(-1)).toContain("claimed_authority_profile_id");
+    expect(result?.publicationStatus).toBe("claimed");
+    expect(sql).toHaveBeenCalledTimes(1);
+    const query = String((sql.mock.calls[0]?.[0] ?? []).join(" ")).replace(/\s+/g, " ");
+    expect(query).toContain("from company_directory_scb_enrichment scb_contact");
+    expect(query).toContain("from company_directory_profile_locations location");
+    expect(query).toContain("from workspace_plans plan");
   });
 
+  it("fails closed when the atomic claimed projection returns no row", async () => {
+    mocks.getPublicDirectoryBusiness.mockResolvedValue(null);
+    const sql = claimedSql(null, false);
+    mocks.getSql.mockReturnValue(sql);
+
+    await expect(getPublicDirectoryBusinessForRequest("physical-location-ab")).resolves.toBeNull();
+    expect(sql).toHaveBeenCalledTimes(1);
+  });
   it("uses the claimed Workspace primary public owner location over SCB", async () => {
     mocks.getPublicDirectoryBusiness.mockResolvedValue(null);
     mocks.hasActivePaidDirectoryContactAccess.mockResolvedValue(true);
