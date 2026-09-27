@@ -1,7 +1,6 @@
 import "server-only";
 
 import { getSql } from "@/lib/db/server";
-import { restaurantSnapshotReferencesMedia } from "@/lib/restaurant-media-references";
 import { canManageWorkspaceSettings, getUserWorkspaceAccess } from "@/lib/workspace-access";
 
 export type GalleryItem = {
@@ -185,24 +184,36 @@ export async function updateGalleryItem(id: string, action: "publish" | "hide" |
     const tableRows = await sql`
       select to_regclass('public.restaurant_sites')::text as table_name
     `;
-    if (tableRows[0]?.table_name) {
-      const siteRows = await sql`
-        select draft,published
-        from restaurant_sites
-        where workspace_id=${access.workspaceId}::uuid
-        limit 1
-      `;
-      const site = siteRows[0];
-      if (
-        site &&
-        (restaurantSnapshotReferencesMedia(site.draft, id) ||
-          restaurantSnapshotReferencesMedia(site.published, id))
-      ) {
-        return false;
-      }
+    if (!tableRows[0]?.table_name) {
+      const rows = await sql`delete from website_gallery_items where id=${id}::uuid and workspace_id=${access.workspaceId}::uuid returning id`;
+      return Boolean(rows[0]?.id);
     }
 
-    const rows = await sql`delete from website_gallery_items where id=${id}::uuid and workspace_id=${access.workspaceId}::uuid returning id`;
+    const lockKey = `restaurant-site:${access.workspaceId}`;
+    const referencePattern = `%${id}%`;
+    const [, rows] = await sql.transaction(
+      (txn) => [
+        txn`
+          select pg_advisory_xact_lock(hashtextextended(${lockKey}, 0))
+        `,
+        txn`
+          delete from website_gallery_items item
+          where item.id=${id}::uuid
+            and item.workspace_id=${access.workspaceId}::uuid
+            and not exists (
+              select 1
+              from restaurant_sites site
+              where site.workspace_id=${access.workspaceId}::uuid
+                and (
+                  coalesce(site.draft::text, '') like ${referencePattern}
+                  or coalesce(site.published::text, '') like ${referencePattern}
+                )
+            )
+          returning item.id
+        `,
+      ],
+      { isolationLevel: "ReadCommitted" },
+    );
     return Boolean(rows[0]?.id);
   }
   const status = action === "publish" ? "published" : "hidden";
