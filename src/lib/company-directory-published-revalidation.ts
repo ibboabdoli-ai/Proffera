@@ -43,6 +43,19 @@ function jsonArray(value: unknown): unknown[] {
   return [];
 }
 
+function hasBlockingOngoingProcedures(value: unknown) {
+  if (Array.isArray(value)) return value.length > 0;
+  if (typeof value === "string" && value.trim()) {
+    try {
+      const parsed = JSON.parse(value) as unknown;
+      return !Array.isArray(parsed) || parsed.length > 0;
+    } catch {
+      return true;
+    }
+  }
+  return true;
+}
+
 function hasSafePilotWorkplace(row: Record<string, unknown>) {
   return assessCompanyDirectoryPilotWorkplace(
     {
@@ -442,6 +455,7 @@ export async function revalidatePublishedCompanyDirectoryBatch(
       const candidate = candidates[index];
       const profileId = text(candidate.id);
       const organizationNumber = text(candidate.normalized_organization_number || candidate.organization_number).replace(/\D/g, "");
+      const priorCursorValue = cursorValue;
       if (organizationNumber.length === 10) cursorValue = organizationNumber;
       if (!profileId || organizationNumber.length !== 10) {
         errors += 1;
@@ -452,6 +466,7 @@ export async function revalidatePublishedCompanyDirectoryBatch(
       try {
         await enrichCompanyDirectoryOfficialFactsForProfile(profileId);
         if (deadlineReached(options.deadlineAt, SCB_START_HEADROOM_MS)) {
+          cursorValue = priorCursorValue;
           deferred += candidates.length - index;
           break candidateLoop;
         }
@@ -470,6 +485,7 @@ export async function revalidatePublishedCompanyDirectoryBatch(
 
         if (deadlineReached(options.deadlineAt)) {
           await markScbEvaluationPending(profileId);
+          cursorValue = priorCursorValue;
           deferred += candidates.length - index;
           break candidateLoop;
         }
@@ -515,7 +531,7 @@ export async function revalidatePublishedCompanyDirectoryBatch(
           || Boolean(row.claimed_workspace_id)
           || Boolean(row.deregistration_date)
           || Boolean(row.advertising_blocked)
-          || jsonArray(row.ongoing_procedures).length > 0
+          || hasBlockingOngoingProcedures(row.ongoing_procedures)
           || !pilotWorkplaceSafe;
         const scbConflictCount = Math.max(0, number(row.scb_conflict_count));
         const shouldReview = unsafe
@@ -531,6 +547,7 @@ export async function revalidatePublishedCompanyDirectoryBatch(
 
         if (deadlineReached(options.deadlineAt)) {
           await markScbEvaluationPending(profileId);
+          cursorValue = priorCursorValue;
           deferred += candidates.length - index;
           break candidateLoop;
         }

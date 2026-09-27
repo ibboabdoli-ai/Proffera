@@ -536,7 +536,7 @@ describe("marketplace guest quote safety contract", () => {
     expect(mocks.sendInvitationEmail).not.toHaveBeenCalled();
   });
 
-  it("revokes an active guest quote before offer submission when workplace authority expired", async () => {
+  it("revokes an active guest quote before offer submission only when a hard authority block is confirmed", async () => {
     const invitationId = "44444444-4444-4444-8444-444444444444";
     const sql = sqlResponses(
       [{
@@ -573,8 +573,10 @@ describe("marketplace guest quote safety contract", () => {
     const revoke = queryText(sql.mock.calls[4]);
     expect(revoke).toContain("set status = 'cancelled'");
     expect(revoke).toContain("token_hash = encode(digest");
-    expect(revoke).toContain("and not exists");
+    expect(revoke).toContain("and exists");
+    expect(revoke).toContain("authority_facts.advertising_blocked is true");
     expect(revoke).toContain("authority_scb.last_synced_at >= now() - interval '7 days'");
+    expect(revoke).toContain("and not (");
   });
 
   it("continues offer submission when authority is restored before locked cancellation", async () => {

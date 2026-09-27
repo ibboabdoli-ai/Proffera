@@ -90,7 +90,7 @@ describe("marketplace guest human-view tracking", () => {
     expect(sql.mock.calls.some((call) => queryText(call).includes("set status = 'viewed'"))).toBe(false);
   });
 
-  it("revokes an active guest link when workplace authority is no longer current", async () => {
+  it("revokes an active guest link only when a hard authority block is confirmed", async () => {
     const sql = transactionalSqlResponses(
       [guestRow({ has_current_authority: false })],
       [],
@@ -111,7 +111,8 @@ describe("marketplace guest human-view tracking", () => {
     expect(queryText(sql.mock.calls[3])).toContain("for update of scb");
     expect(queryText(sql.mock.calls[4])).toContain("set status = 'cancelled'");
     expect(queryText(sql.mock.calls[4])).toContain("token_hash = encode(digest");
-    expect(queryText(sql.mock.calls[4])).toContain("and not exists");
+    expect(queryText(sql.mock.calls[4])).toContain("and exists");
+    expect(queryText(sql.mock.calls[4])).toContain("authority_facts.advertising_blocked is true");
     expect(queryText(sql.mock.calls[4])).toContain("authority_scb.last_synced_at >= now() - interval '7 days'");
   });
 

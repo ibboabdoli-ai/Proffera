@@ -565,6 +565,111 @@ if (RUN_POSTGRES_INTEGRATION) {
       });
     }, 60_000);
 
+    it("fails closed without cancelling for temporary authority-data failures", async () => {
+      const cases: Array<{ suffix: string; token: string; mutate: () => Promise<unknown> }> = [
+        {
+          suffix: "two-workplaces",
+          token: "w".repeat(40),
+          mutate: () => client.query(
+            "update company_directory_scb_enrichment set workplaces = $2::jsonb where profile_id = $1",
+            [profileId, JSON.stringify([
+              { visitingAddress: { addressLine: "Storgatan 1", postalCode: "15100", city: "Södertälje" }, municipality: "Södertälje" },
+              { visitingAddress: { addressLine: "Storgatan 2", postalCode: "15100", city: "Södertälje" }, municipality: "Södertälje" },
+            ])],
+          ),
+        },
+        {
+          suffix: "blank-postal",
+          token: "b".repeat(40),
+          mutate: () => client.query(
+            "update company_directory_scb_enrichment set workplaces = $2::jsonb where profile_id = $1",
+            [profileId, JSON.stringify([
+              { visitingAddress: { addressLine: "Storgatan 1", postalCode: "", city: "Södertälje" }, municipality: "Södertälje" },
+            ])],
+          ),
+        },
+        {
+          suffix: "profile-token",
+          token: "p".repeat(40),
+          mutate: () => client.query(
+            "update company_directory_scb_enrichment set provenance = jsonb_set(provenance, '{comparisonSnapshot,profileUpdatedToken}', to_jsonb('mismatch'::text)) where profile_id = $1",
+            [profileId],
+          ),
+        },
+        {
+          suffix: "malformed-procedures",
+          token: "m".repeat(40),
+          mutate: () => client.query(
+            "update company_directory_official_facts set ongoing_procedures = '{\"malformed\":true}'::jsonb where profile_id = $1",
+            [profileId],
+          ),
+        },
+        {
+          suffix: "unknown-advertising",
+          token: "n".repeat(40),
+          mutate: () => client.query(
+            "update company_directory_official_facts set advertising_blocked = null where profile_id = $1",
+            [profileId],
+          ),
+        },
+      ];
+
+      for (const authorityCase of cases) {
+        const { invitationId, tokenHash } = await insertAuthorityRaceInvitation(authorityCase.token, authorityCase.suffix);
+        await authorityCase.mutate();
+
+        await expect(getMarketplaceGuestQuoteView(authorityCase.token)).resolves.toBeNull();
+
+        const state = await client.query<{ status: string; token_hash: string }>(
+          "select status, token_hash from marketplace_quote_invitations where id = $1",
+          [invitationId],
+        );
+        expect(state.rows[0]).toMatchObject({ status: "sent", token_hash: tokenHash });
+
+        const profileTokens = await client.query<{ updated_at: string; last_synced_at: string }>(
+          "select updated_at::text, last_synced_at::text from company_directory_profiles where id = $1",
+          [profileId],
+        );
+        const factsLastSynced = String(profileTokens.rows[0]?.last_synced_at ?? "");
+        await client.query(
+          "update company_directory_official_facts set advertising_blocked = false, ongoing_procedures = '[]'::jsonb, source_payload_hash = 'official-facts-hash', last_synced_at = $2::timestamptz where profile_id = $1",
+          [profileId, factsLastSynced],
+        );
+        const factsTokens = await client.query<{ last_synced_at: string }>(
+          "select last_synced_at::text from company_directory_official_facts where profile_id = $1",
+          [profileId],
+        );
+        await client.query(
+          "update company_directory_scb_enrichment set workplaces = $2::jsonb, conflicts = '[]'::jsonb, source_payload_hash = 'scb-hash', last_synced_at = now(), provenance = $3::jsonb where profile_id = $1",
+          [
+            profileId,
+            JSON.stringify([{ visitingAddress: { addressLine: "Storgatan 1", postalCode: "15100", city: "Södertälje" }, municipality: "Södertälje" }]),
+            JSON.stringify({ comparisonSnapshot: { profileUpdatedToken: String(profileTokens.rows[0]?.updated_at ?? ""), officialFactsLastSyncedToken: String(factsTokens.rows[0]?.last_synced_at ?? "") } }),
+          ],
+        );
+      }
+    }, 30_000);
+
+    it("cancels a confirmed non-pilot workplace authority block", async () => {
+      const token = "u".repeat(40);
+      const { invitationId, tokenHash } = await insertAuthorityRaceInvitation(token, "non-pilot");
+      await client.query(
+        "update company_directory_scb_enrichment set workplaces = $2::jsonb where profile_id = $1",
+        [profileId, JSON.stringify([
+          { visitingAddress: { addressLine: "Kungsgatan 1", postalCode: "75320", city: "Uppsala" }, municipality: "Uppsala" },
+        ])],
+      );
+
+      await expect(getMarketplaceGuestQuoteView(token)).resolves.toBeNull();
+
+      const state = await client.query<{ status: string; token_hash: string }>(
+        "select status, token_hash from marketplace_quote_invitations where id = $1",
+        [invitationId],
+      );
+      expect(state.rows[0]?.status).toBe("cancelled");
+      expect(state.rows[0]?.token_hash).not.toBe(tokenHash);
+    });
+
     it("serializes an authority refresh before stale invitation cancellation", async () => {
       const token = "r".repeat(40);
       const { invitationId, tokenHash } = await insertAuthorityRaceInvitation(token, "refresh");

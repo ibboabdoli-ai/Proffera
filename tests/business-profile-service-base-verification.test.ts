@@ -178,6 +178,113 @@ describe("owner service-base verification boundary", () => {
     expect(write?.values).toContain(17.6253);
   });
 
+  it("rejects an unqualified pre-release sole trader before verification or a transaction", async () => {
+    const { sql } = createSqlMock(async () => []);
+    mocks.getSql.mockReturnValue(sql);
+
+    await expect(establishPreReleaseSoleTraderServiceBase({
+      addressLine1: "Industrivägen 2",
+      postalCode: "151 00",
+      city: "Södertälje",
+    })).rejects.toThrow("eligible blocked sole-trader profile");
+
+    expect(mocks.verifyCustomerAddress).not.toHaveBeenCalled();
+    expect(sql.transaction).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["no_match", "not_found"],
+    ["unavailable", "timeout"],
+  ])("rejects %s service-base verification without a write transaction", async (status, reason) => {
+    const { sql } = createSqlMock(async (query) => (
+      query.text.startsWith("select profile.id::text as profile_id")
+        ? [{ profile_id: PROFILE_ID }]
+        : []
+    ));
+    mocks.getSql.mockReturnValue(sql);
+    mocks.verifyCustomerAddress.mockResolvedValue({ status, reason });
+
+    await expect(establishPreReleaseSoleTraderServiceBase({
+      addressLine1: "Industrivägen 2",
+      postalCode: "151 00",
+      city: "Södertälje",
+    })).rejects.toThrow("Service base address verification failed");
+
+    expect(sql.transaction).not.toHaveBeenCalled();
+  });
+
+  it("rejects invalid transformed coordinates before the write transaction", async () => {
+    const { sql } = createSqlMock(async (query) => {
+      if (query.text.startsWith("select profile.id::text as profile_id")) return [{ profile_id: PROFILE_ID }];
+      if (query.text.includes("st_y(transformed.point)::float8 as latitude")) return [{ latitude: 0, longitude: 0 }];
+      return [];
+    });
+    mocks.getSql.mockReturnValue(sql);
+    mocks.verifyCustomerAddress.mockResolvedValue({
+      status: "matched",
+      source: "lantmateriet_belagenhetsadress_v4_2",
+      referenceId: "44444444-4444-4444-8444-444444444444",
+      easting: 658123,
+      northing: 6570123,
+    });
+
+    await expect(establishPreReleaseSoleTraderServiceBase({
+      addressLine1: "Industrivägen 2",
+      postalCode: "151 00",
+      city: "Södertälje",
+    })).rejects.toThrow("invalid coordinates");
+
+    expect(sql.transaction).not.toHaveBeenCalled();
+  });
+
+  it("fails closed when the blocked sole-trader authority disappears under the write lock", async () => {
+    const { sql } = createSqlMock(async (query) => {
+      if (query.text.startsWith("select profile.id::text as profile_id")) return [{ profile_id: PROFILE_ID }];
+      if (query.text.includes("st_y(transformed.point)::float8 as latitude")) return [{ latitude: 59.1955, longitude: 17.6253 }];
+      if (query.text.startsWith("select profile.id from company_directory_profiles")) return [];
+      if (query.text.startsWith("with selected_location as")) return [{ id: LOCATION_ID }];
+      return [];
+    });
+    mocks.getSql.mockReturnValue(sql);
+    mocks.verifyCustomerAddress.mockResolvedValue({
+      status: "matched",
+      source: "lantmateriet_belagenhetsadress_v4_2",
+      referenceId: "44444444-4444-4444-8444-444444444444",
+      easting: 658123,
+      northing: 6570123,
+    });
+
+    await expect(establishPreReleaseSoleTraderServiceBase({
+      addressLine1: "Industrivägen 2",
+      postalCode: "151 00",
+      city: "Södertälje",
+    })).rejects.toThrow("changed before its service base was stored");
+  });
+
+  it("fails closed when the verified service base write returns no row", async () => {
+    const { sql } = createSqlMock(async (query) => {
+      if (query.text.startsWith("select profile.id::text as profile_id")) return [{ profile_id: PROFILE_ID }];
+      if (query.text.includes("st_y(transformed.point)::float8 as latitude")) return [{ latitude: 59.1955, longitude: 17.6253 }];
+      if (query.text.startsWith("select profile.id from company_directory_profiles")) return [{ id: PROFILE_ID }];
+      if (query.text.startsWith("with selected_location as")) return [];
+      return [];
+    });
+    mocks.getSql.mockReturnValue(sql);
+    mocks.verifyCustomerAddress.mockResolvedValue({
+      status: "matched",
+      source: "lantmateriet_belagenhetsadress_v4_2",
+      referenceId: "44444444-4444-4444-8444-444444444444",
+      easting: 658123,
+      northing: 6570123,
+    });
+
+    await expect(establishPreReleaseSoleTraderServiceBase({
+      addressLine1: "Industrivägen 2",
+      postalCode: "151 00",
+      city: "Södertälje",
+    })).rejects.toThrow("changed before its service base was stored");
+  });
+
   it("makes no provider call for an unconfirmed service base and clears supplied geocoding", async () => {
     const { sql, queries } = createSqlMock(async (query) => {
       if (query.text.startsWith("select profile.id from company_directory_profiles")) {

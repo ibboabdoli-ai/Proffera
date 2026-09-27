@@ -190,7 +190,7 @@ export async function getProviderActivationState(): Promise<ProviderActivationSt
             and claimed_facts.source_payload_hash <> ''
             and claimed_facts.last_synced_at >= profile.last_synced_at
             and claimed_facts.deregistration_date is null
-            and coalesce(claimed_facts.advertising_blocked, false) = false
+            and claimed_facts.advertising_blocked is false
             and (
               case
                 when jsonb_typeof(claimed_facts.ongoing_procedures) = 'array'
@@ -201,6 +201,7 @@ export async function getProviderActivationState(): Promise<ProviderActivationSt
             and claimed_scb.source_payload_hash <> ''
             and claimed_scb.last_synced_at >= now() - interval '7 days'
             and claimed_scb.last_synced_at >= profile.last_synced_at
+            and claimed_scb.provenance #>> '{comparisonSnapshot,profileUpdatedToken}' = profile.updated_at::text
             and claimed_scb.provenance #>> '{comparisonSnapshot,officialFactsLastSyncedToken}' = claimed_facts.last_synced_at::text
             and jsonb_typeof(claimed_scb.conflicts) = 'array'
             and jsonb_array_length(claimed_scb.conflicts) = 0
@@ -277,7 +278,7 @@ export async function getProviderActivationState(): Promise<ProviderActivationSt
             and claimed_facts.source_payload_hash <> ''
             and claimed_facts.last_synced_at >= profile.last_synced_at
             and claimed_facts.deregistration_date is null
-            and coalesce(claimed_facts.advertising_blocked, false) = false
+            and claimed_facts.advertising_blocked is false
             and (
               case
                 when jsonb_typeof(claimed_facts.ongoing_procedures) = 'array'
@@ -288,6 +289,7 @@ export async function getProviderActivationState(): Promise<ProviderActivationSt
             and claimed_scb.source_payload_hash <> ''
             and claimed_scb.last_synced_at >= now() - interval '7 days'
             and claimed_scb.last_synced_at >= profile.last_synced_at
+            and claimed_scb.provenance #>> '{comparisonSnapshot,profileUpdatedToken}' = profile.updated_at::text
             and claimed_scb.provenance #>> '{comparisonSnapshot,officialFactsLastSyncedToken}' = claimed_facts.last_synced_at::text
             and jsonb_typeof(claimed_scb.conflicts) = 'array'
             and jsonb_array_length(claimed_scb.conflicts) = 0
@@ -470,7 +472,7 @@ export async function findProviderProfileByOrganizationNumber(value: unknown): P
           and facts.source_payload_hash <> ''
           and facts.last_synced_at >= profile.last_synced_at
           and facts.deregistration_date is null
-          and coalesce(facts.advertising_blocked, false) = false
+          and facts.advertising_blocked is false
           and (
             case
               when jsonb_typeof(facts.ongoing_procedures) = 'array'
@@ -571,7 +573,7 @@ export async function activateProviderMarketplaceService(input: {
                  and claimed_facts.source_payload_hash <> ''
                  and claimed_facts.last_synced_at >= profile.last_synced_at
                  and claimed_facts.deregistration_date is null
-                 and coalesce(claimed_facts.advertising_blocked, false) = false
+                 and claimed_facts.advertising_blocked is false
                  and (
                    case
                      when jsonb_typeof(claimed_facts.ongoing_procedures) = 'array'
@@ -582,6 +584,7 @@ export async function activateProviderMarketplaceService(input: {
                  and claimed_scb.source_payload_hash <> ''
                  and claimed_scb.last_synced_at >= now() - interval '7 days'
                  and claimed_scb.last_synced_at >= profile.last_synced_at
+                 and claimed_scb.provenance #>> '{comparisonSnapshot,profileUpdatedToken}' = profile.updated_at::text
                  and claimed_scb.provenance #>> '{comparisonSnapshot,officialFactsLastSyncedToken}' = claimed_facts.last_synced_at::text
                  and jsonb_typeof(claimed_scb.conflicts) = 'array'
                  and jsonb_array_length(claimed_scb.conflicts) = 0
@@ -743,7 +746,7 @@ export async function activateProviderMarketplaceService(input: {
             and claimed_facts.source_payload_hash <> ''
             and claimed_facts.last_synced_at >= profile.last_synced_at
             and claimed_facts.deregistration_date is null
-            and coalesce(claimed_facts.advertising_blocked, false) = false
+            and claimed_facts.advertising_blocked is false
             and (
               case
                 when jsonb_typeof(claimed_facts.ongoing_procedures) = 'array'
@@ -754,6 +757,7 @@ export async function activateProviderMarketplaceService(input: {
             and claimed_scb.source_payload_hash <> ''
             and claimed_scb.last_synced_at >= now() - interval '7 days'
             and claimed_scb.last_synced_at >= profile.last_synced_at
+            and claimed_scb.provenance #>> '{comparisonSnapshot,profileUpdatedToken}' = profile.updated_at::text
             and claimed_scb.provenance #>> '{comparisonSnapshot,officialFactsLastSyncedToken}' = claimed_facts.last_synced_at::text
             and jsonb_typeof(claimed_scb.conflicts) = 'array'
             and jsonb_array_length(claimed_scb.conflicts) = 0

@@ -673,7 +673,7 @@ describe("public Directory safety mutation invalidation", () => {
       errorSummary: "policy batch failed after demotion",
     });
     expect(mocks.invalidateAll).toHaveBeenCalledTimes(1);
-    expect(mocks.invalidateMarketplace).not.toHaveBeenCalled();
+    expect(mocks.invalidateMarketplace).toHaveBeenCalledTimes(1);
     expect(consoleError).toHaveBeenCalledWith(
       "Public Directory cache invalidation failed after committed revalidation work",
       { context: "category_policy_batch_failure", error: cacheError },

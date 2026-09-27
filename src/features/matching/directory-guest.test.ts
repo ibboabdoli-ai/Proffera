@@ -28,6 +28,11 @@ describe("directory guest marketplace ranking", () => {
     expect(source).toContain("scb.workplaces->0->'visitingAddress'->>'city'");
     expect(source).toContain("scb.workplaces->0->>'municipality'");
     expect(source).toContain("jsonb_array_length(scb.workplaces) = 1");
+    expect(source).toContain("facts.source_payload_hash <> ''");
+    expect(source).toContain("facts.advertising_blocked is false");
+    expect(source).toContain("scb.last_synced_at >= now() - interval '7 days'");
+    expect(source).toContain("comparisonSnapshot,profileUpdatedToken");
+    expect(source).toContain("comparisonSnapshot,officialFactsLastSyncedToken");
     expect(source).not.toContain("where lower(btrim(profile.city)) = locality.locality");
     expect(source).not.toContain("or lower(btrim(profile.municipality)) = locality.locality");
   });

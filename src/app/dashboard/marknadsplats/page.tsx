@@ -100,6 +100,7 @@ const statusCopy: Record<string, Record<Locale, string>> = {
   linked: { sv: "Företaget är redan kopplat till den här arbetsytan.", en: "The business is already connected to this workspace." },
   service_ok: { sv: "Tjänsten är publicerad på marknadsplatsen.", en: "The service is published in the marketplace." },
   service_error: { sv: "Tjänsten kunde inte aktiveras. Kontrollera tjänst, kundväg och serviceområde.", en: "The service could not be activated. Check the service, customer action and service area." },
+  service_base_error: { sv: "Adressen kunde inte verifieras. Kontrollera gatuadress, postnummer och ort, eller försök igen senare.", en: "The address could not be verified. Check the street address, postal code and city, or try again later." },
 };
 
 function first(value: string | string[] | undefined) {
@@ -147,11 +148,16 @@ async function activateMarketplaceServiceAction(formData: FormData) {
   let status = "service_ok";
   try {
     if (formData.get("requiresPrivacyRelease") === "true") {
-      await establishPreReleaseSoleTraderServiceBase({
-        addressLine1: String(formData.get("serviceBaseAddressLine1") ?? ""),
-        postalCode: String(formData.get("serviceBasePostalCode") ?? ""),
-        city: String(formData.get("serviceBaseCity") ?? ""),
-      });
+      try {
+        await establishPreReleaseSoleTraderServiceBase({
+          addressLine1: String(formData.get("serviceBaseAddressLine1") ?? ""),
+          postalCode: String(formData.get("serviceBasePostalCode") ?? ""),
+          city: String(formData.get("serviceBaseCity") ?? ""),
+        });
+      } catch {
+        status = "service_base_error";
+        throw new Error("service_base");
+      }
     }
     await activateProviderMarketplaceService({
       serviceId: String(formData.get("serviceId") ?? ""),
@@ -160,7 +166,7 @@ async function activateMarketplaceServiceAction(formData: FormData) {
       radiusKm: formData.get("radiusKm"),
     });
   } catch {
-    status = "service_error";
+    if (status !== "service_base_error") status = "service_error";
   }
   redirect(withLang("/dashboard/marknadsplats", locale, status));
 }

@@ -323,6 +323,48 @@ describe("published Directory revalidation worker", () => {
     expect(finish?.values).toContain("5563115707");
   });
 
+  it("keeps the deferred candidate eligible when the deadline is reached before SCB refresh", async () => {
+    configureCandidateSql();
+    let now = 1_000_000;
+    const nowSpy = vi.spyOn(Date, "now").mockImplementation(() => now);
+    mocks.enrichOfficialFacts.mockImplementationOnce(async () => {
+      now += 20_000;
+      return { status: "saved" };
+    });
+
+    try {
+      await expect(revalidatePublishedCompanyDirectoryBatch(1, { deadlineAt: 1_035_000 })).resolves.toMatchObject({
+        selected: 1,
+        deferred: 1,
+        revalidated: 0,
+      });
+    } finally {
+      nowSpy.mockRestore();
+    }
+
+    const finish = sqlCalls.find((call) => (
+      call.query.includes("update company_directory_sync_runs")
+      && call.query.includes("cursor_value =")
+      && call.query.includes("where id =")
+    ));
+    expect(finish?.values).not.toContain("5563115707");
+  });
+
+  it("moves malformed ongoing procedures to Review instead of keeping the profile published", async () => {
+    configureCandidateSql({
+      evaluation: freshEvaluation({
+        ongoing_procedures: { malformed: true },
+      }),
+    });
+
+    await expect(revalidatePublishedCompanyDirectoryBatch(2)).resolves.toMatchObject({
+      revalidated: 1,
+      keptPublished: 0,
+      movedToReview: 1,
+      errors: 0,
+    });
+  });
+
   it("moves a fresh high-confidence profile to Review when the physical workplace is outside the pilot", async () => {
     configureCandidateSql({
       evaluation: freshEvaluation({

@@ -92,6 +92,7 @@ export async function GET(request: Request) {
   } catch (error) {
     console.error("Company directory category policy revalidation failed", error);
     invalidatePublicDirectoryCachesBestEffort("category_policy_batch_failure");
+    invalidateMarketplaceCacheBestEffort("category_policy_batch_failure");
     policyEvaluation = failedPolicyEvaluation(error);
   }
 

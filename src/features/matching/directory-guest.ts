@@ -1,6 +1,7 @@
 import "server-only";
 
 import { businessEmailDomainKind, validBusinessEmail } from "@/lib/company-directory-claim-email";
+import { DIRECTORY_PILOT_LOCATIONS } from "@/lib/company-directory-policy";
 import { isVerifiedDirectoryMarketplaceLocation } from "@/lib/company-directory-marketplace-readiness";
 import {
   classifyCompanyDirectoryGeoCoverage,
@@ -10,6 +11,8 @@ import {
 import { parseDirectoryCoordinates } from "@/lib/company-directory-distance";
 import { getSql } from "@/lib/db/server";
 import { serviceCategoryForQuoteCategory } from "@/lib/service-catalog";
+
+const PILOT_LOCATION_CSV = DIRECTORY_PILOT_LOCATIONS.join(",");
 
 type GuestLead = {
   id: string;
@@ -480,7 +483,9 @@ export async function getDirectoryGuestLeadMatches() {
         left join company_directory_business_locations location
           on location.profile_id = profile.id
          and location.is_public = true
-        left join company_directory_scb_enrichment scb
+        join company_directory_official_facts facts
+          on facts.profile_id = profile.id
+        join company_directory_scb_enrichment scb
           on scb.profile_id = profile.id
         left join lateral (
           select area.radius_km
@@ -499,6 +504,34 @@ export async function getDirectoryGuestLeadMatches() {
           and profile.organization_kind = 'juridical_person'
           and profile.is_active = true
           and profile.privacy_blocked = false
+          and facts.source_payload_hash <> ''
+          and facts.last_synced_at >= profile.last_synced_at
+          and facts.deregistration_date is null
+          and facts.advertising_blocked is false
+          and (
+            case
+              when jsonb_typeof(facts.ongoing_procedures) = 'array'
+                then jsonb_array_length(facts.ongoing_procedures)
+              else 1
+            end
+          ) = 0
+          and scb.source_payload_hash <> ''
+          and scb.last_synced_at >= now() - interval '7 days'
+          and scb.last_synced_at >= profile.last_synced_at
+          and scb.provenance #>> '{comparisonSnapshot,profileUpdatedToken}' = profile.updated_at::text
+          and scb.provenance #>> '{comparisonSnapshot,officialFactsLastSyncedToken}' = facts.last_synced_at::text
+          and jsonb_typeof(scb.conflicts) = 'array'
+          and jsonb_array_length(scb.conflicts) = 0
+          and jsonb_typeof(scb.workplaces) = 'array'
+          and jsonb_array_length(scb.workplaces) = 1
+          and nullif(btrim(scb.workplaces->0->'visitingAddress'->>'addressLine'), '') is not null
+          and nullif(btrim(scb.workplaces->0->'visitingAddress'->>'postalCode'), '') is not null
+          and nullif(btrim(scb.workplaces->0->'visitingAddress'->>'city'), '') is not null
+          and nullif(btrim(scb.workplaces->0->>'municipality'), '') is not null
+          and (
+            lower(btrim(scb.workplaces->0->'visitingAddress'->>'city')) = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
+            or lower(btrim(scb.workplaces->0->>'municipality')) = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
+          )
           and (
             exists (
               select 1
