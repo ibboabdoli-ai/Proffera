@@ -154,8 +154,8 @@ export async function getDirectoryGuestLeadMatch(quoteRequestId: string) {
           profile.id::text as profile_id,
           profile.public_slug,
           profile.display_name,
-          profile.city,
-          profile.municipality,
+          scb.workplaces->0->'visitingAddress'->>'city' as city,
+          scb.workplaces->0->>'municipality' as municipality,
           profile.category_slug,
           profile.quality_score,
           profile.publication_status,
@@ -263,8 +263,8 @@ export async function getDirectoryGuestLeadMatch(quoteRequestId: string) {
             or (
               ${originLatitude}::float8 is null
               and (
-                lower(btrim(profile.city)) = ${locality}
-                or lower(btrim(profile.municipality)) = ${locality}
+                lower(btrim(scb.workplaces->0->'visitingAddress'->>'city')) = ${locality}
+                or lower(btrim(scb.workplaces->0->>'municipality')) = ${locality}
               )
             )
           )
