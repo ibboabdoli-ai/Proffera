@@ -118,34 +118,6 @@ function ownerPrimaryPublicAddress(location: ClaimedOwnerPrimaryLocation): Direc
   return location.address;
 }
 
-async function getConflictFreeScbContact(
-  sql: NonNullable<ReturnType<typeof getSql>>,
-  profileId: string,
-): Promise<ScbDirectContact | null> {
-  try {
-    const rows = await sql`
-      select
-        coalesce(nullif(phone, ''), '') as phone,
-        coalesce(nullif(email, ''), '') as email,
-        workplaces
-      from company_directory_scb_enrichment
-      where profile_id = ${profileId}::uuid
-        and conflicts = '[]'::jsonb
-      limit 1
-    `;
-    const row = rows[0];
-    if (!row) return null;
-    return {
-      phone: String(row.phone ?? ""),
-      email: String(row.email ?? ""),
-      workplaces: row.workplaces,
-    };
-  } catch (error) {
-    if (isMissingDirectoryTable(error, "company_directory_scb_enrichment")) return null;
-    throw error;
-  }
-}
-
 async function getClaimedOwnerPrimaryLocation(
   sql: NonNullable<ReturnType<typeof getSql>>,
   profileId: string,
@@ -221,78 +193,81 @@ async function getPublishedDirectoryContact(business: PublicDirectoryBusiness) {
 
   const rows = await sql`
     select
-      organization_number,
-      organization_kind,
-      legal_name,
-      primary_sni_code,
-      website_url,
-      claimed_workspace_id::text,
-      (
-        select facts.last_synced_at
-        from company_directory_official_facts facts
-        where facts.profile_id = company_directory_profiles.id
-        limit 1
-      ) as official_facts_last_synced_at,
-      (
-        select scb.last_synced_at + interval '7 days'
-        from company_directory_scb_enrichment scb
-        where scb.profile_id = company_directory_profiles.id
-        limit 1
-      ) as workplace_authority_expires_at
+      company_directory_profiles.organization_number,
+      company_directory_profiles.organization_kind,
+      company_directory_profiles.legal_name,
+      company_directory_profiles.primary_sni_code,
+      company_directory_profiles.website_url,
+      company_directory_profiles.claimed_workspace_id::text,
+      published_authority.official_facts_last_synced_at,
+      published_authority.workplace_authority_expires_at,
+      published_authority.scb_phone,
+      published_authority.scb_email,
+      published_authority.scb_workplaces
     from company_directory_profiles
-    where id = ${business.id}::uuid
-      and publication_status = 'published'
-      and organization_kind = 'juridical_person'
-      and privacy_blocked = false
-      and auto_public_eligible = true
-      and exists (
-        select 1
-        from company_directory_official_facts published_facts
-        join company_directory_scb_enrichment published_scb
-          on published_scb.profile_id = published_facts.profile_id
-        where published_facts.profile_id = company_directory_profiles.id
-          and published_facts.source_payload_hash <> ''
-          and published_facts.last_synced_at >= company_directory_profiles.last_synced_at
-          and published_facts.deregistration_date is null
-          and coalesce(published_facts.advertising_blocked, false) = false
-          and (
-            case
-              when jsonb_typeof(published_facts.ongoing_procedures) = 'array'
-                then jsonb_array_length(published_facts.ongoing_procedures)
-              else 1
-            end
-          ) = 0
-          and published_scb.source_payload_hash <> ''
-          and published_scb.last_synced_at >= now() - interval '7 days'
-          and published_scb.last_synced_at >= company_directory_profiles.last_synced_at
-          and published_scb.provenance #>> '{comparisonSnapshot,profileUpdatedToken}' = company_directory_profiles.updated_at::text
-          and published_scb.provenance #>> '{comparisonSnapshot,officialFactsLastSyncedToken}' = published_facts.last_synced_at::text
-          and jsonb_typeof(published_scb.conflicts) = 'array'
-          and jsonb_array_length(published_scb.conflicts) = 0
-          and jsonb_typeof(published_scb.workplaces) = 'array'
-          and jsonb_array_length(published_scb.workplaces) = 1
-          and nullif(btrim(published_scb.workplaces->0->'visitingAddress'->>'addressLine'), '') is not null
-          and nullif(btrim(published_scb.workplaces->0->'visitingAddress'->>'postalCode'), '') is not null
-          and nullif(btrim(published_scb.workplaces->0->'visitingAddress'->>'city'), '') is not null
-          and nullif(btrim(published_scb.workplaces->0->>'municipality'), '') is not null
-          and (
-            lower(btrim(published_scb.workplaces->0->'visitingAddress'->>'city')) = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
-            or lower(btrim(published_scb.workplaces->0->>'municipality')) = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
-          )
-      )
+    join lateral (
+      select
+        published_facts.last_synced_at as official_facts_last_synced_at,
+        published_scb.last_synced_at + interval '7 days' as workplace_authority_expires_at,
+        coalesce(nullif(published_scb.phone, ''), '') as scb_phone,
+        coalesce(nullif(published_scb.email, ''), '') as scb_email,
+        published_scb.workplaces as scb_workplaces
+      from company_directory_official_facts published_facts
+      join company_directory_scb_enrichment published_scb
+        on published_scb.profile_id = published_facts.profile_id
+      where published_facts.profile_id = company_directory_profiles.id
+        and published_facts.source_payload_hash <> ''
+        and published_facts.last_synced_at >= company_directory_profiles.last_synced_at
+        and published_facts.deregistration_date is null
+        and coalesce(published_facts.advertising_blocked, false) = false
+        and (
+          case
+            when jsonb_typeof(published_facts.ongoing_procedures) = 'array'
+              then jsonb_array_length(published_facts.ongoing_procedures)
+            else 1
+          end
+        ) = 0
+        and published_scb.source_payload_hash <> ''
+        and published_scb.last_synced_at >= now() - interval '7 days'
+        and published_scb.last_synced_at >= company_directory_profiles.last_synced_at
+        and published_scb.provenance #>> '{comparisonSnapshot,profileUpdatedToken}' = company_directory_profiles.updated_at::text
+        and published_scb.provenance #>> '{comparisonSnapshot,officialFactsLastSyncedToken}' = published_facts.last_synced_at::text
+        and jsonb_typeof(published_scb.conflicts) = 'array'
+        and jsonb_array_length(published_scb.conflicts) = 0
+        and jsonb_typeof(published_scb.workplaces) = 'array'
+        and jsonb_array_length(published_scb.workplaces) = 1
+        and nullif(btrim(published_scb.workplaces->0->'visitingAddress'->>'addressLine'), '') is not null
+        and nullif(btrim(published_scb.workplaces->0->'visitingAddress'->>'postalCode'), '') is not null
+        and nullif(btrim(published_scb.workplaces->0->'visitingAddress'->>'city'), '') is not null
+        and nullif(btrim(published_scb.workplaces->0->>'municipality'), '') is not null
+        and (
+          lower(btrim(published_scb.workplaces->0->'visitingAddress'->>'city')) = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
+          or lower(btrim(published_scb.workplaces->0->>'municipality')) = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
+        )
+      limit 1
+    ) published_authority on true
+    where company_directory_profiles.id = ${business.id}::uuid
+      and company_directory_profiles.publication_status = 'published'
+      and company_directory_profiles.organization_kind = 'juridical_person'
+      and company_directory_profiles.privacy_blocked = false
+      and company_directory_profiles.auto_public_eligible = true
     limit 1
   `;
   const row = rows[0];
   if (!row) return null;
 
-  const scb = await getConflictFreeScbContact(sql, business.id);
+  const scb: ScbDirectContact = {
+    phone: String(row.scb_phone ?? row.phone ?? ""),
+    email: String(row.scb_email ?? row.email ?? ""),
+    workplaces: row.scb_workplaces ?? row.workplaces,
+  };
   const claimedWorkspaceId = String(row.claimed_workspace_id ?? "");
   const address = await resolvePublishedPhysicalAddress({
     sql,
     profileId: business.id,
     claimedWorkspaceId,
     profile: storedAddress,
-    workplaces: scb?.workplaces,
+    workplaces: scb.workplaces,
   });
   return {
     organizationNumber: publicDirectoryOrganizationNumber(row.organization_kind, row.organization_number),

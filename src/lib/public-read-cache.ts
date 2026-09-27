@@ -259,7 +259,15 @@ export async function getCachedPublishedDirectoryLocationSuggestions(limit = 24)
     }
   }
 
-  return cached.value;
+  // A cache tag invalidation can race with an in-flight cache fill. Never let
+  // the persisted candidate become the final authority decision: compare it to
+  // one live canonical read before returning it. This prevents a stale value
+  // written after invalidation from being served on subsequent requests.
+  const live = await getPublishedDirectoryLocationSuggestions(safeLimit);
+  return sameOrderedStrings(
+    normalizedLocationLabels(cached.value),
+    normalizedLocationLabels(live),
+  ) ? cached.value : live;
 }
 
 export async function getCachedMarketplaceHomeCompanies(limit = 4) {
@@ -278,7 +286,14 @@ export async function getCachedMarketplaceHomeCompanies(limit = 4) {
     }
   }
 
-  return cached.value;
+  // Treat the cross-request cache as a candidate only. A live canonical search
+  // on every return prevents a stale fill that raced after tag invalidation
+  // from making an ineligible provider persist for the cache TTL.
+  const live = await searchPublishedBusinessProfiles({ limit: safeLimit, sort: "recommended" });
+  return sameOrderedStrings(
+    normalizedMarketplaceProfileIds(cached.value),
+    normalizedMarketplaceProfileIds(live),
+  ) ? cached.value : live;
 }
 
 export async function getCachedPublicBusinessSitemapEntries() {
