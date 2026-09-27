@@ -492,6 +492,18 @@ function postgresSql(
       });
     }, 30_000);
 
+    it("fails closed when claimed official authority is withdrawn on canonical PostgreSQL", async () => {
+      await prepareClaimedDisclosure();
+      await client!.query(
+        "update company_directory_official_facts set advertising_blocked = true where profile_id = $1::uuid",
+        [profileId],
+      );
+
+      await expect(
+        getPublicDirectoryBusinessForRequest("canonical-workplace-ab"),
+      ).resolves.toBeNull();
+    }, 30_000);
+
     it("does not admit an inactive claimed Workspace into location suggestions", async () => {
       await client!.query(`
         insert into workspaces (id, status, slug, name)
