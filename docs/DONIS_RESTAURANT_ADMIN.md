@@ -4,7 +4,7 @@ The public `/demo/donis-trattoria` route reads only the published snapshot for t
 
 ## Activation sequence
 
-1. Apply `db/migrations/20260927_0068_restaurant_sites.sql` to an isolated Preview database and validate its table and constraints. Production migration requires its separate release approval.
+1. Apply the separately reviewed restaurant-sites migration to an isolated Preview database and validate its table and constraints. Production migration requires its separate release approval and is intentionally not bundled with this application PR.
 2. Verify the restaurant owner’s actual Proffera Workspace ID and active membership. An authorized operator provisions exactly one row: `insert into restaurant_sites (workspace_id, public_slug) values (<verified UUID>, 'donis-trattoria');`. Do not use a guessed ID or a customer-facing claim form.
 3. The owner signs in, chooses that Workspace, enters the real menu, photos, bilingual text, opening hours and confirmed links, then uses **Spara utkast → Förhandsgranska → Publicera**. The initial draft is empty; no sample dishes, prices, history or booking URL are seeded.
 4. Verify the exact public URL in Swedish and English, desktop and narrow mobile, including price edit, photo capture/upload, hide/re-publish, category order, hours, booking and order destinations. The final customer domain and direct Google booking URL must be supplied and checked separately.
