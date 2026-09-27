@@ -133,6 +133,25 @@ describe("marketplace guest human-view tracking", () => {
     expect(sql.transaction).toHaveBeenCalledTimes(1);
     expect(queryText(sql.mock.calls[4])).toContain("returning invitation.id::text");
     expect(queryText(sql.mock.calls[5])).toContain("recipient_suppressed");
+    expect(queryText(sql.mock.calls[5])).toContain("invitation.token_hash =");
+  });
+
+  it("does not render an old guest token after a concurrent resend rotated token ownership", async () => {
+    const sql = transactionalSqlResponses(
+      [guestRow({ status: "delivery_failed", has_current_authority: false })],
+      [],
+      [],
+      [],
+      [],
+      [],
+    );
+    mocks.getSql.mockReturnValue(sql);
+
+    const view = await getMarketplaceGuestQuoteView("a".repeat(40));
+
+    expect(view).toBeNull();
+    expect(sql.transaction).toHaveBeenCalledTimes(1);
+    expect(queryText(sql.mock.calls[5])).toContain("invitation.token_hash =");
   });
 
   it("does not render a stale guest view when invitation state changed during authority reconciliation", async () => {
