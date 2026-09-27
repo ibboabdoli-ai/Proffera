@@ -54,7 +54,7 @@ For the customer side:
 
 Treat a newly created Production Quote Request as outreach-capable immediately: the normal submit path can schedule a targeted Marketplace Auto Worker kick, and the recurring worker can revisit an open request later. Do **not** press Submit until all of the following are proven from the current deployed application and read-only data:
 
-1. **Recipient allowlist proof.** Determine the complete set of providers that the normal matching/worker path could contact for this request during the pilot window, including the event-driven kick, recurring worker, later waves and any fallback/rematch path that is enabled. Every possible recipient must be explicitly covered by fresh party-specific owner approval. A practical safe setup is a service/location combination whose current eligibility leaves only the approved controlled provider(s). If an unapproved provider is eligible, or the possible recipient set cannot be bounded exactly before submission, stop and do not submit.
+1. **Application-enforced recipient containment proof.** Before submission, prove that the deployed application itself enforces a per-request allowlist for every outreach path, or prove an application-enforced freeze of all matching inputs that makes the recipient set immutable for the entire pilot window. The containment must cover the event-driven kick, recurring worker, later waves, fallback/rematch paths, and providers that could become eligible after submission. Every permitted recipient must also have fresh party-specific owner approval. A read-only snapshot of current eligibility, a service/location combination that happens to have one eligible provider, operator timing, or a manual expectation that no new provider will become eligible is not sufficient. If neither an application-enforced allowlist nor a proven application-enforced immutable matching freeze exists, classify the Production pilot as blocked and stop before Submit.
 2. **Application-supported cancellation proof.** Identify and verify a supported application path that can terminate the request before continuing the pilot and prevents future worker processing of that request. The same containment procedure must also cancel, suppress or otherwise make unusable any still-open invitations created before cancellation. Prove this procedure in an isolated non-Production environment before relying on it in Production. Direct SQL, forged state, secret/config changes or ad-hoc database edits are not acceptable cancellation mechanisms.
 3. **Operator stop procedure.** Record the exact UI/admin route and expected terminal states to use if the request, invitation set or recipient set differs from the approved plan. If the required supported cancellation/containment path does not exist or has not been proven, classify the Production pilot as blocked and stop before Submit.
 
@@ -71,10 +71,11 @@ The controlled pilot must exercise the application itself in this order:
 5. **Offer** — the provider submits a real Offer through the application.
 6. **Compare / Select** — the customer sees persisted offer state and selects the intended Offer.
 7. **ServiceJob** — selection creates or links exactly the correct ServiceJob.
-8. **Complete** — the genuine completion transition is performed.
-9. **Verified Review** — only the eligible verified-review flow becomes available and is completed without bypassing token/eligibility rules.
+8. **Real service delivery prerequisite** — do not mark the Production ServiceJob complete merely to exercise the application path. Completion requires that the selected provider has actually delivered the real agreed service to the participating customer. If the pilot is application-only, simulated, cancelled, or no real service is delivered, stop here; leave completion and verified-review Production evidence `UNVERIFIED`.
+9. **Complete** — only after genuine service delivery, the truthful completion transition is performed through the normal application flow.
+10. **Verified Review** — only after genuine service delivery and truthful completion may the eligible customer submit a truthful review based on the real delivered service. Never create a review solely to close the pilot or manufacture Production reputation evidence.
 
-Do not skip an application boundary by writing directly to the database.
+Do not skip an application boundary by writing directly to the database, and do not create permanent Production completion/review history for work that did not actually occur.
 
 ## 5. Evidence map
 
