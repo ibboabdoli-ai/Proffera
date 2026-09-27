@@ -165,9 +165,20 @@ export function DonisTrattoriaExperience({
         <header className="relative z-10 mx-auto flex w-full max-w-[1380px] flex-wrap items-center justify-between gap-4 border-b border-white/20 px-5 py-5 sm:px-9">
           <a
             href="#top"
-            className="font-serif text-2xl font-semibold uppercase tracking-tight sm:text-3xl"
+            aria-label="Doni’s Trattoria"
+            className="flex min-h-12 items-center gap-2"
           >
-            Doni’s Trattoria
+            <img
+              src="/donis-logo.png"
+              alt=""
+              className="h-11 w-auto brightness-0 invert sm:h-14"
+            />
+            <span
+              aria-hidden="true"
+              className="font-serif text-lg font-semibold uppercase tracking-tight sm:text-2xl"
+            >
+              Trattoria
+            </span>
           </a>
           <nav
             aria-label={lang === "sv" ? "Huvudmeny" : "Main menu"}
