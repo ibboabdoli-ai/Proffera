@@ -68,6 +68,15 @@ The bootstrap baseline must match the PR base SHA used for the validated work. I
 
 Never add or remove `ibbo-approved`. That label remains per-PR human merge authorization only. Actual merge eligibility requires the owner-controlled label plus an unedited repository-owner approval comment anchored to the exact current PR head commit; a human `APPROVED` review or the standing policy does not substitute for that exact-head owner comment.
 
+The required owner approval comment body is exactly:
+
+```text
+<!-- proffera-owner-approval:<40-character-current-head-sha> -->
+IBBO-APPROVED: <40-character-current-head-sha>
+```
+
+Replace both placeholders with the same exact current PR head SHA. The comment must be authored by the repository owner and remain unedited. Any head change invalidates the earlier approval, so a fresh exact-head owner comment is required after every new commit.
+
 ## Standing merge authorization
 
 A separate repository-owner standing policy may be committed on `main` in `.github/proffera-standing-merge-authorization.json` for a narrowly defined phase. The workflow treats this policy as advisory routing/scope context only: it never independently authorizes a merge and is not worker self-approval.
