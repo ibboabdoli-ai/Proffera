@@ -159,7 +159,7 @@ function postgresSql(client: Client) {
         );
         create table company_directory_official_facts (
           profile_id uuid primary key,
-          source_payload_hash text not null default 'facts-hash',
+          source_payload_hash text not null default '',
           last_synced_at timestamptz not null default now(),
           deregistration_date date,
           advertising_blocked boolean not null default false,
@@ -167,9 +167,10 @@ function postgresSql(client: Client) {
         );
         create table company_directory_scb_enrichment (
           profile_id uuid primary key,
+          organization_number text not null,
           workplaces jsonb not null default '[]'::jsonb,
           conflicts jsonb not null default '[]'::jsonb,
-          source_payload_hash text not null default 'scb-hash',
+          source_payload_hash text not null default '',
           last_synced_at timestamptz not null default now(),
           provenance jsonb not null default '{}'::jsonb
         );
@@ -243,8 +244,10 @@ function postgresSql(client: Client) {
           values ($1, $2, $3, true)
         `, [id, latitude, longitude]);
         await client!.query(`
-          insert into company_directory_scb_enrichment (profile_id, workplaces, conflicts)
-          values ($1, $2::jsonb, '[]'::jsonb)
+          insert into company_directory_scb_enrichment (
+            profile_id, organization_number, workplaces, conflicts, source_payload_hash
+          )
+          values ($1, '5560000000', $2::jsonb, '[]'::jsonb, 'scb-hash')
         `, [id, JSON.stringify([{
           cfarNumber: id.slice(0, 8),
           municipality: "Stockholm",
@@ -255,8 +258,8 @@ function postgresSql(client: Client) {
           },
         }])]);
         await client!.query(`
-          insert into company_directory_official_facts (profile_id)
-          values ($1)
+          insert into company_directory_official_facts (profile_id, source_payload_hash)
+          values ($1, 'facts-hash')
         `, [id]);
         await client!.query(`
           update company_directory_scb_enrichment scb

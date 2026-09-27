@@ -203,7 +203,61 @@ export async function upsertCompanyDirectoryCandidate(candidate: NormalizedDirec
       official_source = excluded.official_source,
       source_record_id = excluded.source_record_id,
       source_updated_at = coalesce(excluded.source_updated_at, company_directory_profiles.source_updated_at),
-      last_synced_at = now(),
+      last_synced_at = case
+        when (
+          company_directory_profiles.organization_kind,
+          company_directory_profiles.legal_name,
+          company_directory_profiles.display_name,
+          company_directory_profiles.legal_form,
+          company_directory_profiles.organization_status,
+          company_directory_profiles.is_active,
+          company_directory_profiles.f_tax_status,
+          company_directory_profiles.vat_status,
+          company_directory_profiles.employer_status,
+          company_directory_profiles.primary_sni_code,
+          company_directory_profiles.primary_sni_label,
+          company_directory_profiles.category_slug,
+          company_directory_profiles.service_slugs,
+          company_directory_profiles.activity_description,
+          company_directory_profiles.address_line1,
+          company_directory_profiles.postal_code,
+          company_directory_profiles.city,
+          company_directory_profiles.municipality,
+          company_directory_profiles.region,
+          company_directory_profiles.privacy_blocked,
+          company_directory_profiles.auto_public_eligible,
+          company_directory_profiles.official_source,
+          company_directory_profiles.source_record_id,
+          company_directory_profiles.source_updated_at
+        ) is distinct from (
+          excluded.organization_kind,
+          excluded.legal_name,
+          case when company_directory_profiles.claimed_workspace_id is null then excluded.display_name else company_directory_profiles.display_name end,
+          excluded.legal_form,
+          excluded.organization_status,
+          excluded.is_active,
+          excluded.f_tax_status,
+          excluded.vat_status,
+          excluded.employer_status,
+          excluded.primary_sni_code,
+          excluded.primary_sni_label,
+          excluded.category_slug,
+          excluded.service_slugs,
+          excluded.activity_description,
+          excluded.address_line1,
+          excluded.postal_code,
+          excluded.city,
+          excluded.municipality,
+          excluded.region,
+          excluded.privacy_blocked,
+          excluded.auto_public_eligible,
+          excluded.official_source,
+          excluded.source_record_id,
+          coalesce(excluded.source_updated_at, company_directory_profiles.source_updated_at)
+        )
+        then now()
+        else company_directory_profiles.last_synced_at
+      end,
       published_at = case
         when company_directory_profiles.claimed_workspace_id is not null then company_directory_profiles.published_at
         when company_directory_profiles.publication_status = 'published'
@@ -214,7 +268,75 @@ export async function upsertCompanyDirectoryCandidate(candidate: NormalizedDirec
         when excluded.publication_status = 'published' then coalesce(company_directory_profiles.published_at, now())
         else null
       end,
-      updated_at = now()
+      updated_at = case
+        when (
+          company_directory_profiles.organization_kind,
+          company_directory_profiles.legal_name,
+          company_directory_profiles.display_name,
+          company_directory_profiles.legal_form,
+          company_directory_profiles.organization_status,
+          company_directory_profiles.is_active,
+          company_directory_profiles.f_tax_status,
+          company_directory_profiles.vat_status,
+          company_directory_profiles.employer_status,
+          company_directory_profiles.primary_sni_code,
+          company_directory_profiles.primary_sni_label,
+          company_directory_profiles.category_slug,
+          company_directory_profiles.service_slugs,
+          company_directory_profiles.activity_description,
+          company_directory_profiles.address_line1,
+          company_directory_profiles.postal_code,
+          company_directory_profiles.city,
+          company_directory_profiles.municipality,
+          company_directory_profiles.region,
+          company_directory_profiles.quality_score,
+          company_directory_profiles.quality_reasons,
+          company_directory_profiles.privacy_blocked,
+          company_directory_profiles.auto_public_eligible,
+          company_directory_profiles.official_source,
+          company_directory_profiles.source_record_id,
+          company_directory_profiles.source_updated_at,
+          company_directory_profiles.publication_status
+        ) is distinct from (
+          excluded.organization_kind,
+          excluded.legal_name,
+          case when company_directory_profiles.claimed_workspace_id is null then excluded.display_name else company_directory_profiles.display_name end,
+          excluded.legal_form,
+          excluded.organization_status,
+          excluded.is_active,
+          excluded.f_tax_status,
+          excluded.vat_status,
+          excluded.employer_status,
+          excluded.primary_sni_code,
+          excluded.primary_sni_label,
+          excluded.category_slug,
+          excluded.service_slugs,
+          excluded.activity_description,
+          excluded.address_line1,
+          excluded.postal_code,
+          excluded.city,
+          excluded.municipality,
+          excluded.region,
+          excluded.quality_score,
+          excluded.quality_reasons,
+          excluded.privacy_blocked,
+          excluded.auto_public_eligible,
+          excluded.official_source,
+          excluded.source_record_id,
+          coalesce(excluded.source_updated_at, company_directory_profiles.source_updated_at),
+          case
+            when company_directory_profiles.claimed_workspace_id is not null then 'claimed'
+            when company_directory_profiles.publication_status = 'published'
+              and excluded.publication_status = 'ready'
+              and excluded.privacy_blocked = false
+              and excluded.auto_public_eligible = true
+              then 'published'
+            else excluded.publication_status
+          end
+        )
+        then now()
+        else company_directory_profiles.updated_at
+      end
     returning id::text, public_slug, publication_status, category_slug
   `;
 

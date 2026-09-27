@@ -165,7 +165,7 @@ function postgresSql(client: Client) {
         );
         create table company_directory_official_facts (
           profile_id uuid primary key,
-          source_payload_hash text not null default 'facts-hash',
+          source_payload_hash text not null default '',
           last_synced_at timestamptz not null default now(),
           deregistration_date date,
           advertising_blocked boolean not null default false,
@@ -173,9 +173,10 @@ function postgresSql(client: Client) {
         );
         create table company_directory_scb_enrichment (
           profile_id uuid primary key,
+          organization_number text not null,
           workplaces jsonb not null default '[]'::jsonb,
           conflicts jsonb not null default '[]'::jsonb,
-          source_payload_hash text not null default 'scb-hash',
+          source_payload_hash text not null default '',
           last_synced_at timestamptz not null default now(),
           provenance jsonb not null default '{}'::jsonb
         );
@@ -239,17 +240,19 @@ function postgresSql(client: Client) {
         )
       `, [profileId, workspaceId]);
       await client!.query(
-        "insert into company_directory_official_facts (profile_id) values ($1)",
+        "insert into company_directory_official_facts (profile_id, source_payload_hash) values ($1, 'facts-hash')",
         [profileId],
       );
       await client!.query(`
         insert into company_directory_scb_enrichment (
-          profile_id, workplaces, conflicts, provenance
+          profile_id, organization_number, workplaces, conflicts, source_payload_hash, provenance
         )
         select
           profile.id,
+          profile.organization_number,
           '[{"cfarNumber":"12345678","municipality":"Stockholm","visitingAddress":{"addressLine":"Ownergatan 1","postalCode":"111 11","city":"Stockholm"}}]'::jsonb,
           '[]'::jsonb,
+          'scb-hash',
           jsonb_build_object(
             'comparisonSnapshot',
             jsonb_build_object(

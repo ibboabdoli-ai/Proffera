@@ -435,6 +435,10 @@ async function saveOfficialFacts(profileId: string, facts: OfficialFacts) {
             or company_directory_official_facts.last_synced_at < (
               select previous.profile_last_synced_at from previous
             )
+            or (
+              company_directory_official_facts.advertising_blocked is null
+              and company_directory_official_facts.last_synced_at < ${LEGACY_REKLAMSPARR_NULL_REPAIR_BEFORE}::timestamptz
+            )
           then now()
           else company_directory_official_facts.last_synced_at
         end,
@@ -447,6 +451,7 @@ async function saveOfficialFacts(profileId: string, facts: OfficialFacts) {
         select 1
         from previous, upserted
         where previous.source_payload_hash is distinct from upserted.source_payload_hash
+          or previous.last_synced_at is distinct from upserted.last_synced_at
           or (
             previous.last_synced_at < previous.profile_last_synced_at
             and upserted.last_synced_at >= previous.profile_last_synced_at
