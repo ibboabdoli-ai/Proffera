@@ -185,7 +185,8 @@ describe("public Directory physical-location read contract", () => {
   it("does not treat a claim as proof that stored profile postal fields are a physical location", async () => {
     mocks.getPublicDirectoryBusiness.mockResolvedValue(null);
     mocks.hasActivePaidDirectoryContactAccess.mockResolvedValue(true);
-    mocks.getSql.mockReturnValue(claimedSql());
+    const sql = claimedSql();
+    mocks.getSql.mockReturnValue(sql);
 
     const result = await getPublicDirectoryBusinessForRequest("physical-location-ab");
 
@@ -197,6 +198,9 @@ describe("public Directory physical-location read contract", () => {
       municipality: "Södertälje",
       lastCheckedAt: "2026-09-02T09:15:00.000Z",
     });
+    const claimedQuery = String((sql.mock.calls[0]?.[0] ?? []).join(" ")).replace(/\s+/g, " ");
+    expect(claimedQuery).toContain("join workspaces workspace on workspace.id = profile.claimed_workspace_id");
+    expect(claimedQuery).toContain("workspace.status in ('active', 'trial')");
   });
 
   it("uses the claimed Workspace primary public owner location over SCB", async () => {
