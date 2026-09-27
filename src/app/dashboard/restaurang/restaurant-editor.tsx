@@ -64,11 +64,13 @@ function PriceInput({
   value,
   onChange,
   label,
+  disabled,
   className = input,
 }: {
   value: number | null;
   onChange: (ore: number | null) => void;
   label: string;
+  disabled: boolean;
   className?: string;
 }) {
   const [raw, setRaw] = useState(() =>
@@ -81,18 +83,21 @@ function PriceInput({
       type="text"
       inputMode="decimal"
       value={raw}
+      disabled={disabled}
       onChange={(event) => {
+        if (disabled) return;
         const next = event.target.value;
         const ore = parseRestaurantPrice(next);
         if (ore === undefined) return;
         setRaw(next);
         onChange(ore);
       }}
-      onBlur={() =>
+      onBlur={() => {
+        if (disabled) return;
         setRaw((current) =>
           current === "" ? "" : String(Number(current.replace(",", "."))),
-        )
-      }
+        );
+      }}
     />
   );
 }
@@ -512,6 +517,7 @@ export function RestaurantEditor({
                       key={dish.id}
                       label={`Pris ${dish.name}`}
                       value={dish.priceOre}
+                      disabled={busy}
                       onChange={(ore) =>
                         edit((next) => {
                           next.dishes.find(
@@ -640,6 +646,7 @@ export function RestaurantEditor({
                                   label={`Pris ${item.name}`}
                                   className={`${input} w-24 text-right`}
                                   value={item.priceOre}
+                                  disabled={busy}
                                   onChange={(ore) =>
                                     edit((next) => {
                                       next.dishes.find(
