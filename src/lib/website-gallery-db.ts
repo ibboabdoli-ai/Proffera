@@ -181,7 +181,39 @@ export async function updateGalleryItem(id: string, action: "publish" | "hide" |
   const [access, sql] = await Promise.all([getUserWorkspaceAccess(), Promise.resolve(getSql())]);
   if (!access.ok || !canManageWorkspaceSettings(access) || !sql) return false;
   if (action === "delete") {
-    const rows = await sql`delete from website_gallery_items where id=${id}::uuid and workspace_id=${access.workspaceId}::uuid returning id`;
+    const tableRows = await sql`
+      select to_regclass('public.restaurant_sites')::text as table_name
+    `;
+    if (!tableRows[0]?.table_name) {
+      const rows = await sql`delete from website_gallery_items where id=${id}::uuid and workspace_id=${access.workspaceId}::uuid returning id`;
+      return Boolean(rows[0]?.id);
+    }
+
+    const lockKey = `restaurant-site:${access.workspaceId}`;
+    const referencePattern = `%${id}%`;
+    const [, rows] = await sql.transaction(
+      (txn) => [
+        txn`
+          select pg_advisory_xact_lock(hashtextextended(${lockKey}, 0))
+        `,
+        txn`
+          delete from website_gallery_items item
+          where item.id=${id}::uuid
+            and item.workspace_id=${access.workspaceId}::uuid
+            and not exists (
+              select 1
+              from restaurant_sites site
+              where site.workspace_id=${access.workspaceId}::uuid
+                and (
+                  coalesce(site.draft::text, '') like ${referencePattern}
+                  or coalesce(site.published::text, '') like ${referencePattern}
+                )
+            )
+          returning item.id
+        `,
+      ],
+      { isolationLevel: "ReadCommitted" },
+    );
     return Boolean(rows[0]?.id);
   }
   const status = action === "publish" ? "published" : "hidden";

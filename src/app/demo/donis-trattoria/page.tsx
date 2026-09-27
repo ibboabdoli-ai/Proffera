@@ -1,39 +1,51 @@
 import type { Metadata } from "next";
 
 import { DonisTrattoriaExperience } from "./demo-interactions";
+import { getPublishedRestaurantSite, getRestaurantImageUrls } from "@/lib/restaurant-site-db";
+import { projectPublicRestaurantSite } from "@/lib/restaurant-site-public";
 
 const heroImage =
   "https://www-static.restaurangkungsholmen.se/wp-content/uploads/2025/05/donis-pizzorny.jpg";
 
 export const metadata: Metadata = {
-  title: { absolute: "Doni’s Trattoria – website concept by Proffera" },
+  applicationName: "Doni’s Trattoria",
+  keywords: null,
+  manifest: null,
+  appleWebApp: null,
+  title: { absolute: "Doni’s Trattoria | Stockholm" },
   description:
-    "Tvåspråkigt restaurangkoncept för Doni’s Trattoria med digital meny, familjeberättelse, En smak av Europa, galleri och länkar till befintlig bokning och beställning.",
+    "Doni’s Trattoria på Hornsbergs Strand 77 i Stockholm. Meny och kontaktinformation.",
   robots: { index: false, follow: false },
   openGraph: {
-    title: "Doni’s Trattoria – website concept by Proffera",
+    title: "Doni’s Trattoria | Stockholm",
     description:
-      "Digital meny, familjedriven berättelse, europeiska specialrätter, galleri och befintliga boknings- och beställningsflöden.",
+      "Meny och kontaktinformation för Doni’s Trattoria i Stockholm.",
     type: "website",
+    siteName: "Doni’s Trattoria",
     url: "https://www.proffera.se/demo/donis-trattoria",
     images: [
       {
         url: heroImage,
         width: 1200,
         height: 900,
-        alt: "Doni’s Trattoria – redesign concept",
+        alt: "Doni’s Trattoria",
       },
     ],
   },
   twitter: {
     card: "summary_large_image",
-    title: "Doni’s Trattoria – website concept by Proffera",
+    title: "Doni’s Trattoria | Stockholm",
     description:
-      "Ett tvåspråkigt restaurangkoncept med digital meny och enkel innehållshantering.",
+      "Meny och kontaktinformation för Doni’s Trattoria i Stockholm.",
     images: [heroImage],
   },
 };
 
-export default function DonisTrattoriaDemoPage() {
-  return <DonisTrattoriaExperience />;
+export const dynamic = "force-dynamic";
+
+export default async function DonisTrattoriaDemoPage() {
+  const publishedSite = await getPublishedRestaurantSite();
+  const site = publishedSite ? projectPublicRestaurantSite(publishedSite) : null;
+  const images = site ? await getRestaurantImageUrls(site) : {};
+  return <DonisTrattoriaExperience site={site} images={images} />;
 }
