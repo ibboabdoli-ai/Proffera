@@ -345,9 +345,12 @@ describe("directory shared-cache behavior", () => {
 
   it("evaluates claimed paid-contact entitlement fresh on every request", async () => {
     const claimedSlug = "claimed-company";
+    let claimedRead = 0;
     const sql = vi.fn(async (strings: TemplateStringsArray) => {
       const query = strings.join(" ");
       if (query.includes("from company_directory_profiles profile") && query.includes("publication_status = 'claimed'")) {
+        claimedRead += 1;
+        const entitled = claimedRead > 1;
         return [{
           id: PROFILE_ID,
           public_slug: claimedSlug,
@@ -372,6 +375,12 @@ describe("directory shared-cache behavior", () => {
           source_updated_at: "2026-08-23T00:00:00.000Z",
           official_facts_last_synced_at: "2026-08-23T00:00:00.000Z",
           claimed_workspace_id: WORKSPACE_ID,
+          scb_phone: "070-123 45 67",
+          scb_email: "test@example.se",
+          scb_workplaces: [],
+          contact_plan_key: "starter",
+          contact_plan_status: entitled ? "active" : "canceled",
+          contact_plan_current_period_end: "2099-01-01T00:00:00.000Z",
           media_url: null,
         }];
       }
@@ -383,7 +392,6 @@ describe("directory shared-cache behavior", () => {
     });
     mocks.getSql.mockReturnValue(sql);
     mocks.getPublicDirectoryBusiness.mockResolvedValue(null);
-    mocks.hasActivePaidDirectoryContactAccess.mockResolvedValueOnce(false).mockResolvedValueOnce(true);
 
     const first = await getPublicDirectoryBusinessForRequest(claimedSlug);
     const second = await getPublicDirectoryBusinessForRequest(claimedSlug);
@@ -393,7 +401,7 @@ describe("directory shared-cache behavior", () => {
     expect(second?.sharedCacheSafe).toBe(false);
     expect(second?.contact.entitled).toBe(true);
     expect(mocks.getPublicDirectoryBusiness).toHaveBeenCalledTimes(2);
-    expect(mocks.hasActivePaidDirectoryContactAccess).toHaveBeenCalledTimes(2);
+    expect(mocks.hasActivePaidDirectoryContactAccess).not.toHaveBeenCalled();
   });
 
   it("profile invalidation evicts only that profile entry", async () => {
