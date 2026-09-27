@@ -189,7 +189,7 @@ function postgresSql(client: Client) {
       const unpublished = await client!.query<{ count: string }>(`
         select count(*)::text as count
         from workspace_services
-        where workspace_id = $1::uuid
+        where workspace_id = $1
       `, [WORKSPACE_ID]);
       expect(unpublished.rows[0]?.count).toBe("0");
 
@@ -208,7 +208,7 @@ function postgresSql(client: Client) {
       }>(`
         select name, public_status, primary_directory_service_slug
         from workspace_services
-        where workspace_id = $1::uuid
+        where workspace_id = $1
         order by name asc
       `, [WORKSPACE_ID]);
       expect(published.rows).toEqual([{
