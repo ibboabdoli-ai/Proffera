@@ -90,6 +90,7 @@ Development churn should stay local or on the isolated worker branch until the B
 
 - Prefer one consolidated primary implementation push after targeted validation and the Red Team gate.
 - Batch closely related repairs instead of pushing each small edit separately.
+- Once PR-hosted external review has started for a head, do not push one fix per finding while the same review burst is still arriving. Let the current review burst settle, verify all current-head findings, batch all valid fixes into one repair, run the required local validation, then publish one repair commit.
 - Do not request PR-hosted CodeRabbit/Codex review after every development commit; risk-routed PR review is a final-head gate. The bounded local CLI pass above is the only pre-push exception.
 - More than roughly five meaningful implementation commits or more than two external-review repair cycles on one bounded task is a **process warning**, not a hard Git limit. Pause and re-check the graph/root-cause model before stacking more patches.
 
