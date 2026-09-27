@@ -46,17 +46,10 @@ values (
 )
 on conflict (migration_key) do nothing;
 
-do $migration$
-begin
-  if not exists (
-    select 1
-    from proffera_schema_migrations
-    where migration_key = '20260927_0070'
-      and filename = '20260927_0070_restaurant_sites.sql'
-  ) then
-    raise exception 'Migration key 20260927_0070 is registered with a different filename';
-  end if;
-end;
-$migration$;
+-- Fail closed if this migration key is already bound to a different filename.
+select 1 / count(*)::int
+from proffera_schema_migrations
+where migration_key = '20260927_0070'
+  and filename = '20260927_0070_restaurant_sites.sql';
 
 commit;
