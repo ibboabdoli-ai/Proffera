@@ -397,7 +397,6 @@ export function RestaurantEditor({
       item.sortOrder = position;
     });
   }
-
   const dish = site.dishes.find((item) => item.id === selectedDish);
   const status = dirty
     ? "Osparade ändringar"
@@ -510,6 +509,7 @@ export function RestaurantEditor({
                   <label className="text-sm font-semibold">
                     Pris i kronor
                     <PriceInput
+                      key={dish.id}
                       label={`Pris ${dish.name}`}
                       value={dish.priceOre}
                       onChange={(ore) =>
@@ -881,19 +881,28 @@ export function RestaurantEditor({
                 <button
                   className={`${button} mt-3`}
                   onClick={() => {
-                    const first = images[0];
+                    const first = images.find(
+                      (image) =>
+                        !site.media.gallery.some((item) => item.id === image.id),
+                    );
                     if (!first) {
-                      setNotice("Ladda upp en bild först.");
+                      setNotice(
+                        images.length
+                          ? "Alla bilder finns redan i galleriet. Ladda upp en ny bild."
+                          : "Ladda upp en bild först.",
+                      );
                       return;
                     }
-                    edit((next) =>
+                    edit((next) => {
+                      if (next.media.gallery.some((item) => item.id === first.id))
+                        return;
                       next.media.gallery.push({
                         id: first.id,
                         alt: { sv: first.alt, en: first.alt },
                         kind: "interior",
                         sortOrder: next.media.gallery.length,
-                      }),
-                    );
+                      });
+                    });
                   }}
                 >
                   + Lägg till från mediabiblioteket
@@ -905,20 +914,34 @@ export function RestaurantEditor({
                       key={item.id}
                       className="mt-5 border-b border-[#d9cfc1] pb-5"
                     >
-                      {photoPicker(item, (photo) =>
+                      {photoPicker(item, (photo) => {
+                        if (
+                          photo &&
+                          photo.id !== item.id &&
+                          site.media.gallery.some((entry) => entry.id === photo.id)
+                        ) {
+                          setNotice("Bilden finns redan i galleriet. Välj en annan bild.");
+                          return;
+                        }
                         edit((next) => {
                           const itemIndex = next.media.gallery.findIndex(
                             (galleryItem) => galleryItem.id === item.id,
                           );
                           if (itemIndex < 0) return;
+                          if (
+                            photo &&
+                            next.media.gallery.some(
+                              (entry) => entry.id === photo.id && entry.id !== item.id,
+                            )
+                          ) return;
                           if (photo)
                             next.media.gallery[itemIndex] = {
                               ...next.media.gallery[itemIndex],
                               ...photo,
                             };
                           else next.media.gallery.splice(itemIndex, 1);
-                        }),
-                      )}
+                        });
+                      })}
                       <select
                         className={`${input} mt-2`}
                         value={item.kind}

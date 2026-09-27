@@ -62,7 +62,11 @@ export const restaurantSiteSchema = z.object({
           sortOrder: z.number().int().nonnegative(),
         }),
       )
-      .max(50),
+      .max(50)
+      .refine(
+        (items) => new Set(items.map((item) => item.id)).size === items.length,
+        "Galleriet får inte innehålla samma bild flera gånger.",
+      ),
     owner: image.nullable(),
     family: image.nullable(),
   }),
