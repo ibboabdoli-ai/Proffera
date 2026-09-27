@@ -590,7 +590,9 @@ if (RUN_POSTGRES_INTEGRATION) {
         expect(waiting).toBe("blocked");
 
         await refresher.query("commit");
-        await expect(viewPromise).resolves.toBeNull();
+        await expect(viewPromise).resolves.toMatchObject({
+          status: "sent",
+        });
 
         const state = await client.query<{ status: string; token_hash: string }>(
           "select status, token_hash from marketplace_quote_invitations where id = $1",
