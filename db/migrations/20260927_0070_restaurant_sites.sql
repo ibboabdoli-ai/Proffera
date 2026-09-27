@@ -46,7 +46,7 @@ values (
 )
 on conflict (migration_key) do nothing;
 
-do $
+do $migration$
 begin
   if not exists (
     select 1
@@ -57,6 +57,6 @@ begin
     raise exception 'Migration key 20260927_0070 is registered with a different filename';
   end if;
 end
-$;
+$migration$;
 
 commit;
