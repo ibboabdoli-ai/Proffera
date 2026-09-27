@@ -16,6 +16,7 @@ vi.mock("@/features/email/marketplace-guest-invitation-email", () => ({
 import {
   buildMarketplaceGuestQuoteView,
   getMarketplaceGuestOptOutView,
+  getMarketplaceGuestQuoteView,
   hashMarketplaceGuestToken,
   isMarketplaceBusinessRecipientEmail,
   normalizeMarketplaceRecipientEmail,
@@ -331,6 +332,36 @@ describe("marketplace guest quote safety contract", () => {
     expect(queryText(sql.mock.calls[4])).toContain("invitation.status = 'sending'");
   });
 
+  it("retries provider dispatch when authority is restored before locked cancellation", async () => {
+    const invitationId = "44444444-4444-4444-8444-444444444444";
+    const sql = sqlResponses(
+      [eligibleRow],
+      [],
+      [],
+      [{ id: invitationId }],
+      [],
+      [],
+      [{ status: "sending", has_current_authority: false }],
+      [],
+      [],
+      [],
+      [],
+      [{ id: invitationId }],
+      [{ id: invitationId }],
+    );
+    mocks.getSql.mockReturnValue(sql);
+    mocks.sendInvitationEmail.mockResolvedValue({ ok: true, providerMessageId: "provider-restored" });
+
+    const result = await sendMarketplaceGuestQuoteInvitation(invitationInput());
+
+    expect(result).toEqual({ ok: true, invitationId });
+    expect(sql.transaction).toHaveBeenCalledTimes(1);
+    expect(mocks.sendInvitationEmail).toHaveBeenCalledTimes(1);
+    expect(queryText(sql.mock.calls[10])).toContain("returning invitation.id::text");
+    expect(queryText(sql.mock.calls[11])).toContain("invitation.status = 'sending'");
+    expect(queryText(sql.mock.calls[12])).toContain("invitation.status = 'pending'");
+  });
+
   it("renders opt-out as suppressed when the permanent suppression already exists", async () => {
     const sql = sqlResponses([{
       invitation_id: "44444444-4444-4444-8444-444444444444",
@@ -359,6 +390,46 @@ describe("marketplace guest quote safety contract", () => {
     expect(view?.status).toBe("suppressed");
     expect(queryText(sql.mock.calls[0])).toContain("opt_out_token_hash");
     expect(queryText(sql.mock.calls[0])).toContain("marketplace_outreach_suppressions");
+  });
+
+  it("keeps a guest link usable when authority is restored before locked cancellation", async () => {
+    const sql = sqlResponses(
+      [{
+        invitation_id: "44444444-4444-4444-8444-444444444444",
+        status: "sent",
+        expires_at: "2099-01-01T00:00:00.000Z",
+        recipient_suppressed: false,
+        display_name: "Rör AB",
+        public_slug: "ror-ab",
+        reference_id: "PF-1234",
+        category: "VVS",
+        service_type: "VVS / Rörmokare",
+        city: "Södertälje",
+        postal_code: "151 00",
+        description: "Behöver hjälp med VVS.",
+        contact_name: "Anna Andersson",
+        contact_email: "anna@example.se",
+        contact_phone: "0701234567",
+        preferred_date: "2026-08-25",
+        quote_status: "submitted",
+        price_kind: null,
+        has_current_authority: false,
+      }],
+      [],
+      [],
+      [],
+      [],
+      [],
+    );
+    mocks.getSql.mockReturnValue(sql);
+
+    const view = await getMarketplaceGuestQuoteView("a".repeat(40));
+
+    expect(view).not.toBeNull();
+    expect(view?.status).toBe("viewed");
+    expect(sql.transaction).toHaveBeenCalledTimes(1);
+    expect(queryText(sql.mock.calls[4])).toContain("returning invitation.id::text");
+    expect(queryText(sql.mock.calls[5])).toContain("set status = 'viewed'");
   });
 
   it("does not invite against a closed customer request", async () => {
@@ -411,6 +482,45 @@ describe("marketplace guest quote safety contract", () => {
     expect(revoke).toContain("token_hash = encode(digest");
     expect(revoke).toContain("and not exists");
     expect(revoke).toContain("authority_scb.last_synced_at >= now() - interval '7 days'");
+  });
+
+  it("continues offer submission when authority is restored before locked cancellation", async () => {
+    const invitationId = "44444444-4444-4444-8444-444444444444";
+    const offerId = "55555555-5555-4555-8555-555555555555";
+    const sql = sqlResponses(
+      [{
+        invitation_id: invitationId,
+        quote_request_id: eligibleRow.quote_request_id,
+        profile_id: eligibleRow.profile_id,
+        workspace_id: null,
+        status: "sent",
+        expires_at: "2099-01-01T00:00:00.000Z",
+        quote_status: "submitted",
+        has_current_authority: false,
+      }],
+      [],
+      [],
+      [],
+      [],
+      [],
+      [],
+      [],
+      [{ id: offerId, authority_current: true }],
+    );
+    mocks.getSql.mockReturnValue(sql);
+
+    const result = await submitMarketplaceGuestQuote({
+      token: "a".repeat(40),
+      priceKind: "estimate",
+      amountMinor: 100_00,
+      availableDate: null,
+      companyNote: "Test",
+    });
+
+    expect(result).toEqual({ ok: true, offerId });
+    expect(sql.transaction).toHaveBeenCalledTimes(2);
+    expect(queryText(sql.mock.calls[4])).toContain("returning invitation.id::text");
+    expect(queryText(sql.mock.calls[8])).toContain("authority_guard as materialized");
   });
 
   it("binds offer creation to current authority at the write boundary", async () => {
