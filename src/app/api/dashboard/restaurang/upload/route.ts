@@ -1,0 +1,78 @@
+import { put } from "@vercel/blob";
+import { NextResponse } from "next/server";
+
+import { getRestaurantAdmin } from "@/lib/restaurant-site-db";
+import { createGalleryItem } from "@/lib/website-gallery-db";
+import {
+  canManageWorkspaceSettings,
+  getUserWorkspaceAccess,
+} from "@/lib/workspace-access";
+
+export const runtime = "nodejs";
+const imageTypes = new Set([
+  "image/jpeg",
+  "image/png",
+  "image/webp",
+  "image/avif",
+]);
+
+export async function POST(request: Request) {
+  const access = await getUserWorkspaceAccess();
+  if (
+    !access.ok ||
+    !canManageWorkspaceSettings(access) ||
+    !(await getRestaurantAdmin())
+  ) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
+  }
+  const data = await request.formData();
+  const file = data.get("file");
+  const alt = String(data.get("alt") ?? "").trim();
+  if (
+    !(file instanceof File) ||
+    !imageTypes.has(file.type) ||
+    !file.size ||
+    file.size > 4 * 1024 * 1024 ||
+    !alt ||
+    alt.length > 180
+  ) {
+    return NextResponse.json(
+      { error: "Välj en bild under 4 MB och skriv en bildbeskrivning." },
+      { status: 400 },
+    );
+  }
+  const id = crypto.randomUUID();
+  const name = file.name.replace(/[^a-zA-Z0-9._-]/g, "-").slice(-80);
+  const key = `gallery/${access.workspaceSlug}/${id}-${name}`;
+  try {
+    const blob = await put(key, file, {
+      access: "public",
+      addRandomSuffix: false,
+      contentType: file.type,
+    });
+    const saved = await createGalleryItem({
+      id,
+      mediaType: "image",
+      publicUrl: blob.url,
+      storageKey: key,
+      title: null,
+      caption: null,
+      altText: alt,
+      displayStyle: "grid",
+      mimeType: file.type,
+      bytes: file.size,
+    });
+    if (!saved)
+      return NextResponse.json(
+        { error: "Bilden kunde inte sparas." },
+        { status: 500 },
+      );
+    return NextResponse.json({ id, url: blob.url, alt });
+  } catch (error) {
+    console.error("Restaurant image upload failed", error);
+    return NextResponse.json(
+      { error: "Uppladdningen misslyckades." },
+      { status: 500 },
+    );
+  }
+}

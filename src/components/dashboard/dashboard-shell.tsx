@@ -62,6 +62,7 @@ const navigationIcons: Record<string, LucideIcon> = {
   "/dashboard/analys": BarChart3,
   "/dashboard/ai-assistent": Bot,
   "/dashboard/installningar": Settings,
+  "/dashboard/restaurang": BriefcaseBusiness,
 };
 
 const englishNavigationLabels: Record<string, string> = {
@@ -78,6 +79,7 @@ const englishNavigationLabels: Record<string, string> = {
   "/dashboard/analys": "Analytics",
   "/dashboard/ai-assistent": "AI assistant",
   "/dashboard/installningar": "Settings",
+  "/dashboard/restaurang": "Restaurant",
 };
 
 const shellCopy = {
@@ -189,10 +191,11 @@ type NavigationLinksProps = {
   moduleAccess?: ProfferaModuleAccess[];
   enabledFeatures?: WorkspaceFeatureKey[];
   canManageSettings: boolean;
+  restaurantEnabled?: boolean;
   onNavigate?: () => void;
 };
 
-function NavigationLinks({ pathname, locale, searchParams, moduleAccess, enabledFeatures, canManageSettings, onNavigate }: NavigationLinksProps) {
+function NavigationLinks({ pathname, locale, searchParams, moduleAccess, enabledFeatures, canManageSettings, restaurantEnabled, onNavigate }: NavigationLinksProps) {
   const moduleAccessById = new Map(moduleAccess?.map((item) => [item.id, item]));
   const text = shellCopy[locale];
 
@@ -200,6 +203,7 @@ function NavigationLinks({ pathname, locale, searchParams, moduleAccess, enabled
     <nav className="grid gap-1.5" aria-label={text.navigation}>
       {dashboardNavigation.map((item) => {
         if ((item.href === "/dashboard/installningar" || item.href === "/dashboard/marknadsplats") && !canManageSettings) return null;
+        if (item.href === "/dashboard/restaurang" && (!restaurantEnabled || !canManageSettings)) return null;
 
         const isActive = isActivePath(pathname, item.href);
         const Icon = navigationIcons[item.href] ?? ChevronRight;
@@ -230,7 +234,7 @@ function WorkspaceSwitcher({ workspaceId, workspaceOptions, locale }: { workspac
   return <form action={switchWorkspaceAction} className="mt-6 rounded-2xl border border-white/10 bg-white/[0.06] p-3"><input type="hidden" name="lang" value={locale} /><label className="grid gap-2 text-[10px] font-bold uppercase tracking-[0.16em] text-[#b8cbe2]">{text.switchWorkspace}<select name="workspace_id" defaultValue={workspaceId} className="min-h-11 w-full rounded-xl border border-white/15 bg-[#0d3f83] px-3 text-sm font-semibold normal-case tracking-normal text-white outline-none">{workspaceOptions.map((workspace) => <option key={workspace.id} value={workspace.id}>{workspace.name}</option>)}</select></label><button type="submit" className="mt-2 min-h-11 w-full rounded-xl bg-white px-3 text-sm font-bold text-[#0a2e63]">{text.switchWorkspace}</button></form>;
 }
 
-export function DashboardShell({ children, workspaceName = "Proffera", workspaceId, workspaceOptions = [], moduleAccess, enabledFeatures, canManageSettings = false }: Readonly<{ children: React.ReactNode; workspaceName?: string; workspaceId?: string; workspaceOptions?: WorkspaceOption[]; moduleAccess?: ProfferaModuleAccess[]; enabledFeatures?: WorkspaceFeatureKey[]; canManageSettings?: boolean }>) {
+export function DashboardShell({ children, workspaceName = "Proffera", workspaceId, workspaceOptions = [], moduleAccess, enabledFeatures, canManageSettings = false, restaurantEnabled = false }: Readonly<{ children: React.ReactNode; workspaceName?: string; workspaceId?: string; workspaceOptions?: WorkspaceOption[]; moduleAccess?: ProfferaModuleAccess[]; enabledFeatures?: WorkspaceFeatureKey[]; canManageSettings?: boolean; restaurantEnabled?: boolean }>) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const searchParamsString = searchParams.toString();
@@ -279,7 +283,7 @@ export function DashboardShell({ children, workspaceName = "Proffera", workspace
       <div className="grid min-h-screen lg:grid-cols-[264px_minmax(0,1fr)]">
         <aside className="sticky top-0 hidden h-screen overflow-y-auto bg-[#0a2e63] px-4 py-5 lg:flex lg:flex-col">
           <div className="px-2"><Brand workspaceName={workspaceName} locale={locale} /></div>
-          <div className="mt-9 flex-1"><p className="mb-3 px-3 text-[10px] font-bold uppercase tracking-[0.18em] text-[#9fb8d8]">{text.workspace}</p><NavigationLinks pathname={pathname} locale={locale} searchParams={searchParamsString} moduleAccess={moduleAccess} enabledFeatures={enabledFeatures} canManageSettings={canManageSettings} /></div>
+          <div className="mt-9 flex-1"><p className="mb-3 px-3 text-[10px] font-bold uppercase tracking-[0.18em] text-[#9fb8d8]">{text.workspace}</p><NavigationLinks pathname={pathname} locale={locale} searchParams={searchParamsString} moduleAccess={moduleAccess} enabledFeatures={enabledFeatures} canManageSettings={canManageSettings} restaurantEnabled={restaurantEnabled} /></div>
           <WorkspaceSwitcher workspaceId={workspaceId} workspaceOptions={workspaceOptions} locale={locale} />
           <div className="mt-6 rounded-2xl border border-white/10 bg-white/[0.06] p-4"><div className="flex items-center gap-2 text-[#d9e7f8]"><Sparkles className="h-4 w-4" /><p className="text-xs font-bold uppercase tracking-wide">{text.activeWorkspace}</p></div><p className="mt-2 truncate text-sm font-semibold text-white">{workspaceName}</p><p className="mt-1 text-xs leading-5 text-[#c4d5e9]">{text.summary}</p></div>
         </aside>
@@ -290,7 +294,7 @@ export function DashboardShell({ children, workspaceName = "Proffera", workspace
         </div>
       </div>
 
-      {isMobileMenuOpen ? <div id="dashboard-mobile-menu" className="fixed inset-0 z-[90] lg:hidden" role="dialog" aria-modal="true" aria-label={text.menuDialog}><button type="button" className="absolute inset-0 bg-[#061a38]/55 backdrop-blur-sm" onClick={() => setIsMobileMenuOpen(false)} aria-label={text.closeMenu} /><aside ref={mobileMenuPanelRef} tabIndex={-1} className="relative flex h-full w-[min(88vw,330px)] flex-col bg-[#0a2e63] px-4 py-5 shadow-2xl" style={{ paddingTop: "calc(1.25rem + env(safe-area-inset-top))" }}><div className="flex items-center justify-between px-2"><Brand workspaceName={workspaceName} locale={locale} /><button ref={mobileMenuCloseButtonRef} type="button" onClick={() => setIsMobileMenuOpen(false)} className="flex h-10 w-10 items-center justify-center rounded-xl bg-white/10 text-white" aria-label={text.closeMenu}><X className="h-5 w-5" /></button></div><div className="mt-9 flex-1 overflow-y-auto"><p className="mb-3 px-3 text-[10px] font-bold uppercase tracking-[0.18em] text-[#9fb8d8]">{text.workspace}</p><NavigationLinks pathname={pathname} locale={locale} searchParams={searchParamsString} moduleAccess={moduleAccess} enabledFeatures={enabledFeatures} canManageSettings={canManageSettings} onNavigate={() => setIsMobileMenuOpen(false)} /><Link href={languageHref} onClick={() => setIsMobileMenuOpen(false)} className="mt-4 flex min-h-11 items-center rounded-xl border border-white/15 px-3 py-2.5 text-sm font-semibold text-white hover:bg-white/10" style={mobileLanguageLinkStyle}>{text.language}</Link><WorkspaceSwitcher workspaceId={workspaceId} workspaceOptions={workspaceOptions} locale={locale} /></div></aside></div> : null}
+      {isMobileMenuOpen ? <div id="dashboard-mobile-menu" className="fixed inset-0 z-[90] lg:hidden" role="dialog" aria-modal="true" aria-label={text.menuDialog}><button type="button" className="absolute inset-0 bg-[#061a38]/55 backdrop-blur-sm" onClick={() => setIsMobileMenuOpen(false)} aria-label={text.closeMenu} /><aside ref={mobileMenuPanelRef} tabIndex={-1} className="relative flex h-full w-[min(88vw,330px)] flex-col bg-[#0a2e63] px-4 py-5 shadow-2xl" style={{ paddingTop: "calc(1.25rem + env(safe-area-inset-top))" }}><div className="flex items-center justify-between px-2"><Brand workspaceName={workspaceName} locale={locale} /><button ref={mobileMenuCloseButtonRef} type="button" onClick={() => setIsMobileMenuOpen(false)} className="flex h-10 w-10 items-center justify-center rounded-xl bg-white/10 text-white" aria-label={text.closeMenu}><X className="h-5 w-5" /></button></div><div className="mt-9 flex-1 overflow-y-auto"><p className="mb-3 px-3 text-[10px] font-bold uppercase tracking-[0.18em] text-[#9fb8d8]">{text.workspace}</p><NavigationLinks pathname={pathname} locale={locale} searchParams={searchParamsString} moduleAccess={moduleAccess} enabledFeatures={enabledFeatures} canManageSettings={canManageSettings} restaurantEnabled={restaurantEnabled} onNavigate={() => setIsMobileMenuOpen(false)} /><Link href={languageHref} onClick={() => setIsMobileMenuOpen(false)} className="mt-4 flex min-h-11 items-center rounded-xl border border-white/15 px-3 py-2.5 text-sm font-semibold text-white hover:bg-white/10" style={mobileLanguageLinkStyle}>{text.language}</Link><WorkspaceSwitcher workspaceId={workspaceId} workspaceOptions={workspaceOptions} locale={locale} /></div></aside></div> : null}
     </div>
   );
 }
