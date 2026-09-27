@@ -7,10 +7,21 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vites
 const mocks = vi.hoisted(() => ({
   getSql: vi.fn(),
   getWorkspaceDirectoryPublicAccessForWorkspaces: vi.fn(),
+  getPublicDirectoryBusiness: vi.fn(),
 }));
 
+vi.mock("react", () => ({ cache: <T,>(fn: T) => fn }));
 vi.mock("server-only", () => ({}));
 vi.mock("@/lib/db/server", () => ({ getSql: mocks.getSql }));
+vi.mock("@/lib/company-directory-engine", () => ({
+  getPublicDirectoryBusiness: mocks.getPublicDirectoryBusiness,
+}));
+vi.mock("@/lib/company-directory-public-cache", () => ({
+  readPublicDirectoryMissCache: async (_slug: string, loader: () => Promise<{ value: unknown }>) =>
+    (await loader()).value,
+  readPublicDirectoryProfileCache: async (_slug: string, loader: () => Promise<{ value: unknown }>) =>
+    (await loader()).value,
+}));
 vi.mock("@/lib/workspace-feature-entitlement-db", () => ({
   getWorkspaceDirectoryPublicAccessForWorkspaces: mocks.getWorkspaceDirectoryPublicAccessForWorkspaces,
 }));
@@ -19,6 +30,7 @@ import {
   getPublishedDirectoryLocationSuggestions,
   searchPublishedCompanyDirectory,
 } from "@/lib/company-directory-public-search";
+import { getPublicDirectoryBusinessForRequest } from "@/lib/company-directory-public-data";
 import { applyCanonicalProfferaMigrations } from "./helpers/postgres-canonical-schema";
 
 const RUN_POSTGRES_INTEGRATION =
@@ -29,12 +41,16 @@ function docker(args: string[]) {
   return execFileSync("docker", args, { encoding: "utf8" }).trim();
 }
 
-function postgresSql(client: Client) {
+function postgresSql(
+  client: Client,
+  before?: (query: string) => void | Promise<void>,
+) {
   return async (strings: TemplateStringsArray, ...values: unknown[]) => {
     let query = strings[0] ?? "";
     for (let index = 0; index < values.length; index += 1) {
       query += `$${index + 1}${strings[index + 1] ?? ""}`;
     }
+    await before?.(query.replace(/\s+/gu, " ").trim().toLowerCase());
     const result = await client.query(query, values);
     return result.rows;
   };
