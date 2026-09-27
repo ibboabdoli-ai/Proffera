@@ -533,9 +533,7 @@ export async function sendMarketplaceGuestQuoteInvitation(input: {
   // before provider delivery unless advertising_blocked is explicitly false.
   // dispatch_token is also a lease token: only this attempt may complete or fail
   // the row after a stale reservation has been reclaimed.
-  let dispatchRows;
-  try {
-    dispatchRows = await sql`
+  const claimDispatch = () => sql`
       update marketplace_quote_invitations invitation
       set status = 'pending', updated_at = now()
       where invitation.id = ${invitationId}::uuid
@@ -588,6 +586,9 @@ export async function sendMarketplaceGuestQuoteInvitation(input: {
         )
       returning invitation.id::text
     `;
+  let dispatchRows;
+  try {
+    dispatchRows = await claimDispatch();
   } catch (error) {
     const details = databaseErrorDetails(error);
     if (details.code === "23514" && details.message.includes("marketplace_recipient_suppressed")) {
@@ -678,7 +679,7 @@ export async function sendMarketplaceGuestQuoteInvitation(input: {
       limit 1
     `;
     if (!Boolean(stateRows[0]?.has_current_authority)) {
-      await sql.transaction((txn) => [
+      const [, , , cancelledRows] = await sql.transaction((txn) => [
         txn`
           select profile.id
           from marketplace_quote_invitations invitation
@@ -746,14 +747,49 @@ export async function sendMarketplaceGuestQuoteInvitation(input: {
               or lower(btrim(authority_scb.workplaces->0->>'municipality')) = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
             )
         )
+        returning invitation.id::text
         `,
       ]);
-      return { ok: false as const, code: "profile_ineligible" };
+      if (cancelledRows[0]?.id) {
+        return { ok: false as const, code: "profile_ineligible" };
+      }
+
+      // The pre-lock authority snapshot was stale and authority was restored
+      // before cancellation. Retry the same fail-closed dispatch claim once
+      // against the locked/current authority instead of rejecting a valid provider.
+      try {
+        dispatchRows = await claimDispatch();
+      } catch (error) {
+        const details = databaseErrorDetails(error);
+        if (details.code === "23514" && details.message.includes("marketplace_recipient_suppressed")) {
+          return { ok: false as const, code: "suppressed" };
+        }
+        if (details.code === "23514" && details.message.includes("marketplace_quote_closed")) {
+          return { ok: false as const, code: "quote_closed" };
+        }
+        if (details.code === "23514" && details.message.includes("marketplace_consent_required")) {
+          return { ok: false as const, code: "consent_required" };
+        }
+        if (details.code === "23514" && details.message.includes("marketplace_profile_ineligible")) {
+          return { ok: false as const, code: "profile_ineligible" };
+        }
+        if (details.code === "23514" && details.message.includes("marketplace_dispatch_token_required")) {
+          return { ok: false as const, code: "conflict" };
+        }
+        throw error;
+      }
+      if (!dispatchRows[0]?.id) {
+        return {
+          ok: false as const,
+          code: String(stateRows[0]?.status) === "suppressed" ? "suppressed" : "conflict",
+        };
+      }
+    } else {
+      return {
+        ok: false as const,
+        code: String(stateRows[0]?.status) === "suppressed" ? "suppressed" : "conflict",
+      };
     }
-    return {
-      ok: false as const,
-      code: String(stateRows[0]?.status) === "suppressed" ? "suppressed" : "conflict",
-    };
   }
 
   const baseUrl = input.baseUrl.replace(/\/$/, "");
@@ -954,7 +990,7 @@ async function loadGuestQuoteView(
   if (!useOptOutToken
       && AUTHORITY_GUARDED_INVITATION_STATUSES.has(String(row.status))
       && !Boolean(row.has_current_authority)) {
-    await sql.transaction((txn) => [
+    const [, , , cancelledRows] = await sql.transaction((txn) => [
       txn`
         select profile.id
         from marketplace_quote_invitations invitation
@@ -1022,9 +1058,10 @@ async function loadGuestQuoteView(
               or lower(btrim(authority_scb.workplaces->0->>'municipality')) = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
             )
         )
+      returning invitation.id::text
       `,
     ]);
-    return null;
+    if (cancelledRows[0]?.id) return null;
   }
 
   const quoteOpen = isQuoteRequestOpenForMatchingOrDelivery(String(row.quote_status));
@@ -1140,7 +1177,7 @@ export async function submitMarketplaceGuestQuote(input: {
     return { ok: false as const, code: "closed" };
   }
   if (AUTHORITY_GUARDED_INVITATION_STATUSES.has(String(row.status)) && !Boolean(row.has_current_authority)) {
-    await sql.transaction((txn) => [
+    const [, , , cancelledRows] = await sql.transaction((txn) => [
       txn`
         select profile.id
         from marketplace_quote_invitations invitation
@@ -1208,9 +1245,10 @@ export async function submitMarketplaceGuestQuote(input: {
               or lower(btrim(authority_scb.workplaces->0->>'municipality')) = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
             )
         )
+      returning invitation.id::text
       `,
     ]);
-    return { ok: false as const, code: "closed" };
+    if (cancelledRows[0]?.id) return { ok: false as const, code: "closed" };
   }
   const expiresAt = new Date(String(row.expires_at));
   if (!Number.isFinite(expiresAt.getTime()) || expiresAt.getTime() <= Date.now()) {
