@@ -136,15 +136,24 @@ export function validateRestaurantSite(value: unknown) {
   if (site.links.booking) {
     const bookingUrl = new URL(site.links.booking);
     const bookingHost = bookingUrl.hostname.toLowerCase();
-    const isMapsHost =
-      bookingHost === "maps.app.goo.gl" ||
+    const bookingPath = bookingUrl.pathname;
+    const isGoogleHost =
+      bookingHost === "google.com" ||
+      bookingHost === "www.google.com" ||
       bookingHost === "maps.google.com" ||
       bookingHost.startsWith("maps.google.");
-    const isMapsPath =
-      /\/maps(?:\/|$)/i.test(bookingUrl.pathname) ||
-      (bookingHost === "goo.gl" &&
-        /^\/maps(?:\/|$)/i.test(bookingUrl.pathname));
-    if (isMapsHost || isMapsPath) {
+    const isGoogleReserve =
+      isGoogleHost && /^\/maps\/reserve(?:\/|$)/i.test(bookingPath);
+    const isMapsShortLink =
+      bookingHost === "maps.app.goo.gl" ||
+      (bookingHost === "goo.gl" && /^\/maps(?:\/|$)/i.test(bookingPath));
+    const isGoogleMapsDestination =
+      !isGoogleReserve &&
+      ((bookingHost === "maps.google.com" ||
+        bookingHost.startsWith("maps.google.")) ||
+        (isGoogleHost && /^\/maps(?:\/|$)/i.test(bookingPath)));
+
+    if (isMapsShortLink || isGoogleMapsDestination) {
       return {
         ok: false as const,
         error:
