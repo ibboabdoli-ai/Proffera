@@ -60,10 +60,21 @@ describe("restaurant site content boundary", () => {
     expect(validateRestaurantSite(draft).ok).toBe(false);
   });
 
-  it("rejects a map search presented as a booking link", () => {
+  it.each([
+    "https://www.google.com/maps/search/?api=1&query=Doni",
+    "https://maps.google.com/?q=Doni",
+    "https://maps.google.se/?q=Doni",
+    "https://maps.app.goo.gl/example",
+    "https://goo.gl/maps/example",
+  ])("rejects a Google Maps URL presented as a booking link: %s", (bookingUrl) => {
     const draft = structuredClone(emptyRestaurantSite);
-    draft.links.booking =
-      "https://www.google.com/maps/search/?api=1&query=Doni";
+    draft.links.booking = bookingUrl;
     expect(validateRestaurantSite(draft).ok).toBe(false);
+  });
+
+  it("accepts a direct HTTPS booking destination", () => {
+    const draft = structuredClone(emptyRestaurantSite);
+    draft.links.booking = "https://booking.example.com/donis";
+    expect(validateRestaurantSite(draft).ok).toBe(true);
   });
 });
