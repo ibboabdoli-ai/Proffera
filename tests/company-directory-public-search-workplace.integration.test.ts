@@ -66,6 +66,40 @@ function postgresSql(
     const workspaceId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
     const workspaceServiceId = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
 
+    async function prepareClaimedDisclosure() {
+      await client!.query(`
+        insert into workspaces (id, status, slug, name)
+        values ($1::uuid, 'active', 'claimed-disclosure', 'Claimed Disclosure')
+      `, [workspaceId]);
+      await client!.query(`
+        insert into workspace_plans (
+          id, workspace_id, plan_key, status, current_period_start, current_period_end
+        ) values (
+          'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee', $1::uuid,
+          'starter', 'active', now() - interval '1 day', now() + interval '30 days'
+        )
+      `, [workspaceId]);
+      await client!.query(`
+        update company_directory_profiles
+        set publication_status = 'claimed',
+            claimed_workspace_id = $1::uuid,
+            published_at = now()
+        where id = $2::uuid
+      `, [workspaceId, profileId]);
+      await client!.query(`
+        insert into company_directory_profile_locations (
+          id, profile_id, owner_workspace_id, purpose, visibility,
+          is_visitable, is_primary, source_type,
+          address_line1, postal_code, city, municipality, confirmed_at
+        ) values (
+          'ffffffff-ffff-4fff-8fff-ffffffffffff', $1::uuid, $2::uuid,
+          'workplace', 'public', true, true, 'owner',
+          'OWNERGATAN 1', '111 22', 'Stockholm', 'Stockholm', now()
+        )
+      `, [profileId, workspaceId]);
+      mocks.getPublicDirectoryBusiness.mockResolvedValue(null);
+    }
+
     async function waitForPostgres() {
       let lastError: unknown = null;
       for (let attempt = 0; attempt < 80; attempt += 1) {
@@ -178,7 +212,9 @@ function postgresSql(
     beforeEach(async () => {
       mocks.getSql.mockReset();
       mocks.getWorkspaceDirectoryPublicAccessForWorkspaces.mockReset();
+      mocks.getPublicDirectoryBusiness.mockReset();
       mocks.getWorkspaceDirectoryPublicAccessForWorkspaces.mockResolvedValue(new Map());
+      mocks.getPublicDirectoryBusiness.mockResolvedValue(null);
       mocks.getSql.mockReturnValue(postgresSql(client!));
 
       await client!.query(`
