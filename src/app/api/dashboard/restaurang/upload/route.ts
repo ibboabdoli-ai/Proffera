@@ -1,6 +1,7 @@
 import { del, put } from "@vercel/blob";
 import { NextResponse } from "next/server";
 
+import { detectRestaurantImageMime } from "@/lib/restaurant-image-type";
 import { getRestaurantAdmin } from "@/lib/restaurant-site-db";
 import { createGalleryItem } from "@/lib/website-gallery-db";
 import {
@@ -9,12 +10,6 @@ import {
 } from "@/lib/workspace-access";
 
 export const runtime = "nodejs";
-const imageTypes = new Set([
-  "image/jpeg",
-  "image/png",
-  "image/webp",
-  "image/avif",
-]);
 
 async function cleanupUploadedBlob(url: string) {
   if (!url) return;
@@ -39,7 +34,6 @@ export async function POST(request: Request) {
   const alt = String(data.get("alt") ?? "").trim();
   if (
     !(file instanceof File) ||
-    !imageTypes.has(file.type) ||
     !file.size ||
     file.size > 4 * 1024 * 1024 ||
     !alt ||
@@ -50,6 +44,14 @@ export async function POST(request: Request) {
       { status: 400 },
     );
   }
+  const detectedMime = await detectRestaurantImageMime(file);
+  if (!detectedMime) {
+    return NextResponse.json(
+      { error: "Välj en riktig JPEG-, PNG-, WebP- eller AVIF-bild." },
+      { status: 400 },
+    );
+  }
+
   const id = crypto.randomUUID();
   const name = file.name.replace(/[^a-zA-Z0-9._-]/g, "-").slice(-80);
   const key = `gallery/${access.workspaceSlug}/${id}-${name}`;
@@ -58,7 +60,7 @@ export async function POST(request: Request) {
     const blob = await put(key, file, {
       access: "public",
       addRandomSuffix: false,
-      contentType: file.type,
+      contentType: detectedMime,
     });
     uploadedUrl = blob.url;
     const saved = await createGalleryItem({
@@ -70,7 +72,7 @@ export async function POST(request: Request) {
       caption: null,
       altText: alt,
       displayStyle: "grid",
-      mimeType: file.type,
+      mimeType: detectedMime,
       bytes: file.size,
     });
     if (!saved) {
