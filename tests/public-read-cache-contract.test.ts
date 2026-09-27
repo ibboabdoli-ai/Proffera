@@ -97,6 +97,7 @@ describe("public read cache contract", () => {
     let query = "";
     mocks.locationSuggestions
       .mockResolvedValueOnce(["Södertälje"])
+      .mockResolvedValueOnce(["Södertälje"])
       .mockResolvedValueOnce(["Södertälje"]);
     mocks.getSql.mockReturnValue(vi.fn(async (strings: TemplateStringsArray) => {
       query = strings.join(" ");
@@ -151,6 +152,7 @@ describe("public read cache contract", () => {
     mocks.locationSuggestions
       .mockResolvedValueOnce(["Södertälje"])
       .mockResolvedValueOnce(["Södertälje"])
+      .mockResolvedValueOnce(["Södertälje"])
       .mockResolvedValueOnce([]);
     mocks.getSql.mockReturnValue(vi.fn(async () => [{
       juridical_count: 1,
@@ -159,7 +161,7 @@ describe("public read cache contract", () => {
 
     try {
       await expect(getCachedPublishedDirectoryLocationSuggestions(24)).resolves.toEqual([]);
-      expect(mocks.locationSuggestions).toHaveBeenCalledTimes(3);
+      expect(mocks.locationSuggestions).toHaveBeenCalledTimes(4);
     } finally {
       vi.useRealTimers();
     }
@@ -172,6 +174,7 @@ describe("public read cache contract", () => {
     mocks.marketplaceHomeCompanies
       .mockResolvedValueOnce({ results: [{ id: profileId }], totalCount: 1 })
       .mockResolvedValueOnce({ results: [{ id: profileId }], totalCount: 1 })
+      .mockResolvedValueOnce({ results: [{ id: profileId }], totalCount: 1 })
       .mockResolvedValueOnce({ results: [], totalCount: 0 });
     mocks.getSql.mockReturnValue(vi.fn(async () => [{
       profile_count: 1,
@@ -181,7 +184,7 @@ describe("public read cache contract", () => {
 
     try {
       await expect(getCachedMarketplaceHomeCompanies(4)).resolves.toMatchObject({ results: [] });
-      expect(mocks.marketplaceHomeCompanies).toHaveBeenCalledTimes(3);
+      expect(mocks.marketplaceHomeCompanies).toHaveBeenCalledTimes(4);
     } finally {
       vi.useRealTimers();
     }
