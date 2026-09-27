@@ -13,6 +13,19 @@ function isRecord(value: unknown): value is YamlRecord {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+/** Return only the selected job's explicit permission mapping, never inherited defaults. */
+export function workflowJobPermissions(source: string, jobName: string) {
+  const parsed = parseYaml(source);
+  if (!isRecord(parsed) || !isRecord(parsed.jobs)) {
+    throw new Error("GitHub workflow must define a 'jobs' mapping");
+  }
+  const job = parsed.jobs[jobName];
+  if (!isRecord(job) || !isRecord(job.permissions)) {
+    throw new Error(`GitHub workflow job '${jobName}' must define a permissions mapping`);
+  }
+  return job.permissions;
+}
+
 /** Parse a GitHub Actions workflow and return its top-level trigger mapping. */
 export function workflowTriggers(source: string) {
   const parsed = parseYaml(source);

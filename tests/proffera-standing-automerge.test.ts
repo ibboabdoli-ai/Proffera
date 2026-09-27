@@ -6,7 +6,7 @@ import { spawnSync } from "node:child_process";
 import { describe, expect, it } from "vitest";
 
 function source(path: string) {
-  return readFileSync(resolve(process.cwd(), path), "utf8");
+  return readFileSync(resolve(process.cwd(), path), "utf8").replaceAll("\r\n", "\n");
 }
 
 const workflow = source(".github/workflows/proffera-automerge.yml");
@@ -83,6 +83,10 @@ if [[ "$args" == *"/pulls/695/reviews?per_page=100"* ]]; then
   exit 0
 fi
 if [[ "$args" == *"/issues/695/comments?per_page=100"* ]]; then
+  printf '\\n'
+  exit 0
+fi
+if [[ "$args" == *"/pulls/695/comments?per_page=100"* ]]; then
   printf '\\n'
   exit 0
 fi
@@ -946,6 +950,7 @@ describe("Proffera standing automerge authorization", () => {
   );
 
   it("reads standing authorization only from main and keeps current-head safety gates", () => {
+    const ci = source(".github/workflows/ci.yml");
     expect(workflow).toContain("contents/$STANDING_AUTH_PATH?ref=main");
     expect(workflow).toContain("Standing authorization advisory");
     expect(workflow).toContain("standing authorization is advisory only");
@@ -960,9 +965,12 @@ describe("Proffera standing automerge authorization", () => {
     expect(workflow).toContain("coderabbitai[bot]");
     expect(workflow).toContain("commit_id == $sha");
     expect(workflow).toContain("CodeRabbit changes remain requested on the current PR head; Codex fallback can never clear them.");
-    expect(workflow).toContain("Final exact-head review is complete for");
-    expect(workflow).toContain("I found no issues.");
-    expect(workflow).toContain("CodeRabbit review command invocation: v2:[0-9a-f]{64}");
+    expect(ci).toContain("Final exact-head review is complete for");
+    expect(ci).toContain("I found no issues\\\\.");
+    expect(ci).toContain("CodeRabbit review command invocation: v2:[0-9a-f]{64}");
+    expect(workflow).not.toContain("clean_summary_count");
+    expect(workflow).not.toContain("coderabbit_review_completion_time");
+    expect(workflow).toContain('terminal_count="$(jq -r');
     expect(workflow).toContain("... on IssueComment { lastEditedAt }");
     expect(workflow).toContain('.data.node.__typename == "IssueComment" and .data.node.lastEditedAt == null');
     expect(workflow).toContain("count_unedited_owner_approvals() {");
@@ -970,7 +978,6 @@ describe("Proffera standing automerge authorization", () => {
     expect(workflow).toContain('final_owner_head_approval_count="$(count_unedited_owner_approvals "$final_owner_comments_json")"');
     expect((workflow.match(/count_unedited_owner_approvals\(\) \{/g) ?? [])).toHaveLength(1);
     expect(workflow).not.toContain('(.updated_at // .created_at) == .created_at');
-    expect(workflow).toContain("clean exact-head completion comment");
     expect(workflow).toContain('workflow_run:');
     expect(workflow).toContain('workflows: [CI, Security review regressions]');
     expect(workflow).toContain('E2E public smoke');
@@ -991,11 +998,15 @@ describe("Proffera standing automerge authorization", () => {
     expect(triggers.get("workflow_run")?.workflows).toContain("CI");
     expect(triggers.get("workflow_run")?.workflows).toContain("Security review regressions");
     expect(triggers.get("workflow_run")?.types).toContain("completed");
-    expect(triggers.has("pull_request_review")).toBe(true);
-    expect(triggers.has("issue_comment")).toBe(true);
-    expect(workflow).toContain("contains(github.event.comment.body, '<!-- proffera-owner-approval:')");
-    expect(workflow).toContain("contains(github.event.comment.body, 'IBBO-APPROVED:')");
-    expect(triggers.get("pull_request")?.types).toContain("ready_for_review");
+    expect(triggers.has("pull_request_review")).toBe(false);
+    expect(triggers.has("issue_comment")).toBe(false);
+    expect(triggers.get("pull_request")?.types).toEqual(["labeled", "unlabeled"]);
+    const router = source(".github/workflows/supervisor-event-router.yml");
+    expect(router).toContain("pull_request_review:");
+    expect(router).toContain("issue_comment:");
+    expect(router).toContain("proffera-automerge.yml");
+    expect(router).toContain("<!-- proffera-owner-approval:");
+    expect(router).toContain("IBBO-APPROVED:");
   });
 
   it("accepts only successful CI and security-regression workflow_run wake events", () => {
