@@ -110,7 +110,7 @@ export async function getMarketplaceGuestQuoteView(token: string): Promise<Marke
 
   if (AUTHORITY_GUARDED_INVITATION_STATUSES.has(String(row.status))
       && !Boolean(row.has_current_authority)) {
-    await sql.transaction((txn) => [
+    const [, , , cancelledRows] = await sql.transaction((txn) => [
       txn`
         select profile.id
         from marketplace_quote_invitations invitation
@@ -178,9 +178,10 @@ export async function getMarketplaceGuestQuoteView(token: string): Promise<Marke
               or lower(btrim(authority_scb.workplaces->0->>'municipality')) = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
             )
         )
+      returning invitation.id::text
       `,
     ]);
-    return null;
+    if (cancelledRows[0]?.id) return null;
   }
 
   const winnerSelected = String(row.offer_status) === "selected";
