@@ -1,4 +1,4 @@
-import { put } from "@vercel/blob";
+import { del, put } from "@vercel/blob";
 import { NextResponse } from "next/server";
 
 import { getRestaurantAdmin } from "@/lib/restaurant-site-db";
@@ -15,6 +15,15 @@ const imageTypes = new Set([
   "image/webp",
   "image/avif",
 ]);
+
+async function cleanupUploadedBlob(url: string) {
+  if (!url) return;
+  try {
+    await del(url);
+  } catch (error) {
+    console.warn("Failed to clean up orphaned restaurant image", error);
+  }
+}
 
 export async function POST(request: Request) {
   const access = await getUserWorkspaceAccess();
@@ -44,12 +53,14 @@ export async function POST(request: Request) {
   const id = crypto.randomUUID();
   const name = file.name.replace(/[^a-zA-Z0-9._-]/g, "-").slice(-80);
   const key = `gallery/${access.workspaceSlug}/${id}-${name}`;
+  let uploadedUrl = "";
   try {
     const blob = await put(key, file, {
       access: "public",
       addRandomSuffix: false,
       contentType: file.type,
     });
+    uploadedUrl = blob.url;
     const saved = await createGalleryItem({
       id,
       mediaType: "image",
@@ -62,13 +73,16 @@ export async function POST(request: Request) {
       mimeType: file.type,
       bytes: file.size,
     });
-    if (!saved)
+    if (!saved) {
+      await cleanupUploadedBlob(uploadedUrl);
       return NextResponse.json(
         { error: "Bilden kunde inte sparas." },
         { status: 500 },
       );
+    }
     return NextResponse.json({ id, url: blob.url, alt });
   } catch (error) {
+    await cleanupUploadedBlob(uploadedUrl);
     console.error("Restaurant image upload failed", error);
     return NextResponse.json(
       { error: "Uppladdningen misslyckades." },
