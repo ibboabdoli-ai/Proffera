@@ -105,8 +105,6 @@ function postgresSql(client: Client) {
       await client!.query(`
         truncate table company_directory_profiles, workspace_services, workspaces
         restart identity cascade
-      `); (slug, category_slug, label)
-        values ('vvs', 'vvs', 'VVS / Rörmokare')
       `);
 
       const profiles = [
