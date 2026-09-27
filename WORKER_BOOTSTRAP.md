@@ -75,7 +75,7 @@ The required owner approval comment body is exactly:
 IBBO-APPROVED: <40-character-current-head-sha>
 ```
 
-Replace both placeholders with the same exact current PR head SHA. The comment must be authored by the repository owner and remain unedited. Any head change invalidates the earlier approval, so a fresh exact-head owner comment is required after every new commit.
+Replace both placeholders with the same exact current PR head SHA. Post this payload as a new top-level comment in the pull request Conversation; a Review changes submission or inline review comment does not count. The comment must be authored by the repository owner and remain unedited. Any head change invalidates the earlier approval, so a fresh exact-head owner comment is required after every new commit.
 
 ## Standing merge authorization
 
