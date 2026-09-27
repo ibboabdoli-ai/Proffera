@@ -96,7 +96,7 @@ describe("marketplace guest human-view tracking", () => {
       [],
       [],
       [],
-      [],
+      [{ id: "11111111-1111-4111-8111-111111111111" }],
     );
     mocks.getSql.mockReturnValue(sql);
 
