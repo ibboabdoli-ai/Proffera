@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type ChangeEvent } from "react";
+import { useEffect, useRef, useState, type ChangeEvent } from "react";
 import { useRouter } from "next/navigation";
 import type { RestaurantSite } from "@/lib/restaurant-site-schema";
 import { parseRestaurantPrice } from "@/lib/restaurant-price";
@@ -104,6 +104,82 @@ export function RestaurantEditor({
   const [section, setSection] = useState<Section>("menu");
   const [selectedDish, setSelectedDish] = useState<string | null>(null);
   const [alt, setAlt] = useState("");
+  const allowNavigationRef = useRef(false);
+
+  useEffect(() => {
+    if (!dirty) {
+      allowNavigationRef.current = false;
+      return;
+    }
+
+    const warning =
+      "Du har osparade ändringar. Lämna sidan och kasta ändringarna?";
+
+    const confirmNavigation = () => {
+      if (allowNavigationRef.current) return true;
+      const allowed = window.confirm(warning);
+      if (allowed) allowNavigationRef.current = true;
+      return allowed;
+    };
+
+    const onBeforeUnload = (event: BeforeUnloadEvent) => {
+      if (allowNavigationRef.current) return;
+      event.preventDefault();
+      event.returnValue = "";
+    };
+
+    const onDocumentClick = (event: MouseEvent) => {
+      if (
+        event.defaultPrevented ||
+        event.button !== 0 ||
+        event.metaKey ||
+        event.ctrlKey ||
+        event.shiftKey ||
+        event.altKey
+      ) {
+        return;
+      }
+      const target = event.target;
+      if (!(target instanceof Element)) return;
+      const anchor = target.closest<HTMLAnchorElement>("a[href]");
+      if (!anchor || anchor.target === "_blank" || anchor.hasAttribute("download")) {
+        return;
+      }
+      const destination = new URL(anchor.href, window.location.href);
+      const current = new URL(window.location.href);
+      if (
+        destination.origin === current.origin &&
+        destination.pathname === current.pathname &&
+        destination.search === current.search &&
+        destination.hash
+      ) {
+        return;
+      }
+      if (!confirmNavigation()) {
+        event.preventDefault();
+        event.stopPropagation();
+      }
+    };
+
+    const onDocumentSubmit = (event: SubmitEvent) => {
+      if (event.defaultPrevented) return;
+      const form = event.target;
+      if (!(form instanceof HTMLFormElement)) return;
+      if (!confirmNavigation()) {
+        event.preventDefault();
+        event.stopPropagation();
+      }
+    };
+
+    window.addEventListener("beforeunload", onBeforeUnload);
+    document.addEventListener("click", onDocumentClick, true);
+    document.addEventListener("submit", onDocumentSubmit, true);
+    return () => {
+      window.removeEventListener("beforeunload", onBeforeUnload);
+      document.removeEventListener("click", onDocumentClick, true);
+      document.removeEventListener("submit", onDocumentSubmit, true);
+    };
+  }, [dirty]);
 
   function edit(change: (next: RestaurantSite) => void) {
     if (busy) return;
