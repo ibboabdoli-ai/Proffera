@@ -3,6 +3,7 @@
 import { useState, type ChangeEvent } from "react";
 import { useRouter } from "next/navigation";
 import type { RestaurantSite } from "@/lib/restaurant-site-schema";
+import { parseRestaurantPrice } from "@/lib/restaurant-price";
 import { saveDraft } from "./actions";
 
 type Media = { id: string; url: string; alt: string };
@@ -31,11 +32,54 @@ const galleryKinds = [
   "food",
   "family",
 ] as const;
-const galleryKindLabels = { interior: "Interiör", exterior: "Exteriör", atmosphere: "Stämning", food: "Mat", family: "Familj/team" };
+const galleryKindLabels = {
+  interior: "Interiör",
+  exterior: "Exteriör",
+  atmosphere: "Stämning",
+  food: "Mat",
+  family: "Familj/team",
+};
 const input =
   "min-h-12 w-full rounded-lg border border-[#cfc4b5] bg-white px-3 text-base text-[#221d19] focus:border-[#83372e] focus:outline-2 focus:outline-[#83372e]/20";
 const button =
   "min-h-11 rounded-lg border border-[#ab9d8b] px-4 py-2 text-sm font-semibold text-[#342a23]";
+
+function PriceInput({
+  value,
+  onChange,
+  label,
+  className = input,
+}: {
+  value: number | null;
+  onChange: (ore: number | null) => void;
+  label: string;
+  className?: string;
+}) {
+  const [raw, setRaw] = useState(() =>
+    value === null ? "" : String(value / 100),
+  );
+  return (
+    <input
+      aria-label={label}
+      className={className}
+      type="text"
+      inputMode="decimal"
+      value={raw}
+      onChange={(event) => {
+        const next = event.target.value;
+        const ore = parseRestaurantPrice(next);
+        if (ore === undefined) return;
+        setRaw(next);
+        onChange(ore);
+      }}
+      onBlur={() =>
+        setRaw((current) =>
+          current === "" ? "" : String(Number(current.replace(",", "."))),
+        )
+      }
+    />
+  );
+}
 
 export function RestaurantEditor({
   initial,
@@ -355,22 +399,14 @@ export function RestaurantEditor({
                   </label>
                   <label className="text-sm font-semibold">
                     Pris i kronor
-                    <input
-                      className={input}
-                      type="number"
-                      min="0"
-                      max="100000"
-                      step="0.01"
-                      inputMode="decimal"
-                      value={dish.priceOre === null ? "" : dish.priceOre / 100}
-                      onChange={(event) =>
+                    <PriceInput
+                      label={`Pris ${dish.name}`}
+                      value={dish.priceOre}
+                      onChange={(ore) =>
                         edit((next) => {
                           next.dishes.find(
                             (item) => item.id === dish.id,
-                          )!.priceOre =
-                            event.target.value === ""
-                              ? null
-                              : Math.round(Number(event.target.value) * 100);
+                          )!.priceOre = ore;
                         })
                       }
                     />
@@ -490,28 +526,15 @@ export function RestaurantEditor({
                               </button>
                               <label className="text-xs">
                                 Pris (kr)
-                                <input
-                                  aria-label={`Pris ${item.name}`}
+                                <PriceInput
+                                  label={`Pris ${item.name}`}
                                   className={`${input} w-24 text-right`}
-                                  type="number"
-                                  min="0"
-                                  step="0.01"
-                                  inputMode="decimal"
-                                  value={
-                                    item.priceOre === null
-                                      ? ""
-                                      : item.priceOre / 100
-                                  }
-                                  onChange={(event) =>
+                                  value={item.priceOre}
+                                  onChange={(ore) =>
                                     edit((next) => {
                                       next.dishes.find(
                                         (dish) => dish.id === item.id,
-                                      )!.priceOre =
-                                        event.target.value === ""
-                                          ? null
-                                          : Math.round(
-                                              Number(event.target.value) * 100,
-                                            );
+                                      )!.priceOre = ore;
                                     })
                                   }
                                 />
@@ -794,7 +817,7 @@ export function RestaurantEditor({
                       >
                         {galleryKinds.map((kind) => (
                           <option key={kind} value={kind}>
-                      {galleryKindLabels[kind]}
+                            {galleryKindLabels[kind]}
                           </option>
                         ))}
                       </select>
