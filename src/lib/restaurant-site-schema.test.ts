@@ -77,4 +77,10 @@ describe("restaurant site content boundary", () => {
     draft.links.booking = "https://booking.example.com/donis";
     expect(validateRestaurantSite(draft).ok).toBe(true);
   });
+
+  it("rejects malformed HTTPS-looking links without //", () => {
+    const draft = structuredClone(emptyRestaurantSite);
+    draft.links.booking = "https:booking.example.com/donis";
+    expect(validateRestaurantSite(draft).ok).toBe(false);
+  });
 });
