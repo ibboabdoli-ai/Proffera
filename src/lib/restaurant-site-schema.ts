@@ -6,6 +6,19 @@ const localized = z.object({
 });
 const image = z.object({ id: z.string().uuid(), alt: localized });
 
+const httpsUrlOrEmpty = z
+  .string()
+  .trim()
+  .max(1000)
+  .refine((value) => {
+    if (!value) return true;
+    try {
+      return new URL(value).protocol === "https:";
+    } catch {
+      return false;
+    }
+  });
+
 export const restaurantSiteSchema = z.object({
   categories: z
     .array(
@@ -71,14 +84,8 @@ export const restaurantSiteSchema = z.object({
     )
     .length(7),
   links: z.object({
-    booking: z
-      .url({ protocol: /^https:$/ })
-      .max(1000)
-      .or(z.literal("")),
-    order: z
-      .url({ protocol: /^https:$/ })
-      .max(1000)
-      .or(z.literal("")),
+    booking: httpsUrlOrEmpty,
+    order: httpsUrlOrEmpty,
   }),
 });
 
