@@ -95,7 +95,9 @@ describe("public read cache contract", () => {
 
   it("uses the live claimed-profile authority token semantics when deriving suggestion expiry", async () => {
     let query = "";
-    mocks.locationSuggestions.mockResolvedValueOnce(["Södertälje"]);
+    mocks.locationSuggestions
+      .mockResolvedValueOnce(["Södertälje"])
+      .mockResolvedValueOnce(["Södertälje"]);
     mocks.getSql.mockReturnValue(vi.fn(async (strings: TemplateStringsArray) => {
       query = strings.join(" ");
       return [{
@@ -146,6 +148,7 @@ describe("public read cache contract", () => {
     vi.setSystemTime(new Date("2026-09-20T13:00:00.000Z"));
     mocks.locationSuggestions
       .mockResolvedValueOnce(["Södertälje"])
+      .mockResolvedValueOnce(["Södertälje"])
       .mockResolvedValueOnce([]);
     mocks.getSql.mockReturnValue(vi.fn(async () => [{
       juridical_count: 1,
@@ -154,7 +157,7 @@ describe("public read cache contract", () => {
 
     try {
       await expect(getCachedPublishedDirectoryLocationSuggestions(24)).resolves.toEqual([]);
-      expect(mocks.locationSuggestions).toHaveBeenCalledTimes(2);
+      expect(mocks.locationSuggestions).toHaveBeenCalledTimes(3);
     } finally {
       vi.useRealTimers();
     }
@@ -166,6 +169,7 @@ describe("public read cache contract", () => {
     const profileId = "11111111-1111-4111-8111-111111111111";
     mocks.marketplaceHomeCompanies
       .mockResolvedValueOnce({ results: [{ id: profileId }], totalCount: 1 })
+      .mockResolvedValueOnce({ results: [{ id: profileId }], totalCount: 1 })
       .mockResolvedValueOnce({ results: [], totalCount: 0 });
     mocks.getSql.mockReturnValue(vi.fn(async () => [{
       profile_count: 1,
@@ -175,7 +179,7 @@ describe("public read cache contract", () => {
 
     try {
       await expect(getCachedMarketplaceHomeCompanies(4)).resolves.toMatchObject({ results: [] });
-      expect(mocks.marketplaceHomeCompanies).toHaveBeenCalledTimes(2);
+      expect(mocks.marketplaceHomeCompanies).toHaveBeenCalledTimes(3);
     } finally {
       vi.useRealTimers();
     }
