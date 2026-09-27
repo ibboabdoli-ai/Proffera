@@ -441,11 +441,12 @@ describe("public Directory safety mutation invalidation", () => {
       sourceUpdatedAt: null,
     } as never)).rejects.toThrow("later source-sync statement failed");
 
+    expect(mocks.invalidateProjection).toHaveBeenCalledTimes(2);
     expect(mocks.invalidateProjection).toHaveBeenCalledWith({
       slug: "safe-company-ab",
       profileId: PROFILE_ID,
     });
-    expect(mocks.invalidateMarketplace).toHaveBeenCalledTimes(1);
+    expect(mocks.invalidateMarketplace).toHaveBeenCalledTimes(2);
   });
 
   it("fails closed with global invalidation when persisted public_slug is unavailable", async () => {

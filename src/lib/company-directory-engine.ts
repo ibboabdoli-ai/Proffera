@@ -356,112 +356,117 @@ export async function upsertCompanyDirectoryCandidate(candidate: NormalizedDirec
     });
   }
 
-  const sniServiceSlug = mapPrimarySniToDirectorySearchService(candidate.primarySniCode);
-  if (sniServiceSlug) {
+  try {
+    const sniServiceSlug = mapPrimarySniToDirectorySearchService(candidate.primarySniCode);
+    if (sniServiceSlug) {
+      await sql`
+        insert into company_directory_profile_services (
+          profile_id, service_slug, source_type, confidence, is_primary, is_active, public_visible, updated_at
+        )
+        select ${profileId}::uuid, service.slug, 'sni', 85, true, true, true, now()
+        from company_directory_services service
+        where service.slug = ${sniServiceSlug}
+          and service.is_active = true
+        on conflict (profile_id, service_slug)
+        do update set
+          confidence = excluded.confidence,
+          is_primary = true,
+          is_active = true,
+          public_visible = true,
+          updated_at = now()
+        where company_directory_profile_services.source_type = 'sni'
+      `;
+    }
+  
     await sql`
-      insert into company_directory_profile_services (
-        profile_id, service_slug, source_type, confidence, is_primary, is_active, public_visible, updated_at
-      )
-      select ${profileId}::uuid, service.slug, 'sni', 85, true, true, true, now()
-      from company_directory_services service
-      where service.slug = ${sniServiceSlug}
-        and service.is_active = true
-      on conflict (profile_id, service_slug)
-      do update set
-        confidence = excluded.confidence,
-        is_primary = true,
-        is_active = true,
-        public_visible = true,
-        updated_at = now()
-      where company_directory_profile_services.source_type = 'sni'
-    `;
-  }
-
-  await sql`
-    update company_directory_profile_services
-    set is_primary = false,
-        is_active = false,
-        public_visible = false,
-        updated_at = now()
-    where profile_id = ${profileId}::uuid
-      and source_type = 'sni'
-      and (${sniServiceSlug ?? ""}::text = '' or service_slug <> ${sniServiceSlug ?? ""})
-  `;
-
-  const provenanceJson = JSON.stringify(PROVENANCE_FIELDS.map((field) => ({
-    fieldName: String(field),
-    valueHash: hashValue(candidate[field]),
-  })));
-  await sql`
-    insert into company_directory_field_sources (
-      profile_id, field_name, source_name, source_record_id, value_hash, confidence, observed_at
-    )
-    select
-      ${profileId}::uuid,
-      item->>'fieldName',
-      ${candidate.officialSource},
-      ${candidate.sourceRecordId},
-      item->>'valueHash',
-      100,
-      now()
-    from jsonb_array_elements(${provenanceJson}::jsonb) item
-    on conflict (profile_id, field_name, source_name, value_hash)
-    do update set observed_at = excluded.observed_at
-  `;
-
-  const categorySlug = String(rows[0]?.category_slug ?? "");
-  if (categorySlug) {
-    const categoryImageUrl = `/api/public-directory/category-image/${encodeURIComponent(categorySlug)}`;
-
-    await sql`
-      update company_directory_media
+      update company_directory_profile_services
       set is_primary = false,
-          publication_status = 'rejected',
+          is_active = false,
+          public_visible = false,
           updated_at = now()
       where profile_id = ${profileId}::uuid
-        and source_type = 'generated_category'
-        and publication_status = 'published'
-        and public_url <> ${categoryImageUrl}
+        and source_type = 'sni'
+        and (${sniServiceSlug ?? ""}::text = '' or service_slug <> ${sniServiceSlug ?? ""})
     `;
-
+  
+    const provenanceJson = JSON.stringify(PROVENANCE_FIELDS.map((field) => ({
+      fieldName: String(field),
+      valueHash: hashValue(candidate[field]),
+    })));
     await sql`
-      insert into company_directory_media (
-        profile_id, media_kind, source_type, public_url, attribution, license_status,
-        rights_confirmed_at, is_actual_business_media, is_primary, publication_status
+      insert into company_directory_field_sources (
+        profile_id, field_name, source_name, source_record_id, value_hash, confidence, observed_at
       )
-      select ${profileId}::uuid, 'category_illustration', 'generated_category', ${categoryImageUrl},
-        'Illustrationsbild från Proffera', 'generated', now(), false,
-        not exists (
+      select
+        ${profileId}::uuid,
+        item->>'fieldName',
+        ${candidate.officialSource},
+        ${candidate.sourceRecordId},
+        item->>'valueHash',
+        100,
+        now()
+      from jsonb_array_elements(${provenanceJson}::jsonb) item
+      on conflict (profile_id, field_name, source_name, value_hash)
+      do update set observed_at = excluded.observed_at
+    `;
+  
+    const categorySlug = String(rows[0]?.category_slug ?? "");
+    if (categorySlug) {
+      const categoryImageUrl = `/api/public-directory/category-image/${encodeURIComponent(categorySlug)}`;
+  
+      await sql`
+        update company_directory_media
+        set is_primary = false,
+            publication_status = 'rejected',
+            updated_at = now()
+        where profile_id = ${profileId}::uuid
+          and source_type = 'generated_category'
+          and publication_status = 'published'
+          and public_url <> ${categoryImageUrl}
+      `;
+  
+      await sql`
+        insert into company_directory_media (
+          profile_id, media_kind, source_type, public_url, attribution, license_status,
+          rights_confirmed_at, is_actual_business_media, is_primary, publication_status
+        )
+        select ${profileId}::uuid, 'category_illustration', 'generated_category', ${categoryImageUrl},
+          'Illustrationsbild från Proffera', 'generated', now(), false,
+          not exists (
+            select 1 from company_directory_media media
+            where media.profile_id = ${profileId}::uuid
+              and media.publication_status = 'published'
+              and media.is_primary = true
+          ),
+          'published'
+        where not exists (
           select 1 from company_directory_media media
           where media.profile_id = ${profileId}::uuid
+            and media.source_type = 'generated_category'
+            and media.public_url = ${categoryImageUrl}
             and media.publication_status = 'published'
-            and media.is_primary = true
-        ),
-        'published'
-      where not exists (
-        select 1 from company_directory_media media
-        where media.profile_id = ${profileId}::uuid
-          and media.source_type = 'generated_category'
-          and media.public_url = ${categoryImageUrl}
-          and media.publication_status = 'published'
-      )
-    `;
-  }
-
-  // Keep the early invalidation for partial-failure safety, then expire both
-  // public projections again after all dependent service/provenance/media writes
-  // complete so a request cannot repopulate stale state during the write window.
-  invalidatePersistedPublicProjectionBestEffort({
-    profileId,
-    persistedPublicSlug: rows[0]?.public_slug,
-  });
-  try {
-    invalidateMarketplaceHomeCompaniesCache();
-  } catch (error) {
-    console.error("Failed to invalidate Marketplace cache after completed candidate upsert", {
+        )
+      `;
+    }
+  
+  
+  } finally {
+    // Keep the early invalidation for immediate visibility, then expire both
+    // projections again even when a later dependent write partially commits and
+    // throws. This prevents requests during the write window from retaining
+    // stale service/provenance/media state.
+    invalidatePersistedPublicProjectionBestEffort({
       profileId,
-      error,
+      persistedPublicSlug: rows[0]?.public_slug,
     });
+    try {
+      invalidateMarketplaceHomeCompaniesCache();
+    } catch (error) {
+      console.error("Failed to invalidate Marketplace cache after candidate dependent writes", {
+        profileId,
+        error,
+      });
+    }
   }
 
   return {
