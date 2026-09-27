@@ -1,6 +1,6 @@
 # Proffera Current Status
 
-Last updated: 2026-09-15
+Last updated: 2026-09-27
 
 This is the canonical factual status document for Proffera. For worker rules, live task state, current `main` SHA, roadmap order, and the stable V1 completion evidence requirements, also read `AGENTS.md`, `WORKER_BOOTSTRAP.md`, GitHub issue #548, GitHub issue #276, `docs/README.md`, and `docs/V1_LAUNCH_EVIDENCE_CONTRACT.json`.
 
