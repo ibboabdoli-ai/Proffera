@@ -229,6 +229,7 @@ export async function getMarketplaceGuestQuoteView(token: string): Promise<Marke
       from marketplace_quote_invitations invitation
       join company_directory_profiles profile on profile.id = invitation.profile_id
       where invitation.id = ${String(row.invitation_id)}::uuid
+        and invitation.token_hash = ${tokenHash}
       limit 1
     `;
     const currentRow = currentRows[0];
