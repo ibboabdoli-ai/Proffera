@@ -5,7 +5,7 @@ import {
   type DirectoryDirectContactDisclosure,
 } from "@/lib/company-directory-contact-entitlement";
 import { getPublicDirectoryBusiness, type PublicDirectoryBusiness } from "@/lib/company-directory-engine";
-import { hasActivePaidDirectoryContactAccess } from "@/lib/company-directory-paid-contact-entitlement";
+import { isWorkspacePlanFeatureIncluded } from "@/lib/workspace-feature-policy";
 import {
   readPublicDirectoryMissCache,
   readPublicDirectoryProfileCache,
@@ -341,99 +341,6 @@ async function resolvePublishedDirectoryBusiness(slug: string): Promise<Publishe
   };
 }
 
-async function hasCurrentClaimedDirectoryAuthority(input: {
-  sql: NonNullable<ReturnType<typeof getSql>>;
-  profileId: string;
-  workspaceId: string;
-  publicSlug: string;
-}) {
-  const rows = await input.sql`
-    select profile.id::text as claimed_authority_profile_id
-    from company_directory_profiles profile
-    join workspaces workspace on workspace.id = profile.claimed_workspace_id
-    where profile.id = ${input.profileId}::uuid
-      and profile.public_slug = ${input.publicSlug}
-      and profile.publication_status = 'claimed'
-      and profile.claimed_workspace_id = ${input.workspaceId}::uuid
-      and workspace.status in ('active', 'trial')
-      and profile.published_at is not null
-      and profile.is_active = true
-      and profile.privacy_blocked = false
-      and profile.auto_public_eligible = true
-      and (
-        (
-          profile.organization_kind = 'juridical_person'
-          and exists (
-            select 1
-            from company_directory_official_facts claimed_facts
-            join company_directory_scb_enrichment claimed_scb
-              on claimed_scb.profile_id = claimed_facts.profile_id
-            where claimed_facts.profile_id = profile.id
-              and claimed_facts.source_payload_hash <> ''
-              and claimed_facts.last_synced_at >= profile.last_synced_at
-              and claimed_facts.deregistration_date is null
-              and coalesce(claimed_facts.advertising_blocked, false) = false
-              and (
-                case
-                  when jsonb_typeof(claimed_facts.ongoing_procedures) = 'array'
-                    then jsonb_array_length(claimed_facts.ongoing_procedures)
-                  else 1
-                end
-              ) = 0
-              and claimed_scb.source_payload_hash <> ''
-              and claimed_scb.last_synced_at >= now() - interval '7 days'
-              and claimed_scb.last_synced_at >= profile.last_synced_at
-              and claimed_scb.provenance #>> '{comparisonSnapshot,officialFactsLastSyncedToken}' = claimed_facts.last_synced_at::text
-              and jsonb_typeof(claimed_scb.conflicts) = 'array'
-              and jsonb_array_length(claimed_scb.conflicts) = 0
-              and jsonb_typeof(claimed_scb.workplaces) = 'array'
-              and jsonb_array_length(claimed_scb.workplaces) = 1
-              and nullif(btrim(claimed_scb.workplaces->0->'visitingAddress'->>'addressLine'), '') is not null
-              and nullif(btrim(claimed_scb.workplaces->0->'visitingAddress'->>'postalCode'), '') is not null
-              and nullif(btrim(claimed_scb.workplaces->0->'visitingAddress'->>'city'), '') is not null
-              and nullif(btrim(claimed_scb.workplaces->0->>'municipality'), '') is not null
-              and (
-                lower(btrim(claimed_scb.workplaces->0->'visitingAddress'->>'city')) = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
-                or lower(btrim(claimed_scb.workplaces->0->>'municipality')) = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
-              )
-          )
-        )
-        or (
-          profile.organization_kind = 'sole_trader'
-          and profile.official_source = 'bolagsverket_vardefulla_datamangder:sole_trader_owner'
-          and exists (
-            select 1
-            from company_directory_claims owner_claim
-            where owner_claim.profile_id = profile.id
-              and owner_claim.requested_workspace_id = profile.claimed_workspace_id
-              and owner_claim.status = 'claimed'
-              and owner_claim.verification_method = 'manual_review'
-          )
-          and exists (
-            select 1
-            from company_directory_profile_locations owner_base
-            where owner_base.profile_id = profile.id
-              and owner_base.owner_workspace_id = profile.claimed_workspace_id
-              and owner_base.source_type = 'owner'
-              and owner_base.purpose = 'service_base'
-              and owner_base.is_active = true
-              and owner_base.is_primary = true
-              and owner_base.confirmed_at is not null
-              and owner_base.latitude is not null
-              and owner_base.longitude is not null
-              and not (owner_base.latitude = 0 and owner_base.longitude = 0)
-              and owner_base.geocode_source = 'lantmateriet_belagenhetsadress_v4_2'
-              and owner_base.geocode_precision = 'address'
-              and lower(btrim(owner_base.city)) = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
-          )
-        )
-      )
-    limit 1
-  `;
-
-  return Boolean(rows[0]);
-}
-
 async function getSafeClaimedDirectoryFallback(slug: string): Promise<PublicDirectoryBusinessForRequest | null> {
   const normalized = slug.trim().toLowerCase();
   if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(normalized)) return null;
@@ -465,6 +372,20 @@ async function getSafeClaimedDirectoryFallback(slug: string): Promise<PublicDire
       profile.source_updated_at,
       facts.last_synced_at as official_facts_last_synced_at,
       profile.claimed_workspace_id::text,
+      scb_contact.phone as scb_phone,
+      scb_contact.email as scb_email,
+      scb_contact.workplaces as scb_workplaces,
+      owner_location.id::text as owner_location_id,
+      owner_location.visibility as owner_location_visibility,
+      owner_location.is_visitable as owner_location_is_visitable,
+      owner_location.confirmed_at as owner_location_confirmed_at,
+      owner_location.address_line1 as owner_location_address_line1,
+      owner_location.postal_code as owner_location_postal_code,
+      owner_location.city as owner_location_city,
+      owner_location.municipality as owner_location_municipality,
+      contact_plan.plan_key as contact_plan_key,
+      contact_plan.status as contact_plan_status,
+      contact_plan.current_period_end as contact_plan_current_period_end,
       media.public_url as media_url,
       media.media_kind,
       media.attribution,
@@ -472,6 +393,33 @@ async function getSafeClaimedDirectoryFallback(slug: string): Promise<PublicDire
     from company_directory_profiles profile
     join workspaces workspace on workspace.id = profile.claimed_workspace_id
     left join company_directory_official_facts facts on facts.profile_id = profile.id
+    left join lateral (
+      select phone, email, workplaces
+      from company_directory_scb_enrichment scb_contact
+      where scb_contact.profile_id = profile.id
+        and jsonb_typeof(scb_contact.conflicts) = 'array'
+        and jsonb_array_length(scb_contact.conflicts) = 0
+      limit 1
+    ) scb_contact on true
+    left join lateral (
+      select location.id, location.visibility, location.is_visitable, location.confirmed_at,
+        location.address_line1, location.postal_code, location.city, location.municipality
+      from company_directory_profile_locations location
+      where location.profile_id = profile.id
+        and location.owner_workspace_id = profile.claimed_workspace_id
+        and location.source_type = 'owner'
+        and location.is_active = true
+        and location.is_primary = true
+        and location.purpose in ('workplace', 'storefront', 'service_base')
+      limit 1
+    ) owner_location on true
+    left join lateral (
+      select plan.plan_key, plan.status, plan.current_period_end
+      from workspace_plans plan
+      where plan.workspace_id = profile.claimed_workspace_id
+      order by plan.created_at desc
+      limit 1
+    ) contact_plan on true
     left join lateral (
       select public_url, media_kind, attribution, is_actual_business_media
       from company_directory_media
@@ -567,32 +515,41 @@ async function getSafeClaimedDirectoryFallback(slug: string): Promise<PublicDire
   const workspaceId = String(row.claimed_workspace_id ?? "").trim();
   if (!profileId || publicSlug !== normalized || !workspaceId) return null;
 
-  const entitled = await hasActivePaidDirectoryContactAccess(workspaceId);
-  const scb = await getConflictFreeScbContact(sql, profileId);
-  const address = await resolvePublishedPhysicalAddress({
-    sql,
-    profileId,
-    claimedWorkspaceId: workspaceId,
-    profile: profileAddress(row),
-    workplaces: scb?.workplaces,
-  });
+  const ownerLocation: ClaimedOwnerPrimaryLocation | null = row.owner_location_id
+    ? {
+        visibility: String(row.owner_location_visibility ?? "private"),
+        isVisitable: Boolean(row.owner_location_is_visitable),
+        confirmed: Boolean(row.owner_location_confirmed_at),
+        address: profileAddress({
+          address_line1: row.owner_location_address_line1,
+          postal_code: row.owner_location_postal_code,
+          city: row.owner_location_city,
+          municipality: row.owner_location_municipality,
+        }),
+      }
+    : null;
+  const scb: ScbDirectContact = {
+    phone: String(row.scb_phone ?? ""),
+    email: String(row.scb_email ?? ""),
+    workplaces: row.scb_workplaces,
+  };
+  const address = ownerLocation
+    ? ownerPrimaryPublicAddress(ownerLocation)
+    : canonicalPublishedPhysicalAddress(profileAddress(row), scb.workplaces);
+  const entitled = String(row.contact_plan_status ?? "") === "active"
+    && isWorkspacePlanFeatureIncluded({
+      planKey: row.contact_plan_key,
+      planStatus: row.contact_plan_status,
+      planPeriodEnd: row.contact_plan_current_period_end,
+      minimumPlan: "starter",
+      now: new Date(),
+    });
   const contact = discloseDirectoryDirectContact({
     addressLine1: address.addressLine1,
-    phone: scb?.phone,
-    email: scb?.email,
+    phone: scb.phone,
+    email: scb.email,
     website: row.website_url,
   }, entitled);
-
-  // The claimed projection is assembled across several reads. Revalidate the
-  // authority boundary after those dependent reads so a concurrent withdrawal
-  // cannot leak a stale claimed public profile for this request.
-  const authorityStillValid = await hasCurrentClaimedDirectoryAuthority({
-    sql,
-    profileId,
-    workspaceId,
-    publicSlug,
-  });
-  if (!authorityStillValid) return null;
 
   return {
     id: profileId,
