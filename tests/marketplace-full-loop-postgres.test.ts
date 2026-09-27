@@ -591,14 +591,14 @@ if (RUN_POSTGRES_INTEGRATION) {
 
         await refresher.query("commit");
         await expect(viewPromise).resolves.toMatchObject({
-          status: "sent",
+          status: "viewed",
         });
 
         const state = await client.query<{ status: string; token_hash: string }>(
           "select status, token_hash from marketplace_quote_invitations where id = $1",
           [invitationId],
         );
-        expect(state.rows[0]).toMatchObject({ status: "sent", token_hash: tokenHash });
+        expect(state.rows[0]).toMatchObject({ status: "viewed", token_hash: tokenHash });
       } finally {
         await refresher.query("rollback").catch(() => undefined);
         await refresher.end();
