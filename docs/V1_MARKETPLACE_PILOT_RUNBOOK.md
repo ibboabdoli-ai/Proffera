@@ -50,6 +50,16 @@ For the customer side:
 - use non-sensitive test wording and the minimum real-world data required by the application;
 - do not use a real uninvolved customer or send external outreach without explicit approval.
 
+### Pre-submission outreach containment — hard gate
+
+Treat a newly created Production Quote Request as outreach-capable immediately: the normal submit path can schedule a targeted Marketplace Auto Worker kick, and the recurring worker can revisit an open request later. Do **not** press Submit until all of the following are proven from the current deployed application and read-only data:
+
+1. **Recipient allowlist proof.** Determine the complete set of providers that the normal matching/worker path could contact for this request during the pilot window, including the event-driven kick, recurring worker, later waves and any fallback/rematch path that is enabled. Every possible recipient must be explicitly covered by fresh party-specific owner approval. A practical safe setup is a service/location combination whose current eligibility leaves only the approved controlled provider(s). If an unapproved provider is eligible, or the possible recipient set cannot be bounded exactly before submission, stop and do not submit.
+2. **Application-supported cancellation proof.** Identify and verify a supported application path that can terminate the request before continuing the pilot and prevents future worker processing of that request. The same containment procedure must also cancel, suppress or otherwise make unusable any still-open invitations created before cancellation. Prove this procedure in an isolated non-Production environment before relying on it in Production. Direct SQL, forged state, secret/config changes or ad-hoc database edits are not acceptable cancellation mechanisms.
+3. **Operator stop procedure.** Record the exact UI/admin route and expected terminal states to use if the request, invitation set or recipient set differs from the approved plan. If the required supported cancellation/containment path does not exist or has not been proven, classify the Production pilot as blocked and stop before Submit.
+
+After submission, assume outreach may already have started. The later abort conditions are defense in depth and must not be treated as a substitute for this pre-submission containment gate.
+
 ## 4. Genuine lifecycle to prove
 
 The controlled pilot must exercise the application itself in this order:
