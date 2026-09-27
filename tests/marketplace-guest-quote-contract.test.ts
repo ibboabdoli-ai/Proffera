@@ -380,6 +380,7 @@ describe("marketplace guest quote safety contract", () => {
     expect(mocks.sendInvitationEmail).toHaveBeenCalledTimes(1);
     expect(queryText(sql.mock.calls[10])).toContain("returning invitation.id::text");
     expect(queryText(sql.mock.calls[11])).toContain("recipient_suppressed");
+    expect(queryText(sql.mock.calls[11])).toContain("invitation.token_hash =");
     expect(queryText(sql.mock.calls[12])).toContain("invitation.status = 'sending'");
     expect(queryText(sql.mock.calls[13])).toContain("invitation.status = 'pending'");
   });
@@ -483,6 +484,7 @@ describe("marketplace guest quote safety contract", () => {
     expect(sql.transaction).toHaveBeenCalledTimes(1);
     expect(queryText(sql.mock.calls[4])).toContain("returning invitation.id::text");
     expect(queryText(sql.mock.calls[5])).toContain("recipient_suppressed");
+    expect(queryText(sql.mock.calls[5])).toContain("invitation.token_hash =");
     expect(queryText(sql.mock.calls[6])).toContain("set status = 'viewed'");
   });
 
@@ -613,7 +615,9 @@ describe("marketplace guest quote safety contract", () => {
     expect(sql.transaction).toHaveBeenCalledTimes(2);
     expect(queryText(sql.mock.calls[4])).toContain("returning invitation.id::text");
     expect(queryText(sql.mock.calls[5])).toContain("recipient_suppressed");
+    expect(queryText(sql.mock.calls[5])).toContain("invitation.token_hash =");
     expect(queryText(sql.mock.calls[9])).toContain("authority_guard as materialized");
+    expect(queryText(sql.mock.calls[9])).toContain("guarded_invitation.token_hash =");
   });
 
   it("does not submit an offer after a concurrent invitation suppression", async () => {
@@ -648,6 +652,40 @@ describe("marketplace guest quote safety contract", () => {
     expect(result).toEqual({ ok: false, code: "closed" });
     expect(sql.transaction).toHaveBeenCalledTimes(1);
     expect(queryText(sql.mock.calls[5])).toContain("recipient_suppressed");
+  });
+
+  it("does not accept an old token when a concurrent resend rotated token ownership", async () => {
+    const invitationId = "44444444-4444-4444-8444-444444444444";
+    const sql = sqlResponses(
+      [{
+        invitation_id: invitationId,
+        quote_request_id: eligibleRow.quote_request_id,
+        profile_id: eligibleRow.profile_id,
+        workspace_id: null,
+        status: "delivery_failed",
+        expires_at: "2099-01-01T00:00:00.000Z",
+        quote_status: "submitted",
+        has_current_authority: false,
+      }],
+      [],
+      [],
+      [],
+      [],
+      [],
+    );
+    mocks.getSql.mockReturnValue(sql);
+
+    const result = await submitMarketplaceGuestQuote({
+      token: "a".repeat(40),
+      priceKind: "estimate",
+      amountMinor: 100_00,
+      availableDate: null,
+      companyNote: "Test",
+    });
+
+    expect(result).toEqual({ ok: false, code: "closed" });
+    expect(sql.transaction).toHaveBeenCalledTimes(1);
+    expect(queryText(sql.mock.calls[5])).toContain("invitation.token_hash =");
   });
 
   it("binds offer creation to current authority at the write boundary", async () => {
