@@ -355,7 +355,7 @@ describe("marketplace guest quote safety contract", () => {
     const sql = vi.fn(async (...args: unknown[]) => {
       const callIndex = index++;
       if (callIndex === 3) {
-        dispatchToken = String(args[1] ?? "");
+        dispatchToken = String(args[6] ?? "");
       }
       if (callIndex === 11) {
         return [{
