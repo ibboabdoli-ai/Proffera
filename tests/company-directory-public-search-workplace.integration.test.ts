@@ -440,6 +440,29 @@ function postgresSql(
       expect(nearby.results[0]?.distanceKm).not.toBeNull();
     }, 30_000);
 
+    it("loads claimed disclosure through one canonical PostgreSQL projection", async () => {
+      await prepareClaimedDisclosure();
+      let claimedReads = 0;
+      mocks.getSql.mockReturnValue(postgresSql(client!, async (query) => {
+        if (query.includes("from company_directory_profiles profile")) claimedReads += 1;
+      }));
+
+      const result = await getPublicDirectoryBusinessForRequest("canonical-workplace-ab");
+
+      expect(claimedReads).toBe(1);
+      expect(result).toMatchObject({
+        publicationStatus: "claimed",
+        addressLine1: "OWNERGATAN 1",
+        postalCode: "111 22",
+        city: "Stockholm",
+        municipality: "Stockholm",
+        contact: {
+          entitled: true,
+          addressLine1: "OWNERGATAN 1",
+        },
+      });
+    }, 30_000);
+
     it("does not admit an inactive claimed Workspace into location suggestions", async () => {
       await client!.query(`
         insert into workspaces (id, status, slug, name)
