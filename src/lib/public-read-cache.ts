@@ -112,9 +112,22 @@ async function locationSuggestionsAuthorityBoundary(value: DirectoryLocationSugg
         and jsonb_array_length(scb.workplaces) = 1
     `;
     const row = rows[0];
+
+    // Re-read the canonical suggestions after the authority query. An authority
+    // writer can invalidate caches between the earlier canonical read and this
+    // boundary query; without this second read, the pending stale value could
+    // still be stored after that invalidation completed.
+    const finalValue = await getPublishedDirectoryLocationSuggestions(limit);
+    if (!sameOrderedStrings(
+      normalizedLocationLabels(value),
+      normalizedLocationLabels(finalValue),
+    )) {
+      return { authorityBound: false, authorityExpiresAt: null };
+    }
+
     const juridicalCount = Number(row?.juridical_count ?? 0);
     if (juridicalCount === 0) {
-      return { authorityBound: true, authorityExpiresAt: null };
+      return { authorityBound: false, authorityExpiresAt: null };
     }
 
     const expiresAt = row?.authority_expires_at ? new Date(String(row.authority_expires_at)) : null;
@@ -165,13 +178,25 @@ async function marketplaceHomeAuthorityBoundary(value: MarketplaceHomeCompanies,
       where profile.id = any(string_to_array(${profileIdCsv}, ',')::uuid[])
     `;
     const row = rows[0];
+
+    // Re-run the canonical search after the boundary query so a provider that
+    // loses authority during this fill cannot be persisted by a cache write
+    // that races after the writer's invalidation.
+    const finalValue = await searchPublishedBusinessProfiles({ limit, sort: "recommended" });
+    if (!sameOrderedStrings(
+      normalizedMarketplaceProfileIds(value),
+      normalizedMarketplaceProfileIds(finalValue),
+    )) {
+      return { authorityBound: false, authorityExpiresAt: null };
+    }
+
     const profileCount = Number(row?.profile_count ?? 0);
     const juridicalCount = Number(row?.juridical_count ?? 0);
     if (profileCount !== profileIds.length) {
       return { authorityBound: false, authorityExpiresAt: null };
     }
     if (juridicalCount === 0) {
-      return { authorityBound: true, authorityExpiresAt: null };
+      return { authorityBound: false, authorityExpiresAt: null };
     }
 
     const expiresAt = row?.authority_expires_at ? new Date(String(row.authority_expires_at)) : null;
