@@ -23,6 +23,62 @@ const ACTIVE_INVITATION_STATUSES = new Set(["pending", "sending", "sent", "viewe
 const AUTHORITY_GUARDED_INVITATION_STATUSES = new Set(["pending", "sending", "sent", "viewed", "delivery_failed", "delivery_uncertain"]);
 const PILOT_LOCATION_CSV = DIRECTORY_PILOT_LOCATIONS.join(",");
 const REDACTED_CONTACT = "[…]";
+async function readCurrentInvitationAuthorityState(
+  sql: NonNullable<ReturnType<typeof getSql>>,
+  invitationId: string,
+) {
+  const rows = await sql`
+    select
+      invitation.status,
+      invitation.dispatch_token::text as dispatch_token,
+      exists (
+        select 1
+        from marketplace_outreach_suppressions suppression
+        where suppression.email_normalized = lower(btrim(invitation.recipient_email))
+      ) as recipient_suppressed,
+      exists (
+        select 1
+        from company_directory_official_facts authority_facts
+        join company_directory_scb_enrichment authority_scb
+          on authority_scb.profile_id = authority_facts.profile_id
+        where authority_facts.profile_id = profile.id
+          and authority_facts.source_payload_hash <> ''
+          and authority_facts.last_synced_at >= profile.last_synced_at
+          and authority_facts.deregistration_date is null
+          and coalesce(authority_facts.advertising_blocked, false) = false
+          and (
+            case
+              when jsonb_typeof(authority_facts.ongoing_procedures) = 'array'
+                then jsonb_array_length(authority_facts.ongoing_procedures)
+              else 1
+            end
+          ) = 0
+          and authority_scb.source_payload_hash <> ''
+          and authority_scb.last_synced_at >= now() - interval '7 days'
+          and authority_scb.last_synced_at >= profile.last_synced_at
+          and authority_scb.provenance #>> '{comparisonSnapshot,profileUpdatedToken}' = profile.updated_at::text
+          and authority_scb.provenance #>> '{comparisonSnapshot,officialFactsLastSyncedToken}' = authority_facts.last_synced_at::text
+          and jsonb_typeof(authority_scb.conflicts) = 'array'
+          and jsonb_array_length(authority_scb.conflicts) = 0
+          and jsonb_typeof(authority_scb.workplaces) = 'array'
+          and jsonb_array_length(authority_scb.workplaces) = 1
+          and nullif(btrim(authority_scb.workplaces->0->'visitingAddress'->>'addressLine'), '') is not null
+          and nullif(btrim(authority_scb.workplaces->0->'visitingAddress'->>'postalCode'), '') is not null
+          and nullif(btrim(authority_scb.workplaces->0->'visitingAddress'->>'city'), '') is not null
+          and nullif(btrim(authority_scb.workplaces->0->>'municipality'), '') is not null
+          and (
+            lower(btrim(authority_scb.workplaces->0->'visitingAddress'->>'city')) = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
+            or lower(btrim(authority_scb.workplaces->0->>'municipality')) = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
+          )
+      ) as has_current_authority
+    from marketplace_quote_invitations invitation
+    join company_directory_profiles profile on profile.id = invitation.profile_id
+    where invitation.id = ${invitationId}::uuid
+    limit 1
+  `;
+  return rows[0] ?? null;
+}
+
 const ADDRESS_DIACRITIC_EQUIVALENTS: Record<string, string> = {
   a: "aàáâãäåāăąǎǟǡǻȁȃȧḁạảấầẩẫậắằẳẵặ",
   b: "bḃḅḇ",
@@ -754,9 +810,20 @@ export async function sendMarketplaceGuestQuoteInvitation(input: {
         return { ok: false as const, code: "profile_ineligible" };
       }
 
+      const currentState = await readCurrentInvitationAuthorityState(sql, invitationId);
+      if (!currentState || !Boolean(currentState.has_current_authority)) {
+        return { ok: false as const, code: "profile_ineligible" };
+      }
+      if (Boolean(currentState.recipient_suppressed) || String(currentState.status) === "suppressed") {
+        return { ok: false as const, code: "suppressed" };
+      }
+      if (String(currentState.status) !== "sending" || String(currentState.dispatch_token ?? "") !== dispatchToken) {
+        return { ok: false as const, code: "conflict" };
+      }
+
       // The pre-lock authority snapshot was stale and authority was restored
-      // before cancellation. Retry the same fail-closed dispatch claim once
-      // against the locked/current authority instead of rejecting a valid provider.
+      // before cancellation. Retry the same fail-closed dispatch claim once,
+      // but only after proving the invitation is still this attempt's sending lease.
       try {
         dispatchRows = await claimDispatch();
       } catch (error) {
@@ -1062,6 +1129,18 @@ async function loadGuestQuoteView(
       `,
     ]);
     if (cancelledRows[0]?.id) return null;
+
+    const currentState = await readCurrentInvitationAuthorityState(sql, String(row.invitation_id));
+    if (
+      !currentState
+      || Boolean(currentState.recipient_suppressed)
+      || !Boolean(currentState.has_current_authority)
+      || ["suppressed", "declined", "cancelled", "expired"].includes(String(currentState.status))
+    ) {
+      return null;
+    }
+    row.status = String(currentState.status);
+    row.has_current_authority = true;
   }
 
   const quoteOpen = isQuoteRequestOpenForMatchingOrDelivery(String(row.quote_status));
@@ -1081,12 +1160,26 @@ async function loadGuestQuoteView(
   }
 
   if (quoteOpen && options?.markViewed && String(row.status) === "sent" && !expired) {
-    await sql`
+    const viewedRows = await sql`
       update marketplace_quote_invitations
       set status = 'viewed', viewed_at = coalesce(viewed_at, now()), updated_at = now()
       where id = ${String(row.invitation_id)}::uuid and status = 'sent'
+      returning status
     `;
-    row.status = "viewed";
+    if (viewedRows[0]?.status) {
+      row.status = String(viewedRows[0].status);
+    } else {
+      const currentState = await readCurrentInvitationAuthorityState(sql, String(row.invitation_id));
+      if (
+        !currentState
+        || Boolean(currentState.recipient_suppressed)
+        || !Boolean(currentState.has_current_authority)
+        || ["suppressed", "declined", "cancelled", "expired"].includes(String(currentState.status))
+      ) {
+        return null;
+      }
+      row.status = String(currentState.status);
+    }
   }
 
   return buildMarketplaceGuestQuoteView(
@@ -1249,6 +1342,21 @@ export async function submitMarketplaceGuestQuote(input: {
       `,
     ]);
     if (cancelledRows[0]?.id) return { ok: false as const, code: "closed" };
+
+    const currentState = await readCurrentInvitationAuthorityState(sql, String(row.invitation_id));
+    if (
+      !currentState
+      || Boolean(currentState.recipient_suppressed)
+      || !Boolean(currentState.has_current_authority)
+      || ["suppressed", "declined", "cancelled", "expired"].includes(String(currentState.status))
+    ) {
+      return { ok: false as const, code: "closed" };
+    }
+    if (String(currentState.status) === "responded") {
+      return { ok: false as const, code: "already_responded" };
+    }
+    row.status = String(currentState.status);
+    row.has_current_authority = true;
   }
   const expiresAt = new Date(String(row.expires_at));
   if (!Number.isFinite(expiresAt.getTime()) || expiresAt.getTime() <= Date.now()) {
