@@ -448,6 +448,22 @@ export async function upsertCompanyDirectoryCandidate(candidate: NormalizedDirec
     `;
   }
 
+  // Keep the early invalidation for partial-failure safety, then expire both
+  // public projections again after all dependent service/provenance/media writes
+  // complete so a request cannot repopulate stale state during the write window.
+  invalidatePersistedPublicProjectionBestEffort({
+    profileId,
+    persistedPublicSlug: rows[0]?.public_slug,
+  });
+  try {
+    invalidateMarketplaceHomeCompaniesCache();
+  } catch (error) {
+    console.error("Failed to invalidate Marketplace cache after completed candidate upsert", {
+      profileId,
+      error,
+    });
+  }
+
   return {
     profileId,
     publicationStatus: String(rows[0]?.publication_status ?? desiredStatus),

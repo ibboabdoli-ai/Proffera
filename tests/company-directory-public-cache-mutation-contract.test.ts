@@ -395,7 +395,8 @@ describe("public Directory safety mutation invalidation", () => {
       slug: "new-computed-slug",
       profileId: PROFILE_ID,
     });
-    expect(mocks.invalidateMarketplace).toHaveBeenCalledTimes(1);
+    expect(mocks.invalidateProjection).toHaveBeenCalledTimes(2);
+    expect(mocks.invalidateMarketplace).toHaveBeenCalledTimes(2);
   });
 
   it("invalidates both public caches before a later source-sync statement fails", async () => {
@@ -487,9 +488,9 @@ describe("public Directory safety mutation invalidation", () => {
       sourceUpdatedAt: null,
     } as never);
 
-    expect(mocks.invalidateAll).toHaveBeenCalledTimes(1);
+    expect(mocks.invalidateAll).toHaveBeenCalledTimes(2);
     expect(mocks.invalidateProjection).not.toHaveBeenCalled();
-    expect(mocks.invalidateMarketplace).toHaveBeenCalledTimes(1);
+    expect(mocks.invalidateMarketplace).toHaveBeenCalledTimes(2);
   });
 
   it("keeps publication success after post-commit cache invalidation fails", async () => {
