@@ -276,20 +276,6 @@ function postgresSql(client: Client) {
         set published_at = now(), updated_at = now()
         where id = $1::uuid
       `, [PROFILE_ID]);
-      await client!.query(`
-        update company_directory_scb_enrichment scb
-        set provenance = jsonb_build_object('comparisonSnapshot', jsonb_build_object(
-          'profileUpdatedToken', profile.updated_at::text,
-          'officialFactsLastSyncedToken', facts.last_synced_at::text
-        )),
-        last_synced_at = now(),
-        updated_at = now()
-        from company_directory_profiles profile
-        join company_directory_official_facts facts on facts.profile_id = profile.id
-        where scb.profile_id = profile.id
-          and profile.id = $1::uuid
-      `, [PROFILE_ID]);
-
       await getProviderActivationState();
       await getProviderActivationState();
 
