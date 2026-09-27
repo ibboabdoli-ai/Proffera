@@ -145,7 +145,9 @@ function postgresSql(client: Client) {
         )
       `, [PROFILE_ID, WORKSPACE_ID]);
       await client!.query(
-        `insert into company_directory_official_facts (profile_id, source_payload_hash) values ($1::uuid, 'facts-hash')`,
+        `insert into company_directory_official_facts (
+          profile_id, advertising_blocked, ongoing_procedures, source_payload_hash
+        ) values ($1::uuid, false, '[]'::jsonb, 'facts-hash')`,
         [PROFILE_ID],
       );
       await client!.query(`
