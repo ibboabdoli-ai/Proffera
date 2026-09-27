@@ -417,7 +417,7 @@ export function DonisTrattoriaExperience({
             <h2 className="mt-4 font-serif text-4xl">Doni’s Trattoria</h2>
             <address className="mt-7 grid gap-4 not-italic text-white/85">
               <a href={mapsUrl} target="_blank" rel="noopener noreferrer">
-                Hornsbergstrand 77
+                Hornsbergs Strand 77
                 <br />
                 112 16 Stockholm ↗
               </a>
