@@ -11,7 +11,7 @@ import {
   ExternalLink,
   Globe2,
   ImagePlus,
-  Instagram,
+  Camera,
   Languages,
   MapPin,
   Menu,
@@ -748,7 +748,7 @@ export function DonisTrattoriaExperience() {
                   rel="noreferrer"
                   className="flex items-center gap-3 transition hover:text-white"
                 >
-                  <Instagram className="h-4 w-4 text-[#d0a984]" />
+                  <Camera className="h-4 w-4 text-[#d0a984]" />
                   @donistrattoriahornsbergsstrand
                 </a>
               </div>
