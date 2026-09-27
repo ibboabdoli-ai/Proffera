@@ -377,6 +377,7 @@ async function getSafeClaimedDirectoryFallback(slug: string): Promise<PublicDire
       media.attribution,
       media.is_actual_business_media
     from company_directory_profiles profile
+    join workspaces workspace on workspace.id = profile.claimed_workspace_id
     left join company_directory_official_facts facts on facts.profile_id = profile.id
     left join lateral (
       select public_url, media_kind, attribution, is_actual_business_media
@@ -388,6 +389,7 @@ async function getSafeClaimedDirectoryFallback(slug: string): Promise<PublicDire
     where profile.public_slug = ${normalized}
       and profile.publication_status = 'claimed'
       and profile.claimed_workspace_id is not null
+      and workspace.status in ('active', 'trial')
       and profile.published_at is not null
       and profile.is_active = true
       and profile.privacy_blocked = false
