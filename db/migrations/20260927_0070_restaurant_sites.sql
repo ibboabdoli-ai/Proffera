@@ -5,8 +5,10 @@
 
 begin;
 
-create table if not exists restaurant_sites (
+create table restaurant_sites (
   id uuid primary key default gen_random_uuid(),
+  -- Workspace-owned content: deleting the Workspace intentionally cascades its site snapshots.
+  -- Preserve/export this row before deleting a Workspace; rollback must not delete the Workspace.
   workspace_id uuid not null unique references workspaces(id) on delete cascade,
   public_slug text not null unique,
   draft jsonb not null default '{}'::jsonb,
@@ -43,5 +45,18 @@ values (
   'Adds operator-provisioned restaurant-site draft/published snapshots scoped one-to-one to an existing Workspace. No public slug can be claimed from the dashboard and no customer content is seeded.'
 )
 on conflict (migration_key) do nothing;
+
+do $
+begin
+  if not exists (
+    select 1
+    from proffera_schema_migrations
+    where migration_key = '20260927_0070'
+      and filename = '20260927_0070_restaurant_sites.sql'
+  ) then
+    raise exception 'Migration key 20260927_0070 is registered with a different filename';
+  end if;
+end
+$;
 
 commit;
