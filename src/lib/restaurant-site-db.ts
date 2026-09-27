@@ -91,16 +91,20 @@ export async function getRestaurantImageUrls(
     ),
   ];
   if (!ids.length) return {};
-  const rows = await sql`
-    select g.id::text, g.public_url from website_gallery_items g
-    join restaurant_sites r on r.workspace_id=g.workspace_id
-    join workspaces w on w.id=r.workspace_id
-    where r.public_slug=${slug} and w.status in ('active','trial')
-      and g.media_type='image' and g.id::text=any(${ids}::text[])
-  `;
-  return Object.fromEntries(
-    rows.map((row) => [String(row.id), String(row.public_url)]),
-  );
+  try {
+    const rows = await sql`
+      select g.id::text, g.public_url from website_gallery_items g
+      join restaurant_sites r on r.workspace_id=g.workspace_id
+      join workspaces w on w.id=r.workspace_id
+      where r.public_slug=${slug} and w.status in ('active','trial')
+        and g.media_type='image' and g.id::text=any(${ids}::text[])
+    `;
+    return Object.fromEntries(
+      rows.map((row) => [String(row.id), String(row.public_url)]),
+    );
+  } catch {
+    return {};
+  }
 }
 
 async function mediaBelongsToWorkspace(
