@@ -463,6 +463,35 @@ function postgresSql(
       });
     }, 30_000);
 
+    it("redacts claimed contact when the canonical plan and owner location are no longer public", async () => {
+      await prepareClaimedDisclosure();
+      await client!.query(
+        "update workspace_plans set status = 'paused' where workspace_id = $1::uuid",
+        [workspaceId],
+      );
+      await client!.query(
+        "update company_directory_profile_locations set visibility = 'private', is_visitable = false where profile_id = $1::uuid",
+        [profileId],
+      );
+
+      const result = await getPublicDirectoryBusinessForRequest("canonical-workplace-ab");
+
+      expect(result).toMatchObject({
+        publicationStatus: "claimed",
+        addressLine1: "",
+        postalCode: "",
+        city: "",
+        municipality: "",
+        contact: {
+          entitled: false,
+          addressLine1: "",
+          phone: "",
+          email: "",
+          website: "",
+        },
+      });
+    }, 30_000);
+
     it("does not admit an inactive claimed Workspace into location suggestions", async () => {
       await client!.query(`
         insert into workspaces (id, status, slug, name)
