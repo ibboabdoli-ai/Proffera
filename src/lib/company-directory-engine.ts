@@ -377,7 +377,7 @@ export async function upsertCompanyDirectoryCandidate(candidate: NormalizedDirec
         where company_directory_profile_services.source_type = 'sni'
       `;
     }
-  
+
     await sql`
       update company_directory_profile_services
       set is_primary = false,
@@ -388,7 +388,7 @@ export async function upsertCompanyDirectoryCandidate(candidate: NormalizedDirec
         and source_type = 'sni'
         and (${sniServiceSlug ?? ""}::text = '' or service_slug <> ${sniServiceSlug ?? ""})
     `;
-  
+
     const provenanceJson = JSON.stringify(PROVENANCE_FIELDS.map((field) => ({
       fieldName: String(field),
       valueHash: hashValue(candidate[field]),
@@ -409,11 +409,11 @@ export async function upsertCompanyDirectoryCandidate(candidate: NormalizedDirec
       on conflict (profile_id, field_name, source_name, value_hash)
       do update set observed_at = excluded.observed_at
     `;
-  
+
     const categorySlug = String(rows[0]?.category_slug ?? "");
     if (categorySlug) {
       const categoryImageUrl = `/api/public-directory/category-image/${encodeURIComponent(categorySlug)}`;
-  
+
       await sql`
         update company_directory_media
         set is_primary = false,
@@ -424,7 +424,7 @@ export async function upsertCompanyDirectoryCandidate(candidate: NormalizedDirec
           and publication_status = 'published'
           and public_url <> ${categoryImageUrl}
       `;
-  
+
       await sql`
         insert into company_directory_media (
           profile_id, media_kind, source_type, public_url, attribution, license_status,
@@ -448,8 +448,8 @@ export async function upsertCompanyDirectoryCandidate(candidate: NormalizedDirec
         )
       `;
     }
-  
-  
+
+
   } finally {
     // Keep the early invalidation for immediate visibility, then expire both
     // projections again even when a later dependent write partially commits and
