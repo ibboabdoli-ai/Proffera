@@ -169,9 +169,18 @@ export async function publishRestaurantDraft(revision: number) {
     return { ok: false as const, error: "Utkastet ändrades. Ladda om sidan." };
   const parsed = validateRestaurantSite(rows[0].draft);
   if (!parsed.ok) return parsed;
+  const hiddenCategoryIds = new Set(
+    parsed.site.categories
+      .filter((category) => category.hidden)
+      .map((category) => category.id),
+  );
   if (
     parsed.site.dishes.some(
-      (dish) => !dish.archived && !dish.hidden && dish.priceOre === null,
+      (dish) =>
+        !dish.archived &&
+        !dish.hidden &&
+        !hiddenCategoryIds.has(dish.categoryId) &&
+        dish.priceOre === null,
     )
   ) {
     return {
