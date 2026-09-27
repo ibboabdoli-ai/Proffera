@@ -1,3 +1,6 @@
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
+
 import { describe, expect, it } from "vitest";
 
 import { directoryGuestMatchRadius, rankDirectoryGuestCandidates } from "./directory-guest";
@@ -20,6 +23,15 @@ const candidate = {
 };
 
 describe("directory guest marketplace ranking", () => {
+  it("uses canonical SCB workplace locality in the batch candidate query", () => {
+    const source = readFileSync(resolve(process.cwd(), "src/features/matching/directory-guest.ts"), "utf8");
+    expect(source).toContain("scb.workplaces->0->'visitingAddress'->>'city'");
+    expect(source).toContain("scb.workplaces->0->>'municipality'");
+    expect(source).toContain("jsonb_array_length(scb.workplaces) = 1");
+    expect(source).not.toContain("where lower(btrim(profile.city)) = locality.locality");
+    expect(source).not.toContain("or lower(btrim(profile.municipality)) = locality.locality");
+  });
+
   it("returns a local compatible company as locality fallback without claiming confirmed coverage", () => {
     const result = rankDirectoryGuestCandidates(lead, [candidate]);
     expect(result).toHaveLength(1);
