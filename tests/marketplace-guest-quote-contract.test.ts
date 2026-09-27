@@ -334,6 +334,58 @@ describe("marketplace guest quote safety contract", () => {
 
   it("retries provider dispatch when authority is restored before locked cancellation", async () => {
     const invitationId = "44444444-4444-4444-8444-444444444444";
+    let index = 0;
+    let dispatchToken = "";
+    const responses: unknown[][] = [
+      [eligibleRow],
+      [],
+      [],
+      [{ id: invitationId }],
+      [],
+      [],
+      [{ status: "sending", has_current_authority: false }],
+      [],
+      [],
+      [],
+      [],
+      [],
+      [{ id: invitationId }],
+      [{ id: invitationId }],
+    ];
+    const sql = vi.fn(async (...args: unknown[]) => {
+      const callIndex = index++;
+      if (callIndex === 3) {
+        dispatchToken = String(args[1] ?? "");
+      }
+      if (callIndex === 11) {
+        return [{
+          status: "sending",
+          dispatch_token: dispatchToken,
+          recipient_suppressed: false,
+          has_current_authority: true,
+        }];
+      }
+      return responses[callIndex] ?? [];
+    }) as ReturnType<typeof vi.fn> & { transaction: ReturnType<typeof vi.fn> };
+    sql.transaction = vi.fn(async (callback: (txn: typeof sql) => Promise<unknown[]>[]) => (
+      Promise.all(callback(sql))
+    ));
+    mocks.getSql.mockReturnValue(sql);
+    mocks.sendInvitationEmail.mockResolvedValue({ ok: true, providerMessageId: "provider-restored" });
+
+    const result = await sendMarketplaceGuestQuoteInvitation(invitationInput());
+
+    expect(result).toEqual({ ok: true, invitationId });
+    expect(sql.transaction).toHaveBeenCalledTimes(1);
+    expect(mocks.sendInvitationEmail).toHaveBeenCalledTimes(1);
+    expect(queryText(sql.mock.calls[10])).toContain("returning invitation.id::text");
+    expect(queryText(sql.mock.calls[11])).toContain("recipient_suppressed");
+    expect(queryText(sql.mock.calls[12])).toContain("invitation.status = 'sending'");
+    expect(queryText(sql.mock.calls[13])).toContain("invitation.status = 'pending'");
+  });
+
+  it("does not dispatch when invitation state changes while stale authority is being reconciled", async () => {
+    const invitationId = "44444444-4444-4444-8444-444444444444";
     const sql = sqlResponses(
       [eligibleRow],
       [],
@@ -346,20 +398,20 @@ describe("marketplace guest quote safety contract", () => {
       [],
       [],
       [],
-      [{ id: invitationId }],
-      [{ id: invitationId }],
+      [{
+        status: "suppressed",
+        dispatch_token: null,
+        recipient_suppressed: true,
+        has_current_authority: true,
+      }],
     );
     mocks.getSql.mockReturnValue(sql);
-    mocks.sendInvitationEmail.mockResolvedValue({ ok: true, providerMessageId: "provider-restored" });
 
     const result = await sendMarketplaceGuestQuoteInvitation(invitationInput());
 
-    expect(result).toEqual({ ok: true, invitationId });
-    expect(sql.transaction).toHaveBeenCalledTimes(1);
-    expect(mocks.sendInvitationEmail).toHaveBeenCalledTimes(1);
-    expect(queryText(sql.mock.calls[10])).toContain("returning invitation.id::text");
-    expect(queryText(sql.mock.calls[11])).toContain("invitation.status = 'sending'");
-    expect(queryText(sql.mock.calls[12])).toContain("invitation.status = 'pending'");
+    expect(result).toEqual({ ok: false, code: "suppressed" });
+    expect(mocks.sendInvitationEmail).not.toHaveBeenCalled();
+    expect(queryText(sql.mock.calls[11])).toContain("recipient_suppressed");
   });
 
   it("renders opt-out as suppressed when the permanent suppression already exists", async () => {
@@ -419,7 +471,8 @@ describe("marketplace guest quote safety contract", () => {
       [],
       [],
       [],
-      [],
+      [{ status: "sent", dispatch_token: null, recipient_suppressed: false, has_current_authority: true }],
+      [{ status: "viewed" }],
     );
     mocks.getSql.mockReturnValue(sql);
 
@@ -429,7 +482,45 @@ describe("marketplace guest quote safety contract", () => {
     expect(view?.status).toBe("viewed");
     expect(sql.transaction).toHaveBeenCalledTimes(1);
     expect(queryText(sql.mock.calls[4])).toContain("returning invitation.id::text");
-    expect(queryText(sql.mock.calls[5])).toContain("set status = 'viewed'");
+    expect(queryText(sql.mock.calls[5])).toContain("recipient_suppressed");
+    expect(queryText(sql.mock.calls[6])).toContain("set status = 'viewed'");
+  });
+
+  it("does not render a stale core guest view after a concurrent suppression", async () => {
+    const sql = sqlResponses(
+      [{
+        invitation_id: "44444444-4444-4444-8444-444444444444",
+        status: "sent",
+        expires_at: "2099-01-01T00:00:00.000Z",
+        recipient_suppressed: false,
+        display_name: "Rör AB",
+        public_slug: "ror-ab",
+        reference_id: "PF-1234",
+        category: "VVS",
+        service_type: "VVS / Rörmokare",
+        city: "Södertälje",
+        postal_code: "151 00",
+        description: "Behöver hjälp med VVS.",
+        contact_name: "Anna Andersson",
+        contact_email: "anna@example.se",
+        contact_phone: "0701234567",
+        preferred_date: "2026-08-25",
+        quote_status: "submitted",
+        price_kind: null,
+        has_current_authority: false,
+      }],
+      [],
+      [],
+      [],
+      [],
+      [{ status: "suppressed", dispatch_token: null, recipient_suppressed: true, has_current_authority: true }],
+    );
+    mocks.getSql.mockReturnValue(sql);
+
+    const view = await getMarketplaceGuestQuoteView("a".repeat(40));
+
+    expect(view).toBeNull();
+    expect(queryText(sql.mock.calls[5])).toContain("recipient_suppressed");
   });
 
   it("does not invite against a closed customer request", async () => {
@@ -459,7 +550,7 @@ describe("marketplace guest quote safety contract", () => {
       [],
       [],
       [],
-      [],
+      [{ id: invitationId }],
     );
     mocks.getSql.mockReturnValue(sql);
 
@@ -502,6 +593,7 @@ describe("marketplace guest quote safety contract", () => {
       [],
       [],
       [],
+      [{ status: "sent", dispatch_token: null, recipient_suppressed: false, has_current_authority: true }],
       [],
       [],
       [],
@@ -520,7 +612,42 @@ describe("marketplace guest quote safety contract", () => {
     expect(result).toEqual({ ok: true, offerId });
     expect(sql.transaction).toHaveBeenCalledTimes(2);
     expect(queryText(sql.mock.calls[4])).toContain("returning invitation.id::text");
-    expect(queryText(sql.mock.calls[8])).toContain("authority_guard as materialized");
+    expect(queryText(sql.mock.calls[5])).toContain("recipient_suppressed");
+    expect(queryText(sql.mock.calls[9])).toContain("authority_guard as materialized");
+  });
+
+  it("does not submit an offer after a concurrent invitation suppression", async () => {
+    const invitationId = "44444444-4444-4444-8444-444444444444";
+    const sql = sqlResponses(
+      [{
+        invitation_id: invitationId,
+        quote_request_id: eligibleRow.quote_request_id,
+        profile_id: eligibleRow.profile_id,
+        workspace_id: null,
+        status: "sent",
+        expires_at: "2099-01-01T00:00:00.000Z",
+        quote_status: "submitted",
+        has_current_authority: false,
+      }],
+      [],
+      [],
+      [],
+      [],
+      [{ status: "suppressed", dispatch_token: null, recipient_suppressed: true, has_current_authority: true }],
+    );
+    mocks.getSql.mockReturnValue(sql);
+
+    const result = await submitMarketplaceGuestQuote({
+      token: "a".repeat(40),
+      priceKind: "estimate",
+      amountMinor: 100_00,
+      availableDate: null,
+      companyNote: "Test",
+    });
+
+    expect(result).toEqual({ ok: false, code: "closed" });
+    expect(sql.transaction).toHaveBeenCalledTimes(1);
+    expect(queryText(sql.mock.calls[5])).toContain("recipient_suppressed");
   });
 
   it("binds offer creation to current authority at the write boundary", async () => {
