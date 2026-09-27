@@ -415,8 +415,18 @@ export async function getDirectoryGuestLeadMatches() {
           profile.id::text as profile_id,
           profile.public_slug,
           profile.display_name,
-          profile.city,
-          profile.municipality,
+          case
+            when jsonb_typeof(scb.workplaces) = 'array'
+              and jsonb_array_length(scb.workplaces) = 1
+            then scb.workplaces->0->'visitingAddress'->>'city'
+            else null
+          end as city,
+          case
+            when jsonb_typeof(scb.workplaces) = 'array'
+              and jsonb_array_length(scb.workplaces) = 1
+            then scb.workplaces->0->>'municipality'
+            else null
+          end as municipality,
           profile.category_slug,
           profile.quality_score,
           relation.service_slug,
@@ -434,7 +444,25 @@ export async function getDirectoryGuestLeadMatches() {
           scb.conflicts as scb_conflicts,
           row_number() over (
             partition by profile.category_slug,
-              coalesce(nullif(lower(btrim(profile.city)), ''), nullif(lower(btrim(profile.municipality)), ''), '__unknown__'),
+              coalesce(
+                nullif(lower(btrim(
+                  case
+                    when jsonb_typeof(scb.workplaces) = 'array'
+                      and jsonb_array_length(scb.workplaces) = 1
+                    then scb.workplaces->0->'visitingAddress'->>'city'
+                    else null
+                  end
+                )), ''),
+                nullif(lower(btrim(
+                  case
+                    when jsonb_typeof(scb.workplaces) = 'array'
+                      and jsonb_array_length(scb.workplaces) = 1
+                    then scb.workplaces->0->>'municipality'
+                    else null
+                  end
+                )), ''),
+                '__unknown__'
+              ),
               relation.service_slug
             order by profile.quality_score desc, profile.display_name asc, profile.id asc
           ) as locality_service_rank
@@ -475,8 +503,14 @@ export async function getDirectoryGuestLeadMatches() {
             exists (
               select 1
               from required_localities locality
-              where lower(btrim(profile.city)) = locality.locality
-                 or lower(btrim(profile.municipality)) = locality.locality
+              where (
+                jsonb_typeof(scb.workplaces) = 'array'
+                and jsonb_array_length(scb.workplaces) = 1
+                and (
+                  lower(btrim(scb.workplaces->0->'visitingAddress'->>'city')) = locality.locality
+                  or lower(btrim(scb.workplaces->0->>'municipality')) = locality.locality
+                )
+              )
             )
             or exists (
               select 1
