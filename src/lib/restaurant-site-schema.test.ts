@@ -72,10 +72,15 @@ describe("restaurant site content boundary", () => {
     expect(validateRestaurantSite(draft).ok).toBe(false);
   });
 
-  it("accepts a direct HTTPS booking destination", () => {
-    const draft = structuredClone(emptyRestaurantSite);
-    draft.links.booking = "https://booking.example.com/donis";
-    expect(validateRestaurantSite(draft).ok).toBe(true);
+  it("accepts direct HTTPS booking destinations including Google Reserve", () => {
+    const direct = structuredClone(emptyRestaurantSite);
+    direct.links.booking = "https://booking.example.com/donis";
+    expect(validateRestaurantSite(direct).ok).toBe(true);
+
+    const googleReserve = structuredClone(emptyRestaurantSite);
+    googleReserve.links.booking =
+      "https://www.google.com/maps/reserve/v/dine/c/Example";
+    expect(validateRestaurantSite(googleReserve).ok).toBe(true);
   });
 
   it("rejects malformed HTTPS-looking links without //", () => {
