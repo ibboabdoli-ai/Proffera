@@ -12,8 +12,10 @@ const httpsUrlOrEmpty = z
   .max(1000)
   .refine((value) => {
     if (!value) return true;
+    if (!/^https:\/\//i.test(value)) return false;
     try {
-      return new URL(value).protocol === "https:";
+      const url = new URL(value);
+      return url.protocol === "https:" && Boolean(url.hostname);
     } catch {
       return false;
     }
