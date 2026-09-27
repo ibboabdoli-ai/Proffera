@@ -296,18 +296,22 @@ const galleryImages = [
   {
     src: assetBase + "/2025/06/donis-mare-mare.jpg",
     alt: { sv: "Pizza Mare mare", en: "Mare mare pizza" },
+    wide: false,
   },
   {
     src: assetBase + "/2025/06/donis-diavola.jpg",
     alt: { sv: "Pizza Diavola", en: "Diavola pizza" },
+    wide: false,
   },
   {
     src: assetBase + "/2025/06/donis-fettuccini-donis.jpg",
     alt: { sv: "Fettuccini Donis", en: "Fettuccini Donis" },
+    wide: false,
   },
   {
     src: assetBase + "/2025/06/donis-vegetariana.jpg",
     alt: { sv: "Pizza Vegetariana", en: "Vegetariana pizza" },
+    wide: false,
   },
 ] as const;
 
