@@ -26,6 +26,7 @@ const REDACTED_CONTACT = "[…]";
 async function readCurrentInvitationAuthorityState(
   sql: NonNullable<ReturnType<typeof getSql>>,
   invitationId: string,
+  tokenHash: string,
 ) {
   const rows = await sql`
     select
@@ -74,6 +75,7 @@ async function readCurrentInvitationAuthorityState(
     from marketplace_quote_invitations invitation
     join company_directory_profiles profile on profile.id = invitation.profile_id
     where invitation.id = ${invitationId}::uuid
+      and invitation.token_hash = ${tokenHash}
     limit 1
   `;
   return rows[0] ?? null;
@@ -810,7 +812,7 @@ export async function sendMarketplaceGuestQuoteInvitation(input: {
         return { ok: false as const, code: "profile_ineligible" };
       }
 
-      const currentState = await readCurrentInvitationAuthorityState(sql, invitationId);
+      const currentState = await readCurrentInvitationAuthorityState(sql, invitationId, tokenHash);
       if (!currentState || !Boolean(currentState.has_current_authority)) {
         return { ok: false as const, code: "profile_ineligible" };
       }
@@ -1130,7 +1132,7 @@ async function loadGuestQuoteView(
     ]);
     if (cancelledRows[0]?.id) return null;
 
-    const currentState = await readCurrentInvitationAuthorityState(sql, String(row.invitation_id));
+    const currentState = await readCurrentInvitationAuthorityState(sql, String(row.invitation_id), tokenHash);
     if (
       !currentState
       || Boolean(currentState.recipient_suppressed)
@@ -1169,7 +1171,7 @@ async function loadGuestQuoteView(
     if (viewedRows[0]?.status) {
       row.status = String(viewedRows[0].status);
     } else {
-      const currentState = await readCurrentInvitationAuthorityState(sql, String(row.invitation_id));
+      const currentState = await readCurrentInvitationAuthorityState(sql, String(row.invitation_id), tokenHash);
       if (
         !currentState
         || Boolean(currentState.recipient_suppressed)
@@ -1343,7 +1345,7 @@ export async function submitMarketplaceGuestQuote(input: {
     ]);
     if (cancelledRows[0]?.id) return { ok: false as const, code: "closed" };
 
-    const currentState = await readCurrentInvitationAuthorityState(sql, String(row.invitation_id));
+    const currentState = await readCurrentInvitationAuthorityState(sql, String(row.invitation_id), tokenHash);
     if (
       !currentState
       || Boolean(currentState.recipient_suppressed)
@@ -1392,7 +1394,17 @@ export async function submitMarketplaceGuestQuote(input: {
           on authority_facts.profile_id = authority_profile.id
         join company_directory_scb_enrichment authority_scb
           on authority_scb.profile_id = authority_profile.id
+        join marketplace_quote_invitations guarded_invitation
+          on guarded_invitation.id = ${String(row.invitation_id)}::uuid
+         and guarded_invitation.profile_id = authority_profile.id
         where authority_profile.id = ${String(row.profile_id)}::uuid
+          and guarded_invitation.token_hash = ${tokenHash}
+          and guarded_invitation.status in ('pending', 'sending', 'sent', 'viewed', 'delivery_failed', 'delivery_uncertain')
+          and not exists (
+            select 1
+            from marketplace_outreach_suppressions suppression
+            where suppression.email_normalized = lower(btrim(guarded_invitation.recipient_email))
+          )
           and authority_facts.source_payload_hash <> ''
           and authority_facts.last_synced_at >= authority_profile.last_synced_at
           and authority_facts.deregistration_date is null
