@@ -124,15 +124,24 @@ export function validateRestaurantSite(value: unknown) {
       error: "Menyn eller öppettiderna innehåller ogiltiga referenser.",
     };
   }
-  if (
-    site.links.booking &&
-    /\/maps(?:\/|$)/i.test(new URL(site.links.booking).pathname)
-  ) {
-    return {
-      ok: false as const,
-      error:
-        "Bokningslänken måste gå direkt till bokningsflödet, inte till en karta.",
-    };
+  if (site.links.booking) {
+    const bookingUrl = new URL(site.links.booking);
+    const bookingHost = bookingUrl.hostname.toLowerCase();
+    const isMapsHost =
+      bookingHost === "maps.app.goo.gl" ||
+      bookingHost === "maps.google.com" ||
+      bookingHost.startsWith("maps.google.");
+    const isMapsPath =
+      /\/maps(?:\/|$)/i.test(bookingUrl.pathname) ||
+      (bookingHost === "goo.gl" &&
+        /^\/maps(?:\/|$)/i.test(bookingUrl.pathname));
+    if (isMapsHost || isMapsPath) {
+      return {
+        ok: false as const,
+        error:
+          "Bokningslänken måste gå direkt till bokningsflödet, inte till en karta.",
+      };
+    }
   }
   return { ok: true as const, site };
 }
