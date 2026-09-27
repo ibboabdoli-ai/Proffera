@@ -44,6 +44,22 @@ const input =
 const button =
   "min-h-11 rounded-lg border border-[#ab9d8b] px-4 py-2 text-sm font-semibold text-[#342a23]";
 
+function moveGalleryById(
+  items: RestaurantSite["media"]["gallery"],
+  id: string,
+  direction: number,
+) {
+  const ordered = [...items].sort((a, b) => a.sortOrder - b.sortOrder);
+  const index = ordered.findIndex((item) => item.id === id);
+  const target = index + direction;
+  if (index < 0 || target < 0 || target >= ordered.length) return;
+  [ordered[index], ordered[target]] = [ordered[target], ordered[index]];
+  ordered.forEach((item, position) => {
+    item.sortOrder = position;
+  });
+  items.splice(0, items.length, ...ordered);
+}
+
 function PriceInput({
   value,
   onChange,
@@ -105,10 +121,12 @@ export function RestaurantEditor({
   const [selectedDish, setSelectedDish] = useState<string | null>(null);
   const [alt, setAlt] = useState("");
   const allowNavigationRef = useRef(false);
+  const restoringHistoryRef = useRef(false);
 
   useEffect(() => {
     if (!dirty) {
       allowNavigationRef.current = false;
+      restoringHistoryRef.current = false;
       return;
     }
 
@@ -171,11 +189,27 @@ export function RestaurantEditor({
       }
     };
 
+    const onPopState = () => {
+      if (allowNavigationRef.current) return;
+      if (restoringHistoryRef.current) {
+        restoringHistoryRef.current = false;
+        return;
+      }
+      if (window.confirm(warning)) {
+        allowNavigationRef.current = true;
+        return;
+      }
+      restoringHistoryRef.current = true;
+      window.history.forward();
+    };
+
     window.addEventListener("beforeunload", onBeforeUnload);
+    window.addEventListener("popstate", onPopState);
     document.addEventListener("click", onDocumentClick, true);
     document.addEventListener("submit", onDocumentSubmit, true);
     return () => {
       window.removeEventListener("beforeunload", onBeforeUnload);
+      window.removeEventListener("popstate", onPopState);
       document.removeEventListener("click", onDocumentClick, true);
       document.removeEventListener("submit", onDocumentSubmit, true);
     };
@@ -868,17 +902,21 @@ export function RestaurantEditor({
                   .sort((a, b) => a.sortOrder - b.sortOrder)
                   .map((item, index) => (
                     <div
-                      key={`${index}-${item.id}`}
+                      key={item.id}
                       className="mt-5 border-b border-[#d9cfc1] pb-5"
                     >
                       {photoPicker(item, (photo) =>
                         edit((next) => {
+                          const itemIndex = next.media.gallery.findIndex(
+                            (galleryItem) => galleryItem.id === item.id,
+                          );
+                          if (itemIndex < 0) return;
                           if (photo)
-                            next.media.gallery[index] = {
-                              ...next.media.gallery[index],
+                            next.media.gallery[itemIndex] = {
+                              ...next.media.gallery[itemIndex],
                               ...photo,
                             };
-                          else next.media.gallery.splice(index, 1);
+                          else next.media.gallery.splice(itemIndex, 1);
                         }),
                       )}
                       <select
@@ -886,8 +924,12 @@ export function RestaurantEditor({
                         value={item.kind}
                         onChange={(event) =>
                           edit((next) => {
-                            next.media.gallery[index].kind = event.target
-                              .value as typeof item.kind;
+                            const galleryItem = next.media.gallery.find(
+                              (entry) => entry.id === item.id,
+                            );
+                            if (galleryItem)
+                              galleryItem.kind = event.target
+                                .value as typeof item.kind;
                           })
                         }
                       >
@@ -902,7 +944,9 @@ export function RestaurantEditor({
                           className={button}
                           disabled={index === 0}
                           onClick={() =>
-                            edit((next) => move(next.media.gallery, index, -1))
+                            edit((next) =>
+                              moveGalleryById(next.media.gallery, item.id, -1),
+                            )
                           }
                         >
                           ↑
@@ -911,7 +955,9 @@ export function RestaurantEditor({
                           className={button}
                           disabled={index === site.media.gallery.length - 1}
                           onClick={() =>
-                            edit((next) => move(next.media.gallery, index, 1))
+                            edit((next) =>
+                              moveGalleryById(next.media.gallery, item.id, 1),
+                            )
                           }
                         >
                           ↓
