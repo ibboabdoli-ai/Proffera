@@ -56,7 +56,7 @@ begin
   ) then
     raise exception 'Migration key 20260927_0070 is registered with a different filename';
   end if;
-end
+end;
 $migration$;
 
 commit;
