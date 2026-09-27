@@ -122,6 +122,7 @@ describe("marketplace guest human-view tracking", () => {
       [],
       [],
       [],
+      [{ status: "sent", recipient_suppressed: false, has_current_authority: true }],
     );
     mocks.getSql.mockReturnValue(sql);
 
@@ -131,6 +132,25 @@ describe("marketplace guest human-view tracking", () => {
     expect(view?.customerContact).toBeNull();
     expect(sql.transaction).toHaveBeenCalledTimes(1);
     expect(queryText(sql.mock.calls[4])).toContain("returning invitation.id::text");
+    expect(queryText(sql.mock.calls[5])).toContain("recipient_suppressed");
+  });
+
+  it("does not render a stale guest view when invitation state changed during authority reconciliation", async () => {
+    const sql = transactionalSqlResponses(
+      [guestRow({ has_current_authority: false })],
+      [],
+      [],
+      [],
+      [],
+      [{ status: "suppressed", recipient_suppressed: true, has_current_authority: true }],
+    );
+    mocks.getSql.mockReturnValue(sql);
+
+    const view = await getMarketplaceGuestQuoteView("a".repeat(40));
+
+    expect(view).toBeNull();
+    expect(sql.transaction).toHaveBeenCalledTimes(1);
+    expect(queryText(sql.mock.calls[5])).toContain("has_current_authority");
   });
 
   it("unlocks customer contact only for the selected winner after the request closes", async () => {
