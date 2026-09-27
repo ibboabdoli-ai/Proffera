@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 
 import { DonisTrattoriaExperience } from "./demo-interactions";
 import { getPublishedRestaurantSite, getRestaurantImageUrls } from "@/lib/restaurant-site-db";
+import { projectPublicRestaurantSite } from "@/lib/restaurant-site-public";
 
 const heroImage =
   "https://www-static.restaurangkungsholmen.se/wp-content/uploads/2025/05/donis-pizzorny.jpg";
@@ -13,7 +14,7 @@ export const metadata: Metadata = {
   appleWebApp: null,
   title: { absolute: "Doni’s Trattoria | Stockholm" },
   description:
-    "Doni’s Trattoria på Hornsbergstrand 77 i Stockholm. Meny och kontaktinformation.",
+    "Doni’s Trattoria på Hornsbergs Strand 77 i Stockholm. Meny och kontaktinformation.",
   robots: { index: false, follow: false },
   openGraph: {
     title: "Doni’s Trattoria | Stockholm",
@@ -43,7 +44,8 @@ export const metadata: Metadata = {
 export const dynamic = "force-dynamic";
 
 export default async function DonisTrattoriaDemoPage() {
-  const site = await getPublishedRestaurantSite();
+  const publishedSite = await getPublishedRestaurantSite();
+  const site = publishedSite ? projectPublicRestaurantSite(publishedSite) : null;
   const images = site ? await getRestaurantImageUrls(site) : {};
   return <DonisTrattoriaExperience site={site} images={images} />;
 }
