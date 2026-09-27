@@ -328,7 +328,8 @@ const initialPrices: Record<string, string> = Object.fromEntries(
 
 export function DonisTrattoriaExperience() {
   const [lang, setLang] = useState<Lang>("sv");
-  const [adminOpen, setAdminOpen] = useState(false);\n  const [europeOpen, setEuropeOpen] = useState(false);
+  const [adminOpen, setAdminOpen] = useState(false);
+  const [europeOpen, setEuropeOpen] = useState(false);
   const [showSaved, setShowSaved] = useState(false);
   const [heroImage, setHeroImage] = useState(defaultHeroImage);
   const [heroTitle, setHeroTitle] = useState<Record<Lang, string>>({
