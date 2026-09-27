@@ -62,6 +62,7 @@ describe("restaurant site content boundary", () => {
 
   it.each([
     "https://www.google.com/maps/search/?api=1&query=Doni",
+    "https://www.google.se/maps/place/Doni",
     "https://maps.google.com/?q=Doni",
     "https://maps.google.se/?q=Doni",
     "https://maps.app.goo.gl/example",
@@ -81,6 +82,11 @@ describe("restaurant site content boundary", () => {
     googleReserve.links.booking =
       "https://www.google.com/maps/reserve/v/dine/c/Example";
     expect(validateRestaurantSite(googleReserve).ok).toBe(true);
+
+    const localizedGoogleReserve = structuredClone(emptyRestaurantSite);
+    localizedGoogleReserve.links.booking =
+      "https://www.google.se/maps/reserve/v/dine/c/Example";
+    expect(validateRestaurantSite(localizedGoogleReserve).ok).toBe(true);
   });
 
   it("rejects malformed HTTPS-looking links without //", () => {
