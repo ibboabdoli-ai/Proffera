@@ -65,10 +65,16 @@ function sqlForPublished(
     if (query.includes("from company_directory_profiles") && !query.includes("from company_directory_profiles profile")) {
       return [{
         organization_number: "5560000000",
+        organization_kind: "juridical_person",
+        legal_name: "Physical Location AB",
         primary_sni_code: "43.221",
         website_url: "",
         claimed_workspace_id: claimedWorkspaceId,
         official_facts_last_synced_at: "2026-09-01T10:30:00.000Z",
+        workplace_authority_expires_at: "2099-01-01T00:00:00.000Z",
+        scb_phone: "",
+        scb_email: "",
+        scb_workplaces: workplaces,
       }];
     }
     if (query.includes("from company_directory_scb_enrichment")) {
