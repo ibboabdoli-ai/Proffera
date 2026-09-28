@@ -233,3 +233,48 @@ export const DONIS_FALLBACK_SITE: RestaurantSite = {
       "https://qopla.com/restaurant/doni-trattoria-italiana/qyZkGvbq9M/order",
   },
 };
+
+
+export const DONIS_FALLBACK_DISH_IMAGE_URLS: Record<string, string> =
+  Object.fromEntries(
+    DONIS_FALLBACK_SITE.dishes.flatMap((dish) =>
+      dish.image && DONIS_FALLBACK_IMAGES[dish.image.id]
+        ? [[dish.id, DONIS_FALLBACK_IMAGES[dish.image.id]]]
+        : [],
+    ),
+  );
+
+export function createDonisAdminStarterSite(): RestaurantSite {
+  const site = structuredClone(DONIS_FALLBACK_SITE);
+  site.media = { hero: null, gallery: [], owner: null, family: null };
+  site.dishes = site.dishes.map((dish) => ({ ...dish, image: null }));
+  return site;
+}
+
+export function isRestaurantSiteBlank(site: RestaurantSite) {
+  const text = site.text;
+  return (
+    site.categories.length === 0 &&
+    site.dishes.length === 0 &&
+    !site.media.hero &&
+    !site.media.owner &&
+    !site.media.family &&
+    site.media.gallery.length === 0 &&
+    !text.heroTitle.sv &&
+    !text.heroTitle.en &&
+    !text.heroDescription.sv &&
+    !text.heroDescription.en &&
+    !text.aboutTitle.sv &&
+    !text.aboutTitle.en &&
+    !text.story.sv &&
+    !text.story.en &&
+    !text.ownerIntroduction.sv &&
+    !text.ownerIntroduction.en &&
+    !text.philosophy.sv &&
+    !text.philosophy.en &&
+    text.foundedYear === null &&
+    !site.links.booking &&
+    !site.links.order &&
+    site.hours.every((hour) => hour.closed)
+  );
+}
