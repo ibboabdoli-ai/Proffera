@@ -179,16 +179,16 @@ export function DonisTrattoriaExperience({
           <a
             href="#top"
             aria-label="Doni’s Trattoria"
-            className="flex min-h-12 items-center gap-2"
+            className="flex min-h-14 items-center gap-3 rounded-full bg-[#f6ead6]/95 px-3 py-2 text-[#211d19] shadow-sm backdrop-blur-sm"
           >
             <img
               src="/donis-logo.png"
-              alt=""
-              className="h-11 w-auto brightness-0 invert sm:h-14"
+              alt="Doni’s Trattoria"
+              className="h-12 w-auto max-w-[104px] object-contain sm:h-14 sm:max-w-[122px]"
             />
             <span
               aria-hidden="true"
-              className="font-serif text-lg font-semibold uppercase tracking-tight sm:text-2xl"
+              className="font-serif text-lg font-semibold uppercase tracking-tight text-[#211d19] sm:text-2xl"
             >
               Trattoria
             </span>
