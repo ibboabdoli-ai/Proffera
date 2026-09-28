@@ -259,9 +259,16 @@ export async function getCachedPublishedDirectoryLocationSuggestions(limit = 24)
     }
   }
 
-  // The fill-time canonical re-read closes invalidation-during-fill races.
-  // Valid envelopes are reusable until their authority deadline; committed
-  // authority writers invalidate this tag when eligibility changes.
+  // Tag invalidation can race with a pending cache fill that stores after the
+  // writer invalidates. Re-read the canonical source before serving a positive
+  // envelope so withdrawn authority cannot remain visible until TTL.
+  const currentValue = await getPublishedDirectoryLocationSuggestions(safeLimit);
+  if (!sameOrderedStrings(
+    normalizedLocationLabels(cached.value),
+    normalizedLocationLabels(currentValue),
+  )) {
+    return currentValue;
+  }
   return cached.value;
 }
 
@@ -281,9 +288,19 @@ export async function getCachedMarketplaceHomeCompanies(limit = 4) {
     }
   }
 
-  // The fill-time canonical re-read closes invalidation-during-fill races.
-  // Valid envelopes are reusable until their authority deadline; committed
-  // authority writers invalidate this tag when eligibility changes.
+  // Keep the same fail-closed boundary for Marketplace cards. A current
+  // canonical mismatch wins over a stale cache envelope even if invalidation
+  // raced with the cache write.
+  const currentValue = await searchPublishedBusinessProfiles({
+    limit: safeLimit,
+    sort: "recommended",
+  });
+  if (!sameOrderedStrings(
+    normalizedMarketplaceProfileIds(cached.value),
+    normalizedMarketplaceProfileIds(currentValue),
+  )) {
+    return currentValue;
+  }
   return cached.value;
 }
 

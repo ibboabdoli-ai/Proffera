@@ -336,6 +336,9 @@ describe("Directory geocoding pilot canonical-address behavior", () => {
       call.query.startsWith("insert into company_directory_business_locations")
       && call.values.includes(CORRECTED_NO_MATCH));
     expect(noMatchWrite).toBeDefined();
+    expect(noMatchWrite?.query).toContain("current_scb.provenance #>> '{workplaceChangedAt}'");
+    expect(noMatchWrite?.query).toContain("current_scb.last_synced_at::text");
+    expect(noMatchWrite?.values).toContain("2026-09-28T03:00:00.000Z");
   });
 
   it("does not geocode an unresolved canonical workplace even when its no-match is retryable", async () => {

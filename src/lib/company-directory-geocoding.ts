@@ -1069,6 +1069,7 @@ async function markNoMatch(
   profileId: string,
   reason: DirectoryGeocodingNoMatchReason,
   addressSource: DirectoryGeocodingAddressSource,
+  workplaceBoundaryToken: string,
   deadline?: number,
 ) {
   if (deadline) assertBeforeDeadline(deadline);
@@ -1079,8 +1080,17 @@ async function markNoMatch(
     insert into company_directory_business_locations (
       profile_id, geocode_source, geocode_precision, geocode_confidence,
       is_public, geocoded_at, updated_at
-    ) values (
+    )
+    select
       ${profileId}::uuid, ${source}, 'unknown', 0, false, now(), now()
+    where exists (
+      select 1
+      from company_directory_scb_enrichment current_scb
+      where current_scb.profile_id = ${profileId}::uuid
+        and coalesce(
+          nullif(current_scb.provenance #>> '{workplaceChangedAt}', ''),
+          current_scb.last_synced_at::text
+        ) = ${workplaceBoundaryToken}
     )
     on conflict (profile_id) do update set
       geocode_source = excluded.geocode_source,
@@ -1092,20 +1102,16 @@ async function markNoMatch(
     where company_directory_business_locations.latitude is null
        or company_directory_business_locations.longitude is null
        or company_directory_business_locations.geocoded_at is null
-       or exists (
-         select 1
-         from company_directory_scb_enrichment current_scb
-         where current_scb.profile_id = ${profileId}::uuid
-           and company_directory_business_locations.geocoded_at < coalesce(
-             nullif(current_scb.provenance #>> '{workplaceChangedAt}', '')::timestamptz,
-             current_scb.last_synced_at
-           )
-       )
+       or company_directory_business_locations.geocoded_at < ${workplaceBoundaryToken}::timestamptz
   `;
 }
 
 /** Marks a failed upstream attempt so later fresh providers rotate ahead without overwriting coordinates. */
-async function markTransientError(profileId: string, deadline?: number) {
+async function markTransientError(
+  profileId: string,
+  workplaceBoundaryToken: string,
+  deadline?: number,
+) {
   if (deadline) assertBeforeDeadline(deadline);
   const sql = getSql();
   if (!sql) return;
@@ -1113,8 +1119,17 @@ async function markTransientError(profileId: string, deadline?: number) {
     insert into company_directory_business_locations (
       profile_id, geocode_source, geocode_precision, geocode_confidence,
       is_public, updated_at
-    ) values (
+    )
+    select
       ${profileId}::uuid, ${TRANSIENT_ERROR_SOURCE}, 'unknown', 0, false, now()
+    where exists (
+      select 1
+      from company_directory_scb_enrichment current_scb
+      where current_scb.profile_id = ${profileId}::uuid
+        and coalesce(
+          nullif(current_scb.provenance #>> '{workplaceChangedAt}', ''),
+          current_scb.last_synced_at::text
+        ) = ${workplaceBoundaryToken}
     )
     on conflict (profile_id) do update set
       geocode_source = excluded.geocode_source,
@@ -1125,15 +1140,7 @@ async function markTransientError(profileId: string, deadline?: number) {
     where company_directory_business_locations.latitude is null
        or company_directory_business_locations.longitude is null
        or company_directory_business_locations.geocoded_at is null
-       or exists (
-         select 1
-         from company_directory_scb_enrichment current_scb
-         where current_scb.profile_id = ${profileId}::uuid
-           and company_directory_business_locations.geocoded_at < coalesce(
-             nullif(current_scb.provenance #>> '{workplaceChangedAt}', '')::timestamptz,
-             current_scb.last_synced_at
-           )
-       )
+       or company_directory_business_locations.geocoded_at < ${workplaceBoundaryToken}::timestamptz
   `;
 }
 
@@ -1276,7 +1283,8 @@ export async function geocodeDirectoryProviderPointsFromAdmin(
     const selectedAddress = selectedAddressFromRow(row);
     const scbLastSyncedToken = String(row.scb_last_synced_token ?? "").trim();
     const scbWorkplaceChangedToken = String(row.scb_workplace_changed_at ?? "").trim();
-    if (!selectedAddress || !scbLastSyncedToken) continue;
+    const scbWorkplaceBoundaryToken = scbWorkplaceChangedToken || scbLastSyncedToken;
+    if (!selectedAddress || !scbWorkplaceBoundaryToken) continue;
     attempted += 1;
     const profile: PilotProfile = {
       id: String(row.id),
@@ -1291,7 +1299,13 @@ export async function geocodeDirectoryProviderPointsFromAdmin(
       const resolution = await resolveOfficialAddress(profile, config, processingDeadline);
       assertBeforeDeadline(processingDeadline);
       if (resolution.status === "no_match") {
-        await markNoMatch(profile.id, resolution.reason, profile.addressSource, processingDeadline);
+        await markNoMatch(
+          profile.id,
+          resolution.reason,
+          profile.addressSource,
+          scbWorkplaceBoundaryToken,
+          processingDeadline,
+        );
         noMatch += 1;
         continue;
       }
@@ -1322,7 +1336,10 @@ export async function geocodeDirectoryProviderPointsFromAdmin(
           select 1
           from company_directory_scb_enrichment current_scb
           where current_scb.profile_id = ${profile.id}::uuid
-            and current_scb.last_synced_at::text = ${scbLastSyncedToken}
+            and coalesce(
+              nullif(current_scb.provenance #>> '{workplaceChangedAt}', ''),
+              current_scb.last_synced_at::text
+            ) = ${scbWorkplaceBoundaryToken}
         )
         on conflict (profile_id) do update set
           latitude = excluded.latitude,
@@ -1336,10 +1353,7 @@ export async function geocodeDirectoryProviderPointsFromAdmin(
         where company_directory_business_locations.latitude is null
            or company_directory_business_locations.longitude is null
            or company_directory_business_locations.geocoded_at is null
-           or company_directory_business_locations.geocoded_at < coalesce(
-             nullif(${scbWorkplaceChangedToken}, '')::timestamptz,
-             ${scbLastSyncedToken}::timestamptz
-           )
+           or company_directory_business_locations.geocoded_at < ${scbWorkplaceBoundaryToken}::timestamptz
         returning profile_id
       `;
       if (saved[0]) geocoded += 1;
@@ -1347,7 +1361,7 @@ export async function geocodeDirectoryProviderPointsFromAdmin(
       if (classifyDirectoryGeocodingBatchError(error) === "deadline") break;
       errors += 1;
       try {
-        await markTransientError(profile.id, processingDeadline);
+        await markTransientError(profile.id, scbWorkplaceBoundaryToken, processingDeadline);
       } catch (markerError) {
         if (classifyDirectoryGeocodingBatchError(markerError) === "deadline") break;
       }
