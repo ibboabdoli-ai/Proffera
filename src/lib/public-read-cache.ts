@@ -259,16 +259,10 @@ export async function getCachedPublishedDirectoryLocationSuggestions(limit = 24)
     }
   }
 
-  // Tag invalidation can race with a pending cache fill that stores after the
-  // writer invalidates. Re-read the canonical source before serving a positive
-  // envelope so withdrawn authority cannot remain visible until TTL.
-  const currentValue = await getPublishedDirectoryLocationSuggestions(safeLimit);
-  if (!sameOrderedStrings(
-    normalizedLocationLabels(cached.value),
-    normalizedLocationLabels(currentValue),
-  )) {
-    return currentValue;
-  }
+  // The cache-fill path validates the canonical value before and after the
+  // authority-boundary query. Authority-changing writers invalidate this tag.
+  // Between those invalidations, a current unexpired envelope is safe to serve
+  // without waking Neon again on every cache hit.
   return cached.value;
 }
 
@@ -288,19 +282,9 @@ export async function getCachedMarketplaceHomeCompanies(limit = 4) {
     }
   }
 
-  // Keep the same fail-closed boundary for Marketplace cards. A current
-  // canonical mismatch wins over a stale cache envelope even if invalidation
-  // raced with the cache write.
-  const currentValue = await searchPublishedBusinessProfiles({
-    limit: safeLimit,
-    sort: "recommended",
-  });
-  if (!sameOrderedStrings(
-    normalizedMarketplaceProfileIds(cached.value),
-    normalizedMarketplaceProfileIds(currentValue),
-  )) {
-    return currentValue;
-  }
+  // Marketplace fills use the same before/after authority validation and
+  // authority-changing writers invalidate this tag. Reuse a current unexpired
+  // envelope instead of paying for a live search on every cache hit.
   return cached.value;
 }
 

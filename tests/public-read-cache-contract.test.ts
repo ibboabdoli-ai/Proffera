@@ -98,7 +98,6 @@ describe("public read cache contract", () => {
     mocks.locationSuggestions
       .mockResolvedValueOnce(["Södertälje"])
       .mockResolvedValueOnce(["Södertälje"])
-      .mockResolvedValueOnce(["Södertälje"])
       .mockResolvedValueOnce(["Södertälje"]);
     mocks.getSql.mockReturnValue(vi.fn(async (strings: TemplateStringsArray) => {
       query = strings.join(" ");
@@ -113,6 +112,25 @@ describe("public read cache contract", () => {
     expect(query).toContain("profile.publication_status = 'claimed'");
     expect(query).toContain("or scb.provenance #>> '{comparisonSnapshot,profileUpdatedToken}' = profile.updated_at::text");
     expect(query).toContain("scb.provenance #>> '{comparisonSnapshot,officialFactsLastSyncedToken}' = facts.last_synced_at::text");
+    expect(mocks.locationSuggestions).toHaveBeenCalledTimes(3);
+  });
+
+  it("does not issue a fourth canonical Marketplace read for a fresh authority envelope", async () => {
+    const profileId = "11111111-1111-4111-8111-111111111111";
+    mocks.marketplaceHomeCompanies.mockResolvedValue({
+      results: [{ id: profileId }],
+      totalCount: 1,
+    });
+    mocks.getSql.mockReturnValue(vi.fn(async () => [{
+      profile_count: 1,
+      juridical_count: 1,
+      authority_expires_at: "2099-09-20T13:00:00.000Z",
+    }]));
+
+    await expect(getCachedMarketplaceHomeCompanies(4)).resolves.toMatchObject({
+      results: [{ id: profileId }],
+    });
+    expect(mocks.marketplaceHomeCompanies).toHaveBeenCalledTimes(3);
   });
 
   it("bypasses a stale nonempty location cache candidate when canonical authority changes during fill", async () => {

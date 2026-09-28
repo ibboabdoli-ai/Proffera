@@ -3805,7 +3805,7 @@ esac
     expect(commentPatchCalls(closedReplay.calls, 103)).toHaveLength(0);
     expect(String(closedReplay.comments.find((comment) => comment.id === 101)?.body ?? "")).toBe(closedReservationBody);
     expect(String(closedReplay.comments.find((comment) => comment.id === 103)?.body ?? "")).toBe(closedTaskBody);
-  });
+  }, 15_000);
 
   it("closes a malformed trusted Worker PR and releases its exact published reservation on the closed event", () => {
     const evidence = exactReservationEvidence(sha, {

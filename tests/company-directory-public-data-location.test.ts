@@ -254,7 +254,11 @@ describe("public Directory physical-location read contract", () => {
     mocks.getSql.mockReturnValue(sql);
 
     await expect(getPublicDirectoryBusinessForRequest("physical-location-ab")).resolves.toBeNull();
-    expect(sql).toHaveBeenCalledTimes(1);
+    expect(sql).toHaveBeenCalledTimes(2);
+    const missGuardQuery = String((sql.mock.calls[1]?.[0] ?? []).join(" ")).replace(/\s+/g, " ");
+    expect(missGuardQuery).toContain("select 1");
+    expect(missGuardQuery).toContain("from company_directory_profiles");
+    expect(missGuardQuery).toContain("where public_slug =");
   });
   it("uses the claimed Workspace primary public owner location over SCB", async () => {
     mocks.getPublicDirectoryBusiness.mockResolvedValue(null);
