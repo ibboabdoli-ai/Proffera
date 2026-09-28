@@ -87,6 +87,8 @@ const translations: Record<string, string> = {
   "Förhandsgranska →": "Preview →",
   "Ingen restaurangwebbplats är kopplad till den här arbetsytan. Kontakta Proffera för att koppla ägarens arbetsyta.": "No restaurant website is connected to this workspace. Contact Proffera to connect the owner workspace.",
   "Öppna restaurangens webbplats": "Open restaurant website",
+  "Öppna restaurangens webbplats ↗": "Open restaurant website ↗",
+  "Språk": "Language",
   "Hantera meny, bilder, texter och öppettider från samma vy.": "Manage menu, photos, content and opening hours from one place.",
 
   // Doni editor notices
@@ -99,6 +101,16 @@ const translations: Record<string, string> = {
   "Alla bilder finns redan i galleriet. Ladda upp en ny bild.": "All photos are already in the gallery. Upload a new photo.",
   "Ladda upp en bild först.": "Upload a photo first.",
   "Bilden finns redan i galleriet. Välj en annan bild.": "This photo is already in the gallery. Choose another photo.",
+  "Ingen behörighet.": "No permission.",
+  "En bild eller version är ogiltig.": "A photo or version is invalid.",
+  "En annan ändring sparades. Ladda om sidan innan du fortsätter.": "Another change was saved. Reload the page before continuing.",
+  "Spara ett utkast först.": "Save a draft first.",
+  "Utkastet ändrades. Ladda om sidan.": "The draft changed. Reload the page.",
+  "Alla synliga rätter behöver ett pris före publicering.": "All visible dishes need a price before publishing.",
+  "En bild finns inte längre i mediabiblioteket.": "A photo is no longer available in the media library.",
+  "Kontrollera fälten och försök igen.": "Check the fields and try again.",
+  "Menyn eller öppettiderna innehåller ogiltiga referenser.": "The menu or opening hours contain invalid references.",
+  "Bokningslänken måste gå direkt till bokningsflödet, inte till en karta.": "The booking link must open the booking flow directly, not a map.",
 };
 
 function translateText(value: string) {
