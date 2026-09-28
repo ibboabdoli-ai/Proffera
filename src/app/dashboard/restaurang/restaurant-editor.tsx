@@ -303,7 +303,7 @@ export function RestaurantEditor({
         {current && images.find((image) => image.id === current.id) ? (
           <img
             src={images.find((image) => image.id === current.id)?.url}
-            alt={current.alt.sv}
+            alt={current.alt[locale] || current.alt.sv}
             className="h-36 w-full rounded-lg object-cover"
           />
         ) : null}
@@ -526,7 +526,7 @@ export function RestaurantEditor({
                       next.dishes.push({
                         id,
                         categoryId: next.categories[0].id,
-                        name: "Ny rätt",
+                        name: locale === "en" ? "New dish" : "Ny rätt",
                         priceOre: null,
                         description: { sv: "", en: "" },
                         image: null,
@@ -595,7 +595,7 @@ export function RestaurantEditor({
                     >
                       {site.categories.map((category) => (
                         <option key={category.id} value={category.id}>
-                          {category.name.sv}
+                          {category.name[locale] || category.name.sv}
                         </option>
                       ))}
                     </select>
@@ -668,7 +668,7 @@ export function RestaurantEditor({
                     .map((category) => (
                       <div key={category.id}>
                         <h3 className="mt-5 font-serif text-xl">
-                          {category.name.sv}{" "}
+                          {category.name[locale] || category.name.sv}{" "}
                           {category.hidden && (
                             <small className="text-sm">(dold kategori)</small>
                           )}
@@ -816,7 +816,7 @@ export function RestaurantEditor({
                   edit((next) =>
                     next.categories.push({
                       id: crypto.randomUUID(),
-                      name: { sv: "Ny kategori", en: "" },
+                      name: { sv: "Ny kategori", en: "New category" },
                       sortOrder: next.categories.length,
                       hidden: false,
                     }),
@@ -1219,7 +1219,13 @@ export function RestaurantEditor({
         <button
           type="button"
           disabled={dirty || busy || revision === 0}
-          onClick={() => router.push("/dashboard/restaurang/forhandsgranska")}
+          onClick={() =>
+            router.push(
+              locale === "en"
+                ? "/dashboard/restaurang/forhandsgranska?lang=en"
+                : "/dashboard/restaurang/forhandsgranska",
+            )
+          }
           className={`${button} flex-1 disabled:opacity-50 sm:flex-none`}
         >
           Förhandsgranska →
