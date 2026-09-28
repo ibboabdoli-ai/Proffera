@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 
+import { DONIS_FALLBACK_DISH_IMAGE_URLS } from "@/lib/donis-fallback";
 import { getRestaurantAdmin } from "@/lib/restaurant-site-db";
 import { getDashboardGalleryItems } from "@/lib/website-gallery-db";
 import {
@@ -27,7 +28,6 @@ export default async function RestaurantAdminPage() {
                 backgroundPosition: "center",
                 backgroundRepeat: "no-repeat",
                 backgroundSize: "84% auto",
-                filter: "brightness(0)",
               }}
             />
             <div>
@@ -64,6 +64,9 @@ export default async function RestaurantAdminPage() {
         url: publicUrl,
         alt: altText,
       }))}
+      referenceDishImages={
+        site.published ? {} : DONIS_FALLBACK_DISH_IMAGE_URLS
+      }
     />
   );
 }

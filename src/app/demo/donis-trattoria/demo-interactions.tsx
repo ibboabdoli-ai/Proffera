@@ -452,7 +452,7 @@ export function DonisTrattoriaExperience({
                 donitrattoria@gmail.com
               </a>
               <a
-                href="https://www.instagram.com/donistrattoriahornsbergsstrand/"
+                href="https://www.instagram.com/donis.trattoria/"
                 target="_blank"
                 rel="noopener noreferrer"
               >
