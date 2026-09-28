@@ -68,11 +68,13 @@ const days = {
 export function DonisTrattoriaExperience({
   site,
   images = {},
+  initialLang = "sv",
 }: {
   site: RestaurantSite | null;
   images?: Record<string, string>;
+  initialLang?: Lang;
 }) {
-  const [lang, setLang] = useState<Lang>("sv");
+  const [lang, setLang] = useState<Lang>(initialLang);
   useEffect(() => {
     const previous = document.documentElement.lang;
     document.documentElement.lang = lang;
