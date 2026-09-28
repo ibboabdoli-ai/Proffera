@@ -147,6 +147,13 @@ export async function proxy(request: NextRequest) {
   const host = request.headers.get("host") ?? request.nextUrl.host;
   const requestId = resolveRequestId(request);
 
+  // Reject encoded backslashes before Next.js route resolution. Production
+  // requests such as /en%5C otherwise fall through to a non-existent page
+  // module and surface as a 500 instead of a fail-closed public 404.
+  if (/%5c/iu.test(pathname) || pathname.includes("\\")) {
+    return notFound(requestId);
+  }
+
   if (!isPublicPageRouteAllowedForHost(host, pathname)) {
     return notFound(requestId);
   }

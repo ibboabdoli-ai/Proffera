@@ -28,6 +28,16 @@ describe("proxy request boundary", () => {
     resolvePublicCustomDomainMock.mockReset();
     resolvePublicCustomDomainMock.mockResolvedValue(null);
   });
+  it("fails closed on encoded backslash paths before route resolution", async () => {
+    for (const path of ["/en%5C", "/en%5c"]) {
+      const response = await proxy(request(path));
+
+      expect(response.status, path).toBe(404);
+      expect(response.headers.get("x-robots-tag"), path).toBe("noindex, nofollow");
+      expect(response.headers.get("x-middleware-next"), path).toBeNull();
+    }
+  });
+
   it("passes the exact admin path to session and role authorization", async () => {
     const response = await proxy(request("/admin/billing/alerts"));
 
