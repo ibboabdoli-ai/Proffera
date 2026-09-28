@@ -179,12 +179,18 @@ export function DonisTrattoriaExperience({
           <a
             href="#top"
             aria-label="Doni’s Trattoria"
-            className="relative z-20 flex min-h-14 shrink-0 items-center gap-3 rounded-2xl bg-[#f6ead6] px-3 py-2 text-[#211d19] shadow-lg ring-1 ring-black/10"
+            className="relative z-20 flex min-h-[76px] shrink-0 items-center gap-3 rounded-2xl bg-[#f6ead6] px-4 py-2 text-[#211d19] shadow-lg ring-1 ring-black/10"
           >
-            <img
-              src="/donis-logo.png"
-              alt="Doni’s Trattoria"
-              className="h-11 w-[106px] shrink-0 object-contain brightness-0 sm:h-12 sm:w-[116px]"
+            <span
+              aria-hidden="true"
+              className="h-14 w-[132px] shrink-0 sm:h-16 sm:w-[150px]"
+              style={{
+                backgroundImage: "url('/donis-logo.png')",
+                backgroundPosition: "center",
+                backgroundRepeat: "no-repeat",
+                backgroundSize: "88% auto",
+                filter: "brightness(0)",
+              }}
             />
             <span
               aria-hidden="true"
