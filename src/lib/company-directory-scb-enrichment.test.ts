@@ -277,6 +277,9 @@ describe("SCB company directory enrichment guards", () => {
 
     await enrichCompanyDirectoryScbForProfile("11111111-1111-4111-8111-111111111111");
 
+    const upsertQuery = String(sql.mock.calls[1]?.[0]);
+    expect(upsertQuery).toContain("company_directory_scb_enrichment.provenance #>> '{workplaceChangedAt}'");
+    expect(upsertQuery).not.toContain("company_directory_scb_enrichment.created_at::text");
     expect(mocks.invalidateAuthorityCaches).not.toHaveBeenCalled();
   });
 });

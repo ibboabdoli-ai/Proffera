@@ -241,8 +241,7 @@ describe("Directory geocoding pilot canonical-address behavior", () => {
     const save = sqlCalls.find((call) => call.query.startsWith("with transformed as"));
     expect(save?.values).toContain(VERIFIED_SOURCE);
     expect(save?.query).toContain("current_scb.last_synced_at::text");
-    expect(save?.query).toContain("company_directory_business_locations.geocoded_at < coalesce");
-    expect(save?.values).toContain("2026-09-28 05:00:00+00");
+    expect(save?.query).toContain("company_directory_business_locations.geocoded_at < ?::timestamptz");
     expect(save?.values).toContain("2026-09-28T03:00:00.000Z");
   });
 

@@ -180,7 +180,7 @@ async function saveScbEnrichment(
             then now()::text
           else coalesce(
             company_directory_scb_enrichment.provenance #>> '{workplaceChangedAt}',
-            company_directory_scb_enrichment.created_at::text
+            now()::text
           )
         end
       ),

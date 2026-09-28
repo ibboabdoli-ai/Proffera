@@ -34,6 +34,8 @@ describe("directory guest marketplace ranking", () => {
     expect(source).toContain("comparisonSnapshot,profileUpdatedToken");
     expect(source).toContain("comparisonSnapshot,officialFactsLastSyncedToken");
     expect(source).toContain("workplaceChangedAt");
+    expect(source).toContain("location.geocoded_at >= coalesce(");
+    expect(source).toContain("nullif(scb.provenance #>> '{workplaceChangedAt}', '')::timestamptz");
     expect(source).not.toContain("where lower(btrim(profile.city)) = locality.locality");
     expect(source).not.toContain("or lower(btrim(profile.municipality)) = locality.locality");
   });
