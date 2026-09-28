@@ -112,11 +112,12 @@ function postgresSql(client: Client) {
       await client!.query(`
         insert into company_directory_profiles (
           id, organization_number, organization_kind, legal_name, display_name,
-          public_slug, category_slug, publication_status, is_active, privacy_blocked,
-          auto_public_eligible
+          public_slug, city, municipality, category_slug, quality_score,
+          publication_status, is_active, privacy_blocked, auto_public_eligible
         ) values (
           $1::uuid, '5560000000', 'juridical_person', 'Stale Point AB', 'Stale Point AB',
-          'stale-point-ab', 'vvs', 'review', true, false, true
+          'stale-point-ab', 'Södertälje', 'Södertälje', 'vvs', 95,
+          'review', true, false, true
         )
       `, [PROFILE_ID]);
 

@@ -119,6 +119,7 @@ describe("public read cache contract", () => {
     mocks.locationSuggestions
       .mockResolvedValueOnce(["Södertälje"])
       .mockResolvedValueOnce(["Södertälje"])
+      .mockResolvedValueOnce([])
       .mockResolvedValueOnce([]);
     mocks.getSql.mockReturnValue(vi.fn(async () => [{
       juridical_count: 1,
@@ -126,7 +127,7 @@ describe("public read cache contract", () => {
     }]));
 
     await expect(getCachedPublishedDirectoryLocationSuggestions(24)).resolves.toEqual([]);
-    expect(mocks.locationSuggestions).toHaveBeenCalledTimes(3);
+    expect(mocks.locationSuggestions).toHaveBeenCalledTimes(4);
   });
 
   it("bypasses a stale Marketplace cache candidate when canonical authority changes during fill", async () => {
@@ -134,6 +135,7 @@ describe("public read cache contract", () => {
     mocks.marketplaceHomeCompanies
       .mockResolvedValueOnce({ results: [{ id: profileId }], totalCount: 1 })
       .mockResolvedValueOnce({ results: [{ id: profileId }], totalCount: 1 })
+      .mockResolvedValueOnce({ results: [], totalCount: 0 })
       .mockResolvedValueOnce({ results: [], totalCount: 0 });
     mocks.getSql.mockReturnValue(vi.fn(async () => [{
       profile_count: 1,
@@ -142,7 +144,7 @@ describe("public read cache contract", () => {
     }]));
 
     await expect(getCachedMarketplaceHomeCompanies(4)).resolves.toMatchObject({ results: [] });
-    expect(mocks.marketplaceHomeCompanies).toHaveBeenCalledTimes(3);
+    expect(mocks.marketplaceHomeCompanies).toHaveBeenCalledTimes(4);
   });
 
   it("rechecks Directory location suggestions once workplace authority reaches its exact deadline", async () => {
