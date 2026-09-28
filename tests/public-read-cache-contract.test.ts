@@ -128,6 +128,7 @@ describe("public read cache contract", () => {
 
     await expect(getCachedPublishedDirectoryLocationSuggestions(24)).resolves.toEqual([]);
     expect(mocks.locationSuggestions).toHaveBeenCalledTimes(4);
+    expect(mocks.locationSuggestions).toHaveBeenNthCalledWith(4, 24);
   });
 
   it("bypasses a stale Marketplace cache candidate when canonical authority changes during fill", async () => {
@@ -145,6 +146,7 @@ describe("public read cache contract", () => {
 
     await expect(getCachedMarketplaceHomeCompanies(4)).resolves.toMatchObject({ results: [] });
     expect(mocks.marketplaceHomeCompanies).toHaveBeenCalledTimes(4);
+    expect(mocks.marketplaceHomeCompanies).toHaveBeenNthCalledWith(4, { limit: 4, sort: "recommended" });
   });
 
   it("rechecks Directory location suggestions once workplace authority reaches its exact deadline", async () => {
