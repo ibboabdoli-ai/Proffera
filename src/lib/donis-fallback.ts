@@ -227,8 +227,8 @@ export const DONIS_FALLBACK_SITE: RestaurantSite = {
       en: "Doni’s Trattoria is a welcoming restaurant by Hornsbergs Strand focused on Italian flavours, quality ingredients and relaxed hospitality.",
     },
     ownerIntroduction: {
-      sv: "Sidan är förberedd så att restaurangen själv kan uppdatera meny, bilder, texter och öppettider.",
-      en: "The site is prepared so the restaurant can maintain its own menu, photos, text and opening hours.",
+      sv: "Här möts klassiska italienska rätter med ett mindre urval av europeiska favoriter för sällskap med olika smaker.",
+      en: "Classic Italian dishes meet a smaller selection of European favourites for groups with different tastes.",
     },
     philosophy: {
       sv: "Enkel mat, tydliga smaker och en miljö som passar både vardag, familjemiddag och en kväll med vänner.",
