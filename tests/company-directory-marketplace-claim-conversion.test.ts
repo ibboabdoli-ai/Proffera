@@ -205,6 +205,25 @@ describe("Marketplace company profile claim conversion", () => {
     expect(mocks.provisionWorkspace).not.toHaveBeenCalled();
   });
 
+  it("rechecks canonical workplace authority in both reservation and finalization SQL", () => {
+    const sourceText = source("src/lib/company-directory-marketplace-claim.ts");
+    const requiredFragments = [
+      "claimed_facts.source_payload_hash <> ''",
+      "claimed_facts.last_synced_at >= profile.last_synced_at",
+      "coalesce(claimed_facts.advertising_blocked, false) = false",
+      "claimed_scb.source_payload_hash <> ''",
+      "claimed_scb.last_synced_at >= now() - interval '7 days'",
+      "comparisonSnapshot,officialFactsLastSyncedToken",
+      "jsonb_array_length(claimed_scb.conflicts) = 0",
+      "jsonb_array_length(claimed_scb.workplaces) = 1",
+      "PILOT_LOCATION_CSV",
+    ];
+
+    for (const fragment of requiredFragments) {
+      expect(sourceText.split(fragment).length - 1, fragment).toBeGreaterThanOrEqual(2);
+    }
+  });
+
   it("provisions the deterministic claim Workspace on the fully verified path", async () => {
     const { result } = await runClaim();
 

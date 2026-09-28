@@ -9,12 +9,15 @@ import {
   parseClaimEmailEvidence,
   validBusinessEmail,
 } from "@/lib/company-directory-claim-email";
+import { DIRECTORY_PILOT_LOCATIONS } from "@/lib/company-directory-policy";
 import { invalidatePublicDirectoryPublicProjectionByProfileId } from "@/lib/company-directory-public-cache";
 import { getSql } from "@/lib/db/server";
 
 export type MarketplaceCompanyClaimProvisionResult =
   | { status: "provisioned"; workspaceId: string }
   | { status: "manual_review"; reason: string };
+
+const PILOT_LOCATION_CSV = DIRECTORY_PILOT_LOCATIONS.join(",");
 
 function normalizedEmail(value: unknown) {
   return String(value ?? "").trim().toLowerCase();
@@ -283,6 +286,40 @@ export async function tryAutoProvisionMarketplaceCompanyClaim(input: {
       and profile.organization_kind = 'juridical_person'
       and exists (
         select 1
+        from company_directory_official_facts claimed_facts
+        join company_directory_scb_enrichment claimed_scb
+          on claimed_scb.profile_id = claimed_facts.profile_id
+        where claimed_facts.profile_id = profile.id
+          and claimed_facts.source_payload_hash <> ''
+          and claimed_facts.last_synced_at >= profile.last_synced_at
+          and claimed_facts.deregistration_date is null
+          and coalesce(claimed_facts.advertising_blocked, false) = false
+          and (
+            case
+              when jsonb_typeof(claimed_facts.ongoing_procedures) = 'array'
+                then jsonb_array_length(claimed_facts.ongoing_procedures)
+              else 1
+            end
+          ) = 0
+          and claimed_scb.source_payload_hash <> ''
+          and claimed_scb.last_synced_at >= now() - interval '7 days'
+          and claimed_scb.last_synced_at >= profile.last_synced_at
+          and claimed_scb.provenance #>> '{comparisonSnapshot,officialFactsLastSyncedToken}' = claimed_facts.last_synced_at::text
+          and jsonb_typeof(claimed_scb.conflicts) = 'array'
+          and jsonb_array_length(claimed_scb.conflicts) = 0
+          and jsonb_typeof(claimed_scb.workplaces) = 'array'
+          and jsonb_array_length(claimed_scb.workplaces) = 1
+          and nullif(btrim(claimed_scb.workplaces->0->'visitingAddress'->>'addressLine'), '') is not null
+          and nullif(btrim(claimed_scb.workplaces->0->'visitingAddress'->>'postalCode'), '') is not null
+          and nullif(btrim(claimed_scb.workplaces->0->'visitingAddress'->>'city'), '') is not null
+          and nullif(btrim(claimed_scb.workplaces->0->>'municipality'), '') is not null
+          and (
+            lower(btrim(claimed_scb.workplaces->0->'visitingAddress'->>'city')) = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
+            or lower(btrim(claimed_scb.workplaces->0->>'municipality')) = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
+          )
+      )
+      and exists (
+        select 1
         from company_directory_claims current_claim
         where current_claim.id = ${input.claimId}::uuid
           and current_claim.profile_id = profile.id
@@ -372,6 +409,40 @@ export async function tryAutoProvisionMarketplaceCompanyClaim(input: {
         and profile.claimed_workspace_id is null
         and profile.claim_reservation_id = ${input.claimId}::uuid
         and profile.claim_reservation_token = ${reservationToken}::uuid
+        and exists (
+          select 1
+          from company_directory_official_facts claimed_facts
+          join company_directory_scb_enrichment claimed_scb
+            on claimed_scb.profile_id = claimed_facts.profile_id
+          where claimed_facts.profile_id = profile.id
+            and claimed_facts.source_payload_hash <> ''
+            and claimed_facts.last_synced_at >= profile.last_synced_at
+            and claimed_facts.deregistration_date is null
+            and coalesce(claimed_facts.advertising_blocked, false) = false
+            and (
+              case
+                when jsonb_typeof(claimed_facts.ongoing_procedures) = 'array'
+                  then jsonb_array_length(claimed_facts.ongoing_procedures)
+                else 1
+              end
+            ) = 0
+            and claimed_scb.source_payload_hash <> ''
+            and claimed_scb.last_synced_at >= now() - interval '7 days'
+            and claimed_scb.last_synced_at >= profile.last_synced_at
+            and claimed_scb.provenance #>> '{comparisonSnapshot,officialFactsLastSyncedToken}' = claimed_facts.last_synced_at::text
+            and jsonb_typeof(claimed_scb.conflicts) = 'array'
+            and jsonb_array_length(claimed_scb.conflicts) = 0
+            and jsonb_typeof(claimed_scb.workplaces) = 'array'
+            and jsonb_array_length(claimed_scb.workplaces) = 1
+            and nullif(btrim(claimed_scb.workplaces->0->'visitingAddress'->>'addressLine'), '') is not null
+            and nullif(btrim(claimed_scb.workplaces->0->'visitingAddress'->>'postalCode'), '') is not null
+            and nullif(btrim(claimed_scb.workplaces->0->'visitingAddress'->>'city'), '') is not null
+            and nullif(btrim(claimed_scb.workplaces->0->>'municipality'), '') is not null
+            and (
+              lower(btrim(claimed_scb.workplaces->0->'visitingAddress'->>'city')) = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
+              or lower(btrim(claimed_scb.workplaces->0->>'municipality')) = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
+            )
+        )
       for update of claim, profile
     ),
     claimed_profile as (
