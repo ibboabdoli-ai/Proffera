@@ -175,27 +175,33 @@ export function DonisTrattoriaExperience({
           fetchPriority="high"
         />
         <div className="absolute inset-0 bg-gradient-to-b from-black/65 via-black/30 to-black/80" />
-        <header className="relative z-10 mx-auto flex w-full max-w-[1380px] flex-wrap items-center justify-between gap-4 border-b border-white/20 px-5 py-5 sm:px-9">
+        <header className="relative z-10 mx-auto grid w-full max-w-[1380px] grid-cols-[auto_1fr_auto] items-center gap-4 border-b border-white/20 px-5 py-5 sm:px-9">
           <a
             href="#top"
             aria-label="Doni’s Trattoria"
-            className="flex min-h-14 items-center gap-3 rounded-full bg-[#f6ead6]/95 px-3 py-2 text-[#211d19] shadow-sm backdrop-blur-sm"
+            className="relative z-20 flex min-h-[76px] shrink-0 items-center gap-3 rounded-2xl bg-[#f6ead6] px-4 py-2 text-[#211d19] shadow-lg ring-1 ring-black/10"
           >
-            <img
-              src="/donis-logo.png"
-              alt="Doni’s Trattoria"
-              className="h-12 w-auto max-w-[104px] object-contain sm:h-14 sm:max-w-[122px]"
+            <span
+              aria-hidden="true"
+              className="h-14 w-[132px] shrink-0 sm:h-16 sm:w-[150px]"
+              style={{
+                backgroundImage: "url('/donis-logo.png')",
+                backgroundPosition: "center",
+                backgroundRepeat: "no-repeat",
+                backgroundSize: "88% auto",
+                filter: "brightness(0)",
+              }}
             />
             <span
               aria-hidden="true"
-              className="font-serif text-lg font-semibold uppercase tracking-tight text-[#211d19] sm:text-2xl"
+              className="hidden font-serif text-lg font-semibold tracking-tight text-[#211d19] sm:inline sm:text-xl"
             >
-              Trattoria
+              Doni’s Trattoria
             </span>
           </a>
           <nav
             aria-label={lang === "sv" ? "Huvudmeny" : "Main menu"}
-            className="order-3 flex w-full gap-5 overflow-x-auto text-xs font-bold uppercase tracking-widest text-white/85 lg:order-2 lg:w-auto"
+            className="col-span-3 row-start-2 flex w-full justify-center gap-5 overflow-x-auto text-xs font-bold uppercase tracking-widest text-white/85 lg:col-span-1 lg:col-start-2 lg:row-start-1 lg:w-auto"
           >
             <a className="min-h-11 shrink-0 py-3" href="#om">
               {t.about}
@@ -213,7 +219,7 @@ export function DonisTrattoriaExperience({
             </a>
           </nav>
           <div
-            className="order-2 flex rounded-full border border-white/40 p-1 lg:order-3"
+            className="col-start-3 row-start-1 flex justify-self-end rounded-full border border-white/40 p-1"
             aria-label={lang === "sv" ? "Språk" : "Language"}
           >
             {(["sv", "en"] as const).map((option) => (
