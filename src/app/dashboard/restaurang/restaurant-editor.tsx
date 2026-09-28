@@ -474,21 +474,31 @@ export function RestaurantEditor({
             </a>
           </div>
         </div>
-        <div className="mt-3 flex items-center justify-between gap-3 border-t border-[#eee5d8] pt-3 text-xs sm:text-sm">
+        <div className="mt-3 flex items-center justify-between gap-2 border-t border-[#eee5d8] pt-3 text-xs sm:text-sm">
           <div className="min-w-0">
             <strong aria-live="polite">{status}</strong>
             <span className="ml-2 hidden text-[#665b50] sm:inline">
               Redigera → Förhandsgranska → Publicera
             </span>
           </div>
-          <a
-            href="/demo/donis-trattoria"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="shrink-0 font-semibold text-[#572e28] underline underline-offset-4"
-          >
-            Öppna webbplats ↗
-          </a>
+          <div className="flex shrink-0 items-center gap-2">
+            <button
+              type="button"
+              disabled={!dirty || busy}
+              onClick={save}
+              className="min-h-9 rounded-lg bg-[#572e28] px-3 text-xs font-bold text-white disabled:opacity-40 sm:hidden"
+            >
+              {busy ? "Sparar…" : "Spara"}
+            </button>
+            <a
+              href="/demo/donis-trattoria"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="font-semibold text-[#572e28] underline underline-offset-4"
+            >
+              Öppna webbplats ↗
+            </a>
+          </div>
         </div>
         {notice && (
           <p
@@ -1276,7 +1286,7 @@ export function RestaurantEditor({
       </div>
       <div
         style={{ paddingBottom: "calc(0.5rem + env(safe-area-inset-bottom))" }}
-        className="sticky bottom-0 z-20 mt-6 grid grid-cols-2 gap-2 rounded-xl border border-[#d9cfc1] bg-[#f8f3ea]/95 p-2 shadow-lg backdrop-blur"
+        className="z-20 mt-6 grid grid-cols-2 gap-2 rounded-xl border border-[#d9cfc1] bg-[#f8f3ea]/95 p-2 shadow-lg backdrop-blur sm:sticky sm:bottom-0"
       >
         <button
           type="button"
