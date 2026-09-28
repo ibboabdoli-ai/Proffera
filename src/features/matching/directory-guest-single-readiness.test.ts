@@ -460,7 +460,7 @@ describe("single-request Marketplace readiness gate", () => {
     it("rejects a previously verified point after the canonical SCB workplace snapshot advances", async () => {
       if (!client) throw new Error("PostgreSQL test client is not initialized");
       await client.query(
-        "update quote_requests set customer_latitude = 59.1955, customer_longitude = 17.6253 where id = $1::uuid",
+        "update quote_requests set customer_location_source = 'geolocation', customer_latitude = 59.1955, customer_longitude = 17.6253 where id = $1::uuid",
         [leadRow.id],
       );
       await client.query(
