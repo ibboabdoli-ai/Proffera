@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, type ChangeEvent } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import type { RestaurantSite } from "@/lib/restaurant-site-schema";
 import { parseRestaurantPrice } from "@/lib/restaurant-price";
 import { saveDraft } from "./actions";
@@ -105,21 +105,27 @@ function PriceInput({
 export function RestaurantEditor({
   initial,
   images: initialImages,
+  referenceDishImages = {},
 }: {
   initial: {
     draft: RestaurantSite;
     published: RestaurantSite | null;
     revision: number;
     publishedRevision: number | null;
+    starter?: boolean;
   };
   images: Media[];
+  referenceDishImages?: Record<string, string>;
 }) {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const locale = searchParams.get("lang") === "en" ? "en" : "sv";
   const [site, setSite] = useState(initial.draft);
   const [images, setImages] = useState(initialImages);
   const [revision, setRevision] = useState(initial.revision);
   const publishedRevision = initial.publishedRevision;
-  const [dirty, setDirty] = useState(false);
+  const starter = Boolean(initial.starter);
+  const [dirty, setDirty] = useState(starter);
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState("");
   const [section, setSection] = useState<Section>("menu");
@@ -136,7 +142,9 @@ export function RestaurantEditor({
     }
 
     const warning =
-      "Du har osparade ändringar. Lämna sidan och kasta ändringarna?";
+      locale === "en"
+        ? "You have unsaved changes. Leave this page and discard them?"
+        : "Du har osparade ändringar. Lämna sidan och kasta ändringarna?";
 
     const confirmNavigation = () => {
       if (allowNavigationRef.current) return true;
@@ -218,7 +226,7 @@ export function RestaurantEditor({
       document.removeEventListener("click", onDocumentClick, true);
       document.removeEventListener("submit", onDocumentSubmit, true);
     };
-  }, [dirty]);
+  }, [dirty, locale]);
 
   function edit(change: (next: RestaurantSite) => void) {
     if (busy) return;
@@ -293,15 +301,30 @@ export function RestaurantEditor({
     setPhoto: (
       image: { id: string; alt: { sv: string; en: string } } | null,
     ) => void,
+    referenceUrl?: string,
   ) {
+    const currentImage = current
+      ? images.find((image) => image.id === current.id)
+      : undefined;
     return (
       <div className="grid gap-3">
-        {current && images.find((image) => image.id === current.id) ? (
+        {currentImage ? (
           <img
-            src={images.find((image) => image.id === current.id)?.url}
-            alt={current.alt.sv}
-            className="h-36 w-full rounded-lg object-cover"
+            src={currentImage.url}
+            alt={current?.alt[locale] || current?.alt.sv || ""}
+            className="aspect-[4/3] max-h-64 w-full rounded-xl object-cover"
           />
+        ) : referenceUrl ? (
+          <div className="rounded-xl border border-[#d9cfc1] bg-[#fffaf3] p-2">
+            <img
+              src={referenceUrl}
+              alt=""
+              className="aspect-[4/3] max-h-64 w-full rounded-lg object-cover"
+            />
+            <p className="mt-2 text-xs leading-5 text-[#665b50]">
+              Referensbild från nuvarande demosida. Ladda upp en ny bild för att ersätta den.
+            </p>
+          </div>
         ) : null}
         <select
           className={input}
@@ -410,19 +433,72 @@ export function RestaurantEditor({
       : "Publicerad";
 
   return (
-    <main className="mx-auto max-w-6xl bg-[#f8f3ea] px-4 pb-28 pt-6 text-[#221d19] sm:px-8 sm:pb-10">
-      <header className="border-b border-[#d9cfc1] pb-5">
-        <p className="text-xs font-bold uppercase tracking-widest text-[#8a493a]">
-          Doni’s Trattoria · Ägarvy
-        </p>
-        <h1 className="mt-2 font-serif text-3xl sm:text-4xl">
-          Hantera restaurangen
-        </h1>
-        <div className="mt-4 flex flex-wrap items-center gap-3 text-sm">
-          <strong aria-live="polite">{status}</strong>
-          <span className="text-[#665b50]">
-            Redigera → Förhandsgranska → Publicera
-          </span>
+    <main className="mx-auto max-w-6xl bg-[#f8f3ea] px-3 pb-8 pt-3 text-[#221d19] sm:px-8 sm:pb-10 sm:pt-6">
+      <header className="rounded-2xl border border-[#d9cfc1] bg-white p-3 shadow-sm sm:p-5">
+        <div className="flex items-center gap-3">
+          <span
+            aria-hidden="true"
+            className="h-10 w-20 shrink-0 rounded-lg bg-[#f6ead6] sm:h-12 sm:w-24"
+            style={{
+              backgroundImage: "url('/donis-logo.png')",
+              backgroundPosition: "center",
+              backgroundRepeat: "no-repeat",
+              backgroundSize: "84% auto",
+            }}
+          />
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-[10px] font-bold uppercase tracking-[0.16em] text-[#8a493a] sm:text-xs">
+              Doni’s Trattoria · Ägarvy
+            </p>
+            <h1 className="mt-0.5 font-serif text-xl leading-tight sm:text-3xl">
+              Hantera restaurangen
+            </h1>
+          </div>
+          <div
+            className="flex shrink-0 rounded-lg border border-[#cfc4b5] bg-[#f8f3ea] p-1 text-xs font-bold"
+            aria-label="Språk"
+          >
+            <a
+              href="/dashboard/restaurang"
+              aria-current={locale === "sv" ? "page" : undefined}
+              className={`rounded-md px-2.5 py-2 ${locale === "sv" ? "bg-[#572e28] text-white" : "text-[#342a23]"}`}
+            >
+              SV
+            </a>
+            <a
+              href="/dashboard/restaurang?lang=en"
+              aria-current={locale === "en" ? "page" : undefined}
+              className={`rounded-md px-2.5 py-2 ${locale === "en" ? "bg-[#572e28] text-white" : "text-[#342a23]"}`}
+            >
+              EN
+            </a>
+          </div>
+        </div>
+        <div className="mt-3 flex items-center justify-between gap-2 border-t border-[#eee5d8] pt-3 text-xs sm:text-sm">
+          <div className="min-w-0">
+            <strong aria-live="polite">{status}</strong>
+            <span className="ml-2 hidden text-[#665b50] sm:inline">
+              Redigera → Förhandsgranska → Publicera
+            </span>
+          </div>
+          <div className="flex shrink-0 items-center gap-2">
+            <button
+              type="button"
+              disabled={!dirty || busy}
+              onClick={save}
+              className="min-h-9 rounded-lg bg-[#572e28] px-3 text-xs font-bold text-white disabled:opacity-40 sm:hidden"
+            >
+              {busy ? "Sparar…" : "Spara"}
+            </button>
+            <a
+              href="/demo/donis-trattoria"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="font-semibold text-[#572e28] underline underline-offset-4"
+            >
+              Öppna webbplats ↗
+            </a>
+          </div>
         </div>
         {notice && (
           <p
@@ -433,12 +509,17 @@ export function RestaurantEditor({
           </p>
         )}
       </header>
+      {starter && (
+        <div className="mt-3 rounded-xl border border-[#d8c6a7] bg-[#fff7e8] p-3 text-sm leading-6 text-[#5d4b37]">
+          Startinnehållet från demosidan är inlagt för redigering. Kontrollera priser, texter och bilder, ladda upp restaurangens egna bilder och spara utkastet.
+        </div>
+      )}
       <div
         className={`mt-6 grid gap-8 md:grid-cols-[170px_minmax(0,1fr)] ${busy ? "pointer-events-none opacity-60" : ""}`}
       >
         <nav
           aria-label="Restaurangadministration"
-          className="flex gap-1 overflow-x-auto border-b border-[#d9cfc1] pb-2 md:flex-col md:border-b-0"
+          className="grid grid-cols-3 gap-2 border-b border-[#d9cfc1] pb-3 md:flex md:flex-col md:border-b-0"
         >
           {sections.map((item) => (
             <button
@@ -448,7 +529,7 @@ export function RestaurantEditor({
                 setSection(item.id);
                 setSelectedDish(null);
               }}
-              className={`min-h-11 shrink-0 rounded-lg px-4 text-left text-sm font-semibold ${section === item.id ? "bg-[#572e28] text-white" : "hover:bg-[#eee5d8]"}`}
+              className={`min-h-11 rounded-lg px-2 text-center text-xs font-semibold sm:text-sm md:px-4 md:text-left ${section === item.id ? "bg-[#572e28] text-white" : "bg-white hover:bg-[#eee5d8]"}`}
             >
               {item.label}
             </button>
@@ -473,7 +554,7 @@ export function RestaurantEditor({
                       next.dishes.push({
                         id,
                         categoryId: next.categories[0].id,
-                        name: "Ny rätt",
+                        name: locale === "en" ? "New dish" : "Ny rätt",
                         priceOre: null,
                         description: { sv: "", en: "" },
                         image: null,
@@ -542,7 +623,7 @@ export function RestaurantEditor({
                     >
                       {site.categories.map((category) => (
                         <option key={category.id} value={category.id}>
-                          {category.name.sv}
+                          {category.name[locale] || category.name.sv}
                         </option>
                       ))}
                     </select>
@@ -574,11 +655,14 @@ export function RestaurantEditor({
                       placeholder="Beskriv det som syns på bilden"
                     />
                   </label>
-                  {photoPicker(dish.image, (photo) =>
-                    edit((next) => {
-                      next.dishes.find((item) => item.id === dish.id)!.image =
-                        photo;
-                    }),
+                  {photoPicker(
+                    dish.image,
+                    (photo) =>
+                      edit((next) => {
+                        next.dishes.find((item) => item.id === dish.id)!.image =
+                          photo;
+                      }),
+                    referenceDishImages[dish.id],
                   )}
                   <div className="flex flex-wrap gap-2">
                     <button
@@ -615,7 +699,7 @@ export function RestaurantEditor({
                     .map((category) => (
                       <div key={category.id}>
                         <h3 className="mt-5 font-serif text-xl">
-                          {category.name.sv}{" "}
+                          {category.name[locale] || category.name.sv}{" "}
                           {category.hidden && (
                             <small className="text-sm">(dold kategori)</small>
                           )}
@@ -626,99 +710,149 @@ export function RestaurantEditor({
                               item.categoryId === category.id && !item.archived,
                           )
                           .sort((a, b) => a.sortOrder - b.sortOrder)
-                          .map((item, index, list) => (
-                            <div
-                              key={item.id}
-                              className="flex flex-wrap items-center gap-2 border-b border-[#e0d6c9] py-3"
-                            >
-                              <button
-                                className="min-h-11 min-w-0 flex-1 text-left font-semibold underline decoration-[#b5a797] underline-offset-4"
-                                onClick={() => setSelectedDish(item.id)}
+                          .map((item, index, list) => {
+                            const ownedImage = item.image
+                              ? images.find((image) => image.id === item.image?.id)?.url
+                              : undefined;
+                            const previewUrl =
+                              ownedImage ?? referenceDishImages[item.id];
+                            return (
+                              <article
+                                key={item.id}
+                                className="my-3 rounded-xl border border-[#ded3c5] bg-white p-3 shadow-sm"
                               >
-                                {item.name}
-                                <span className="ml-2 text-xs font-normal">
-                                  {item.hidden ? "Dold" : ""}
-                                </span>
-                              </button>
-                              <label className="text-xs">
-                                Pris (kr)
-                                <PriceInput
-                                  label={`Pris ${item.name}`}
-                                  className={`${input} w-24 text-right`}
-                                  value={item.priceOre}
-                                  disabled={busy}
-                                  onChange={(ore) =>
-                                    edit((next) => {
-                                      next.dishes.find(
-                                        (dish) => dish.id === item.id,
-                                      )!.priceOre = ore;
-                                    })
-                                  }
-                                />
-                              </label>
-                              <button
-                                className={button}
-                                aria-label={`${item.hidden ? "Visa" : "Dölj"} ${item.name}`}
-                                onClick={() =>
-                                  edit((next) => {
-                                    next.dishes.find(
-                                      (dish) => dish.id === item.id,
-                                    )!.hidden = !item.hidden;
-                                  })
-                                }
-                              >
-                                {item.hidden ? "Visa" : "Dölj"}
-                              </button>
-                              <button
-                                className={button}
-                                disabled={index === 0}
-                                aria-label={`Flytta upp ${item.name}`}
-                                onClick={() =>
-                                  edit((next) =>
-                                    move(
-                                      next.dishes
-                                        .filter(
-                                          (dish) =>
-                                            dish.categoryId === category.id &&
-                                            !dish.archived,
+                                <div className="grid grid-cols-[64px_minmax(0,1fr)] gap-3">
+                                  <button
+                                    type="button"
+                                    onClick={() => setSelectedDish(item.id)}
+                                    className="h-16 w-16 overflow-hidden rounded-lg bg-[#eee5d8]"
+                                    aria-label={`Redigera ${item.name}`}
+                                  >
+                                    {previewUrl ? (
+                                      <img
+                                        src={previewUrl}
+                                        alt=""
+                                        className="h-full w-full object-cover"
+                                      />
+                                    ) : (
+                                      <span className="flex h-full items-center justify-center text-[10px] font-semibold text-[#7b6d60]">
+                                        Ingen bild
+                                      </span>
+                                    )}
+                                  </button>
+                                  <div className="min-w-0">
+                                    <div className="flex items-start justify-between gap-2">
+                                      <button
+                                        type="button"
+                                        className="min-h-8 min-w-0 text-left text-base font-bold underline decoration-[#b5a797] underline-offset-4"
+                                        onClick={() => setSelectedDish(item.id)}
+                                      >
+                                        {item.name}
+                                      </button>
+                                      {item.hidden && (
+                                        <span className="shrink-0 rounded-full bg-[#eee5d8] px-2 py-1 text-[10px] font-bold uppercase tracking-wide text-[#6c5a4d]">
+                                          Dold
+                                        </span>
+                                      )}
+                                    </div>
+                                    <div className="mt-2 grid grid-cols-[minmax(0,1fr)_auto] items-end gap-2">
+                                      <label className="text-xs font-semibold">
+                                        Pris (kr)
+                                        <PriceInput
+                                          label={`Pris ${item.name}`}
+                                          className={`${input} mt-1 min-h-10 w-full text-right`}
+                                          value={item.priceOre}
+                                          disabled={busy}
+                                          onChange={(ore) =>
+                                            edit((next) => {
+                                              next.dishes.find(
+                                                (dish) => dish.id === item.id,
+                                              )!.priceOre = ore;
+                                            })
+                                          }
+                                        />
+                                      </label>
+                                      <button
+                                        type="button"
+                                        className="min-h-10 rounded-lg bg-[#572e28] px-3 text-xs font-bold text-white"
+                                        onClick={() => setSelectedDish(item.id)}
+                                      >
+                                        Redigera
+                                      </button>
+                                    </div>
+                                  </div>
+                                </div>
+                                <div className="mt-3 flex items-center justify-between gap-2 border-t border-[#eee5d8] pt-3">
+                                  <button
+                                    type="button"
+                                    className={button}
+                                    aria-label={`${item.hidden ? "Visa" : "Dölj"} ${item.name}`}
+                                    onClick={() =>
+                                      edit((next) => {
+                                        next.dishes.find(
+                                          (dish) => dish.id === item.id,
+                                        )!.hidden = !item.hidden;
+                                      })
+                                    }
+                                  >
+                                    {item.hidden ? "Visa" : "Dölj"}
+                                  </button>
+                                  <div className="flex gap-2">
+                                    <button
+                                      type="button"
+                                      className={button}
+                                      disabled={index === 0}
+                                      aria-label={`Flytta upp ${item.name}`}
+                                      onClick={() =>
+                                        edit((next) =>
+                                          move(
+                                            next.dishes
+                                              .filter(
+                                                (dish) =>
+                                                  dish.categoryId === category.id &&
+                                                  !dish.archived,
+                                              )
+                                              .sort(
+                                                (a, b) => a.sortOrder - b.sortOrder,
+                                              ),
+                                            index,
+                                            -1,
+                                          ),
                                         )
-                                        .sort(
-                                          (a, b) => a.sortOrder - b.sortOrder,
-                                        ),
-                                      index,
-                                      -1,
-                                    ),
-                                  )
-                                }
-                              >
-                                ↑
-                              </button>
-                              <button
-                                className={button}
-                                disabled={index === list.length - 1}
-                                aria-label={`Flytta ner ${item.name}`}
-                                onClick={() =>
-                                  edit((next) =>
-                                    move(
-                                      next.dishes
-                                        .filter(
-                                          (dish) =>
-                                            dish.categoryId === category.id &&
-                                            !dish.archived,
+                                      }
+                                    >
+                                      ↑
+                                    </button>
+                                    <button
+                                      type="button"
+                                      className={button}
+                                      disabled={index === list.length - 1}
+                                      aria-label={`Flytta ner ${item.name}`}
+                                      onClick={() =>
+                                        edit((next) =>
+                                          move(
+                                            next.dishes
+                                              .filter(
+                                                (dish) =>
+                                                  dish.categoryId === category.id &&
+                                                  !dish.archived,
+                                              )
+                                              .sort(
+                                                (a, b) => a.sortOrder - b.sortOrder,
+                                              ),
+                                            index,
+                                            1,
+                                          ),
                                         )
-                                        .sort(
-                                          (a, b) => a.sortOrder - b.sortOrder,
-                                        ),
-                                      index,
-                                      1,
-                                    ),
-                                  )
-                                }
-                              >
-                                ↓
-                              </button>
-                            </div>
-                          ))}
+                                      }
+                                    >
+                                      ↓
+                                    </button>
+                                  </div>
+                                </div>
+                              </article>
+                            );
+                          })}
                         {!site.dishes.some(
                           (item) =>
                             item.categoryId === category.id && !item.archived,
@@ -763,7 +897,7 @@ export function RestaurantEditor({
                   edit((next) =>
                     next.categories.push({
                       id: crypto.randomUUID(),
-                      name: { sv: "Ny kategori", en: "" },
+                      name: { sv: "Ny kategori", en: "New category" },
                       sortOrder: next.categories.length,
                       hidden: false,
                     }),
@@ -1151,23 +1285,28 @@ export function RestaurantEditor({
         </div>
       </div>
       <div
-        style={{ paddingBottom: "calc(0.75rem + env(safe-area-inset-bottom))" }}
-        className="fixed inset-x-0 bottom-0 z-30 flex items-center justify-between gap-3 border-t border-[#d9cfc1] bg-[#f8f3ea] p-3 shadow-lg sm:sticky sm:bottom-0 sm:mt-8 sm:rounded-lg"
+        style={{ paddingBottom: "calc(0.5rem + env(safe-area-inset-bottom))" }}
+        className="z-20 mt-6 grid grid-cols-2 gap-2 rounded-xl border border-[#d9cfc1] bg-[#f8f3ea]/95 p-2 shadow-lg backdrop-blur sm:sticky sm:bottom-0"
       >
-        <span className="hidden text-sm sm:block">{status}</span>
         <button
           type="button"
           disabled={!dirty || busy}
           onClick={save}
-          className="min-h-12 flex-1 rounded-lg bg-[#572e28] px-5 font-bold text-white disabled:opacity-50 sm:flex-none"
+          className="min-h-11 rounded-lg bg-[#572e28] px-3 text-sm font-bold text-white disabled:opacity-50"
         >
           {busy ? "Sparar…" : "Spara utkast"}
         </button>
         <button
           type="button"
           disabled={dirty || busy || revision === 0}
-          onClick={() => router.push("/dashboard/restaurang/forhandsgranska")}
-          className={`${button} flex-1 disabled:opacity-50 sm:flex-none`}
+          onClick={() =>
+            router.push(
+              locale === "en"
+                ? "/dashboard/restaurang/forhandsgranska?lang=en"
+                : "/dashboard/restaurang/forhandsgranska",
+            )
+          }
+          className={`${button} min-h-11 bg-white px-3 text-sm disabled:opacity-50`}
         >
           Förhandsgranska →
         </button>
