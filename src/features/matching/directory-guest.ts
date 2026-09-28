@@ -437,15 +437,19 @@ export async function getDirectoryGuestLeadMatches() {
           category.label as service_category,
           case
             when location.geocoded_at is not null
-              and scb.last_synced_at is not null
-              and location.geocoded_at >= scb.last_synced_at
+              and location.geocoded_at >= coalesce(
+                nullif(scb.provenance #>> '{workplaceChangedAt}', '')::timestamptz,
+                scb.last_synced_at
+              )
             then location.latitude::float8
             else null
           end as latitude,
           case
             when location.geocoded_at is not null
-              and scb.last_synced_at is not null
-              and location.geocoded_at >= scb.last_synced_at
+              and location.geocoded_at >= coalesce(
+                nullif(scb.provenance #>> '{workplaceChangedAt}', '')::timestamptz,
+                scb.last_synced_at
+              )
             then location.longitude::float8
             else null
           end as longitude,
@@ -454,8 +458,10 @@ export async function getDirectoryGuestLeadMatches() {
           location.geocode_confidence,
           case
             when location.geocoded_at is not null
-              and scb.last_synced_at is not null
-              and location.geocoded_at >= scb.last_synced_at
+              and location.geocoded_at >= coalesce(
+                nullif(scb.provenance #>> '{workplaceChangedAt}', '')::timestamptz,
+                scb.last_synced_at
+              )
             then location.geocoded_at::text
             else null
           end as geocoded_at,

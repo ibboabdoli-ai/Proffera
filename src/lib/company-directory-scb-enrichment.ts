@@ -160,7 +160,8 @@ async function saveScbEnrichment(
       ${profileId}::uuid, ${data.organizationNumber}, ${text(data.legalName)},
       ${text(data.phone)}, ${text(data.email)}, ${postalAddress}::jsonb,
       ${text(data.municipality)}, ${sniCodes}::jsonb, ${workplaces}::jsonb,
-      ${provenance}::jsonb, ${conflictPayload}::jsonb, ${sourcePayloadHash},
+      (${provenance}::jsonb || jsonb_build_object('workplaceChangedAt', now()::text)),
+      ${conflictPayload}::jsonb, ${sourcePayloadHash},
       now(), now()
     )
     on conflict (profile_id) do update set
@@ -172,7 +173,17 @@ async function saveScbEnrichment(
       municipality = excluded.municipality,
       sni_codes = excluded.sni_codes,
       workplaces = excluded.workplaces,
-      provenance = excluded.provenance,
+      provenance = excluded.provenance || jsonb_build_object(
+        'workplaceChangedAt',
+        case
+          when company_directory_scb_enrichment.workplaces is distinct from excluded.workplaces
+            then now()::text
+          else coalesce(
+            company_directory_scb_enrichment.provenance #>> '{workplaceChangedAt}',
+            company_directory_scb_enrichment.created_at::text
+          )
+        end
+      ),
       conflicts = excluded.conflicts,
       source_payload_hash = excluded.source_payload_hash,
       last_synced_at = now(),

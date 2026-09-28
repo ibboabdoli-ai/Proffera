@@ -79,7 +79,7 @@ describe("Company Directory service-city SEO landings", () => {
     expect(mocks.query).toContain("facts.source_payload_hash <> ''");
     expect(mocks.query).toContain("facts.last_synced_at >= profile.last_synced_at");
     expect(mocks.query).toContain("facts.deregistration_date is null");
-    expect(mocks.query).toContain("coalesce(facts.advertising_blocked, false) = false");
+    expect(mocks.query).toContain("facts.advertising_blocked is false");
     expect(mocks.query).toContain("scb.source_payload_hash <> ''");
     expect(mocks.query).toContain("scb.last_synced_at >= now() - interval '7 days'");
     expect(mocks.query).toContain("comparisonSnapshot,profileUpdatedToken");

@@ -153,7 +153,7 @@ export async function getPublishedDirectoryLocationSuggestions(limit = 50) {
                 and published_facts.source_payload_hash <> ''
                 and published_facts.last_synced_at >= profile.last_synced_at
                 and published_facts.deregistration_date is null
-                and coalesce(published_facts.advertising_blocked, false) = false
+                and published_facts.advertising_blocked is false
                 and (
                   case
                     when jsonb_typeof(published_facts.ongoing_procedures) = 'array'
@@ -198,7 +198,7 @@ export async function getPublishedDirectoryLocationSuggestions(limit = 50) {
                     and claimed_facts.source_payload_hash <> ''
                     and claimed_facts.last_synced_at >= profile.last_synced_at
                     and claimed_facts.deregistration_date is null
-                    and coalesce(claimed_facts.advertising_blocked, false) = false
+                    and claimed_facts.advertising_blocked is false
                     and (
                       case
                         when jsonb_typeof(claimed_facts.ongoing_procedures) = 'array'
@@ -457,7 +457,7 @@ export async function searchPublishedCompanyDirectory(
                 and published_facts.source_payload_hash <> ''
                 and published_facts.last_synced_at >= profile.last_synced_at
                 and published_facts.deregistration_date is null
-                and coalesce(published_facts.advertising_blocked, false) = false
+                and published_facts.advertising_blocked is false
                 and (
                   case
                     when jsonb_typeof(published_facts.ongoing_procedures) = 'array'
@@ -502,7 +502,7 @@ export async function searchPublishedCompanyDirectory(
                     and claimed_facts.source_payload_hash <> ''
                     and claimed_facts.last_synced_at >= profile.last_synced_at
                     and claimed_facts.deregistration_date is null
-                    and coalesce(claimed_facts.advertising_blocked, false) = false
+                    and claimed_facts.advertising_blocked is false
                     and (
                       case
                         when jsonb_typeof(claimed_facts.ongoing_procedures) = 'array'
@@ -778,7 +778,7 @@ export async function searchPublishedCompanyDirectory(
                 and published_facts.source_payload_hash <> ''
                 and published_facts.last_synced_at >= profile.last_synced_at
                 and published_facts.deregistration_date is null
-                and coalesce(published_facts.advertising_blocked, false) = false
+                and published_facts.advertising_blocked is false
                 and (
                   case
                     when jsonb_typeof(published_facts.ongoing_procedures) = 'array'
@@ -823,7 +823,7 @@ export async function searchPublishedCompanyDirectory(
                     and claimed_facts.source_payload_hash <> ''
                     and claimed_facts.last_synced_at >= profile.last_synced_at
                     and claimed_facts.deregistration_date is null
-                    and coalesce(claimed_facts.advertising_blocked, false) = false
+                    and claimed_facts.advertising_blocked is false
                     and (
                       case
                         when jsonb_typeof(claimed_facts.ongoing_procedures) = 'array'

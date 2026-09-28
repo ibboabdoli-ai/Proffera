@@ -90,7 +90,7 @@ async function locationSuggestionsAuthorityBoundary(value: DirectoryLocationSugg
         and facts.source_payload_hash <> ''
         and facts.last_synced_at >= profile.last_synced_at
         and facts.deregistration_date is null
-        and coalesce(facts.advertising_blocked, false) = false
+        and facts.advertising_blocked is false
         and (
           case
             when jsonb_typeof(facts.ongoing_procedures) = 'array'
@@ -259,15 +259,10 @@ export async function getCachedPublishedDirectoryLocationSuggestions(limit = 24)
     }
   }
 
-  // A cache tag invalidation can race with an in-flight cache fill. Never let
-  // the persisted candidate become the final authority decision: compare it to
-  // one live canonical read before returning it. This prevents a stale value
-  // written after invalidation from being served on subsequent requests.
-  const live = await getPublishedDirectoryLocationSuggestions(safeLimit);
-  return sameOrderedStrings(
-    normalizedLocationLabels(cached.value),
-    normalizedLocationLabels(live),
-  ) ? cached.value : live;
+  // The fill-time canonical re-read closes invalidation-during-fill races.
+  // Valid envelopes are reusable until their authority deadline; committed
+  // authority writers invalidate this tag when eligibility changes.
+  return cached.value;
 }
 
 export async function getCachedMarketplaceHomeCompanies(limit = 4) {
@@ -286,14 +281,10 @@ export async function getCachedMarketplaceHomeCompanies(limit = 4) {
     }
   }
 
-  // Treat the cross-request cache as a candidate only. A live canonical search
-  // on every return prevents a stale fill that raced after tag invalidation
-  // from making an ineligible provider persist for the cache TTL.
-  const live = await searchPublishedBusinessProfiles({ limit: safeLimit, sort: "recommended" });
-  return sameOrderedStrings(
-    normalizedMarketplaceProfileIds(cached.value),
-    normalizedMarketplaceProfileIds(live),
-  ) ? cached.value : live;
+  // The fill-time canonical re-read closes invalidation-during-fill races.
+  // Valid envelopes are reusable until their authority deadline; committed
+  // authority writers invalidate this tag when eligibility changes.
+  return cached.value;
 }
 
 export async function getCachedPublicBusinessSitemapEntries() {

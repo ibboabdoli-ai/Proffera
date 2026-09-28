@@ -881,9 +881,26 @@ export async function sendMarketplaceGuestQuoteInvitation(input: {
         throw error;
       }
       if (!dispatchRows[0]?.id) {
+        const retryState = await readCurrentInvitationAuthorityState(sql, invitationId, tokenHash);
+        if (Boolean(retryState?.recipient_suppressed) || String(retryState?.status) === "suppressed") {
+          return { ok: false as const, code: "suppressed" };
+        }
+        try {
+          await sql`
+            update marketplace_quote_invitations invitation
+            set status = 'delivery_failed',
+                dispatch_token = null,
+                updated_at = now()
+            where invitation.id = ${invitationId}::uuid
+              and invitation.status = 'sending'
+              and invitation.dispatch_token = ${dispatchToken}::uuid
+          `;
+        } catch (error) {
+          console.error("Failed to release Marketplace invitation after retried claim failure", { invitationId, error });
+        }
         return {
           ok: false as const,
-          code: String(stateRows[0]?.status) === "suppressed" ? "suppressed" : "conflict",
+          code: retryState && !Boolean(retryState.has_current_authority) ? "profile_ineligible" : "conflict",
         };
       }
     } else {
@@ -1472,7 +1489,7 @@ export async function submitMarketplaceGuestQuote(input: {
          and guarded_invitation.profile_id = authority_profile.id
         where authority_profile.id = ${String(row.profile_id)}::uuid
           and guarded_invitation.token_hash = ${tokenHash}
-          and guarded_invitation.status in ('pending', 'sending', 'sent', 'viewed', 'delivery_failed', 'delivery_uncertain')
+          and guarded_invitation.status in ('pending', 'sending', 'sent', 'viewed', 'delivery_failed', 'delivery_uncertain', 'responded')
           and not exists (
             select 1
             from marketplace_outreach_suppressions suppression

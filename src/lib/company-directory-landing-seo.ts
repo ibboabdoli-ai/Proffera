@@ -62,7 +62,7 @@ export async function listDirectorySeoLandings(): Promise<DirectorySeoLanding[]>
          and facts.source_payload_hash <> ''
          and facts.last_synced_at >= profile.last_synced_at
          and facts.deregistration_date is null
-         and coalesce(facts.advertising_blocked, false) = false
+         and facts.advertising_blocked is false
          and (
            case
              when jsonb_typeof(facts.ongoing_procedures) = 'array'

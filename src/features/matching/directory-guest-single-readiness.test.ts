@@ -114,7 +114,7 @@ describe("single-request Marketplace readiness gate", () => {
     expect(candidateQuery).toContain("scb.workplaces->0->'visitingAddress'->>'city' as city");
     expect(candidateQuery).toContain("scb.workplaces->0->>'municipality' as municipality");
     expect(candidateQuery).toContain("lower(btrim(scb.workplaces->0->'visitingAddress'->>'city'))");
-    expect(candidateQuery).toContain("location.geocoded_at >= scb.last_synced_at");
+    expect(candidateQuery).toContain("workplaceChangedAt");
     expect(candidateQuery).not.toContain("lower(btrim(profile.city))");
   });
 
@@ -481,7 +481,7 @@ describe("single-request Marketplace readiness gate", () => {
     it.each([
       [
         "stale SCB timestamp",
-        "update company_directory_scb_enrichment set last_synced_at = now() - interval '8 days'",
+        "update company_directory_scb_enrichment set last_synced_at = now() - interval '8 days'; update company_directory_profiles set last_synced_at = now() - interval '9 days'",
       ],
       [
         "mismatched profileUpdatedToken",

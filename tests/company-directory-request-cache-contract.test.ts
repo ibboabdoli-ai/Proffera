@@ -150,7 +150,7 @@ describe("company directory shared-cache route contract", () => {
       expect(candidate).toContain("published_facts.source_payload_hash <> ''");
       expect(candidate).toContain("published_facts.last_synced_at >=");
       expect(candidate).toContain("published_facts.deregistration_date is null");
-      expect(candidate).toContain("coalesce(published_facts.advertising_blocked, false) = false");
+      expect(candidate).toContain("published_facts.advertising_blocked is false");
       expect(candidate).toContain("published_scb.source_payload_hash <> ''");
       expect(candidate).toContain("published_scb.last_synced_at >= now() - interval '7 days'");
       expect(candidate).toContain("comparisonSnapshot,profileUpdatedToken");
@@ -185,7 +185,7 @@ describe("company directory shared-cache route contract", () => {
       expect(candidate).toContain("lower(btrim(owner_base.city)) = any");
       expect(candidate).not.toContain("lower(btrim(owner_base.municipality)) = any");
       expect(candidate).toContain("claimed_facts.deregistration_date is null");
-      expect(candidate).toContain("coalesce(claimed_facts.advertising_blocked, false) = false");
+      expect(candidate).toContain("claimed_facts.advertising_blocked is false");
       expect(candidate).toContain("jsonb_typeof(claimed_facts.ongoing_procedures) = 'array'");
       expect(candidate).toContain("jsonb_typeof(claimed_scb.conflicts) = 'array'");
       expect(candidate).toContain("jsonb_typeof(claimed_scb.workplaces) = 'array'");

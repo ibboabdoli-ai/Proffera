@@ -73,7 +73,7 @@ describe("public company directory search contract", () => {
     expect(searchSource).toContain("lower(btrim(owner_base.city)) = any");
     expect(searchSource).not.toContain("lower(btrim(owner_base.municipality)) = any");
     expect(searchSource).toContain("claimed_facts.deregistration_date is null");
-    expect(searchSource).toContain("coalesce(claimed_facts.advertising_blocked, false) = false");
+    expect(searchSource).toContain("claimed_facts.advertising_blocked is false");
     expect(searchSource).toContain("jsonb_typeof(claimed_facts.ongoing_procedures) = 'array'");
     expect(searchSource).toContain("jsonb_typeof(claimed_scb.conflicts) = 'array'");
     expect(searchSource).toContain("jsonb_typeof(claimed_scb.workplaces) = 'array'");

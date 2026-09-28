@@ -65,8 +65,9 @@ function pilotRow(source: string, latitude: number | null = null, longitude: num
     longitude,
     geocode_source: source,
     geocoded_at: latitude === null ? null : "2026-09-28T04:00:00.000Z",
-    scb_last_synced_at: "2026-09-28T03:00:00.000Z",
-    scb_last_synced_token: "2026-09-28 03:00:00+00",
+    scb_last_synced_at: "2026-09-28T05:00:00.000Z",
+    scb_last_synced_token: "2026-09-28 05:00:00+00",
+    scb_workplace_changed_at: "2026-09-28T03:00:00.000Z",
     scb_workplaces: singleScbWorkplace,
     scb_conflicts: [],
   };
@@ -240,7 +241,7 @@ describe("Directory geocoding pilot canonical-address behavior", () => {
     const save = sqlCalls.find((call) => call.query.startsWith("with transformed as"));
     expect(save?.values).toContain(VERIFIED_SOURCE);
     expect(save?.query).toContain("current_scb.last_synced_at::text");
-    expect(save?.query).toContain("company_directory_business_locations.geocoded_at <");
+    expect(save?.query).toContain("company_directory_business_locations.geocoded_at < coalesce");
     expect(save?.values).toContain("2026-09-28 03:00:00+00");
   });
 

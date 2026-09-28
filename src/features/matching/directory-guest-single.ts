@@ -169,15 +169,19 @@ export async function getDirectoryGuestLeadMatch(quoteRequestId: string) {
           category.label as service_category,
           case
             when location.geocoded_at is not null
-              and scb.last_synced_at is not null
-              and location.geocoded_at >= scb.last_synced_at
+              and location.geocoded_at >= coalesce(
+                nullif(scb.provenance #>> '{workplaceChangedAt}', '')::timestamptz,
+                scb.last_synced_at
+              )
             then location.latitude::float8
             else null
           end as latitude,
           case
             when location.geocoded_at is not null
-              and scb.last_synced_at is not null
-              and location.geocoded_at >= scb.last_synced_at
+              and location.geocoded_at >= coalesce(
+                nullif(scb.provenance #>> '{workplaceChangedAt}', '')::timestamptz,
+                scb.last_synced_at
+              )
             then location.longitude::float8
             else null
           end as longitude,
@@ -186,8 +190,10 @@ export async function getDirectoryGuestLeadMatch(quoteRequestId: string) {
           location.geocode_confidence,
           case
             when location.geocoded_at is not null
-              and scb.last_synced_at is not null
-              and location.geocoded_at >= scb.last_synced_at
+              and location.geocoded_at >= coalesce(
+                nullif(scb.provenance #>> '{workplaceChangedAt}', '')::timestamptz,
+                scb.last_synced_at
+              )
             then location.geocoded_at::text
             else null
           end as geocoded_at,
@@ -267,8 +273,10 @@ export async function getDirectoryGuestLeadMatch(quoteRequestId: string) {
               ${originLatitude}::float8 is not null
               and ${originLongitude}::float8 is not null
               and location.geocoded_at is not null
-              and scb.last_synced_at is not null
-              and location.geocoded_at >= scb.last_synced_at
+              and location.geocoded_at >= coalesce(
+                nullif(scb.provenance #>> '{workplaceChangedAt}', '')::timestamptz,
+                scb.last_synced_at
+              )
               and 6371 * 2 * asin(
                 sqrt(
                   least(
