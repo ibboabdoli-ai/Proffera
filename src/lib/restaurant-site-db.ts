@@ -10,6 +10,10 @@ import {
   validateRestaurantSite,
   type RestaurantSite,
 } from "@/lib/restaurant-site-schema";
+import {
+  createDonisAdminStarterSite,
+  isRestaurantSiteBlank,
+} from "@/lib/donis-fallback";
 
 const slug = "donis-trattoria";
 
@@ -35,14 +39,18 @@ export async function getRestaurantAdmin() {
     return null;
   }
   if (!rows[0]) return null;
+  const draft = readSite(rows[0].draft);
+  const published = rows[0].published ? readSite(rows[0].published) : null;
+  const starter = !published && isRestaurantSiteBlank(draft);
   return {
-    draft: readSite(rows[0].draft),
-    published: rows[0].published ? readSite(rows[0].published) : null,
+    draft: starter ? createDonisAdminStarterSite() : draft,
+    published,
     revision: Number(rows[0].draft_revision),
     publishedRevision:
       rows[0].published_revision == null
         ? null
         : Number(rows[0].published_revision),
+    starter,
   };
 }
 
