@@ -240,7 +240,7 @@ function postgresSql(
         values ($1::uuid, 'vvs')
       `, [profileId]);
       await client!.query(
-        "insert into company_directory_official_facts (profile_id, source_payload_hash) values ($1::uuid, 'facts-hash')",
+        "insert into company_directory_official_facts (profile_id, source_payload_hash, advertising_blocked) values ($1::uuid, 'facts-hash', false)",
         [profileId],
       );
       await client!.query(`

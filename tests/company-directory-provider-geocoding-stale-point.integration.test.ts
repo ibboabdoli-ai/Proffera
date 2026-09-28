@@ -112,10 +112,11 @@ function postgresSql(client: Client) {
       await client!.query(`
         insert into company_directory_profiles (
           id, organization_number, organization_kind, legal_name, display_name,
-          public_slug, category_slug, publication_status, is_active, privacy_blocked
+          public_slug, category_slug, publication_status, is_active, privacy_blocked,
+          auto_public_eligible
         ) values (
           $1::uuid, '5560000000', 'juridical_person', 'Stale Point AB', 'Stale Point AB',
-          'stale-point-ab', 'vvs', 'published', true, false
+          'stale-point-ab', 'vvs', 'review', true, false, true
         )
       `, [PROFILE_ID]);
 
@@ -136,16 +137,35 @@ function postgresSql(client: Client) {
       `, [PROFILE_ID]);
 
       await client!.query(`
+        insert into company_directory_official_facts (
+          profile_id, source_payload_hash, advertising_blocked
+        ) values ($1::uuid, 'facts-hash', false)
+      `, [PROFILE_ID]);
+      await client!.query(`
         insert into company_directory_scb_enrichment (
           profile_id, organization_number, workplaces, conflicts, source_payload_hash,
           provenance, last_synced_at
-        ) values (
-          $1::uuid, '5560000000',
+        )
+        select
+          profile.id, profile.organization_number,
           '[{"cfarNumber":"12345678","municipality":"Södertälje","visitingAddress":{"addressLine":"Storgatan 1","postalCode":"151 00","city":"Södertälje"}}]'::jsonb,
           '[]'::jsonb, 'scb-hash',
-          jsonb_build_object('workplaceChangedAt', (now() - interval '1 hour')::text),
+          jsonb_build_object(
+            'workplaceChangedAt', (now() - interval '1 hour')::text,
+            'comparisonSnapshot', jsonb_build_object(
+              'profileUpdatedToken', profile.updated_at::text,
+              'officialFactsLastSyncedToken', facts.last_synced_at::text
+            )
+          ),
           now()
-        )
+        from company_directory_profiles profile
+        join company_directory_official_facts facts on facts.profile_id = profile.id
+        where profile.id = $1::uuid
+      `, [PROFILE_ID]);
+      await client!.query(`
+        update company_directory_profiles
+        set publication_status = 'published', published_at = now()
+        where id = $1::uuid
       `, [PROFILE_ID]);
 
       await client!.query(`

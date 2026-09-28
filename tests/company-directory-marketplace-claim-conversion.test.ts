@@ -210,7 +210,7 @@ describe("Marketplace company profile claim conversion", () => {
     const requiredFragments = [
       "claimed_facts.source_payload_hash <> ''",
       "claimed_facts.last_synced_at >= profile.last_synced_at",
-      "coalesce(claimed_facts.advertising_blocked, false) = false",
+      "claimed_facts.advertising_blocked is false",
       "claimed_scb.source_payload_hash <> ''",
       "claimed_scb.last_synced_at >= now() - interval '7 days'",
       "comparisonSnapshot,profileUpdatedToken",
