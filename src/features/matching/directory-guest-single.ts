@@ -167,12 +167,30 @@ export async function getDirectoryGuestLeadMatch(quoteRequestId: string) {
           relation.service_slug,
           service.label as service_name,
           category.label as service_category,
-          location.latitude::float8 as latitude,
-          location.longitude::float8 as longitude,
+          case
+            when location.geocoded_at is not null
+              and scb.last_synced_at is not null
+              and location.geocoded_at >= scb.last_synced_at
+            then location.latitude::float8
+            else null
+          end as latitude,
+          case
+            when location.geocoded_at is not null
+              and scb.last_synced_at is not null
+              and location.geocoded_at >= scb.last_synced_at
+            then location.longitude::float8
+            else null
+          end as longitude,
           location.geocode_source,
           location.geocode_precision,
           location.geocode_confidence,
-          location.geocoded_at::text as geocoded_at,
+          case
+            when location.geocoded_at is not null
+              and scb.last_synced_at is not null
+              and location.geocoded_at >= scb.last_synced_at
+            then location.geocoded_at::text
+            else null
+          end as geocoded_at,
           location.is_public as location_is_public,
           service_area.radius_km::float8 as service_area_radius_km,
           scb.email as recipient_email,
@@ -248,6 +266,9 @@ export async function getDirectoryGuestLeadMatch(quoteRequestId: string) {
             (
               ${originLatitude}::float8 is not null
               and ${originLongitude}::float8 is not null
+              and location.geocoded_at is not null
+              and scb.last_synced_at is not null
+              and location.geocoded_at >= scb.last_synced_at
               and 6371 * 2 * asin(
                 sqrt(
                   least(

@@ -213,6 +213,7 @@ describe("Marketplace company profile claim conversion", () => {
       "coalesce(claimed_facts.advertising_blocked, false) = false",
       "claimed_scb.source_payload_hash <> ''",
       "claimed_scb.last_synced_at >= now() - interval '7 days'",
+      "comparisonSnapshot,profileUpdatedToken",
       "comparisonSnapshot,officialFactsLastSyncedToken",
       "jsonb_array_length(claimed_scb.conflicts) = 0",
       "jsonb_array_length(claimed_scb.workplaces) = 1",
@@ -222,6 +223,12 @@ describe("Marketplace company profile claim conversion", () => {
     for (const fragment of requiredFragments) {
       expect(sourceText.split(fragment).length - 1, fragment).toBeGreaterThanOrEqual(2);
     }
+
+    const finalization = sourceText.slice(sourceText.indexOf("const finalized = await sql`"));
+    expect(finalization).toContain("for update of claimed_facts, claimed_scb");
+    expect(finalization).toContain("for update of claim, profile");
+    expect(finalization.indexOf("for update of claimed_facts, claimed_scb"))
+      .toBeLessThan(finalization.indexOf("for update of claim, profile"));
   });
 
   it("provisions the deterministic claim Workspace on the fully verified path", async () => {

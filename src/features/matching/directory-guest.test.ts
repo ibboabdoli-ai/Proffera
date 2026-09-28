@@ -33,6 +33,7 @@ describe("directory guest marketplace ranking", () => {
     expect(source).toContain("scb.last_synced_at >= now() - interval '7 days'");
     expect(source).toContain("comparisonSnapshot,profileUpdatedToken");
     expect(source).toContain("comparisonSnapshot,officialFactsLastSyncedToken");
+    expect(source).toContain("location.geocoded_at >= scb.last_synced_at");
     expect(source).not.toContain("where lower(btrim(profile.city)) = locality.locality");
     expect(source).not.toContain("or lower(btrim(profile.municipality)) = locality.locality");
   });

@@ -114,6 +114,7 @@ describe("single-request Marketplace readiness gate", () => {
     expect(candidateQuery).toContain("scb.workplaces->0->'visitingAddress'->>'city' as city");
     expect(candidateQuery).toContain("scb.workplaces->0->>'municipality' as municipality");
     expect(candidateQuery).toContain("lower(btrim(scb.workplaces->0->'visitingAddress'->>'city'))");
+    expect(candidateQuery).toContain("location.geocoded_at >= scb.last_synced_at");
     expect(candidateQuery).not.toContain("lower(btrim(profile.city))");
   });
 
@@ -454,6 +455,27 @@ describe("single-request Marketplace readiness gate", () => {
       const registeredLocality = await getDirectoryGuestLeadMatch(leadRow.id);
       expect(registeredLocality.ok).toBe(true);
       expect(registeredLocality.match?.candidates).toEqual([]);
+    });
+
+    it("rejects a previously verified point after the canonical SCB workplace snapshot advances", async () => {
+      if (!client) throw new Error("PostgreSQL test client is not initialized");
+      await client.query(
+        "update quote_requests set customer_latitude = 59.1955, customer_longitude = 17.6253 where id = $1::uuid",
+        [leadRow.id],
+      );
+      await client.query(
+        "update company_directory_business_locations set geocoded_at = now() - interval '2 hours' where profile_id = $1::uuid",
+        [candidateRow.profile_id],
+      );
+      await client.query(
+        "update company_directory_scb_enrichment set last_synced_at = now() - interval '30 minutes' where profile_id = $1::uuid",
+        [candidateRow.profile_id],
+      );
+
+      const result = await getDirectoryGuestLeadMatch(leadRow.id);
+
+      expect(result.ok).toBe(true);
+      expect(result.match?.candidates).toEqual([]);
     });
 
     it.each([
