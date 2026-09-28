@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, type ChangeEvent } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import type { RestaurantSite } from "@/lib/restaurant-site-schema";
 import { parseRestaurantPrice } from "@/lib/restaurant-price";
 import { saveDraft } from "./actions";
@@ -115,6 +115,8 @@ export function RestaurantEditor({
   images: Media[];
 }) {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const locale = searchParams.get("lang") === "en" ? "en" : "sv";
   const [site, setSite] = useState(initial.draft);
   const [images, setImages] = useState(initialImages);
   const [revision, setRevision] = useState(initial.revision);
@@ -136,7 +138,9 @@ export function RestaurantEditor({
     }
 
     const warning =
-      "Du har osparade ändringar. Lämna sidan och kasta ändringarna?";
+      locale === "en"
+        ? "You have unsaved changes. Leave this page and discard them?"
+        : "Du har osparade ändringar. Lämna sidan och kasta ändringarna?";
 
     const confirmNavigation = () => {
       if (allowNavigationRef.current) return true;
@@ -218,7 +222,7 @@ export function RestaurantEditor({
       document.removeEventListener("click", onDocumentClick, true);
       document.removeEventListener("submit", onDocumentSubmit, true);
     };
-  }, [dirty]);
+  }, [dirty, locale]);
 
   function edit(change: (next: RestaurantSite) => void) {
     if (busy) return;
@@ -299,7 +303,7 @@ export function RestaurantEditor({
         {current && images.find((image) => image.id === current.id) ? (
           <img
             src={images.find((image) => image.id === current.id)?.url}
-            alt={current.alt.sv}
+            alt={current.alt[locale] || current.alt.sv}
             className="h-36 w-full rounded-lg object-cover"
           />
         ) : null}
@@ -411,14 +415,63 @@ export function RestaurantEditor({
 
   return (
     <main className="mx-auto max-w-6xl bg-[#f8f3ea] px-4 pb-28 pt-6 text-[#221d19] sm:px-8 sm:pb-10">
-      <header className="border-b border-[#d9cfc1] pb-5">
-        <p className="text-xs font-bold uppercase tracking-widest text-[#8a493a]">
-          Doni’s Trattoria · Ägarvy
-        </p>
-        <h1 className="mt-2 font-serif text-3xl sm:text-4xl">
-          Hantera restaurangen
-        </h1>
-        <div className="mt-4 flex flex-wrap items-center gap-3 text-sm">
+      <header className="rounded-2xl border border-[#d9cfc1] bg-white p-4 shadow-sm sm:p-5">
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div className="flex min-w-0 items-center gap-4">
+            <span
+              aria-hidden="true"
+              className="h-14 w-28 shrink-0 rounded-xl bg-[#f6ead6]"
+              style={{
+                backgroundImage: "url('/donis-logo.png')",
+                backgroundPosition: "center",
+                backgroundRepeat: "no-repeat",
+                backgroundSize: "84% auto",
+                filter: "brightness(0)",
+              }}
+            />
+            <div className="min-w-0">
+              <p className="text-xs font-bold uppercase tracking-widest text-[#8a493a]">
+                Doni’s Trattoria · Ägarvy
+              </p>
+              <h1 className="mt-1 font-serif text-3xl sm:text-4xl">
+                Hantera restaurangen
+              </h1>
+              <p className="mt-2 max-w-2xl text-sm text-[#665b50]">
+                Hantera meny, bilder, texter och öppettider från samma vy.
+              </p>
+            </div>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <a
+              href="/demo/donis-trattoria"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex min-h-11 items-center rounded-lg border border-[#ab9d8b] px-4 text-sm font-semibold text-[#342a23]"
+            >
+              Öppna restaurangens webbplats ↗
+            </a>
+            <div
+              className="flex rounded-lg border border-[#cfc4b5] bg-[#f8f3ea] p-1 text-xs font-bold"
+              aria-label="Språk"
+            >
+              <a
+                href="/dashboard/restaurang"
+                aria-current={locale === "sv" ? "page" : undefined}
+                className={`rounded-md px-3 py-2 ${locale === "sv" ? "bg-[#572e28] text-white" : "text-[#342a23]"}`}
+              >
+                SV
+              </a>
+              <a
+                href="/dashboard/restaurang?lang=en"
+                aria-current={locale === "en" ? "page" : undefined}
+                className={`rounded-md px-3 py-2 ${locale === "en" ? "bg-[#572e28] text-white" : "text-[#342a23]"}`}
+              >
+                EN
+              </a>
+            </div>
+          </div>
+        </div>
+        <div className="mt-4 flex flex-wrap items-center gap-3 border-t border-[#eee5d8] pt-4 text-sm">
           <strong aria-live="polite">{status}</strong>
           <span className="text-[#665b50]">
             Redigera → Förhandsgranska → Publicera
@@ -473,7 +526,7 @@ export function RestaurantEditor({
                       next.dishes.push({
                         id,
                         categoryId: next.categories[0].id,
-                        name: "Ny rätt",
+                        name: locale === "en" ? "New dish" : "Ny rätt",
                         priceOre: null,
                         description: { sv: "", en: "" },
                         image: null,
@@ -542,7 +595,7 @@ export function RestaurantEditor({
                     >
                       {site.categories.map((category) => (
                         <option key={category.id} value={category.id}>
-                          {category.name.sv}
+                          {category.name[locale] || category.name.sv}
                         </option>
                       ))}
                     </select>
@@ -615,7 +668,7 @@ export function RestaurantEditor({
                     .map((category) => (
                       <div key={category.id}>
                         <h3 className="mt-5 font-serif text-xl">
-                          {category.name.sv}{" "}
+                          {category.name[locale] || category.name.sv}{" "}
                           {category.hidden && (
                             <small className="text-sm">(dold kategori)</small>
                           )}
@@ -763,7 +816,7 @@ export function RestaurantEditor({
                   edit((next) =>
                     next.categories.push({
                       id: crypto.randomUUID(),
-                      name: { sv: "Ny kategori", en: "" },
+                      name: { sv: "Ny kategori", en: "New category" },
                       sortOrder: next.categories.length,
                       hidden: false,
                     }),
@@ -1166,7 +1219,13 @@ export function RestaurantEditor({
         <button
           type="button"
           disabled={dirty || busy || revision === 0}
-          onClick={() => router.push("/dashboard/restaurang/forhandsgranska")}
+          onClick={() =>
+            router.push(
+              locale === "en"
+                ? "/dashboard/restaurang/forhandsgranska?lang=en"
+                : "/dashboard/restaurang/forhandsgranska",
+            )
+          }
           className={`${button} flex-1 disabled:opacity-50 sm:flex-none`}
         >
           Förhandsgranska →
