@@ -1,6 +1,10 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import {
+  DONIS_FALLBACK_IMAGES,
+  DONIS_FALLBACK_SITE,
+} from "@/lib/donis-fallback";
 import type { RestaurantSite } from "@/lib/restaurant-site-schema";
 
 type Lang = "sv" | "en";
@@ -73,17 +77,20 @@ export function DonisTrattoriaExperience({
     };
   }, [lang]);
   const t = labels[lang];
+  const isFallback = site === null;
+  const displaySite = site ?? DONIS_FALLBACK_SITE;
+  const displayImages = isFallback ? DONIS_FALLBACK_IMAGES : images;
   const dishes = (categoryId: string) =>
-    [...(site?.dishes ?? [])]
+    [...displaySite.dishes]
       .filter(
         (dish) =>
           dish.categoryId === categoryId &&
           !dish.hidden &&
           !dish.archived &&
-          dish.priceOre !== null,
+          (isFallback || dish.priceOre !== null),
       )
       .sort((a, b) => a.sortOrder - b.sortOrder);
-  const categories = [...(site?.categories ?? [])]
+  const categories = [...displaySite.categories]
     .filter((item) => !item.hidden && dishes(item.id).length)
     .sort((a, b) => a.sortOrder - b.sortOrder);
   const europe = categories.find(
@@ -92,20 +99,20 @@ export function DonisTrattoriaExperience({
   const mainCategories = categories.filter(
     (category) => category.id !== europe?.id,
   );
-  const gallery = [...(site?.media.gallery ?? [])]
+  const gallery = [...displaySite.media.gallery]
     .filter(
       (item) =>
-        images[item.id] &&
-        !site?.dishes.some((dish) => dish.image?.id === item.id),
+        displayImages[item.id] &&
+        !displaySite.dishes.some((dish) => dish.image?.id === item.id),
     )
     .sort((a, b) => a.sortOrder - b.sortOrder);
   const hero =
-    site?.media.hero && images[site.media.hero.id]
-      ? images[site.media.hero.id]
+    displaySite.media.hero && displayImages[displaySite.media.hero.id]
+      ? displayImages[displaySite.media.hero.id]
       : heroFallback;
-  const booking = site?.links.booking;
-  const order = site ? site.links.order : currentOrderUrl;
-  const text = site?.text;
+  const booking = displaySite.links.booking;
+  const order = displaySite.links.order || currentOrderUrl;
+  const text = displaySite.text;
 
   function dishList(categoryId: string) {
     return (
@@ -115,9 +122,9 @@ export function DonisTrattoriaExperience({
             key={dish.id}
             className="flex gap-4 border-t border-black/15 py-5"
           >
-            {dish.image && images[dish.image.id] && (
+            {dish.image && displayImages[dish.image.id] && (
               <img
-                src={images[dish.image.id]}
+                src={displayImages[dish.image.id]}
                 alt={dish.image.alt[lang]}
                 loading="lazy"
                 className="h-20 w-20 shrink-0 object-cover sm:h-24 sm:w-24"
@@ -126,13 +133,15 @@ export function DonisTrattoriaExperience({
             <div className="min-w-0 flex-1">
               <div className="flex items-baseline justify-between gap-3">
                 <h4 className="font-serif text-xl sm:text-2xl">{dish.name}</h4>
-                <span className="shrink-0 text-sm font-bold tabular-nums">
-                  {(dish.priceOre! / 100).toLocaleString(
-                    lang === "sv" ? "sv-SE" : "en-SE",
-                    { maximumFractionDigits: 2 },
-                  )}{" "}
-                  kr
-                </span>
+                {dish.priceOre !== null && (
+                  <span className="shrink-0 text-sm font-bold tabular-nums">
+                    {(dish.priceOre / 100).toLocaleString(
+                      lang === "sv" ? "sv-SE" : "en-SE",
+                      { maximumFractionDigits: 2 },
+                    )}{" "}
+                    kr
+                  </span>
+                )}
               </div>
               {dish.description[lang] && (
                 <p className="mt-2 text-sm leading-6 text-[#534b44]">
@@ -157,7 +166,7 @@ export function DonisTrattoriaExperience({
       >
         <img
           src={hero}
-          alt={site?.media.hero?.alt[lang] || "Doni’s Trattoria"}
+          alt={displaySite.media.hero?.alt[lang] || "Doni’s Trattoria"}
           className="absolute inset-0 h-full w-full object-cover"
           fetchPriority="high"
         />
@@ -283,17 +292,17 @@ export function DonisTrattoriaExperience({
           {text?.foundedYear && (
             <p className="mt-5 text-sm font-bold">{text.foundedYear}</p>
           )}
-          {site?.media.family && images[site.media.family.id] && (
+          {displaySite.media.family && displayImages[displaySite.media.family.id] && (
             <img
-              src={images[site.media.family.id]}
-              alt={site.media.family.alt[lang]}
+              src={displayImages[displaySite.media.family.id]}
+              alt={displaySite.media.family.alt[lang]}
               className="mt-8 max-h-96 w-full object-cover"
             />
           )}
-          {site?.media.owner && images[site.media.owner.id] && (
+          {displaySite.media.owner && displayImages[displaySite.media.owner.id] && (
             <img
-              src={images[site.media.owner.id]}
-              alt={site.media.owner.alt[lang]}
+              src={displayImages[displaySite.media.owner.id]}
+              alt={displaySite.media.owner.alt[lang]}
               className="mt-5 max-h-72 w-full object-cover"
             />
           )}
@@ -365,7 +374,7 @@ export function DonisTrattoriaExperience({
                   className={`overflow-hidden ${index === 0 ? "sm:col-span-2 sm:row-span-2" : ""}`}
                 >
                   <img
-                    src={images[item.id]}
+                    src={displayImages[item.id]}
                     alt={item.alt[lang]}
                     loading="lazy"
                     className="aspect-[4/3] h-full w-full object-cover"
@@ -436,9 +445,9 @@ export function DonisTrattoriaExperience({
           </div>
           <div>
             <h3 className="font-serif text-3xl">{t.hours}</h3>
-            {site && site.hours.some((hour) => !hour.closed) ? (
+            {displaySite.hours.some((hour) => !hour.closed) ? (
               <div className="mt-5 divide-y divide-white/15">
-                {site.hours.map((hour) => (
+                {displaySite.hours.map((hour) => (
                   <div
                     key={hour.day}
                     className="flex justify-between gap-4 py-3 text-sm"
