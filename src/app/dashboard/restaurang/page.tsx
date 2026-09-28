@@ -65,7 +65,7 @@ export default async function RestaurantAdminPage() {
         alt: altText,
       }))}
       referenceDishImages={
-        site.starter ? DONIS_FALLBACK_DISH_IMAGE_URLS : {}
+        site.published ? {} : DONIS_FALLBACK_DISH_IMAGE_URLS
       }
     />
   );
