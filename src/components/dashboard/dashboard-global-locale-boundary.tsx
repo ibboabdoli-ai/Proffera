@@ -88,6 +88,7 @@ const translations: Record<string, string> = {
   "Ingen restaurangwebbplats är kopplad till den här arbetsytan. Kontakta Proffera för att koppla ägarens arbetsyta.": "No restaurant website is connected to this workspace. Contact Proffera to connect the owner workspace.",
   "Öppna restaurangens webbplats": "Open restaurant website",
   "Öppna restaurangens webbplats ↗": "Open restaurant website ↗",
+  "Öppna webbplats ↗": "Open site ↗",
   "Språk": "Language",
   "Hantera meny, bilder, texter och öppettider från samma vy.": "Manage menu, photos, content and opening hours from one place.",
 
@@ -111,6 +112,8 @@ const translations: Record<string, string> = {
   "Kontrollera fälten och försök igen.": "Check the fields and try again.",
   "Menyn eller öppettiderna innehåller ogiltiga referenser.": "The menu or opening hours contain invalid references.",
   "Bokningslänken måste gå direkt till bokningsflödet, inte till en karta.": "The booking link must open the booking flow directly, not a map.",
+  "Startinnehållet från demosidan är inlagt för redigering. Kontrollera priser, texter och bilder, ladda upp restaurangens egna bilder och spara utkastet.": "The demo content is loaded as an editable starting point. Check prices, text and photos, upload the restaurant’s own photos and save the draft.",
+  "Referensbild från nuvarande demosida. Ladda upp en ny bild för att ersätta den.": "Reference photo from the current demo. Upload a new photo to replace it.",
 };
 
 function translateText(value: string) {
