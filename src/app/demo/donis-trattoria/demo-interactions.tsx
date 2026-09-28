@@ -30,6 +30,8 @@ const labels = {
     noMenu:
       "Menyn publiceras snart. Kontakta restaurangen för aktuella rätter och priser.",
     europe: "En smak av Europa",
+    sampleMenu:
+      "Ett urval från Doni’s tidigare presentation. Aktuell meny och priser uppdateras av restaurangen.",
   },
   en: {
     about: "About",
@@ -46,6 +48,8 @@ const labels = {
     noMenu:
       "The menu will be published soon. Contact the restaurant for current dishes and prices.",
     europe: "A taste of Europe",
+    sampleMenu:
+      "A selection from Doni’s previous presentation. The restaurant maintains the current menu and prices.",
   },
 };
 const days = {
@@ -314,6 +318,11 @@ export function DonisTrattoriaExperience({
             Doni’s Trattoria
           </p>
           <h2 className="mt-4 font-serif text-5xl sm:text-6xl">{t.menu}</h2>
+          {isFallback && (
+            <p className="mt-5 max-w-2xl text-sm leading-6 text-[#655b51]">
+              {t.sampleMenu}
+            </p>
+          )}
           {mainCategories.length > 2 && (
             <nav
               aria-label={lang === "sv" ? "Meny-kategorier" : "Menu categories"}
