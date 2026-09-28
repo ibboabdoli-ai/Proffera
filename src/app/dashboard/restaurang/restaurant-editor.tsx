@@ -125,7 +125,7 @@ export function RestaurantEditor({
   const [revision, setRevision] = useState(initial.revision);
   const publishedRevision = initial.publishedRevision;
   const starter = Boolean(initial.starter);
-  const [dirty, setDirty] = useState(false);
+  const [dirty, setDirty] = useState(starter);
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState("");
   const [section, setSection] = useState<Section>("menu");
