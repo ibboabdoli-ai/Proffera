@@ -153,9 +153,6 @@ describe("company directory shared-cache route contract", () => {
       expect(candidate).toContain("coalesce(published_facts.advertising_blocked, false) = false");
       expect(candidate).toContain("published_scb.source_payload_hash <> ''");
       expect(candidate).toContain("published_scb.last_synced_at >= now() - interval '7 days'");
-      expect(candidate).toContain("published_authority.scb_phone");
-      expect(candidate).toContain("published_authority.scb_email");
-      expect(candidate).toContain("published_authority.scb_workplaces");
       expect(candidate).toContain("comparisonSnapshot,profileUpdatedToken");
       expect(candidate).toContain("comparisonSnapshot,officialFactsLastSyncedToken");
       expect(candidate).toContain("jsonb_typeof(published_scb.conflicts) = 'array'");
@@ -163,6 +160,9 @@ describe("company directory shared-cache route contract", () => {
       expect(candidate).toContain("jsonb_array_length(published_scb.workplaces) = 1");
       expect(candidate).toContain("DIRECTORY_PILOT_LOCATIONS");
     }
+    expect(publicDataSource).toContain("published_authority.scb_phone");
+    expect(publicDataSource).toContain("published_authority.scb_email");
+    expect(publicDataSource).toContain("published_authority.scb_workplaces");
   });
 
   it("fails claimed public fallback and routing closed on fresh snapshot-bound pilot workplace authority", () => {
