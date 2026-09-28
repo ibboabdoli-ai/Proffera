@@ -86,10 +86,7 @@ export const DONIS_FALLBACK_SITE: RestaurantSite = {
       categoryId: ids.categories.pizza,
       name: "Vegetariana",
       priceOre: null,
-      description: {
-        sv: "Ett exempel från restaurangens tidigare presentation. Aktuellt innehåll och pris uppdateras av restaurangen.",
-        en: "An example from the restaurant’s previous presentation. Current content and price are maintained by the restaurant.",
-      },
+      description: { sv: "", en: "" },
       image: image(
         ids.images.vegetariana,
         "Vegetariana pizza på Doni’s Trattoria",
@@ -104,10 +101,7 @@ export const DONIS_FALLBACK_SITE: RestaurantSite = {
       categoryId: ids.categories.pizza,
       name: "Diavola",
       priceOre: null,
-      description: {
-        sv: "En av rätterna som presenterats av Doni’s tidigare.",
-        en: "One of the dishes previously presented by Doni’s.",
-      },
+      description: { sv: "", en: "" },
       image: image(
         ids.images.diavola,
         "Diavola pizza på Doni’s Trattoria",
@@ -122,10 +116,7 @@ export const DONIS_FALLBACK_SITE: RestaurantSite = {
       categoryId: ids.categories.pasta,
       name: "Fettuccini Donis",
       priceOre: null,
-      description: {
-        sv: "Pasta från restaurangens tidigare urval.",
-        en: "Pasta from the restaurant’s previous selection.",
-      },
+      description: { sv: "", en: "" },
       image: image(
         ids.images.fettuccini,
         "Fettuccini Donis",
@@ -140,10 +131,7 @@ export const DONIS_FALLBACK_SITE: RestaurantSite = {
       categoryId: ids.categories.pasta,
       name: "Penne alla vodka",
       priceOre: null,
-      description: {
-        sv: "Pasta från restaurangens tidigare urval.",
-        en: "Pasta from the restaurant’s previous selection.",
-      },
+      description: { sv: "", en: "" },
       image: image(
         ids.images.vodka,
         "Penne alla vodka",
@@ -158,10 +146,7 @@ export const DONIS_FALLBACK_SITE: RestaurantSite = {
       categoryId: ids.categories.pasta,
       name: "Mare mare",
       priceOre: null,
-      description: {
-        sv: "En rätt som tidigare visats på Doni’s webbplats.",
-        en: "A dish previously shown on Doni’s website.",
-      },
+      description: { sv: "", en: "" },
       image: image(ids.images.mare, "Mare mare", "Mare mare"),
       sortOrder: 2,
       hidden: false,
@@ -172,10 +157,7 @@ export const DONIS_FALLBACK_SITE: RestaurantSite = {
       categoryId: ids.categories.europe,
       name: "Klassisk schnitzel",
       priceOre: null,
-      description: {
-        sv: "Ett exempel på den mindre europeiska delen av menyn.",
-        en: "An example from the smaller European section of the menu.",
-      },
+      description: { sv: "", en: "" },
       image: image(
         ids.images.schnitzel,
         "Klassisk schnitzel",
