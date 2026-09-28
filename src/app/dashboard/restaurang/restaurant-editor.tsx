@@ -700,99 +700,149 @@ export function RestaurantEditor({
                               item.categoryId === category.id && !item.archived,
                           )
                           .sort((a, b) => a.sortOrder - b.sortOrder)
-                          .map((item, index, list) => (
-                            <div
-                              key={item.id}
-                              className="flex flex-wrap items-center gap-2 border-b border-[#e0d6c9] py-3"
-                            >
-                              <button
-                                className="min-h-11 min-w-0 flex-1 text-left font-semibold underline decoration-[#b5a797] underline-offset-4"
-                                onClick={() => setSelectedDish(item.id)}
+                          .map((item, index, list) => {
+                            const ownedImage = item.image
+                              ? images.find((image) => image.id === item.image?.id)?.url
+                              : undefined;
+                            const previewUrl =
+                              ownedImage ?? referenceDishImages[item.id];
+                            return (
+                              <article
+                                key={item.id}
+                                className="my-3 rounded-xl border border-[#ded3c5] bg-white p-3 shadow-sm"
                               >
-                                {item.name}
-                                <span className="ml-2 text-xs font-normal">
-                                  {item.hidden ? "Dold" : ""}
-                                </span>
-                              </button>
-                              <label className="text-xs">
-                                Pris (kr)
-                                <PriceInput
-                                  label={`Pris ${item.name}`}
-                                  className={`${input} w-24 text-right`}
-                                  value={item.priceOre}
-                                  disabled={busy}
-                                  onChange={(ore) =>
-                                    edit((next) => {
-                                      next.dishes.find(
-                                        (dish) => dish.id === item.id,
-                                      )!.priceOre = ore;
-                                    })
-                                  }
-                                />
-                              </label>
-                              <button
-                                className={button}
-                                aria-label={`${item.hidden ? "Visa" : "Dölj"} ${item.name}`}
-                                onClick={() =>
-                                  edit((next) => {
-                                    next.dishes.find(
-                                      (dish) => dish.id === item.id,
-                                    )!.hidden = !item.hidden;
-                                  })
-                                }
-                              >
-                                {item.hidden ? "Visa" : "Dölj"}
-                              </button>
-                              <button
-                                className={button}
-                                disabled={index === 0}
-                                aria-label={`Flytta upp ${item.name}`}
-                                onClick={() =>
-                                  edit((next) =>
-                                    move(
-                                      next.dishes
-                                        .filter(
-                                          (dish) =>
-                                            dish.categoryId === category.id &&
-                                            !dish.archived,
+                                <div className="grid grid-cols-[64px_minmax(0,1fr)] gap-3">
+                                  <button
+                                    type="button"
+                                    onClick={() => setSelectedDish(item.id)}
+                                    className="h-16 w-16 overflow-hidden rounded-lg bg-[#eee5d8]"
+                                    aria-label={`Redigera ${item.name}`}
+                                  >
+                                    {previewUrl ? (
+                                      <img
+                                        src={previewUrl}
+                                        alt=""
+                                        className="h-full w-full object-cover"
+                                      />
+                                    ) : (
+                                      <span className="flex h-full items-center justify-center text-[10px] font-semibold text-[#7b6d60]">
+                                        Ingen bild
+                                      </span>
+                                    )}
+                                  </button>
+                                  <div className="min-w-0">
+                                    <div className="flex items-start justify-between gap-2">
+                                      <button
+                                        type="button"
+                                        className="min-h-8 min-w-0 text-left text-base font-bold underline decoration-[#b5a797] underline-offset-4"
+                                        onClick={() => setSelectedDish(item.id)}
+                                      >
+                                        {item.name}
+                                      </button>
+                                      {item.hidden && (
+                                        <span className="shrink-0 rounded-full bg-[#eee5d8] px-2 py-1 text-[10px] font-bold uppercase tracking-wide text-[#6c5a4d]">
+                                          Dold
+                                        </span>
+                                      )}
+                                    </div>
+                                    <div className="mt-2 grid grid-cols-[minmax(0,1fr)_auto] items-end gap-2">
+                                      <label className="text-xs font-semibold">
+                                        Pris (kr)
+                                        <PriceInput
+                                          label={`Pris ${item.name}`}
+                                          className={`${input} mt-1 min-h-10 w-full text-right`}
+                                          value={item.priceOre}
+                                          disabled={busy}
+                                          onChange={(ore) =>
+                                            edit((next) => {
+                                              next.dishes.find(
+                                                (dish) => dish.id === item.id,
+                                              )!.priceOre = ore;
+                                            })
+                                          }
+                                        />
+                                      </label>
+                                      <button
+                                        type="button"
+                                        className="min-h-10 rounded-lg bg-[#572e28] px-3 text-xs font-bold text-white"
+                                        onClick={() => setSelectedDish(item.id)}
+                                      >
+                                        Redigera
+                                      </button>
+                                    </div>
+                                  </div>
+                                </div>
+                                <div className="mt-3 flex items-center justify-between gap-2 border-t border-[#eee5d8] pt-3">
+                                  <button
+                                    type="button"
+                                    className={button}
+                                    aria-label={`${item.hidden ? "Visa" : "Dölj"} ${item.name}`}
+                                    onClick={() =>
+                                      edit((next) => {
+                                        next.dishes.find(
+                                          (dish) => dish.id === item.id,
+                                        )!.hidden = !item.hidden;
+                                      })
+                                    }
+                                  >
+                                    {item.hidden ? "Visa" : "Dölj"}
+                                  </button>
+                                  <div className="flex gap-2">
+                                    <button
+                                      type="button"
+                                      className={button}
+                                      disabled={index === 0}
+                                      aria-label={`Flytta upp ${item.name}`}
+                                      onClick={() =>
+                                        edit((next) =>
+                                          move(
+                                            next.dishes
+                                              .filter(
+                                                (dish) =>
+                                                  dish.categoryId === category.id &&
+                                                  !dish.archived,
+                                              )
+                                              .sort(
+                                                (a, b) => a.sortOrder - b.sortOrder,
+                                              ),
+                                            index,
+                                            -1,
+                                          ),
                                         )
-                                        .sort(
-                                          (a, b) => a.sortOrder - b.sortOrder,
-                                        ),
-                                      index,
-                                      -1,
-                                    ),
-                                  )
-                                }
-                              >
-                                ↑
-                              </button>
-                              <button
-                                className={button}
-                                disabled={index === list.length - 1}
-                                aria-label={`Flytta ner ${item.name}`}
-                                onClick={() =>
-                                  edit((next) =>
-                                    move(
-                                      next.dishes
-                                        .filter(
-                                          (dish) =>
-                                            dish.categoryId === category.id &&
-                                            !dish.archived,
+                                      }
+                                    >
+                                      ↑
+                                    </button>
+                                    <button
+                                      type="button"
+                                      className={button}
+                                      disabled={index === list.length - 1}
+                                      aria-label={`Flytta ner ${item.name}`}
+                                      onClick={() =>
+                                        edit((next) =>
+                                          move(
+                                            next.dishes
+                                              .filter(
+                                                (dish) =>
+                                                  dish.categoryId === category.id &&
+                                                  !dish.archived,
+                                              )
+                                              .sort(
+                                                (a, b) => a.sortOrder - b.sortOrder,
+                                              ),
+                                            index,
+                                            1,
+                                          ),
                                         )
-                                        .sort(
-                                          (a, b) => a.sortOrder - b.sortOrder,
-                                        ),
-                                      index,
-                                      1,
-                                    ),
-                                  )
-                                }
-                              >
-                                ↓
-                              </button>
-                            </div>
-                          ))}
+                                      }
+                                    >
+                                      ↓
+                                    </button>
+                                  </div>
+                                </div>
+                              </article>
+                            );
+                          })}
                         {!site.dishes.some(
                           (item) =>
                             item.categoryId === category.id && !item.archived,
