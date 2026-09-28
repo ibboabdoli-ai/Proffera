@@ -591,8 +591,22 @@ export const getPublicDirectoryBusinessForRequest = cache(async (slug: string): 
     if (!getSql()) return { cache: false, value: null };
 
     const claimed = await getSafeClaimedDirectoryFallback(normalized);
-    return claimed
-      ? { cache: false, value: claimed }
+    if (claimed) return { cache: false, value: claimed };
+
+    const sql = getSql();
+    if (!sql) return { cache: false, value: null };
+    const existingProfile = await sql`
+      select 1
+      from company_directory_profiles
+      where public_slug = ${normalized}
+      limit 1
+    `;
+
+    // Authority can be restored independently of the public projection read.
+    // Never persist an authority-derived miss for an existing profile; the
+    // short negative cache is reserved for slugs that are absent altogether.
+    return existingProfile[0]
+      ? { cache: false, value: null }
       : { cache: true, value: null };
   });
 });

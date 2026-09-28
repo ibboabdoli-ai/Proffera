@@ -266,8 +266,32 @@ describe("directory shared-cache behavior", () => {
 
     expect(results).toEqual(Array.from({ length: 50 }, () => null));
     expect(mocks.getPublicDirectoryBusiness).toHaveBeenCalledTimes(1);
-    expect(sql).toHaveBeenCalledTimes(1);
+    expect(sql).toHaveBeenCalledTimes(2);
     expect(cacheReads.some((read) => read.revalidate === PUBLIC_DIRECTORY_MISS_CACHE_TTL_SECONDS)).toBe(true);
+  });
+
+  it("does not persist an authority-derived miss for an existing Directory profile", async () => {
+    let authorityRestored = false;
+    const sql = vi.fn(async (strings: TemplateStringsArray) => {
+      const query = strings.join(" ");
+      if (query.includes("publication_status = 'claimed'")) return [];
+      if (query.includes("select 1") && query.includes("where public_slug")) {
+        return [{ "?column?": 1 }];
+      }
+      return [];
+    });
+    mocks.getSql.mockReturnValue(sql);
+    mocks.getPublicDirectoryBusiness.mockImplementation(async () =>
+      authorityRestored ? publicBusiness("authority-restored-company", "Restored Authority AB") : null);
+
+    expect(await getPublicDirectoryBusinessForRequest("authority-restored-company")).toBeNull();
+
+    authorityRestored = true;
+    mocks.getSql.mockReturnValue(publishedSql());
+    const restored = await getPublicDirectoryBusinessForRequest("authority-restored-company");
+
+    expect(restored?.companyName).toBe("Restored Authority AB");
+    expect(mocks.getPublicDirectoryBusiness).toHaveBeenCalledTimes(2);
   });
 
   it("does not persist a miss when the Directory SQL client is temporarily unavailable", async () => {
