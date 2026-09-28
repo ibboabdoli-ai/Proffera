@@ -48,7 +48,11 @@ function normalizedMarketplaceProfileIds(value: MarketplaceHomeCompanies) {
 
 async function locationSuggestionsAuthorityBoundary(value: DirectoryLocationSuggestions, limit: number) {
   if (value.length === 0) {
-    return { authorityBound: true, authorityExpiresAt: null };
+    // Empty public results can become stale-positive races if authority is
+    // restored after tag invalidation but before this pending fill is stored.
+    // Keep the envelope for coalescing, but force every consumer to re-read
+    // the canonical source rather than trusting a long-lived empty cache.
+    return { authorityBound: false, authorityExpiresAt: null };
   }
 
   const sql = getSql();
@@ -148,7 +152,10 @@ async function marketplaceHomeAuthorityBoundary(value: MarketplaceHomeCompanies,
     .filter((profileId) => UUID_PATTERN.test(profileId));
 
   if (value.results.length === 0) {
-    return { authorityBound: true, authorityExpiresAt: null };
+    // As with Directory labels, an empty Marketplace fill cannot prove that
+    // authority will remain absent until the cache TTL. Never reuse it without
+    // a fresh canonical search.
+    return { authorityBound: false, authorityExpiresAt: null };
   }
   if (profileIds.length !== value.results.length) {
     return { authorityBound: false, authorityExpiresAt: null };

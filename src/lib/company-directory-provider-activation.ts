@@ -767,6 +767,7 @@ export async function activateProviderMarketplaceService(input: {
               lower(btrim(claimed_scb.workplaces->0->'visitingAddress'->>'city')) = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
               or lower(btrim(claimed_scb.workplaces->0->>'municipality')) = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
             )
+          for update of claimed_facts, claimed_scb
         )
               )
               or (

@@ -197,6 +197,89 @@ function postgresSql(client: Client) {
       `, [SERVICE_ID, WORKSPACE_ID]);
     });
 
+    async function expectJuridicalAuthorityWithdrawalFailsClosed(kind: "official_facts" | "scb") {
+      const blocker = new Client({
+        connectionString,
+        application_name: `proffera-provider-${kind}-authority-race-blocker`,
+      });
+      await blocker.connect();
+      try {
+        await blocker.query("begin");
+        if (kind === "official_facts") {
+          await blocker.query(`
+            update company_directory_official_facts
+            set advertising_blocked = true,
+                last_synced_at = now()
+            where profile_id = $1::uuid
+          `, [PROFILE_ID]);
+        } else {
+          await blocker.query(`
+            update company_directory_scb_enrichment
+            set conflicts = '[{"kind":"authority_withdrawn"}]'::jsonb,
+                source_payload_hash = 'scb-withdrawn',
+                last_synced_at = now()
+            where profile_id = $1::uuid
+          `, [PROFILE_ID]);
+        }
+
+        const activationOutcome = activateProviderMarketplaceService({
+          serviceId: SERVICE_ID,
+          directoryServiceSlug: TARGET_SLUG,
+          conversionMode: "quote",
+          radiusKm: 20,
+        }).then(
+          () => ({ ok: true as const, error: null }),
+          (error: unknown) => ({ ok: false as const, error }),
+        );
+
+        await waitForActivationToBlock(blocker);
+        await blocker.query("commit");
+
+        const outcome = await activationOutcome;
+        expect(outcome.ok).toBe(false);
+        expect(outcome.error).toBeInstanceOf(Error);
+        expect((outcome.error as Error).message).toBe("service_update");
+
+        const service = await client!.query<{
+          public_status: string;
+          primary_directory_service_slug: string | null;
+        }>(`
+          select public_status, primary_directory_service_slug
+          from workspace_services
+          where id = $1::uuid
+        `, [SERVICE_ID]);
+        expect(service.rows[0]).toEqual({
+          public_status: "draft",
+          primary_directory_service_slug: null,
+        });
+
+        const relations = await client!.query<{ count: string }>(`
+          select count(*)::text as count
+          from company_directory_profile_services
+          where profile_id = $1::uuid and service_slug = $2
+        `, [PROFILE_ID, TARGET_SLUG]);
+        expect(relations.rows[0]?.count).toBe("0");
+
+        const areas = await client!.query<{ count: string }>(`
+          select count(*)::text as count
+          from company_directory_service_areas
+          where profile_id = $1::uuid and service_slug = $2
+        `, [PROFILE_ID, TARGET_SLUG]);
+        expect(areas.rows[0]?.count).toBe("0");
+      } finally {
+        await blocker.query("rollback").catch(() => undefined);
+        await blocker.end().catch(() => undefined);
+      }
+    }
+
+    it("fails closed when Official Facts authority is withdrawn while activation waits on the authority row lock", async () => {
+      await expectJuridicalAuthorityWithdrawalFailsClosed("official_facts");
+    }, 30_000);
+
+    it("fails closed when SCB authority is withdrawn while activation waits on the authority row lock", async () => {
+      await expectJuridicalAuthorityWithdrawalFailsClosed("scb");
+    }, 30_000);
+
     it("does not publish or create an owner relation when a concurrent admin area wins the unique key", async () => {
       const blocker = new Client({ connectionString, application_name: "proffera-provider-area-race-blocker" });
       await blocker.connect();

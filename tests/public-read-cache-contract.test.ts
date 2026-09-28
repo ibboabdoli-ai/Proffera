@@ -93,6 +93,29 @@ describe("public read cache contract", () => {
     expect(mocks.revalidateTag).toHaveBeenCalledWith(MARKETPLACE_HOME_COMPANIES_CACHE_TAG, { expire: 0 });
   });
 
+  it("does not bind an empty Directory fill when authority is restored before return", async () => {
+    mocks.locationSuggestions
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce(["Södertälje"]);
+
+    await expect(getCachedPublishedDirectoryLocationSuggestions(24)).resolves.toEqual(["Södertälje"]);
+    expect(mocks.locationSuggestions).toHaveBeenCalledTimes(2);
+    expect(mocks.getSql).not.toHaveBeenCalled();
+  });
+
+  it("does not bind an empty Marketplace fill when authority is restored before return", async () => {
+    const profileId = "11111111-1111-4111-8111-111111111111";
+    mocks.marketplaceHomeCompanies
+      .mockResolvedValueOnce({ results: [], totalCount: 0 })
+      .mockResolvedValueOnce({ results: [{ id: profileId }], totalCount: 1 });
+
+    await expect(getCachedMarketplaceHomeCompanies(4)).resolves.toMatchObject({
+      results: [{ id: profileId }],
+    });
+    expect(mocks.marketplaceHomeCompanies).toHaveBeenCalledTimes(2);
+    expect(mocks.getSql).not.toHaveBeenCalled();
+  });
+
   it("uses the live claimed-profile authority token semantics when deriving suggestion expiry", async () => {
     let query = "";
     mocks.locationSuggestions
