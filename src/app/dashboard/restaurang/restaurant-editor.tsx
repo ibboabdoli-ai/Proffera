@@ -2,19 +2,20 @@
 
 import { useEffect, useRef, useState, type ChangeEvent } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import { createDonisAdminStarterSite } from "@/lib/donis-fallback";
 import type { RestaurantSite } from "@/lib/restaurant-site-schema";
 import { parseRestaurantPrice } from "@/lib/restaurant-price";
 import { saveDraft } from "./actions";
 
 type Media = { id: string; url: string; alt: string };
 type Section = "menu" | "categories" | "photos" | "content" | "hours" | "links";
-const sections: { id: Section; label: string }[] = [
-  { id: "menu", label: "Meny" },
-  { id: "categories", label: "Kategorier" },
-  { id: "photos", label: "Bilder" },
-  { id: "content", label: "Texter" },
-  { id: "hours", label: "Öppettider" },
-  { id: "links", label: "Länkar" },
+const sections: { id: Section; label: string; hint: string }[] = [
+  { id: "menu", label: "Meny", hint: "Rätter och priser" },
+  { id: "categories", label: "Kategorier", hint: "Rubriker i menyn" },
+  { id: "photos", label: "Bilder", hint: "Hero, galleri och matbilder" },
+  { id: "content", label: "Texter", hint: "Hero och Om oss" },
+  { id: "hours", label: "Öppettider", hint: "Kontaktsektionen" },
+  { id: "links", label: "Länkar", hint: "Qopla och bokning" },
 ];
 const days = [
   "Måndag",
@@ -106,6 +107,8 @@ export function RestaurantEditor({
   initial,
   images: initialImages,
   referenceDishImages = {},
+  referenceHeroImage,
+  referenceGalleryImages = [],
 }: {
   initial: {
     draft: RestaurantSite;
@@ -116,6 +119,8 @@ export function RestaurantEditor({
   };
   images: Media[];
   referenceDishImages?: Record<string, string>;
+  referenceHeroImage?: string;
+  referenceGalleryImages?: string[];
 }) {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -227,6 +232,25 @@ export function RestaurantEditor({
       document.removeEventListener("submit", onDocumentSubmit, true);
     };
   }, [dirty, locale]);
+
+  function loadDemoExamples() {
+    if (busy) return;
+    const confirmed = window.confirm(
+      locale === "en"
+        ? "Replace the current draft with the editable demo examples? Nothing is saved until you press Save."
+        : "Ersätt nuvarande utkast med redigerbara exempel från demosidan? Inget sparas förrän du trycker Spara.",
+    );
+    if (!confirmed) return;
+    setSite(createDonisAdminStarterSite());
+    setSection("menu");
+    setSelectedDish(null);
+    setDirty(true);
+    setNotice(
+      locale === "en"
+        ? "Demo examples loaded. Enter real prices, review the text and replace reference photos before publishing."
+        : "Demosidans exempel är inlästa. Fyll i riktiga priser, kontrollera texterna och ersätt referensbilder innan publicering.",
+    );
+  }
 
   function edit(change: (next: RestaurantSite) => void) {
     if (busy) return;
@@ -509,9 +533,27 @@ export function RestaurantEditor({
           </p>
         )}
       </header>
-      {starter && (
+      {!initial.published && (
         <div className="mt-3 rounded-xl border border-[#d8c6a7] bg-[#fff7e8] p-3 text-sm leading-6 text-[#5d4b37]">
-          Startinnehållet från demosidan är inlagt för redigering. Kontrollera priser, texter och bilder, ladda upp restaurangens egna bilder och spara utkastet.
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="min-w-0 flex-1">
+              <strong className="block">Exempel från demosidan</strong>
+              <span>
+                {starter
+                  ? "Startinnehållet från demosidan är inlagt för redigering. Kontrollera priser, texter och bilder och spara utkastet."
+                  : "Nuvarande utkast innehåller egna eller tidigare teständringar. Du kan ersätta det med samma exempel som visas på demosidan."}
+              </span>
+            </div>
+            {!starter && (
+              <button
+                type="button"
+                onClick={loadDemoExamples}
+                className="min-h-11 rounded-lg bg-[#572e28] px-4 text-sm font-bold text-white"
+              >
+                Ladda demosidans exempel
+              </button>
+            )}
+          </div>
         </div>
       )}
       <div
@@ -531,7 +573,10 @@ export function RestaurantEditor({
               }}
               className={`min-h-11 rounded-lg px-2 text-center text-xs font-semibold sm:text-sm md:px-4 md:text-left ${section === item.id ? "bg-[#572e28] text-white" : "bg-white hover:bg-[#eee5d8]"}`}
             >
-              {item.label}
+              <span className="block">{item.label}</span>
+              <span className="mt-0.5 block text-[9px] font-medium opacity-70 sm:text-[10px]">
+                {item.hint}
+              </span>
             </button>
           ))}
         </nav>
@@ -539,7 +584,10 @@ export function RestaurantEditor({
           {section === "menu" && (
             <section>
               <div className="flex items-center justify-between gap-3">
-                <h2 className="font-serif text-2xl">Meny</h2>
+                <div>
+                  <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-[#8a493a]">På webbplatsen: Meny</p>
+                  <h2 className="mt-1 font-serif text-2xl">Meny</h2>
+                </div>
                 <button
                   type="button"
                   className={button}
@@ -633,6 +681,11 @@ export function RestaurantEditor({
                       Beskrivning {language.toUpperCase()}
                       <textarea
                         className={`${input} min-h-24 py-3`}
+                        placeholder={
+                          language === "sv"
+                            ? "Skriv en kort beskrivning av rätten på svenska."
+                            : "Write a short description of the dish in English."
+                        }
                         value={dish.description[language]}
                         onChange={(event) =>
                           edit((next) => {
@@ -890,7 +943,8 @@ export function RestaurantEditor({
           )}
           {section === "categories" && (
             <section>
-              <h2 className="font-serif text-2xl">Kategorier</h2>
+              <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-[#8a493a]">På webbplatsen: rubriker i Meny</p>
+              <h2 className="mt-1 font-serif text-2xl">Kategorier</h2>
               <button
                 className={`${button} mt-4`}
                 onClick={() =>
@@ -990,7 +1044,31 @@ export function RestaurantEditor({
           )}
           {section === "photos" && (
             <section className="grid gap-6">
-              <h2 className="font-serif text-2xl">Bilder</h2>
+              <div>
+                <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-[#8a493a]">På webbplatsen: Hero, galleri och maträtter</p>
+                <h2 className="mt-1 font-serif text-2xl">Bilder</h2>
+              </div>
+              {!initial.published && (referenceHeroImage || referenceGalleryImages.length > 0) && (
+                <div className="rounded-xl border border-[#d8c6a7] bg-[#fffaf3] p-3">
+                  <strong className="text-sm">Referensbilder från demosidan</strong>
+                  <p className="mt-1 text-xs leading-5 text-[#665b50]">
+                    De här bilderna visas som referens. Ladda upp restaurangens egna bilder nedan för att ersätta dem.
+                  </p>
+                  <div className="mt-3 grid grid-cols-3 gap-2">
+                    {[referenceHeroImage, ...referenceGalleryImages]
+                      .filter((url): url is string => Boolean(url))
+                      .slice(0, 4)
+                      .map((url, index) => (
+                        <img
+                          key={`${url}-${index}`}
+                          src={url}
+                          alt=""
+                          className="aspect-square w-full rounded-lg object-cover"
+                        />
+                      ))}
+                  </div>
+                </div>
+              )}
               <label className="text-sm font-semibold">
                 Bildbeskrivning inför uppladdning
                 <input
@@ -1134,7 +1212,10 @@ export function RestaurantEditor({
           )}
           {section === "content" && (
             <section className="grid gap-5">
-              <h2 className="font-serif text-2xl">Webbplatstexter</h2>
+              <div>
+                <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-[#8a493a]">På webbplatsen: Hero och Om oss</p>
+                <h2 className="mt-1 font-serif text-2xl">Webbplatstexter</h2>
+              </div>
               {(
                 [
                   "heroTitle",
@@ -1198,7 +1279,8 @@ export function RestaurantEditor({
           )}
           {section === "hours" && (
             <section>
-              <h2 className="font-serif text-2xl">Öppettider</h2>
+              <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-[#8a493a]">På webbplatsen: Kontakt / Öppettider</p>
+              <h2 className="mt-1 font-serif text-2xl">Öppettider</h2>
               <p className="mt-2 text-sm">
                 Kontrollera tiderna innan du publicerar dem.
               </p>
@@ -1256,7 +1338,10 @@ export function RestaurantEditor({
           )}
           {section === "links" && (
             <section className="grid gap-5">
-              <h2 className="font-serif text-2xl">Bokning och beställning</h2>
+              <div>
+                <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-[#8a493a]">På webbplatsen: Boka bord / Beställ online</p>
+                <h2 className="mt-1 font-serif text-2xl">Bokning och beställning</h2>
+              </div>
               <p className="text-sm">
                 Bokningslänken ska öppna själva bokningsflödet, inte en
                 kart-sökning. Lämna tom tills den är bekräftad.
