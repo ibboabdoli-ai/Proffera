@@ -129,7 +129,7 @@ export function RestaurantEditor({
   const [images, setImages] = useState(initialImages);
   const [revision, setRevision] = useState(initial.revision);
   const publishedRevision = initial.publishedRevision;
-  const starter = Boolean(initial.starter);
+  const [starter, setStarter] = useState(Boolean(initial.starter));
   const [dirty, setDirty] = useState(starter);
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState("");
@@ -242,6 +242,7 @@ export function RestaurantEditor({
     );
     if (!confirmed) return;
     setSite(createDonisAdminStarterSite());
+    setStarter(true);
     setSection("menu");
     setSelectedDish(null);
     setDirty(true);
