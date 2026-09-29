@@ -124,6 +124,12 @@ describe("company directory policy", () => {
     expect(assessment.publicationStatus).toBe("ready");
   });
 
+  it("accepts confirmed pilot municipality code tokens while keeping city names canonical", () => {
+    expect(isDirectoryPilotLocation(candidate({ city: "", municipality: "0180" }))).toBe(true);
+    expect(isDirectoryPilotLocation(candidate({ city: "", municipality: "181" }))).toBe(true);
+    expect(isDirectoryPilotLocation(candidate({ city: "0180", municipality: "" }))).toBe(false);
+  });
+
   it("keeps a company in review when Official Facts does not confirm SCB Ng1", () => {
     const assessment = assessDirectoryCandidate(candidate({ primarySniVerified: false }));
 
