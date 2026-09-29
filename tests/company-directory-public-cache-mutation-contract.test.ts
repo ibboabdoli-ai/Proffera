@@ -349,6 +349,7 @@ describe("public Directory safety mutation invalidation", () => {
           public_slug: "stored-old-slug",
           publication_status: "blocked",
           category_slug: "",
+          profile_changed: true,
         }];
       }
       return [];
@@ -400,6 +401,107 @@ describe("public Directory safety mutation invalidation", () => {
     expect(mocks.invalidateMarketplace).toHaveBeenCalledTimes(2);
   });
 
+  it("skips public cache invalidation for a no-op candidate sync", async () => {
+    const sql = vi.fn(async (strings: TemplateStringsArray) => {
+      const query = strings.join(" ");
+      if (query.includes("insert into company_directory_profiles")) {
+        return [{
+          id: PROFILE_ID,
+          public_slug: "safe-company-ab",
+          publication_status: "blocked",
+          category_slug: "",
+          profile_changed: false,
+        }];
+      }
+      return [];
+    });
+    mocks.getSql.mockReturnValue(sql);
+
+    const { upsertCompanyDirectoryCandidate } = await import("@/lib/company-directory-engine");
+    await expect(upsertCompanyDirectoryCandidate({
+      countryCode: "SE",
+      organizationNumber: "5560000000",
+      organizationKind: "juridical_person",
+      legalName: "Safe Company AB",
+      displayName: "Safe Company AB",
+      legalForm: "AB",
+      organizationStatus: "active",
+      isActive: true,
+      fTaxStatus: "registered",
+      vatStatus: "registered",
+      employerStatus: "registered",
+      primarySniCode: "43.221",
+      primarySniLabel: "VVS",
+      activityDescription: "VVS",
+      addressLine1: "Testgatan 1",
+      postalCode: "11122",
+      city: "Stockholm",
+      municipality: "Stockholm",
+      region: "Stockholm",
+      officialSource: "test",
+      sourceRecordId: "source-1",
+      sourceUpdatedAt: null,
+    } as never)).resolves.toMatchObject({ profileId: PROFILE_ID });
+
+    expect(mocks.invalidateProjection).not.toHaveBeenCalled();
+    expect(mocks.invalidateAll).not.toHaveBeenCalled();
+    expect(mocks.invalidateMarketplace).not.toHaveBeenCalled();
+  });
+
+  it("invalidates once when a dependent public service row is repaired", async () => {
+    const sql = vi.fn(async (strings: TemplateStringsArray) => {
+      const query = strings.join(" ");
+      if (query.includes("insert into company_directory_profiles")) {
+        return [{
+          id: PROFILE_ID,
+          public_slug: "safe-company-ab",
+          publication_status: "blocked",
+          category_slug: "",
+          profile_changed: false,
+        }];
+      }
+      if (query.includes("insert into company_directory_profile_services")) {
+        return [{ profile_id: PROFILE_ID }];
+      }
+      return [];
+    });
+    mocks.getSql.mockReturnValue(sql);
+    mocks.mapPrimarySni.mockReturnValue("vvs");
+
+    const { upsertCompanyDirectoryCandidate } = await import("@/lib/company-directory-engine");
+    await expect(upsertCompanyDirectoryCandidate({
+      countryCode: "SE",
+      organizationNumber: "5560000000",
+      organizationKind: "juridical_person",
+      legalName: "Safe Company AB",
+      displayName: "Safe Company AB",
+      legalForm: "AB",
+      organizationStatus: "active",
+      isActive: true,
+      fTaxStatus: "registered",
+      vatStatus: "registered",
+      employerStatus: "registered",
+      primarySniCode: "43.221",
+      primarySniLabel: "VVS",
+      activityDescription: "VVS",
+      addressLine1: "Testgatan 1",
+      postalCode: "11122",
+      city: "Stockholm",
+      municipality: "Stockholm",
+      region: "Stockholm",
+      officialSource: "test",
+      sourceRecordId: "source-1",
+      sourceUpdatedAt: null,
+    } as never)).resolves.toMatchObject({ profileId: PROFILE_ID });
+
+    expect(mocks.invalidateProjection).toHaveBeenCalledTimes(1);
+    expect(mocks.invalidateProjection).toHaveBeenCalledWith({
+      slug: "safe-company-ab",
+      profileId: PROFILE_ID,
+    });
+    expect(mocks.invalidateMarketplace).toHaveBeenCalledTimes(1);
+  });
+
   it("invalidates both public caches before a later source-sync statement fails", async () => {
     const sql = vi.fn(async (strings: TemplateStringsArray) => {
       const query = strings.join(" ");
@@ -409,6 +511,7 @@ describe("public Directory safety mutation invalidation", () => {
           public_slug: "safe-company-ab",
           publication_status: "published",
           category_slug: "",
+          profile_changed: true,
         }];
       }
       throw new Error("later source-sync statement failed");
@@ -458,7 +561,13 @@ describe("public Directory safety mutation invalidation", () => {
     const sql = vi.fn(async (strings: TemplateStringsArray) => {
       const query = strings.join(" ");
       if (query.includes("insert into company_directory_profiles")) {
-        return [{ id: PROFILE_ID, public_slug: "", publication_status: "blocked", category_slug: "" }];
+        return [{
+          id: PROFILE_ID,
+          public_slug: "",
+          publication_status: "blocked",
+          category_slug: "",
+          profile_changed: true,
+        }];
       }
       return [];
     });
