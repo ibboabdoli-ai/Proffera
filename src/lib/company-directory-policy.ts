@@ -77,6 +77,7 @@ export const DIRECTORY_PILOT_MUNICIPALITY_TOKENS = [
 ] as const;
 
 const pilotLocations = new Set<string>(DIRECTORY_PILOT_LOCATIONS);
+const pilotMunicipalityTokens = new Set<string>(DIRECTORY_PILOT_MUNICIPALITY_TOKENS);
 
 function normalizeLocation(value: unknown) {
   return String(value ?? "").trim().toLocaleLowerCase("sv-SE");
@@ -105,7 +106,7 @@ function isPositiveRegistrationSignal(value: unknown) {
 
 export function isDirectoryPilotLocation(candidate: Pick<NormalizedDirectoryCandidate, "city" | "municipality">) {
   return pilotLocations.has(normalizeLocation(candidate.city))
-    || pilotLocations.has(normalizeLocation(candidate.municipality));
+    || pilotMunicipalityTokens.has(normalizeLocation(candidate.municipality));
 }
 
 export function normalizeSniCode(value: unknown) {
