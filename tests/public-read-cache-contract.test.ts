@@ -10,7 +10,6 @@ const mocks = vi.hoisted(() => ({
     results: [{ id: `company-${limit}` }],
     totalCount: 1,
   })),
-  getSql: vi.fn(),
   revalidateTag: vi.fn(),
   unstableCache: vi.fn((
     loader: (...args: never[]) => Promise<unknown>,
@@ -27,7 +26,6 @@ vi.mock("@/lib/business-profile-search", () => ({
 vi.mock("@/lib/company-directory-public-search", () => ({
   getPublishedDirectoryLocationSuggestions: mocks.locationSuggestions,
 }));
-vi.mock("@/lib/db/server", () => ({ getSql: mocks.getSql }));
 vi.mock("@/lib/public-business-seo", () => ({
   listPublicBusinessSitemapEntries: mocks.publicBusinessSitemapEntries,
 }));
@@ -37,7 +35,6 @@ import {
   getCachedPublishedDirectoryLocationSuggestions,
   invalidateMarketplaceHomeCompaniesCache,
   MARKETPLACE_HOME_COMPANIES_CACHE_TAG,
-  PUBLIC_DIRECTORY_LOCATION_SUGGESTIONS_CACHE_TAG,
   getCachedPublicBusinessSitemapEntries,
 } from "../src/lib/public-read-cache";
 
@@ -46,193 +43,76 @@ function source(path: string) {
 }
 
 beforeEach(() => {
-  mocks.getSql.mockReset();
   mocks.locationSuggestions.mockReset().mockImplementation(async (limit: number) => [`location-${limit}`]);
   mocks.revalidateTag.mockClear();
   mocks.marketplaceHomeCompanies.mockReset().mockImplementation(async ({ limit }: { limit: number }) => ({
     results: [{ id: `company-${limit}` }],
     totalCount: 1,
   }));
+  mocks.publicBusinessSitemapEntries.mockClear();
 });
 
 describe("public read cache contract", () => {
-  it("keeps Directory location suggestions for one day while preserving the 30-minute Public Business sitemap cache", async () => {
-    expect(mocks.unstableCache).toHaveBeenCalledTimes(3);
-
-    const locationCall = mocks.unstableCache.mock.calls.find(([, keyParts]) => keyParts[0] === "public-directory-location-suggestions-v5");
-    expect(locationCall?.[2]).toEqual({
-      revalidate: 24 * 60 * 60,
-      tags: [PUBLIC_DIRECTORY_LOCATION_SUGGESTIONS_CACHE_TAG],
-    });
-
-    const marketplaceCall = mocks.unstableCache.mock.calls.find(([, keyParts]) => keyParts[0] === "marketplace-home-companies-v4");
-    expect(marketplaceCall?.[2]).toEqual({
-      revalidate: 30 * 60,
-      tags: [MARKETPLACE_HOME_COMPANIES_CACHE_TAG],
-    });
-
-    const sitemapCall = mocks.unstableCache.mock.calls.find(([, keyParts]) => keyParts[0] === "platform-public-business-sitemap-v1");
+  it("keeps authority-bound Directory and Marketplace home projections live", async () => {
+    expect(mocks.unstableCache).toHaveBeenCalledTimes(1);
+    const sitemapCall = mocks.unstableCache.mock.calls[0];
+    expect(sitemapCall?.[1]).toEqual(["platform-public-business-sitemap-v1"]);
     expect(sitemapCall?.[2]).toEqual({ revalidate: 30 * 60 });
 
     await expect(getCachedPublishedDirectoryLocationSuggestions(999.9)).resolves.toEqual(["location-100"]);
+    expect(mocks.locationSuggestions).toHaveBeenCalledTimes(1);
     expect(mocks.locationSuggestions).toHaveBeenLastCalledWith(100);
 
     await expect(getCachedPublishedDirectoryLocationSuggestions(0)).resolves.toEqual(["location-1"]);
+    expect(mocks.locationSuggestions).toHaveBeenCalledTimes(2);
     expect(mocks.locationSuggestions).toHaveBeenLastCalledWith(1);
 
     await expect(getCachedPublishedDirectoryLocationSuggestions(Number.NaN)).resolves.toEqual(["location-24"]);
+    expect(mocks.locationSuggestions).toHaveBeenCalledTimes(3);
     expect(mocks.locationSuggestions).toHaveBeenLastCalledWith(24);
 
-    await expect(getCachedMarketplaceHomeCompanies(99)).resolves.toMatchObject({ results: [{ id: "company-8" }] });
-    expect(mocks.marketplaceHomeCompanies).toHaveBeenLastCalledWith({ limit: 8, sort: "recommended" });
-
-    await expect(getCachedPublicBusinessSitemapEntries()).resolves.toEqual([{ workspaceSlug: "example-ab", serviceSlug: null }]);
-    expect(mocks.publicBusinessSitemapEntries).toHaveBeenCalledTimes(1);
-
-    invalidateMarketplaceHomeCompaniesCache();
-    expect(mocks.revalidateTag).toHaveBeenCalledWith(MARKETPLACE_HOME_COMPANIES_CACHE_TAG, { expire: 0 });
-  });
-
-  it("does not bind an empty Directory fill when authority is restored before return", async () => {
-    mocks.locationSuggestions
-      .mockResolvedValueOnce([])
-      .mockResolvedValueOnce(["Södertälje"]);
-
-    await expect(getCachedPublishedDirectoryLocationSuggestions(24)).resolves.toEqual(["Södertälje"]);
-    expect(mocks.locationSuggestions).toHaveBeenCalledTimes(2);
-    expect(mocks.getSql).not.toHaveBeenCalled();
-  });
-
-  it("does not bind an empty Marketplace fill when authority is restored before return", async () => {
-    const profileId = "11111111-1111-4111-8111-111111111111";
-    mocks.marketplaceHomeCompanies
-      .mockResolvedValueOnce({ results: [], totalCount: 0 })
-      .mockResolvedValueOnce({ results: [{ id: profileId }], totalCount: 1 });
-
-    await expect(getCachedMarketplaceHomeCompanies(4)).resolves.toMatchObject({
-      results: [{ id: profileId }],
+    await expect(getCachedMarketplaceHomeCompanies(99)).resolves.toMatchObject({
+      results: [{ id: "company-8" }],
     });
-    expect(mocks.marketplaceHomeCompanies).toHaveBeenCalledTimes(2);
-    expect(mocks.getSql).not.toHaveBeenCalled();
+    expect(mocks.marketplaceHomeCompanies).toHaveBeenCalledTimes(1);
+    expect(mocks.marketplaceHomeCompanies).toHaveBeenLastCalledWith({
+      limit: 8,
+      sort: "recommended",
+    });
   });
 
-  it("uses the live claimed-profile authority token semantics when deriving suggestion expiry", async () => {
-    let query = "";
+  it("does not reuse an authority-bound result across calls", async () => {
     mocks.locationSuggestions
       .mockResolvedValueOnce(["Södertälje"])
-      .mockResolvedValueOnce(["Södertälje"])
-      .mockResolvedValueOnce(["Södertälje"])
-      .mockResolvedValueOnce(["Södertälje"]);
-    mocks.getSql.mockReturnValue(vi.fn(async (strings: TemplateStringsArray) => {
-      query = strings.join(" ");
-      return [{
-        juridical_count: 1,
-        authority_expires_at: "2099-09-20T13:00:00.000Z",
-      }];
-    }));
-
-    await expect(getCachedPublishedDirectoryLocationSuggestions(24)).resolves.toEqual(["Södertälje"]);
-
-    expect(query).toContain("profile.publication_status = 'claimed'");
-    expect(query).toContain("or scb.provenance #>> '{comparisonSnapshot,profileUpdatedToken}' = profile.updated_at::text");
-    expect(query).toContain("scb.provenance #>> '{comparisonSnapshot,officialFactsLastSyncedToken}' = facts.last_synced_at::text");
-    expect(mocks.locationSuggestions).toHaveBeenCalledTimes(4);
-  });
-
-  it("revalidates a positive Marketplace envelope before serving it", async () => {
-    const profileId = "11111111-1111-4111-8111-111111111111";
-    mocks.marketplaceHomeCompanies.mockResolvedValue({
-      results: [{ id: profileId }],
-      totalCount: 1,
-    });
-    mocks.getSql.mockReturnValue(vi.fn(async () => [{
-      profile_count: 1,
-      juridical_count: 1,
-      authority_expires_at: "2099-09-20T13:00:00.000Z",
-    }]));
-
-    await expect(getCachedMarketplaceHomeCompanies(4)).resolves.toMatchObject({
-      results: [{ id: profileId }],
-    });
-    expect(mocks.marketplaceHomeCompanies).toHaveBeenCalledTimes(4);
-  });
-
-  it("bypasses a stale nonempty location cache candidate when canonical authority changes during fill", async () => {
-    mocks.locationSuggestions
-      .mockResolvedValueOnce(["Södertälje"])
-      .mockResolvedValueOnce(["Södertälje"])
-      .mockResolvedValueOnce([])
       .mockResolvedValueOnce([]);
-    mocks.getSql.mockReturnValue(vi.fn(async () => [{
-      juridical_count: 1,
-      authority_expires_at: "2099-09-20T13:00:00.000Z",
-    }]));
+    mocks.marketplaceHomeCompanies
+      .mockResolvedValueOnce({ results: [{ id: "11111111-1111-4111-8111-111111111111" }], totalCount: 1 })
+      .mockResolvedValueOnce({ results: [], totalCount: 0 });
 
+    await expect(getCachedPublishedDirectoryLocationSuggestions(24)).resolves.toEqual(["Södertälje"]);
     await expect(getCachedPublishedDirectoryLocationSuggestions(24)).resolves.toEqual([]);
-    expect(mocks.locationSuggestions).toHaveBeenCalledTimes(4);
-    expect(mocks.locationSuggestions).toHaveBeenNthCalledWith(4, 24);
-  });
+    expect(mocks.locationSuggestions).toHaveBeenCalledTimes(2);
 
-  it("bypasses a stale Marketplace cache candidate when canonical authority changes during fill", async () => {
-    const profileId = "11111111-1111-4111-8111-111111111111";
-    mocks.marketplaceHomeCompanies
-      .mockResolvedValueOnce({ results: [{ id: profileId }], totalCount: 1 })
-      .mockResolvedValueOnce({ results: [{ id: profileId }], totalCount: 1 })
-      .mockResolvedValueOnce({ results: [], totalCount: 0 })
-      .mockResolvedValueOnce({ results: [], totalCount: 0 });
-    mocks.getSql.mockReturnValue(vi.fn(async () => [{
-      profile_count: 1,
-      juridical_count: 1,
-      authority_expires_at: "2099-09-20T13:00:00.000Z",
-    }]));
-
+    await expect(getCachedMarketplaceHomeCompanies(4)).resolves.toMatchObject({
+      results: [{ id: "11111111-1111-4111-8111-111111111111" }],
+    });
     await expect(getCachedMarketplaceHomeCompanies(4)).resolves.toMatchObject({ results: [] });
-    expect(mocks.marketplaceHomeCompanies).toHaveBeenCalledTimes(4);
-    expect(mocks.marketplaceHomeCompanies).toHaveBeenNthCalledWith(4, { limit: 4, sort: "recommended" });
+    expect(mocks.marketplaceHomeCompanies).toHaveBeenCalledTimes(2);
   });
 
-  it("rechecks Directory location suggestions once workplace authority reaches its exact deadline", async () => {
-    vi.useFakeTimers();
-    vi.setSystemTime(new Date("2026-09-20T13:00:00.000Z"));
-    mocks.locationSuggestions
-      .mockResolvedValueOnce(["Södertälje"])
-      .mockResolvedValueOnce(["Södertälje"])
-      .mockResolvedValueOnce(["Södertälje"])
-      .mockResolvedValueOnce([]);
-    mocks.getSql.mockReturnValue(vi.fn(async () => [{
-      juridical_count: 1,
-      authority_expires_at: "2026-09-20T13:00:00.000Z",
-    }]));
-
-    try {
-      await expect(getCachedPublishedDirectoryLocationSuggestions(24)).resolves.toEqual([]);
-      expect(mocks.locationSuggestions).toHaveBeenCalledTimes(4);
-    } finally {
-      vi.useRealTimers();
-    }
+  it("keeps the generic public sitemap cached independently", async () => {
+    await expect(getCachedPublicBusinessSitemapEntries()).resolves.toEqual([
+      { workspaceSlug: "example-ab", serviceSlug: null },
+    ]);
+    expect(mocks.publicBusinessSitemapEntries).toHaveBeenCalledTimes(1);
   });
 
-  it("rechecks Marketplace companies once their workplace authority reaches its exact deadline", async () => {
-    vi.useFakeTimers();
-    vi.setSystemTime(new Date("2026-09-20T13:00:00.000Z"));
-    const profileId = "11111111-1111-4111-8111-111111111111";
-    mocks.marketplaceHomeCompanies
-      .mockResolvedValueOnce({ results: [{ id: profileId }], totalCount: 1 })
-      .mockResolvedValueOnce({ results: [{ id: profileId }], totalCount: 1 })
-      .mockResolvedValueOnce({ results: [{ id: profileId }], totalCount: 1 })
-      .mockResolvedValueOnce({ results: [], totalCount: 0 });
-    mocks.getSql.mockReturnValue(vi.fn(async () => [{
-      profile_count: 1,
-      juridical_count: 1,
-      authority_expires_at: "2026-09-20T13:00:00.000Z",
-    }]));
-
-    try {
-      await expect(getCachedMarketplaceHomeCompanies(4)).resolves.toMatchObject({ results: [] });
-      expect(mocks.marketplaceHomeCompanies).toHaveBeenCalledTimes(4);
-    } finally {
-      vi.useRealTimers();
-    }
+  it("preserves the shared Marketplace invalidation hook", () => {
+    invalidateMarketplaceHomeCompaniesCache();
+    expect(mocks.revalidateTag).toHaveBeenCalledWith(
+      MARKETPLACE_HOME_COMPANIES_CACHE_TAG,
+      { expire: 0 },
+    );
   });
 
   it("keeps generic caches separate while Directory profile caching stays behind its audited boundary", () => {
@@ -242,6 +122,7 @@ describe("public read cache contract", () => {
     const requestCache = source("src/lib/company-directory-public-data.ts");
     const profileResolver = source("src/lib/business-profile-public.ts");
     const directoryCacheBoundary = source("src/lib/company-directory-public-cache.ts");
+    const publicReadCache = source("src/lib/public-read-cache.ts");
     const fullRevalidation = source("src/lib/company-directory-full-revalidation.ts");
     const publishedRevalidation = source("src/lib/company-directory-published-revalidation.ts");
     const revalidationRoute = source("src/app/api/cron/company-directory-revalidation/route.ts");
@@ -253,6 +134,10 @@ describe("public read cache contract", () => {
     expect(sitemap).toContain("getCachedPublicBusinessSitemapEntries()");
     expect(sitemap).not.toContain("listPublishedDirectorySitemapEntries()");
     expect(sitemap).not.toContain("listDirectorySeoLandings()");
+
+    expect(publicReadCache).not.toContain("public-directory-location-suggestions-v5");
+    expect(publicReadCache).not.toContain("marketplace-home-companies-v4");
+    expect(publicReadCache).toContain("platform-public-business-sitemap-v1");
 
     // Persistent profile caching remains isolated behind the audited Directory
     // boundary; only its fallback TTL is lengthened, not the cache eligibility.
