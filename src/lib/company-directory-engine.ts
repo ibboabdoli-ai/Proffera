@@ -339,29 +339,39 @@ export async function upsertCompanyDirectoryCandidate(candidate: NormalizedDirec
         then now()
         else company_directory_profiles.updated_at
       end
-    returning id::text, public_slug, publication_status, category_slug
+    returning
+      id::text,
+      public_slug,
+      publication_status,
+      category_slug,
+      (updated_at = now()) as profile_changed
   `;
 
   const profileId = String(rows[0]?.id ?? "");
   if (!profileId) throw new Error(`Directory upsert failed for ${candidate.organizationNumber}`);
 
-  invalidatePersistedPublicProjectionBestEffort({
-    profileId,
-    persistedPublicSlug: rows[0]?.public_slug,
-  });
-  try {
-    invalidateMarketplaceHomeCompaniesCache();
-  } catch (error) {
-    console.error("Failed to invalidate Marketplace cache after committed candidate upsert", {
+  const profileChanged = rows[0]?.profile_changed === true;
+  let dependentPublicStateChanged = false;
+
+  if (profileChanged) {
+    invalidatePersistedPublicProjectionBestEffort({
       profileId,
-      error,
+      persistedPublicSlug: rows[0]?.public_slug,
     });
+    try {
+      invalidateMarketplaceHomeCompaniesCache();
+    } catch (error) {
+      console.error("Failed to invalidate Marketplace cache after committed candidate upsert", {
+        profileId,
+        error,
+      });
+    }
   }
 
   try {
     const sniServiceSlug = mapPrimarySniToDirectorySearchService(candidate.primarySniCode);
     if (sniServiceSlug) {
-      await sql`
+      const serviceUpsertRows = await sql`
         insert into company_directory_profile_services (
           profile_id, service_slug, source_type, confidence, is_primary, is_active, public_visible, updated_at
         )
@@ -377,10 +387,23 @@ export async function upsertCompanyDirectoryCandidate(candidate: NormalizedDirec
           public_visible = true,
           updated_at = now()
         where company_directory_profile_services.source_type = 'sni'
+          and (
+            company_directory_profile_services.confidence,
+            company_directory_profile_services.is_primary,
+            company_directory_profile_services.is_active,
+            company_directory_profile_services.public_visible
+          ) is distinct from (
+            excluded.confidence,
+            excluded.is_primary,
+            excluded.is_active,
+            excluded.public_visible
+          )
+        returning profile_id
       `;
+      if (serviceUpsertRows[0]?.profile_id) dependentPublicStateChanged = true;
     }
 
-    await sql`
+    const deactivatedServiceRows = await sql`
       update company_directory_profile_services
       set is_primary = false,
           is_active = false,
@@ -389,7 +412,10 @@ export async function upsertCompanyDirectoryCandidate(candidate: NormalizedDirec
       where profile_id = ${profileId}::uuid
         and source_type = 'sni'
         and (${sniServiceSlug ?? ""}::text = '' or service_slug <> ${sniServiceSlug ?? ""})
+        and (is_primary = true or is_active = true or public_visible = true)
+      returning profile_id
     `;
+    if (deactivatedServiceRows[0]?.profile_id) dependentPublicStateChanged = true;
 
     const provenanceJson = JSON.stringify(PROVENANCE_FIELDS.map((field) => ({
       fieldName: String(field),
@@ -416,7 +442,7 @@ export async function upsertCompanyDirectoryCandidate(candidate: NormalizedDirec
     if (categorySlug) {
       const categoryImageUrl = `/api/public-directory/category-image/${encodeURIComponent(categorySlug)}`;
 
-      await sql`
+      const rejectedMediaRows = await sql`
         update company_directory_media
         set is_primary = false,
             publication_status = 'rejected',
@@ -425,9 +451,11 @@ export async function upsertCompanyDirectoryCandidate(candidate: NormalizedDirec
           and source_type = 'generated_category'
           and publication_status = 'published'
           and public_url <> ${categoryImageUrl}
+        returning profile_id
       `;
+      if (rejectedMediaRows[0]?.profile_id) dependentPublicStateChanged = true;
 
-      await sql`
+      const insertedMediaRows = await sql`
         insert into company_directory_media (
           profile_id, media_kind, source_type, public_url, attribution, license_status,
           rights_confirmed_at, is_actual_business_media, is_primary, publication_status
@@ -448,26 +476,29 @@ export async function upsertCompanyDirectoryCandidate(candidate: NormalizedDirec
             and media.public_url = ${categoryImageUrl}
             and media.publication_status = 'published'
         )
+        returning profile_id
       `;
+      if (insertedMediaRows[0]?.profile_id) dependentPublicStateChanged = true;
     }
 
 
   } finally {
-    // Keep the early invalidation for immediate visibility, then expire both
-    // projections again even when a later dependent write partially commits and
-    // throws. This prevents requests during the write window from retaining
-    // stale service/provenance/media state.
-    invalidatePersistedPublicProjectionBestEffort({
-      profileId,
-      persistedPublicSlug: rows[0]?.public_slug,
-    });
-    try {
-      invalidateMarketplaceHomeCompaniesCache();
-    } catch (error) {
-      console.error("Failed to invalidate Marketplace cache after candidate dependent writes", {
+    if (profileChanged || dependentPublicStateChanged) {
+      // Keep the early invalidation for changed profile rows, then expire both
+      // projections again after committed dependent public-state writes. This
+      // closes the write window without evicting global caches for no-op syncs.
+      invalidatePersistedPublicProjectionBestEffort({
         profileId,
-        error,
+        persistedPublicSlug: rows[0]?.public_slug,
       });
+      try {
+        invalidateMarketplaceHomeCompaniesCache();
+      } catch (error) {
+        console.error("Failed to invalidate Marketplace cache after candidate dependent writes", {
+          profileId,
+          error,
+        });
+      }
     }
   }
 
