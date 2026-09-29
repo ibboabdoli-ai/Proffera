@@ -1,7 +1,10 @@
 import "server-only";
 
 import { businessEmailDomainKind, validBusinessEmail } from "@/lib/company-directory-claim-email";
-import { DIRECTORY_PILOT_LOCATIONS } from "@/lib/company-directory-policy";
+import {
+  DIRECTORY_PILOT_LOCATIONS,
+  DIRECTORY_PILOT_MUNICIPALITY_TOKENS,
+} from "@/lib/company-directory-policy";
 import { isVerifiedDirectoryMarketplaceLocation } from "@/lib/company-directory-marketplace-readiness";
 import {
   classifyCompanyDirectoryGeoCoverage,
@@ -13,6 +16,7 @@ import { getSql } from "@/lib/db/server";
 import { serviceCategoryForQuoteCategory } from "@/lib/service-catalog";
 
 const PILOT_LOCATION_CSV = DIRECTORY_PILOT_LOCATIONS.join(",");
+const PILOT_MUNICIPALITY_CSV = DIRECTORY_PILOT_MUNICIPALITY_TOKENS.join(",");
 
 type GuestLead = {
   id: string;
@@ -554,7 +558,7 @@ export async function getDirectoryGuestLeadMatches() {
           and nullif(btrim(scb.workplaces->0->>'municipality'), '') is not null
           and (
             translate(lower(btrim(scb.workplaces->0->'visitingAddress'->>'city')), 'ÅÄÖ', 'åäö') = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
-            or translate(lower(btrim(scb.workplaces->0->>'municipality')), 'ÅÄÖ', 'åäö') = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
+            or translate(lower(btrim(scb.workplaces->0->>'municipality')), 'ÅÄÖ', 'åäö') = any(string_to_array(${PILOT_MUNICIPALITY_CSV}, ','))
           )
           and (
             exists (
