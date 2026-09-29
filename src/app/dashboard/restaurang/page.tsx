@@ -1,6 +1,10 @@
 import { redirect } from "next/navigation";
 
-import { DONIS_FALLBACK_DISH_IMAGE_URLS } from "@/lib/donis-fallback";
+import {
+  DONIS_FALLBACK_DISH_IMAGE_URLS,
+  DONIS_FALLBACK_IMAGES,
+  DONIS_FALLBACK_SITE,
+} from "@/lib/donis-fallback";
 import { getRestaurantAdmin } from "@/lib/restaurant-site-db";
 import { getDashboardGalleryItems } from "@/lib/website-gallery-db";
 import {
@@ -56,6 +60,16 @@ export default async function RestaurantAdminPage() {
   const images = (await getDashboardGalleryItems()).filter(
     (item) => item.mediaType === "image",
   );
+  const referenceHeroImage =
+    !site.published && DONIS_FALLBACK_SITE.media.hero
+      ? DONIS_FALLBACK_IMAGES[DONIS_FALLBACK_SITE.media.hero.id]
+      : undefined;
+  const referenceGalleryImages = !site.published
+    ? DONIS_FALLBACK_SITE.media.gallery
+        .map((item) => DONIS_FALLBACK_IMAGES[item.id])
+        .filter((url): url is string => Boolean(url))
+    : [];
+
   return (
     <RestaurantEditor
       initial={site}
@@ -67,6 +81,8 @@ export default async function RestaurantAdminPage() {
       referenceDishImages={
         site.published ? {} : DONIS_FALLBACK_DISH_IMAGE_URLS
       }
+      referenceHeroImage={referenceHeroImage}
+      referenceGalleryImages={referenceGalleryImages}
     />
   );
 }
