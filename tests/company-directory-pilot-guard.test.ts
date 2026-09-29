@@ -83,9 +83,9 @@ describe("company directory pilot database guard", () => {
     expect(sql).toContain("'åäö'");
     expect(sql).toContain("'0180'");
     expect(sql).toContain("'0181'");
-    expect(sql).toContain("coalesce(facts.advertising_blocked, false) = false");
+    expect(sql).toContain("facts.advertising_blocked is false");
     expect(sql).toContain("set auto_public_eligible = true");
-    expect(sql).toContain("updated_at = now()");
+    expect(sql).not.toContain("set auto_public_eligible = true,\n    updated_at = now()");
     expect(sql).not.toContain("set publication_status = 'published'");
     expect(sql).toContain("create or replace function company_directory_enforce_pilot_workplace_publication()");
     expect(sql).toContain("'20260929_0071'");
