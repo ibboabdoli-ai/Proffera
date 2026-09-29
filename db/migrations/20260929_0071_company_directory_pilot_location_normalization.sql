@@ -21,8 +21,7 @@
 begin;
 
 update company_directory_profiles profile
-set auto_public_eligible = true,
-    updated_at = now()
+set auto_public_eligible = true
 from company_directory_scb_enrichment scb,
      company_directory_official_facts facts
 where scb.profile_id = profile.id
@@ -37,7 +36,7 @@ where scb.profile_id = profile.id
   and facts.source_payload_hash <> ''
   and facts.last_synced_at >= profile.last_synced_at
   and facts.deregistration_date is null
-  and coalesce(facts.advertising_blocked, false) = false
+  and facts.advertising_blocked is false
   and (
     case
       when jsonb_typeof(facts.ongoing_procedures) = 'array'
