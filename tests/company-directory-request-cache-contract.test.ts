@@ -182,7 +182,7 @@ describe("company directory shared-cache route contract", () => {
       expect(candidate).toContain("owner_base.purpose = 'service_base'");
       expect(candidate).toContain("owner_base.geocode_source = 'lantmateriet_belagenhetsadress_v4_2'");
       expect(candidate).toContain("owner_base.geocode_precision = 'address'");
-      expect(candidate).toContain("lower(btrim(owner_base.city)) = any");
+      expect(candidate).toContain("translate(lower(btrim(owner_base.city)), \'ÅÄÖ\', \'åäö\') = any");
       expect(candidate).not.toContain("lower(btrim(owner_base.municipality)) = any");
       expect(candidate).toContain("claimed_facts.deregistration_date is null");
       expect(candidate).toContain("claimed_facts.advertising_blocked is false");

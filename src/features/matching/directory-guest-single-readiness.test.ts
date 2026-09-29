@@ -478,7 +478,7 @@ describe("single-request Marketplace readiness gate", () => {
     it("batch matcher rejects stale geocoding after workplaceChangedAt advances", async () => {
       if (!client) throw new Error("PostgreSQL test client is not initialized");
       await client.query(
-        "update quote_requests set city = 'Malmö', customer_latitude = 59.1955, customer_longitude = 17.6253 where id = $1::uuid",
+        "update quote_requests set city = 'Malmö', customer_location_source = 'geolocation', customer_latitude = 59.1955, customer_longitude = 17.6253 where id = $1::uuid",
         [leadRow.id],
       );
       await client.query(

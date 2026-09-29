@@ -61,14 +61,15 @@ function renderedText(node: ReactNode) {
 }
 
 function activationFormAction(node: ReactNode) {
-  let action: ((formData: FormData) => Promise<unknown>) | null = null;
+  const actions: Array<(formData: FormData) => Promise<unknown>> = [];
   walk(node, (value) => {
     if (!isValidElement(value) || value.type !== "form") return;
     const candidate = (value.props as { action?: unknown }).action;
     if (typeof candidate === "function" && inputNames(value).includes("serviceId")) {
-      action = candidate as (formData: FormData) => Promise<unknown>;
+      actions.push(candidate as (formData: FormData) => Promise<unknown>);
     }
   });
+  const action = actions[0];
   if (!action) throw new Error("Marketplace activation form action was not rendered");
   return action;
 }

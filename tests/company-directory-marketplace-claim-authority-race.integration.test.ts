@@ -218,10 +218,10 @@ function verifiedEvidence() {
       await client.query(`
         insert into quote_requests (
           id, reference_id, category, service_type, city, postal_code, description,
-          contact_name, contact_email, contact_phone, consent_accepted, status
+          preferred_date, contact_name, contact_email, contact_phone, consent_accepted, status
         ) values (
           $1::uuid, 'PF-CLAIM-RACE', 'VVS', 'Rörmokare', 'Södertälje', '151 46',
-          'Claim authority race', 'Kund', 'kund@example.test', '0700000000', true, 'submitted'
+          'Claim authority race', '2030-01-15', 'Kund', 'kund@example.test', '0700000000', true, 'submitted'
         )
       `, [QUOTE_ID]);
 

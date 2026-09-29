@@ -339,7 +339,7 @@ describe("sole-trader Marketplace privacy release", () => {
     expect(queryText(sql.mock.calls[0]![0] as TemplateStringsArray)).toContain("owner_base.purpose = 'service_base'");
     expect(publication).toContain("owner_base.visibility = 'private'");
     expect(publication).toContain("owner_base.geocode_source = 'lantmateriet_belagenhetsadress_v4_2'");
-    expect(publication).toContain("lower(btrim(owner_base.city)) = any");
+    expect(publication).toContain("translate(lower(btrim(owner_base.city)), \'ÅÄÖ\', \'åäö\') = any");
     expect(publication).not.toContain("lower(btrim(owner_base.municipality)) = any");
     expect(publication).toContain("for update");
     expect(mocks.invalidateByProfileId).toHaveBeenCalledWith(PROFILE_ID);
