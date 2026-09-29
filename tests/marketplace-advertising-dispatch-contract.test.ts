@@ -150,7 +150,7 @@ function createSql({
     }
 
     if (query.includes("set status = 'cancelled'") && query.includes("returning invitation.id::text")) {
-      if (!factsPresent || advertisingBlocked !== false) {
+      if (factsPresent && advertisingBlocked === true) {
         state.status = "cancelled";
         state.dispatchToken = null;
         return [{ id: invitationId }];
@@ -192,7 +192,8 @@ async function expectDispatchBlocked(options: FixtureOptions) {
 
   expect(result).toEqual({ ok: false, code: "profile_ineligible" });
   expect(mocks.sendInvitationEmail).not.toHaveBeenCalled();
-  expect(state.status).toBe("cancelled");
+  const permanentlyBlocked = options.factsPresent !== false && options.advertisingBlocked === true;
+  expect(state.status).toBe(permanentlyBlocked ? "cancelled" : "delivery_failed");
   expect(state.dispatchToken).toBeNull();
 
   return sql;

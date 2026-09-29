@@ -880,6 +880,10 @@ function selectedAddressFromRow(row: Record<string, unknown>) {
 }
 
 function hasCurrentGeocodedPoint(row: Record<string, unknown>) {
+  if (typeof row.has_current_coordinates === "boolean") {
+    return row.has_current_coordinates;
+  }
+
   const latitude = row.latitude;
   const longitude = row.longitude;
   const hasCoordinates = latitude !== null
@@ -1093,6 +1097,8 @@ async function markNoMatch(
         ) = ${workplaceBoundaryToken}
     )
     on conflict (profile_id) do update set
+      latitude = null,
+      longitude = null,
       geocode_source = excluded.geocode_source,
       geocode_precision = excluded.geocode_precision,
       geocode_confidence = excluded.geocode_confidence,
@@ -1184,6 +1190,15 @@ export async function geocodeDirectoryProviderPointsFromAdmin(
         scb.last_synced_at as scb_last_synced_at,
         scb.last_synced_at::text as scb_last_synced_token,
         scb.provenance #>> '{workplaceChangedAt}' as scb_workplace_changed_at,
+        (
+          location.latitude is not null
+          and location.longitude is not null
+          and location.geocoded_at is not null
+          and location.geocoded_at >= coalesce(
+            nullif(scb.provenance #>> '{workplaceChangedAt}', '')::timestamptz,
+            scb.last_synced_at
+          )
+        ) as has_current_coordinates,
         scb.workplaces as scb_workplaces,
         scb.conflicts as scb_conflicts,
         case
@@ -1244,20 +1259,13 @@ export async function geocodeDirectoryProviderPointsFromAdmin(
       scb_last_synced_at,
       scb_last_synced_token,
       scb_workplace_changed_at,
+      has_current_coordinates,
       scb_workplaces,
       scb_conflicts
     from runnable_provider
     where has_safe_workplace = true
       and scb_last_synced_at is not null
-      and (
-        latitude is null
-        or longitude is null
-        or geocoded_at is null
-        or geocoded_at < coalesce(
-          nullif(scb_workplace_changed_at, '')::timestamptz,
-          scb_last_synced_at
-        )
-      )
+      and not has_current_coordinates
       and coalesce(geocode_source, '') not like ${terminalNoMatchPattern}
     order by
       case when geocode_source = ${TRANSIENT_ERROR_SOURCE} then 1 else 0 end,

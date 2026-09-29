@@ -5,6 +5,7 @@ const mocks = vi.hoisted(() => ({
   submitCore: vi.fn(),
   buildView: vi.fn(),
   hashToken: vi.fn(),
+  readCurrentAuthority: vi.fn(),
   validToken: vi.fn(),
 }));
 
@@ -13,6 +14,7 @@ vi.mock("@/lib/db/server", () => ({ getSql: mocks.getSql }));
 vi.mock("@/lib/marketplace-guest-quote", () => ({
   buildMarketplaceGuestQuoteView: mocks.buildView,
   hashMarketplaceGuestToken: mocks.hashToken,
+  readCurrentInvitationAuthorityState: mocks.readCurrentAuthority,
   submitMarketplaceGuestQuote: mocks.submitCore,
 }));
 vi.mock("@/lib/marketplace-guest-opt-out-core", () => ({
@@ -72,6 +74,11 @@ describe("marketplace guest human-view tracking", () => {
     vi.clearAllMocks();
     mocks.validToken.mockReturnValue(true);
     mocks.hashToken.mockReturnValue("token-hash");
+    mocks.readCurrentAuthority.mockResolvedValue({
+      status: "sent",
+      recipient_suppressed: false,
+      has_current_authority: true,
+    });
     mocks.buildView.mockImplementation((row: Record<string, unknown>) => ({
       status: String(row.status),
     }));
@@ -123,9 +130,13 @@ describe("marketplace guest human-view tracking", () => {
       [],
       [],
       [],
-      [{ status: "sent", recipient_suppressed: false, has_current_authority: true }],
     );
     mocks.getSql.mockReturnValue(sql);
+    mocks.readCurrentAuthority.mockResolvedValue({
+      status: "sent",
+      recipient_suppressed: false,
+      has_current_authority: true,
+    });
 
     const view = await getMarketplaceGuestQuoteView("a".repeat(40));
 
@@ -133,8 +144,11 @@ describe("marketplace guest human-view tracking", () => {
     expect(view?.customerContact).toBeNull();
     expect(sql.transaction).toHaveBeenCalledTimes(1);
     expect(queryText(sql.mock.calls[4])).toContain("returning invitation.id::text");
-    expect(queryText(sql.mock.calls[5])).toContain("recipient_suppressed");
-    expect(queryText(sql.mock.calls[5])).toContain("invitation.token_hash =");
+    expect(mocks.readCurrentAuthority).toHaveBeenCalledWith(
+      sql,
+      "11111111-1111-4111-8111-111111111111",
+      "token-hash",
+    );
   });
 
   it("does not render an old guest token after a concurrent resend rotated token ownership", async () => {
@@ -144,15 +158,19 @@ describe("marketplace guest human-view tracking", () => {
       [],
       [],
       [],
-      [],
     );
     mocks.getSql.mockReturnValue(sql);
+    mocks.readCurrentAuthority.mockResolvedValue(null);
 
     const view = await getMarketplaceGuestQuoteView("a".repeat(40));
 
     expect(view).toBeNull();
     expect(sql.transaction).toHaveBeenCalledTimes(1);
-    expect(queryText(sql.mock.calls[5])).toContain("invitation.token_hash =");
+    expect(mocks.readCurrentAuthority).toHaveBeenCalledWith(
+      sql,
+      "11111111-1111-4111-8111-111111111111",
+      "token-hash",
+    );
   });
 
   it("does not render a stale guest view when invitation state changed during authority reconciliation", async () => {
@@ -162,15 +180,19 @@ describe("marketplace guest human-view tracking", () => {
       [],
       [],
       [],
-      [{ status: "suppressed", recipient_suppressed: true, has_current_authority: true }],
     );
     mocks.getSql.mockReturnValue(sql);
+    mocks.readCurrentAuthority.mockResolvedValue({
+      status: "suppressed",
+      recipient_suppressed: true,
+      has_current_authority: true,
+    });
 
     const view = await getMarketplaceGuestQuoteView("a".repeat(40));
 
     expect(view).toBeNull();
     expect(sql.transaction).toHaveBeenCalledTimes(1);
-    expect(queryText(sql.mock.calls[5])).toContain("has_current_authority");
+    expect(mocks.readCurrentAuthority).toHaveBeenCalledTimes(1);
   });
 
   it("unlocks customer contact only for the selected winner after the request closes", async () => {

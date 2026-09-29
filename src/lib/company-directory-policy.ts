@@ -67,6 +67,15 @@ const juridicalLegalForms = [
 
 export const DIRECTORY_PILOT_LOCATIONS = ["stockholm", "södertälje"] as const;
 
+// SCB's Kommun field is a municipality code. Keep both the canonical four-digit
+// form and numeric JSON fallbacks so old/raw enrichment rows cannot be
+// misclassified solely because a leading zero was lost in transport.
+export const DIRECTORY_PILOT_MUNICIPALITY_CODES = ["0180", "0181", "180", "181"] as const;
+export const DIRECTORY_PILOT_MUNICIPALITY_TOKENS = [
+  ...DIRECTORY_PILOT_LOCATIONS,
+  ...DIRECTORY_PILOT_MUNICIPALITY_CODES,
+] as const;
+
 const pilotLocations = new Set<string>(DIRECTORY_PILOT_LOCATIONS);
 
 function normalizeLocation(value: unknown) {

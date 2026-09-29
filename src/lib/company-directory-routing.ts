@@ -1,11 +1,15 @@
 import "server-only";
 
 import { readPublicDirectoryRoutingMissCache } from "@/lib/company-directory-public-cache";
-import { DIRECTORY_PILOT_LOCATIONS } from "@/lib/company-directory-policy";
+import {
+  DIRECTORY_PILOT_LOCATIONS,
+  DIRECTORY_PILOT_MUNICIPALITY_TOKENS,
+} from "@/lib/company-directory-policy";
 import { getSql } from "@/lib/db/server";
 import { hasWorkspaceFeatureAccessForWorkspace } from "@/lib/workspace-feature-entitlement-db";
 
 const PILOT_LOCATION_CSV = DIRECTORY_PILOT_LOCATIONS.join(",");
+const PILOT_MUNICIPALITY_CSV = DIRECTORY_PILOT_MUNICIPALITY_TOKENS.join(",");
 
 export async function getClaimedDirectoryWorkspaceSlug(directorySlug: string) {
   const slug = directorySlug.trim().toLowerCase();
@@ -61,7 +65,7 @@ export async function getClaimedDirectoryWorkspaceSlug(directorySlug: string) {
                 and nullif(btrim(claimed_scb.workplaces->0->>'municipality'), '') is not null
                 and (
                   translate(lower(btrim(claimed_scb.workplaces->0->'visitingAddress'->>'city')), 'ÅÄÖ', 'åäö') = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
-                  or translate(lower(btrim(claimed_scb.workplaces->0->>'municipality')), 'ÅÄÖ', 'åäö') = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
+                  or translate(lower(btrim(claimed_scb.workplaces->0->>'municipality')), 'ÅÄÖ', 'åäö') = any(string_to_array(${PILOT_MUNICIPALITY_CSV}, ','))
                 )
             )
           )

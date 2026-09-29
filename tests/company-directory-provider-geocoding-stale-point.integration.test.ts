@@ -13,7 +13,10 @@ vi.mock("server-only", () => ({}));
 vi.mock("@/lib/platform-admin", () => ({ getPlatformAdmin: mocks.getPlatformAdmin }));
 vi.mock("@/lib/db/server", () => ({ getSql: mocks.getSql }));
 
-import { geocodeDirectoryProviderPointsFromAdmin } from "../src/lib/company-directory-geocoding";
+import {
+  geocodeDirectoryProviderPointsFromAdmin,
+  getDirectoryGeocodingStatus,
+} from "../src/lib/company-directory-geocoding";
 import { applyCanonicalProfferaMigrations } from "./helpers/postgres-canonical-schema";
 
 const RUN_POSTGRES_INTEGRATION =
@@ -178,6 +181,49 @@ function postgresSql(client: Client) {
           'address', 100, true, now() - interval '2 hours'
         )
       `, [PROFILE_ID]);
+    });
+
+    it("skips a coordinate row geocoded after the canonical workplace change", async () => {
+      const fetchSpy = vi.spyOn(globalThis, "fetch").mockRejectedValue(new Error("unexpected upstream call"));
+      await client!.query(
+        "update company_directory_business_locations set geocoded_at = now() + interval '1 minute' where profile_id = $1::uuid",
+        [PROFILE_ID],
+      );
+
+      const result = await geocodeDirectoryProviderPointsFromAdmin(1);
+
+      expect(result.attempted).toBe(0);
+      expect(fetchSpy).not.toHaveBeenCalled();
+    });
+
+    it("clears stale coordinates when the replacement workplace has no address match", async () => {
+      const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async () =>
+        new Response(JSON.stringify([]), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+      );
+
+      const result = await geocodeDirectoryProviderPointsFromAdmin(1);
+
+      expect(result.attempted).toBe(1);
+      expect(result.noMatch).toBe(1);
+      expect(fetchSpy).toHaveBeenCalled();
+
+      const location = await client!.query<{
+        latitude: number | null;
+        longitude: number | null;
+        geocode_source: string;
+      }>(
+        "select latitude, longitude, geocode_source from company_directory_business_locations where profile_id = $1::uuid",
+        [PROFILE_ID],
+      );
+      expect(location.rows[0]?.latitude).toBeNull();
+      expect(location.rows[0]?.longitude).toBeNull();
+      expect(location.rows[0]?.geocode_source).toContain("lantmateriet_no_match_v4_2");
+
+      const status = await getDirectoryGeocodingStatus();
+      expect(status.geocoded).toBe(0);
     });
 
     it("selects and marks a coordinate row stale only when the canonical workplace changed", async () => {

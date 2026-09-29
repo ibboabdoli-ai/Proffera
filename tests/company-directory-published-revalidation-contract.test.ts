@@ -31,7 +31,7 @@ vi.mock("@/lib/company-directory-scb-transport", () => ({
   createScbCompanyRegistryTransportFromEnv: mocks.createScbTransport,
 }));
 
-import { DIRECTORY_PILOT_LOCATIONS } from "../src/lib/company-directory-policy";
+import { DIRECTORY_PILOT_MUNICIPALITY_TOKENS } from "../src/lib/company-directory-policy";
 import { revalidatePublishedCompanyDirectoryBatch } from "../src/lib/company-directory-published-revalidation";
 
 type SqlCall = { query: string; values: unknown[] };
@@ -230,7 +230,7 @@ describe("published Directory revalidation worker", () => {
     expect(backlog?.query).toContain("jsonb_array_length(scb.conflicts) > 0");
     expect(backlog?.query).toContain("else true");
     expect(backlog?.query).toContain("string_to_array");
-    expect(backlog?.values).toContain(DIRECTORY_PILOT_LOCATIONS.join(","));
+    expect(backlog?.values).toContain(DIRECTORY_PILOT_MUNICIPALITY_TOKENS.join(","));
   });
 
   it("finalizes the lease immediately when candidate selection throws", async () => {
@@ -295,7 +295,7 @@ describe("published Directory revalidation worker", () => {
     expect(selection?.query).toContain("else true");
     expect(selection?.query).toContain("string_to_array");
     expect(selection?.query).not.toContain("'stockholm', 'södertälje'");
-    expect(selection?.values).toContain(DIRECTORY_PILOT_LOCATIONS.join(","));
+    expect(selection?.values).toContain(DIRECTORY_PILOT_MUNICIPALITY_TOKENS.join(","));
     expect(selection?.values.at(-1)).toBe(3);
     const evaluation = sqlCalls.find((call) => (
       call.query.includes("profile.category_slug")

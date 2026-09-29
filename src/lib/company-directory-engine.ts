@@ -11,6 +11,7 @@ import {
   assessDirectoryCandidate,
   buildDirectoryPublicSlug,
   DIRECTORY_PILOT_LOCATIONS,
+  DIRECTORY_PILOT_MUNICIPALITY_TOKENS,
   type NormalizedDirectoryCandidate,
 } from "@/lib/company-directory-policy";
 import { mapPrimarySniToDirectorySearchService } from "@/lib/company-directory-service-taxonomy";
@@ -24,6 +25,7 @@ const PILOT_MAX_PAGES_PER_RUN = 2;
 const PILOT_MAX_BATCH_SIZE = 10;
 const PUBLIC_DIRECTORY_SLUG_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const PUBLIC_DIRECTORY_PILOT_LOCATION_CSV = DIRECTORY_PILOT_LOCATIONS.join(",");
+const PUBLIC_DIRECTORY_PILOT_MUNICIPALITY_CSV = DIRECTORY_PILOT_MUNICIPALITY_TOKENS.join(",");
 
 const PROVENANCE_FIELDS: Array<keyof NormalizedDirectoryCandidate> = [
   "organizationNumber",
@@ -677,7 +679,7 @@ export async function getPublicDirectoryBusiness(slug: string): Promise<PublicDi
           and nullif(btrim(published_scb.workplaces->0->>'municipality'), '') is not null
           and (
             translate(lower(btrim(published_scb.workplaces->0->'visitingAddress'->>'city')), 'ÅÄÖ', 'åäö') = any(string_to_array(${PUBLIC_DIRECTORY_PILOT_LOCATION_CSV}, ','))
-            or translate(lower(btrim(published_scb.workplaces->0->>'municipality')), 'ÅÄÖ', 'åäö') = any(string_to_array(${PUBLIC_DIRECTORY_PILOT_LOCATION_CSV}, ','))
+            or translate(lower(btrim(published_scb.workplaces->0->>'municipality')), 'ÅÄÖ', 'åäö') = any(string_to_array(${PUBLIC_DIRECTORY_PILOT_MUNICIPALITY_CSV}, ','))
           )
       )
     limit 1

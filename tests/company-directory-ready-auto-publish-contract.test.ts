@@ -57,7 +57,7 @@ describe("company directory high-confidence Ready auto-publish contract", () => 
     expect(resolver).toContain("jsonb_typeof(scb.workplaces) = 'array'");
     expect(resolver).toContain("jsonb_array_length(scb.workplaces) = 1");
     expect(resolver).toContain("PILOT_LOCATION_CSV");
-    expect(resolver).toContain("DIRECTORY_PILOT_LOCATIONS");
+    expect(resolver).toContain("DIRECTORY_PILOT_MUNICIPALITY_TOKENS");
   });
 
   it("synchronizes a Ready queue row only after the profile is published", () => {

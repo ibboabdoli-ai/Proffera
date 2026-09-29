@@ -163,6 +163,24 @@ describe("SCB company registry provider", () => {
     });
   });
 
+  it("normalizes confirmed SCB municipality codes at the provider boundary", () => {
+    const normalized = normalizeScbCompanyRegistryPayload(
+      [{ OrgNr: "5563115707", Företagsnamn: "Exempel AB", Kommun: "0180" }],
+      [{
+        OrgNr: "5563115707",
+        CfarNr: "12345678",
+        BesöksAdress: "Storgatan 1",
+        BesöksPostNr: "15172",
+        BesöksPostOrt: "Järna",
+        Kommun: 181,
+      }],
+      "5563115707",
+    );
+
+    expect(normalized.municipality).toBe("Stockholm");
+    expect(normalized.workplaces[0]?.municipality).toBe("Södertälje");
+  });
+
   it("rejects a response that does not uniquely match the requested organization", () => {
     expect(() => normalizeScbCompanyRegistryPayload(
       [{ OrgNr: "5563115707" }, { OrgNr: "5563115707" }],

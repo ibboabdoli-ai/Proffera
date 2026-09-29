@@ -13,7 +13,10 @@ import {
   getDirectoryServiceDefinition,
   resolveDirectoryServiceQuery,
 } from "@/lib/company-directory-service-taxonomy";
-import { DIRECTORY_PILOT_LOCATIONS } from "@/lib/company-directory-policy";
+import {
+  DIRECTORY_PILOT_LOCATIONS,
+  DIRECTORY_PILOT_MUNICIPALITY_TOKENS,
+} from "@/lib/company-directory-policy";
 import { invalidatePublicDirectoryPublicProjectionByProfileId } from "@/lib/company-directory-public-cache";
 import { invalidateMarketplaceHomeCompaniesCache } from "@/lib/public-read-cache";
 
@@ -21,6 +24,7 @@ const SOLE_TRADER_OWNER_SOURCE = "bolagsverket_vardefulla_datamangder:sole_trade
 const SOLE_TRADER_SURROGATE_IDENTITY_PATTERN = "^sole-trader-[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$";
 const SOLE_TRADER_SURROGATE_IDENTITY = new RegExp(SOLE_TRADER_SURROGATE_IDENTITY_PATTERN);
 const PILOT_LOCATION_CSV = DIRECTORY_PILOT_LOCATIONS.join(",");
+const PILOT_MUNICIPALITY_CSV = DIRECTORY_PILOT_MUNICIPALITY_TOKENS.join(",");
 
 export type ProviderActivationDirectoryService = {
   slug: string;
@@ -212,7 +216,7 @@ export async function getProviderActivationState(): Promise<ProviderActivationSt
             and nullif(btrim(claimed_scb.workplaces->0->>'municipality'), '') is not null
             and (
               translate(lower(btrim(claimed_scb.workplaces->0->'visitingAddress'->>'city')), 'ÅÄÖ', 'åäö') = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
-              or translate(lower(btrim(claimed_scb.workplaces->0->>'municipality')), 'ÅÄÖ', 'åäö') = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
+              or translate(lower(btrim(claimed_scb.workplaces->0->>'municipality')), 'ÅÄÖ', 'åäö') = any(string_to_array(${PILOT_MUNICIPALITY_CSV}, ','))
             )
         )
         )
@@ -299,7 +303,7 @@ export async function getProviderActivationState(): Promise<ProviderActivationSt
             and nullif(btrim(claimed_scb.workplaces->0->>'municipality'), '') is not null
             and (
               translate(lower(btrim(claimed_scb.workplaces->0->'visitingAddress'->>'city')), 'ÅÄÖ', 'åäö') = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
-              or translate(lower(btrim(claimed_scb.workplaces->0->>'municipality')), 'ÅÄÖ', 'åäö') = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
+              or translate(lower(btrim(claimed_scb.workplaces->0->>'municipality')), 'ÅÄÖ', 'åäö') = any(string_to_array(${PILOT_MUNICIPALITY_CSV}, ','))
             )
         ) as has_safe_juridical_workplace,
         exists (
@@ -493,7 +497,7 @@ export async function findProviderProfileByOrganizationNumber(value: unknown): P
           and nullif(btrim(scb.workplaces->0->>'municipality'), '') is not null
           and (
             translate(lower(btrim(scb.workplaces->0->'visitingAddress'->>'city')), 'ÅÄÖ', 'åäö') = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
-            or translate(lower(btrim(scb.workplaces->0->>'municipality')), 'ÅÄÖ', 'åäö') = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
+            or translate(lower(btrim(scb.workplaces->0->>'municipality')), 'ÅÄÖ', 'åäö') = any(string_to_array(${PILOT_MUNICIPALITY_CSV}, ','))
           )
       ) as has_current_authority
     from company_directory_profiles profile
@@ -593,7 +597,7 @@ export async function activateProviderMarketplaceService(input: {
                  and nullif(btrim(claimed_scb.workplaces->0->>'municipality'), '') is not null
                  and (
                    translate(lower(btrim(claimed_scb.workplaces->0->'visitingAddress'->>'city')), 'ÅÄÖ', 'åäö') = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
-                   or translate(lower(btrim(claimed_scb.workplaces->0->>'municipality')), 'ÅÄÖ', 'åäö') = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
+                   or translate(lower(btrim(claimed_scb.workplaces->0->>'municipality')), 'ÅÄÖ', 'åäö') = any(string_to_array(${PILOT_MUNICIPALITY_CSV}, ','))
                  )
              )
            )
@@ -765,7 +769,7 @@ export async function activateProviderMarketplaceService(input: {
             and nullif(btrim(claimed_scb.workplaces->0->>'municipality'), '') is not null
             and (
               translate(lower(btrim(claimed_scb.workplaces->0->'visitingAddress'->>'city')), 'ÅÄÖ', 'åäö') = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
-              or translate(lower(btrim(claimed_scb.workplaces->0->>'municipality')), 'ÅÄÖ', 'åäö') = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
+              or translate(lower(btrim(claimed_scb.workplaces->0->>'municipality')), 'ÅÄÖ', 'åäö') = any(string_to_array(${PILOT_MUNICIPALITY_CSV}, ','))
             )
           for update of claimed_facts, claimed_scb
         )

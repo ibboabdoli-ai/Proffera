@@ -77,7 +77,7 @@ describe("public company directory search contract", () => {
     expect(searchSource).toContain("jsonb_typeof(claimed_facts.ongoing_procedures) = 'array'");
     expect(searchSource).toContain("jsonb_typeof(claimed_scb.conflicts) = 'array'");
     expect(searchSource).toContain("jsonb_typeof(claimed_scb.workplaces) = 'array'");
-    expect(searchSource).toContain("DIRECTORY_PILOT_LOCATIONS");
+    expect(searchSource).toContain("DIRECTORY_PILOT_MUNICIPALITY_TOKENS");
     expect(searchSource).toContain("when owner_location.id is not null then ''");
     expect(searchSource).toContain("or lower(public_location.city) = ${normalizedLocation}");
     expect(searchSource).toContain("or lower(public_location.municipality) = ${normalizedLocation}");

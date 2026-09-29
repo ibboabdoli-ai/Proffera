@@ -14,7 +14,10 @@ import {
   resolveCompanyDirectoryCanonicalWorkplaceAddress,
   type DirectoryPublicAddress,
 } from "@/lib/company-directory-scb-address";
-import { DIRECTORY_PILOT_LOCATIONS } from "@/lib/company-directory-policy";
+import {
+  DIRECTORY_PILOT_LOCATIONS,
+  DIRECTORY_PILOT_MUNICIPALITY_TOKENS,
+} from "@/lib/company-directory-policy";
 import { getSql } from "@/lib/db/server";
 
 export type PublicDirectoryBusinessForRequest = PublicDirectoryBusiness & {
@@ -46,6 +49,7 @@ type PublishedDirectoryResolution = {
 };
 
 const PILOT_LOCATION_CSV = DIRECTORY_PILOT_LOCATIONS.join(",");
+const PILOT_MUNICIPALITY_CSV = DIRECTORY_PILOT_MUNICIPALITY_TOKENS.join(",");
 
 const EMPTY_PHYSICAL_ADDRESS: DirectoryPublicAddress = {
   addressLine1: "",
@@ -242,7 +246,7 @@ async function getPublishedDirectoryContact(business: PublicDirectoryBusiness) {
         and nullif(btrim(published_scb.workplaces->0->>'municipality'), '') is not null
         and (
           translate(lower(btrim(published_scb.workplaces->0->'visitingAddress'->>'city')), 'ÅÄÖ', 'åäö') = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
-          or translate(lower(btrim(published_scb.workplaces->0->>'municipality')), 'ÅÄÖ', 'åäö') = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
+          or translate(lower(btrim(published_scb.workplaces->0->>'municipality')), 'ÅÄÖ', 'åäö') = any(string_to_array(${PILOT_MUNICIPALITY_CSV}, ','))
         )
       limit 1
     ) published_authority on true
@@ -444,7 +448,7 @@ async function getSafeClaimedDirectoryFallback(slug: string): Promise<PublicDire
               and nullif(btrim(claimed_scb.workplaces->0->>'municipality'), '') is not null
               and (
                 translate(lower(btrim(claimed_scb.workplaces->0->'visitingAddress'->>'city')), 'ÅÄÖ', 'åäö') = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
-                or translate(lower(btrim(claimed_scb.workplaces->0->>'municipality')), 'ÅÄÖ', 'åäö') = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
+                or translate(lower(btrim(claimed_scb.workplaces->0->>'municipality')), 'ÅÄÖ', 'åäö') = any(string_to_array(${PILOT_MUNICIPALITY_CSV}, ','))
               )
           )
         )

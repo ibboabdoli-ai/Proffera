@@ -3,7 +3,10 @@ import "server-only";
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 
 import { businessEmailDomainKind, validBusinessEmail } from "@/lib/company-directory-claim-email";
-import { DIRECTORY_PILOT_LOCATIONS } from "@/lib/company-directory-policy";
+import {
+  DIRECTORY_PILOT_LOCATIONS,
+  DIRECTORY_PILOT_MUNICIPALITY_TOKENS,
+} from "@/lib/company-directory-policy";
 import { getSql } from "@/lib/db/server";
 import {
   isValidMarketplaceGuestToken,
@@ -22,8 +25,9 @@ const GUEST_INVITATION_TTL_DAYS = 7;
 const ACTIVE_INVITATION_STATUSES = new Set(["pending", "sending", "sent", "viewed", "responded"]);
 const AUTHORITY_GUARDED_INVITATION_STATUSES = new Set(["pending", "sending", "sent", "viewed", "delivery_failed", "delivery_uncertain"]);
 const PILOT_LOCATION_CSV = DIRECTORY_PILOT_LOCATIONS.join(",");
+const PILOT_MUNICIPALITY_CSV = DIRECTORY_PILOT_MUNICIPALITY_TOKENS.join(",");
 const REDACTED_CONTACT = "[…]";
-async function readCurrentInvitationAuthorityState(
+export async function readCurrentInvitationAuthorityState(
   sql: NonNullable<ReturnType<typeof getSql>>,
   invitationId: string,
   tokenHash: string,
@@ -69,7 +73,7 @@ async function readCurrentInvitationAuthorityState(
           and nullif(btrim(authority_scb.workplaces->0->>'municipality'), '') is not null
           and (
             translate(lower(btrim(authority_scb.workplaces->0->'visitingAddress'->>'city')), 'ÅÄÖ', 'åäö') = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
-            or translate(lower(btrim(authority_scb.workplaces->0->>'municipality')), 'ÅÄÖ', 'åäö') = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
+            or translate(lower(btrim(authority_scb.workplaces->0->>'municipality')), 'ÅÄÖ', 'åäö') = any(string_to_array(${PILOT_MUNICIPALITY_CSV}, ','))
           )
       ) as has_current_authority
     from marketplace_quote_invitations invitation
@@ -430,7 +434,7 @@ export async function sendMarketplaceGuestQuoteInvitation(input: {
           and nullif(btrim(authority_scb.workplaces->0->>'municipality'), '') is not null
           and (
             translate(lower(btrim(authority_scb.workplaces->0->'visitingAddress'->>'city')), 'ÅÄÖ', 'åäö') = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
-            or translate(lower(btrim(authority_scb.workplaces->0->>'municipality')), 'ÅÄÖ', 'åäö') = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
+            or translate(lower(btrim(authority_scb.workplaces->0->>'municipality')), 'ÅÄÖ', 'åäö') = any(string_to_array(${PILOT_MUNICIPALITY_CSV}, ','))
           )
       ) as has_current_authority
     from quote_requests q
@@ -639,7 +643,7 @@ export async function sendMarketplaceGuestQuoteInvitation(input: {
             and nullif(btrim(authority_scb.workplaces->0->>'municipality'), '') is not null
             and (
               translate(lower(btrim(authority_scb.workplaces->0->'visitingAddress'->>'city')), 'ÅÄÖ', 'åäö') = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
-              or translate(lower(btrim(authority_scb.workplaces->0->>'municipality')), 'ÅÄÖ', 'åäö') = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
+              or translate(lower(btrim(authority_scb.workplaces->0->>'municipality')), 'ÅÄÖ', 'åäö') = any(string_to_array(${PILOT_MUNICIPALITY_CSV}, ','))
             )
         )
       returning invitation.id::text
@@ -727,7 +731,7 @@ export async function sendMarketplaceGuestQuoteInvitation(input: {
           and nullif(btrim(authority_scb.workplaces->0->>'municipality'), '') is not null
           and (
             translate(lower(btrim(authority_scb.workplaces->0->'visitingAddress'->>'city')), 'ÅÄÖ', 'åäö') = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
-            or translate(lower(btrim(authority_scb.workplaces->0->>'municipality')), 'ÅÄÖ', 'åäö') = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
+            or translate(lower(btrim(authority_scb.workplaces->0->>'municipality')), 'ÅÄÖ', 'åäö') = any(string_to_array(${PILOT_MUNICIPALITY_CSV}, ','))
           )
       )
           as has_current_authority
@@ -818,7 +822,7 @@ export async function sendMarketplaceGuestQuoteInvitation(input: {
                     and nullif(btrim(authority_scb.workplaces->0->>'municipality'), '') is not null
                     and not (
                       translate(lower(btrim(authority_scb.workplaces->0->'visitingAddress'->>'city')), 'ÅÄÖ', 'åäö') = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
-                      or translate(lower(btrim(authority_scb.workplaces->0->>'municipality')), 'ÅÄÖ', 'åäö') = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
+                      or translate(lower(btrim(authority_scb.workplaces->0->>'municipality')), 'ÅÄÖ', 'åäö') = any(string_to_array(${PILOT_MUNICIPALITY_CSV}, ','))
                     )
                   )
                 )
@@ -1081,7 +1085,7 @@ async function loadGuestQuoteView(
           and nullif(btrim(authority_scb.workplaces->0->>'municipality'), '') is not null
           and (
             translate(lower(btrim(authority_scb.workplaces->0->'visitingAddress'->>'city')), 'ÅÄÖ', 'åäö') = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
-            or translate(lower(btrim(authority_scb.workplaces->0->>'municipality')), 'ÅÄÖ', 'åäö') = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
+            or translate(lower(btrim(authority_scb.workplaces->0->>'municipality')), 'ÅÄÖ', 'åäö') = any(string_to_array(${PILOT_MUNICIPALITY_CSV}, ','))
           )
       ) as has_current_authority,
       exists (
@@ -1207,7 +1211,7 @@ async function loadGuestQuoteView(
                     and nullif(btrim(authority_scb.workplaces->0->>'municipality'), '') is not null
                     and not (
                       translate(lower(btrim(authority_scb.workplaces->0->'visitingAddress'->>'city')), 'ÅÄÖ', 'åäö') = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
-                      or translate(lower(btrim(authority_scb.workplaces->0->>'municipality')), 'ÅÄÖ', 'åäö') = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
+                      or translate(lower(btrim(authority_scb.workplaces->0->>'municipality')), 'ÅÄÖ', 'åäö') = any(string_to_array(${PILOT_MUNICIPALITY_CSV}, ','))
                     )
                   )
                 )
@@ -1341,7 +1345,7 @@ export async function submitMarketplaceGuestQuote(input: {
           and nullif(btrim(authority_scb.workplaces->0->>'municipality'), '') is not null
           and (
             translate(lower(btrim(authority_scb.workplaces->0->'visitingAddress'->>'city')), 'ÅÄÖ', 'åäö') = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
-            or translate(lower(btrim(authority_scb.workplaces->0->>'municipality')), 'ÅÄÖ', 'åäö') = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
+            or translate(lower(btrim(authority_scb.workplaces->0->>'municipality')), 'ÅÄÖ', 'åäö') = any(string_to_array(${PILOT_MUNICIPALITY_CSV}, ','))
           )
       ) as has_current_authority
     from marketplace_quote_invitations i
@@ -1440,7 +1444,7 @@ export async function submitMarketplaceGuestQuote(input: {
                     and nullif(btrim(authority_scb.workplaces->0->>'municipality'), '') is not null
                     and not (
                       translate(lower(btrim(authority_scb.workplaces->0->'visitingAddress'->>'city')), 'ÅÄÖ', 'åäö') = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
-                      or translate(lower(btrim(authority_scb.workplaces->0->>'municipality')), 'ÅÄÖ', 'åäö') = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
+                      or translate(lower(btrim(authority_scb.workplaces->0->>'municipality')), 'ÅÄÖ', 'åäö') = any(string_to_array(${PILOT_MUNICIPALITY_CSV}, ','))
                     )
                   )
                 )
@@ -1538,7 +1542,7 @@ export async function submitMarketplaceGuestQuote(input: {
           and nullif(btrim(authority_scb.workplaces->0->>'municipality'), '') is not null
           and (
             translate(lower(btrim(authority_scb.workplaces->0->'visitingAddress'->>'city')), 'ÅÄÖ', 'åäö') = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
-            or translate(lower(btrim(authority_scb.workplaces->0->>'municipality')), 'ÅÄÖ', 'åäö') = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
+            or translate(lower(btrim(authority_scb.workplaces->0->>'municipality')), 'ÅÄÖ', 'åäö') = any(string_to_array(${PILOT_MUNICIPALITY_CSV}, ','))
           )
         limit 1
       ), submitted_offer as (

@@ -76,6 +76,22 @@ describe("company directory pilot database guard", () => {
     expect(sql).toContain("insert into proffera_schema_migrations");
   });
 
+  it("repairs pilot authority normalization in a new immutable follow-up migration", () => {
+    const sql = source("db/migrations/20260929_0071_company_directory_pilot_location_normalization.sql");
+
+    expect(sql).toContain("translate(lower(btrim");
+    expect(sql).toContain("'åäö'");
+    expect(sql).toContain("'0180'");
+    expect(sql).toContain("'0181'");
+    expect(sql).toContain("coalesce(facts.advertising_blocked, false) = false");
+    expect(sql).toContain("set auto_public_eligible = true");
+    expect(sql).toContain("updated_at = now()");
+    expect(sql).not.toContain("set publication_status = 'published'");
+    expect(sql).toContain("create or replace function company_directory_enforce_pilot_workplace_publication()");
+    expect(sql).toContain("'20260929_0071'");
+    expect(sql).toContain("insert into proffera_schema_migrations");
+  });
+
   it("keeps every database pilot-location list synchronized with the canonical policy", () => {
     const sql = source("db/migrations/20260919_0068_company_directory_pilot_workplace_guard.sql");
     const lists = [...sql.matchAll(/\bin\s*\(([^)]+)\)/gu)]

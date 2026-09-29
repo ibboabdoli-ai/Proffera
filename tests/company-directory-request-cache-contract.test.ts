@@ -158,7 +158,7 @@ describe("company directory shared-cache route contract", () => {
       expect(candidate).toContain("jsonb_typeof(published_scb.conflicts) = 'array'");
       expect(candidate).toContain("jsonb_typeof(published_scb.workplaces) = 'array'");
       expect(candidate).toContain("jsonb_array_length(published_scb.workplaces) = 1");
-      expect(candidate).toContain("DIRECTORY_PILOT_LOCATIONS");
+      expect(candidate).toContain("DIRECTORY_PILOT_MUNICIPALITY_TOKENS");
     }
     expect(publicDataSource).toContain("published_authority.scb_phone");
     expect(publicDataSource).toContain("published_authority.scb_email");
@@ -189,7 +189,7 @@ describe("company directory shared-cache route contract", () => {
       expect(candidate).toContain("jsonb_typeof(claimed_facts.ongoing_procedures) = 'array'");
       expect(candidate).toContain("jsonb_typeof(claimed_scb.conflicts) = 'array'");
       expect(candidate).toContain("jsonb_typeof(claimed_scb.workplaces) = 'array'");
-      expect(candidate).toContain("DIRECTORY_PILOT_LOCATIONS");
+      expect(candidate).toContain("DIRECTORY_PILOT_MUNICIPALITY_TOKENS");
     }
   });
 

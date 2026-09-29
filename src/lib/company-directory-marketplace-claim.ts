@@ -9,7 +9,10 @@ import {
   parseClaimEmailEvidence,
   validBusinessEmail,
 } from "@/lib/company-directory-claim-email";
-import { DIRECTORY_PILOT_LOCATIONS } from "@/lib/company-directory-policy";
+import {
+  DIRECTORY_PILOT_LOCATIONS,
+  DIRECTORY_PILOT_MUNICIPALITY_TOKENS,
+} from "@/lib/company-directory-policy";
 import { invalidatePublicDirectoryPublicProjectionByProfileId } from "@/lib/company-directory-public-cache";
 import { getSql } from "@/lib/db/server";
 
@@ -18,6 +21,7 @@ export type MarketplaceCompanyClaimProvisionResult =
   | { status: "manual_review"; reason: string };
 
 const PILOT_LOCATION_CSV = DIRECTORY_PILOT_LOCATIONS.join(",");
+const PILOT_MUNICIPALITY_CSV = DIRECTORY_PILOT_MUNICIPALITY_TOKENS.join(",");
 
 function normalizedEmail(value: unknown) {
   return String(value ?? "").trim().toLowerCase();
@@ -316,7 +320,7 @@ export async function tryAutoProvisionMarketplaceCompanyClaim(input: {
           and nullif(btrim(claimed_scb.workplaces->0->>'municipality'), '') is not null
           and (
             translate(lower(btrim(claimed_scb.workplaces->0->'visitingAddress'->>'city')), 'ÅÄÖ', 'åäö') = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
-            or translate(lower(btrim(claimed_scb.workplaces->0->>'municipality')), 'ÅÄÖ', 'åäö') = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
+            or translate(lower(btrim(claimed_scb.workplaces->0->>'municipality')), 'ÅÄÖ', 'åäö') = any(string_to_array(${PILOT_MUNICIPALITY_CSV}, ','))
           )
       )
       and exists (
@@ -442,7 +446,7 @@ export async function tryAutoProvisionMarketplaceCompanyClaim(input: {
             and nullif(btrim(claimed_scb.workplaces->0->>'municipality'), '') is not null
             and (
               translate(lower(btrim(claimed_scb.workplaces->0->'visitingAddress'->>'city')), 'ÅÄÖ', 'åäö') = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
-              or translate(lower(btrim(claimed_scb.workplaces->0->>'municipality')), 'ÅÄÖ', 'åäö') = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
+              or translate(lower(btrim(claimed_scb.workplaces->0->>'municipality')), 'ÅÄÖ', 'åäö') = any(string_to_array(${PILOT_MUNICIPALITY_CSV}, ','))
             )
           for update of claimed_facts, claimed_scb
         )
