@@ -7,7 +7,10 @@ import {
   type DirectoryGuestOffer,
 } from "./directory-guest";
 import { classifyDirectoryMarketplaceReadiness } from "@/lib/company-directory-marketplace-readiness";
-import { DIRECTORY_PILOT_LOCATIONS } from "@/lib/company-directory-policy";
+import {
+  DIRECTORY_PILOT_LOCATIONS,
+  DIRECTORY_PILOT_MUNICIPALITY_TOKENS,
+} from "@/lib/company-directory-policy";
 import { getSql } from "@/lib/db/server";
 import { serviceCategoryForQuoteCategory } from "@/lib/service-catalog";
 
@@ -15,6 +18,7 @@ type GuestLead = DirectoryGuestLeadMatch["lead"];
 type CandidateRows = Parameters<typeof rankDirectoryGuestCandidates>[1];
 
 const PILOT_LOCATION_CSV = DIRECTORY_PILOT_LOCATIONS.join(",");
+const PILOT_MUNICIPALITY_CSV = DIRECTORY_PILOT_MUNICIPALITY_TOKENS.join(",");
 
 function text(value: unknown) {
   return value === null || value === undefined ? "" : String(value).trim();
@@ -207,7 +211,7 @@ export async function getDirectoryGuestLeadMatch(quoteRequestId: string) {
             facts.source_payload_hash <> ''
             and facts.last_synced_at >= profile.last_synced_at
             and facts.deregistration_date is null
-            and coalesce(facts.advertising_blocked, false) = false
+            and facts.advertising_blocked is false
             and case
               when jsonb_typeof(facts.ongoing_procedures) = 'array'
                 then jsonb_array_length(facts.ongoing_procedures) = 0
@@ -228,7 +232,7 @@ export async function getDirectoryGuestLeadMatch(quoteRequestId: string) {
             and nullif(btrim(scb.workplaces->0->>'municipality'), '') is not null
             and (
               translate(lower(btrim(scb.workplaces->0->'visitingAddress'->>'city')), 'ÅÄÖ', 'åäö') = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
-              or translate(lower(btrim(scb.workplaces->0->>'municipality')), 'ÅÄÖ', 'åäö') = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
+              or translate(lower(btrim(scb.workplaces->0->>'municipality')), 'ÅÄÖ', 'åäö') = any(string_to_array(${PILOT_MUNICIPALITY_CSV}, ','))
             )
           ) as has_current_authority
         from company_directory_profiles profile
