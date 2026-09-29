@@ -42,6 +42,7 @@ import {
   hashMarketplaceGuestToken,
   submitMarketplaceGuestQuote,
 } from "@/lib/marketplace-guest-quote";
+import { getMarketplaceGuestQuoteView as getMarketplaceGuestHumanView } from "@/lib/marketplace-guest-quote-human-view";
 import { processMarketplaceAutoWorker } from "@/lib/marketplace-auto-worker";
 import {
   getMarketplaceServiceJobForCustomerToken,
@@ -704,6 +705,81 @@ if (RUN_POSTGRES_INTEGRATION) {
           [invitationId],
         );
         expect(state.rows[0]).toMatchObject({ status: "viewed", token_hash: tokenHash });
+      } finally {
+        await refresher.query("rollback").catch(() => undefined);
+        await refresher.end();
+      }
+    }, 30_000);
+
+    it("human-view fails closed without cancelling on temporary authority uncertainty", async () => {
+      const token = "h".repeat(40);
+      const { invitationId, tokenHash } = await insertAuthorityRaceInvitation(token, "human-temp");
+      await client.query(
+        "update company_directory_official_facts set advertising_blocked = null where profile_id = $1",
+        [profileId],
+      );
+
+      await expect(getMarketplaceGuestHumanView(token)).resolves.toBeNull();
+
+      const state = await client.query<{ status: string; token_hash: string }>(
+        "select status, token_hash from marketplace_quote_invitations where id = $1",
+        [invitationId],
+      );
+      expect(state.rows[0]).toMatchObject({ status: "sent", token_hash: tokenHash });
+    });
+
+    it("human-view cancels a confirmed non-pilot workplace and rotates token ownership", async () => {
+      const token = "j".repeat(40);
+      const { invitationId, tokenHash } = await insertAuthorityRaceInvitation(token, "human-non-pilot");
+      await client.query(
+        "update company_directory_scb_enrichment set workplaces = $2::jsonb where profile_id = $1",
+        [profileId, JSON.stringify([
+          { visitingAddress: { addressLine: "Kungsgatan 1", postalCode: "75320", city: "UPPSALA" }, municipality: "UPPSALA" },
+        ])],
+      );
+
+      await expect(getMarketplaceGuestHumanView(token)).resolves.toBeNull();
+
+      const state = await client.query<{ status: string; token_hash: string }>(
+        "select status, token_hash from marketplace_quote_invitations where id = $1",
+        [invitationId],
+      );
+      expect(state.rows[0]?.status).toBe("cancelled");
+      expect(state.rows[0]?.token_hash).not.toBe(tokenHash);
+    });
+
+    it("human-view waits for locked authority refresh before deciding cancellation", async () => {
+      const token = "k".repeat(40);
+      const { invitationId, tokenHash } = await insertAuthorityRaceInvitation(token, "human-refresh");
+      await client.query(
+        "update company_directory_official_facts set advertising_blocked = true where profile_id = $1",
+        [profileId],
+      );
+
+      const refresher = new Client({ connectionString });
+      await refresher.connect();
+      try {
+        await refresher.query("begin");
+        await refresher.query(
+          "update company_directory_official_facts set advertising_blocked = false where profile_id = $1",
+          [profileId],
+        );
+
+        const viewPromise = getMarketplaceGuestHumanView(token);
+        const waiting = await Promise.race([
+          viewPromise.then(() => "settled" as const),
+          delay(200).then(() => "blocked" as const),
+        ]);
+        expect(waiting).toBe("blocked");
+
+        await refresher.query("commit");
+        await expect(viewPromise).resolves.toMatchObject({ status: "sent" });
+
+        const state = await client.query<{ status: string; token_hash: string }>(
+          "select status, token_hash from marketplace_quote_invitations where id = $1",
+          [invitationId],
+        );
+        expect(state.rows[0]).toMatchObject({ status: "sent", token_hash: tokenHash });
       } finally {
         await refresher.query("rollback").catch(() => undefined);
         await refresher.end();

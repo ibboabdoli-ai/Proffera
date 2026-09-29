@@ -553,8 +553,8 @@ export async function getDirectoryGuestLeadMatches() {
           and nullif(btrim(scb.workplaces->0->'visitingAddress'->>'city'), '') is not null
           and nullif(btrim(scb.workplaces->0->>'municipality'), '') is not null
           and (
-            lower(btrim(scb.workplaces->0->'visitingAddress'->>'city')) = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
-            or lower(btrim(scb.workplaces->0->>'municipality')) = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
+            translate(lower(btrim(scb.workplaces->0->'visitingAddress'->>'city')), 'ÅÄÖ', 'åäö') = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
+            or translate(lower(btrim(scb.workplaces->0->>'municipality')), 'ÅÄÖ', 'åäö') = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
           )
           and (
             exists (
@@ -564,8 +564,8 @@ export async function getDirectoryGuestLeadMatches() {
                 jsonb_typeof(scb.workplaces) = 'array'
                 and jsonb_array_length(scb.workplaces) = 1
                 and (
-                  lower(btrim(scb.workplaces->0->'visitingAddress'->>'city')) = locality.locality
-                  or lower(btrim(scb.workplaces->0->>'municipality')) = locality.locality
+                  translate(lower(btrim(scb.workplaces->0->'visitingAddress'->>'city')), 'ÅÄÖ', 'åäö') = locality.locality
+                  or translate(lower(btrim(scb.workplaces->0->>'municipality')), 'ÅÄÖ', 'åäö') = locality.locality
                 )
               )
             )

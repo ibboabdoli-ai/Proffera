@@ -211,8 +211,8 @@ export async function getProviderActivationState(): Promise<ProviderActivationSt
             and nullif(btrim(claimed_scb.workplaces->0->'visitingAddress'->>'city'), '') is not null
             and nullif(btrim(claimed_scb.workplaces->0->>'municipality'), '') is not null
             and (
-              lower(btrim(claimed_scb.workplaces->0->'visitingAddress'->>'city')) = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
-              or lower(btrim(claimed_scb.workplaces->0->>'municipality')) = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
+              translate(lower(btrim(claimed_scb.workplaces->0->'visitingAddress'->>'city')), 'ÅÄÖ', 'åäö') = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
+              or translate(lower(btrim(claimed_scb.workplaces->0->>'municipality')), 'ÅÄÖ', 'åäö') = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
             )
         )
         )
@@ -232,7 +232,7 @@ export async function getProviderActivationState(): Promise<ProviderActivationSt
               and owner_base.geocode_precision = 'address'
               and owner_base.latitude is not null and owner_base.longitude is not null
               and not (owner_base.latitude = 0 and owner_base.longitude = 0)
-              and lower(btrim(owner_base.city)) = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
+              and translate(lower(btrim(owner_base.city)), 'ÅÄÖ', 'åäö') = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
           )
         )
       )
@@ -298,8 +298,8 @@ export async function getProviderActivationState(): Promise<ProviderActivationSt
             and nullif(btrim(claimed_scb.workplaces->0->'visitingAddress'->>'city'), '') is not null
             and nullif(btrim(claimed_scb.workplaces->0->>'municipality'), '') is not null
             and (
-              lower(btrim(claimed_scb.workplaces->0->'visitingAddress'->>'city')) = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
-              or lower(btrim(claimed_scb.workplaces->0->>'municipality')) = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
+              translate(lower(btrim(claimed_scb.workplaces->0->'visitingAddress'->>'city')), 'ÅÄÖ', 'åäö') = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
+              or translate(lower(btrim(claimed_scb.workplaces->0->>'municipality')), 'ÅÄÖ', 'åäö') = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
             )
         ) as has_safe_juridical_workplace,
         exists (
@@ -316,7 +316,7 @@ export async function getProviderActivationState(): Promise<ProviderActivationSt
             and owner_base.geocode_precision = 'address'
             and owner_base.latitude is not null and owner_base.longitude is not null
             and not (owner_base.latitude = 0 and owner_base.longitude = 0)
-            and lower(btrim(owner_base.city)) = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
+            and translate(lower(btrim(owner_base.city)), 'ÅÄÖ', 'åäö') = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
         ) as has_safe_owner_service_base
       from company_directory_profiles profile
       where profile.claimed_workspace_id = ${access.workspaceId}::uuid
@@ -492,8 +492,8 @@ export async function findProviderProfileByOrganizationNumber(value: unknown): P
           and nullif(btrim(scb.workplaces->0->'visitingAddress'->>'city'), '') is not null
           and nullif(btrim(scb.workplaces->0->>'municipality'), '') is not null
           and (
-            lower(btrim(scb.workplaces->0->'visitingAddress'->>'city')) = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
-            or lower(btrim(scb.workplaces->0->>'municipality')) = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
+            translate(lower(btrim(scb.workplaces->0->'visitingAddress'->>'city')), 'ÅÄÖ', 'åäö') = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
+            or translate(lower(btrim(scb.workplaces->0->>'municipality')), 'ÅÄÖ', 'åäö') = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
           )
       ) as has_current_authority
     from company_directory_profiles profile
@@ -592,8 +592,8 @@ export async function activateProviderMarketplaceService(input: {
                  and nullif(btrim(claimed_scb.workplaces->0->'visitingAddress'->>'city'), '') is not null
                  and nullif(btrim(claimed_scb.workplaces->0->>'municipality'), '') is not null
                  and (
-                   lower(btrim(claimed_scb.workplaces->0->'visitingAddress'->>'city')) = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
-                   or lower(btrim(claimed_scb.workplaces->0->>'municipality')) = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
+                   translate(lower(btrim(claimed_scb.workplaces->0->'visitingAddress'->>'city')), 'ÅÄÖ', 'åäö') = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
+                   or translate(lower(btrim(claimed_scb.workplaces->0->>'municipality')), 'ÅÄÖ', 'åäö') = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
                  )
              )
            )
@@ -613,7 +613,7 @@ export async function activateProviderMarketplaceService(input: {
                  and owner_base.geocode_precision = 'address'
                  and owner_base.latitude is not null and owner_base.longitude is not null
                  and not (owner_base.latitude = 0 and owner_base.longitude = 0)
-                 and lower(btrim(owner_base.city)) = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
+                 and translate(lower(btrim(owner_base.city)), 'ÅÄÖ', 'åäö') = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
              )
            )
          )
@@ -654,7 +654,7 @@ export async function activateProviderMarketplaceService(input: {
              and owner_base.geocode_precision = 'address'
              and owner_base.latitude is not null and owner_base.longitude is not null
              and not (owner_base.latitude = 0 and owner_base.longitude = 0)
-             and lower(btrim(owner_base.city)) = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
+             and translate(lower(btrim(owner_base.city)), 'ÅÄÖ', 'åäö') = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
          )
        )
      )
@@ -764,8 +764,8 @@ export async function activateProviderMarketplaceService(input: {
             and nullif(btrim(claimed_scb.workplaces->0->'visitingAddress'->>'city'), '') is not null
             and nullif(btrim(claimed_scb.workplaces->0->>'municipality'), '') is not null
             and (
-              lower(btrim(claimed_scb.workplaces->0->'visitingAddress'->>'city')) = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
-              or lower(btrim(claimed_scb.workplaces->0->>'municipality')) = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
+              translate(lower(btrim(claimed_scb.workplaces->0->'visitingAddress'->>'city')), 'ÅÄÖ', 'åäö') = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
+              or translate(lower(btrim(claimed_scb.workplaces->0->>'municipality')), 'ÅÄÖ', 'åäö') = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
             )
           for update of claimed_facts, claimed_scb
         )
@@ -786,7 +786,7 @@ export async function activateProviderMarketplaceService(input: {
                     and owner_base.geocode_precision = 'address'
                     and owner_base.latitude is not null and owner_base.longitude is not null
                     and not (owner_base.latitude = 0 and owner_base.longitude = 0)
-                    and lower(btrim(owner_base.city)) = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
+                    and translate(lower(btrim(owner_base.city)), 'ÅÄÖ', 'åäö') = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
                   for update
                 )
               )
@@ -829,7 +829,7 @@ export async function activateProviderMarketplaceService(input: {
                 and owner_base.geocode_precision = 'address'
                 and owner_base.latitude is not null and owner_base.longitude is not null
                 and not (owner_base.latitude = 0 and owner_base.longitude = 0)
-                and lower(btrim(owner_base.city)) = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
+                and translate(lower(btrim(owner_base.city)), 'ÅÄÖ', 'åäö') = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
               for update
             )
           )

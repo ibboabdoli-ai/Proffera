@@ -676,8 +676,8 @@ export async function getPublicDirectoryBusiness(slug: string): Promise<PublicDi
           and nullif(btrim(published_scb.workplaces->0->'visitingAddress'->>'city'), '') is not null
           and nullif(btrim(published_scb.workplaces->0->>'municipality'), '') is not null
           and (
-            lower(btrim(published_scb.workplaces->0->'visitingAddress'->>'city')) = any(string_to_array(${PUBLIC_DIRECTORY_PILOT_LOCATION_CSV}, ','))
-            or lower(btrim(published_scb.workplaces->0->>'municipality')) = any(string_to_array(${PUBLIC_DIRECTORY_PILOT_LOCATION_CSV}, ','))
+            translate(lower(btrim(published_scb.workplaces->0->'visitingAddress'->>'city')), 'ÅÄÖ', 'åäö') = any(string_to_array(${PUBLIC_DIRECTORY_PILOT_LOCATION_CSV}, ','))
+            or translate(lower(btrim(published_scb.workplaces->0->>'municipality')), 'ÅÄÖ', 'åäö') = any(string_to_array(${PUBLIC_DIRECTORY_PILOT_LOCATION_CSV}, ','))
           )
       )
     limit 1

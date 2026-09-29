@@ -315,8 +315,8 @@ export async function tryAutoProvisionMarketplaceCompanyClaim(input: {
           and nullif(btrim(claimed_scb.workplaces->0->'visitingAddress'->>'city'), '') is not null
           and nullif(btrim(claimed_scb.workplaces->0->>'municipality'), '') is not null
           and (
-            lower(btrim(claimed_scb.workplaces->0->'visitingAddress'->>'city')) = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
-            or lower(btrim(claimed_scb.workplaces->0->>'municipality')) = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
+            translate(lower(btrim(claimed_scb.workplaces->0->'visitingAddress'->>'city')), 'ÅÄÖ', 'åäö') = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
+            or translate(lower(btrim(claimed_scb.workplaces->0->>'municipality')), 'ÅÄÖ', 'åäö') = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
           )
       )
       and exists (
@@ -441,8 +441,8 @@ export async function tryAutoProvisionMarketplaceCompanyClaim(input: {
             and nullif(btrim(claimed_scb.workplaces->0->'visitingAddress'->>'city'), '') is not null
             and nullif(btrim(claimed_scb.workplaces->0->>'municipality'), '') is not null
             and (
-              lower(btrim(claimed_scb.workplaces->0->'visitingAddress'->>'city')) = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
-              or lower(btrim(claimed_scb.workplaces->0->>'municipality')) = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
+              translate(lower(btrim(claimed_scb.workplaces->0->'visitingAddress'->>'city')), 'ÅÄÖ', 'åäö') = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
+              or translate(lower(btrim(claimed_scb.workplaces->0->>'municipality')), 'ÅÄÖ', 'åäö') = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
             )
           for update of claimed_facts, claimed_scb
         )

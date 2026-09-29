@@ -13,6 +13,7 @@ const mocks = vi.hoisted(() => ({
 vi.mock("server-only", () => ({}));
 vi.mock("@/lib/db/server", () => ({ getSql: mocks.getSql }));
 
+import { getDirectoryGuestLeadMatches } from "./directory-guest";
 import { getDirectoryGuestLeadMatch } from "./directory-guest-single";
 
 function sqlResponses(...responses: unknown[][]) {
@@ -113,7 +114,7 @@ describe("single-request Marketplace readiness gate", () => {
     const candidateQuery = String(candidateCall[0]).replace(/\s+/g, " ");
     expect(candidateQuery).toContain("scb.workplaces->0->'visitingAddress'->>'city' as city");
     expect(candidateQuery).toContain("scb.workplaces->0->>'municipality' as municipality");
-    expect(candidateQuery).toContain("lower(btrim(scb.workplaces->0->'visitingAddress'->>'city'))");
+    expect(candidateQuery).toContain("translate(lower(btrim(scb.workplaces->0->'visitingAddress'->>'city')), 'ÅÄÖ', 'åäö')");
     expect(candidateQuery).toContain("workplaceChangedAt");
     expect(candidateQuery).not.toContain("lower(btrim(profile.city))");
   });
@@ -423,6 +424,76 @@ describe("single-request Marketplace readiness gate", () => {
       expect(result.ok).toBe(true);
       expect(result.match?.candidates).toHaveLength(1);
       expect(result.match?.candidates[0]?.profileId).toBe(candidateRow.profile_id);
+    });
+
+    it("returns the same authority-approved candidate through the batch matcher", async () => {
+      const result = await getDirectoryGuestLeadMatches();
+
+      expect(result.ok).toBe(true);
+      expect(result.matches).toHaveLength(1);
+      expect(result.matches[0]?.candidates).toHaveLength(1);
+      expect(result.matches[0]?.candidates[0]?.profileId).toBe(candidateRow.profile_id);
+    });
+
+    it.each([
+      [
+        "stale SCB evidence",
+        async () => {
+          if (!client) throw new Error("PostgreSQL test client is not initialized");
+          await client.query("update company_directory_scb_enrichment set last_synced_at = now() - interval '8 days'");
+          await client.query("update company_directory_profiles set last_synced_at = now() - interval '9 days'");
+        },
+      ],
+      [
+        "a mismatched profile authority token",
+        async () => {
+          if (!client) throw new Error("PostgreSQL test client is not initialized");
+          await client.query(
+            "update company_directory_scb_enrichment set provenance = jsonb_set(provenance, '{comparisonSnapshot,profileUpdatedToken}', to_jsonb('wrong-profile-token'::text))",
+          );
+        },
+      ],
+      [
+        "a workplace outside the pilot",
+        async () => {
+          if (!client) throw new Error("PostgreSQL test client is not initialized");
+          await client.query(
+            "update company_directory_scb_enrichment set workplaces = $1::jsonb",
+            [JSON.stringify([{ visitingAddress: { addressLine: "Kungsgatan 1", postalCode: "75320", city: "UPPSALA" }, municipality: "UPPSALA" }])],
+          );
+        },
+      ],
+    ] as const)("batch matcher excludes %s before ranking", async (_label, mutate) => {
+      const before = await getDirectoryGuestLeadMatches();
+      expect(before.ok).toBe(true);
+      expect(before.matches[0]?.candidates).toHaveLength(1);
+
+      await mutate();
+
+      const after = await getDirectoryGuestLeadMatches();
+      expect(after.ok).toBe(true);
+      expect(after.matches[0]?.candidates).toEqual([]);
+    });
+
+    it("batch matcher rejects stale geocoding after workplaceChangedAt advances", async () => {
+      if (!client) throw new Error("PostgreSQL test client is not initialized");
+      await client.query(
+        "update quote_requests set city = 'Malmö', customer_latitude = 59.1955, customer_longitude = 17.6253 where id = $1::uuid",
+        [leadRow.id],
+      );
+      await client.query(
+        "update company_directory_business_locations set geocoded_at = now() - interval '2 hours' where profile_id = $1::uuid",
+        [candidateRow.profile_id],
+      );
+      await client.query(
+        "update company_directory_scb_enrichment set provenance = jsonb_set(provenance, '{workplaceChangedAt}', to_jsonb(now()::text)) where profile_id = $1::uuid",
+        [candidateRow.profile_id],
+      );
+
+      const result = await getDirectoryGuestLeadMatches();
+
+      expect(result.ok).toBe(true);
+      expect(result.matches[0]?.candidates).toEqual([]);
     });
 
     it("uses canonical SCB workplace locality instead of registered profile locality without customer geometry", async () => {

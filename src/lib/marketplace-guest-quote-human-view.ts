@@ -67,8 +67,8 @@ export async function getMarketplaceGuestQuoteView(token: string): Promise<Marke
           and nullif(btrim(authority_scb.workplaces->0->'visitingAddress'->>'city'), '') is not null
           and nullif(btrim(authority_scb.workplaces->0->>'municipality'), '') is not null
           and (
-            lower(btrim(authority_scb.workplaces->0->'visitingAddress'->>'city')) = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
-            or lower(btrim(authority_scb.workplaces->0->>'municipality')) = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
+            translate(lower(btrim(authority_scb.workplaces->0->'visitingAddress'->>'city')), 'ÅÄÖ', 'åäö') = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
+            or translate(lower(btrim(authority_scb.workplaces->0->>'municipality')), 'ÅÄÖ', 'åäö') = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
           )
       ) as has_current_authority,
       exists (
@@ -190,8 +190,8 @@ export async function getMarketplaceGuestQuoteView(token: string): Promise<Marke
                     and nullif(btrim(authority_scb.workplaces->0->'visitingAddress'->>'city'), '') is not null
                     and nullif(btrim(authority_scb.workplaces->0->>'municipality'), '') is not null
                     and not (
-                      lower(btrim(authority_scb.workplaces->0->'visitingAddress'->>'city')) = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
-                      or lower(btrim(authority_scb.workplaces->0->>'municipality')) = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
+                      translate(lower(btrim(authority_scb.workplaces->0->'visitingAddress'->>'city')), 'ÅÄÖ', 'åäö') = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
+                      or translate(lower(btrim(authority_scb.workplaces->0->>'municipality')), 'ÅÄÖ', 'åäö') = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
                     )
                   )
                 )
@@ -242,8 +242,8 @@ export async function getMarketplaceGuestQuoteView(token: string): Promise<Marke
             and nullif(btrim(authority_scb.workplaces->0->'visitingAddress'->>'city'), '') is not null
             and nullif(btrim(authority_scb.workplaces->0->>'municipality'), '') is not null
             and (
-              lower(btrim(authority_scb.workplaces->0->'visitingAddress'->>'city')) = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
-              or lower(btrim(authority_scb.workplaces->0->>'municipality')) = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
+              translate(lower(btrim(authority_scb.workplaces->0->'visitingAddress'->>'city')), 'ÅÄÖ', 'åäö') = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
+              or translate(lower(btrim(authority_scb.workplaces->0->>'municipality')), 'ÅÄÖ', 'åäö') = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
             )
         ) as has_current_authority
       from marketplace_quote_invitations invitation

@@ -175,8 +175,8 @@ export async function getPublishedDirectoryLocationSuggestions(limit = 50) {
                 and nullif(btrim(published_scb.workplaces->0->'visitingAddress'->>'city'), '') is not null
                 and nullif(btrim(published_scb.workplaces->0->>'municipality'), '') is not null
                 and (
-                  lower(btrim(published_scb.workplaces->0->'visitingAddress'->>'city')) = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
-                  or lower(btrim(published_scb.workplaces->0->>'municipality')) = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
+                  translate(lower(btrim(published_scb.workplaces->0->'visitingAddress'->>'city')), 'ÅÄÖ', 'åäö') = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
+                  or translate(lower(btrim(published_scb.workplaces->0->>'municipality')), 'ÅÄÖ', 'åäö') = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
                 )
             )
           )
@@ -219,8 +219,8 @@ export async function getPublishedDirectoryLocationSuggestions(limit = 50) {
                     and nullif(btrim(claimed_scb.workplaces->0->'visitingAddress'->>'city'), '') is not null
                     and nullif(btrim(claimed_scb.workplaces->0->>'municipality'), '') is not null
                     and (
-                      lower(btrim(claimed_scb.workplaces->0->'visitingAddress'->>'city')) = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
-                      or lower(btrim(claimed_scb.workplaces->0->>'municipality')) = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
+                      translate(lower(btrim(claimed_scb.workplaces->0->'visitingAddress'->>'city')), 'ÅÄÖ', 'åäö') = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
+                      or translate(lower(btrim(claimed_scb.workplaces->0->>'municipality')), 'ÅÄÖ', 'åäö') = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
                     )
                 )
               )
@@ -251,7 +251,7 @@ export async function getPublishedDirectoryLocationSuggestions(limit = 50) {
                     and owner_base.geocode_source = 'lantmateriet_belagenhetsadress_v4_2'
                     and owner_base.geocode_precision = 'address'
                     and (
-                      lower(btrim(owner_base.city)) = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
+                      translate(lower(btrim(owner_base.city)), 'ÅÄÖ', 'åäö') = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
                     )
                 )
               )
@@ -479,8 +479,8 @@ export async function searchPublishedCompanyDirectory(
                 and nullif(btrim(published_scb.workplaces->0->'visitingAddress'->>'city'), '') is not null
                 and nullif(btrim(published_scb.workplaces->0->>'municipality'), '') is not null
                 and (
-                  lower(btrim(published_scb.workplaces->0->'visitingAddress'->>'city')) = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
-                  or lower(btrim(published_scb.workplaces->0->>'municipality')) = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
+                  translate(lower(btrim(published_scb.workplaces->0->'visitingAddress'->>'city')), 'ÅÄÖ', 'åäö') = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
+                  or translate(lower(btrim(published_scb.workplaces->0->>'municipality')), 'ÅÄÖ', 'åäö') = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
                 )
             )
           )
@@ -523,8 +523,8 @@ export async function searchPublishedCompanyDirectory(
                     and nullif(btrim(claimed_scb.workplaces->0->'visitingAddress'->>'city'), '') is not null
                     and nullif(btrim(claimed_scb.workplaces->0->>'municipality'), '') is not null
                     and (
-                      lower(btrim(claimed_scb.workplaces->0->'visitingAddress'->>'city')) = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
-                      or lower(btrim(claimed_scb.workplaces->0->>'municipality')) = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
+                      translate(lower(btrim(claimed_scb.workplaces->0->'visitingAddress'->>'city')), 'ÅÄÖ', 'åäö') = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
+                      or translate(lower(btrim(claimed_scb.workplaces->0->>'municipality')), 'ÅÄÖ', 'åäö') = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
                     )
                 )
               )
@@ -555,7 +555,7 @@ export async function searchPublishedCompanyDirectory(
                     and owner_base.geocode_source = 'lantmateriet_belagenhetsadress_v4_2'
                     and owner_base.geocode_precision = 'address'
                     and (
-                      lower(btrim(owner_base.city)) = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
+                      translate(lower(btrim(owner_base.city)), 'ÅÄÖ', 'åäö') = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
                     )
                 )
               )
@@ -800,8 +800,8 @@ export async function searchPublishedCompanyDirectory(
                 and nullif(btrim(published_scb.workplaces->0->'visitingAddress'->>'city'), '') is not null
                 and nullif(btrim(published_scb.workplaces->0->>'municipality'), '') is not null
                 and (
-                  lower(btrim(published_scb.workplaces->0->'visitingAddress'->>'city')) = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
-                  or lower(btrim(published_scb.workplaces->0->>'municipality')) = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
+                  translate(lower(btrim(published_scb.workplaces->0->'visitingAddress'->>'city')), 'ÅÄÖ', 'åäö') = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
+                  or translate(lower(btrim(published_scb.workplaces->0->>'municipality')), 'ÅÄÖ', 'åäö') = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
                 )
             )
           )
@@ -844,8 +844,8 @@ export async function searchPublishedCompanyDirectory(
                     and nullif(btrim(claimed_scb.workplaces->0->'visitingAddress'->>'city'), '') is not null
                     and nullif(btrim(claimed_scb.workplaces->0->>'municipality'), '') is not null
                     and (
-                      lower(btrim(claimed_scb.workplaces->0->'visitingAddress'->>'city')) = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
-                      or lower(btrim(claimed_scb.workplaces->0->>'municipality')) = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
+                      translate(lower(btrim(claimed_scb.workplaces->0->'visitingAddress'->>'city')), 'ÅÄÖ', 'åäö') = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
+                      or translate(lower(btrim(claimed_scb.workplaces->0->>'municipality')), 'ÅÄÖ', 'åäö') = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
                     )
                 )
               )
@@ -876,7 +876,7 @@ export async function searchPublishedCompanyDirectory(
                     and owner_base.geocode_source = 'lantmateriet_belagenhetsadress_v4_2'
                     and owner_base.geocode_precision = 'address'
                     and (
-                      lower(btrim(owner_base.city)) = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
+                      translate(lower(btrim(owner_base.city)), 'ÅÄÖ', 'åäö') = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
                     )
                 )
               )

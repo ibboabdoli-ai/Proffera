@@ -70,7 +70,7 @@ describe("public company directory search contract", () => {
     expect(searchSource).toContain("owner_base.purpose = 'service_base'");
     expect(searchSource).toContain("owner_base.geocode_source = 'lantmateriet_belagenhetsadress_v4_2'");
     expect(searchSource).toContain("owner_base.geocode_precision = 'address'");
-    expect(searchSource).toContain("lower(btrim(owner_base.city)) = any");
+    expect(searchSource).toContain("translate(lower(btrim(owner_base.city)), \'ÅÄÖ\', \'åäö\') = any");
     expect(searchSource).not.toContain("lower(btrim(owner_base.municipality)) = any");
     expect(searchSource).toContain("claimed_facts.deregistration_date is null");
     expect(searchSource).toContain("claimed_facts.advertising_blocked is false");

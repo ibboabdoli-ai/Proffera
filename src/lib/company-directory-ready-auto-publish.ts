@@ -111,8 +111,8 @@ export async function autoPublishReadyHighConfidenceCompanyDirectoryBatch(limit?
       and nullif(btrim(scb.workplaces->0->'visitingAddress'->>'city'), '') is not null
       and nullif(btrim(scb.workplaces->0->>'municipality'), '') is not null
       and (
-        lower(btrim(scb.workplaces->0->'visitingAddress'->>'city')) = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
-        or lower(btrim(scb.workplaces->0->>'municipality')) = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
+        translate(lower(btrim(scb.workplaces->0->'visitingAddress'->>'city')), 'ÅÄÖ', 'åäö') = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
+        or translate(lower(btrim(scb.workplaces->0->>'municipality')), 'ÅÄÖ', 'åäö') = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
       )
       and not exists (
         select 1
@@ -191,8 +191,8 @@ export async function autoPublishReadyHighConfidenceCompanyDirectoryBatch(limit?
       and nullif(btrim(scb.workplaces->0->'visitingAddress'->>'city'), '') is not null
       and nullif(btrim(scb.workplaces->0->>'municipality'), '') is not null
       and (
-        lower(btrim(scb.workplaces->0->'visitingAddress'->>'city')) = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
-        or lower(btrim(scb.workplaces->0->>'municipality')) = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
+        translate(lower(btrim(scb.workplaces->0->'visitingAddress'->>'city')), 'ÅÄÖ', 'åäö') = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
+        or translate(lower(btrim(scb.workplaces->0->>'municipality')), 'ÅÄÖ', 'åäö') = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
       )
       and not exists (
         select 1
