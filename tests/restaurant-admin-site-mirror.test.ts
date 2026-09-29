@@ -11,6 +11,7 @@ describe("Doni admin mirrors the public demo", () => {
     expect(editor).toContain("function loadDemoExamples()");
     expect(editor).toContain("createDonisAdminStarterSite()");
     expect(editor).toContain("Ladda demosidans exempel");
+    expect(editor).toContain("setStarter(true)");
     expect(editor).toContain("setDirty(true)");
     expect(editor).toContain("!initial.published");
   });
