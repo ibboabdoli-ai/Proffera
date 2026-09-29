@@ -105,6 +105,11 @@ function verifiedEvidence() {
       client = new Client({ connectionString });
       await client.connect();
       await applyCanonicalProfferaMigrations(client);
+      await client.query(`
+        alter table workspace_experience_settings
+          add column if not exists business_intro text not null default '',
+          add column if not exists updated_at timestamptz not null default now()
+      `);
     }, 120_000);
 
     afterAll(async () => {
