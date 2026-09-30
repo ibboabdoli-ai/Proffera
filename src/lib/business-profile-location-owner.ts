@@ -301,11 +301,6 @@ async function authoritativeOwnerLocationWrite(
     }
   }
 
-  const pilotCity = normalized.city.trim().toLocaleLowerCase("sv-SE");
-  if (!(DIRECTORY_PILOT_LOCATIONS as readonly string[]).includes(pilotCity)) {
-    throw new Error("Service base city is outside the pilot area");
-  }
-
   const verified = await verifyCustomerAddress({
     addressLine1: normalized.addressLine1,
     postalCode: normalized.postalCode,
@@ -563,6 +558,11 @@ export async function establishPreReleaseSoleTraderServiceBase(
   `;
   if (!authority[0]?.profile_id) {
     throw new Error("The active Workspace does not own an eligible blocked sole-trader profile");
+  }
+
+  const pilotCity = normalized.city.trim().toLocaleLowerCase("sv-SE");
+  if (!(DIRECTORY_PILOT_LOCATIONS as readonly string[]).includes(pilotCity)) {
+    throw new Error("Service base city is outside the pilot area");
   }
 
   const verified = await verifyCustomerAddress({
