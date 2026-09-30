@@ -9,6 +9,7 @@ import { getPlatformAdmin } from "@/lib/platform-admin";
 import { invalidatePublicDirectoryPublicProjectionByProfileId } from "@/lib/company-directory-public-cache";
 import { invalidateMarketplaceHomeCompaniesCache } from "@/lib/public-read-cache";
 import { canManageWorkspaceSettings, getUserWorkspaceAccess } from "@/lib/workspace-access";
+import { DIRECTORY_PILOT_LOCATIONS } from "@/lib/company-directory-policy";
 
 export const editableBusinessProfileLocationPurposes = [
   "workplace",
@@ -298,6 +299,11 @@ async function authoritativeOwnerLocationWrite(
         geocodePrecision: "address",
       };
     }
+  }
+
+  const pilotCity = normalized.city.trim().toLocaleLowerCase("sv-SE");
+  if (!(DIRECTORY_PILOT_LOCATIONS as readonly string[]).includes(pilotCity)) {
+    throw new Error("Service base city is outside the pilot area");
   }
 
   const verified = await verifyCustomerAddress({
