@@ -251,12 +251,40 @@ function wrongCodeFor(code: string) {
         insert into company_directory_profiles (
           id, country_code, organization_number, organization_kind, legal_name, display_name,
           is_active, category_slug, city, public_slug, publication_status, quality_score,
-          privacy_blocked, auto_public_eligible
+          privacy_blocked, auto_public_eligible, last_synced_at, updated_at
         ) values (
           $1::uuid, 'SE', '5560000000', 'juridical_person', 'Race Company AB', 'Race Company AB',
-          true, 'fonsterputsning', 'Stockholm', $2, 'published', 100, false, true
+          true, 'fonsterputsning', 'Stockholm', $2, 'ready', 100, false, true,
+          '2026-09-19 12:00:00+00'::timestamptz,
+          '2026-09-19 12:00:00+00'::timestamptz
         )
       `, [PROFILE_ID, SLUG]);
+      await control!.query(`
+        insert into company_directory_official_facts (
+          profile_id, source_payload_hash, last_synced_at
+        ) values (
+          $1::uuid, 'claim-email-test-facts', '2026-09-19 12:01:00+00'::timestamptz
+        )
+      `, [PROFILE_ID]);
+      await control!.query(`
+        insert into company_directory_scb_enrichment (
+          profile_id, organization_number, workplaces, conflicts, provenance,
+          source_payload_hash, last_synced_at
+        ) values (
+          $1::uuid,
+          '5560000000',
+          '[{"cfarNumber":"12345678","municipality":"Stockholm","visitingAddress":{"addressLine":"Testgatan 1","postalCode":"111 22","city":"Stockholm"}}]'::jsonb,
+          '[]'::jsonb,
+          '{"comparisonSnapshot":{"profileUpdatedToken":"2026-09-19 12:00:00+00","officialFactsLastSyncedToken":"2026-09-19 12:01:00+00"}}'::jsonb,
+          'claim-email-test-scb',
+          now()
+        )
+      `, [PROFILE_ID]);
+      await control!.query(`
+        update company_directory_profiles
+        set publication_status = 'published'
+        where id = $1::uuid
+      `, [PROFILE_ID]);
     });
 
     it("keeps a successful verification consumed when a stale failed request writes afterward", async () => {

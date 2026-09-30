@@ -879,12 +879,30 @@ function selectedAddressFromRow(row: Record<string, unknown>) {
   }
 }
 
-function rowNeedsGeocodingAttempt(row: Record<string, unknown>) {
+function hasCurrentGeocodedPoint(row: Record<string, unknown>) {
+  if (typeof row.has_current_coordinates === "boolean") {
+    return row.has_current_coordinates;
+  }
+
   const latitude = row.latitude;
   const longitude = row.longitude;
-  if (latitude !== null && latitude !== undefined && longitude !== null && longitude !== undefined) {
-    return false;
-  }
+  const hasCoordinates = latitude !== null
+    && latitude !== undefined
+    && longitude !== null
+    && longitude !== undefined;
+  if (!hasCoordinates) return false;
+
+  const geocodedAt = Date.parse(String(row.geocoded_at ?? ""));
+  const workplaceChangedAt = Date.parse(String(
+    row.scb_workplace_changed_at ?? row.scb_last_synced_at ?? "",
+  ));
+  // Preserve injected legacy-row semantics; Production computes this freshness in SQL.
+  if (!Number.isFinite(geocodedAt) || !Number.isFinite(workplaceChangedAt)) return true;
+  return geocodedAt >= workplaceChangedAt;
+}
+
+function rowNeedsGeocodingAttempt(row: Record<string, unknown>) {
+  if (hasCurrentGeocodedPoint(row)) return false;
   const selectedAddress = selectedAddressFromRow(row);
   if (!selectedAddress) return false;
   const source = String(row.geocode_source ?? "");
@@ -899,11 +917,7 @@ function providerCountsFromRows(rows: Record<string, unknown>[]) {
   let needsReview = 0;
   let unavailable = 0;
   for (const row of rows) {
-    const hasCoordinates = row.latitude !== null
-      && row.latitude !== undefined
-      && row.longitude !== null
-      && row.longitude !== undefined;
-    if (hasCoordinates) {
+    if (hasCurrentGeocodedPoint(row)) {
       geocoded += 1;
       continue;
     }
@@ -936,6 +950,18 @@ async function providerCounts(deadline?: number) {
         location.latitude::float8 as latitude,
         location.longitude::float8 as longitude,
         location.geocode_source,
+        location.geocoded_at,
+        scb.last_synced_at as scb_last_synced_at,
+        scb.provenance #>> '{workplaceChangedAt}' as scb_workplace_changed_at,
+        (
+          location.latitude is not null
+          and location.longitude is not null
+          and location.geocoded_at is not null
+          and location.geocoded_at >= coalesce(
+            nullif(scb.provenance #>> '{workplaceChangedAt}', '')::timestamptz,
+            scb.last_synced_at
+          )
+        ) as has_current_coordinates,
         scb.workplaces as scb_workplaces,
         scb.conflicts as scb_conflicts,
         case
@@ -973,15 +999,15 @@ async function providerCounts(deadline?: number) {
     select
       count(*)::int as total,
       count(*) filter (
-        where latitude is not null and longitude is not null
+        where has_current_coordinates
       )::int as geocoded,
       count(*) filter (
-        where (latitude is null or longitude is null)
+        where not has_current_coordinates
           and has_safe_workplace
           and coalesce(geocode_source, '') not like ${terminalNoMatchPattern}
       )::int as remaining,
       count(*) filter (
-        where (latitude is null or longitude is null)
+        where not has_current_coordinates
           and not (
             has_safe_workplace
             and coalesce(geocode_source, '') not like ${terminalNoMatchPattern}
@@ -992,7 +1018,7 @@ async function providerCounts(deadline?: number) {
           )
       )::int as needs_review,
       count(*) filter (
-        where (latitude is null or longitude is null)
+        where not has_current_coordinates
           and not (
             has_safe_workplace
             and coalesce(geocode_source, '') not like ${terminalNoMatchPattern}
@@ -1047,6 +1073,7 @@ async function markNoMatch(
   profileId: string,
   reason: DirectoryGeocodingNoMatchReason,
   addressSource: DirectoryGeocodingAddressSource,
+  workplaceBoundaryToken: string,
   deadline?: number,
 ) {
   if (deadline) assertBeforeDeadline(deadline);
@@ -1057,10 +1084,21 @@ async function markNoMatch(
     insert into company_directory_business_locations (
       profile_id, geocode_source, geocode_precision, geocode_confidence,
       is_public, geocoded_at, updated_at
-    ) values (
+    )
+    select
       ${profileId}::uuid, ${source}, 'unknown', 0, false, now(), now()
+    where exists (
+      select 1
+      from company_directory_scb_enrichment current_scb
+      where current_scb.profile_id = ${profileId}::uuid
+        and coalesce(
+          nullif(current_scb.provenance #>> '{workplaceChangedAt}', ''),
+          current_scb.last_synced_at::text
+        ) = ${workplaceBoundaryToken}
     )
     on conflict (profile_id) do update set
+      latitude = null,
+      longitude = null,
       geocode_source = excluded.geocode_source,
       geocode_precision = excluded.geocode_precision,
       geocode_confidence = excluded.geocode_confidence,
@@ -1069,11 +1107,17 @@ async function markNoMatch(
       updated_at = now()
     where company_directory_business_locations.latitude is null
        or company_directory_business_locations.longitude is null
+       or company_directory_business_locations.geocoded_at is null
+       or company_directory_business_locations.geocoded_at < ${workplaceBoundaryToken}::timestamptz
   `;
 }
 
 /** Marks a failed upstream attempt so later fresh providers rotate ahead without overwriting coordinates. */
-async function markTransientError(profileId: string, deadline?: number) {
+async function markTransientError(
+  profileId: string,
+  workplaceBoundaryToken: string,
+  deadline?: number,
+) {
   if (deadline) assertBeforeDeadline(deadline);
   const sql = getSql();
   if (!sql) return;
@@ -1081,8 +1125,17 @@ async function markTransientError(profileId: string, deadline?: number) {
     insert into company_directory_business_locations (
       profile_id, geocode_source, geocode_precision, geocode_confidence,
       is_public, updated_at
-    ) values (
+    )
+    select
       ${profileId}::uuid, ${TRANSIENT_ERROR_SOURCE}, 'unknown', 0, false, now()
+    where exists (
+      select 1
+      from company_directory_scb_enrichment current_scb
+      where current_scb.profile_id = ${profileId}::uuid
+        and coalesce(
+          nullif(current_scb.provenance #>> '{workplaceChangedAt}', ''),
+          current_scb.last_synced_at::text
+        ) = ${workplaceBoundaryToken}
     )
     on conflict (profile_id) do update set
       geocode_source = excluded.geocode_source,
@@ -1092,6 +1145,8 @@ async function markTransientError(profileId: string, deadline?: number) {
       updated_at = now()
     where company_directory_business_locations.latitude is null
        or company_directory_business_locations.longitude is null
+       or company_directory_business_locations.geocoded_at is null
+       or company_directory_business_locations.geocoded_at < ${workplaceBoundaryToken}::timestamptz
   `;
 }
 
@@ -1130,7 +1185,20 @@ export async function geocodeDirectoryProviderPointsFromAdmin(
         location.latitude::float8 as latitude,
         location.longitude::float8 as longitude,
         location.geocode_source,
+        location.geocoded_at,
         location.updated_at as location_updated_at,
+        scb.last_synced_at as scb_last_synced_at,
+        scb.last_synced_at::text as scb_last_synced_token,
+        scb.provenance #>> '{workplaceChangedAt}' as scb_workplace_changed_at,
+        (
+          location.latitude is not null
+          and location.longitude is not null
+          and location.geocoded_at is not null
+          and location.geocoded_at >= coalesce(
+            nullif(scb.provenance #>> '{workplaceChangedAt}', '')::timestamptz,
+            scb.last_synced_at
+          )
+        ) as has_current_coordinates,
         scb.workplaces as scb_workplaces,
         scb.conflicts as scb_conflicts,
         case
@@ -1164,7 +1232,15 @@ export async function geocodeDirectoryProviderPointsFromAdmin(
             and relation.is_active = true
             and relation.public_visible = true
         )
-        and (location.latitude is null or location.longitude is null)
+        and (
+          location.latitude is null
+          or location.longitude is null
+          or location.geocoded_at is null
+          or location.geocoded_at < coalesce(
+            nullif(scb.provenance #>> '{workplaceChangedAt}', '')::timestamptz,
+            scb.last_synced_at
+          )
+        )
     )
     select
       id,
@@ -1178,11 +1254,18 @@ export async function geocodeDirectoryProviderPointsFromAdmin(
       latitude,
       longitude,
       geocode_source,
+      geocoded_at,
       location_updated_at,
+      scb_last_synced_at,
+      scb_last_synced_token,
+      scb_workplace_changed_at,
+      has_current_coordinates,
       scb_workplaces,
       scb_conflicts
     from runnable_provider
     where has_safe_workplace = true
+      and scb_last_synced_at is not null
+      and not has_current_coordinates
       and coalesce(geocode_source, '') not like ${terminalNoMatchPattern}
     order by
       case when geocode_source = ${TRANSIENT_ERROR_SOURCE} then 1 else 0 end,
@@ -1206,7 +1289,10 @@ export async function geocodeDirectoryProviderPointsFromAdmin(
   for (const row of candidates) {
     if (Date.now() >= processingDeadline) break;
     const selectedAddress = selectedAddressFromRow(row);
-    if (!selectedAddress) continue;
+    const scbLastSyncedToken = String(row.scb_last_synced_token ?? "").trim();
+    const scbWorkplaceChangedToken = String(row.scb_workplace_changed_at ?? "").trim();
+    const scbWorkplaceBoundaryToken = scbWorkplaceChangedToken || scbLastSyncedToken;
+    if (!selectedAddress || !scbWorkplaceBoundaryToken) continue;
     attempted += 1;
     const profile: PilotProfile = {
       id: String(row.id),
@@ -1221,7 +1307,13 @@ export async function geocodeDirectoryProviderPointsFromAdmin(
       const resolution = await resolveOfficialAddress(profile, config, processingDeadline);
       assertBeforeDeadline(processingDeadline);
       if (resolution.status === "no_match") {
-        await markNoMatch(profile.id, resolution.reason, profile.addressSource, processingDeadline);
+        await markNoMatch(
+          profile.id,
+          resolution.reason,
+          profile.addressSource,
+          scbWorkplaceBoundaryToken,
+          processingDeadline,
+        );
         noMatch += 1;
         continue;
       }
@@ -1248,6 +1340,15 @@ export async function geocodeDirectoryProviderPointsFromAdmin(
           now(),
           now()
         from transformed
+        where exists (
+          select 1
+          from company_directory_scb_enrichment current_scb
+          where current_scb.profile_id = ${profile.id}::uuid
+            and coalesce(
+              nullif(current_scb.provenance #>> '{workplaceChangedAt}', ''),
+              current_scb.last_synced_at::text
+            ) = ${scbWorkplaceBoundaryToken}
+        )
         on conflict (profile_id) do update set
           latitude = excluded.latitude,
           longitude = excluded.longitude,
@@ -1259,6 +1360,8 @@ export async function geocodeDirectoryProviderPointsFromAdmin(
           updated_at = now()
         where company_directory_business_locations.latitude is null
            or company_directory_business_locations.longitude is null
+           or company_directory_business_locations.geocoded_at is null
+           or company_directory_business_locations.geocoded_at < ${scbWorkplaceBoundaryToken}::timestamptz
         returning profile_id
       `;
       if (saved[0]) geocoded += 1;
@@ -1266,7 +1369,7 @@ export async function geocodeDirectoryProviderPointsFromAdmin(
       if (classifyDirectoryGeocodingBatchError(error) === "deadline") break;
       errors += 1;
       try {
-        await markTransientError(profile.id, processingDeadline);
+        await markTransientError(profile.id, scbWorkplaceBoundaryToken, processingDeadline);
       } catch (markerError) {
         if (classifyDirectoryGeocodingBatchError(markerError) === "deadline") break;
       }

@@ -10,12 +10,16 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vites
 const mocks = vi.hoisted(() => ({
   getSql: vi.fn(),
   fetchScbCompanyRegistryEnrichment: vi.fn(),
+  invalidateAuthorityCaches: vi.fn(),
 }));
 
 vi.mock("server-only", () => ({}));
 vi.mock("./db/server", () => ({ getSql: mocks.getSql }));
 vi.mock("./company-directory-scb-provider", () => ({
   fetchScbCompanyRegistryEnrichment: mocks.fetchScbCompanyRegistryEnrichment,
+}));
+vi.mock("./company-directory-authority-cache", () => ({
+  invalidateCompanyDirectoryAuthorityCachesBestEffort: mocks.invalidateAuthorityCaches,
 }));
 
 import type { ScbCompanyRegistryEnrichment } from "./company-directory-scb-provider";
@@ -33,6 +37,7 @@ const RUNTIME_MIGRATION_PATHS = [
   "db/migrations/20260809_0037_company_profile_engine_foundation.sql",
   "db/migrations/20260809_0038_company_profile_engine_provenance.sql",
   "db/migrations/20260812_0044_company_directory_official_facts.sql",
+  "db/migrations/20260813_0045_company_directory_service_location_foundation.sql",
   "db/migrations/20260819_0048_company_directory_scb_enrichment.sql",
 ] as const;
 
@@ -112,6 +117,8 @@ describe("SCB company directory enrichment guards", () => {
   beforeEach(() => {
     mocks.getSql.mockReset();
     mocks.fetchScbCompanyRegistryEnrichment.mockReset();
+    mocks.invalidateAuthorityCaches.mockReset();
+    mocks.invalidateAuthorityCaches.mockResolvedValue(undefined);
   });
 
   it("normalizes Bolagsverket SNI facts without duplicating codes", () => {
@@ -222,13 +229,60 @@ describe("SCB company directory enrichment guards", () => {
     expect(mocks.fetchScbCompanyRegistryEnrichment).toHaveBeenCalledWith("5563115707", undefined);
     expect(sql).toHaveBeenCalledTimes(2);
 
-    const provenanceValue = sql.mock.calls[1]?.[10];
+    const provenanceValue = sql.mock.calls[1]?.[11];
     expect(JSON.parse(String(provenanceValue))).toMatchObject({
       comparisonSnapshot: {
         profileUpdatedToken,
         officialFactsLastSyncedToken: factsLastSyncedToken,
       },
     });
+  });
+
+  it("invalidates when unchanged expired SCB authority becomes fresh", async () => {
+    const profileId = "11111111-1111-4111-8111-111111111111";
+    const sql = vi.fn()
+      .mockResolvedValueOnce([{
+        organization_number: "5563115707",
+        organization_kind: "juridical_person",
+        legal_name: "Exempel El AB",
+        profile_updated_token: "profile-token",
+        sni_codes: [],
+        facts_last_synced_token: "facts-token",
+      }])
+      .mockResolvedValueOnce([{ authority_changed: true }]);
+    mocks.getSql.mockReturnValue(sql);
+    mocks.fetchScbCompanyRegistryEnrichment.mockResolvedValue({ status: "ok", data: scb() });
+
+    await enrichCompanyDirectoryScbForProfile(profileId);
+
+    expect(String(sql.mock.calls[1]?.[0])).toContain("last_synced_at < now() - interval '7 days'");
+    expect(mocks.invalidateAuthorityCaches).toHaveBeenCalledWith(
+      profileId,
+      "committed SCB authority change",
+    );
+  });
+
+  it("does not invalidate an unchanged SCB refresh that was already fresh", async () => {
+    const sql = vi.fn()
+      .mockResolvedValueOnce([{
+        organization_number: "5563115707",
+        organization_kind: "juridical_person",
+        legal_name: "Exempel El AB",
+        profile_updated_token: "profile-token",
+        sni_codes: [],
+        facts_last_synced_token: "facts-token",
+      }])
+      .mockResolvedValueOnce([{ authority_changed: false }]);
+    mocks.getSql.mockReturnValue(sql);
+    mocks.fetchScbCompanyRegistryEnrichment.mockResolvedValue({ status: "ok", data: scb() });
+
+    await enrichCompanyDirectoryScbForProfile("11111111-1111-4111-8111-111111111111");
+
+    const upsertQuery = String(sql.mock.calls[1]?.[0]);
+    expect(upsertQuery).toContain("company_directory_scb_enrichment.provenance #>> '{workplaceChangedAt}'");
+    expect(upsertQuery).toContain("company_directory_scb_enrichment.last_synced_at::text");
+    expect(upsertQuery).not.toContain("company_directory_scb_enrichment.created_at::text");
+    expect(mocks.invalidateAuthorityCaches).not.toHaveBeenCalled();
   });
 });
 
@@ -494,6 +548,109 @@ describe("SCB company directory enrichment guards", () => {
         select count(*)::int as count from company_directory_scb_enrichment
       `);
       expect(enrichmentCount.rows[0]?.count).toBe(4);
+    }, 30_000);
+
+    it("keeps a legacy geocoded point current when an unchanged workplace gets its first boundary token", async () => {
+      const profileId = "55555555-5555-4555-8555-555555555555";
+      const priorScbSync = "2026-08-21T18:00:00.000Z";
+      const pointGeocodedAt = "2026-08-21T18:30:00.000Z";
+      const profileUpdatedAt = "2026-08-21T17:00:00.000Z";
+      const factsSyncedAt = "2026-08-21T16:59:00.000Z";
+      const unchangedWorkplace = workplace("Södertälje", "10000005");
+
+      await client!.query(`
+        truncate table company_directory_business_locations, company_directory_field_sources,
+          company_directory_scb_enrichment, company_directory_official_facts,
+          company_directory_profiles cascade
+      `);
+
+      await client!.query(`
+        insert into company_directory_profiles (
+          id, organization_number, organization_kind, legal_name, display_name,
+          public_slug, municipality, updated_at, last_synced_at
+        ) values (
+          $1, '5563115711', 'juridical_person', 'Legacy Boundary AB', 'Legacy Boundary AB',
+          'legacy-boundary-ab', 'Södertälje', $2::timestamptz, $2::timestamptz
+        )
+      `, [profileId, profileUpdatedAt]);
+
+      await client!.query(`
+        insert into company_directory_official_facts (
+          profile_id, sni_codes, source_payload_hash, last_synced_at
+        ) values (
+          $1, '[{"code":"43.210"}]'::jsonb, 'facts-hash', $2::timestamptz
+        )
+      `, [profileId, factsSyncedAt]);
+
+      await client!.query(`
+        insert into company_directory_scb_enrichment (
+          profile_id, organization_number, observed_company_name,
+          workplaces, conflicts, provenance, source_payload_hash, last_synced_at
+        ) values (
+          $1, '5563115711', 'Legacy Boundary AB',
+          $2::jsonb, '[]'::jsonb,
+          jsonb_build_object(
+            'comparisonSnapshot', jsonb_build_object(
+              'profileUpdatedToken', $3::text,
+              'officialFactsLastSyncedToken', $4::text
+            )
+          ),
+          'legacy-scb-hash', $5::timestamptz
+        )
+      `, [
+        profileId,
+        JSON.stringify([unchangedWorkplace]),
+        profileUpdatedAt,
+        factsSyncedAt,
+        priorScbSync,
+      ]);
+
+      await client!.query(`
+        insert into company_directory_business_locations (
+          profile_id, latitude, longitude, geocode_source, geocode_precision,
+          geocode_confidence, is_public, geocoded_at
+        ) values (
+          $1, 59.1955, 17.6253, 'lantmateriet_belagenhetsadress_v4_2',
+          'address', 100, true, $2::timestamptz
+        )
+      `, [profileId, pointGeocodedAt]);
+
+      mocks.getSql.mockReset();
+      mocks.fetchScbCompanyRegistryEnrichment.mockReset();
+      mocks.getSql.mockReturnValue(postgresSql(client!));
+      mocks.fetchScbCompanyRegistryEnrichment.mockResolvedValue({
+        status: "ok",
+        data: scb({
+          organizationNumber: "5563115711",
+          legalName: "Legacy Boundary AB",
+          municipality: "Södertälje",
+          workplaces: [unchangedWorkplace],
+        }),
+      });
+
+      await expect(enrichCompanyDirectoryScbForProfile(profileId)).resolves.toEqual({
+        status: "saved",
+        saved: true,
+        conflicts: [],
+      });
+
+      const state = await client!.query<{
+        workplace_changed_at: string;
+        prior_sync: string;
+        point_current: boolean;
+      }>(`
+        select
+          scb.provenance #>> '{workplaceChangedAt}' as workplace_changed_at,
+          $2::timestamptz::text as prior_sync,
+          location.geocoded_at >= (scb.provenance #>> '{workplaceChangedAt}')::timestamptz as point_current
+        from company_directory_scb_enrichment scb
+        join company_directory_business_locations location on location.profile_id = scb.profile_id
+        where scb.profile_id = $1::uuid
+      `, [profileId, priorScbSync]);
+
+      expect(new Date(String(state.rows[0]?.workplace_changed_at)).toISOString())
+        .toBe(new Date(priorScbSync).toISOString());
+      expect(state.rows[0]?.point_current).toBe(true);
     }, 30_000);
   },
 );

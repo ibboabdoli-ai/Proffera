@@ -22,6 +22,7 @@ vi.mock("@/lib/workspace-services-db", () => ({
 }));
 
 import { getProviderActivationState } from "../src/lib/company-directory-provider-activation";
+import { applyCanonicalProfferaMigrations } from "./helpers/postgres-canonical-schema";
 
 const RUN_POSTGRES_INTEGRATION =
   process.env.GITHUB_ACTIONS === "true"
@@ -79,7 +80,7 @@ function postgresSql(client: Client) {
         "-e", "POSTGRES_USER=postgres",
         "-e", "POSTGRES_DB=proffera_test",
         "-p", "127.0.0.1::5432",
-        "postgres:16-alpine",
+        "postgis/postgis:16-3.5-alpine",
       ]);
 
       const portLine = docker(["port", containerName, "5432/tcp"]).split(/\r?\n/u)[0] ?? "";
@@ -91,62 +92,7 @@ function postgresSql(client: Client) {
       client = new Client({ connectionString });
       await client.connect();
 
-      await client.query(`
-        create table workspace_services (
-          id uuid primary key default gen_random_uuid(),
-          workspace_id uuid not null,
-          name text not null,
-          category text,
-          price_type text,
-          price_amount_minor integer,
-          is_active boolean not null default true,
-          sort_order integer not null default 0,
-          public_slug text,
-          primary_directory_service_slug text,
-          public_status text not null default 'draft',
-          conversion_mode text not null default 'quote'
-        );
-        create table company_directory_profiles (
-          id uuid primary key,
-          claimed_workspace_id uuid,
-          public_slug text not null default '',
-          display_name text not null default '',
-          organization_number text not null default '',
-          organization_kind text not null default 'juridical_person',
-          legal_form text not null default '',
-          organization_status text not null default '',
-          address_line1 text not null default '',
-          postal_code text not null default '',
-          city text not null default '',
-          publication_status text not null,
-          is_active boolean not null default true,
-          privacy_blocked boolean not null default false,
-          auto_public_eligible boolean not null default true,
-          official_source text not null default '',
-          published_at timestamptz,
-          updated_at timestamptz not null default now()
-        );
-        create table company_directory_claims (
-          id uuid primary key default gen_random_uuid(),
-          profile_id uuid not null,
-          requested_workspace_id uuid,
-          status text not null,
-          verification_method text not null,
-          requested_at timestamptz not null default now()
-        );
-        create table company_directory_services (
-          slug text primary key,
-          label text not null,
-          is_active boolean not null default true
-        );
-        create table company_directory_profile_services (
-          profile_id uuid not null,
-          service_slug text not null,
-          is_active boolean not null default true,
-          public_visible boolean not null default true,
-          primary key (profile_id, service_slug)
-        );
-      `);
+      await applyCanonicalProfferaMigrations(client);
     }, 120_000);
 
     afterAll(async () => {
@@ -176,29 +122,62 @@ function postgresSql(client: Client) {
       mocks.getSql.mockReturnValue(postgresSql(client!));
 
       await client!.query(`
-        truncate table company_directory_profile_services,
-          company_directory_claims,
-          workspace_services,
-          company_directory_profiles,
-          company_directory_services
+        truncate table company_directory_profiles, workspace_services, workspaces
+        restart identity cascade
       `);
       await client!.query(`
-        insert into company_directory_services (slug, label, is_active)
-        values ($1, 'Fönsterputsning', true)
-      `, [TARGET_SLUG]);
+        insert into workspaces (id, slug, name, status)
+        values ($1::uuid, 'owner-company', 'Owner Company', 'active')
+      `, [WORKSPACE_ID]);
       await client!.query(`
         insert into company_directory_profiles (
-          id, claimed_workspace_id, public_slug, display_name,
-          organization_number, organization_kind, legal_form, organization_status,
-          city, publication_status, is_active, privacy_blocked,
-          auto_public_eligible, official_source, published_at
+          id, country_code, organization_number, organization_kind,
+          legal_name, display_name, public_slug, claimed_workspace_id,
+          legal_form, organization_status, city, category_slug,
+          publication_status, is_active, privacy_blocked,
+          auto_public_eligible, official_source, published_at, quality_score
         ) values (
-          $1::uuid, $2::uuid, 'owner-company-ab', 'Owner Company AB',
-          '5560000000', 'juridical_person', 'Aktiebolag', 'Registrerad',
-          'Södertälje', 'claimed', true, false,
-          true, 'bolagsverket_vardefulla_datamangder:company', null
+          $1::uuid, 'SE', '5560000000', 'juridical_person',
+          'Owner Company AB', 'Owner Company AB', 'owner-company-ab', $2::uuid,
+          'Aktiebolag', 'Registrerad', 'Södertälje', 'stadning',
+          'review', true, false,
+          true, 'bolagsverket_vardefulla_datamangder:company', null, 98
         )
       `, [PROFILE_ID, WORKSPACE_ID]);
+      await client!.query(
+        `insert into company_directory_official_facts (
+          profile_id, advertising_blocked, ongoing_procedures, source_payload_hash
+        ) values ($1::uuid, false, '[]'::jsonb, 'facts-hash')`,
+        [PROFILE_ID],
+      );
+      await client!.query(`
+        insert into company_directory_scb_enrichment (
+          profile_id, organization_number, workplaces, conflicts, source_payload_hash, provenance
+        )
+        select profile.id,
+          profile.organization_number,
+          '[{"cfarNumber":"12345678","municipality":"Södertälje","visitingAddress":{"addressLine":"Industrivägen 2","postalCode":"151 00","city":"Södertälje"}}]'::jsonb,
+          '[]'::jsonb,
+          'scb-hash',
+          jsonb_build_object('comparisonSnapshot', jsonb_build_object(
+            'profileUpdatedToken', profile.updated_at::text,
+            'officialFactsLastSyncedToken', facts.last_synced_at::text
+          ))
+        from company_directory_profiles profile
+        join company_directory_official_facts facts on facts.profile_id = profile.id
+        where profile.id = $1::uuid
+      `, [PROFILE_ID]);
+      await client!.query(`
+        update company_directory_profiles
+        set publication_status = 'published'
+        where id = $1::uuid
+      `, [PROFILE_ID]);
+      await client!.query(`
+        update company_directory_profiles
+        set publication_status = 'claimed',
+            published_at = null
+        where id = $1::uuid
+      `, [PROFILE_ID]);
       await client!.query(`
         insert into company_directory_profile_services (
           profile_id, service_slug, is_active, public_visible
@@ -212,16 +191,15 @@ function postgresSql(client: Client) {
       const unpublished = await client!.query<{ count: string }>(`
         select count(*)::text as count
         from workspace_services
-        where workspace_id = $1::uuid
+        where workspace_id = $1
       `, [WORKSPACE_ID]);
       expect(unpublished.rows[0]?.count).toBe("0");
 
       await client!.query(`
         update company_directory_profiles
-        set published_at = now(), updated_at = now()
+        set published_at = now()
         where id = $1::uuid
       `, [PROFILE_ID]);
-
       await getProviderActivationState();
       await getProviderActivationState();
 
@@ -232,7 +210,7 @@ function postgresSql(client: Client) {
       }>(`
         select name, public_status, primary_directory_service_slug
         from workspace_services
-        where workspace_id = $1::uuid
+        where workspace_id = $1
         order by name asc
       `, [WORKSPACE_ID]);
       expect(published.rows).toEqual([{

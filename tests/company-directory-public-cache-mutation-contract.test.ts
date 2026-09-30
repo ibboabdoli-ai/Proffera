@@ -5,6 +5,7 @@ const mocks = vi.hoisted(() => ({
   invalidateProjection: vi.fn(),
   invalidateByProfileId: vi.fn(),
   invalidateAll: vi.fn(),
+  invalidateMarketplace: vi.fn(),
   assessConfidence: vi.fn(),
   enrichScb: vi.fn(),
   enrichOfficialFacts: vi.fn(),
@@ -13,6 +14,7 @@ const mocks = vi.hoisted(() => ({
   fullBatch: vi.fn(),
   assessDirectoryCandidate: vi.fn(),
   buildDirectoryPublicSlug: vi.fn(),
+  isDirectoryPilotLocation: vi.fn(),
   mapPrimarySni: vi.fn(),
   fetchDirectoryBatch: vi.fn(),
   verifyDirectoryCandidate: vi.fn(),
@@ -28,10 +30,14 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("server-only", () => ({}));
 vi.mock("@/lib/db/server", () => ({ getSql: mocks.getSql }));
-vi.mock("@/lib/company-directory-public-cache", () => ({
+vi.mock("@/lib/company-directory-public-cache", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/company-directory-public-cache")>()),
   invalidatePublicDirectoryPublicProjection: mocks.invalidateProjection,
   invalidatePublicDirectoryPublicProjectionByProfileId: mocks.invalidateByProfileId,
   invalidateAllPublicDirectoryPublicCaches: mocks.invalidateAll,
+}));
+vi.mock("@/lib/public-read-cache", () => ({
+  invalidateMarketplaceHomeCompaniesCache: mocks.invalidateMarketplace,
 }));
 vi.mock("@/lib/company-directory-category-confidence", () => ({
   COMPANY_DIRECTORY_CATEGORY_CONFIDENCE_POLICY_VERSION: "test-policy",
@@ -53,8 +59,11 @@ vi.mock("@/lib/company-directory-full-revalidation", () => ({
   revalidateAllCompanyDirectoryBatch: mocks.fullBatch,
 }));
 vi.mock("@/lib/company-directory-policy", () => ({
+  DIRECTORY_PILOT_LOCATIONS: ["stockholm", "södertälje"],
+  DIRECTORY_PILOT_MUNICIPALITY_TOKENS: ["stockholm", "södertälje", "0180", "0181", "180", "181"],
   assessDirectoryCandidate: mocks.assessDirectoryCandidate,
   buildDirectoryPublicSlug: mocks.buildDirectoryPublicSlug,
+  isDirectoryPilotLocation: mocks.isDirectoryPilotLocation,
 }));
 vi.mock("@/lib/company-directory-service-taxonomy", () => ({
   mapPrimarySniToDirectorySearchService: mocks.mapPrimarySni,
@@ -109,6 +118,16 @@ function publicationSql(slug = "safe-company-ab") {
         ongoing_procedures: [],
         facts_last_synced_token: "facts-v1",
         facts_source_payload_hash: "facts-hash",
+        scb_workplaces: [{
+          cfarNumber: "12345678",
+          municipality: "Stockholm",
+          visitingAddress: {
+            addressLine: "Arbetsplatsgatan 2",
+            postalCode: "11122",
+            city: "Stockholm",
+          },
+        }],
+        scb_source_payload_hash: "scb-hash",
         scb_conflict_count: 0,
         official_facts_fresh: true,
         scb_snapshot_fresh: true,
@@ -222,8 +241,13 @@ function publishedRevalidationSql() {
     if (query.includes("insert into company_directory_sync_runs")) {
       return [{ id: RUN_ID }];
     }
-    if (query.includes("select profile.id::text, profile.organization_number")) {
-      return [{ id: PROFILE_ID, organization_number: "5560000000", display_name: "Safe Company AB" }];
+    if (query.includes("profile.id::text") && query.includes("normalized_organization_number")) {
+      return [{
+        id: PROFILE_ID,
+        organization_number: "5560000000",
+        normalized_organization_number: "5560000000",
+        display_name: "Safe Company AB",
+      }];
     }
     if (query.includes("profile.updated_at::text as profile_updated_token")) {
       return [{
@@ -279,6 +303,7 @@ beforeEach(() => {
     autoPublicEligible: false,
   });
   mocks.buildDirectoryPublicSlug.mockReturnValue("new-computed-slug");
+  mocks.isDirectoryPilotLocation.mockReturnValue(true);
   mocks.mapPrimarySni.mockReturnValue(null);
   mocks.createWorkspaceSlug.mockReturnValue("safe-company");
   mocks.getPlatformAdmin.mockResolvedValue({ role: "super_admin", userId: "admin-1" });
@@ -324,6 +349,7 @@ describe("public Directory safety mutation invalidation", () => {
           public_slug: "stored-old-slug",
           publication_status: "blocked",
           category_slug: "",
+          profile_changed: true,
         }];
       }
       return [];
@@ -371,13 +397,177 @@ describe("public Directory safety mutation invalidation", () => {
       slug: "new-computed-slug",
       profileId: PROFILE_ID,
     });
+    expect(mocks.invalidateProjection).toHaveBeenCalledTimes(2);
+    expect(mocks.invalidateMarketplace).toHaveBeenCalledTimes(2);
   });
 
-  it("fails closed with global invalidation when persisted public_slug is unavailable", async () => {
+  it("skips public cache invalidation for a no-op candidate sync", async () => {
     const sql = vi.fn(async (strings: TemplateStringsArray) => {
       const query = strings.join(" ");
       if (query.includes("insert into company_directory_profiles")) {
-        return [{ id: PROFILE_ID, public_slug: "", publication_status: "blocked", category_slug: "" }];
+        return [{
+          id: PROFILE_ID,
+          public_slug: "safe-company-ab",
+          publication_status: "blocked",
+          category_slug: "",
+          profile_changed: false,
+        }];
+      }
+      return [];
+    });
+    mocks.getSql.mockReturnValue(sql);
+
+    const { upsertCompanyDirectoryCandidate } = await import("@/lib/company-directory-engine");
+    await expect(upsertCompanyDirectoryCandidate({
+      countryCode: "SE",
+      organizationNumber: "5560000000",
+      organizationKind: "juridical_person",
+      legalName: "Safe Company AB",
+      displayName: "Safe Company AB",
+      legalForm: "AB",
+      organizationStatus: "active",
+      isActive: true,
+      fTaxStatus: "registered",
+      vatStatus: "registered",
+      employerStatus: "registered",
+      primarySniCode: "43.221",
+      primarySniLabel: "VVS",
+      activityDescription: "VVS",
+      addressLine1: "Testgatan 1",
+      postalCode: "11122",
+      city: "Stockholm",
+      municipality: "Stockholm",
+      region: "Stockholm",
+      officialSource: "test",
+      sourceRecordId: "source-1",
+      sourceUpdatedAt: null,
+    } as never)).resolves.toMatchObject({ profileId: PROFILE_ID });
+
+    expect(mocks.invalidateProjection).not.toHaveBeenCalled();
+    expect(mocks.invalidateAll).not.toHaveBeenCalled();
+    expect(mocks.invalidateMarketplace).not.toHaveBeenCalled();
+  });
+
+  it("invalidates once when a dependent public service row is repaired", async () => {
+    const sql = vi.fn(async (strings: TemplateStringsArray) => {
+      const query = strings.join(" ");
+      if (query.includes("insert into company_directory_profiles")) {
+        return [{
+          id: PROFILE_ID,
+          public_slug: "safe-company-ab",
+          publication_status: "blocked",
+          category_slug: "",
+          profile_changed: false,
+        }];
+      }
+      if (query.includes("insert into company_directory_profile_services")) {
+        return [{ profile_id: PROFILE_ID }];
+      }
+      return [];
+    });
+    mocks.getSql.mockReturnValue(sql);
+    mocks.mapPrimarySni.mockReturnValue("vvs");
+
+    const { upsertCompanyDirectoryCandidate } = await import("@/lib/company-directory-engine");
+    await expect(upsertCompanyDirectoryCandidate({
+      countryCode: "SE",
+      organizationNumber: "5560000000",
+      organizationKind: "juridical_person",
+      legalName: "Safe Company AB",
+      displayName: "Safe Company AB",
+      legalForm: "AB",
+      organizationStatus: "active",
+      isActive: true,
+      fTaxStatus: "registered",
+      vatStatus: "registered",
+      employerStatus: "registered",
+      primarySniCode: "43.221",
+      primarySniLabel: "VVS",
+      activityDescription: "VVS",
+      addressLine1: "Testgatan 1",
+      postalCode: "11122",
+      city: "Stockholm",
+      municipality: "Stockholm",
+      region: "Stockholm",
+      officialSource: "test",
+      sourceRecordId: "source-1",
+      sourceUpdatedAt: null,
+    } as never)).resolves.toMatchObject({ profileId: PROFILE_ID });
+
+    expect(mocks.invalidateProjection).toHaveBeenCalledTimes(1);
+    expect(mocks.invalidateProjection).toHaveBeenCalledWith({
+      slug: "safe-company-ab",
+      profileId: PROFILE_ID,
+    });
+    expect(mocks.invalidateMarketplace).toHaveBeenCalledTimes(1);
+  });
+
+  it("invalidates both public caches before a later source-sync statement fails", async () => {
+    const sql = vi.fn(async (strings: TemplateStringsArray) => {
+      const query = strings.join(" ");
+      if (query.includes("insert into company_directory_profiles")) {
+        return [{
+          id: PROFILE_ID,
+          public_slug: "safe-company-ab",
+          publication_status: "published",
+          category_slug: "",
+          profile_changed: true,
+        }];
+      }
+      throw new Error("later source-sync statement failed");
+    });
+    mocks.getSql.mockReturnValue(sql);
+    mocks.mapPrimarySni.mockReturnValue("vvs");
+
+    const { upsertCompanyDirectoryCandidate } = await import("@/lib/company-directory-engine");
+    await expect(upsertCompanyDirectoryCandidate({
+      countryCode: "SE",
+      organizationNumber: "5560000000",
+      organizationKind: "juridical_person",
+      legalName: "Safe Company AB",
+      displayName: "Safe Company AB",
+      legalForm: "AB",
+      organizationStatus: "active",
+      isActive: true,
+      fTaxStatus: "registered",
+      vatStatus: "registered",
+      employerStatus: "registered",
+      primarySniCode: "43.221",
+      primarySniLabel: "VVS",
+      activityDescription: "VVS",
+      addressLine1: "Testgatan 1",
+      postalCode: "11122",
+      city: "Stockholm",
+      municipality: "Stockholm",
+      region: "Stockholm",
+      officialSource: "test",
+      sourceRecordId: "source-1",
+      sourceUpdatedAt: null,
+    } as never)).rejects.toThrow("later source-sync statement failed");
+
+    expect(mocks.invalidateProjection).toHaveBeenCalledTimes(2);
+    expect(mocks.invalidateProjection).toHaveBeenCalledWith({
+      slug: "safe-company-ab",
+      profileId: PROFILE_ID,
+    });
+    expect(mocks.invalidateMarketplace).toHaveBeenCalledTimes(2);
+  });
+
+  it("fails closed with global invalidation when persisted public_slug is unavailable", async () => {
+    mocks.invalidateMarketplace.mockImplementationOnce(() => {
+      throw new Error("Marketplace cache unavailable");
+    });
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const sql = vi.fn(async (strings: TemplateStringsArray) => {
+      const query = strings.join(" ");
+      if (query.includes("insert into company_directory_profiles")) {
+        return [{
+          id: PROFILE_ID,
+          public_slug: "",
+          publication_status: "blocked",
+          category_slug: "",
+          profile_changed: true,
+        }];
       }
       return [];
     });
@@ -409,8 +599,9 @@ describe("public Directory safety mutation invalidation", () => {
       sourceUpdatedAt: null,
     } as never);
 
-    expect(mocks.invalidateAll).toHaveBeenCalledTimes(1);
+    expect(mocks.invalidateAll).toHaveBeenCalledTimes(2);
     expect(mocks.invalidateProjection).not.toHaveBeenCalled();
+    expect(mocks.invalidateMarketplace).toHaveBeenCalledTimes(2);
   });
 
   it("keeps publication success after post-commit cache invalidation fails", async () => {
@@ -560,6 +751,7 @@ describe("public Directory safety mutation invalidation", () => {
 
     expect(response.status).toBe(200);
     expect(mocks.invalidateAll).toHaveBeenCalledTimes(2);
+    expect(mocks.invalidateMarketplace).toHaveBeenCalledTimes(2);
   });
 
   it("invalidates fail-closed on category-policy batch failure without replacing the original error", async () => {
@@ -593,6 +785,7 @@ describe("public Directory safety mutation invalidation", () => {
       errorSummary: "policy batch failed after demotion",
     });
     expect(mocks.invalidateAll).toHaveBeenCalledTimes(1);
+    expect(mocks.invalidateMarketplace).toHaveBeenCalledTimes(1);
     expect(consoleError).toHaveBeenCalledWith(
       "Public Directory cache invalidation failed after committed revalidation work",
       { context: "category_policy_batch_failure", error: cacheError },
@@ -627,6 +820,7 @@ describe("public Directory safety mutation invalidation", () => {
     expect(response.status).toBe(500);
     expect(body.error).toBe("full batch failed after demotion");
     expect(mocks.invalidateAll).toHaveBeenCalledTimes(1);
+    expect(mocks.invalidateMarketplace).toHaveBeenCalledTimes(1);
     expect(consoleError).toHaveBeenCalledWith(
       "Public Directory cache invalidation failed after committed revalidation work",
       { context: "full_revalidation_batch_failure", error: cacheError },

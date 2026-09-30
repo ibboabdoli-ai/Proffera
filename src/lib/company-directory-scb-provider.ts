@@ -130,6 +130,19 @@ function textFor(record: UnknownRecord, candidates: string[]) {
   return stringValue(valueFor(record, candidates));
 }
 
+const PILOT_MUNICIPALITY_NAME_BY_CODE = new Map([
+  ["0180", "Stockholm"],
+  ["180", "Stockholm"],
+  ["0181", "Södertälje"],
+  ["181", "Södertälje"],
+]);
+
+function municipalityFor(record: UnknownRecord, candidates: string[]) {
+  const raw = textFor(record, candidates);
+  if (!raw) return null;
+  return PILOT_MUNICIPALITY_NAME_BY_CODE.get(raw.replace(/\s+/g, "")) ?? raw;
+}
+
 function normalizeOrganizationNumber(value: unknown) {
   const digits = String(value ?? "").replace(/\D/g, "");
   if (digits.length === 12 && digits.startsWith("16")) return digits.slice(2);
@@ -269,7 +282,7 @@ export function normalizeScbCompanyRegistryPayload(
       email: textFor(record, ["E-post", "Epost", "Email"]),
       visitingAddress: addressFromRecord(record, "visiting"),
       postalAddress: addressFromRecord(record, "postal"),
-      municipality: textFor(record, ["Kommun", "Kommunnamn"]),
+      municipality: municipalityFor(record, ["Kommunnamn", "Kommun"]),
       sniCodes: sniCodesFromRecord(record),
       coordinates: coordinatesFromRecord(record),
       source: SCB_SOURCE,
@@ -281,7 +294,7 @@ export function normalizeScbCompanyRegistryPayload(
     phone: textFor(company, ["Telefon", "Telefonnummer"]),
     email: textFor(company, ["E-post", "Epost", "Email"]),
     postalAddress: addressFromRecord(company, "postal"),
-    municipality: textFor(company, ["Kommun", "Säteskommun", "Sateskommun", "Kommunnamn"]),
+    municipality: municipalityFor(company, ["Kommunnamn", "Kommun", "Säteskommun", "Sateskommun"]),
     sniCodes: sniCodesFromRecord(company),
     workplaces,
     source: SCB_SOURCE,

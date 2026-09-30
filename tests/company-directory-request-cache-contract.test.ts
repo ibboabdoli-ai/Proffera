@@ -33,6 +33,7 @@ import {
   invalidatePublicDirectoryProfileCache,
   publicDirectoryExtrasCacheTag,
   publicDirectoryProfileCacheTag,
+  readPublicDirectoryProfileCache,
   setPublicDirectoryCacheAdapterForTests,
   type PublicDirectoryCacheAdapter,
   type PublicDirectoryCacheReadInput,
@@ -141,6 +142,57 @@ afterEach(() => {
 });
 
 describe("company directory shared-cache route contract", () => {
+  it("fails published public profile reads closed on canonical fresh workplace authority", () => {
+    const engineSource = source("src/lib/company-directory-engine.ts");
+    const publicDataSource = source("src/lib/company-directory-public-data.ts");
+
+    for (const candidate of [engineSource, publicDataSource]) {
+      expect(candidate).toContain("published_facts.source_payload_hash <> ''");
+      expect(candidate).toContain("published_facts.last_synced_at >=");
+      expect(candidate).toContain("published_facts.deregistration_date is null");
+      expect(candidate).toContain("published_facts.advertising_blocked is false");
+      expect(candidate).toContain("published_scb.source_payload_hash <> ''");
+      expect(candidate).toContain("published_scb.last_synced_at >= now() - interval '7 days'");
+      expect(candidate).toContain("comparisonSnapshot,profileUpdatedToken");
+      expect(candidate).toContain("comparisonSnapshot,officialFactsLastSyncedToken");
+      expect(candidate).toContain("jsonb_typeof(published_scb.conflicts) = 'array'");
+      expect(candidate).toContain("jsonb_typeof(published_scb.workplaces) = 'array'");
+      expect(candidate).toContain("jsonb_array_length(published_scb.workplaces) = 1");
+      expect(candidate).toContain("DIRECTORY_PILOT_MUNICIPALITY_TOKENS");
+    }
+    expect(publicDataSource).toContain("published_authority.scb_phone");
+    expect(publicDataSource).toContain("published_authority.scb_email");
+    expect(publicDataSource).toContain("published_authority.scb_workplaces");
+  });
+
+  it("fails claimed public fallback and routing closed on fresh snapshot-bound pilot workplace authority", () => {
+    const publicDataSource = source("src/lib/company-directory-public-data.ts");
+    const routingSource = source("src/lib/company-directory-routing.ts");
+    for (const candidate of [publicDataSource, routingSource]) {
+      expect(candidate).toContain("claimed_facts.last_synced_at >= profile.last_synced_at");
+      expect(candidate).toContain("claimed_scb.last_synced_at >= now() - interval '7 days'");
+      expect(candidate).toContain("claimed_scb.last_synced_at >= profile.last_synced_at");
+      expect(candidate).not.toContain("claimed_scb.provenance #>> '{comparisonSnapshot,profileUpdatedToken}' = profile.updated_at::text");
+      expect(candidate).toContain("comparisonSnapshot,officialFactsLastSyncedToken");
+      expect(candidate).toContain("profile.organization_kind = 'sole_trader'");
+      expect(candidate).toContain("bolagsverket_vardefulla_datamangder:sole_trader_owner");
+      expect(candidate).toContain("owner_claim.status = 'claimed'");
+      expect(candidate).toContain("owner_claim.verification_method = 'manual_review'");
+      expect(candidate).toContain("company_directory_profile_locations owner_base");
+      expect(candidate).toContain("owner_base.purpose = 'service_base'");
+      expect(candidate).toContain("owner_base.geocode_source = 'lantmateriet_belagenhetsadress_v4_2'");
+      expect(candidate).toContain("owner_base.geocode_precision = 'address'");
+      expect(candidate).toContain("translate(lower(btrim(owner_base.city)), \'ÅÄÖ\', \'åäö\') = any");
+      expect(candidate).not.toContain("lower(btrim(owner_base.municipality)) = any");
+      expect(candidate).toContain("claimed_facts.deregistration_date is null");
+      expect(candidate).toContain("claimed_facts.advertising_blocked is false");
+      expect(candidate).toContain("jsonb_typeof(claimed_facts.ongoing_procedures) = 'array'");
+      expect(candidate).toContain("jsonb_typeof(claimed_scb.conflicts) = 'array'");
+      expect(candidate).toContain("jsonb_typeof(claimed_scb.workplaces) = 'array'");
+      expect(candidate).toContain("DIRECTORY_PILOT_MUNICIPALITY_TOKENS");
+    }
+  });
+
   it("keeps both public routes dynamic and on the common resolver path", () => {
     const swedishRoute = source("src/app/foretag/listad/[slug]/page.tsx");
     const englishRoute = source("src/app/en/companies/[slug]/page.tsx");
@@ -158,6 +210,35 @@ describe("company directory shared-cache route contract", () => {
 });
 
 describe("directory shared-cache behavior", () => {
+  it("rechecks a cached positive at its exact workplace-authority deadline", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-09-20T12:00:00.000Z"));
+    const loader = vi.fn()
+      .mockResolvedValueOnce({
+        cache: true,
+        value: publicBusiness(),
+        authorityExpiresAt: "2026-09-20T13:00:00.000Z",
+      })
+      .mockResolvedValue({ cache: false, value: null });
+
+    try {
+      expect(await readPublicDirectoryProfileCache("test-company-ab", loader)).toMatchObject({
+        companyName: "Test Brand AB",
+      });
+      vi.setSystemTime(new Date("2026-09-20T12:59:59.999Z"));
+      expect(await readPublicDirectoryProfileCache("test-company-ab", loader)).toMatchObject({
+        companyName: "Test Brand AB",
+      });
+      expect(loader).toHaveBeenCalledTimes(1);
+
+      vi.setSystemTime(new Date("2026-09-20T13:00:00.000Z"));
+      expect(await readPublicDirectoryProfileCache("test-company-ab", loader)).toBeNull();
+      expect(loader).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("turns 50 safe juridical reads into one underlying public lookup", async () => {
     mocks.getSql.mockReturnValue(publishedSql());
     mocks.getPublicDirectoryBusiness.mockResolvedValue(publicBusiness());
@@ -185,8 +266,32 @@ describe("directory shared-cache behavior", () => {
 
     expect(results).toEqual(Array.from({ length: 50 }, () => null));
     expect(mocks.getPublicDirectoryBusiness).toHaveBeenCalledTimes(1);
-    expect(sql).toHaveBeenCalledTimes(1);
+    expect(sql).toHaveBeenCalledTimes(2);
     expect(cacheReads.some((read) => read.revalidate === PUBLIC_DIRECTORY_MISS_CACHE_TTL_SECONDS)).toBe(true);
+  });
+
+  it("does not persist an authority-derived miss for an existing Directory profile", async () => {
+    let authorityRestored = false;
+    const sql = vi.fn(async (strings: TemplateStringsArray) => {
+      const query = strings.join(" ");
+      if (query.includes("publication_status = 'claimed'")) return [];
+      if (query.includes("select 1") && query.includes("where public_slug")) {
+        return [{ "?column?": 1 }];
+      }
+      return [];
+    });
+    mocks.getSql.mockReturnValue(sql);
+    mocks.getPublicDirectoryBusiness.mockImplementation(async () =>
+      authorityRestored ? publicBusiness("authority-restored-company", "Restored Authority AB") : null);
+
+    expect(await getPublicDirectoryBusinessForRequest("authority-restored-company")).toBeNull();
+
+    authorityRestored = true;
+    mocks.getSql.mockReturnValue(publishedSql());
+    const restored = await getPublicDirectoryBusinessForRequest("authority-restored-company");
+
+    expect(restored?.companyName).toBe("Restored Authority AB");
+    expect(mocks.getPublicDirectoryBusiness).toHaveBeenCalledTimes(2);
   });
 
   it("does not persist a miss when the Directory SQL client is temporarily unavailable", async () => {
@@ -267,9 +372,12 @@ describe("directory shared-cache behavior", () => {
 
   it("evaluates claimed paid-contact entitlement fresh on every request", async () => {
     const claimedSlug = "claimed-company";
+    let claimedRead = 0;
     const sql = vi.fn(async (strings: TemplateStringsArray) => {
       const query = strings.join(" ");
       if (query.includes("from company_directory_profiles profile") && query.includes("publication_status = 'claimed'")) {
+        claimedRead += 1;
+        const entitled = claimedRead > 1;
         return [{
           id: PROFILE_ID,
           public_slug: claimedSlug,
@@ -294,6 +402,12 @@ describe("directory shared-cache behavior", () => {
           source_updated_at: "2026-08-23T00:00:00.000Z",
           official_facts_last_synced_at: "2026-08-23T00:00:00.000Z",
           claimed_workspace_id: WORKSPACE_ID,
+          scb_phone: "070-123 45 67",
+          scb_email: "test@example.se",
+          scb_workplaces: [],
+          contact_plan_key: "starter",
+          contact_plan_status: entitled ? "active" : "canceled",
+          contact_plan_current_period_end: "2099-01-01T00:00:00.000Z",
           media_url: null,
         }];
       }
@@ -305,7 +419,6 @@ describe("directory shared-cache behavior", () => {
     });
     mocks.getSql.mockReturnValue(sql);
     mocks.getPublicDirectoryBusiness.mockResolvedValue(null);
-    mocks.hasActivePaidDirectoryContactAccess.mockResolvedValueOnce(false).mockResolvedValueOnce(true);
 
     const first = await getPublicDirectoryBusinessForRequest(claimedSlug);
     const second = await getPublicDirectoryBusinessForRequest(claimedSlug);
@@ -315,7 +428,7 @@ describe("directory shared-cache behavior", () => {
     expect(second?.sharedCacheSafe).toBe(false);
     expect(second?.contact.entitled).toBe(true);
     expect(mocks.getPublicDirectoryBusiness).toHaveBeenCalledTimes(2);
-    expect(mocks.hasActivePaidDirectoryContactAccess).toHaveBeenCalledTimes(2);
+    expect(mocks.hasActivePaidDirectoryContactAccess).not.toHaveBeenCalled();
   });
 
   it("profile invalidation evicts only that profile entry", async () => {

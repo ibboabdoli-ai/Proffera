@@ -20,6 +20,7 @@ vi.mock("@/lib/workspace-services-db", () => ({
 import {
   activateProviderMarketplaceService,
   exactOwnerDirectoryServiceCandidate,
+  findProviderProfileByOrganizationNumber,
   getProviderActivationState,
 } from "../src/lib/company-directory-provider-activation";
 
@@ -59,6 +60,52 @@ describe("Company Directory smart claim service suggestions", () => {
     ]);
   });
 
+  it("offers an unclaimed provider claim only with current workplace authority", async () => {
+    const sql = vi.fn(async (_strings: TemplateStringsArray) => [{
+      public_slug: "safe-provider-ab",
+      display_name: "Safe Provider AB",
+      publication_status: "published",
+      is_active: true,
+      privacy_blocked: false,
+      auto_public_eligible: true,
+      claimed_workspace_id: null,
+      claim_reservation_id: null,
+      has_current_authority: true,
+    }]);
+    mocks.getSql.mockReturnValue(sql);
+
+    await expect(findProviderProfileByOrganizationNumber("5560000000")).resolves.toEqual({
+      status: "available",
+      profileSlug: "safe-provider-ab",
+      companyName: "Safe Provider AB",
+    });
+
+    const query = queryText(sql.mock.calls[0]![0]);
+    expect(query).toContain("facts.last_synced_at >= profile.last_synced_at");
+    expect(query).toContain("scb.last_synced_at >= now() - interval '7 days'");
+    expect(query).toContain("comparisonSnapshot,profileUpdatedToken");
+    expect(query).toContain("comparisonSnapshot,officialFactsLastSyncedToken");
+    expect(query).toContain("jsonb_array_length(scb.workplaces) = 1");
+  });
+
+  it("does not offer a provider claim when current workplace authority is stale or unbound", async () => {
+    mocks.getSql.mockReturnValue(vi.fn(async () => [{
+      public_slug: "unsafe-provider-ab",
+      display_name: "Unsafe Provider AB",
+      publication_status: "published",
+      is_active: true,
+      privacy_blocked: false,
+      auto_public_eligible: true,
+      claimed_workspace_id: null,
+      claim_reservation_id: null,
+      has_current_authority: false,
+    }]));
+
+    await expect(findProviderProfileByOrganizationNumber("5560000000")).resolves.toEqual({
+      status: "not_ready",
+    });
+  });
+
   it("resolves only exact canonical labels and aliases as owner candidates", () => {
     expect(exactOwnerDirectoryServiceCandidate("Hemstädning")).toEqual({
       slug: "hemstadning",
@@ -88,6 +135,7 @@ describe("Company Directory smart claim service suggestions", () => {
           privacy_blocked: false,
           auto_public_eligible: true,
           published_at: "2026-08-28T00:00:00.000Z",
+          has_safe_juridical_workplace: true,
         }];
       }
       if (query.includes("from company_directory_claims claim")) return [];
@@ -138,6 +186,7 @@ describe("Company Directory smart claim service suggestions", () => {
           privacy_blocked: false,
           auto_public_eligible: true,
           published_at: "2026-08-30T00:00:00.000Z",
+          has_safe_owner_service_base: true,
         }];
       }
       if (query.includes("from company_directory_claims claim")) return [];

@@ -29,6 +29,18 @@ function source(path: string) {
   return readFileSync(resolve(process.cwd(), path), "utf8");
 }
 
+function safeScbWorkplace() {
+  return {
+    cfarNumber: "12345678",
+    municipality: "Stockholm",
+    visitingAddress: {
+      addressLine: "Arbetsplatsgatan 2",
+      postalCode: "11122",
+      city: "Stockholm",
+    },
+  };
+}
+
 function safePublicationRow(overrides: Record<string, unknown> = {}) {
   return {
     id: PROFILE_ID,
@@ -38,6 +50,10 @@ function safePublicationRow(overrides: Record<string, unknown> = {}) {
     category_slug: "elektriker",
     primary_sni_code: "43210",
     activity_description: "Elinstallationer",
+    address_line1: "Registrerad gata 1",
+    postal_code: "15100",
+    city: "Södertälje",
+    municipality: "Södertälje",
     publication_status: "ready",
     is_active: true,
     privacy_blocked: false,
@@ -53,21 +69,47 @@ function safePublicationRow(overrides: Record<string, unknown> = {}) {
     facts_last_synced_token: FACTS_LAST_SYNCED_TOKEN,
     facts_source_payload_hash: "official-facts-hash",
     official_facts_fresh: true,
+    scb_snapshot_fresh: false,
     ...overrides,
   };
 }
 
+function refreshedScbRow() {
+  return {
+    address_line1: "Registrerad gata 1",
+    postal_code: "15100",
+    city: "Södertälje",
+    municipality: "Södertälje",
+    scb_workplaces: [safeScbWorkplace()],
+    scb_source_payload_hash: "scb-hash",
+    scb_conflict_count: 0,
+    scb_snapshot_fresh: true,
+  };
+}
+
 function mockPublicationSql(row: Record<string, unknown>, finalRows: unknown[] = []) {
-  let callCount = 0;
-  return vi.fn(async () => {
-    callCount += 1;
-    return callCount === 1 ? [row] : finalRows;
+  return vi.fn(async (strings: TemplateStringsArray) => {
+    const query = Array.from(strings).join("?");
+    if (query.includes("from company_directory_profiles p") && query.includes("official_facts_fresh")) {
+      return [row];
+    }
+    if (query.includes("scb.workplaces as scb_workplaces") && !query.includes("official_facts_fresh")) {
+      return [refreshedScbRow()];
+    }
+    if (query.includes("update company_directory_profiles p")) {
+      return finalRows;
+    }
+    return [];
   });
 }
 
 function executedQuery(call: unknown[] | undefined) {
   const strings = call?.[0] as TemplateStringsArray | undefined;
   return strings ? Array.from(strings).join("?") : "";
+}
+
+function findSqlCall(sql: ReturnType<typeof vi.fn>, fragment: string) {
+  return sql.mock.calls.find((call) => executedQuery(call).includes(fragment));
 }
 
 describe("safe company directory auto publication contract", () => {
@@ -192,8 +234,10 @@ describe("safe company directory auto publication contract", () => {
   });
 
   it.each([
-    ["an SCB row with no conflicts", "jsonb_array_length(coalesce(scb.conflicts, '[]'::jsonb)) = 0"],
-    ["a non-empty SCB source hash", "scb.source_payload_hash <> ''"],
+    ["well-shaped Official Facts procedures", "jsonb_typeof(f.ongoing_procedures) = 'array'"],
+    ["an SCB row with array-shaped no-conflict evidence", "jsonb_typeof(scb.conflicts) = 'array'"],
+    ["an SCB row with no conflicts", "jsonb_array_length(scb.conflicts) = 0"],
+    ["the exact refreshed SCB source hash", "scb.source_payload_hash = ?"],
     ["a matching profile snapshot", "{comparisonSnapshot,profileUpdatedToken}"],
     ["a matching Official Facts snapshot", "{comparisonSnapshot,officialFactsLastSyncedToken}"],
   ])("requires %s in the final atomic database gate", async (_label, requiredGuard) => {
@@ -204,15 +248,16 @@ describe("safe company directory auto publication contract", () => {
 
     expect(result).toEqual({ ok: false, code: "not_ready" });
     expect(mocks.enrichScb).toHaveBeenCalledWith(PROFILE_ID);
-    expect(sql).toHaveBeenCalledTimes(2);
+    expect(sql).toHaveBeenCalledTimes(3);
 
-    const finalCall = sql.mock.calls[1];
+    const finalCall = findSqlCall(sql, "update company_directory_profiles p");
     const finalQuery = executedQuery(finalCall);
     const finalValues = finalCall?.slice(1) ?? [];
     expect(finalQuery).toContain("company_directory_scb_enrichment");
     expect(finalQuery).toContain(requiredGuard);
     expect(finalValues).toContain(PROFILE_UPDATED_TOKEN);
     expect(finalValues).toContain(FACTS_LAST_SYNCED_TOKEN);
+    expect(finalValues).toContain("scb-hash");
   });
 
   it("preserves PostgreSQL timestamp precision in the executed final publication gate", async () => {
@@ -221,7 +266,7 @@ describe("safe company directory auto publication contract", () => {
 
     await publishCompanyDirectoryProfileIfSafe(PROFILE_ID);
 
-    const finalValues = sql.mock.calls[1]?.slice(1) ?? [];
+    const finalValues = findSqlCall(sql, "update company_directory_profiles p")?.slice(1) ?? [];
     expect(finalValues).toContain(PROFILE_UPDATED_TOKEN);
     expect(finalValues).toContain(FACTS_LAST_SYNCED_TOKEN);
   });
@@ -235,7 +280,7 @@ describe("safe company directory auto publication contract", () => {
       code: "not_ready",
     });
     expect(mocks.enrichScb).toHaveBeenCalledWith(PROFILE_ID);
-    const finalQuery = executedQuery(sql.mock.calls[1]);
+    const finalQuery = executedQuery(findSqlCall(sql, "update company_directory_profiles p"));
     expect(finalQuery).toContain("company_directory_discovery_queue queue");
     expect(finalQuery).toContain("queue.state = 'failed'");
   });
@@ -250,11 +295,27 @@ describe("safe company directory auto publication contract", () => {
       if (query.includes("select count(*)::int as count")) {
         expect(query).toContain("company_directory_discovery_queue queue");
         expect(query).toContain("queue.state = 'failed'");
+        expect(query).toContain("company_directory_scb_enrichment scb");
+        expect(query).toContain("jsonb_typeof(facts.ongoing_procedures) = 'array'");
+        expect(query).toContain("scb.last_synced_at >= now() - interval '7 days'");
+        expect(query).toContain("{comparisonSnapshot,profileUpdatedToken}");
+        expect(query).toContain("{comparisonSnapshot,officialFactsLastSyncedToken}");
+        expect(query).toContain("jsonb_typeof(scb.conflicts) = 'array'");
+        expect(query).toContain("jsonb_array_length(scb.workplaces) = 1");
+        expect(query).toContain("string_to_array(?, ',')");
         return [{ count: 1 }];
       }
       if (query.includes("from company_directory_profiles profile") && query.includes("offset ?")) {
         expect(query).toContain("company_directory_discovery_queue queue");
         expect(query).toContain("queue.state = 'failed'");
+        expect(query).toContain("company_directory_scb_enrichment scb");
+        expect(query).toContain("jsonb_typeof(facts.ongoing_procedures) = 'array'");
+        expect(query).toContain("scb.last_synced_at >= now() - interval '7 days'");
+        expect(query).toContain("{comparisonSnapshot,profileUpdatedToken}");
+        expect(query).toContain("{comparisonSnapshot,officialFactsLastSyncedToken}");
+        expect(query).toContain("jsonb_typeof(scb.conflicts) = 'array'");
+        expect(query).toContain("jsonb_array_length(scb.workplaces) = 1");
+        expect(query).toContain("string_to_array(?, ',')");
         return [];
       }
       throw new Error(`Unexpected automatic-publication SQL: ${query}`);

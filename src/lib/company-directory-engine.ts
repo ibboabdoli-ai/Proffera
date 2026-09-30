@@ -10,9 +10,12 @@ import {
 import {
   assessDirectoryCandidate,
   buildDirectoryPublicSlug,
+  DIRECTORY_PILOT_LOCATIONS,
+  DIRECTORY_PILOT_MUNICIPALITY_TOKENS,
   type NormalizedDirectoryCandidate,
 } from "@/lib/company-directory-policy";
 import { mapPrimarySniToDirectorySearchService } from "@/lib/company-directory-service-taxonomy";
+import { invalidateMarketplaceHomeCompaniesCache } from "@/lib/public-read-cache";
 import {
   fetchOfficialCompanyDirectoryBatch,
   verifyOfficialCompanyCandidate,
@@ -21,6 +24,8 @@ import {
 const PILOT_MAX_PAGES_PER_RUN = 2;
 const PILOT_MAX_BATCH_SIZE = 10;
 const PUBLIC_DIRECTORY_SLUG_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+const PUBLIC_DIRECTORY_PILOT_LOCATION_CSV = DIRECTORY_PILOT_LOCATIONS.join(",");
+const PUBLIC_DIRECTORY_PILOT_MUNICIPALITY_CSV = DIRECTORY_PILOT_MUNICIPALITY_TOKENS.join(",");
 
 const PROVENANCE_FIELDS: Array<keyof NormalizedDirectoryCandidate> = [
   "organizationNumber",
@@ -200,7 +205,61 @@ export async function upsertCompanyDirectoryCandidate(candidate: NormalizedDirec
       official_source = excluded.official_source,
       source_record_id = excluded.source_record_id,
       source_updated_at = coalesce(excluded.source_updated_at, company_directory_profiles.source_updated_at),
-      last_synced_at = now(),
+      last_synced_at = case
+        when (
+          company_directory_profiles.organization_kind,
+          company_directory_profiles.legal_name,
+          company_directory_profiles.display_name,
+          company_directory_profiles.legal_form,
+          company_directory_profiles.organization_status,
+          company_directory_profiles.is_active,
+          company_directory_profiles.f_tax_status,
+          company_directory_profiles.vat_status,
+          company_directory_profiles.employer_status,
+          company_directory_profiles.primary_sni_code,
+          company_directory_profiles.primary_sni_label,
+          company_directory_profiles.category_slug,
+          company_directory_profiles.service_slugs,
+          company_directory_profiles.activity_description,
+          company_directory_profiles.address_line1,
+          company_directory_profiles.postal_code,
+          company_directory_profiles.city,
+          company_directory_profiles.municipality,
+          company_directory_profiles.region,
+          company_directory_profiles.privacy_blocked,
+          company_directory_profiles.auto_public_eligible,
+          company_directory_profiles.official_source,
+          company_directory_profiles.source_record_id,
+          company_directory_profiles.source_updated_at
+        ) is distinct from (
+          excluded.organization_kind,
+          excluded.legal_name,
+          case when company_directory_profiles.claimed_workspace_id is null then excluded.display_name else company_directory_profiles.display_name end,
+          excluded.legal_form,
+          excluded.organization_status,
+          excluded.is_active,
+          excluded.f_tax_status,
+          excluded.vat_status,
+          excluded.employer_status,
+          excluded.primary_sni_code,
+          excluded.primary_sni_label,
+          excluded.category_slug,
+          excluded.service_slugs,
+          excluded.activity_description,
+          excluded.address_line1,
+          excluded.postal_code,
+          excluded.city,
+          excluded.municipality,
+          excluded.region,
+          excluded.privacy_blocked,
+          excluded.auto_public_eligible,
+          excluded.official_source,
+          excluded.source_record_id,
+          coalesce(excluded.source_updated_at, company_directory_profiles.source_updated_at)
+        )
+        then now()
+        else company_directory_profiles.last_synced_at
+      end,
       published_at = case
         when company_directory_profiles.claimed_workspace_id is not null then company_directory_profiles.published_at
         when company_directory_profiles.publication_status = 'published'
@@ -211,109 +270,238 @@ export async function upsertCompanyDirectoryCandidate(candidate: NormalizedDirec
         when excluded.publication_status = 'published' then coalesce(company_directory_profiles.published_at, now())
         else null
       end,
-      updated_at = now()
-    returning id::text, public_slug, publication_status, category_slug
+      updated_at = case
+        when (
+          company_directory_profiles.organization_kind,
+          company_directory_profiles.legal_name,
+          company_directory_profiles.display_name,
+          company_directory_profiles.legal_form,
+          company_directory_profiles.organization_status,
+          company_directory_profiles.is_active,
+          company_directory_profiles.f_tax_status,
+          company_directory_profiles.vat_status,
+          company_directory_profiles.employer_status,
+          company_directory_profiles.primary_sni_code,
+          company_directory_profiles.primary_sni_label,
+          company_directory_profiles.category_slug,
+          company_directory_profiles.service_slugs,
+          company_directory_profiles.activity_description,
+          company_directory_profiles.address_line1,
+          company_directory_profiles.postal_code,
+          company_directory_profiles.city,
+          company_directory_profiles.municipality,
+          company_directory_profiles.region,
+          company_directory_profiles.quality_score,
+          company_directory_profiles.quality_reasons,
+          company_directory_profiles.privacy_blocked,
+          company_directory_profiles.auto_public_eligible,
+          company_directory_profiles.official_source,
+          company_directory_profiles.source_record_id,
+          company_directory_profiles.source_updated_at,
+          company_directory_profiles.publication_status
+        ) is distinct from (
+          excluded.organization_kind,
+          excluded.legal_name,
+          case when company_directory_profiles.claimed_workspace_id is null then excluded.display_name else company_directory_profiles.display_name end,
+          excluded.legal_form,
+          excluded.organization_status,
+          excluded.is_active,
+          excluded.f_tax_status,
+          excluded.vat_status,
+          excluded.employer_status,
+          excluded.primary_sni_code,
+          excluded.primary_sni_label,
+          excluded.category_slug,
+          excluded.service_slugs,
+          excluded.activity_description,
+          excluded.address_line1,
+          excluded.postal_code,
+          excluded.city,
+          excluded.municipality,
+          excluded.region,
+          excluded.quality_score,
+          excluded.quality_reasons,
+          excluded.privacy_blocked,
+          excluded.auto_public_eligible,
+          excluded.official_source,
+          excluded.source_record_id,
+          coalesce(excluded.source_updated_at, company_directory_profiles.source_updated_at),
+          case
+            when company_directory_profiles.claimed_workspace_id is not null then 'claimed'
+            when company_directory_profiles.publication_status = 'published'
+              and excluded.publication_status = 'ready'
+              and excluded.privacy_blocked = false
+              and excluded.auto_public_eligible = true
+              then 'published'
+            else excluded.publication_status
+          end
+        )
+        then now()
+        else company_directory_profiles.updated_at
+      end
+    returning
+      id::text,
+      public_slug,
+      publication_status,
+      category_slug,
+      (updated_at = now()) as profile_changed
   `;
 
   const profileId = String(rows[0]?.id ?? "");
   if (!profileId) throw new Error(`Directory upsert failed for ${candidate.organizationNumber}`);
 
-  const sniServiceSlug = mapPrimarySniToDirectorySearchService(candidate.primarySniCode);
-  if (sniServiceSlug) {
-    await sql`
-      insert into company_directory_profile_services (
-        profile_id, service_slug, source_type, confidence, is_primary, is_active, public_visible, updated_at
-      )
-      select ${profileId}::uuid, service.slug, 'sni', 85, true, true, true, now()
-      from company_directory_services service
-      where service.slug = ${sniServiceSlug}
-        and service.is_active = true
-      on conflict (profile_id, service_slug)
-      do update set
-        confidence = excluded.confidence,
-        is_primary = true,
-        is_active = true,
-        public_visible = true,
-        updated_at = now()
-      where company_directory_profile_services.source_type = 'sni'
-    `;
+  const profileChanged = rows[0]?.profile_changed === true;
+  let dependentPublicStateChanged = false;
+
+  if (profileChanged) {
+    invalidatePersistedPublicProjectionBestEffort({
+      profileId,
+      persistedPublicSlug: rows[0]?.public_slug,
+    });
+    try {
+      invalidateMarketplaceHomeCompaniesCache();
+    } catch (error) {
+      console.error("Failed to invalidate Marketplace cache after committed candidate upsert", {
+        profileId,
+        error,
+      });
+    }
   }
 
-  await sql`
-    update company_directory_profile_services
-    set is_primary = false,
-        is_active = false,
-        public_visible = false,
-        updated_at = now()
-    where profile_id = ${profileId}::uuid
-      and source_type = 'sni'
-      and (${sniServiceSlug ?? ""}::text = '' or service_slug <> ${sniServiceSlug ?? ""})
-  `;
+  try {
+    const sniServiceSlug = mapPrimarySniToDirectorySearchService(candidate.primarySniCode);
+    if (sniServiceSlug) {
+      const serviceUpsertRows = await sql`
+        insert into company_directory_profile_services (
+          profile_id, service_slug, source_type, confidence, is_primary, is_active, public_visible, updated_at
+        )
+        select ${profileId}::uuid, service.slug, 'sni', 85, true, true, true, now()
+        from company_directory_services service
+        where service.slug = ${sniServiceSlug}
+          and service.is_active = true
+        on conflict (profile_id, service_slug)
+        do update set
+          confidence = excluded.confidence,
+          is_primary = true,
+          is_active = true,
+          public_visible = true,
+          updated_at = now()
+        where company_directory_profile_services.source_type = 'sni'
+          and (
+            company_directory_profile_services.confidence,
+            company_directory_profile_services.is_primary,
+            company_directory_profile_services.is_active,
+            company_directory_profile_services.public_visible
+          ) is distinct from (
+            excluded.confidence,
+            excluded.is_primary,
+            excluded.is_active,
+            excluded.public_visible
+          )
+        returning profile_id
+      `;
+      if (serviceUpsertRows[0]?.profile_id) dependentPublicStateChanged = true;
+    }
 
-  const provenanceJson = JSON.stringify(PROVENANCE_FIELDS.map((field) => ({
-    fieldName: String(field),
-    valueHash: hashValue(candidate[field]),
-  })));
-  await sql`
-    insert into company_directory_field_sources (
-      profile_id, field_name, source_name, source_record_id, value_hash, confidence, observed_at
-    )
-    select
-      ${profileId}::uuid,
-      item->>'fieldName',
-      ${candidate.officialSource},
-      ${candidate.sourceRecordId},
-      item->>'valueHash',
-      100,
-      now()
-    from jsonb_array_elements(${provenanceJson}::jsonb) item
-    on conflict (profile_id, field_name, source_name, value_hash)
-    do update set observed_at = excluded.observed_at
-  `;
-
-  const categorySlug = String(rows[0]?.category_slug ?? "");
-  if (categorySlug) {
-    const categoryImageUrl = `/api/public-directory/category-image/${encodeURIComponent(categorySlug)}`;
-
-    await sql`
-      update company_directory_media
+    const deactivatedServiceRows = await sql`
+      update company_directory_profile_services
       set is_primary = false,
-          publication_status = 'rejected',
+          is_active = false,
+          public_visible = false,
           updated_at = now()
       where profile_id = ${profileId}::uuid
-        and source_type = 'generated_category'
-        and publication_status = 'published'
-        and public_url <> ${categoryImageUrl}
+        and source_type = 'sni'
+        and (${sniServiceSlug ?? ""}::text = '' or service_slug <> ${sniServiceSlug ?? ""})
+        and (is_primary = true or is_active = true or public_visible = true)
+      returning profile_id
+    `;
+    if (deactivatedServiceRows[0]?.profile_id) dependentPublicStateChanged = true;
+
+    const provenanceJson = JSON.stringify(PROVENANCE_FIELDS.map((field) => ({
+      fieldName: String(field),
+      valueHash: hashValue(candidate[field]),
+    })));
+    await sql`
+      insert into company_directory_field_sources (
+        profile_id, field_name, source_name, source_record_id, value_hash, confidence, observed_at
+      )
+      select
+        ${profileId}::uuid,
+        item->>'fieldName',
+        ${candidate.officialSource},
+        ${candidate.sourceRecordId},
+        item->>'valueHash',
+        100,
+        now()
+      from jsonb_array_elements(${provenanceJson}::jsonb) item
+      on conflict (profile_id, field_name, source_name, value_hash)
+      do update set observed_at = excluded.observed_at
     `;
 
-    await sql`
-      insert into company_directory_media (
-        profile_id, media_kind, source_type, public_url, attribution, license_status,
-        rights_confirmed_at, is_actual_business_media, is_primary, publication_status
-      )
-      select ${profileId}::uuid, 'category_illustration', 'generated_category', ${categoryImageUrl},
-        'Illustrationsbild från Proffera', 'generated', now(), false,
-        not exists (
+    const categorySlug = String(rows[0]?.category_slug ?? "");
+    if (categorySlug) {
+      const categoryImageUrl = `/api/public-directory/category-image/${encodeURIComponent(categorySlug)}`;
+
+      const rejectedMediaRows = await sql`
+        update company_directory_media
+        set is_primary = false,
+            publication_status = 'rejected',
+            updated_at = now()
+        where profile_id = ${profileId}::uuid
+          and source_type = 'generated_category'
+          and publication_status = 'published'
+          and public_url <> ${categoryImageUrl}
+        returning profile_id
+      `;
+      if (rejectedMediaRows[0]?.profile_id) dependentPublicStateChanged = true;
+
+      const insertedMediaRows = await sql`
+        insert into company_directory_media (
+          profile_id, media_kind, source_type, public_url, attribution, license_status,
+          rights_confirmed_at, is_actual_business_media, is_primary, publication_status
+        )
+        select ${profileId}::uuid, 'category_illustration', 'generated_category', ${categoryImageUrl},
+          'Illustrationsbild från Proffera', 'generated', now(), false,
+          not exists (
+            select 1 from company_directory_media media
+            where media.profile_id = ${profileId}::uuid
+              and media.publication_status = 'published'
+              and media.is_primary = true
+          ),
+          'published'
+        where not exists (
           select 1 from company_directory_media media
           where media.profile_id = ${profileId}::uuid
+            and media.source_type = 'generated_category'
+            and media.public_url = ${categoryImageUrl}
             and media.publication_status = 'published'
-            and media.is_primary = true
-        ),
-        'published'
-      where not exists (
-        select 1 from company_directory_media media
-        where media.profile_id = ${profileId}::uuid
-          and media.source_type = 'generated_category'
-          and media.public_url = ${categoryImageUrl}
-          and media.publication_status = 'published'
-      )
-    `;
+        )
+        returning profile_id
+      `;
+      if (insertedMediaRows[0]?.profile_id) dependentPublicStateChanged = true;
+    }
+
+
+  } finally {
+    if (profileChanged || dependentPublicStateChanged) {
+      // Keep the early invalidation for changed profile rows, then expire both
+      // projections again after committed dependent public-state writes. This
+      // closes the write window without evicting global caches for no-op syncs.
+      invalidatePersistedPublicProjectionBestEffort({
+        profileId,
+        persistedPublicSlug: rows[0]?.public_slug,
+      });
+      try {
+        invalidateMarketplaceHomeCompaniesCache();
+      } catch (error) {
+        console.error("Failed to invalidate Marketplace cache after candidate dependent writes", {
+          profileId,
+          error,
+        });
+      }
+    }
   }
 
-  invalidatePersistedPublicProjectionBestEffort({
-    profileId,
-    persistedPublicSlug: rows[0]?.public_slug,
-  });
   return {
     profileId,
     publicationStatus: String(rows[0]?.publication_status ?? desiredStatus),
@@ -487,8 +675,44 @@ export async function getPublicDirectoryBusiness(slug: string): Promise<PublicDi
     ) media on true
     where profile.public_slug = ${normalized}
       and profile.publication_status = 'published'
+      and profile.organization_kind = 'juridical_person'
       and profile.privacy_blocked = false
       and profile.auto_public_eligible = true
+      and exists (
+        select 1
+        from company_directory_official_facts published_facts
+        join company_directory_scb_enrichment published_scb
+          on published_scb.profile_id = published_facts.profile_id
+        where published_facts.profile_id = profile.id
+          and published_facts.source_payload_hash <> ''
+          and published_facts.last_synced_at >= profile.last_synced_at
+          and published_facts.deregistration_date is null
+          and published_facts.advertising_blocked is false
+          and (
+            case
+              when jsonb_typeof(published_facts.ongoing_procedures) = 'array'
+                then jsonb_array_length(published_facts.ongoing_procedures)
+              else 1
+            end
+          ) = 0
+          and published_scb.source_payload_hash <> ''
+          and published_scb.last_synced_at >= now() - interval '7 days'
+          and published_scb.last_synced_at >= profile.last_synced_at
+          and published_scb.provenance #>> '{comparisonSnapshot,profileUpdatedToken}' = profile.updated_at::text
+          and published_scb.provenance #>> '{comparisonSnapshot,officialFactsLastSyncedToken}' = published_facts.last_synced_at::text
+          and jsonb_typeof(published_scb.conflicts) = 'array'
+          and jsonb_array_length(published_scb.conflicts) = 0
+          and jsonb_typeof(published_scb.workplaces) = 'array'
+          and jsonb_array_length(published_scb.workplaces) = 1
+          and nullif(btrim(published_scb.workplaces->0->'visitingAddress'->>'addressLine'), '') is not null
+          and nullif(btrim(published_scb.workplaces->0->'visitingAddress'->>'postalCode'), '') is not null
+          and nullif(btrim(published_scb.workplaces->0->'visitingAddress'->>'city'), '') is not null
+          and nullif(btrim(published_scb.workplaces->0->>'municipality'), '') is not null
+          and (
+            translate(lower(btrim(published_scb.workplaces->0->'visitingAddress'->>'city')), 'ÅÄÖ', 'åäö') = any(string_to_array(${PUBLIC_DIRECTORY_PILOT_LOCATION_CSV}, ','))
+            or translate(lower(btrim(published_scb.workplaces->0->>'municipality')), 'ÅÄÖ', 'åäö') = any(string_to_array(${PUBLIC_DIRECTORY_PILOT_MUNICIPALITY_CSV}, ','))
+          )
+      )
     limit 1
   `;
   const row = rows[0];

@@ -53,7 +53,7 @@ function publishedBusiness(slug: string, addressLine1: string) {
   };
 }
 
-function claimedFallbackRow(workspaceId: string, slug: string, addressLine1: string) {
+function claimedFallbackRow(workspaceId: string, slug: string, addressLine1: string, entitled = false) {
   return {
     id: `${slug}-id`,
     public_slug: slug,
@@ -75,6 +75,20 @@ function claimedFallbackRow(workspaceId: string, slug: string, addressLine1: str
     website_url: "https://claimed.example",
     phone: "+46 8 123 45 67",
     email: "kontakt@claimed.example",
+    scb_phone: "+46 8 123 45 67",
+    scb_email: "kontakt@claimed.example",
+    scb_workplaces: [],
+    owner_location_id: `${slug}-location-id`,
+    owner_location_visibility: "public",
+    owner_location_is_visitable: true,
+    owner_location_confirmed_at: "2026-08-26T00:00:00.000Z",
+    owner_location_address_line1: addressLine1,
+    owner_location_postal_code: "111 11",
+    owner_location_city: "Stockholm",
+    owner_location_municipality: "Stockholm",
+    contact_plan_key: "starter",
+    contact_plan_status: entitled ? "active" : "canceled",
+    contact_plan_current_period_end: "2099-01-01T00:00:00.000Z",
     quality_score: 99,
     official_source: "bolagsverket",
     source_updated_at: null,
@@ -272,7 +286,7 @@ describe("company directory direct-contact entitlement", () => {
     expect(freeResult?.contact.available.phone).toBe(true);
     expect(freeResult?.contact.phone).toBe("");
 
-    claimedRow = claimedFallbackRow(paidWorkspaceId, "claimed-paid-profile", "Stored postal address");
+    claimedRow = claimedFallbackRow(paidWorkspaceId, "claimed-paid-profile", "  Paidgatan 3  ", true);
     ownerAddressLine1 = "  Paidgatan 3  ";
     mocks.hasActivePaidDirectoryContactAccess.mockResolvedValue(true);
 

@@ -3,6 +3,10 @@ import "server-only";
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 
 import { businessEmailDomainKind, validBusinessEmail } from "@/lib/company-directory-claim-email";
+import {
+  DIRECTORY_PILOT_LOCATIONS,
+  DIRECTORY_PILOT_MUNICIPALITY_TOKENS,
+} from "@/lib/company-directory-policy";
 import { getSql } from "@/lib/db/server";
 import {
   isValidMarketplaceGuestToken,
@@ -19,7 +23,68 @@ export { normalizeMarketplaceRecipientEmail } from "@/lib/marketplace-guest-opt-
 
 const GUEST_INVITATION_TTL_DAYS = 7;
 const ACTIVE_INVITATION_STATUSES = new Set(["pending", "sending", "sent", "viewed", "responded"]);
+const AUTHORITY_GUARDED_INVITATION_STATUSES = new Set(["pending", "sending", "sent", "viewed", "delivery_failed", "delivery_uncertain"]);
+const PILOT_LOCATION_CSV = DIRECTORY_PILOT_LOCATIONS.join(",");
+const PILOT_MUNICIPALITY_CSV = DIRECTORY_PILOT_MUNICIPALITY_TOKENS.join(",");
 const REDACTED_CONTACT = "[…]";
+export async function readCurrentInvitationAuthorityState(
+  sql: NonNullable<ReturnType<typeof getSql>>,
+  invitationId: string,
+  tokenHash: string,
+) {
+  const rows = await sql`
+    select
+      invitation.status,
+      invitation.dispatch_token::text as dispatch_token,
+      exists (
+        select 1
+        from marketplace_outreach_suppressions suppression
+        where suppression.email_normalized = lower(btrim(invitation.recipient_email))
+      ) as recipient_suppressed,
+      exists (
+        select 1
+        from company_directory_official_facts authority_facts
+        join company_directory_scb_enrichment authority_scb
+          on authority_scb.profile_id = authority_facts.profile_id
+        where authority_facts.profile_id = profile.id
+          and authority_facts.source_payload_hash <> ''
+          and authority_facts.last_synced_at >= profile.last_synced_at
+          and authority_facts.deregistration_date is null
+          and authority_facts.advertising_blocked is false
+          and (
+            case
+              when jsonb_typeof(authority_facts.ongoing_procedures) = 'array'
+                then jsonb_array_length(authority_facts.ongoing_procedures)
+              else 1
+            end
+          ) = 0
+          and authority_scb.source_payload_hash <> ''
+          and authority_scb.last_synced_at >= now() - interval '7 days'
+          and authority_scb.last_synced_at >= profile.last_synced_at
+          and authority_scb.provenance #>> '{comparisonSnapshot,profileUpdatedToken}' = profile.updated_at::text
+          and authority_scb.provenance #>> '{comparisonSnapshot,officialFactsLastSyncedToken}' = authority_facts.last_synced_at::text
+          and jsonb_typeof(authority_scb.conflicts) = 'array'
+          and jsonb_array_length(authority_scb.conflicts) = 0
+          and jsonb_typeof(authority_scb.workplaces) = 'array'
+          and jsonb_array_length(authority_scb.workplaces) = 1
+          and nullif(btrim(authority_scb.workplaces->0->'visitingAddress'->>'addressLine'), '') is not null
+          and nullif(btrim(authority_scb.workplaces->0->'visitingAddress'->>'postalCode'), '') is not null
+          and nullif(btrim(authority_scb.workplaces->0->'visitingAddress'->>'city'), '') is not null
+          and nullif(btrim(authority_scb.workplaces->0->>'municipality'), '') is not null
+          and (
+            translate(lower(btrim(authority_scb.workplaces->0->'visitingAddress'->>'city')), 'ÅÄÖ', 'åäö') = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
+            or translate(lower(btrim(authority_scb.workplaces->0->>'municipality')), 'ÅÄÖ', 'åäö') = any(string_to_array(${PILOT_MUNICIPALITY_CSV}, ','))
+          )
+      ) as has_current_authority
+    from marketplace_quote_invitations invitation
+    join company_directory_profiles profile on profile.id = invitation.profile_id
+    where invitation.id = ${invitationId}::uuid
+      and invitation.token_hash = ${tokenHash}
+    limit 1
+  `;
+  return rows[0] ?? null;
+}
+
 const ADDRESS_DIACRITIC_EQUIVALENTS: Record<string, string> = {
   a: "aàáâãäåāăąǎǟǡǻȁȃȧḁạảấầẩẫậắằẳẵặ",
   b: "bḃḅḇ",
@@ -336,7 +401,42 @@ export async function sendMarketplaceGuestQuoteInvitation(input: {
       p.is_active,
       p.privacy_blocked,
       p.organization_kind,
-      p.claimed_workspace_id::text as claimed_workspace_id
+      p.claimed_workspace_id::text as claimed_workspace_id,
+      exists (
+        select 1
+        from company_directory_official_facts authority_facts
+        join company_directory_scb_enrichment authority_scb
+          on authority_scb.profile_id = authority_facts.profile_id
+        where authority_facts.profile_id = p.id
+          and authority_facts.source_payload_hash <> ''
+          and authority_facts.last_synced_at >= p.last_synced_at
+          and authority_facts.deregistration_date is null
+          and authority_facts.advertising_blocked is false
+          and (
+            case
+              when jsonb_typeof(authority_facts.ongoing_procedures) = 'array'
+                then jsonb_array_length(authority_facts.ongoing_procedures)
+              else 1
+            end
+          ) = 0
+          and authority_scb.source_payload_hash <> ''
+          and authority_scb.last_synced_at >= now() - interval '7 days'
+          and authority_scb.last_synced_at >= p.last_synced_at
+          and authority_scb.provenance #>> '{comparisonSnapshot,profileUpdatedToken}' = p.updated_at::text
+          and authority_scb.provenance #>> '{comparisonSnapshot,officialFactsLastSyncedToken}' = authority_facts.last_synced_at::text
+          and jsonb_typeof(authority_scb.conflicts) = 'array'
+          and jsonb_array_length(authority_scb.conflicts) = 0
+          and jsonb_typeof(authority_scb.workplaces) = 'array'
+          and jsonb_array_length(authority_scb.workplaces) = 1
+          and nullif(btrim(authority_scb.workplaces->0->'visitingAddress'->>'addressLine'), '') is not null
+          and nullif(btrim(authority_scb.workplaces->0->'visitingAddress'->>'postalCode'), '') is not null
+          and nullif(btrim(authority_scb.workplaces->0->'visitingAddress'->>'city'), '') is not null
+          and nullif(btrim(authority_scb.workplaces->0->>'municipality'), '') is not null
+          and (
+            translate(lower(btrim(authority_scb.workplaces->0->'visitingAddress'->>'city')), 'ÅÄÖ', 'åäö') = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
+            or translate(lower(btrim(authority_scb.workplaces->0->>'municipality')), 'ÅÄÖ', 'åäö') = any(string_to_array(${PILOT_MUNICIPALITY_CSV}, ','))
+          )
+      ) as has_current_authority
     from quote_requests q
     join company_directory_profiles p on p.id = ${input.profileId}::uuid
     where q.id = ${input.quoteRequestId}::uuid
@@ -357,6 +457,7 @@ export async function sendMarketplaceGuestQuoteInvitation(input: {
     || Boolean(row.privacy_blocked)
     || String(row.organization_kind) !== "juridical_person"
     || Boolean(row.claimed_workspace_id)
+    || !Boolean(row.has_current_authority)
   ) {
     return { ok: false as const, code: "profile_ineligible" };
   }
@@ -494,9 +595,7 @@ export async function sendMarketplaceGuestQuoteInvitation(input: {
   // before provider delivery unless advertising_blocked is explicitly false.
   // dispatch_token is also a lease token: only this attempt may complete or fail
   // the row after a stale reservation has been reclaimed.
-  let dispatchRows;
-  try {
-    dispatchRows = await sql`
+  const claimDispatch = () => sql`
       update marketplace_quote_invitations invitation
       set status = 'pending', updated_at = now()
       where invitation.id = ${invitationId}::uuid
@@ -510,11 +609,48 @@ export async function sendMarketplaceGuestQuoteInvitation(input: {
         and exists (
           select 1
           from company_directory_official_facts facts
+          join company_directory_profiles p on p.id = facts.profile_id
+          join company_directory_scb_enrichment authority_scb on authority_scb.profile_id = facts.profile_id
           where facts.profile_id = invitation.profile_id
+            and p.publication_status = 'published'
+            and p.is_active = true
+            and p.privacy_blocked = false
+            and p.organization_kind = 'juridical_person'
+            and p.claimed_workspace_id is null
+            and facts.source_payload_hash <> ''
+            and facts.last_synced_at >= p.last_synced_at
+            and facts.deregistration_date is null
             and facts.advertising_blocked is false
+            and (
+              case
+                when jsonb_typeof(facts.ongoing_procedures) = 'array'
+                  then jsonb_array_length(facts.ongoing_procedures)
+                else 1
+              end
+            ) = 0
+            and authority_scb.source_payload_hash <> ''
+            and authority_scb.last_synced_at >= now() - interval '7 days'
+            and authority_scb.last_synced_at >= p.last_synced_at
+            and authority_scb.provenance #>> '{comparisonSnapshot,profileUpdatedToken}' = p.updated_at::text
+            and authority_scb.provenance #>> '{comparisonSnapshot,officialFactsLastSyncedToken}' = facts.last_synced_at::text
+            and jsonb_typeof(authority_scb.conflicts) = 'array'
+            and jsonb_array_length(authority_scb.conflicts) = 0
+            and jsonb_typeof(authority_scb.workplaces) = 'array'
+            and jsonb_array_length(authority_scb.workplaces) = 1
+            and nullif(btrim(authority_scb.workplaces->0->'visitingAddress'->>'addressLine'), '') is not null
+            and nullif(btrim(authority_scb.workplaces->0->'visitingAddress'->>'postalCode'), '') is not null
+            and nullif(btrim(authority_scb.workplaces->0->'visitingAddress'->>'city'), '') is not null
+            and nullif(btrim(authority_scb.workplaces->0->>'municipality'), '') is not null
+            and (
+              translate(lower(btrim(authority_scb.workplaces->0->'visitingAddress'->>'city')), 'ÅÄÖ', 'åäö') = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
+              or translate(lower(btrim(authority_scb.workplaces->0->>'municipality')), 'ÅÄÖ', 'åäö') = any(string_to_array(${PILOT_MUNICIPALITY_CSV}, ','))
+            )
         )
       returning invitation.id::text
     `;
+  let dispatchRows;
+  try {
+    dispatchRows = await claimDispatch();
   } catch (error) {
     const details = databaseErrorDetails(error);
     if (details.code === "23514" && details.message.includes("marketplace_recipient_suppressed")) {
@@ -561,15 +697,239 @@ export async function sendMarketplaceGuestQuoteInvitation(input: {
     }
 
     const stateRows = await sql`
-      select status
-      from marketplace_quote_invitations
-      where id = ${invitationId}::uuid
+      select
+        invitation.status,
+        exists (
+        select 1
+        from company_directory_official_facts authority_facts
+        join company_directory_scb_enrichment authority_scb
+          on authority_scb.profile_id = authority_facts.profile_id
+        where authority_facts.profile_id = profile.id
+          and authority_facts.source_payload_hash <> ''
+          and authority_facts.last_synced_at >= profile.last_synced_at
+          and authority_facts.deregistration_date is null
+          and authority_facts.advertising_blocked is false
+          and (
+            case
+              when jsonb_typeof(authority_facts.ongoing_procedures) = 'array'
+                then jsonb_array_length(authority_facts.ongoing_procedures)
+              else 1
+            end
+          ) = 0
+          and authority_scb.source_payload_hash <> ''
+          and authority_scb.last_synced_at >= now() - interval '7 days'
+          and authority_scb.last_synced_at >= profile.last_synced_at
+          and authority_scb.provenance #>> '{comparisonSnapshot,profileUpdatedToken}' = profile.updated_at::text
+          and authority_scb.provenance #>> '{comparisonSnapshot,officialFactsLastSyncedToken}' = authority_facts.last_synced_at::text
+          and jsonb_typeof(authority_scb.conflicts) = 'array'
+          and jsonb_array_length(authority_scb.conflicts) = 0
+          and jsonb_typeof(authority_scb.workplaces) = 'array'
+          and jsonb_array_length(authority_scb.workplaces) = 1
+          and nullif(btrim(authority_scb.workplaces->0->'visitingAddress'->>'addressLine'), '') is not null
+          and nullif(btrim(authority_scb.workplaces->0->'visitingAddress'->>'postalCode'), '') is not null
+          and nullif(btrim(authority_scb.workplaces->0->'visitingAddress'->>'city'), '') is not null
+          and nullif(btrim(authority_scb.workplaces->0->>'municipality'), '') is not null
+          and (
+            translate(lower(btrim(authority_scb.workplaces->0->'visitingAddress'->>'city')), 'ÅÄÖ', 'åäö') = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
+            or translate(lower(btrim(authority_scb.workplaces->0->>'municipality')), 'ÅÄÖ', 'åäö') = any(string_to_array(${PILOT_MUNICIPALITY_CSV}, ','))
+          )
+      )
+          as has_current_authority
+      from marketplace_quote_invitations invitation
+      join company_directory_profiles profile on profile.id = invitation.profile_id
+      where invitation.id = ${invitationId}::uuid
       limit 1
     `;
-    return {
-      ok: false as const,
-      code: String(stateRows[0]?.status) === "suppressed" ? "suppressed" : "conflict",
-    };
+    if (!Boolean(stateRows[0]?.has_current_authority)) {
+      const [, , , cancelledRows] = await sql.transaction((txn) => [
+        txn`
+          select profile.id
+          from marketplace_quote_invitations invitation
+          join company_directory_profiles profile on profile.id = invitation.profile_id
+          where invitation.id = ${invitationId}::uuid
+          for update of profile
+        `,
+        txn`
+          select facts.profile_id
+          from marketplace_quote_invitations invitation
+          join company_directory_official_facts facts on facts.profile_id = invitation.profile_id
+          where invitation.id = ${invitationId}::uuid
+          for update of facts
+        `,
+        txn`
+          select scb.profile_id
+          from marketplace_quote_invitations invitation
+          join company_directory_scb_enrichment scb on scb.profile_id = invitation.profile_id
+          where invitation.id = ${invitationId}::uuid
+          for update of scb
+        `,
+        txn`
+        update marketplace_quote_invitations invitation
+        set status = 'cancelled',
+            token_hash = encode(digest(invitation.id::text || ':' || gen_random_uuid()::text, 'sha256'), 'hex'),
+            dispatch_token = null,
+            provider_claimed_at = null,
+            updated_at = now()
+        where invitation.id = ${invitationId}::uuid
+          and invitation.status in ('pending', 'sending', 'sent', 'viewed', 'delivery_failed', 'delivery_uncertain')
+        and exists (
+          select 1
+          from company_directory_profiles authority_profile
+          left join company_directory_official_facts authority_facts
+            on authority_facts.profile_id = authority_profile.id
+          left join company_directory_scb_enrichment authority_scb
+            on authority_scb.profile_id = authority_profile.id
+          where authority_profile.id = invitation.profile_id
+            and (
+              authority_profile.publication_status is distinct from 'published'
+              or authority_profile.is_active is not true
+              or authority_profile.privacy_blocked is true
+              or authority_profile.organization_kind is distinct from 'juridical_person'
+              or authority_profile.claimed_workspace_id is not null
+              or (
+                authority_facts.source_payload_hash <> ''
+                and authority_facts.last_synced_at >= authority_profile.last_synced_at
+                and (
+                  authority_facts.deregistration_date is not null
+                  or authority_facts.advertising_blocked is true
+                  or (
+                    jsonb_typeof(authority_facts.ongoing_procedures) = 'array'
+                    and jsonb_array_length(authority_facts.ongoing_procedures) > 0
+                  )
+                )
+              )
+              or (
+                authority_facts.source_payload_hash <> ''
+                and authority_facts.last_synced_at >= authority_profile.last_synced_at
+                and authority_scb.source_payload_hash <> ''
+                and authority_scb.last_synced_at >= now() - interval '7 days'
+                and authority_scb.last_synced_at >= authority_profile.last_synced_at
+                and authority_scb.provenance #>> '{comparisonSnapshot,profileUpdatedToken}' = authority_profile.updated_at::text
+                and authority_scb.provenance #>> '{comparisonSnapshot,officialFactsLastSyncedToken}' = authority_facts.last_synced_at::text
+                and (
+                  (
+                    jsonb_typeof(authority_scb.conflicts) = 'array'
+                    and jsonb_array_length(authority_scb.conflicts) > 0
+                  )
+                  or (
+                    jsonb_typeof(authority_scb.conflicts) = 'array'
+                    and jsonb_array_length(authority_scb.conflicts) = 0
+                    and jsonb_typeof(authority_scb.workplaces) = 'array'
+                    and jsonb_array_length(authority_scb.workplaces) = 1
+                    and nullif(btrim(authority_scb.workplaces->0->'visitingAddress'->>'addressLine'), '') is not null
+                    and nullif(btrim(authority_scb.workplaces->0->'visitingAddress'->>'postalCode'), '') is not null
+                    and nullif(btrim(authority_scb.workplaces->0->'visitingAddress'->>'city'), '') is not null
+                    and nullif(btrim(authority_scb.workplaces->0->>'municipality'), '') is not null
+                    and not (
+                      translate(lower(btrim(authority_scb.workplaces->0->'visitingAddress'->>'city')), 'ÅÄÖ', 'åäö') = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
+                      or translate(lower(btrim(authority_scb.workplaces->0->>'municipality')), 'ÅÄÖ', 'åäö') = any(string_to_array(${PILOT_MUNICIPALITY_CSV}, ','))
+                    )
+                  )
+                )
+              )
+            )
+        )
+        returning invitation.id::text
+        `,
+      ]);
+      if (cancelledRows[0]?.id) {
+        return { ok: false as const, code: "profile_ineligible" };
+      }
+
+      const currentState = await readCurrentInvitationAuthorityState(sql, invitationId, tokenHash);
+      if (!currentState || !Boolean(currentState.has_current_authority)) {
+        try {
+          await sql`
+            update marketplace_quote_invitations invitation
+            set status = 'delivery_failed',
+                dispatch_token = null,
+                updated_at = now()
+            where invitation.id = ${invitationId}::uuid
+              and invitation.status = 'sending'
+              and invitation.dispatch_token = ${dispatchToken}::uuid
+          `;
+        } catch (error) {
+          console.error("Failed to release Marketplace invitation after temporary authority failure", { invitationId, error });
+        }
+        return { ok: false as const, code: "profile_ineligible" };
+      }
+      if (Boolean(currentState.recipient_suppressed) || String(currentState.status) === "suppressed") {
+        return { ok: false as const, code: "suppressed" };
+      }
+      if (String(currentState.status) !== "sending" || String(currentState.dispatch_token ?? "") !== dispatchToken) {
+        return { ok: false as const, code: "conflict" };
+      }
+
+      // The pre-lock authority snapshot was stale and authority was restored
+      // before cancellation. Retry the same fail-closed dispatch claim once,
+      // but only after proving the invitation is still this attempt's sending lease.
+      try {
+        dispatchRows = await claimDispatch();
+      } catch (error) {
+        const details = databaseErrorDetails(error);
+        if (details.code === "23514" && details.message.includes("marketplace_recipient_suppressed")) {
+          return { ok: false as const, code: "suppressed" };
+        }
+        if (details.code === "23514" && details.message.includes("marketplace_quote_closed")) {
+          return { ok: false as const, code: "quote_closed" };
+        }
+        if (details.code === "23514" && details.message.includes("marketplace_consent_required")) {
+          return { ok: false as const, code: "consent_required" };
+        }
+        if (details.code === "23514" && details.message.includes("marketplace_profile_ineligible")) {
+          return { ok: false as const, code: "profile_ineligible" };
+        }
+        if (details.code === "23514" && details.message.includes("marketplace_dispatch_token_required")) {
+          return { ok: false as const, code: "conflict" };
+        }
+        throw error;
+      }
+      if (!dispatchRows[0]?.id) {
+        const retryState = await readCurrentInvitationAuthorityState(sql, invitationId, tokenHash);
+        if (Boolean(retryState?.recipient_suppressed) || String(retryState?.status) === "suppressed") {
+          return { ok: false as const, code: "suppressed" };
+        }
+        try {
+          await sql`
+            update marketplace_quote_invitations invitation
+            set status = 'delivery_failed',
+                dispatch_token = null,
+                updated_at = now()
+            where invitation.id = ${invitationId}::uuid
+              and invitation.status = 'sending'
+              and invitation.dispatch_token = ${dispatchToken}::uuid
+          `;
+        } catch (error) {
+          console.error("Failed to release Marketplace invitation after retried claim failure", { invitationId, error });
+        }
+        return {
+          ok: false as const,
+          code: retryState && !Boolean(retryState.has_current_authority) ? "profile_ineligible" : "conflict",
+        };
+      }
+    } else {
+      const currentState = await readCurrentInvitationAuthorityState(sql, invitationId, tokenHash);
+      if (Boolean(currentState?.recipient_suppressed) || String(currentState?.status) === "suppressed") {
+        return { ok: false as const, code: "suppressed" };
+      }
+      try {
+        await sql`
+          update marketplace_quote_invitations invitation
+          set status = 'delivery_failed',
+              dispatch_token = null,
+              updated_at = now()
+          where invitation.id = ${invitationId}::uuid
+            and invitation.status = 'sending'
+            and invitation.dispatch_token = ${dispatchToken}::uuid
+        `;
+      } catch (error) {
+        console.error("Failed to release Marketplace invitation after claim failure", { invitationId, error });
+      }
+      return {
+        ok: false as const,
+        code: currentState && !Boolean(currentState.has_current_authority) ? "profile_ineligible" : "conflict",
+      };
+    }
   }
 
   const baseUrl = input.baseUrl.replace(/\/$/, "");
@@ -692,6 +1052,99 @@ async function loadGuestQuoteView(
       i.id::text as invitation_id,
       i.status,
       i.expires_at::text,
+      i.profile_id::text as profile_id,
+      exists (
+        select 1
+        from company_directory_official_facts authority_facts
+        join company_directory_scb_enrichment authority_scb
+          on authority_scb.profile_id = authority_facts.profile_id
+        where authority_facts.profile_id = p.id
+          and authority_facts.source_payload_hash <> ''
+          and authority_facts.last_synced_at >= p.last_synced_at
+          and authority_facts.deregistration_date is null
+          and authority_facts.advertising_blocked is false
+          and (
+            case
+              when jsonb_typeof(authority_facts.ongoing_procedures) = 'array'
+                then jsonb_array_length(authority_facts.ongoing_procedures)
+              else 1
+            end
+          ) = 0
+          and authority_scb.source_payload_hash <> ''
+          and authority_scb.last_synced_at >= now() - interval '7 days'
+          and authority_scb.last_synced_at >= p.last_synced_at
+          and authority_scb.provenance #>> '{comparisonSnapshot,profileUpdatedToken}' = p.updated_at::text
+          and authority_scb.provenance #>> '{comparisonSnapshot,officialFactsLastSyncedToken}' = authority_facts.last_synced_at::text
+          and jsonb_typeof(authority_scb.conflicts) = 'array'
+          and jsonb_array_length(authority_scb.conflicts) = 0
+          and jsonb_typeof(authority_scb.workplaces) = 'array'
+          and jsonb_array_length(authority_scb.workplaces) = 1
+          and nullif(btrim(authority_scb.workplaces->0->'visitingAddress'->>'addressLine'), '') is not null
+          and nullif(btrim(authority_scb.workplaces->0->'visitingAddress'->>'postalCode'), '') is not null
+          and nullif(btrim(authority_scb.workplaces->0->'visitingAddress'->>'city'), '') is not null
+          and nullif(btrim(authority_scb.workplaces->0->>'municipality'), '') is not null
+          and (
+            translate(lower(btrim(authority_scb.workplaces->0->'visitingAddress'->>'city')), 'ÅÄÖ', 'åäö') = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
+            or translate(lower(btrim(authority_scb.workplaces->0->>'municipality')), 'ÅÄÖ', 'åäö') = any(string_to_array(${PILOT_MUNICIPALITY_CSV}, ','))
+          )
+      ) as has_current_authority,
+      exists (
+        select 1
+        from company_directory_profiles authority_profile
+        left join company_directory_official_facts authority_facts
+          on authority_facts.profile_id = authority_profile.id
+        left join company_directory_scb_enrichment authority_scb
+          on authority_scb.profile_id = authority_profile.id
+        where authority_profile.id = p.id
+          and (
+            authority_profile.publication_status is distinct from 'published'
+            or authority_profile.is_active is not true
+            or authority_profile.privacy_blocked is true
+            or authority_profile.organization_kind is distinct from 'juridical_person'
+            or authority_profile.claimed_workspace_id is not null
+            or (
+              authority_facts.source_payload_hash <> ''
+              and authority_facts.last_synced_at >= authority_profile.last_synced_at
+              and (
+                authority_facts.deregistration_date is not null
+                or authority_facts.advertising_blocked is true
+                or (
+                  jsonb_typeof(authority_facts.ongoing_procedures) = 'array'
+                  and jsonb_array_length(authority_facts.ongoing_procedures) > 0
+                )
+              )
+            )
+            or (
+              authority_facts.source_payload_hash <> ''
+              and authority_facts.last_synced_at >= authority_profile.last_synced_at
+              and authority_scb.source_payload_hash <> ''
+              and authority_scb.last_synced_at >= now() - interval '7 days'
+              and authority_scb.last_synced_at >= authority_profile.last_synced_at
+              and authority_scb.provenance #>> '{comparisonSnapshot,profileUpdatedToken}' = authority_profile.updated_at::text
+              and authority_scb.provenance #>> '{comparisonSnapshot,officialFactsLastSyncedToken}' = authority_facts.last_synced_at::text
+              and (
+                (
+                  jsonb_typeof(authority_scb.conflicts) = 'array'
+                  and jsonb_array_length(authority_scb.conflicts) > 0
+                )
+                or (
+                  jsonb_typeof(authority_scb.conflicts) = 'array'
+                  and jsonb_array_length(authority_scb.conflicts) = 0
+                  and jsonb_typeof(authority_scb.workplaces) = 'array'
+                  and jsonb_array_length(authority_scb.workplaces) = 1
+                  and nullif(btrim(authority_scb.workplaces->0->'visitingAddress'->>'addressLine'), '') is not null
+                  and nullif(btrim(authority_scb.workplaces->0->'visitingAddress'->>'postalCode'), '') is not null
+                  and nullif(btrim(authority_scb.workplaces->0->'visitingAddress'->>'city'), '') is not null
+                  and nullif(btrim(authority_scb.workplaces->0->>'municipality'), '') is not null
+                  and not (
+                    translate(lower(btrim(authority_scb.workplaces->0->'visitingAddress'->>'city')), 'ÅÄÖ', 'åäö') = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
+                    or translate(lower(btrim(authority_scb.workplaces->0->>'municipality')), 'ÅÄÖ', 'åäö') = any(string_to_array(${PILOT_MUNICIPALITY_CSV}, ','))
+                  )
+                )
+              )
+            )
+          )
+      ) as has_hard_block,
       exists (
         select 1
         from marketplace_outreach_suppressions suppression
@@ -731,6 +1184,116 @@ async function loadGuestQuoteView(
   if (!row) return null;
   if (Boolean(row.recipient_suppressed)) row.status = "suppressed";
 
+  if (!useOptOutToken
+      && AUTHORITY_GUARDED_INVITATION_STATUSES.has(String(row.status))
+      && !Boolean(row.has_current_authority)) {
+    if (!Boolean(row.has_hard_block)) return null;
+    const [, , , cancelledRows] = await sql.transaction((txn) => [
+      txn`
+        select profile.id
+        from marketplace_quote_invitations invitation
+        join company_directory_profiles profile on profile.id = invitation.profile_id
+        where invitation.id = ${String(row.invitation_id)}::uuid
+        for update of profile
+      `,
+      txn`
+        select facts.profile_id
+        from marketplace_quote_invitations invitation
+        join company_directory_official_facts facts on facts.profile_id = invitation.profile_id
+        where invitation.id = ${String(row.invitation_id)}::uuid
+        for update of facts
+      `,
+      txn`
+        select scb.profile_id
+        from marketplace_quote_invitations invitation
+        join company_directory_scb_enrichment scb on scb.profile_id = invitation.profile_id
+        where invitation.id = ${String(row.invitation_id)}::uuid
+        for update of scb
+      `,
+      txn`
+      update marketplace_quote_invitations invitation
+      set status = 'cancelled',
+            token_hash = encode(digest(invitation.id::text || ':' || gen_random_uuid()::text, 'sha256'), 'hex'),
+            dispatch_token = null,
+            provider_claimed_at = null,
+            updated_at = now()
+        where invitation.id = ${String(row.invitation_id)}::uuid
+          and invitation.status in ('pending', 'sending', 'sent', 'viewed', 'delivery_failed', 'delivery_uncertain')
+        and exists (
+          select 1
+          from company_directory_profiles authority_profile
+          left join company_directory_official_facts authority_facts
+            on authority_facts.profile_id = authority_profile.id
+          left join company_directory_scb_enrichment authority_scb
+            on authority_scb.profile_id = authority_profile.id
+          where authority_profile.id = invitation.profile_id
+            and (
+              authority_profile.publication_status is distinct from 'published'
+              or authority_profile.is_active is not true
+              or authority_profile.privacy_blocked is true
+              or authority_profile.organization_kind is distinct from 'juridical_person'
+              or authority_profile.claimed_workspace_id is not null
+              or (
+                authority_facts.source_payload_hash <> ''
+                and authority_facts.last_synced_at >= authority_profile.last_synced_at
+                and (
+                  authority_facts.deregistration_date is not null
+                  or authority_facts.advertising_blocked is true
+                  or (
+                    jsonb_typeof(authority_facts.ongoing_procedures) = 'array'
+                    and jsonb_array_length(authority_facts.ongoing_procedures) > 0
+                  )
+                )
+              )
+              or (
+                authority_facts.source_payload_hash <> ''
+                and authority_facts.last_synced_at >= authority_profile.last_synced_at
+                and authority_scb.source_payload_hash <> ''
+                and authority_scb.last_synced_at >= now() - interval '7 days'
+                and authority_scb.last_synced_at >= authority_profile.last_synced_at
+                and authority_scb.provenance #>> '{comparisonSnapshot,profileUpdatedToken}' = authority_profile.updated_at::text
+                and authority_scb.provenance #>> '{comparisonSnapshot,officialFactsLastSyncedToken}' = authority_facts.last_synced_at::text
+                and (
+                  (
+                    jsonb_typeof(authority_scb.conflicts) = 'array'
+                    and jsonb_array_length(authority_scb.conflicts) > 0
+                  )
+                  or (
+                    jsonb_typeof(authority_scb.conflicts) = 'array'
+                    and jsonb_array_length(authority_scb.conflicts) = 0
+                    and jsonb_typeof(authority_scb.workplaces) = 'array'
+                    and jsonb_array_length(authority_scb.workplaces) = 1
+                    and nullif(btrim(authority_scb.workplaces->0->'visitingAddress'->>'addressLine'), '') is not null
+                    and nullif(btrim(authority_scb.workplaces->0->'visitingAddress'->>'postalCode'), '') is not null
+                    and nullif(btrim(authority_scb.workplaces->0->'visitingAddress'->>'city'), '') is not null
+                    and nullif(btrim(authority_scb.workplaces->0->>'municipality'), '') is not null
+                    and not (
+                      translate(lower(btrim(authority_scb.workplaces->0->'visitingAddress'->>'city')), 'ÅÄÖ', 'åäö') = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
+                      or translate(lower(btrim(authority_scb.workplaces->0->>'municipality')), 'ÅÄÖ', 'åäö') = any(string_to_array(${PILOT_MUNICIPALITY_CSV}, ','))
+                    )
+                  )
+                )
+              )
+            )
+        )
+      returning invitation.id::text
+      `,
+    ]);
+    if (cancelledRows[0]?.id) return null;
+
+    const currentState = await readCurrentInvitationAuthorityState(sql, String(row.invitation_id), tokenHash);
+    if (
+      !currentState
+      || Boolean(currentState.recipient_suppressed)
+      || !Boolean(currentState.has_current_authority)
+      || ["suppressed", "declined", "cancelled", "expired"].includes(String(currentState.status))
+    ) {
+      return null;
+    }
+    row.status = String(currentState.status);
+    row.has_current_authority = true;
+  }
+
   const quoteOpen = isQuoteRequestOpenForMatchingOrDelivery(String(row.quote_status));
   if (!quoteOpen && !options?.allowClosed) return null;
 
@@ -748,12 +1311,26 @@ async function loadGuestQuoteView(
   }
 
   if (quoteOpen && options?.markViewed && String(row.status) === "sent" && !expired) {
-    await sql`
+    const viewedRows = await sql`
       update marketplace_quote_invitations
       set status = 'viewed', viewed_at = coalesce(viewed_at, now()), updated_at = now()
       where id = ${String(row.invitation_id)}::uuid and status = 'sent'
+      returning status
     `;
-    row.status = "viewed";
+    if (viewedRows[0]?.status) {
+      row.status = String(viewedRows[0].status);
+    } else {
+      const currentState = await readCurrentInvitationAuthorityState(sql, String(row.invitation_id), tokenHash);
+      if (
+        !currentState
+        || Boolean(currentState.recipient_suppressed)
+        || !Boolean(currentState.has_current_authority)
+        || ["suppressed", "declined", "cancelled", "expired"].includes(String(currentState.status))
+      ) {
+        return null;
+      }
+      row.status = String(currentState.status);
+    }
   }
 
   return buildMarketplaceGuestQuoteView(
@@ -793,9 +1370,102 @@ export async function submitMarketplaceGuestQuote(input: {
       i.workspace_id::text,
       i.status,
       i.expires_at::text,
-      q.status as quote_status
+      q.status as quote_status,
+      exists (
+        select 1
+        from company_directory_official_facts authority_facts
+        join company_directory_scb_enrichment authority_scb
+          on authority_scb.profile_id = authority_facts.profile_id
+        where authority_facts.profile_id = p.id
+          and authority_facts.source_payload_hash <> ''
+          and authority_facts.last_synced_at >= p.last_synced_at
+          and authority_facts.deregistration_date is null
+          and authority_facts.advertising_blocked is false
+          and (
+            case
+              when jsonb_typeof(authority_facts.ongoing_procedures) = 'array'
+                then jsonb_array_length(authority_facts.ongoing_procedures)
+              else 1
+            end
+          ) = 0
+          and authority_scb.source_payload_hash <> ''
+          and authority_scb.last_synced_at >= now() - interval '7 days'
+          and authority_scb.last_synced_at >= p.last_synced_at
+          and authority_scb.provenance #>> '{comparisonSnapshot,profileUpdatedToken}' = p.updated_at::text
+          and authority_scb.provenance #>> '{comparisonSnapshot,officialFactsLastSyncedToken}' = authority_facts.last_synced_at::text
+          and jsonb_typeof(authority_scb.conflicts) = 'array'
+          and jsonb_array_length(authority_scb.conflicts) = 0
+          and jsonb_typeof(authority_scb.workplaces) = 'array'
+          and jsonb_array_length(authority_scb.workplaces) = 1
+          and nullif(btrim(authority_scb.workplaces->0->'visitingAddress'->>'addressLine'), '') is not null
+          and nullif(btrim(authority_scb.workplaces->0->'visitingAddress'->>'postalCode'), '') is not null
+          and nullif(btrim(authority_scb.workplaces->0->'visitingAddress'->>'city'), '') is not null
+          and nullif(btrim(authority_scb.workplaces->0->>'municipality'), '') is not null
+          and (
+            translate(lower(btrim(authority_scb.workplaces->0->'visitingAddress'->>'city')), 'ÅÄÖ', 'åäö') = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
+            or translate(lower(btrim(authority_scb.workplaces->0->>'municipality')), 'ÅÄÖ', 'åäö') = any(string_to_array(${PILOT_MUNICIPALITY_CSV}, ','))
+          )
+      ) as has_current_authority,
+      exists (
+        select 1
+        from company_directory_profiles authority_profile
+        left join company_directory_official_facts authority_facts
+          on authority_facts.profile_id = authority_profile.id
+        left join company_directory_scb_enrichment authority_scb
+          on authority_scb.profile_id = authority_profile.id
+        where authority_profile.id = p.id
+          and (
+            authority_profile.publication_status is distinct from 'published'
+            or authority_profile.is_active is not true
+            or authority_profile.privacy_blocked is true
+            or authority_profile.organization_kind is distinct from 'juridical_person'
+            or authority_profile.claimed_workspace_id is not null
+            or (
+              authority_facts.source_payload_hash <> ''
+              and authority_facts.last_synced_at >= authority_profile.last_synced_at
+              and (
+                authority_facts.deregistration_date is not null
+                or authority_facts.advertising_blocked is true
+                or (
+                  jsonb_typeof(authority_facts.ongoing_procedures) = 'array'
+                  and jsonb_array_length(authority_facts.ongoing_procedures) > 0
+                )
+              )
+            )
+            or (
+              authority_facts.source_payload_hash <> ''
+              and authority_facts.last_synced_at >= authority_profile.last_synced_at
+              and authority_scb.source_payload_hash <> ''
+              and authority_scb.last_synced_at >= now() - interval '7 days'
+              and authority_scb.last_synced_at >= authority_profile.last_synced_at
+              and authority_scb.provenance #>> '{comparisonSnapshot,profileUpdatedToken}' = authority_profile.updated_at::text
+              and authority_scb.provenance #>> '{comparisonSnapshot,officialFactsLastSyncedToken}' = authority_facts.last_synced_at::text
+              and (
+                (
+                  jsonb_typeof(authority_scb.conflicts) = 'array'
+                  and jsonb_array_length(authority_scb.conflicts) > 0
+                )
+                or (
+                  jsonb_typeof(authority_scb.conflicts) = 'array'
+                  and jsonb_array_length(authority_scb.conflicts) = 0
+                  and jsonb_typeof(authority_scb.workplaces) = 'array'
+                  and jsonb_array_length(authority_scb.workplaces) = 1
+                  and nullif(btrim(authority_scb.workplaces->0->'visitingAddress'->>'addressLine'), '') is not null
+                  and nullif(btrim(authority_scb.workplaces->0->'visitingAddress'->>'postalCode'), '') is not null
+                  and nullif(btrim(authority_scb.workplaces->0->'visitingAddress'->>'city'), '') is not null
+                  and nullif(btrim(authority_scb.workplaces->0->>'municipality'), '') is not null
+                  and not (
+                    translate(lower(btrim(authority_scb.workplaces->0->'visitingAddress'->>'city')), 'ÅÄÖ', 'åäö') = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
+                    or translate(lower(btrim(authority_scb.workplaces->0->>'municipality')), 'ÅÄÖ', 'åäö') = any(string_to_array(${PILOT_MUNICIPALITY_CSV}, ','))
+                  )
+                )
+              )
+            )
+          )
+      ) as has_hard_block
     from marketplace_quote_invitations i
     join quote_requests q on q.id = i.quote_request_id
+    join company_directory_profiles p on p.id = i.profile_id
     where i.token_hash = ${tokenHash}
     limit 1
   `;
@@ -806,6 +1476,118 @@ export async function submitMarketplaceGuestQuote(input: {
   }
   if (["suppressed", "declined", "cancelled", "expired"].includes(String(row.status))) {
     return { ok: false as const, code: "closed" };
+  }
+  if (AUTHORITY_GUARDED_INVITATION_STATUSES.has(String(row.status)) && !Boolean(row.has_current_authority)) {
+    if (!Boolean(row.has_hard_block)) {
+      return { ok: false as const, code: "closed" };
+    }
+    const [, , , cancelledRows] = await sql.transaction((txn) => [
+      txn`
+        select profile.id
+        from marketplace_quote_invitations invitation
+        join company_directory_profiles profile on profile.id = invitation.profile_id
+        where invitation.id = ${String(row.invitation_id)}::uuid
+        for update of profile
+      `,
+      txn`
+        select facts.profile_id
+        from marketplace_quote_invitations invitation
+        join company_directory_official_facts facts on facts.profile_id = invitation.profile_id
+        where invitation.id = ${String(row.invitation_id)}::uuid
+        for update of facts
+      `,
+      txn`
+        select scb.profile_id
+        from marketplace_quote_invitations invitation
+        join company_directory_scb_enrichment scb on scb.profile_id = invitation.profile_id
+        where invitation.id = ${String(row.invitation_id)}::uuid
+        for update of scb
+      `,
+      txn`
+      update marketplace_quote_invitations invitation
+      set status = 'cancelled',
+            token_hash = encode(digest(invitation.id::text || ':' || gen_random_uuid()::text, 'sha256'), 'hex'),
+            dispatch_token = null,
+            provider_claimed_at = null,
+            updated_at = now()
+        where invitation.id = ${String(row.invitation_id)}::uuid
+          and invitation.status in ('pending', 'sending', 'sent', 'viewed', 'delivery_failed', 'delivery_uncertain')
+        and exists (
+          select 1
+          from company_directory_profiles authority_profile
+          left join company_directory_official_facts authority_facts
+            on authority_facts.profile_id = authority_profile.id
+          left join company_directory_scb_enrichment authority_scb
+            on authority_scb.profile_id = authority_profile.id
+          where authority_profile.id = invitation.profile_id
+            and (
+              authority_profile.publication_status is distinct from 'published'
+              or authority_profile.is_active is not true
+              or authority_profile.privacy_blocked is true
+              or authority_profile.organization_kind is distinct from 'juridical_person'
+              or authority_profile.claimed_workspace_id is not null
+              or (
+                authority_facts.source_payload_hash <> ''
+                and authority_facts.last_synced_at >= authority_profile.last_synced_at
+                and (
+                  authority_facts.deregistration_date is not null
+                  or authority_facts.advertising_blocked is true
+                  or (
+                    jsonb_typeof(authority_facts.ongoing_procedures) = 'array'
+                    and jsonb_array_length(authority_facts.ongoing_procedures) > 0
+                  )
+                )
+              )
+              or (
+                authority_facts.source_payload_hash <> ''
+                and authority_facts.last_synced_at >= authority_profile.last_synced_at
+                and authority_scb.source_payload_hash <> ''
+                and authority_scb.last_synced_at >= now() - interval '7 days'
+                and authority_scb.last_synced_at >= authority_profile.last_synced_at
+                and authority_scb.provenance #>> '{comparisonSnapshot,profileUpdatedToken}' = authority_profile.updated_at::text
+                and authority_scb.provenance #>> '{comparisonSnapshot,officialFactsLastSyncedToken}' = authority_facts.last_synced_at::text
+                and (
+                  (
+                    jsonb_typeof(authority_scb.conflicts) = 'array'
+                    and jsonb_array_length(authority_scb.conflicts) > 0
+                  )
+                  or (
+                    jsonb_typeof(authority_scb.conflicts) = 'array'
+                    and jsonb_array_length(authority_scb.conflicts) = 0
+                    and jsonb_typeof(authority_scb.workplaces) = 'array'
+                    and jsonb_array_length(authority_scb.workplaces) = 1
+                    and nullif(btrim(authority_scb.workplaces->0->'visitingAddress'->>'addressLine'), '') is not null
+                    and nullif(btrim(authority_scb.workplaces->0->'visitingAddress'->>'postalCode'), '') is not null
+                    and nullif(btrim(authority_scb.workplaces->0->'visitingAddress'->>'city'), '') is not null
+                    and nullif(btrim(authority_scb.workplaces->0->>'municipality'), '') is not null
+                    and not (
+                      translate(lower(btrim(authority_scb.workplaces->0->'visitingAddress'->>'city')), 'ÅÄÖ', 'åäö') = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
+                      or translate(lower(btrim(authority_scb.workplaces->0->>'municipality')), 'ÅÄÖ', 'åäö') = any(string_to_array(${PILOT_MUNICIPALITY_CSV}, ','))
+                    )
+                  )
+                )
+              )
+            )
+        )
+      returning invitation.id::text
+      `,
+    ]);
+    if (cancelledRows[0]?.id) return { ok: false as const, code: "closed" };
+
+    const currentState = await readCurrentInvitationAuthorityState(sql, String(row.invitation_id), tokenHash);
+    if (
+      !currentState
+      || Boolean(currentState.recipient_suppressed)
+      || !Boolean(currentState.has_current_authority)
+      || ["suppressed", "declined", "cancelled", "expired"].includes(String(currentState.status))
+    ) {
+      return { ok: false as const, code: "closed" };
+    }
+    if (String(currentState.status) === "responded") {
+      return { ok: false as const, code: "already_responded" };
+    }
+    row.status = String(currentState.status);
+    row.has_current_authority = true;
   }
   const expiresAt = new Date(String(row.expires_at));
   if (!Number.isFinite(expiresAt.getTime()) || expiresAt.getTime() <= Date.now()) {
@@ -829,18 +1611,70 @@ export async function submitMarketplaceGuestQuote(input: {
 
   let inserted;
   try {
-    inserted = await sql`
-      with submitted_offer as (
+    const [, , , submitted] = await sql.transaction((txn) => [
+      txn`select id from company_directory_profiles where id = ${String(row.profile_id)}::uuid for update`,
+      txn`select profile_id from company_directory_official_facts where profile_id = ${String(row.profile_id)}::uuid for update`,
+      txn`select profile_id from company_directory_scb_enrichment where profile_id = ${String(row.profile_id)}::uuid for update`,
+      txn`
+      with authority_guard as materialized (
+        select 1
+        from company_directory_profiles authority_profile
+        join company_directory_official_facts authority_facts
+          on authority_facts.profile_id = authority_profile.id
+        join company_directory_scb_enrichment authority_scb
+          on authority_scb.profile_id = authority_profile.id
+        join marketplace_quote_invitations guarded_invitation
+          on guarded_invitation.id = ${String(row.invitation_id)}::uuid
+         and guarded_invitation.profile_id = authority_profile.id
+        where authority_profile.id = ${String(row.profile_id)}::uuid
+          and guarded_invitation.token_hash = ${tokenHash}
+          and guarded_invitation.status in ('pending', 'sending', 'sent', 'viewed', 'delivery_failed', 'delivery_uncertain', 'responded')
+          and not exists (
+            select 1
+            from marketplace_outreach_suppressions suppression
+            where suppression.email_normalized = lower(btrim(guarded_invitation.recipient_email))
+          )
+          and authority_facts.source_payload_hash <> ''
+          and authority_facts.last_synced_at >= authority_profile.last_synced_at
+          and authority_facts.deregistration_date is null
+          and authority_facts.advertising_blocked is false
+          and (
+            case
+              when jsonb_typeof(authority_facts.ongoing_procedures) = 'array'
+                then jsonb_array_length(authority_facts.ongoing_procedures)
+              else 1
+            end
+          ) = 0
+          and authority_scb.source_payload_hash <> ''
+          and authority_scb.last_synced_at >= now() - interval '7 days'
+          and authority_scb.last_synced_at >= authority_profile.last_synced_at
+          and authority_scb.provenance #>> '{comparisonSnapshot,profileUpdatedToken}' = authority_profile.updated_at::text
+          and authority_scb.provenance #>> '{comparisonSnapshot,officialFactsLastSyncedToken}' = authority_facts.last_synced_at::text
+          and jsonb_typeof(authority_scb.conflicts) = 'array'
+          and jsonb_array_length(authority_scb.conflicts) = 0
+          and jsonb_typeof(authority_scb.workplaces) = 'array'
+          and jsonb_array_length(authority_scb.workplaces) = 1
+          and nullif(btrim(authority_scb.workplaces->0->'visitingAddress'->>'addressLine'), '') is not null
+          and nullif(btrim(authority_scb.workplaces->0->'visitingAddress'->>'postalCode'), '') is not null
+          and nullif(btrim(authority_scb.workplaces->0->'visitingAddress'->>'city'), '') is not null
+          and nullif(btrim(authority_scb.workplaces->0->>'municipality'), '') is not null
+          and (
+            translate(lower(btrim(authority_scb.workplaces->0->'visitingAddress'->>'city')), 'ÅÄÖ', 'åäö') = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
+            or translate(lower(btrim(authority_scb.workplaces->0->>'municipality')), 'ÅÄÖ', 'åäö') = any(string_to_array(${PILOT_MUNICIPALITY_CSV}, ','))
+          )
+        limit 1
+      ), submitted_offer as (
         insert into marketplace_quote_offers (
           invitation_id, quote_request_id, profile_id, workspace_id,
           status, price_kind, currency, amount_minor, available_date, company_note
-        ) values (
+        )
+        select
           ${String(row.invitation_id)}::uuid,
           ${String(row.quote_request_id)}::uuid,
           ${String(row.profile_id)}::uuid,
           ${String(row.workspace_id || "") || null}::uuid,
           'submitted', ${input.priceKind}, 'SEK', ${amountMinor}, ${availableDate}::date, ${companyNote}
-        )
+        from authority_guard
         on conflict (invitation_id) do nothing
         returning id, invitation_id, quote_request_id
       ), marked_invitation as (
@@ -857,8 +1691,14 @@ export async function submitMarketplaceGuestQuote(input: {
           and request.status in ('submitted', 'pending_review', 'approved', 'matched', 'answered')
         returning request.id
       )
-      select id::text from submitted_offer
-    `;
+      select id::text, true as authority_current from submitted_offer
+      union all
+      select null::text as id, exists(select 1 from authority_guard) as authority_current
+      where not exists(select 1 from submitted_offer)
+      limit 1
+      `,
+    ]);
+    inserted = submitted;
   } catch (error) {
     const details = databaseErrorDetails(error);
     if (
@@ -871,6 +1711,7 @@ export async function submitMarketplaceGuestQuote(input: {
     }
     throw error;
   }
+  if (inserted[0]?.authority_current === false) return { ok: false as const, code: "closed" };
   if (!inserted[0]?.id) return { ok: false as const, code: "already_responded" };
 
   return { ok: true as const, offerId: String(inserted[0].id) };

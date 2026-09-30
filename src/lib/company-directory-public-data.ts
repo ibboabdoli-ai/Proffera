@@ -5,7 +5,7 @@ import {
   type DirectoryDirectContactDisclosure,
 } from "@/lib/company-directory-contact-entitlement";
 import { getPublicDirectoryBusiness, type PublicDirectoryBusiness } from "@/lib/company-directory-engine";
-import { hasActivePaidDirectoryContactAccess } from "@/lib/company-directory-paid-contact-entitlement";
+import { isWorkspacePlanFeatureIncluded } from "@/lib/workspace-feature-policy";
 import {
   readPublicDirectoryMissCache,
   readPublicDirectoryProfileCache,
@@ -14,6 +14,10 @@ import {
   resolveCompanyDirectoryCanonicalWorkplaceAddress,
   type DirectoryPublicAddress,
 } from "@/lib/company-directory-scb-address";
+import {
+  DIRECTORY_PILOT_LOCATIONS,
+  DIRECTORY_PILOT_MUNICIPALITY_TOKENS,
+} from "@/lib/company-directory-policy";
 import { getSql } from "@/lib/db/server";
 
 export type PublicDirectoryBusinessForRequest = PublicDirectoryBusiness & {
@@ -41,7 +45,11 @@ type ClaimedOwnerPrimaryLocation = {
 type PublishedDirectoryResolution = {
   business: PublicDirectoryBusinessForRequest;
   sharedCacheSafe: boolean;
+  authorityExpiresAt: string | null;
 };
+
+const PILOT_LOCATION_CSV = DIRECTORY_PILOT_LOCATIONS.join(",");
+const PILOT_MUNICIPALITY_CSV = DIRECTORY_PILOT_MUNICIPALITY_TOKENS.join(",");
 
 const EMPTY_PHYSICAL_ADDRESS: DirectoryPublicAddress = {
   addressLine1: "",
@@ -114,34 +122,6 @@ function ownerPrimaryPublicAddress(location: ClaimedOwnerPrimaryLocation): Direc
   return location.address;
 }
 
-async function getConflictFreeScbContact(
-  sql: NonNullable<ReturnType<typeof getSql>>,
-  profileId: string,
-): Promise<ScbDirectContact | null> {
-  try {
-    const rows = await sql`
-      select
-        coalesce(nullif(phone, ''), '') as phone,
-        coalesce(nullif(email, ''), '') as email,
-        workplaces
-      from company_directory_scb_enrichment
-      where profile_id = ${profileId}::uuid
-        and conflicts = '[]'::jsonb
-      limit 1
-    `;
-    const row = rows[0];
-    if (!row) return null;
-    return {
-      phone: String(row.phone ?? ""),
-      email: String(row.email ?? ""),
-      workplaces: row.workplaces,
-    };
-  } catch (error) {
-    if (isMissingDirectoryTable(error, "company_directory_scb_enrichment")) return null;
-    throw error;
-  }
-}
-
 async function getClaimedOwnerPrimaryLocation(
   sql: NonNullable<ReturnType<typeof getSql>>,
   profileId: string,
@@ -211,51 +191,87 @@ async function getPublishedDirectoryContact(business: PublicDirectoryBusiness) {
       contact: emptyContact(),
       claimedWorkspaceId: "",
       officialFactsCheckedAt: "",
+      workplaceAuthorityExpiresAt: null,
     };
   }
 
   const rows = await sql`
     select
-      organization_number,
-      organization_kind,
-      legal_name,
-      primary_sni_code,
-      website_url,
-      claimed_workspace_id::text,
-      (
-        select facts.last_synced_at
-        from company_directory_official_facts facts
-        where facts.profile_id = company_directory_profiles.id
-        limit 1
-      ) as official_facts_last_synced_at
+      company_directory_profiles.organization_number,
+      company_directory_profiles.organization_kind,
+      company_directory_profiles.legal_name,
+      company_directory_profiles.primary_sni_code,
+      company_directory_profiles.website_url,
+      company_directory_profiles.claimed_workspace_id::text,
+      published_authority.official_facts_last_synced_at,
+      published_authority.workplace_authority_expires_at,
+      published_authority.scb_phone,
+      published_authority.scb_email,
+      published_authority.scb_workplaces
     from company_directory_profiles
-    where id = ${business.id}::uuid
-      and publication_status = 'published'
-      and privacy_blocked = false
-      and auto_public_eligible = true
+    join lateral (
+      select
+        published_facts.last_synced_at as official_facts_last_synced_at,
+        published_scb.last_synced_at + interval '7 days' as workplace_authority_expires_at,
+        coalesce(nullif(published_scb.phone, ''), '') as scb_phone,
+        coalesce(nullif(published_scb.email, ''), '') as scb_email,
+        published_scb.workplaces as scb_workplaces
+      from company_directory_official_facts published_facts
+      join company_directory_scb_enrichment published_scb
+        on published_scb.profile_id = published_facts.profile_id
+      where published_facts.profile_id = company_directory_profiles.id
+        and published_facts.source_payload_hash <> ''
+        and published_facts.last_synced_at >= company_directory_profiles.last_synced_at
+        and published_facts.deregistration_date is null
+        and published_facts.advertising_blocked is false
+        and (
+          case
+            when jsonb_typeof(published_facts.ongoing_procedures) = 'array'
+              then jsonb_array_length(published_facts.ongoing_procedures)
+            else 1
+          end
+        ) = 0
+        and published_scb.source_payload_hash <> ''
+        and published_scb.last_synced_at >= now() - interval '7 days'
+        and published_scb.last_synced_at >= company_directory_profiles.last_synced_at
+        and published_scb.provenance #>> '{comparisonSnapshot,profileUpdatedToken}' = company_directory_profiles.updated_at::text
+        and published_scb.provenance #>> '{comparisonSnapshot,officialFactsLastSyncedToken}' = published_facts.last_synced_at::text
+        and jsonb_typeof(published_scb.conflicts) = 'array'
+        and jsonb_array_length(published_scb.conflicts) = 0
+        and jsonb_typeof(published_scb.workplaces) = 'array'
+        and jsonb_array_length(published_scb.workplaces) = 1
+        and nullif(btrim(published_scb.workplaces->0->'visitingAddress'->>'addressLine'), '') is not null
+        and nullif(btrim(published_scb.workplaces->0->'visitingAddress'->>'postalCode'), '') is not null
+        and nullif(btrim(published_scb.workplaces->0->'visitingAddress'->>'city'), '') is not null
+        and nullif(btrim(published_scb.workplaces->0->>'municipality'), '') is not null
+        and (
+          translate(lower(btrim(published_scb.workplaces->0->'visitingAddress'->>'city')), 'ÅÄÖ', 'åäö') = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
+          or translate(lower(btrim(published_scb.workplaces->0->>'municipality')), 'ÅÄÖ', 'åäö') = any(string_to_array(${PILOT_MUNICIPALITY_CSV}, ','))
+        )
+      limit 1
+    ) published_authority on true
+    where company_directory_profiles.id = ${business.id}::uuid
+      and company_directory_profiles.publication_status = 'published'
+      and company_directory_profiles.organization_kind = 'juridical_person'
+      and company_directory_profiles.privacy_blocked = false
+      and company_directory_profiles.auto_public_eligible = true
     limit 1
   `;
   const row = rows[0];
-  if (!row) {
-    return {
-      organizationNumber: "",
-      primarySniCode: "",
-      legalName: "",
-      address: EMPTY_PHYSICAL_ADDRESS,
-      contact: emptyContact(),
-      claimedWorkspaceId: "",
-      officialFactsCheckedAt: "",
-    };
-  }
+  if (!row) return null;
 
-  const scb = await getConflictFreeScbContact(sql, business.id);
+  const scb: ScbDirectContact = {
+    phone: String(row.scb_phone ?? row.phone ?? ""),
+    email: String(row.scb_email ?? row.email ?? ""),
+    workplaces: row.scb_workplaces ?? row.workplaces,
+  };
   const claimedWorkspaceId = String(row.claimed_workspace_id ?? "");
   const address = await resolvePublishedPhysicalAddress({
     sql,
     profileId: business.id,
     claimedWorkspaceId,
     profile: storedAddress,
-    workplaces: scb?.workplaces,
+    workplaces: scb.workplaces,
   });
   return {
     organizationNumber: publicDirectoryOrganizationNumber(row.organization_kind, row.organization_number),
@@ -272,6 +288,9 @@ async function getPublishedDirectoryContact(business: PublicDirectoryBusiness) {
     officialFactsCheckedAt: row.official_facts_last_synced_at
       ? new Date(String(row.official_facts_last_synced_at)).toISOString()
       : "",
+    workplaceAuthorityExpiresAt: row.workplace_authority_expires_at
+      ? new Date(String(row.workplace_authority_expires_at)).toISOString()
+      : null,
   };
 }
 
@@ -279,6 +298,7 @@ async function resolvePublishedDirectoryBusiness(slug: string): Promise<Publishe
   const published = await getPublicDirectoryBusiness(slug);
   if (!published) return null;
   const publicContact = await getPublishedDirectoryContact(published);
+  if (!publicContact) return null;
   const sharedCacheSafe = Boolean(publicContact.organizationNumber) && !publicContact.claimedWorkspaceId;
   return {
     business: {
@@ -296,6 +316,7 @@ async function resolvePublishedDirectoryBusiness(slug: string): Promise<Publishe
       sharedCacheSafe,
     },
     sharedCacheSafe,
+    authorityExpiresAt: sharedCacheSafe ? publicContact.workplaceAuthorityExpiresAt : null,
   };
 }
 
@@ -330,12 +351,54 @@ async function getSafeClaimedDirectoryFallback(slug: string): Promise<PublicDire
       profile.source_updated_at,
       facts.last_synced_at as official_facts_last_synced_at,
       profile.claimed_workspace_id::text,
+      scb_contact.phone as scb_phone,
+      scb_contact.email as scb_email,
+      scb_contact.workplaces as scb_workplaces,
+      owner_location.id::text as owner_location_id,
+      owner_location.visibility as owner_location_visibility,
+      owner_location.is_visitable as owner_location_is_visitable,
+      owner_location.confirmed_at as owner_location_confirmed_at,
+      owner_location.address_line1 as owner_location_address_line1,
+      owner_location.postal_code as owner_location_postal_code,
+      owner_location.city as owner_location_city,
+      owner_location.municipality as owner_location_municipality,
+      contact_plan.plan_key as contact_plan_key,
+      contact_plan.status as contact_plan_status,
+      contact_plan.current_period_end as contact_plan_current_period_end,
       media.public_url as media_url,
       media.media_kind,
       media.attribution,
       media.is_actual_business_media
     from company_directory_profiles profile
+    join workspaces workspace on workspace.id = profile.claimed_workspace_id
     left join company_directory_official_facts facts on facts.profile_id = profile.id
+    left join lateral (
+      select phone, email, workplaces
+      from company_directory_scb_enrichment scb_contact
+      where scb_contact.profile_id = profile.id
+        and jsonb_typeof(scb_contact.conflicts) = 'array'
+        and jsonb_array_length(scb_contact.conflicts) = 0
+      limit 1
+    ) scb_contact on true
+    left join lateral (
+      select location.id, location.visibility, location.is_visitable, location.confirmed_at,
+        location.address_line1, location.postal_code, location.city, location.municipality
+      from company_directory_profile_locations location
+      where location.profile_id = profile.id
+        and location.owner_workspace_id = profile.claimed_workspace_id
+        and location.source_type = 'owner'
+        and location.is_active = true
+        and location.is_primary = true
+        and location.purpose in ('workplace', 'storefront', 'service_base')
+      limit 1
+    ) owner_location on true
+    left join lateral (
+      select plan.plan_key, plan.status, plan.current_period_end
+      from workspace_plans plan
+      where plan.workspace_id = profile.claimed_workspace_id
+      order by plan.created_at desc
+      limit 1
+    ) contact_plan on true
     left join lateral (
       select public_url, media_kind, attribution, is_actual_business_media
       from company_directory_media
@@ -346,10 +409,81 @@ async function getSafeClaimedDirectoryFallback(slug: string): Promise<PublicDire
     where profile.public_slug = ${normalized}
       and profile.publication_status = 'claimed'
       and profile.claimed_workspace_id is not null
+      and workspace.status in ('active', 'trial')
       and profile.published_at is not null
       and profile.is_active = true
       and profile.privacy_blocked = false
       and profile.auto_public_eligible = true
+      and (
+        (
+          profile.organization_kind = 'juridical_person'
+          and exists (
+            select 1
+            from company_directory_official_facts claimed_facts
+            join company_directory_scb_enrichment claimed_scb
+              on claimed_scb.profile_id = claimed_facts.profile_id
+            where claimed_facts.profile_id = profile.id
+              and claimed_facts.source_payload_hash <> ''
+              and claimed_facts.last_synced_at >= profile.last_synced_at
+              and claimed_facts.deregistration_date is null
+              and claimed_facts.advertising_blocked is false
+              and (
+                case
+                  when jsonb_typeof(claimed_facts.ongoing_procedures) = 'array'
+                    then jsonb_array_length(claimed_facts.ongoing_procedures)
+                  else 1
+                end
+              ) = 0
+              and claimed_scb.source_payload_hash <> ''
+              and claimed_scb.last_synced_at >= now() - interval '7 days'
+              and claimed_scb.last_synced_at >= profile.last_synced_at
+              and claimed_scb.provenance #>> '{comparisonSnapshot,officialFactsLastSyncedToken}' = claimed_facts.last_synced_at::text
+              and jsonb_typeof(claimed_scb.conflicts) = 'array'
+              and jsonb_array_length(claimed_scb.conflicts) = 0
+              and jsonb_typeof(claimed_scb.workplaces) = 'array'
+              and jsonb_array_length(claimed_scb.workplaces) = 1
+              and nullif(btrim(claimed_scb.workplaces->0->'visitingAddress'->>'addressLine'), '') is not null
+              and nullif(btrim(claimed_scb.workplaces->0->'visitingAddress'->>'postalCode'), '') is not null
+              and nullif(btrim(claimed_scb.workplaces->0->'visitingAddress'->>'city'), '') is not null
+              and nullif(btrim(claimed_scb.workplaces->0->>'municipality'), '') is not null
+              and (
+                translate(lower(btrim(claimed_scb.workplaces->0->'visitingAddress'->>'city')), 'ÅÄÖ', 'åäö') = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
+                or translate(lower(btrim(claimed_scb.workplaces->0->>'municipality')), 'ÅÄÖ', 'åäö') = any(string_to_array(${PILOT_MUNICIPALITY_CSV}, ','))
+              )
+          )
+        )
+        or (
+          profile.organization_kind = 'sole_trader'
+          and profile.official_source = 'bolagsverket_vardefulla_datamangder:sole_trader_owner'
+          and exists (
+            select 1
+            from company_directory_claims owner_claim
+            where owner_claim.profile_id = profile.id
+              and owner_claim.requested_workspace_id = profile.claimed_workspace_id
+              and owner_claim.status = 'claimed'
+              and owner_claim.verification_method = 'manual_review'
+          )
+          and exists (
+            select 1
+            from company_directory_profile_locations owner_base
+            where owner_base.profile_id = profile.id
+              and owner_base.owner_workspace_id = profile.claimed_workspace_id
+              and owner_base.source_type = 'owner'
+              and owner_base.purpose = 'service_base'
+              and owner_base.is_active = true
+              and owner_base.is_primary = true
+              and owner_base.confirmed_at is not null
+              and owner_base.latitude is not null
+              and owner_base.longitude is not null
+              and not (owner_base.latitude = 0 and owner_base.longitude = 0)
+              and owner_base.geocode_source = 'lantmateriet_belagenhetsadress_v4_2'
+              and owner_base.geocode_precision = 'address'
+              and (
+                translate(lower(btrim(owner_base.city)), 'ÅÄÖ', 'åäö') = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
+              )
+          )
+        )
+      )
     limit 1
   `;
   const row = rows[0];
@@ -360,19 +494,39 @@ async function getSafeClaimedDirectoryFallback(slug: string): Promise<PublicDire
   const workspaceId = String(row.claimed_workspace_id ?? "").trim();
   if (!profileId || publicSlug !== normalized || !workspaceId) return null;
 
-  const entitled = await hasActivePaidDirectoryContactAccess(workspaceId);
-  const scb = await getConflictFreeScbContact(sql, profileId);
-  const address = await resolvePublishedPhysicalAddress({
-    sql,
-    profileId,
-    claimedWorkspaceId: workspaceId,
-    profile: profileAddress(row),
-    workplaces: scb?.workplaces,
-  });
+  const ownerLocation: ClaimedOwnerPrimaryLocation | null = row.owner_location_id
+    ? {
+        visibility: String(row.owner_location_visibility ?? "private"),
+        isVisitable: Boolean(row.owner_location_is_visitable),
+        confirmed: Boolean(row.owner_location_confirmed_at),
+        address: profileAddress({
+          address_line1: row.owner_location_address_line1,
+          postal_code: row.owner_location_postal_code,
+          city: row.owner_location_city,
+          municipality: row.owner_location_municipality,
+        }),
+      }
+    : null;
+  const scb: ScbDirectContact = {
+    phone: String(row.scb_phone ?? ""),
+    email: String(row.scb_email ?? ""),
+    workplaces: row.scb_workplaces,
+  };
+  const address = ownerLocation
+    ? ownerPrimaryPublicAddress(ownerLocation)
+    : canonicalPublishedPhysicalAddress(profileAddress(row), scb.workplaces);
+  const entitled = String(row.contact_plan_status ?? "") === "active"
+    && isWorkspacePlanFeatureIncluded({
+      planKey: row.contact_plan_key,
+      planStatus: row.contact_plan_status,
+      planPeriodEnd: row.contact_plan_current_period_end,
+      minimumPlan: "starter",
+      now: new Date(),
+    });
   const contact = discloseDirectoryDirectContact({
     addressLine1: address.addressLine1,
-    phone: scb?.phone,
-    email: scb?.email,
+    phone: scb.phone,
+    email: scb.email,
     website: row.website_url,
   }, entitled);
 
@@ -427,7 +581,11 @@ export const getPublicDirectoryBusinessForRequest = cache(async (slug: string): 
     const published = await readPublicDirectoryProfileCache(normalized, async () => {
       const resolved = await resolvePublishedDirectoryBusiness(normalized);
       return resolved?.sharedCacheSafe
-        ? { cache: true, value: resolved.business }
+        ? {
+            cache: true,
+            value: resolved.business,
+            authorityExpiresAt: resolved.authorityExpiresAt,
+          }
         : { cache: false, value: resolved?.business ?? null };
     });
     if (published) return { cache: false, value: published };
@@ -437,8 +595,22 @@ export const getPublicDirectoryBusinessForRequest = cache(async (slug: string): 
     if (!getSql()) return { cache: false, value: null };
 
     const claimed = await getSafeClaimedDirectoryFallback(normalized);
-    return claimed
-      ? { cache: false, value: claimed }
+    if (claimed) return { cache: false, value: claimed };
+
+    const sql = getSql();
+    if (!sql) return { cache: false, value: null };
+    const existingProfile = await sql`
+      select 1
+      from company_directory_profiles
+      where public_slug = ${normalized}
+      limit 1
+    `;
+
+    // Authority can be restored independently of the public projection read.
+    // Never persist an authority-derived miss for an existing profile; the
+    // short negative cache is reserved for slugs that are absent altogether.
+    return existingProfile[0]
+      ? { cache: false, value: null }
       : { cache: true, value: null };
   });
 });

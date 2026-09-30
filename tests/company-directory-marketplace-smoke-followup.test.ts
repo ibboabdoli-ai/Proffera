@@ -107,6 +107,7 @@ function linkedProfileSql() {
         auto_public_eligible: true,
         official_source: "bolagsverket_vardefulla_datamangder:company",
         published_at: "2026-08-31T00:00:00.000Z",
+        has_safe_juridical_workplace: true,
       }];
     }
     if (query.includes("from company_directory_claims claim")) return [];

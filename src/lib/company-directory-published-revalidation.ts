@@ -2,16 +2,24 @@ import "server-only";
 
 import { assessCompanyDirectoryCategoryConfidence } from "@/lib/company-directory-category-confidence";
 import { enrichCompanyDirectoryOfficialFactsForProfile } from "@/lib/company-directory-official-facts";
+import { assessCompanyDirectoryPilotWorkplace } from "@/lib/company-directory-pilot-location";
+import {
+  DIRECTORY_PILOT_LOCATIONS,
+  DIRECTORY_PILOT_MUNICIPALITY_TOKENS,
+} from "@/lib/company-directory-policy";
 import { invalidatePublicDirectoryPublicProjectionByProfileId } from "@/lib/company-directory-public-cache";
 import { enrichCompanyDirectoryScbForProfile } from "@/lib/company-directory-scb-enrichment";
 import { createScbCompanyRegistryTransportFromEnv } from "@/lib/company-directory-scb-transport";
 import { getSql } from "@/lib/db/server";
+import { invalidateMarketplaceHomeCompaniesCache } from "@/lib/public-read-cache";
 
 const REVALIDATION_PROVIDER = "published_revalidation";
 const DEFAULT_REVALIDATION_BATCH_SIZE = 2;
 const MAX_REVALIDATION_BATCH_SIZE = 3;
 const OFFICIAL_FACTS_START_HEADROOM_MS = 30_000;
 const SCB_START_HEADROOM_MS = 18_000;
+const PILOT_LOCATION_CSV = DIRECTORY_PILOT_LOCATIONS.join(",");
+const PILOT_MUNICIPALITY_CSV = DIRECTORY_PILOT_MUNICIPALITY_TOKENS.join(",");
 
 type RevalidationOptions = {
   deadlineAt?: number;
@@ -37,6 +45,31 @@ function jsonArray(value: unknown): unknown[] {
     }
   }
   return [];
+}
+
+function hasBlockingOngoingProcedures(value: unknown) {
+  if (Array.isArray(value)) return value.length > 0;
+  if (typeof value === "string" && value.trim()) {
+    try {
+      const parsed = JSON.parse(value) as unknown;
+      return !Array.isArray(parsed) || parsed.length > 0;
+    } catch {
+      return true;
+    }
+  }
+  return true;
+}
+
+function hasSafePilotWorkplace(row: Record<string, unknown>) {
+  return assessCompanyDirectoryPilotWorkplace(
+    {
+      addressLine1: text(row.address_line1),
+      postalCode: text(row.postal_code),
+      city: text(row.city),
+      municipality: text(row.municipality),
+    },
+    jsonArray(row.scb_workplaces),
+  ).eligible;
 }
 
 function boundedLimit(value: unknown) {
@@ -69,17 +102,30 @@ async function startRun() {
   `;
 
   const rows = await sql`
-    insert into company_directory_sync_runs (provider, status)
-    values (${REVALIDATION_PROVIDER}, 'running')
+    insert into company_directory_sync_runs (provider, status, cursor_value)
+    values (
+      ${REVALIDATION_PROVIDER},
+      'running',
+      coalesce((
+        select previous.cursor_value
+        from company_directory_sync_runs previous
+        where previous.provider = ${REVALIDATION_PROVIDER}
+          and previous.status <> 'running'
+        order by previous.started_at desc
+        limit 1
+      ), '')
+    )
     on conflict do nothing
-    returning id::text
+    returning id::text, cursor_value
   `;
 
-  return text(rows[0]?.id) || null;
+  const runId = text(rows[0]?.id);
+  return runId ? { runId, cursorValue: text(rows[0]?.cursor_value) } : null;
 }
 
 async function finishRun(input: {
   runId: string;
+  cursorValue: string;
   selected: number;
   revalidated: number;
   keptPublished: number;
@@ -94,6 +140,7 @@ async function finishRun(input: {
   await sql`
     update company_directory_sync_runs
     set status = ${input.failed ? "failed" : "completed"},
+        cursor_value = ${input.cursorValue},
         scanned_count = ${input.selected},
         upserted_count = ${input.revalidated},
         published_count = ${input.keptPublished},
@@ -105,12 +152,16 @@ async function finishRun(input: {
   `;
 }
 
-async function selectCandidates(limit: number) {
+async function selectCandidates(limit: number, cursorValue: string) {
   const sql = getSql();
   if (!sql) throw new Error("Database is not configured");
 
   return await sql`
-    select profile.id::text, profile.organization_number, profile.display_name
+    select
+      profile.id::text,
+      profile.organization_number,
+      profile.display_name,
+      regexp_replace(profile.organization_number, '\\D', '', 'g') as normalized_organization_number
     from company_directory_profiles profile
     left join company_directory_official_facts facts on facts.profile_id = profile.id
     left join company_directory_scb_enrichment scb on scb.profile_id = profile.id
@@ -125,14 +176,38 @@ async function selectCandidates(limit: number) {
         or facts.last_synced_at < profile.last_synced_at
         or scb.profile_id is null
         or scb.source_payload_hash = ''
+        or scb.last_synced_at is null
+        or scb.last_synced_at < now() - interval '7 days'
         or scb.provenance #>> '{comparisonSnapshot,profileUpdatedToken}' is distinct from profile.updated_at::text
         or scb.provenance #>> '{comparisonSnapshot,officialFactsLastSyncedToken}' is distinct from facts.last_synced_at::text
+        or case
+          when jsonb_typeof(scb.conflicts) = 'array' then jsonb_array_length(scb.conflicts) > 0
+          else true
+        end
+        or jsonb_array_length(
+          case
+            when jsonb_typeof(scb.workplaces) = 'array' then scb.workplaces
+            else '[]'::jsonb
+          end
+        ) <> 1
+        or nullif(btrim(scb.workplaces->0->'visitingAddress'->>'addressLine'), '') is null
+        or nullif(btrim(scb.workplaces->0->'visitingAddress'->>'postalCode'), '') is null
+        or nullif(btrim(scb.workplaces->0->'visitingAddress'->>'city'), '') is null
+        or nullif(btrim(scb.workplaces->0->>'municipality'), '') is null
+        or (
+          not (
+            translate(lower(btrim(scb.workplaces->0->'visitingAddress'->>'city')), 'ÅÄÖ', 'åäö') = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
+            or translate(lower(btrim(scb.workplaces->0->>'municipality')), 'ÅÄÖ', 'åäö') = any(string_to_array(${PILOT_MUNICIPALITY_CSV}, ','))
+          )
+        )
       )
     order by
-      case when facts.profile_id is null then 0 else 1 end,
-      case when scb.profile_id is null then 0 else 1 end,
-      scb.last_synced_at asc nulls first,
-      profile.organization_number asc
+      case
+        when ${cursorValue} = '' then 0
+        when regexp_replace(profile.organization_number, '\\D', '', 'g') > ${cursorValue} then 0
+        else 1
+      end,
+      regexp_replace(profile.organization_number, '\\D', '', 'g') asc
     limit ${limit}
   `;
 }
@@ -157,8 +232,30 @@ async function backlogCount() {
         or facts.last_synced_at < profile.last_synced_at
         or scb.profile_id is null
         or scb.source_payload_hash = ''
+        or scb.last_synced_at is null
+        or scb.last_synced_at < now() - interval '7 days'
         or scb.provenance #>> '{comparisonSnapshot,profileUpdatedToken}' is distinct from profile.updated_at::text
         or scb.provenance #>> '{comparisonSnapshot,officialFactsLastSyncedToken}' is distinct from facts.last_synced_at::text
+        or case
+          when jsonb_typeof(scb.conflicts) = 'array' then jsonb_array_length(scb.conflicts) > 0
+          else true
+        end
+        or jsonb_array_length(
+          case
+            when jsonb_typeof(scb.workplaces) = 'array' then scb.workplaces
+            else '[]'::jsonb
+          end
+        ) <> 1
+        or nullif(btrim(scb.workplaces->0->'visitingAddress'->>'addressLine'), '') is null
+        or nullif(btrim(scb.workplaces->0->'visitingAddress'->>'postalCode'), '') is null
+        or nullif(btrim(scb.workplaces->0->'visitingAddress'->>'city'), '') is null
+        or nullif(btrim(scb.workplaces->0->>'municipality'), '') is null
+        or (
+          not (
+            translate(lower(btrim(scb.workplaces->0->'visitingAddress'->>'city')), 'ÅÄÖ', 'åäö') = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
+            or translate(lower(btrim(scb.workplaces->0->>'municipality')), 'ÅÄÖ', 'åäö') = any(string_to_array(${PILOT_MUNICIPALITY_CSV}, ','))
+          )
+        )
       )
   `;
 
@@ -180,6 +277,10 @@ async function loadFreshEvaluation(profileId: string) {
       profile.legal_name,
       profile.display_name,
       profile.activity_description,
+      profile.address_line1,
+      profile.postal_code,
+      profile.city,
+      profile.municipality,
       profile.is_active,
       profile.privacy_blocked,
       profile.auto_public_eligible,
@@ -192,8 +293,12 @@ async function loadFreshEvaluation(profileId: string) {
       facts.ongoing_procedures,
       facts.last_synced_at::text as facts_last_synced_token,
       facts.source_payload_hash as facts_source_payload_hash,
+      scb.workplaces as scb_workplaces,
       scb.source_payload_hash as scb_source_payload_hash,
-      coalesce(jsonb_array_length(scb.conflicts), 0)::int as scb_conflict_count,
+      case
+        when jsonb_typeof(scb.conflicts) = 'array' then jsonb_array_length(scb.conflicts)
+        else 1
+      end::int as scb_conflict_count,
       (
         facts.profile_id is not null
         and facts.last_synced_at >= profile.last_synced_at
@@ -202,6 +307,7 @@ async function loadFreshEvaluation(profileId: string) {
       (
         scb.profile_id is not null
         and scb.source_payload_hash <> ''
+        and scb.last_synced_at >= now() - interval '7 days'
         and scb.provenance #>> '{comparisonSnapshot,profileUpdatedToken}' = profile.updated_at::text
         and scb.provenance #>> '{comparisonSnapshot,officialFactsLastSyncedToken}' = facts.last_synced_at::text
       ) as scb_snapshot_fresh
@@ -312,8 +418,8 @@ export async function revalidatePublishedCompanyDirectoryBatch(
     };
   }
 
-  const runId = await startRun();
-  if (!runId) {
+  const run = await startRun();
+  if (!run) {
     return {
       skipped: true,
       reason: "already_running",
@@ -329,6 +435,8 @@ export async function revalidatePublishedCompanyDirectoryBatch(
     };
   }
 
+  const runId = run.runId;
+  let cursorValue = run.cursorValue;
   let candidates: Awaited<ReturnType<typeof selectCandidates>> = [];
   let revalidated = 0;
   let keptPublished = 0;
@@ -339,7 +447,7 @@ export async function revalidatePublishedCompanyDirectoryBatch(
   const reviewMessages: string[] = [];
 
   try {
-    candidates = await selectCandidates(safeLimit);
+    candidates = await selectCandidates(safeLimit, cursorValue);
 
     candidateLoop:
     for (let index = 0; index < candidates.length; index += 1) {
@@ -350,7 +458,9 @@ export async function revalidatePublishedCompanyDirectoryBatch(
 
       const candidate = candidates[index];
       const profileId = text(candidate.id);
-      const organizationNumber = text(candidate.organization_number).replace(/\D/g, "");
+      const organizationNumber = text(candidate.normalized_organization_number || candidate.organization_number).replace(/\D/g, "");
+      const priorCursorValue = cursorValue;
+      if (organizationNumber.length === 10) cursorValue = organizationNumber;
       if (!profileId || organizationNumber.length !== 10) {
         errors += 1;
         if (errorMessages.length < 5) errorMessages.push("Published revalidation candidate is invalid");
@@ -360,6 +470,7 @@ export async function revalidatePublishedCompanyDirectoryBatch(
       try {
         await enrichCompanyDirectoryOfficialFactsForProfile(profileId);
         if (deadlineReached(options.deadlineAt, SCB_START_HEADROOM_MS)) {
+          cursorValue = priorCursorValue;
           deferred += candidates.length - index;
           break candidateLoop;
         }
@@ -378,6 +489,7 @@ export async function revalidatePublishedCompanyDirectoryBatch(
 
         if (deadlineReached(options.deadlineAt)) {
           await markScbEvaluationPending(profileId);
+          cursorValue = priorCursorValue;
           deferred += candidates.length - index;
           break candidateLoop;
         }
@@ -414,6 +526,7 @@ export async function revalidatePublishedCompanyDirectoryBatch(
           continue;
         }
 
+        const pilotWorkplaceSafe = hasSafePilotWorkplace(row);
         const unsafe = text(row.country_code) !== "SE"
           || text(row.organization_kind) !== "juridical_person"
           || !Boolean(row.is_active)
@@ -422,7 +535,8 @@ export async function revalidatePublishedCompanyDirectoryBatch(
           || Boolean(row.claimed_workspace_id)
           || Boolean(row.deregistration_date)
           || Boolean(row.advertising_blocked)
-          || jsonArray(row.ongoing_procedures).length > 0;
+          || hasBlockingOngoingProcedures(row.ongoing_procedures)
+          || !pilotWorkplaceSafe;
         const scbConflictCount = Math.max(0, number(row.scb_conflict_count));
         const shouldReview = unsafe
           || !confidence.officialFactsReady
@@ -437,6 +551,7 @@ export async function revalidatePublishedCompanyDirectoryBatch(
 
         if (deadlineReached(options.deadlineAt)) {
           await markScbEvaluationPending(profileId);
+          cursorValue = priorCursorValue;
           deferred += candidates.length - index;
           break candidateLoop;
         }
@@ -456,13 +571,21 @@ export async function revalidatePublishedCompanyDirectoryBatch(
         movedToReview += 1;
         if (reviewMessages.length < 5) {
           reviewMessages.push(
-            `${organizationNumber}: review (score ${confidence.score}, conflicts ${scbConflictCount}, unsafe ${unsafe ? "yes" : "no"})`,
+            `${organizationNumber}: review (score ${confidence.score}, conflicts ${scbConflictCount}, unsafe ${unsafe ? "yes" : "no"}, pilot-workplace ${pilotWorkplaceSafe ? "yes" : "no"})`,
           );
         }
         try {
           await invalidatePublicDirectoryPublicProjectionByProfileId(profileId);
         } catch (error) {
           console.error("Failed to invalidate public Directory cache after committed published demotion", {
+            profileId,
+            error,
+          });
+        }
+        try {
+          invalidateMarketplaceHomeCompaniesCache();
+        } catch (error) {
+          console.error("Failed to invalidate Marketplace cache after committed published demotion", {
             profileId,
             error,
           });
@@ -480,6 +603,7 @@ export async function revalidatePublishedCompanyDirectoryBatch(
     const errorSummary = errorMessages.join(" | ");
     await finishRun({
       runId,
+      cursorValue,
       selected: candidates.length,
       revalidated,
       keptPublished,
@@ -505,6 +629,7 @@ export async function revalidatePublishedCompanyDirectoryBatch(
     const message = error instanceof Error ? error.message : "Published revalidation failed";
     await finishRun({
       runId,
+      cursorValue,
       selected: candidates.length,
       revalidated,
       keptPublished,

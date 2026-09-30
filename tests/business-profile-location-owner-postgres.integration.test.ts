@@ -16,6 +16,7 @@ const PROFILE_ID = "22222222-2222-4222-8222-222222222222";
 type PendingQuery = {
   text: string;
   values: unknown[];
+  then?: PromiseLike<Record<string, unknown>[]>["then"];
 };
 
 type QueryBarrier = {
@@ -29,6 +30,7 @@ const mocks = vi.hoisted(() => ({
   getPlatformAdmin: vi.fn(),
   getUserWorkspaceAccess: vi.fn(),
   canManageWorkspaceSettings: vi.fn(),
+  verifyCustomerAddress: vi.fn(),
 }));
 
 vi.mock("server-only", () => ({}));
@@ -38,10 +40,15 @@ vi.mock("@/lib/workspace-access", () => ({
   getUserWorkspaceAccess: mocks.getUserWorkspaceAccess,
   canManageWorkspaceSettings: mocks.canManageWorkspaceSettings,
 }));
+vi.mock("@/lib/lantmateriet-address-verification", () => ({
+  CUSTOMER_ADDRESS_VERIFICATION_SOURCE: "lantmateriet_belagenhetsadress_v4_2",
+  verifyCustomerAddress: mocks.verifyCustomerAddress,
+}));
 
 import {
   createOwnerBusinessProfileLocation,
   deactivateOwnerBusinessProfileLocation,
+  establishPreReleaseSoleTraderServiceBase,
 } from "../src/lib/business-profile-location-owner";
 
 function docker(args: string[]) {
@@ -109,7 +116,18 @@ function createPostgresSqlAdapter(
   connectionString: string,
   options: { profileLockBarrier?: QueryBarrier } = {},
 ) {
-  const sql = ((strings: TemplateStringsArray, ...values: unknown[]) => taggedQuery(strings, values)) as unknown as {
+  const sql = ((strings: TemplateStringsArray, ...values: unknown[]) => {
+    const query = taggedQuery(strings, values);
+    query.then = (onfulfilled, onrejected) => {
+      const client = new Client({ connectionString });
+      return client.connect()
+        .then(() => client.query(query.text, query.values))
+        .then((result) => result.rows as Record<string, unknown>[])
+        .finally(() => client.end().catch(() => undefined))
+        .then(onfulfilled, onrejected);
+    };
+    return query;
+  }) as unknown as {
     (strings: TemplateStringsArray, ...values: unknown[]): PendingQuery;
     transaction: (queries: PendingQuery[]) => Promise<Record<string, unknown>[][]>;
   };
@@ -198,7 +216,7 @@ function primaryLocationInput(purpose: "storefront" | "service_base") {
         "-e", "POSTGRES_USER=postgres",
         "-e", "POSTGRES_DB=proffera_test",
         "-p", "127.0.0.1::5432",
-        "postgres:16-alpine",
+        "postgis/postgis:16-3.5-alpine",
       ]);
 
       const portLine = docker(["port", containerName, "5432/tcp"]).split(/\r?\n/u)[0] ?? "";
@@ -211,15 +229,33 @@ function primaryLocationInput(purpose: "storefront" | "service_base") {
       await client.connect();
 
       await client.query(`
+        create extension if not exists postgis;
         create table workspaces (
           id uuid primary key
         );
         create table company_directory_profiles (
           id uuid primary key,
           claimed_workspace_id uuid references workspaces(id),
+          organization_kind text not null default 'juridical_person',
+          organization_number text not null default '',
           publication_status text not null default 'draft',
           is_active boolean not null default true,
-          privacy_blocked boolean not null default false
+          privacy_blocked boolean not null default false,
+          auto_public_eligible boolean not null default false,
+          published_at timestamptz,
+          official_source text not null default '',
+          display_name text not null default '',
+          legal_form text not null default '',
+          organization_status text not null default '',
+          address_line1 text not null default '',
+          postal_code text not null default ''
+        );
+        create table company_directory_claims (
+          id uuid primary key default gen_random_uuid(),
+          profile_id uuid not null references company_directory_profiles(id),
+          requested_workspace_id uuid not null references workspaces(id),
+          status text not null,
+          verification_method text not null
         );
         create table proffera_schema_migrations (
           migration_key text primary key,
@@ -251,6 +287,7 @@ function primaryLocationInput(purpose: "storefront" | "service_base") {
 
       mocks.getUserWorkspaceAccess.mockReset();
       mocks.canManageWorkspaceSettings.mockReset();
+      mocks.verifyCustomerAddress.mockReset();
       mocks.getSql.mockReset();
       mocks.getUserWorkspaceAccess.mockResolvedValue({
         ok: true,
@@ -262,6 +299,13 @@ function primaryLocationInput(purpose: "storefront" | "service_base") {
         role: "owner",
       });
       mocks.canManageWorkspaceSettings.mockReturnValue(true);
+      mocks.verifyCustomerAddress.mockResolvedValue({
+        status: "matched",
+        source: "lantmateriet_belagenhetsadress_v4_2",
+        referenceId: "44444444-4444-4444-8444-444444444444",
+        easting: 658123,
+        northing: 6570123,
+      });
       mocks.getSql.mockReturnValue(createPostgresSqlAdapter(connectionString));
     });
 
@@ -363,6 +407,56 @@ function primaryLocationInput(purpose: "storefront" | "service_base") {
         is_primary: true,
         owner_workspace_id: WORKSPACE_ID,
       });
+    });
+
+    it("replaces a different active primary with one verified private owner service base", async () => {
+      await client.query(`
+        update company_directory_profiles
+        set organization_kind = 'sole_trader',
+            organization_number = 'sole-trader-22222222-2222-4222-8222-222222222222',
+            publication_status = 'blocked', privacy_blocked = true,
+            auto_public_eligible = false, published_at = null,
+            official_source = 'bolagsverket_vardefulla_datamangder:sole_trader_owner',
+            display_name = 'Owner Service', legal_form = 'Enskild näringsverksamhet',
+            organization_status = 'Registrerad', address_line1 = '', postal_code = ''
+        where id = $1
+      `, [PROFILE_ID]);
+      await client.query(`
+        insert into company_directory_claims (profile_id, requested_workspace_id, status, verification_method)
+        values ($1, $2, 'claimed', 'manual_review')
+      `, [PROFILE_ID, WORKSPACE_ID]);
+      await client.query(`
+        insert into company_directory_profile_locations (
+          profile_id, purpose, visibility, is_visitable, is_primary, is_active, source_type,
+          address_line1, postal_code, city, municipality, geocode_precision
+        ) values ($1, 'storefront', 'private', true, true, true, 'official',
+          'Storgatan 1', '151 00', 'Södertälje', 'Södertälje', 'unknown')
+      `, [PROFILE_ID]);
+
+      const result = await establishPreReleaseSoleTraderServiceBase({
+        addressLine1: "Industrivägen 2",
+        postalCode: "151 00",
+        city: "Södertälje",
+      });
+
+      const primaries = await client.query<{
+        id: string;
+        purpose: string;
+        visibility: string;
+        source_type: string;
+        is_primary: boolean;
+      }>(`
+        select id::text, purpose, visibility, source_type, is_primary
+        from company_directory_profile_locations
+        where profile_id = $1 and is_active = true and is_primary = true
+      `, [PROFILE_ID]);
+      expect(primaries.rows).toEqual([{
+        id: result.id,
+        purpose: "service_base",
+        visibility: "private",
+        source_type: "owner",
+        is_primary: true,
+      }]);
     });
   },
 );

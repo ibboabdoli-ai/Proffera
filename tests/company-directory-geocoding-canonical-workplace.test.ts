@@ -64,6 +64,10 @@ function pilotRow(source: string, latitude: number | null = null, longitude: num
     latitude,
     longitude,
     geocode_source: source,
+    geocoded_at: latitude === null ? null : "2026-09-28T04:00:00.000Z",
+    scb_last_synced_at: "2026-09-28T05:00:00.000Z",
+    scb_last_synced_token: "2026-09-28 05:00:00+00",
+    scb_workplace_changed_at: "2026-09-28T03:00:00.000Z",
     scb_workplaces: singleScbWorkplace,
     scb_conflicts: [],
   };
@@ -236,6 +240,9 @@ describe("Directory geocoding pilot canonical-address behavior", () => {
     );
     const save = sqlCalls.find((call) => call.query.startsWith("with transformed as"));
     expect(save?.values).toContain(VERIFIED_SOURCE);
+    expect(save?.query).toContain("current_scb.last_synced_at::text");
+    expect(save?.query).toContain("company_directory_business_locations.geocoded_at < ?::timestamptz");
+    expect(save?.values).toContain("2026-09-28T03:00:00.000Z");
   });
 
   it("deduplicates the same exact address returned through multiple register units", async () => {
@@ -328,6 +335,9 @@ describe("Directory geocoding pilot canonical-address behavior", () => {
       call.query.startsWith("insert into company_directory_business_locations")
       && call.values.includes(CORRECTED_NO_MATCH));
     expect(noMatchWrite).toBeDefined();
+    expect(noMatchWrite?.query).toContain("current_scb.provenance #>> '{workplaceChangedAt}'");
+    expect(noMatchWrite?.query).toContain("current_scb.last_synced_at::text");
+    expect(noMatchWrite?.values).toContain("2026-09-28T03:00:00.000Z");
   });
 
   it("does not geocode an unresolved canonical workplace even when its no-match is retryable", async () => {

@@ -48,6 +48,10 @@ function statusRow(overrides: Record<string, unknown> = {}) {
     latitude: null,
     longitude: null,
     geocode_source: null,
+    geocoded_at: "2026-09-28T04:00:00.000Z",
+    scb_last_synced_at: "2026-09-28T05:00:00.000Z",
+    scb_last_synced_token: "2026-09-28 05:00:00+00",
+    scb_workplace_changed_at: "2026-09-28T03:00:00.000Z",
     scb_workplaces: workplace,
     scb_conflicts: [],
     ...overrides,
@@ -106,6 +110,8 @@ describe("bounded provider-point geocoding", () => {
     });
     const statusQuery = queries.find((query) => query.includes("with provider_state as")) ?? "";
     expect(statusQuery).toContain("count(*) filter");
+    expect(statusQuery).toContain("has_current_coordinates");
+    expect(statusQuery).toContain("workplaceChangedAt");
     expect(statusQuery).toContain("profile.publication_status = 'published'");
     expect(statusQuery).toContain("profile.organization_kind = 'juridical_person'");
     expect(statusQuery).toContain("relation.is_active = true");
@@ -113,6 +119,32 @@ describe("bounded provider-point geocoding", () => {
     expect(statusQuery).toContain("jsonb_typeof(scb.workplaces)");
     expect(statusQuery).toContain("jsonb_typeof(scb.workplaces -> 0 -> 'visitingAddress' -> 'addressLine')");
     expect(statusQuery).not.toContain("profile.organization_number in");
+  });
+
+  it("treats coordinates older than the SCB workplace snapshot as pending geocoding", async () => {
+    const sql = vi.fn(async (strings: TemplateStringsArray) => {
+      const query = queryText(strings);
+      if (query.includes("pg_extension")) return [{ ready: true }];
+      if (query.includes("with provider_state as")) {
+        return [statusRow({
+          latitude: 59.1955,
+          longitude: 17.6253,
+          geocoded_at: "2026-09-28T02:00:00.000Z",
+          scb_last_synced_at: "2026-09-28T05:00:00.000Z",
+          scb_workplace_changed_at: "2026-09-28T03:00:00.000Z",
+        })];
+      }
+      throw new Error(`Unexpected SQL: ${query}`);
+    });
+    mocks.getSql.mockReturnValue(sql);
+
+    const status = await getDirectoryGeocodingStatus();
+
+    expect(status).toMatchObject({
+      providerTotal: 1,
+      geocoded: 0,
+      remaining: 1,
+    });
   });
 
   it("keeps the write path super-admin-only, DB-bounded, provider-wide, and hard-capped at three", async () => {
@@ -159,7 +191,9 @@ describe("bounded provider-point geocoding", () => {
     expect(target?.query).toContain("profile.organization_kind = 'juridical_person'");
     expect(target?.query).toContain("relation.is_active = true");
     expect(target?.query).toContain("relation.public_visible = true");
-    expect(target?.query).toContain("location.latitude is null or location.longitude is null");
+    expect(target?.query).toContain("workplaceChangedAt");
+    expect(target?.query).toContain("scb.last_synced_at::text as scb_last_synced_token");
+    expect(target?.query).toContain("scb_workplace_changed_at");
     expect(target?.query).toContain("jsonb_typeof(scb.workplaces)");
     expect(target?.query).toContain("jsonb_typeof(scb.workplaces -> 0 -> 'visitingAddress' -> 'addressLine')");
     expect(target?.query).toContain("limit ?");

@@ -2,12 +2,18 @@ import "server-only";
 
 import { assessCompanyDirectoryCategoryConfidence } from "@/lib/company-directory-category-confidence";
 import { autoPublishCompanyDirectoryProfileIfSafe } from "@/lib/company-directory-publication";
+import {
+  DIRECTORY_PILOT_LOCATIONS,
+  DIRECTORY_PILOT_MUNICIPALITY_TOKENS,
+} from "@/lib/company-directory-policy";
 import { getSql } from "@/lib/db/server";
 
 const DEFAULT_READY_AUTO_PUBLISH_BATCH_SIZE = 10;
 const MAX_READY_AUTO_PUBLISH_BATCH_SIZE = 20;
 const READY_AUTO_PUBLISH_SCAN_SIZE = 25;
 const READY_AUTO_PUBLISH_ROTATION_MS = 15 * 60 * 1000;
+const PILOT_LOCATION_CSV = DIRECTORY_PILOT_LOCATIONS.join(",");
+const PILOT_MUNICIPALITY_CSV = DIRECTORY_PILOT_MUNICIPALITY_TOKENS.join(",");
 
 function text(value: unknown) {
   return value === null || value === undefined ? "" : String(value).trim();
@@ -79,6 +85,7 @@ export async function autoPublishReadyHighConfidenceCompanyDirectoryBatch(limit?
     select count(*)::int as count
     from company_directory_profiles profile
     join company_directory_official_facts facts on facts.profile_id = profile.id
+    join company_directory_scb_enrichment scb on scb.profile_id = profile.id
     where profile.publication_status = 'ready'
       and profile.is_active = true
       and profile.privacy_blocked = false
@@ -88,7 +95,29 @@ export async function autoPublishReadyHighConfidenceCompanyDirectoryBatch(limit?
       and facts.source_payload_hash <> ''
       and facts.deregistration_date is null
       and coalesce(facts.advertising_blocked, false) = false
-      and jsonb_array_length(coalesce(facts.ongoing_procedures, '[]'::jsonb)) = 0
+      and (
+        case
+          when jsonb_typeof(facts.ongoing_procedures) = 'array'
+            then jsonb_array_length(facts.ongoing_procedures)
+          else 1
+        end
+      ) = 0
+      and scb.source_payload_hash <> ''
+      and scb.last_synced_at >= now() - interval '7 days'
+      and scb.provenance #>> '{comparisonSnapshot,profileUpdatedToken}' = profile.updated_at::text
+      and scb.provenance #>> '{comparisonSnapshot,officialFactsLastSyncedToken}' = facts.last_synced_at::text
+      and jsonb_typeof(scb.conflicts) = 'array'
+      and jsonb_array_length(scb.conflicts) = 0
+      and jsonb_typeof(scb.workplaces) = 'array'
+      and jsonb_array_length(scb.workplaces) = 1
+      and nullif(btrim(scb.workplaces->0->'visitingAddress'->>'addressLine'), '') is not null
+      and nullif(btrim(scb.workplaces->0->'visitingAddress'->>'postalCode'), '') is not null
+      and nullif(btrim(scb.workplaces->0->'visitingAddress'->>'city'), '') is not null
+      and nullif(btrim(scb.workplaces->0->>'municipality'), '') is not null
+      and (
+        translate(lower(btrim(scb.workplaces->0->'visitingAddress'->>'city')), 'ÅÄÖ', 'åäö') = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
+        or translate(lower(btrim(scb.workplaces->0->>'municipality')), 'ÅÄÖ', 'åäö') = any(string_to_array(${PILOT_MUNICIPALITY_CSV}, ','))
+      )
       and not exists (
         select 1
         from company_directory_discovery_queue queue
@@ -136,6 +165,7 @@ export async function autoPublishReadyHighConfidenceCompanyDirectoryBatch(limit?
       facts.sni_codes
     from company_directory_profiles profile
     join company_directory_official_facts facts on facts.profile_id = profile.id
+    join company_directory_scb_enrichment scb on scb.profile_id = profile.id
     where profile.publication_status = 'ready'
       and profile.is_active = true
       and profile.privacy_blocked = false
@@ -145,7 +175,29 @@ export async function autoPublishReadyHighConfidenceCompanyDirectoryBatch(limit?
       and facts.source_payload_hash <> ''
       and facts.deregistration_date is null
       and coalesce(facts.advertising_blocked, false) = false
-      and jsonb_array_length(coalesce(facts.ongoing_procedures, '[]'::jsonb)) = 0
+      and (
+        case
+          when jsonb_typeof(facts.ongoing_procedures) = 'array'
+            then jsonb_array_length(facts.ongoing_procedures)
+          else 1
+        end
+      ) = 0
+      and scb.source_payload_hash <> ''
+      and scb.last_synced_at >= now() - interval '7 days'
+      and scb.provenance #>> '{comparisonSnapshot,profileUpdatedToken}' = profile.updated_at::text
+      and scb.provenance #>> '{comparisonSnapshot,officialFactsLastSyncedToken}' = facts.last_synced_at::text
+      and jsonb_typeof(scb.conflicts) = 'array'
+      and jsonb_array_length(scb.conflicts) = 0
+      and jsonb_typeof(scb.workplaces) = 'array'
+      and jsonb_array_length(scb.workplaces) = 1
+      and nullif(btrim(scb.workplaces->0->'visitingAddress'->>'addressLine'), '') is not null
+      and nullif(btrim(scb.workplaces->0->'visitingAddress'->>'postalCode'), '') is not null
+      and nullif(btrim(scb.workplaces->0->'visitingAddress'->>'city'), '') is not null
+      and nullif(btrim(scb.workplaces->0->>'municipality'), '') is not null
+      and (
+        translate(lower(btrim(scb.workplaces->0->'visitingAddress'->>'city')), 'ÅÄÖ', 'åäö') = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
+        or translate(lower(btrim(scb.workplaces->0->>'municipality')), 'ÅÄÖ', 'åäö') = any(string_to_array(${PILOT_MUNICIPALITY_CSV}, ','))
+      )
       and not exists (
         select 1
         from company_directory_discovery_queue queue

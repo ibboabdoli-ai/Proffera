@@ -1,9 +1,15 @@
 import "server-only";
 
 import { getSql } from "@/lib/db/server";
+import {
+  DIRECTORY_PILOT_LOCATIONS,
+  DIRECTORY_PILOT_MUNICIPALITY_TOKENS,
+} from "@/lib/company-directory-policy";
 import { DIRECTORY_SERVICES } from "@/lib/company-directory-service-taxonomy";
 
 export const DIRECTORY_LANDING_MIN_BUSINESSES = 3;
+const PILOT_LOCATION_CSV = DIRECTORY_PILOT_LOCATIONS.join(",");
+const PILOT_MUNICIPALITY_CSV = DIRECTORY_PILOT_MUNICIPALITY_TOKENS.join(",");
 
 export type DirectorySeoLanding = {
   serviceSlug: string;
@@ -55,11 +61,32 @@ export async function listDirectorySeoLandings(): Promise<DirectorySeoLanding[]>
         join company_directory_services service
           on service.slug = relation.service_slug
          and service.is_active = true
+        join company_directory_official_facts facts
+          on facts.profile_id = profile.id
+         and facts.source_payload_hash <> ''
+         and facts.last_synced_at >= profile.last_synced_at
+         and facts.deregistration_date is null
+         and facts.advertising_blocked is false
+         and (
+           case
+             when jsonb_typeof(facts.ongoing_procedures) = 'array'
+               then jsonb_array_length(facts.ongoing_procedures)
+             else 1
+           end
+         ) = 0
         join company_directory_scb_enrichment scb
           on scb.profile_id = profile.id
-         and scb.conflicts = '[]'::jsonb
-         and jsonb_array_length(coalesce(scb.workplaces, '[]'::jsonb)) = 1
+         and scb.source_payload_hash <> ''
+         and scb.last_synced_at >= now() - interval '7 days'
+         and scb.last_synced_at >= profile.last_synced_at
+         and scb.provenance #>> '{comparisonSnapshot,profileUpdatedToken}' = profile.updated_at::text
+         and scb.provenance #>> '{comparisonSnapshot,officialFactsLastSyncedToken}' = facts.last_synced_at::text
+         and jsonb_typeof(scb.conflicts) = 'array'
+         and jsonb_array_length(scb.conflicts) = 0
+         and jsonb_typeof(scb.workplaces) = 'array'
+         and jsonb_array_length(scb.workplaces) = 1
         where profile.publication_status = 'published'
+          and profile.organization_kind = 'juridical_person'
           and profile.is_active = true
           and profile.privacy_blocked = false
           and profile.claimed_workspace_id is null
@@ -67,6 +94,10 @@ export async function listDirectorySeoLandings(): Promise<DirectorySeoLanding[]>
           and nullif(trim(scb.workplaces -> 0 #>> '{visitingAddress,postalCode}'), '') is not null
           and nullif(trim(scb.workplaces -> 0 #>> '{visitingAddress,city}'), '') is not null
           and nullif(trim(scb.workplaces -> 0 ->> 'municipality'), '') is not null
+          and (
+            translate(lower(btrim(scb.workplaces->0->'visitingAddress'->>'city')), 'ÅÄÖ', 'åäö') = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
+            or translate(lower(btrim(scb.workplaces->0->>'municipality')), 'ÅÄÖ', 'åäö') = any(string_to_array(${PILOT_MUNICIPALITY_CSV}, ','))
+          )
       )
       select
         service_slug,

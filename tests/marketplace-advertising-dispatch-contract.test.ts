@@ -39,16 +39,18 @@ const eligibleRow = {
   privacy_blocked: false,
   organization_kind: "juridical_person",
   claimed_workspace_id: null,
+  has_current_authority: true,
 };
 
 type FixtureOptions = {
   advertisingBlocked: boolean | null | undefined;
   factsPresent?: boolean;
   existingStatus?: "delivery_failed" | null;
+  claimAllowed?: boolean;
 };
 
 type InvitationState = {
-  status: "none" | "sending" | "pending" | "delivery_failed" | "sent";
+  status: "none" | "sending" | "pending" | "delivery_failed" | "sent" | "cancelled";
   dispatchToken: string | null;
 };
 
@@ -74,6 +76,7 @@ function createSql({
   advertisingBlocked,
   factsPresent = true,
   existingStatus = null,
+  claimAllowed = true,
 }: FixtureOptions) {
   const state: InvitationState = {
     status: existingStatus ?? "none",
@@ -113,7 +116,7 @@ function createSql({
       const ownsLease = state.status === "sending"
         && state.dispatchToken !== null
         && state.dispatchToken === String(args[2] ?? "");
-      if (factsPresent && advertisingBlocked === false && ownsLease) {
+      if (claimAllowed && factsPresent && advertisingBlocked === false && ownsLease) {
         state.status = "pending";
         return [{ id: invitationId }];
       }
@@ -131,8 +134,37 @@ function createSql({
       return [];
     }
 
-    if (query.includes("select status") && query.includes("from marketplace_quote_invitations")) {
-      return state.status === "none" ? [] : [{ status: state.status }];
+    if (query.includes("set status = 'delivery_failed'") && query.includes("invitation.dispatch_token =")) {
+      const ownsLease = state.status === "sending"
+        && state.dispatchToken !== null
+        && state.dispatchToken === String(args[2] ?? "");
+      if (ownsLease) {
+        state.status = "delivery_failed";
+        state.dispatchToken = null;
+      }
+      return [];
+    }
+
+    if (query.includes("for update of profile") || query.includes("for update of facts") || query.includes("for update of scb")) {
+      return [{ id: eligibleRow.profile_id, profile_id: eligibleRow.profile_id }];
+    }
+
+    if (query.includes("set status = 'cancelled'") && query.includes("returning invitation.id::text")) {
+      if (factsPresent && advertisingBlocked === true) {
+        state.status = "cancelled";
+        state.dispatchToken = null;
+        return [{ id: invitationId }];
+      }
+      return [];
+    }
+
+    if (query.includes("invitation.status") && query.includes("from marketplace_quote_invitations invitation")) {
+      return state.status === "none" ? [] : [{
+        status: state.status,
+        dispatch_token: state.dispatchToken,
+        recipient_suppressed: false,
+        has_current_authority: factsPresent && advertisingBlocked === false,
+      }];
     }
 
     if (query.includes("provider_message_id =") && query.includes("invitation.status = 'pending'")) {
@@ -144,7 +176,12 @@ function createSql({
     return [];
   });
 
-  return { sql, state };
+  const transactionalSql = sql as typeof sql & {
+    transaction: (callback: (txn: typeof sql) => Promise<unknown[]>[]) => Promise<unknown[][]>;
+  };
+  transactionalSql.transaction = vi.fn(async (callback) => Promise.all(callback(sql)));
+
+  return { sql: transactionalSql, state };
 }
 
 async function expectDispatchBlocked(options: FixtureOptions) {
@@ -153,9 +190,10 @@ async function expectDispatchBlocked(options: FixtureOptions) {
 
   const result = await sendMarketplaceGuestQuoteInvitation(invitationInput());
 
-  expect(result).toEqual({ ok: false, code: "conflict" });
+  expect(result).toEqual({ ok: false, code: "profile_ineligible" });
   expect(mocks.sendInvitationEmail).not.toHaveBeenCalled();
-  expect(state.status).toBe("delivery_failed");
+  const permanentlyBlocked = options.factsPresent !== false && options.advertisingBlocked === true;
+  expect(state.status).toBe(permanentlyBlocked ? "cancelled" : "delivery_failed");
   expect(state.dispatchToken).toBeNull();
 
   return sql;
@@ -195,6 +233,25 @@ describe("Marketplace advertising dispatch contract", () => {
     expect(leaseRelease).toContain("dispatch_token = null");
     expect(leaseRelease).toContain("invitation.status = 'sending'");
     expect(leaseRelease).toContain("invitation.dispatch_token =");
+  });
+
+  it("releases its sending lease when dispatch claiming loses eligibility while authority is still current", async () => {
+    const { sql, state } = createSql({
+      advertisingBlocked: false,
+      claimAllowed: false,
+    });
+    mocks.getSql.mockReturnValue(sql);
+
+    const result = await sendMarketplaceGuestQuoteInvitation(invitationInput());
+
+    expect(result).toEqual({ ok: false, code: "conflict" });
+    expect(mocks.sendInvitationEmail).not.toHaveBeenCalled();
+    expect(state.status).toBe("delivery_failed");
+    expect(state.dispatchToken).toBeNull();
+    expect(sql.mock.calls.map((call) => queryText(call)).some(
+      (query) => query.includes("set status = 'delivery_failed'")
+        && query.includes("invitation.dispatch_token ="),
+    )).toBe(true);
   });
 
   it("delivers when advertising permission is explicitly false", async () => {

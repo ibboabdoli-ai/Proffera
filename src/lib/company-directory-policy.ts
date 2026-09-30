@@ -65,7 +65,19 @@ const juridicalLegalForms = [
   "filial",
 ];
 
-const pilotLocations = new Set(["stockholm", "södertälje"]);
+export const DIRECTORY_PILOT_LOCATIONS = ["stockholm", "södertälje"] as const;
+
+// SCB's Kommun field is a municipality code. Keep both the canonical four-digit
+// form and numeric JSON fallbacks so old/raw enrichment rows cannot be
+// misclassified solely because a leading zero was lost in transport.
+export const DIRECTORY_PILOT_MUNICIPALITY_CODES = ["0180", "0181", "180", "181"] as const;
+export const DIRECTORY_PILOT_MUNICIPALITY_TOKENS = [
+  ...DIRECTORY_PILOT_LOCATIONS,
+  ...DIRECTORY_PILOT_MUNICIPALITY_CODES,
+] as const;
+
+const pilotLocations = new Set<string>(DIRECTORY_PILOT_LOCATIONS);
+const pilotMunicipalityTokens = new Set<string>(DIRECTORY_PILOT_MUNICIPALITY_TOKENS);
 
 function normalizeLocation(value: unknown) {
   return String(value ?? "").trim().toLocaleLowerCase("sv-SE");
@@ -94,7 +106,7 @@ function isPositiveRegistrationSignal(value: unknown) {
 
 export function isDirectoryPilotLocation(candidate: Pick<NormalizedDirectoryCandidate, "city" | "municipality">) {
   return pilotLocations.has(normalizeLocation(candidate.city))
-    || pilotLocations.has(normalizeLocation(candidate.municipality));
+    || pilotMunicipalityTokens.has(normalizeLocation(candidate.municipality));
 }
 
 export function normalizeSniCode(value: unknown) {
@@ -211,12 +223,13 @@ export function assessDirectoryCandidate(candidate: NormalizedDirectoryCandidate
   else reasons.push("tax_status_not_confirmed");
 
   const privacyBlocked = candidate.organizationKind !== "juridical_person";
+  // Pilot geography is authorized later from canonical SCB physical-workplace
+  // evidence. Keep this flag limited to non-location publication eligibility so
+  // a registered/profile address outside the pilot cannot veto a safe workplace.
   const autoPublicEligible = candidate.isActive
     && !privacyBlocked
     && Boolean(category)
-    && primarySniVerified
-    && Boolean(candidate.city.trim())
-    && pilotLocation;
+    && primarySniVerified;
 
   let publicationStatus: DirectoryQualityAssessment["publicationStatus"] = "review";
   if (!candidate.isActive) publicationStatus = "inactive";

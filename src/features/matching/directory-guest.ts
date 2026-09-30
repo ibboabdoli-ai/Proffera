@@ -1,6 +1,10 @@
 import "server-only";
 
 import { businessEmailDomainKind, validBusinessEmail } from "@/lib/company-directory-claim-email";
+import {
+  DIRECTORY_PILOT_LOCATIONS,
+  DIRECTORY_PILOT_MUNICIPALITY_TOKENS,
+} from "@/lib/company-directory-policy";
 import { isVerifiedDirectoryMarketplaceLocation } from "@/lib/company-directory-marketplace-readiness";
 import {
   classifyCompanyDirectoryGeoCoverage,
@@ -10,6 +14,9 @@ import {
 import { parseDirectoryCoordinates } from "@/lib/company-directory-distance";
 import { getSql } from "@/lib/db/server";
 import { serviceCategoryForQuoteCategory } from "@/lib/service-catalog";
+
+const PILOT_LOCATION_CSV = DIRECTORY_PILOT_LOCATIONS.join(",");
+const PILOT_MUNICIPALITY_CSV = DIRECTORY_PILOT_MUNICIPALITY_TOKENS.join(",");
 
 type GuestLead = {
   id: string;
@@ -415,26 +422,78 @@ export async function getDirectoryGuestLeadMatches() {
           profile.id::text as profile_id,
           profile.public_slug,
           profile.display_name,
-          profile.city,
-          profile.municipality,
+          case
+            when jsonb_typeof(scb.workplaces) = 'array'
+              and jsonb_array_length(scb.workplaces) = 1
+            then scb.workplaces->0->'visitingAddress'->>'city'
+            else null
+          end as city,
+          case
+            when jsonb_typeof(scb.workplaces) = 'array'
+              and jsonb_array_length(scb.workplaces) = 1
+            then scb.workplaces->0->>'municipality'
+            else null
+          end as municipality,
           profile.category_slug,
           profile.quality_score,
           relation.service_slug,
           service.label as service_name,
           category.label as service_category,
-          location.latitude::float8 as latitude,
-          location.longitude::float8 as longitude,
+          case
+            when location.geocoded_at is not null
+              and location.geocoded_at >= coalesce(
+                nullif(scb.provenance #>> '{workplaceChangedAt}', '')::timestamptz,
+                scb.last_synced_at
+              )
+            then location.latitude::float8
+            else null
+          end as latitude,
+          case
+            when location.geocoded_at is not null
+              and location.geocoded_at >= coalesce(
+                nullif(scb.provenance #>> '{workplaceChangedAt}', '')::timestamptz,
+                scb.last_synced_at
+              )
+            then location.longitude::float8
+            else null
+          end as longitude,
           location.geocode_source,
           location.geocode_precision,
           location.geocode_confidence,
-          location.geocoded_at::text as geocoded_at,
+          case
+            when location.geocoded_at is not null
+              and location.geocoded_at >= coalesce(
+                nullif(scb.provenance #>> '{workplaceChangedAt}', '')::timestamptz,
+                scb.last_synced_at
+              )
+            then location.geocoded_at::text
+            else null
+          end as geocoded_at,
           location.is_public as location_is_public,
           service_area.radius_km::float8 as service_area_radius_km,
           scb.email as recipient_email,
           scb.conflicts as scb_conflicts,
           row_number() over (
             partition by profile.category_slug,
-              coalesce(nullif(lower(btrim(profile.city)), ''), nullif(lower(btrim(profile.municipality)), ''), '__unknown__'),
+              coalesce(
+                nullif(lower(btrim(
+                  case
+                    when jsonb_typeof(scb.workplaces) = 'array'
+                      and jsonb_array_length(scb.workplaces) = 1
+                    then scb.workplaces->0->'visitingAddress'->>'city'
+                    else null
+                  end
+                )), ''),
+                nullif(lower(btrim(
+                  case
+                    when jsonb_typeof(scb.workplaces) = 'array'
+                      and jsonb_array_length(scb.workplaces) = 1
+                    then scb.workplaces->0->>'municipality'
+                    else null
+                  end
+                )), ''),
+                '__unknown__'
+              ),
               relation.service_slug
             order by profile.quality_score desc, profile.display_name asc, profile.id asc
           ) as locality_service_rank
@@ -452,7 +511,9 @@ export async function getDirectoryGuestLeadMatches() {
         left join company_directory_business_locations location
           on location.profile_id = profile.id
          and location.is_public = true
-        left join company_directory_scb_enrichment scb
+        join company_directory_official_facts facts
+          on facts.profile_id = profile.id
+        join company_directory_scb_enrichment scb
           on scb.profile_id = profile.id
         left join lateral (
           select area.radius_km
@@ -471,18 +532,58 @@ export async function getDirectoryGuestLeadMatches() {
           and profile.organization_kind = 'juridical_person'
           and profile.is_active = true
           and profile.privacy_blocked = false
+          and facts.source_payload_hash <> ''
+          and facts.last_synced_at >= profile.last_synced_at
+          and facts.deregistration_date is null
+          and facts.advertising_blocked is false
+          and (
+            case
+              when jsonb_typeof(facts.ongoing_procedures) = 'array'
+                then jsonb_array_length(facts.ongoing_procedures)
+              else 1
+            end
+          ) = 0
+          and scb.source_payload_hash <> ''
+          and scb.last_synced_at >= now() - interval '7 days'
+          and scb.last_synced_at >= profile.last_synced_at
+          and scb.provenance #>> '{comparisonSnapshot,profileUpdatedToken}' = profile.updated_at::text
+          and scb.provenance #>> '{comparisonSnapshot,officialFactsLastSyncedToken}' = facts.last_synced_at::text
+          and jsonb_typeof(scb.conflicts) = 'array'
+          and jsonb_array_length(scb.conflicts) = 0
+          and jsonb_typeof(scb.workplaces) = 'array'
+          and jsonb_array_length(scb.workplaces) = 1
+          and nullif(btrim(scb.workplaces->0->'visitingAddress'->>'addressLine'), '') is not null
+          and nullif(btrim(scb.workplaces->0->'visitingAddress'->>'postalCode'), '') is not null
+          and nullif(btrim(scb.workplaces->0->'visitingAddress'->>'city'), '') is not null
+          and nullif(btrim(scb.workplaces->0->>'municipality'), '') is not null
+          and (
+            translate(lower(btrim(scb.workplaces->0->'visitingAddress'->>'city')), 'ÅÄÖ', 'åäö') = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
+            or translate(lower(btrim(scb.workplaces->0->>'municipality')), 'ÅÄÖ', 'åäö') = any(string_to_array(${PILOT_MUNICIPALITY_CSV}, ','))
+          )
           and (
             exists (
               select 1
               from required_localities locality
-              where lower(btrim(profile.city)) = locality.locality
-                 or lower(btrim(profile.municipality)) = locality.locality
+              where (
+                jsonb_typeof(scb.workplaces) = 'array'
+                and jsonb_array_length(scb.workplaces) = 1
+                and (
+                  translate(lower(btrim(scb.workplaces->0->'visitingAddress'->>'city')), 'ÅÄÖ', 'åäö') = locality.locality
+                  or translate(lower(btrim(scb.workplaces->0->>'municipality')), 'ÅÄÖ', 'åäö') = locality.locality
+                )
+              )
             )
             or exists (
               select 1
               from required_points origin
               where location.latitude is not null
                 and location.longitude is not null
+                and location.geocoded_at is not null
+                and scb.last_synced_at is not null
+                and location.geocoded_at >= coalesce(
+                  nullif(scb.provenance #>> '{workplaceChangedAt}', '')::timestamptz,
+                  scb.last_synced_at
+                )
                 and 6371 * 2 * asin(
                   sqrt(
                     least(
