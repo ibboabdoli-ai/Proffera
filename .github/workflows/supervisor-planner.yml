@@ -326,7 +326,7 @@ jobs:
       actions: read
       contents: read
       issues: write
-      pull-requests: read
+      pull-requests: write
     if: needs.plan.outputs.dispatch == 'yes'
     uses: ./.github/workflows/supervisor-worker-handoff.yml
     with:

@@ -1,10 +1,16 @@
 import { createHash } from "node:crypto";
+import { createRequire } from "node:module";
 import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { delimiter, join, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
 import { describe, expect, it } from "vitest";
 import { workflowJobPermissions } from "./github-workflow-yaml";
+
+const require = createRequire(import.meta.url);
+const { load: parseYaml } = require("js-yaml") as {
+  load: (source: string) => { permissions: unknown; jobs: Record<string, unknown> };
+};
 
 const root = process.cwd();
 const source = (path: string) => readFileSync(resolve(root, path), "utf8");
@@ -554,6 +560,69 @@ describe("Supervisor control-plane v2", () => {
     expect(helper).toContain("activeWorkerIds.size >= 2");
     expect(helper).toContain('"writable_worker_limit"');
     expect(helper).toContain('if (units >= 2) return ownershipRefusal("capacity_blocked"');
+  });
+
+  describe("planner reusable-workflow permission ceiling", () => {
+    const plannerSource = () => source(".github/workflows/supervisor-planner.yml");
+    const handoffSource = () => source(".github/workflows/supervisor-worker-handoff.yml");
+    const readOnlyPermissions = {
+      actions: "read",
+      contents: "read",
+      issues: "read",
+      "pull-requests": "read",
+    };
+
+    function permissionLevel(value: unknown) {
+      switch (value) {
+        case undefined:
+        case "none": return 0;
+        case "read": return 1;
+        case "write": return 2;
+        default: throw new Error("Unexpected workflow permission level: " + String(value));
+      }
+    }
+
+    function expectCompatiblePermissions(caller: Record<string, unknown>, callee: string) {
+      const required: Record<string, number> = {};
+      // Every handoff job declares its own permissions. Include conditional jobs:
+      // GitHub validates their ceilings even when their if condition will be false.
+      const jobs = Object.keys(parseYaml(callee).jobs);
+      expect(jobs.length).toBeGreaterThan(0);
+      for (const job of jobs) {
+        for (const [permission, level] of Object.entries(workflowJobPermissions(callee, job))) {
+          required[permission] = Math.max(required[permission] ?? 0, permissionLevel(level));
+        }
+      }
+      for (const [permission, level] of Object.entries(required)) {
+        expect(permissionLevel(caller[permission]), "Insufficient reusable caller permission: " + permission)
+          .toBeGreaterThanOrEqual(level);
+      }
+    }
+
+    it("satisfies the maximum permissions requested by every reusable handoff job", () => {
+      expectCompatiblePermissions(workflowJobPermissions(plannerSource(), "dispatch"), handoffSource());
+    });
+
+    it("rejects the historical pull-requests read ceiling", () => {
+      const insufficient = {
+        ...workflowJobPermissions(plannerSource(), "dispatch"),
+        "pull-requests": "read",
+      };
+      expect(() => expectCompatiblePermissions(insufficient, handoffSource()))
+        .toThrow("Insufficient reusable caller permission: pull-requests");
+    });
+
+    it("confines the permission increase to the caller and preserves workflow defaults", () => {
+      const planner = plannerSource();
+      expect(workflowJobPermissions(planner, "plan")).toStrictEqual(readOnlyPermissions);
+      expect(parseYaml(planner).permissions).toStrictEqual(readOnlyPermissions);
+      expect(parseYaml(handoffSource()).permissions).toStrictEqual({});
+      expect(workflowJobPermissions(planner, "dispatch")).toStrictEqual({
+        ...readOnlyPermissions,
+        issues: "write",
+        "pull-requests": "write",
+      });
+    });
   });
 
   it("keeps autonomous planning behind two kill switches and internal deterministic admission", () => {
