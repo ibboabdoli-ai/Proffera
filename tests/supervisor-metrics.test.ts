@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 // JavaScript control-plane scripts are exercised directly, as in existing tests.
 // @ts-expect-error Standalone Node .mjs has no declaration file.
-import { aggregateMetrics, collectEvidence, classifyAttempt } from "../scripts/supervisor-metrics.mjs";
+import { aggregateMetrics, collectEvidence, classifyAttempt, githubRead } from "../scripts/supervisor-metrics.mjs";
 
 const head = "81fecf4a9c5133064afdaead680c18e4689dc734";
 const paths = {planner: ".github/workflows/supervisor-planner.yml", ci: ".github/workflows/ci.yml",
@@ -343,4 +343,41 @@ describe("read-only bounded evidence acquisition", () => {
     expect(result.runs[0].attempts[0].jobs_complete).toBe(false);
     expect(result.collection_errors).toContain("1:1:jobs_partial");
   });
+  it.each([false, true])("supports raw logs with gh escape flag availability=%s", (supportsFlag) => {
+    const calls: string[][] = [];
+    const execute = (file: string, args: string[]) => {
+      expect(file).toBe("gh");
+      calls.push(args);
+      if (args.includes("--help")) return supportsFlag ? "FLAGS --allow-escape-sequences" : "FLAGS --method";
+      expect(args.slice(0, 5)).toEqual(["api", "--hostname", "github.com", "--method", "GET"]);
+      expect(args.includes("--allow-escape-sequences")).toBe(supportsFlag);
+      return "runtime log";
+    };
+    const endpoint = "repos/ibboabdoli-ai/Proffera/actions/jobs/1/logs";
+    expect(githubRead(endpoint, true, execute)).toBe("runtime log");
+    expect(githubRead(endpoint, true, execute)).toBe("runtime log");
+    expect(calls.filter((args) => args.includes("--help"))).toHaveLength(1);
+    expect(calls).toHaveLength(3);
+  });
+
+  it("collects stale-head evidence from the AI review route without fetching unrelated logs", () => {
+    const calls: string[] = [];
+    const r = run(1, 1, "ci", {conclusion: "failure"});
+    const jobs = [job(1, "AI review route", 1, 10, {conclusion: "failure"}), job(2, "Build")];
+    const read = (endpoint: string, raw = false) => {
+      calls.push(endpoint);
+      if (raw) {
+        expect(endpoint).toBe("repos/ibboabdoli-ai/Proffera/actions/jobs/1/logs");
+        return at(5) + " Refused: CI head abc is stale; current PR head is def.";
+      }
+      if (endpoint.endsWith("/runs/1") || endpoint.endsWith("/attempts/1")) return r;
+      return {total_count: jobs.length, jobs};
+    };
+    const result = aggregateMetrics(collectEvidence({runIds: [1], logs: true}, read));
+    expect(result.stale_head_incidents.observed_attempts).toBe(1);
+    expect(result.failure_categories.stale_evidence).toBe(1);
+    expect(result.failure_categories.review_blocked).toBe(0);
+    expect(calls.filter((endpoint) => endpoint.endsWith("/logs"))).toHaveLength(1);
+  });
+
 });

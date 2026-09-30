@@ -344,8 +344,17 @@ export function aggregateMetrics(evidence) {
 
 // Fixed GET-only adapter. No shared orchestration helper is imported: its CLI
 // includes mutation capabilities, while this module only needs bounded reads.
-export function githubRead(endpoint, raw = false) {
-  const text = execFileSync("gh", ["api", "--hostname", "github.com", "--method", "GET", ...(raw ? ["--allow-escape-sequences"] : []), endpoint],
+const rawLogFlags = new WeakMap();
+export function githubRead(endpoint, raw = false, execute = execFileSync) {
+  // Newer gh refuses logs containing ANSI sequences unless explicitly allowed;
+  // older gh accepts them but rejects that flag. Probe local help once per adapter,
+  // not the network, and never retry a failed API read.
+  if (raw && !rawLogFlags.has(execute)) {
+    const help = execute("gh", ["api", "--help"], {encoding: "utf8", timeout: 10000,
+      maxBuffer: 1024 * 1024, stdio: ["ignore", "pipe", "pipe"]});
+    rawLogFlags.set(execute, String(help).includes("--allow-escape-sequences") ? ["--allow-escape-sequences"] : []);
+  }
+  const text = execute("gh", ["api", "--hostname", "github.com", "--method", "GET", ...(raw ? rawLogFlags.get(execute) : []), endpoint],
     {encoding: "utf8", maxBuffer: 16 * 1024 * 1024, timeout: 60000, stdio: ["ignore", "pipe", "pipe"]});
   return raw ? text : JSON.parse(text);
 }
@@ -382,7 +391,7 @@ export function collectEvidence({repository = "ibboabdoli-ai/Proffera", runIds, 
           if (!attempt.jobs_complete) evidence.collection_errors.push(id + ":" + n + ":jobs_partial");
           if (logs) for (const job of attempt.jobs.jobs) {
             if (!integer(job?.id) || !executedJob(job) || time(job.started_at) < time(attemptRun.run_started_at)
-              || !(named(job, GATE) || MODEL_JOBS.repair.some((name) => named(job, name)))) continue;
+              || !(named(job, GATE) || named(job, "AI review route") || MODEL_JOBS.repair.some((name) => named(job, name)))) continue;
             try { attempt.logs[job.id] = read(base + "/jobs/" + job.id + "/logs", true); }
             catch { evidence.collection_errors.push(id + ":" + n + ":" + job.id + ":log_unavailable"); }
           }
