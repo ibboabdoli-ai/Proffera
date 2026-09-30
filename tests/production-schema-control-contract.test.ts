@@ -103,10 +103,17 @@ describe("Production schema control plane", () => {
     expect(migration).not.toMatch(/\bdelete\s+from\b/);
   });
 
-  it("forces every migration from the schema-control baseline forward into the health contract", () => {
+  it("accounts for every migration while keeping unapplied 0071 outside the Production health contract", () => {
     const migrationKeys = controlledMigrations().map((item) => item.key);
+    const requiredMigrationKeys = [...REQUIRED_PRODUCTION_MIGRATIONS].sort();
+    const latestRequiredMigration = requiredMigrationKeys.at(-1) ?? "";
 
-    expect([...REQUIRED_PRODUCTION_MIGRATIONS].sort()).toEqual(migrationKeys);
+    expect(requiredMigrationKeys).toEqual(
+      migrationKeys.filter((migrationKey) => migrationKey <= latestRequiredMigration),
+    );
+    expect(migrationKeys.filter((migrationKey) => migrationKey > latestRequiredMigration)).toEqual([
+      "20260929_0071",
+    ]);
   });
 
   it("requires every post-ledger migration to record its own durable ledger entry", () => {
