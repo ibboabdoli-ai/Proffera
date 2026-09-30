@@ -297,7 +297,7 @@ async function selectCandidates(limit: number, cursorValue: string) {
             end
           ) > 0
             )
-            and greatest(facts.last_synced_at, profile.updated_at) < now() - interval '24 hours'
+            and greatest(facts.last_synced_at, facts.updated_at, profile.updated_at) < now() - interval '24 hours'
             and not exists (
               select 1
               from company_directory_discovery_queue queue
@@ -454,7 +454,7 @@ async function backlogCount() {
             end
           ) > 0
           )
-          and greatest(facts.last_synced_at, profile.updated_at) < now() - interval '24 hours'
+          and greatest(facts.last_synced_at, facts.updated_at, profile.updated_at) < now() - interval '24 hours'
           and not exists (
             select 1
             from company_directory_discovery_queue queue
