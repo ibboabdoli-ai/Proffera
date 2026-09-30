@@ -310,7 +310,7 @@ describe("full Directory revalidation hard-block and deterministic SCB handling"
     for (const call of [selection, backlog]) {
       expect(call?.query).toContain("profile.publication_status = 'review'");
       expect(call?.query).toContain("ongoing_procedures");
-      expect(call?.query).toContain("greatest(facts.last_synced_at, profile.updated_at)");
+      expect(call?.query).toContain("greatest(facts.last_synced_at, facts.updated_at, profile.updated_at)");
       expect(call?.query).toContain("revalidationFailure");
       expect(call?.query).toContain("profileUpdatedToken");
       expect(call?.query).toContain("officialFactsLastSyncedToken");
