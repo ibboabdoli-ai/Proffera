@@ -9,7 +9,6 @@ export const REQUIRED_PRODUCTION_MIGRATIONS = [
   "20260919_0068",
   "20260919_0069",
   "20260927_0070",
-  "20260929_0071",
 ] as const;
 
 type QueryExecutor = (
