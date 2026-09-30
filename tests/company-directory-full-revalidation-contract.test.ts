@@ -652,4 +652,28 @@ describe("full Company Directory revalidation", () => {
       errors: 0,
     });
   });
+  it("uses facts.updated_at as the hard-blocked Review attempt backoff in selection and backlog", async () => {
+    responder = async (query) => {
+      if (query.includes("started_at < now() - interval '10 minutes'")) return [];
+      if (query.includes("insert into company_directory_sync_runs")) return [{ id: RUN_ID }];
+      if (query.includes("select profile.id::text, profile.organization_number, profile.display_name, profile.publication_status")) {
+        expect(query).toContain("greatest(facts.last_synced_at, facts.updated_at, profile.updated_at) < now() - interval '24 hours'");
+        return [];
+      }
+      if (query.includes("update company_directory_sync_runs") && query.includes("where id =")) return [];
+      if (query.includes("select count(*)::int as count")) {
+        expect(query).toContain("greatest(facts.last_synced_at, facts.updated_at, profile.updated_at) < now() - interval '24 hours'");
+        return [{ count: 0 }];
+      }
+      throw new Error(`Unexpected SQL in hard-block attempt-backoff test: ${query}`);
+    };
+
+    await expect(revalidateAllCompanyDirectoryBatch(10)).resolves.toMatchObject({
+      selected: 0,
+      remaining: 0,
+      errors: 0,
+    });
+  });
+
+
 });
