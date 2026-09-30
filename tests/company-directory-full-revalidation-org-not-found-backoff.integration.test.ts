@@ -102,11 +102,12 @@ function postgresSql(client: Client) {
         insert into company_directory_official_facts (
           profile_id, source_payload_hash, last_synced_at,
           registered_names, sni_codes, deregistration_date,
-          advertising_blocked, ongoing_procedures
+          advertising_blocked, ongoing_procedures, updated_at
         ) values (
           $1::uuid, 'verified-hard-block', now() - interval '2 days',
           '[]'::jsonb, '[]'::jsonb, null,
-          false, '[{"code":"FUOL","label":"Överlåtande i fusion","fromDate":"2026-08-01"}]'::jsonb
+          false, '[{"code":"FUOL","label":"Överlåtande i fusion","fromDate":"2026-08-01"}]'::jsonb,
+          now() - interval '2 days'
         )
       `, [PROFILE_ID]);
 
@@ -199,7 +200,8 @@ function postgresSql(client: Client) {
           sni_codes jsonb not null default '[]'::jsonb,
           deregistration_date timestamptz,
           advertising_blocked boolean not null default false,
-          ongoing_procedures jsonb not null default '[]'::jsonb
+          ongoing_procedures jsonb not null default '[]'::jsonb,
+          updated_at timestamptz not null default now()
         );
         create table company_directory_scb_enrichment (
           profile_id uuid primary key,
