@@ -208,8 +208,7 @@ function postgresSql(client: Client) {
         if (kind === "official_facts") {
           await blocker.query(`
             update company_directory_official_facts
-            set advertising_blocked = true,
-                last_synced_at = now()
+            set advertising_blocked = true
             where profile_id = $1::uuid
           `, [PROFILE_ID]);
         } else {
