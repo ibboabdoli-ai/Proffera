@@ -232,7 +232,8 @@ function postgresSql(client: Client) {
           sni_codes jsonb not null default '[]'::jsonb,
           deregistration_date date,
           advertising_blocked boolean not null default false,
-          ongoing_procedures jsonb not null default '[]'::jsonb
+          ongoing_procedures jsonb not null default '[]'::jsonb,
+          updated_at timestamptz not null default now()
         );
         create table company_directory_scb_enrichment (
           profile_id uuid primary key,
