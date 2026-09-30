@@ -78,6 +78,63 @@ export async function getMarketplaceGuestQuoteView(token: string): Promise<Marke
       ) as has_current_authority,
       exists (
         select 1
+        from company_directory_profiles authority_profile
+        left join company_directory_official_facts authority_facts
+          on authority_facts.profile_id = authority_profile.id
+        left join company_directory_scb_enrichment authority_scb
+          on authority_scb.profile_id = authority_profile.id
+        where authority_profile.id = p.id
+          and (
+            authority_profile.publication_status is distinct from 'published'
+            or authority_profile.is_active is not true
+            or authority_profile.privacy_blocked is true
+            or authority_profile.organization_kind is distinct from 'juridical_person'
+            or authority_profile.claimed_workspace_id is not null
+            or (
+              authority_facts.source_payload_hash <> ''
+              and authority_facts.last_synced_at >= authority_profile.last_synced_at
+              and (
+                authority_facts.deregistration_date is not null
+                or authority_facts.advertising_blocked is true
+                or (
+                  jsonb_typeof(authority_facts.ongoing_procedures) = 'array'
+                  and jsonb_array_length(authority_facts.ongoing_procedures) > 0
+                )
+              )
+            )
+            or (
+              authority_facts.source_payload_hash <> ''
+              and authority_facts.last_synced_at >= authority_profile.last_synced_at
+              and authority_scb.source_payload_hash <> ''
+              and authority_scb.last_synced_at >= now() - interval '7 days'
+              and authority_scb.last_synced_at >= authority_profile.last_synced_at
+              and authority_scb.provenance #>> '{comparisonSnapshot,profileUpdatedToken}' = authority_profile.updated_at::text
+              and authority_scb.provenance #>> '{comparisonSnapshot,officialFactsLastSyncedToken}' = authority_facts.last_synced_at::text
+              and (
+                (
+                  jsonb_typeof(authority_scb.conflicts) = 'array'
+                  and jsonb_array_length(authority_scb.conflicts) > 0
+                )
+                or (
+                  jsonb_typeof(authority_scb.conflicts) = 'array'
+                  and jsonb_array_length(authority_scb.conflicts) = 0
+                  and jsonb_typeof(authority_scb.workplaces) = 'array'
+                  and jsonb_array_length(authority_scb.workplaces) = 1
+                  and nullif(btrim(authority_scb.workplaces->0->'visitingAddress'->>'addressLine'), '') is not null
+                  and nullif(btrim(authority_scb.workplaces->0->'visitingAddress'->>'postalCode'), '') is not null
+                  and nullif(btrim(authority_scb.workplaces->0->'visitingAddress'->>'city'), '') is not null
+                  and nullif(btrim(authority_scb.workplaces->0->>'municipality'), '') is not null
+                  and not (
+                    translate(lower(btrim(authority_scb.workplaces->0->'visitingAddress'->>'city')), 'ÅÄÖ', 'åäö') = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
+                    or translate(lower(btrim(authority_scb.workplaces->0->>'municipality')), 'ÅÄÖ', 'åäö') = any(string_to_array(${PILOT_MUNICIPALITY_CSV}, ','))
+                  )
+                )
+              )
+            )
+          )
+      ) as has_hard_block,
+      exists (
+        select 1
         from marketplace_outreach_suppressions suppression
         where suppression.email_normalized = lower(btrim(i.recipient_email))
       ) as recipient_suppressed,
@@ -115,6 +172,7 @@ export async function getMarketplaceGuestQuoteView(token: string): Promise<Marke
 
   if (AUTHORITY_GUARDED_INVITATION_STATUSES.has(String(row.status))
       && !Boolean(row.has_current_authority)) {
+    if (!Boolean(row.has_hard_block)) return null;
     const [, , , cancelledRows] = await sql.transaction((txn) => [
       txn`
         select profile.id

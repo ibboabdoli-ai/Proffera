@@ -51,6 +51,7 @@ function guestRow(overrides: Record<string, unknown> = {}) {
     quote_status: "submitted",
     offer_status: null,
     has_current_authority: true,
+    has_hard_block: false,
     display_name: "Rör AB",
     public_slug: "ror-ab",
     reference_id: "PF-1234",
@@ -97,9 +98,28 @@ describe("marketplace guest human-view tracking", () => {
     expect(sql.mock.calls.some((call) => queryText(call).includes("set status = 'viewed'"))).toBe(false);
   });
 
+  it.each(["stale SCB data", "snapshot-token mismatch", "unknown advertising status"])(
+    "fails closed without reconciliation locks for temporary authority uncertainty: %s",
+    async () => {
+      const sql = transactionalSqlResponses([
+        guestRow({ has_current_authority: false, has_hard_block: false }),
+      ]);
+      mocks.getSql.mockReturnValue(sql);
+
+      await expect(getMarketplaceGuestQuoteView("a".repeat(40))).resolves.toBeNull();
+
+      expect(sql.transaction).not.toHaveBeenCalled();
+      expect(sql).toHaveBeenCalledTimes(1);
+      const lookup = queryText(sql.mock.calls[0]);
+      expect(lookup).toContain("as has_hard_block");
+      expect(lookup).toContain("authority_facts.advertising_blocked is true");
+      expect(lookup).toContain("and not (");
+    },
+  );
+
   it("revokes an active guest link only when a hard authority block is confirmed", async () => {
     const sql = transactionalSqlResponses(
-      [guestRow({ has_current_authority: false })],
+      [guestRow({ has_current_authority: false, has_hard_block: true })],
       [],
       [],
       [],
@@ -125,7 +145,7 @@ describe("marketplace guest human-view tracking", () => {
 
   it("keeps the human guest view when authority is restored before locked cancellation", async () => {
     const sql = transactionalSqlResponses(
-      [guestRow({ has_current_authority: false })],
+      [guestRow({ has_current_authority: false, has_hard_block: true })],
       [],
       [],
       [],
@@ -153,7 +173,7 @@ describe("marketplace guest human-view tracking", () => {
 
   it("does not render an old guest token after a concurrent resend rotated token ownership", async () => {
     const sql = transactionalSqlResponses(
-      [guestRow({ status: "delivery_failed", has_current_authority: false })],
+      [guestRow({ status: "delivery_failed", has_current_authority: false, has_hard_block: true })],
       [],
       [],
       [],
@@ -175,7 +195,7 @@ describe("marketplace guest human-view tracking", () => {
 
   it("does not render a stale guest view when invitation state changed during authority reconciliation", async () => {
     const sql = transactionalSqlResponses(
-      [guestRow({ has_current_authority: false })],
+      [guestRow({ has_current_authority: false, has_hard_block: true })],
       [],
       [],
       [],

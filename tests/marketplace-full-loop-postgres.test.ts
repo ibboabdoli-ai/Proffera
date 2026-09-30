@@ -590,6 +590,14 @@ if (RUN_POSTGRES_INTEGRATION) {
           ),
         },
         {
+          suffix: "stale-scb",
+          token: "s".repeat(40),
+          mutate: () => client.query(
+            "update company_directory_scb_enrichment set last_synced_at = now() - interval '8 days' where profile_id = $1",
+            [profileId],
+          ),
+        },
+        {
           suffix: "profile-token",
           token: "p".repeat(40),
           mutate: () => client.query(

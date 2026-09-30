@@ -467,6 +467,7 @@ describe("marketplace guest quote safety contract", () => {
         quote_status: "submitted",
         price_kind: null,
         has_current_authority: false,
+        has_hard_block: true,
       }],
       [],
       [],
@@ -510,6 +511,7 @@ describe("marketplace guest quote safety contract", () => {
         quote_status: "submitted",
         price_kind: null,
         has_current_authority: false,
+        has_hard_block: true,
       }],
       [],
       [],
@@ -525,6 +527,26 @@ describe("marketplace guest quote safety contract", () => {
     expect(queryText(sql.mock.calls[5])).toContain("recipient_suppressed");
   });
 
+  it("core guest view skips reconciliation locks for temporary authority uncertainty", async () => {
+    const sql = sqlResponses([{
+      invitation_id: "44444444-4444-4444-8444-444444444444",
+      status: "sent",
+      expires_at: "2099-01-01T00:00:00.000Z",
+      recipient_suppressed: false,
+      has_current_authority: false,
+      has_hard_block: false,
+    }]);
+    mocks.getSql.mockReturnValue(sql);
+
+    await expect(getMarketplaceGuestQuoteView("a".repeat(40))).resolves.toBeNull();
+
+    expect(sql.transaction).not.toHaveBeenCalled();
+    expect(sql).toHaveBeenCalledTimes(1);
+    const lookup = queryText(sql.mock.calls[0]);
+    expect(lookup).toContain("as has_hard_block");
+    expect(lookup).toContain("authority_facts.advertising_blocked is true");
+  });
+
   it("does not invite against a closed customer request", async () => {
     const sql = sqlResponses([{ ...eligibleRow, quote_status: "cancelled" }]);
     mocks.getSql.mockReturnValue(sql);
@@ -534,6 +556,31 @@ describe("marketplace guest quote safety contract", () => {
     expect(result).toEqual({ ok: false, code: "quote_closed" });
     expect(sql).toHaveBeenCalledTimes(1);
     expect(mocks.sendInvitationEmail).not.toHaveBeenCalled();
+  });
+
+  it("submit skips reconciliation locks for temporary authority uncertainty", async () => {
+    const sql = sqlResponses([{
+      invitation_id: "44444444-4444-4444-8444-444444444444",
+      status: "sent",
+      expires_at: "2099-01-01T00:00:00.000Z",
+      quote_status: "submitted",
+      has_current_authority: false,
+      has_hard_block: false,
+    }]);
+    mocks.getSql.mockReturnValue(sql);
+
+    const result = await submitMarketplaceGuestQuote({
+      token: "a".repeat(40),
+      priceKind: "estimate",
+      amountMinor: 100_00,
+      availableDate: null,
+      companyNote: "Test",
+    });
+
+    expect(result).toEqual({ ok: false, code: "closed" });
+    expect(sql.transaction).not.toHaveBeenCalled();
+    expect(sql).toHaveBeenCalledTimes(1);
+    expect(queryText(sql.mock.calls[0])).toContain("as has_hard_block");
   });
 
   it("revokes an active guest quote before offer submission only when a hard authority block is confirmed", async () => {
@@ -548,6 +595,7 @@ describe("marketplace guest quote safety contract", () => {
         expires_at: "2099-01-01T00:00:00.000Z",
         quote_status: "submitted",
         has_current_authority: false,
+        has_hard_block: true,
       }],
       [],
       [],
@@ -592,6 +640,7 @@ describe("marketplace guest quote safety contract", () => {
         expires_at: "2099-01-01T00:00:00.000Z",
         quote_status: "submitted",
         has_current_authority: false,
+        has_hard_block: true,
       }],
       [],
       [],
@@ -634,6 +683,7 @@ describe("marketplace guest quote safety contract", () => {
         expires_at: "2099-01-01T00:00:00.000Z",
         quote_status: "submitted",
         has_current_authority: false,
+        has_hard_block: true,
       }],
       [],
       [],
@@ -668,6 +718,7 @@ describe("marketplace guest quote safety contract", () => {
         expires_at: "2099-01-01T00:00:00.000Z",
         quote_status: "submitted",
         has_current_authority: false,
+        has_hard_block: true,
       }],
       [],
       [],
