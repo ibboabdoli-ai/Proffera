@@ -3,7 +3,10 @@ import { resolve } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
-import { DIRECTORY_PILOT_LOCATIONS } from "../src/lib/company-directory-policy";
+import {
+  DIRECTORY_PILOT_LOCATIONS,
+  DIRECTORY_PILOT_MUNICIPALITY_TOKENS,
+} from "../src/lib/company-directory-policy";
 
 function source(path: string) {
   return readFileSync(resolve(process.cwd(), path), "utf8").toLocaleLowerCase("sv-SE");
@@ -85,7 +88,7 @@ describe("company directory pilot database guard", () => {
     expect(sql).toContain("'0181'");
     expect(sql).toContain("facts.advertising_blocked is false");
     expect(sql).toContain("set auto_public_eligible = true");
-    expect(sql).not.toContain("set auto_public_eligible = true,\n    updated_at = now()");
+    expect(sql).not.toMatch(/set\s+auto_public_eligible\s*=\s*true\s*,\s*updated_at\s*=\s*now\(\)/u);
     expect(sql).not.toContain("set publication_status = 'published'");
     expect(sql).toContain("create or replace function company_directory_enforce_pilot_workplace_publication()");
     expect(sql).toContain("'20260929_0071'");
@@ -93,14 +96,23 @@ describe("company directory pilot database guard", () => {
   });
 
   it("keeps every database pilot-location list synchronized with the canonical policy", () => {
-    const sql = source("db/migrations/20260919_0068_company_directory_pilot_workplace_guard.sql");
-    const lists = [...sql.matchAll(/\bin\s*\(([^)]+)\)/gu)]
+    const literalInLists = (sql: string) => [...sql.matchAll(/\bin\s*\(([^)]+)\)/gu)]
       .map((match) => [...(match[1] ?? "").matchAll(/'([^']+)'/gu)].map((item) => item[1]))
       .filter((items) => items.length > 0);
 
-    expect(lists).toHaveLength(4);
-    for (const locations of lists) {
+    const legacyGuard = source("db/migrations/20260919_0068_company_directory_pilot_workplace_guard.sql");
+    const legacyLists = literalInLists(legacyGuard);
+    expect(legacyLists).toHaveLength(4);
+    for (const locations of legacyLists) {
       expect(locations).toEqual([...DIRECTORY_PILOT_LOCATIONS]);
     }
+
+    const activeGuard = source("db/migrations/20260929_0071_company_directory_pilot_location_normalization.sql");
+    expect(literalInLists(activeGuard)).toEqual([
+      [...DIRECTORY_PILOT_LOCATIONS],
+      [...DIRECTORY_PILOT_MUNICIPALITY_TOKENS],
+      [...DIRECTORY_PILOT_LOCATIONS],
+      [...DIRECTORY_PILOT_MUNICIPALITY_TOKENS],
+    ]);
   });
 });
