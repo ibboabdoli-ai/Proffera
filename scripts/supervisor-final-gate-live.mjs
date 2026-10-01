@@ -163,11 +163,12 @@ function fetchRecovery(input, execute, observedAt) {
 }
 function recoverAcceptedIntents(input, execute, now) {
   let all = comments(input.repository, execute);
-  const accepted = listFinalGateRetryIntents(memoryInput(input, all)).filter((intent) => intent.state === "ACCEPTED");
+  const accepted = listFinalGateRetryIntents(memoryInput(input, all))
+    .filter((intent) => ["ACCEPTED", "UNCERTAIN"].includes(intent.state));
   for (const candidate of accepted) {
     all = comments(input.repository, execute);
     const current = listFinalGateRetryIntents(memoryInput(input, all)).find((intent) => intent.id === candidate.id);
-    if (!current || current.state !== "ACCEPTED") continue;
+    if (!current || !["ACCEPTED", "UNCERTAIN"].includes(current.state)) continue;
     const result = recoverAcceptedFinalGateIntent({
       ...memoryInput(input, all),
       intent_id: current.id,
