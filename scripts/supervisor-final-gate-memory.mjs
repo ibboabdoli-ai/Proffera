@@ -25,7 +25,7 @@ function materialText(value) {
   return String(value ?? "")
     .replace(/\u001b\[[0-9;]*m/g, "")
     .replace(/https?:\/\/\S+/gi, "<url>")
-    .replace(/(Reviewed commit:\s*\*{0,2}\s*\x60?)[0-9a-f]{7,40}(\x60?)/gi, "$1<sha>$2")
+    .replace(/Reviewed commit:\s*\*{0,2}\s*`?[0-9a-f]{7,40}`?/gi, "Reviewed commit: <sha>")
     .replace(/(proffera-(?:coderabbit-final-review-request|codex-fallback-review-request):)[0-9a-f]{40}/gi, "$1<sha>")
     .replace(/\b[0-9a-f]{40}\b/gi, "<sha>")
     .replace(/\b\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d+)?Z\b/g, "<time>")
