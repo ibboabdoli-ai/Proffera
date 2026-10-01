@@ -346,6 +346,31 @@ describe("final-gate retry decisions", () => {
     expect(recovered.decision).toBe("RECOVERED_CONSUMED");
   });
 
+  it("recovers the immediate successor even when a later rerun attempt already exists", () => {
+    const first = prepare();
+    const accepted = acceptFinalGateRetry({
+      ...baseInput([bot(first.persistence.body)]),
+      intent_id: first.intent_id,
+      receipt: { http_status: 201, binding_digest: first.binding_digest, observed_at: at(5) },
+    });
+    const laterReruns = recovery(3);
+    laterReruns.jobs = [
+      target().job,
+      { ...target(2, 78).job, started_at: at(6), completed_at: at(7) },
+      { ...target(3, 79).job, started_at: at(8), completed_at: at(8) },
+    ];
+    laterReruns.observed_at = at(9);
+
+    const recovered = recoverAcceptedFinalGateIntent({
+      ...baseInput([bot(accepted.persistence.body)]),
+      intent_id: first.intent_id,
+      recovery_evidence: laterReruns,
+    });
+    expect(recovered.decision).toBe("RECOVERED_CONSUMED");
+    expect(recovered.persistence?.body).toContain('"state":"CONSUMED"');
+    expect(recovered.persistence?.body).toContain('"run_attempt":2');
+  });
+
   it("recovers a receipt-bearing UNCERTAIN intent once its exact successor becomes visible", () => {
     const first = prepare();
     const accepted = acceptFinalGateRetry({
