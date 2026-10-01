@@ -36,15 +36,28 @@ jobs:
     name: Wake final gate
     if: github.event_name == 'workflow_dispatch'
     concurrency:
-      group: proffera-final-gate-wakeup-${{ github.event.pull_request.number || github.event.issue.number || inputs.pr_number || github.run_id }}
-      cancel-in-progress: true
+      group: proffera-final-gate-memory-${{ inputs.pr_number }}
+      cancel-in-progress: false
     runs-on: ubuntu-latest
-    timeout-minutes: 3
+    timeout-minutes: 5
     permissions:
       actions: write
+      contents: read
+      issues: write
       pull-requests: read
 
     steps:
+      - name: Checkout trusted main helper
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: main
+          persist-credentials: false
+
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 22
+
       - name: Re-run only the exact-head final gate when review evidence changes
         env:
           GH_TOKEN: ${{ github.token }}
