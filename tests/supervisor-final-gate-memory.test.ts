@@ -130,8 +130,10 @@ describe("final-gate material evidence normalization", () => {
   it("classifies CodeRabbit clean and provider outage evidence separately", () => {
     const clean = normalizeFinalGateEvidence({ ...source(), actor: "coderabbitai[bot]", body: "Final exact-head review is complete for aaaaaaa. I found no issues." });
     const outage = normalizeFinalGateEvidence({ ...source(), actor: "coderabbitai[bot]", body: "Review rate limited. Try again later." });
+    const skipped = normalizeFinalGateEvidence({ ...source(), actor: "coderabbitai[bot]", body: "Review skipped because automated reviews are unavailable." });
     expect(clean.signals[0].code).toBe("coderabbit_clean");
     expect(outage).toMatchObject({ category: "provider_unavailable", provider_class: "rate_limited" });
+    expect(skipped).toMatchObject({ category: "provider_unavailable", provider_class: "unavailable" });
   });
 
   it("canonicalizes CodeRabbit invocation provenance without erasing the reviewed head", () => {
