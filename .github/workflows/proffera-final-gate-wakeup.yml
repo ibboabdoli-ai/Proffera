@@ -95,6 +95,7 @@ jobs:
             exit 0
           fi
 
+          EVENT_REVIEW_GENERATION_ID=""
           case "${INPUT_SOURCE_EVENT:-}" in
             issue_comment)
               source_json="$(gh api "repos/$REPOSITORY/issues/comments/$INPUT_SOURCE_ID")"
@@ -134,6 +135,7 @@ jobs:
               EVENT_REVIEW_STATE="$(jq -r '(.state // "") | ascii_downcase' <<< "$source_json")"
               EVENT_REVIEW_COMMIT="$source_commit"
               EVENT_REVIEW_BODY="$(jq -r '.body // ""' <<< "$source_json")"
+              EVENT_REVIEW_GENERATION_ID="$INPUT_SOURCE_ID"
               ;;
             *)
               echo "Unsupported final-gate source event."
@@ -246,6 +248,19 @@ jobs:
 
             reviews_json="$(gh api --paginate "repos/$REPOSITORY/pulls/$pr_number/reviews?per_page=100" --jq '.[]' | jq -s '.')"
             current_reviews="$(jq -c --arg sha "$head_sha" '[.[] | select(.user.login == "coderabbitai[bot]" and .commit_id == $sha)]' <<< "$reviews_json")"
+            coderabbit_review_generation_id="$(jq -r --arg request_time "$coderabbit_request_time" --arg result_time "$EVENT_EVIDENCE_TIME" '
+              [
+                .[]
+                | select(.state == "APPROVED" or .state == "COMMENTED")
+                | select((.submitted_at // "") >= $request_time and (.submitted_at // "") <= $result_time)
+              ]
+              | sort_by(.submitted_at, .id)
+              | last
+              | .id // empty
+            ' <<< "$current_reviews")"
+            if [[ "$coderabbit_review_generation_id" =~ ^[1-9][0-9]*$ ]]; then
+              EVENT_REVIEW_GENERATION_ID="$coderabbit_review_generation_id"
+            fi
             latest_changes="$(jq -r '[.[] | select(.state == "CHANGES_REQUESTED") | .submitted_at] | max // empty' <<< "$current_reviews")"
             latest_approval="$(jq -r '[.[] | select(.state == "APPROVED") | .submitted_at] | max // empty' <<< "$current_reviews")"
             if [ -n "$latest_changes" ] && { [ -z "$latest_approval" ] || [[ ! "$latest_approval" > "$latest_changes" ]]; }; then
@@ -323,6 +338,22 @@ jobs:
               echo "No trusted exact-head Codex request exists after the primary CodeRabbit request and before this result; refusing to wake the final gate."
               exit 0
             fi
+
+            codex_reviews_json="$(gh api --paginate "repos/$REPOSITORY/pulls/$pr_number/reviews?per_page=100" --jq '.[]' | jq -s '.')"
+            codex_review_generation_id="$(jq -r --arg sha "$head_sha" --arg request_time "$trusted_request_time" --arg result_time "$EVENT_EVIDENCE_TIME" '
+              [
+                .[]
+                | select(.user.login == "chatgpt-codex-connector[bot]" and .commit_id == $sha)
+                | select(.state == "APPROVED" or .state == "COMMENTED")
+                | select((.submitted_at // "") >= $request_time and (.submitted_at // "") <= $result_time)
+              ]
+              | sort_by(.submitted_at, .id)
+              | last
+              | .id // empty
+            ' <<< "$codex_reviews_json")"
+            if [[ "$codex_review_generation_id" =~ ^[1-9][0-9]*$ ]]; then
+              EVENT_REVIEW_GENERATION_ID="$codex_review_generation_id"
+            fi
           fi
 
           if [ "$EVENT_NAME" = "issue_comment" ] \
@@ -350,6 +381,19 @@ jobs:
               ]
               | max // empty
             ' <<< "$current_reviews")"
+            coderabbit_review_generation_id="$(jq -r --arg completion_time "$coderabbit_review_completion_time" '
+              [
+                .[]
+                | select((.submitted_at // "") == $completion_time)
+                | select(.state == "APPROVED" or .state == "COMMENTED")
+              ]
+              | sort_by(.id)
+              | last
+              | .id // empty
+            ' <<< "$current_reviews")"
+            if [[ "$coderabbit_review_generation_id" =~ ^[1-9][0-9]*$ ]]; then
+              EVENT_REVIEW_GENERATION_ID="$coderabbit_review_generation_id"
+            fi
             if [ -z "$coderabbit_request_time" ] || [ -z "$coderabbit_review_completion_time" ] || [ -z "${EVENT_COMMENT_UPDATED_AT:-}" ] || [[ "${EVENT_COMMENT_UPDATED_AT}" < "$coderabbit_review_completion_time" ]]; then
               echo "CodeRabbit summary is not bound to a post-request completed current-head review; refusing wakeup."
               exit 0
@@ -476,7 +520,8 @@ jobs:
             --arg observed_at "$EVENT_EVIDENCE_TIME" \
             --arg review_commit "$EVENT_REVIEW_COMMIT" \
             --arg body "$source_body" \
-            --arg review_state "$EVENT_REVIEW_STATE" '
+            --arg review_state "$EVENT_REVIEW_STATE" \
+            --arg review_generation_id "$EVENT_REVIEW_GENERATION_ID" '
             {
               kind:$kind,
               id:$id,
@@ -484,7 +529,8 @@ jobs:
               observed_at:$observed_at,
               review_commit:(if $kind == "pull_request_review" then $review_commit else null end),
               body:$body,
-              review_state:$review_state
+              review_state:$review_state,
+              review_generation_id:(if $review_generation_id == "" then null else ($review_generation_id | tonumber) end)
             }'
           )"
 
