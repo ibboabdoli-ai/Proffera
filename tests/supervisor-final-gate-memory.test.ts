@@ -119,6 +119,15 @@ describe("final-gate material evidence normalization", () => {
     expect(outage).toMatchObject({ category: "provider_unavailable", provider_class: "rate_limited" });
   });
 
+  it("binds provider outage evidence to the exact target head", () => {
+    const outage = { ...source(), actor: "coderabbitai[bot]", body: "Review rate limited. Try again later." };
+    const first = normalizeFinalGateEvidence(outage, "a".repeat(40));
+    const duplicate = normalizeFinalGateEvidence({ ...outage, id: 9002 }, "a".repeat(40));
+    const newerHead = normalizeFinalGateEvidence({ ...outage, id: 9003 }, "b".repeat(40));
+    expect(duplicate).toEqual(first);
+    expect(newerHead.signals[0].detail_digest).not.toBe(first.signals[0].detail_digest);
+  });
+
   it("rejects unsupported evidence", () => {
     expect(() => normalizeFinalGateEvidence({ ...source(), actor: "attacker" })).toThrow("unsupported_evidence");
   });
@@ -158,6 +167,29 @@ describe("final-gate retry decisions", () => {
     const changed = prepare([bot(first.persistence.body)], source(9999, "Codex Review: Didn't find any major issues. Semantic repair B. Reviewed commit: aaaaaaa"), recovery());
     expect(changed.decision).toBe("ALLOW_RERUN");
     expect(changed.intent_id).not.toBe(first.intent_id);
+  });
+
+  it("provider outage on a newer exact head creates a new intent", () => {
+    const outage = { ...source(9300), actor: "coderabbitai[bot]", body: "Review rate limited. Try again later." };
+    const first = decideFinalGateRetry({
+      ...baseInput(persistedV2()),
+      source: outage,
+      target: target(),
+      prepared_at: at(4),
+    });
+    expect(first.decision).toBe("ALLOW_RERUN");
+
+    const nextTarget = structuredClone(target(1, 78));
+    nextTarget.head = "b".repeat(40);
+    nextTarget.job.head = nextTarget.head;
+    const second = decideFinalGateRetry({
+      ...baseInput([bot(first.persistence.body)]),
+      source: { ...outage, id: 9301 },
+      target: nextTarget,
+      prepared_at: at(5),
+    });
+    expect(second.decision).toBe("ALLOW_RERUN");
+    expect(second.intent_id).not.toBe(first.intent_id);
   });
 
   it("persists explicit HTTP 201 acceptance", () => {

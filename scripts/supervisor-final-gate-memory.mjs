@@ -30,9 +30,11 @@ function materialText(value) {
     .toLowerCase();
 }
 
-export function normalizeFinalGateEvidence(source) {
+export function normalizeFinalGateEvidence(source, targetHead = "") {
   if (!source || typeof source !== "object" || Array.isArray(source)) throw new Error("final_gate_memory:source");
   const { kind, actor, body = "", review_state = "" } = source;
+  const normalizedTargetHead = targetHead === "" ? "" : String(targetHead).toLowerCase();
+  if (normalizedTargetHead && !/^[0-9a-f]{40}$/.test(normalizedTargetHead)) throw new Error("final_gate_memory:target_head");
   let code = "";
   let category = "review_blocked";
   let providerClass = null;
@@ -66,7 +68,9 @@ export function normalizeFinalGateEvidence(source) {
 
   if (!code) throw new Error("final_gate_memory:unsupported_evidence");
   const reviewedCommit = kind === "pull_request_review" ? String(source.review_commit ?? "") : "";
-  const semantic = code === "provider_unavailable" ? code + ":" + providerClass : body || code;
+  const semantic = code === "provider_unavailable"
+    ? code + ":" + providerClass + (normalizedTargetHead ? ":target_head:" + normalizedTargetHead : "")
+    : body || code;
   const normalized = materialText(semantic + (reviewedCommit ? " reviewed_commit:" + reviewedCommit : ""));
   return {
     lane: "final_gate",
@@ -117,7 +121,7 @@ export function ensureFinalGateMemory(input) {
 export function decideFinalGateRetry(input) {
   const current = readMemory(input);
   if (current.memory.schema_version !== 2) throw new Error("final_gate_memory:v2_required");
-  const evidence = normalizeFinalGateEvidence(input.source);
+  const evidence = normalizeFinalGateEvidence(input.source, input.target?.head ?? "");
   const prepared = prepareRetryIntent(current, memoryIdentity(current), {
     repository: input.repository,
     pr_number: Number(input.pr_number),
