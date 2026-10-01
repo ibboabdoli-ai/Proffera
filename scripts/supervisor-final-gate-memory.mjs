@@ -165,6 +165,39 @@ export function decideFinalGateRetry(input) {
   };
 }
 
+export function listFinalGateRetryIntents(input) {
+  const current = readMemory(input);
+  if (current.memory.schema_version !== 2) throw new Error("final_gate_memory:v2_required");
+  return current.memory.intents.map((intent) => ({
+    id: intent.id,
+    state: intent.state,
+    target: intent.target,
+    evidence_fingerprint: intent.evidence_fingerprint,
+    strategy_fingerprint: intent.strategy_fingerprint,
+  }));
+}
+
+export function recoverAcceptedFinalGateIntent(input) {
+  const current = readMemory(input);
+  if (current.memory.schema_version !== 2) throw new Error("final_gate_memory:v2_required");
+  const intent = current.memory.intents.find((item) => item.id === input.intent_id);
+  if (!intent) throw new Error("final_gate_memory:intent_missing");
+  if (intent.state === "CONSUMED") return { decision: "RECOVERED_CONSUMED", persistence: null };
+  if (intent.state !== "ACCEPTED") return { decision: "KEEP_PENDING", persistence: null };
+  const recovery = decideRetryRecovery(intent, input.recovery_evidence);
+  if (recovery.decision === "REJECT_MISMATCH") {
+    return { decision: "FAIL_CLOSED_MISMATCH", persistence: null };
+  }
+  if (recovery.decision !== "CONFIRM_CONSUMED") {
+    return { decision: "KEEP_PENDING", persistence: null };
+  }
+  const next = transitionRetryIntent(current, memoryIdentity(current), intent.id, {
+    kind: "recover",
+    evidence: input.recovery_evidence,
+  });
+  return { decision: "RECOVERED_CONSUMED", persistence: persistence(next) };
+}
+
 export function acceptFinalGateRetry(input) {
   const current = readMemory(input);
   const next = transitionRetryIntent(current, memoryIdentity(current), input.intent_id, {
@@ -199,6 +232,8 @@ function main(argv) {
     accept: acceptFinalGateRetry,
     uncertain: markFinalGateUncertain,
     identity: finalGateMemoryIdentity,
+    intents: listFinalGateRetryIntents,
+    recoverAccepted: recoverAcceptedFinalGateIntent,
   };
   if (!handlers[command]) throw new Error("command");
   process.stdout.write(JSON.stringify(handlers[command](input)));
