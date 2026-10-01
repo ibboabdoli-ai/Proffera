@@ -368,6 +368,9 @@ describe("event-driven final review gate", () => {
     expect(wakeup).toContain("TRUSTED_CODEX_REQUESTER: ibboabdoli-ai");
     expect(wakeup).toContain('codex_marker="<!-- proffera-codex-fallback-review-request:${head_sha} -->"');
     expect(wakeup).toContain("EVENT_REVIEW_COMMIT");
+    expect(wakeup).toContain("EVENT_REVIEW_GENERATION_ID");
+    expect(wakeup).toContain("review_generation_id");
+    expect(wakeup).toContain('sort_by(.submitted_at, .id)');
     expect(wakeup).toContain('EVENT_REVIEW_COMMIT" != "$head_sha');
     expect(wakeup).toContain('select(.head_sha == $sha)');
     expect(wakeup).toContain("jobs?filter=all&per_page=100");
