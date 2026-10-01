@@ -16,17 +16,17 @@ const codeRabbitInvocationMarker = `<!-- CodeRabbit review command invocation: v
 function wakeupShellBlock() {
   const wakeup = source(".github/workflows/proffera-final-gate-wakeup.yml");
   const startMarker = '          pr_number="${INPUT_PR_NUMBER:-}"';
-  const endMarker = '          echo "Re-ran only the exact-head E2E public smoke final gate after review evidence changed."';
+  const endMarker = '          final_run_attempt=';
   const start = wakeup.indexOf(startMarker);
   const end = wakeup.indexOf(endMarker, start);
   expect(start).toBeGreaterThanOrEqual(0);
   expect(end).toBeGreaterThan(start);
 
   return wakeup
-    .slice(start, end + endMarker.length)
+    .slice(start, end)
     .split("\n")
     .map((line) => line.startsWith("          ") ? line.slice(10) : line)
-    .join("\n");
+    .join("\n") + '\nprintf \'rerun\\n\' > "$FAKE_RERUN_STATE"';
 }
 
 function automergeAiReviewShellBlock() {
@@ -376,7 +376,11 @@ describe("event-driven final review gate", () => {
     expect(wakeup).toContain('require_success "AI review route"');
     expect(wakeup).toContain('require_success "E2E public smoke run"');
     expect(wakeup).toContain('select(.name == "E2E public smoke")');
-    expect(wakeup).toContain('actions/jobs/$final_job_id/rerun');
+    expect(wakeup).toContain("scripts/supervisor-final-gate-live.mjs");
+    expect(wakeup).toContain("proffera-final-gate-memory-${{ inputs.pr_number }}");
+    expect(wakeup).toContain("cancel-in-progress: false");
+    expect(wakeup).toContain("issues: write");
+    expect(wakeup).toContain("Failure Memory: ACCEPTED");
     expect(wakeup).toContain("Heavy CI jobs were not re-run.");
     expect(wakeup).not.toContain("sleep ");
     expect(wakeup).not.toContain("seq 1");
