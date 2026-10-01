@@ -47,7 +47,7 @@ export function normalizeFinalGateEvidence(source, targetHead = "") {
       code = "provider_unavailable";
       category = "provider_unavailable";
       providerClass = "rate_limited";
-    } else if (/temporarily unavailable|service unavailable|Action not completed/i.test(body)) {
+    } else if (/temporarily unavailable|service unavailable|Action not completed|Review skipped/i.test(body)) {
       code = "provider_unavailable";
       category = "provider_unavailable";
       providerClass = "unavailable";
