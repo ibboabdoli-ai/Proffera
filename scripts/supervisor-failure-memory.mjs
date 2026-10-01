@@ -451,16 +451,18 @@ function recovery(intent, input) {
     || evidence.jobs.some((j) => j.run_id !== target.run_id || j.head !== target.head || j.run_attempt > evidence.run_attempt)) return reject;
   const baseline = evidence.jobs.find((j) => j.id === target.job.id);
   if (baseline && canonical(baseline) !== canonical(target.job)) return reject;
-  if (!evidence.complete || !baseline || !intent.acceptance || evidence.run_attempt !== target.run_attempt + 1) return uncertain;
-  const later = evidence.jobs.filter((j) => j.run_attempt === target.run_attempt + 1);
+  const successorAttempt = target.run_attempt + 1;
+  if (!evidence.complete || !baseline || !intent.acceptance || evidence.run_attempt < successorAttempt) return uncertain;
+  const later = evidence.jobs.filter((j) => j.run_attempt === successorAttempt);
   if (later.length !== 1) return uncertain;
   const job = later[0];
   if (job.id === target.job.id || !job.started_at || job.started_at < timestampFloorSecond(intent.acceptance.observed_at)
     || job.started_at <= target.job.completed_at || job.started_at > evidence.observed_at
     || (job.completed_at && job.completed_at > evidence.observed_at)
     || !["in_progress", "completed"].includes(job.status) || ["skipped", "neutral"].includes(job.conclusion)) return uncertain;
-  // Store only the bounded witness pair; input pagination completeness is adapter-attested.
-  return {decision: "CONFIRM_CONSUMED", proof: {...evidence, jobs: [baseline, job]}};
+  // Store only the bounded immediate-successor witness. A later observed run attempt
+  // must not invalidate the exact N+1 proof that consumed this retry intent.
+  return {decision: "CONFIRM_CONSUMED", proof: {...evidence, run_attempt: successorAttempt, jobs: [baseline, job]}};
 }
 function validateIntent(value, repo, memoryScope) {
   keys(value, ["repository", "pr_number", "evidence", "strategy", "id", "evidence_fingerprint", "strategy_fingerprint",
