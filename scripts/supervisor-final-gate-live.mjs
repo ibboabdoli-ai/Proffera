@@ -257,16 +257,17 @@ export function runLiveFinalGate(input, execute = execFileSync, now = isoNow) {
   }
   if (!coderabbitStillClean(input, execute)) return failBeforePost(input, decision.intent_id, "review_changed", execute, now);
 
+  // Capture a conservative lower bound immediately before the one allowed POST.
+  // GitHub job.started_at is only second-resolution and a rerun can start before the
+  // HTTP 201 response reaches this runner. Using a post-response client timestamp
+  // would therefore make valid successor evidence look older than acceptance.
+  const acceptanceLowerBound = now();
   const posted = postRerun(input, execute);
   if (!posted.accepted) {
     markUncertain(input, decision.intent_id, posted.definite ? "post_failed" : "acceptance_unknown", execute, now);
     return { decision: "FAIL_CLOSED_UNCERTAIN", intent_id: decision.intent_id };
   }
 
-  // Capture the acceptance witness before any potentially slow comment pagination.
-  // Recovery compares successor start time to this bound, so delaying the timestamp
-  // until after another API read could make a valid fast rerun look pre-acceptance.
-  const acceptedAt = now();
   all = comments(input.repository, execute);
   const accepted = acceptFinalGateRetry({
     ...memoryInput(input, all),
@@ -274,7 +275,7 @@ export function runLiveFinalGate(input, execute = execFileSync, now = isoNow) {
     receipt: {
       http_status: 201,
       binding_digest: decision.binding_digest,
-      observed_at: acceptedAt,
+      observed_at: acceptanceLowerBound,
     },
   });
   persist(input.repository, accepted, execute);
