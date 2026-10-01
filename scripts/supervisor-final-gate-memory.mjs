@@ -23,6 +23,7 @@ const sha256 = (value) => createHash("sha256").update(String(value)).digest("hex
 function materialText(value) {
   return String(value ?? "")
     .replace(/\u001b\[[0-9;]*m/g, "")
+    .replace(/<!--\s*CodeRabbit review command invocation:\s*v2:[0-9a-f]{64}\s*-->/gi, "<coderabbit-invocation>")
     .replace(/https?:\/\/\S+/gi, "<url>")
     .replace(/\b\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d+)?Z\b/g, "<time>")
     .replace(/\s+/g, " ")

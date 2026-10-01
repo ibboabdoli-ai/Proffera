@@ -134,6 +134,17 @@ describe("final-gate material evidence normalization", () => {
     expect(outage).toMatchObject({ category: "provider_unavailable", provider_class: "rate_limited" });
   });
 
+  it("canonicalizes CodeRabbit invocation provenance without erasing the reviewed head", () => {
+    const body = (digestValue: string, reviewedHead: string) =>
+      `<!-- CodeRabbit review command invocation: v2:${digestValue} -->
+Final exact-head review is complete for ${reviewedHead}. I found no issues.`;
+    const first = normalizeFinalGateEvidence({ ...source(1), actor: "coderabbitai[bot]", body: body("1".repeat(64), "a".repeat(40)) });
+    const duplicate = normalizeFinalGateEvidence({ ...source(2), actor: "coderabbitai[bot]", body: body("2".repeat(64), "a".repeat(40)) });
+    const newerHead = normalizeFinalGateEvidence({ ...source(3), actor: "coderabbitai[bot]", body: body("3".repeat(64), "b".repeat(40)) });
+    expect(duplicate).toEqual(first);
+    expect(newerHead.signals[0].detail_digest).not.toBe(first.signals[0].detail_digest);
+  });
+
   it("binds provider outage evidence to the exact target head", () => {
     const outage = { ...source(), actor: "coderabbitai[bot]", body: "Review rate limited. Try again later." };
     const first = normalizeFinalGateEvidence(outage, "a".repeat(40));
