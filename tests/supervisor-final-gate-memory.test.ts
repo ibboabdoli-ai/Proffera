@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
 // @ts-expect-error Standalone Node .mjs follows the existing control-plane test convention.
-import { acceptFinalGateRetry, decideFinalGateRetry, ensureFinalGateMemory, markFinalGateUncertain, normalizeFinalGateEvidence } from "../scripts/supervisor-final-gate-memory.mjs";
+import { acceptFinalGateRetry, decideFinalGateRetry, ensureFinalGateMemory, listFinalGateRetryIntents, markFinalGateUncertain, normalizeFinalGateEvidence, recoverAcceptedFinalGateIntent } from "../scripts/supervisor-final-gate-memory.mjs";
 
 const repo = "ibboabdoli-ai/Proffera";
 const pr = 878;
@@ -238,6 +238,44 @@ describe("final-gate retry decisions", () => {
       recovery_evidence: { ...recovery(2), run_id: 999 },
     });
     expect(mismatch.decision).toBe("FAIL_CLOSED_MISMATCH");
+  });
+
+  it("reclaims confirmed accepted intents before unresolved capacity can accumulate", () => {
+    let comments = persistedV2();
+    const ids: string[] = [];
+    for (let i = 0; i < 4; i++) {
+      const prepared = prepare(
+        comments,
+        source(9100 + i, "Codex Review: Didn't find any major issues. Semantic generation " + i + ". Reviewed commit: " + String(i + 1).repeat(7)),
+        recovery(),
+      );
+      const accepted = acceptFinalGateRetry({
+        ...baseInput([bot(prepared.persistence.body)]),
+        intent_id: prepared.intent_id,
+        receipt: { http_status: 201, binding_digest: prepared.binding_digest, observed_at: at(5) },
+      });
+      comments = [bot(accepted.persistence.body)];
+      ids.push(prepared.intent_id);
+    }
+    expect(listFinalGateRetryIntents(baseInput(comments)).filter((intent: {state: string}) => intent.state === "ACCEPTED")).toHaveLength(4);
+
+    for (const intentId of ids) {
+      const recovered = recoverAcceptedFinalGateIntent({
+        ...baseInput(comments),
+        intent_id: intentId,
+        recovery_evidence: recovery(2),
+      });
+      expect(recovered.decision).toBe("RECOVERED_CONSUMED");
+      if (recovered.persistence) comments = [bot(recovered.persistence.body)];
+    }
+
+    expect(listFinalGateRetryIntents(baseInput(comments)).filter((intent: {state: string}) => intent.state === "ACCEPTED")).toHaveLength(0);
+    const fifth = prepare(
+      comments,
+      source(9200, "Codex Review: Didn't find any major issues. Semantic generation five. Reviewed commit: 5555555"),
+      recovery(),
+    );
+    expect(fifth.decision).toBe("ALLOW_RERUN");
   });
 
   it("keeps event provenance outside material evidence", () => {
