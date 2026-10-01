@@ -453,6 +453,8 @@ function recovery(intent, input) {
   if (baseline && canonical(baseline) !== canonical(target.job)) return reject;
   const successorAttempt = target.run_attempt + 1;
   if (!evidence.complete || !baseline || !intent.acceptance || evidence.run_attempt < successorAttempt) return uncertain;
+  if (evidence.run_attempt > successorAttempt
+    && !evidence.jobs.some((j) => j.run_attempt === evidence.run_attempt)) return uncertain;
   const later = evidence.jobs.filter((j) => j.run_attempt === successorAttempt);
   if (later.length !== 1) return uncertain;
   const job = later[0];
