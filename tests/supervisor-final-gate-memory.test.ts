@@ -93,6 +93,12 @@ describe("final-gate material evidence normalization", () => {
     expect(first.signals[0].detail_digest).not.toBe(second.signals[0].detail_digest);
   });
 
+  it("preserves short hexadecimal finding identifiers as material evidence", () => {
+    const first = normalizeFinalGateEvidence(source(1, "Codex Review: Didn't find any major issues. Finding deadbee. Reviewed commit: aaaaaaa"));
+    const second = normalizeFinalGateEvidence(source(2, "Codex Review: Didn't find any major issues. Finding cafebabe. Reviewed commit: aaaaaaa"));
+    expect(first.signals[0].detail_digest).not.toBe(second.signals[0].detail_digest);
+  });
+
   it("classifies CodeRabbit clean and provider outage evidence separately", () => {
     const clean = normalizeFinalGateEvidence({ ...source(), actor: "coderabbitai[bot]", body: "Final exact-head review is complete for aaaaaaa. I found no issues." });
     const outage = normalizeFinalGateEvidence({ ...source(), actor: "coderabbitai[bot]", body: "Review rate limited. Try again later." });
