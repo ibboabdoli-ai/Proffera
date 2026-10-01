@@ -47,10 +47,10 @@ jobs:
       pull-requests: read
 
     steps:
-      - name: Checkout trusted main helper
+      - name: Checkout trusted final-gate helper
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          ref: main
+          ref: ${{ github.sha }}
           persist-credentials: false
 
       - name: Setup Node
