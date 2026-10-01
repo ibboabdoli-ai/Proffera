@@ -203,7 +203,9 @@ export function recoverAcceptedFinalGateIntent(input) {
   const intent = current.memory.intents.find((item) => item.id === input.intent_id);
   if (!intent) throw new Error("final_gate_memory:intent_missing");
   if (intent.state === "CONSUMED") return { decision: "RECOVERED_CONSUMED", persistence: null };
-  if (intent.state !== "ACCEPTED") return { decision: "KEEP_PENDING", persistence: null };
+  if (!["ACCEPTED", "UNCERTAIN"].includes(intent.state) || !intent.acceptance) {
+    return { decision: "KEEP_PENDING", persistence: null };
+  }
   const recovery = decideRetryRecovery(intent, input.recovery_evidence);
   if (recovery.decision === "REJECT_MISMATCH") {
     return { decision: "FAIL_CLOSED_MISMATCH", persistence: null };
