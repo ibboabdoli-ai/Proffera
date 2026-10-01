@@ -24,9 +24,6 @@ function materialText(value) {
   return String(value ?? "")
     .replace(/\u001b\[[0-9;]*m/g, "")
     .replace(/https?:\/\/\S+/gi, "<url>")
-    .replace(/Reviewed commit:\s*\*{0,2}\s*`?[0-9a-f]{7,40}`?/gi, "Reviewed commit: <sha>")
-    .replace(/(proffera-(?:coderabbit-final-review-request|codex-fallback-review-request):)[0-9a-f]{40}/gi, "$1<sha>")
-    .replace(/\b[0-9a-f]{40}\b/gi, "<sha>")
     .replace(/\b\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d+)?Z\b/g, "<time>")
     .replace(/\s+/g, " ")
     .trim()
@@ -68,7 +65,9 @@ export function normalizeFinalGateEvidence(source) {
   }
 
   if (!code) throw new Error("final_gate_memory:unsupported_evidence");
-  const normalized = materialText(code === "provider_unavailable" ? code + ":" + providerClass : body || code);
+  const reviewedCommit = kind === "pull_request_review" ? String(source.review_commit ?? "") : "";
+  const semantic = code === "provider_unavailable" ? code + ":" + providerClass : body || code;
+  const normalized = materialText(semantic + (reviewedCommit ? " reviewed_commit:" + reviewedCommit : ""));
   return {
     lane: "final_gate",
     category,
