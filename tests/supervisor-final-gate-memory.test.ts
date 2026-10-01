@@ -87,15 +87,15 @@ function prepare(comments = persistedV2(), src = source(), recoveryEvidence = re
 }
 
 describe("final-gate live acceptance ordering", () => {
-  it("captures HTTP 201 acceptance time before rereading Failure Memory comments", () => {
+  it("captures a pre-POST acceptance lower bound before the one rerun request", () => {
     const source = readFileSync(new URL("../scripts/supervisor-final-gate-live.mjs", import.meta.url), "utf8");
-    const post = source.indexOf("const posted = postRerun(input, execute);");
-    const acceptedAt = source.indexOf("const acceptedAt = now();", post);
-    const reread = source.indexOf("all = comments(input.repository, execute);", acceptedAt);
-    const receipt = source.indexOf("observed_at: acceptedAt", reread);
-    expect(post).toBeGreaterThanOrEqual(0);
-    expect(acceptedAt).toBeGreaterThan(post);
-    expect(reread).toBeGreaterThan(acceptedAt);
+    const lowerBound = source.indexOf("const acceptanceLowerBound = now();");
+    const post = source.indexOf("const posted = postRerun(input, execute);", lowerBound);
+    const reread = source.indexOf("all = comments(input.repository, execute);", post);
+    const receipt = source.indexOf("observed_at: acceptanceLowerBound", reread);
+    expect(lowerBound).toBeGreaterThanOrEqual(0);
+    expect(post).toBeGreaterThan(lowerBound);
+    expect(reread).toBeGreaterThan(post);
     expect(receipt).toBeGreaterThan(reread);
   });
 });
@@ -317,6 +317,33 @@ describe("final-gate retry decisions", () => {
       receipt: { http_status: 201, binding_digest: first.binding_digest, observed_at: at(5) },
     });
     expect(accepted.persistence.body).toContain('"state":"ACCEPTED"');
+  });
+
+  it("accepts a fast successor whose GitHub start time precedes the HTTP response but follows the pre-POST lower bound", () => {
+    const first = prepare();
+    const accepted = acceptFinalGateRetry({
+      ...baseInput([bot(first.persistence.body)]),
+      intent_id: first.intent_id,
+      receipt: {
+        http_status: 201,
+        binding_digest: first.binding_digest,
+        observed_at: "2026-10-01T08:00:04.900Z",
+      },
+    });
+    const fastSuccessor = recovery(2);
+    fastSuccessor.jobs[1] = {
+      ...fastSuccessor.jobs[1],
+      started_at: "2026-10-01T08:00:05.000Z",
+      completed_at: "2026-10-01T08:00:06.000Z",
+    };
+    const recovered = decideFinalGateRetry({
+      ...baseInput([bot(accepted.persistence.body)]),
+      source: source(9002),
+      target: target(),
+      prepared_at: at(9),
+      recovery_evidence: fastSuccessor,
+    });
+    expect(recovered.decision).toBe("RECOVERED_CONSUMED");
   });
 
   it("recovers accepted evidence to CONSUMED and suppresses later duplicate", () => {
