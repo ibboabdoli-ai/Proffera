@@ -21,7 +21,11 @@ function bot(body: string, id = 123) {
 function baseInput(comments: Array<Record<string, unknown>>) {
   return { repository: repo, pr_number: pr, comments, comments_complete: true };
 }
-function source(id = 9001, body = "Codex Review: Didn't find any major issues. Reviewed commit: aaaaaaa") {
+function source(
+  id = 9001,
+  body = "Codex Review: Didn't find any major issues. Reviewed commit: aaaaaaa",
+  reviewGenerationId = 7001,
+) {
   return {
     kind: "issue_comment",
     id,
@@ -30,6 +34,7 @@ function source(id = 9001, body = "Codex Review: Didn't find any major issues. R
     review_commit: null,
     body,
     review_state: "",
+    review_generation_id: reviewGenerationId,
   };
 }
 function target(attempt = 1, id = 77) {
@@ -96,21 +101,39 @@ describe("final-gate live acceptance ordering", () => {
 });
 
 describe("final-gate material evidence normalization", () => {
-  it("treats a fresh exact-head Codex result as material review evidence", () => {
-    const first = normalizeFinalGateEvidence(source(1, "Codex Review: Didn't find any major issues. Reviewed commit: aaaaaaa"));
-    const second = normalizeFinalGateEvidence(source(2, "Codex Review: Didn't find any major issues. Reviewed commit: bbbbbbb"));
+  it("treats a fresh exact-head Codex review generation as material evidence", () => {
+    const first = normalizeFinalGateEvidence(
+      source(1, "Codex Review: Didn't find any major issues. Reviewed commit: aaaaaaa", 7001),
+      head,
+    );
+    const second = normalizeFinalGateEvidence(
+      source(2, "Codex Review: Didn't find any major issues. Reviewed commit: aaaaaaa", 7002),
+      head,
+    );
     expect(first.signals[0].detail_digest).not.toBe(second.signals[0].detail_digest);
   });
 
-  it("keeps materially different review text distinct", () => {
-    const first = normalizeFinalGateEvidence(source(1, "Codex Review: Didn't find any major issues. Reviewed commit: aaaaaaa"));
-    const second = normalizeFinalGateEvidence(source(2, "Codex Review: Didn't find any major issues. Semantic note. Reviewed commit: aaaaaaa"));
-    expect(first.signals[0].detail_digest).not.toBe(second.signals[0].detail_digest);
+  it("ignores transport text changes within the same review generation", () => {
+    const first = normalizeFinalGateEvidence(
+      source(1, "Codex Review: Didn't find any major issues. Reviewed commit: aaaaaaa", 7001),
+      head,
+    );
+    const duplicate = normalizeFinalGateEvidence(
+      source(2, "Codex Review: Didn't find any major issues. Semantic note. Reviewed commit: aaaaaaa", 7001),
+      head,
+    );
+    expect(duplicate).toEqual(first);
   });
 
-  it("preserves short hexadecimal finding identifiers as material evidence", () => {
-    const first = normalizeFinalGateEvidence(source(1, "Codex Review: Didn't find any major issues. Finding deadbee. Reviewed commit: aaaaaaa"));
-    const second = normalizeFinalGateEvidence(source(2, "Codex Review: Didn't find any major issues. Finding cafebabe. Reviewed commit: aaaaaaa"));
+  it("keeps distinct review generations separate even when their prose is similar", () => {
+    const first = normalizeFinalGateEvidence(
+      source(1, "Codex Review: Didn't find any major issues. Finding deadbee. Reviewed commit: aaaaaaa", 7001),
+      head,
+    );
+    const second = normalizeFinalGateEvidence(
+      source(2, "Codex Review: Didn't find any major issues. Finding cafebabe. Reviewed commit: aaaaaaa", 7002),
+      head,
+    );
     expect(first.signals[0].detail_digest).not.toBe(second.signals[0].detail_digest);
   });
 
@@ -122,16 +145,19 @@ describe("final-gate material evidence normalization", () => {
       body: "Review completed.",
       review_state: "commented",
     };
-    const first = normalizeFinalGateEvidence({ ...base, review_commit: "a".repeat(40) });
-    const second = normalizeFinalGateEvidence({ ...base, review_commit: "b".repeat(40) });
+    const first = normalizeFinalGateEvidence({ ...base, review_commit: "a".repeat(40), review_generation_id: 7101 });
+    const second = normalizeFinalGateEvidence({ ...base, review_commit: "b".repeat(40), review_generation_id: 7101 });
     expect(first.signals[0].detail_digest).not.toBe(second.signals[0].detail_digest);
   });
 
   it("classifies CodeRabbit clean and provider outage evidence separately", () => {
-    const clean = normalizeFinalGateEvidence({ ...source(), actor: "coderabbitai[bot]", body: "Final exact-head review is complete for aaaaaaa. I found no issues." });
+    const clean = normalizeFinalGateEvidence(
+      { ...source(), actor: "coderabbitai[bot]", body: "Final exact-head review is complete for aaaaaaa. I found no issues.", review_generation_id: 7201 },
+      head,
+    );
     const outage = normalizeFinalGateEvidence({ ...source(), actor: "coderabbitai[bot]", body: "Review rate limited. Try again later." });
     const skipped = normalizeFinalGateEvidence({ ...source(), actor: "coderabbitai[bot]", body: "Review skipped because automated reviews are unavailable." });
-    expect(clean.signals[0].code).toBe("coderabbit_clean");
+    expect(clean.signals[0].code).toBe("coderabbit_review_completed");
     expect(outage).toMatchObject({ category: "provider_unavailable", provider_class: "rate_limited" });
     expect(skipped).toMatchObject({ category: "provider_unavailable", provider_class: "unavailable" });
   });
@@ -140,9 +166,19 @@ describe("final-gate material evidence normalization", () => {
     const body = (digestValue: string, reviewedHead: string) =>
       `<!-- CodeRabbit review command invocation: v2:${digestValue} -->
 Final exact-head review is complete for ${reviewedHead}. I found no issues.`;
-    const first = normalizeFinalGateEvidence({ ...source(1), actor: "coderabbitai[bot]", body: body("1".repeat(64), "a".repeat(40)) });
-    const duplicate = normalizeFinalGateEvidence({ ...source(2), actor: "coderabbitai[bot]", body: body("2".repeat(64), "a".repeat(40)) });
-    const newerHead = normalizeFinalGateEvidence({ ...source(3), actor: "coderabbitai[bot]", body: body("3".repeat(64), "b".repeat(40)) });
+    const first = normalizeFinalGateEvidence(
+      { ...source(1), actor: "coderabbitai[bot]", body: body("1".repeat(64), head), review_generation_id: 7301 },
+      head,
+    );
+    const duplicate = normalizeFinalGateEvidence(
+      { ...source(2), actor: "coderabbitai[bot]", body: body("2".repeat(64), head), review_generation_id: 7301 },
+      head,
+    );
+    const newerHeadValue = "b".repeat(40);
+    const newerHead = normalizeFinalGateEvidence(
+      { ...source(3), actor: "coderabbitai[bot]", body: body("3".repeat(64), newerHeadValue), review_generation_id: 7301 },
+      newerHeadValue,
+    );
     expect(duplicate).toEqual(first);
     expect(newerHead.signals[0].detail_digest).not.toBe(first.signals[0].detail_digest);
   });
@@ -155,6 +191,7 @@ Final exact-head review is complete for ${reviewedHead}. I found no issues.`;
       body: "Review completed.",
       review_state: "commented",
       review_commit: head,
+      review_generation_id: 701,
     }, head);
     const codeRabbitSummary = normalizeFinalGateEvidence({
       ...source(702, `<!-- recent_review_start -->\nNo actionable comments were generated.\n${head}\n<!-- recent_review_end -->`),
@@ -170,6 +207,7 @@ Final exact-head review is complete for ${reviewedHead}. I found no issues.`;
       body: "Codex review completed.",
       review_state: "commented",
       review_commit: head,
+      review_generation_id: 801,
     }, head);
     const codexComment = normalizeFinalGateEvidence({
       ...source(802, "Codex Review: Didn't find any major issues. Reviewed commit: aaaaaaa"),
@@ -197,6 +235,14 @@ Final exact-head review is complete for ${reviewedHead}. I found no issues.`;
     const newerHead = normalizeFinalGateEvidence({ ...outage, id: 9003 }, "b".repeat(40));
     expect(duplicate).toEqual(first);
     expect(newerHead.signals[0].detail_digest).not.toBe(first.signals[0].detail_digest);
+  });
+
+  it("defers review-completion comments that are not bound to a review generation", () => {
+    expect(() => normalizeFinalGateEvidence({
+      ...source(),
+      actor: "chatgpt-codex-connector[bot]",
+      review_generation_id: null,
+    }, head)).toThrow("review_generation_required");
   });
 
   it("rejects unsupported evidence", () => {
@@ -228,14 +274,14 @@ describe("final-gate retry decisions", () => {
 
   it("fresh exact-head review evidence for a new reviewed head creates a new intent", () => {
     const first = prepare();
-    const fresh = prepare([bot(first.persistence.body)], source(9999, "Codex Review: Didn't find any major issues. Reviewed commit: bbbbbbb"), recovery());
+    const fresh = prepare([bot(first.persistence.body)], source(9999, "Codex Review: Didn't find any major issues. Reviewed commit: bbbbbbb", 7002), recovery());
     expect(fresh.decision).toBe("ALLOW_RERUN");
     expect(fresh.intent_id).not.toBe(first.intent_id);
   });
 
   it("material review change creates an independent intent", () => {
     const first = prepare();
-    const changed = prepare([bot(first.persistence.body)], source(9999, "Codex Review: Didn't find any major issues. Semantic repair B. Reviewed commit: aaaaaaa"), recovery());
+    const changed = prepare([bot(first.persistence.body)], source(9999, "Codex Review: Didn't find any major issues. Semantic repair B. Reviewed commit: aaaaaaa", 7002), recovery());
     expect(changed.decision).toBe("ALLOW_RERUN");
     expect(changed.intent_id).not.toBe(first.intent_id);
   });
@@ -349,7 +395,7 @@ describe("final-gate retry decisions", () => {
     for (let i = 0; i < 4; i++) {
       const prepared = prepare(
         comments,
-        source(9100 + i, "Codex Review: Didn't find any major issues. Semantic generation " + i + ". Reviewed commit: " + String(i + 1).repeat(7)),
+        source(9100 + i, "Codex Review: Didn't find any major issues. Semantic generation " + i + ". Reviewed commit: " + String(i + 1).repeat(7), 8000 + i),
         recovery(),
       );
       const accepted = acceptFinalGateRetry({
@@ -375,7 +421,7 @@ describe("final-gate retry decisions", () => {
     expect(listFinalGateRetryIntents(baseInput(comments)).filter((intent: {state: string}) => intent.state === "ACCEPTED")).toHaveLength(0);
     const fifth = prepare(
       comments,
-      source(9200, "Codex Review: Didn't find any major issues. Semantic generation five. Reviewed commit: 5555555"),
+      source(9200, "Codex Review: Didn't find any major issues. Semantic generation five. Reviewed commit: 5555555", 9005),
       recovery(),
     );
     expect(fifth.decision).toBe("ALLOW_RERUN");
