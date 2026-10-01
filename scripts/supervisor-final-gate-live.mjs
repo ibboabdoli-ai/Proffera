@@ -9,6 +9,7 @@ import {
   listFinalGateRetryIntents,
   markFinalGateUncertain,
   recoverAcceptedFinalGateIntent,
+  releaseFinalGatePreparedIntent,
 } from "./supervisor-final-gate-memory.mjs";
 
 const MAX_PAGES = 100;
@@ -202,11 +203,17 @@ function markUncertain(input, intentId, reason, execute, now) {
   persist(input.repository, result, execute);
   verifyIdentity(input, result.persistence.identity, execute);
 }
-function failBeforePost(input, intentId, reason, execute, now) {
-  // PREPARED was already durable. No POST has occurred in this serialized writer,
-  // so make the fail-closed state explicit. Equivalent evidence remains blocked;
-  // materially changed exact-head evidence receives a distinct intent identity.
-  markUncertain(input, intentId, "insufficient_evidence", execute, now);
+function failBeforePost(input, intentId, reason, execute) {
+  // PREPARED was durable, but this serialized writer has revalidated a mismatch and
+  // has not attempted the rerun POST. Release only that PREPARED slot so a later
+  // stabilized delivery can be admitted without leaving an unrecoverable tombstone.
+  const all = comments(input.repository, execute);
+  const result = releaseFinalGatePreparedIntent({
+    ...memoryInput(input, all),
+    intent_id: intentId,
+  });
+  persist(input.repository, result, execute);
+  verifyIdentity(input, result.persistence.identity, execute);
   return { decision: "FAIL_CLOSED_MISMATCH", intent_id: intentId, reason };
 }
 
@@ -248,15 +255,15 @@ export function runLiveFinalGate(input, execute = execFileSync, now = isoNow) {
   if (decision.decision !== "ALLOW_RERUN") return decision;
 
   const currentSource = fetchSource(input, execute);
-  if (!sameSource(currentSource, input.source)) return failBeforePost(input, decision.intent_id, "source_changed", execute, now);
-  if (fetchPrHead(input, execute) !== input.target.head) return failBeforePost(input, decision.intent_id, "head_changed", execute, now);
+  if (!sameSource(currentSource, input.source)) return failBeforePost(input, decision.intent_id, "source_changed", execute);
+  if (fetchPrHead(input, execute) !== input.target.head) return failBeforePost(input, decision.intent_id, "head_changed", execute);
   const currentJob = fetchJob(input, execute);
-  if (JSON.stringify(currentJob) !== JSON.stringify(input.target.job)) return failBeforePost(input, decision.intent_id, "job_changed", execute, now);
+  if (JSON.stringify(currentJob) !== JSON.stringify(input.target.job)) return failBeforePost(input, decision.intent_id, "job_changed", execute);
   const currentRecovery = fetchRecovery(input, execute, now());
   if (currentRecovery.run_attempt !== input.target.run_attempt) {
-    return failBeforePost(input, decision.intent_id, "run_attempt_changed", execute, now);
+    return failBeforePost(input, decision.intent_id, "run_attempt_changed", execute);
   }
-  if (!coderabbitStillClean(input, execute)) return failBeforePost(input, decision.intent_id, "review_changed", execute, now);
+  if (!coderabbitStillClean(input, execute)) return failBeforePost(input, decision.intent_id, "review_changed", execute);
 
   // Capture a conservative lower bound immediately before the one allowed POST.
   // GitHub job.started_at is only second-resolution and a rerun can start before the
