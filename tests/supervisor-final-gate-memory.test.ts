@@ -86,6 +86,18 @@ function prepare(comments = persistedV2(), src = source(), recoveryEvidence = re
   });
 }
 
+describe("final-gate pre-POST mismatch handling", () => {
+  it("releases the durable PREPARED slot instead of creating receipt-less uncertainty", () => {
+    const sourceText = readFileSync(new URL("../scripts/supervisor-final-gate-live.mjs", import.meta.url), "utf8");
+    const start = sourceText.indexOf("function failBeforePost(");
+    const end = sourceText.indexOf("\n}\n\nfunction postRerun", start);
+    const block = sourceText.slice(start, end);
+    expect(start).toBeGreaterThanOrEqual(0);
+    expect(block).toContain("releaseFinalGatePreparedIntent");
+    expect(block).not.toContain("markUncertain(");
+  });
+});
+
 describe("final-gate live acceptance ordering", () => {
   it("captures a pre-POST acceptance lower bound before the one rerun request", () => {
     const source = readFileSync(new URL("../scripts/supervisor-final-gate-live.mjs", import.meta.url), "utf8");
