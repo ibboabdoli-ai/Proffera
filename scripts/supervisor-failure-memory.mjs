@@ -333,8 +333,10 @@ export const mergeObservation = (current, expected, value) => mergeObservations(
  * GitHub has no material-evidence idempotency key. Without a receipt even a matching
  * manual rerun stays UNCERTAIN. Never infer acceptance from workflow success.
  *
- * All PREPARED/ACCEPTED/UNCERTAIN intents are pinned (max 4); only CONSUMED is terminal
- * (max 8). On terminal eviction admission closes irreversibly for this document.
+ * PREPARED intents are pinned unless the same serialized writer explicitly releases
+ * one after revalidation fails and before any POST is attempted. ACCEPTED/UNCERTAIN
+ * intents remain pinned (max 4); only CONSUMED is terminal (max 8). On terminal
+ * eviction admission closes irreversibly for this document.
  * This deliberate liveness limit prevents a forgotten ID being admitted again
  * without an unbounded tombstone store. Existing recovery and A2 history still work.
  * There is no automatic reset, expiration, downgrade, retry or manual-recovery API.
@@ -531,6 +533,25 @@ export function decideRetryRecovery(intent, evidence) {
     return {decision: "REJECT_MISMATCH", proof: null};
   }
 }
+
+/**
+ * Release only a durable PREPARED intent when the serialized writer has revalidated
+ * the live source/head/job and has not attempted the rerun POST. This is not crash
+ * recovery and cannot release ACCEPTED/UNCERTAIN/CONSUMED state.
+ */
+export function releasePreparedRetryIntent(value, expected, id) {
+  const current = checkedCurrent(value, expected);
+  hex(id);
+  const previous = current.memory.intents.find((i) => i.id === id);
+  if (!previous) fail("intent_missing");
+  if (previous.state !== "PREPARED" || previous.acceptance !== null || previous.proof !== null
+    || previous.uncertain_reason !== null || previous.updated_at !== previous.prepared_at) fail("illegal_transition");
+  return replacement(current, {
+    ...current.memory,
+    intents: current.memory.intents.filter((i) => i.id !== id),
+  });
+}
+
 /** No transition returns PREPARED. Receipt-less uncertainty cannot be inferred away. */
 export function transitionRetryIntent(value, expected, id, event) {
   const current = checkedCurrent(value, expected);
