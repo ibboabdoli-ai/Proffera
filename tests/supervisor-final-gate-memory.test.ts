@@ -147,6 +147,49 @@ Final exact-head review is complete for ${reviewedHead}. I found no issues.`;
     expect(newerHead.signals[0].detail_digest).not.toBe(first.signals[0].detail_digest);
   });
 
+  it("deduplicates one provider review generation across review and comment transports", () => {
+    const codeRabbitReview = normalizeFinalGateEvidence({
+      ...source(701),
+      kind: "pull_request_review",
+      actor: "coderabbitai[bot]",
+      body: "Review completed.",
+      review_state: "commented",
+      review_commit: head,
+    }, head);
+    const codeRabbitSummary = normalizeFinalGateEvidence({
+      ...source(702, `<!-- recent_review_start -->\nNo actionable comments were generated.\n${head}\n<!-- recent_review_end -->`),
+      actor: "coderabbitai[bot]",
+      review_generation_id: 701,
+    }, head);
+    expect(codeRabbitSummary).toEqual(codeRabbitReview);
+
+    const codexReview = normalizeFinalGateEvidence({
+      ...source(801),
+      kind: "pull_request_review",
+      actor: "chatgpt-codex-connector[bot]",
+      body: "Codex review completed.",
+      review_state: "commented",
+      review_commit: head,
+    }, head);
+    const codexComment = normalizeFinalGateEvidence({
+      ...source(802, "Codex Review: Didn't find any major issues. Reviewed commit: aaaaaaa"),
+      review_generation_id: 801,
+    }, head);
+    expect(codexComment).toEqual(codexReview);
+  });
+
+  it("keeps distinct review generations materially distinct on the same head", () => {
+    const first = normalizeFinalGateEvidence({
+      ...source(901, "Codex Review: Didn't find any major issues. Reviewed commit: aaaaaaa"),
+      review_generation_id: 9001,
+    }, head);
+    const second = normalizeFinalGateEvidence({
+      ...source(902, "Codex Review: Didn't find any major issues. Reviewed commit: aaaaaaa"),
+      review_generation_id: 9002,
+    }, head);
+    expect(first.signals[0].detail_digest).not.toBe(second.signals[0].detail_digest);
+  });
+
   it("binds provider outage evidence to the exact target head", () => {
     const outage = { ...source(), actor: "coderabbitai[bot]", body: "Review rate limited. Try again later." };
     const first = normalizeFinalGateEvidence(outage, "a".repeat(40));
