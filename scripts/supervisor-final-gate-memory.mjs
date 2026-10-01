@@ -86,7 +86,7 @@ export function normalizeFinalGateEvidence(source, targetHead = "") {
     : isReviewGeneration
       ? code + ":review_generation:" + reviewGenerationId + (reviewGenerationHead ? ":head:" + reviewGenerationHead : "")
       : body || code;
-  const normalized = materialText(semantic + (reviewedCommit ? " reviewed_commit:" + reviewedCommit : ""));
+  const normalized = materialText(semantic + (!isReviewGeneration && reviewedCommit ? " reviewed_commit:" + reviewedCommit : ""));
   return {
     lane: "final_gate",
     category,
