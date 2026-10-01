@@ -95,6 +95,9 @@ function timestamp(value) {
   if (!Number.isFinite(parsed) || new Date(parsed).toISOString() !== normalized) fail("timestamp");
   return normalized;
 }
+function timestampFloorSecond(value) {
+  return timestamp(value).replace(/\.\d{3}Z$/, ".000Z");
+}
 function scope(value) {
   if (!isRecord(value)) fail("scope");
   if (value.kind === "task") {
@@ -452,7 +455,7 @@ function recovery(intent, input) {
   const later = evidence.jobs.filter((j) => j.run_attempt === target.run_attempt + 1);
   if (later.length !== 1) return uncertain;
   const job = later[0];
-  if (job.id === target.job.id || !job.started_at || job.started_at < intent.acceptance.observed_at
+  if (job.id === target.job.id || !job.started_at || job.started_at < timestampFloorSecond(intent.acceptance.observed_at)
     || job.started_at <= target.job.completed_at || job.started_at > evidence.observed_at
     || (job.completed_at && job.completed_at > evidence.observed_at)
     || !["in_progress", "completed"].includes(job.status) || ["skipped", "neutral"].includes(job.conclusion)) return uncertain;
