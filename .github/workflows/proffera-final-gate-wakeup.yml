@@ -434,13 +434,105 @@ jobs:
             fi
           fi
 
-          gh api --method POST "repos/$REPOSITORY/actions/jobs/$final_job_id/rerun" >/dev/null
+          final_run_attempt="$(jq -r '.run_attempt // empty' <<< "$final_job_json")"
+          if ! [[ "$final_run_attempt" =~ ^[1-9][0-9]*$ ]]; then
+            echo "Final gate run attempt is missing; refusing durable retry."
+            exit 1
+          fi
+
+          source_body="$EVENT_COMMENT_BODY"
+          if [ "$EVENT_NAME" = "pull_request_review" ]; then
+            source_body="$EVENT_REVIEW_BODY"
+          fi
+
+          target_json="$(jq -n \
+            --arg head "$head_sha" \
+            --argjson run_id "$run_id" \
+            --argjson run_attempt "$final_run_attempt" \
+            --argjson job "$final_job_json" '
+            {
+              workflow_path:".github/workflows/ci.yml",
+              run_id:$run_id,
+              head:$head,
+              run_attempt:$run_attempt,
+              job:{
+                id:$job.id,
+                run_id:$run_id,
+                head:$head,
+                run_attempt:$run_attempt,
+                name:$job.name,
+                status:$job.status,
+                conclusion:$job.conclusion,
+                started_at:$job.started_at,
+                completed_at:$job.completed_at
+              }
+            }'
+          )"
+
+          source_for_memory="$(jq -n \
+            --arg kind "$EVENT_NAME" \
+            --argjson id "$INPUT_SOURCE_ID" \
+            --arg actor "$EVENT_ACTOR" \
+            --arg observed_at "$EVENT_EVIDENCE_TIME" \
+            --arg review_commit "$EVENT_REVIEW_COMMIT" \
+            --arg body "$source_body" \
+            --arg review_state "$EVENT_REVIEW_STATE" '
+            {
+              kind:$kind,
+              id:$id,
+              actor:$actor,
+              observed_at:$observed_at,
+              review_commit:(if $kind == "pull_request_review" then $review_commit else null end),
+              body:$body,
+              review_state:$review_state
+            }'
+          )"
+
+          jq -n \
+            --arg repository "$REPOSITORY" \
+            --argjson pr_number "$pr_number" \
+            --argjson source "$source_for_memory" \
+            --argjson target "$target_json" \
+            --argjson require_guard "$new_coderabbit_clean_event" '
+            {
+              repository:$repository,
+              pr_number:$pr_number,
+              source:$source,
+              target:$target,
+              require_coderabbit_clean_guard:$require_guard
+            }' > final-gate-memory-input.json
+
+          node scripts/supervisor-final-gate-live.mjs final-gate-memory-input.json > final-gate-memory-result.json
+          retry_decision="$(jq -r '.decision' final-gate-memory-result.json)"
 
           summary "## Final gate wakeup"
           summary ""
+          summary "- Decision: $retry_decision"
           summary "- PR: #$pr_number"
           summary "- Exact head: $head_sha"
           summary "- CI run: $run_id"
-          summary "- Re-run job: E2E public smoke ($final_job_id)"
-          summary "- Heavy CI jobs were not re-run."
-          echo "Re-ran only the exact-head E2E public smoke final gate after review evidence changed."
+
+          case "$retry_decision" in
+            ALLOW_RERUN)
+              summary "- Re-run job: E2E public smoke ($final_job_id)"
+              summary "- Failure Memory: ACCEPTED"
+              summary "- Heavy CI jobs were not re-run."
+              echo "ALLOW_RERUN: durable PREPARED state was verified before one accepted final-gate rerun."
+              ;;
+            SUPPRESS_DUPLICATE)
+              echo "SUPPRESS_DUPLICATE: identical material review evidence was already consumed."
+              ;;
+            RECOVERED_CONSUMED)
+              echo "RECOVERED_CONSUMED: prior accepted rerun is now proven by GitHub execution evidence."
+              ;;
+            FAIL_CLOSED_UNCERTAIN)
+              echo "FAIL_CLOSED_UNCERTAIN: prior retry state cannot safely authorize another automatic rerun."
+              ;;
+            FAIL_CLOSED_MISMATCH)
+              echo "FAIL_CLOSED_MISMATCH: live evidence changed or does not match the bound retry target."
+              ;;
+            *)
+              echo "Unknown final-gate retry decision '$retry_decision'; refusing."
+              exit 1
+              ;;
+          esac
