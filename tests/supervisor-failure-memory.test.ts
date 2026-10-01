@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 // @ts-expect-error Standalone pure Node .mjs follows the existing control-plane test convention.
-import { createMemory, memoryIdentity, memoryMarker, mergeObservation, mergeObservations, serializeMemory, readTrustedMemory, fingerprintEvidence, fingerprintStrategy, normalizeEvidence, FAILURE_CATEGORIES, LIMITS } from "../scripts/supervisor-failure-memory.mjs";
+import { createMemory, memoryIdentity, memoryMarker, mergeObservation, mergeObservations, serializeMemory, readTrustedMemory, fingerprintEvidence, fingerprintStrategy, normalizeEvidence, FAILURE_CATEGORIES, LIMITS, upgradeMemory, prepareRetryIntent, transitionRetryIntent, decideRetryRecovery, RETRY_INTEGRATION } from "../scripts/supervisor-failure-memory.mjs";
 
 const repo = "ibboabdoli-ai/Proffera";
 const head = "e280c5a21505b082fec2c519a3f2e675de97770c";
@@ -322,5 +322,354 @@ describe("content safety and closed input schema", () => {
       "review_blocked", "provider_unavailable", "stale_evidence", "cancelled", "unknown"]);
     const source = readFileSync(new URL("../scripts/supervisor-failure-memory.mjs", import.meta.url), "utf8");
     expect(source.match(/^import .+ from .+;$/gm)).toEqual(['import { createHash } from "node:crypto";']);
+  });
+});
+
+
+const v2 = () => {
+  const current = {...empty(), comment_id: 123};
+  return upgradeMemory(current, memoryIdentity(current));
+};
+const target = () => ({workflow_path: ".github/workflows/ci.yml", run_id: 36622937789, head, run_attempt: 1,
+  job: {id: 109595074592, run_id: 36622937789, head, run_attempt: 1, name: "E2E public smoke",
+    status: "completed", conclusion: "failure", started_at: at(1), completed_at: at(2)}});
+const intentInput = (n = 0) => ({repository: repo, pr_number: 878,
+  evidence: {...evidence(), lane: "final_gate", signals: [signal("material-review-" + n)]},
+  strategy: {...strategy(), kind: "rerun_final_gate"},
+  target: target(), source: {kind: "issue_comment", id: 9001, actor: "coderabbitai[bot]",
+    observed_at: at(3), review_commit: null, body_digest: digest("trusted-public-review")},
+  prepared_at: at(4)});
+const prepare = (current = v2(), input: unknown = intentInput()) => prepareRetryIntent(current, memoryIdentity(current), input);
+const savedIntent = (current: ReturnType<typeof v2>, id: string) => current.memory.intents.find((i: {id: string}) => i.id === id);
+const receipt = (current: ReturnType<typeof v2>, id: string) => ({http_status: 201,
+  binding_digest: savedIntent(current, id).binding_digest, observed_at: at(5)});
+const transition = (current: ReturnType<typeof v2>, id: string, event: unknown) =>
+  transitionRetryIntent(current, memoryIdentity(current), id, event);
+const accepted = (current: ReturnType<typeof v2>, id: string) => transition(current, id,
+  {kind: "accepted", receipt: receipt(current, id)});
+const jobEvidence = () => ({repository: repo, pr_number: 878, run_id: 36622937789, head,
+  workflow_path: ".github/workflows/ci.yml", run_attempt: 2, complete: true, observed_at: at(8),
+  jobs: [target().job, {...target().job, id: 109597951195, run_attempt: 2, started_at: at(6), completed_at: at(7)}]});
+const consume = (current: ReturnType<typeof v2>, id: string) =>
+  transition(current, id, {kind: "recover", evidence: jobEvidence()});
+
+describe("D0 explicit v2 evolution and future integration boundary", () => {
+  it("reads v1 unchanged and upgrades the same comment explicitly under its old identity", () => {
+    const current = {...add(empty()), comment_id: 123};
+    const body = serializeMemory(current.memory), identity = memoryIdentity(current);
+    expect(read([bot(body)])).toEqual(current);
+    const next = upgradeMemory(current, identity);
+    expect(next.comment_id).toBe(123);
+    expect(next.memory).toMatchObject({schema_version: 2, revision: current.memory.revision + 1,
+      records: current.memory.records, intents: [], intent_admission_closed: false});
+    expect(serializeMemory(current.memory)).toBe(body);
+    expect(read([bot(serializeMemory(next.memory))])).toEqual(next);
+    expect(upgradeMemory(next, memoryIdentity(next))).toEqual(next);
+    expect(() => prepare(current)).toThrow("explicit_v2_upgrade_required");
+    expect(() => upgradeMemory(next, identity)).toThrow("stale_memory");
+  });
+
+  it("fails closed on v1/v2 duplicates, version mismatch and unknown semantic fields", () => {
+    const next = v2(), body = serializeMemory(next.memory);
+    expect(() => read([bot(serializeMemory(empty().memory)), bot(body, 456)])).toThrow("ambiguous_comments");
+    expect(() => read([bot(body.replace(":v2:", ":v1:"))])).toThrow("noncanonical_body");
+    expect(() => read([bot(body.replace('"schema_version":2', '"schema_version":3'))])).toThrow("unsupported_version");
+    expect(() => read([bot(body.replace('"intents":[]', '"intents":[],"retry":true'))])).toThrow("fields");
+    expect(read([{...bot(body), user: {login: "attacker", type: "User"}}])).toEqual(empty());
+  });
+
+  it("restricts intent ownership to the same canonical PR-scoped memory document", () => {
+    for (const s of [{kind: "task", task_id: "SUP-D0"}, {kind: "head", head}]) {
+      const current = {comment_id: null, memory: createMemory(repo, s)};
+      expect(() => prepare(upgradeMemory(current, memoryIdentity(current)))).toThrow("intent_requires_pr_scope");
+    }
+    expect(() => prepare(v2(), {...intentInput(), pr_number: 999})).toThrow("intent_scope_mismatch");
+    expect(() => prepare(v2(), {...intentInput(), repository: "other/project"})).toThrow("intent_scope_mismatch");
+  });
+
+  it("defines non-cancelling PR serialization and PREPARED verification before the one POST", () => {
+    expect(RETRY_INTEGRATION.scope).toBe("repository_pull_request");
+    expect(RETRY_INTEGRATION.cancel_in_progress).toBe(false);
+    expect(RETRY_INTEGRATION.order).toEqual(["validate_trusted_source", "validate_exact_target", "normalize_evidence",
+      "read_trusted_memory", "check_existing_intent", "persist_prepared", "verify_persisted_identity",
+      "revalidate_source_head_evidence_job", "post_once", "persist_confirmed_acceptance", "recover_from_github"]);
+    // This contract does not alter the live workflow or add any I/O to the module.
+    const source = readFileSync(new URL("../scripts/supervisor-failure-memory.mjs", import.meta.url), "utf8");
+    expect(source.match(/^import .+ from .+;$/gm)).toEqual(['import { createHash } from "node:crypto";']);
+  });
+});
+
+describe("D0 material identity, pinned binding and optimistic transitions", () => {
+  it("creates one PREPARED intent, round-trips it and never mutates caller inputs", () => {
+    const current = v2(), input = intentInput(), before = JSON.stringify({current, input});
+    const next = prepare(current, input);
+    expect(next.created).toBe(true);
+    expect(savedIntent(next.snapshot, next.intent_id)).toMatchObject({state: "PREPARED", target: target(),
+      acceptance: null, proof: null, prepared_at: at(4)});
+    expect(read([bot(serializeMemory(next.snapshot.memory))])).toEqual(next.snapshot);
+    expect(JSON.stringify({current, input})).toBe(before);
+  });
+
+  it("does not create seven intents for equivalent deliveries of the historical run", () => {
+    let current = v2();
+    const ids = new Set();
+    for (let i = 0; i < 7; i++) {
+      const input = intentInput();
+      input.source.id += i;
+      const result = prepare(current, input);
+      expect(result.created).toBe(i === 0);
+      ids.add(result.intent_id);
+      current = result.snapshot;
+    }
+    expect(ids.size).toBe(1);
+    expect(current.memory.intents).toHaveLength(1);
+    expect(current.memory.intents[0].target.run_id).toBe(36622937789);
+    expect(current.memory.intents[0].source.id).toBe(9001);
+  });
+
+  it.each([1, 3])("rejects baseline job attempt %s when the target run attempt is 2", (attempt) => {
+    const input = intentInput();
+    input.target.run_attempt = 2;
+    input.target.job.run_attempt = attempt;
+    expect(() => prepare(v2(), input)).toThrow("target_mismatch");
+  });
+
+  it("ignores event/head/target churn without retargeting the original material intent", () => {
+    const first = prepare();
+    const input = intentInput();
+    input.source.id++;
+    input.source.body_digest = digest("equivalent wrapper");
+    input.target.head = "a".repeat(40);
+    input.target.job.head = input.target.head;
+    input.target.run_id++;
+    input.target.job.run_id++;
+    input.target.job.id++;
+    const again = prepare(first.snapshot, input);
+    expect(again).toEqual({...first, created: false});
+  });
+
+  it("preserves distinct material evidence and strategy variants on the same HEAD", () => {
+    const first = prepare(), changed = prepare(first.snapshot, intentInput(1));
+    const input = intentInput();
+    input.strategy.variant_id = "different_gate_strategy_v2";
+    const another = prepare(changed.snapshot, input);
+    expect(new Set(another.snapshot.memory.intents.map((i: {id: string}) => i.id)).size).toBe(3);
+  });
+
+  it("deduplicates reordered evidence and preserves exact assertion differences", () => {
+    const input = intentInput();
+    input.evidence.signals = [signal("assertion-a"), signal("assertion-b")];
+    const first = prepare(v2(), input);
+    const reversed = {...input, evidence: {...input.evidence, signals: [...input.evidence.signals].reverse()}};
+    expect(prepare(first.snapshot, reversed).created).toBe(false);
+    expect(prepare(v2(), reversed)).toEqual(first);
+    expect(prepare(first.snapshot, {...input, evidence: {...input.evidence, signals: [signal("assertion-c")]}}).created).toBe(true);
+  });
+
+  it("rejects concurrent stale preparations and stale digest/comment/revision transitions", () => {
+    const current = v2(), expected = memoryIdentity(current), first = prepare(current);
+    expect(() => prepareRetryIntent(first.snapshot, expected, intentInput(1))).toThrow("stale_memory");
+    for (const mismatch of [{revision: 0}, {digest: "0".repeat(64)}, {comment_id: 999}]) {
+      expect(() => transitionRetryIntent(first.snapshot, {...memoryIdentity(first.snapshot), ...mismatch}, first.intent_id,
+        {kind: "uncertain", reason: "runner_interrupted", observed_at: at(5)})).toThrow("stale_memory");
+    }
+  });
+
+  it("accepts only a bound explicit HTTP201 receipt and makes exact replay a no-op", () => {
+    const first = prepare(), next = accepted(first.snapshot, first.intent_id);
+    expect(savedIntent(next, first.intent_id).state).toBe("ACCEPTED");
+    expect(accepted(next, first.intent_id)).toEqual(next);
+    for (const change of [{http_status: 500}, {http_status: 200}, {binding_digest: "0".repeat(64)}, {observed_at: at(2)}]) {
+      expect(() => transition(first.snapshot, first.intent_id, {kind: "accepted",
+        receipt: {...receipt(first.snapshot, first.intent_id), ...change}})).toThrow();
+    }
+    expect(() => transitionRetryIntent(next, memoryIdentity(first.snapshot), first.intent_id,
+      {kind: "accepted", receipt: receipt(first.snapshot, first.intent_id)})).toThrow("stale_memory");
+  });
+
+  it("rejects illegal/replayed transitions and never reopens terminal or uncertain intents", () => {
+    const first = prepare(), next = accepted(first.snapshot, first.intent_id), done = consume(next, first.intent_id);
+    expect(savedIntent(done, first.intent_id).state).toBe("CONSUMED");
+    expect(consume(done, first.intent_id)).toEqual(done);
+    expect(prepare(done).created).toBe(false);
+    for (const current of [done, transition(first.snapshot, first.intent_id,
+      {kind: "uncertain", reason: "post_failed", observed_at: at(5)})]) {
+      expect(() => transition(current, first.intent_id, {kind: "prepared"})).toThrow("illegal_transition");
+      expect(prepare(current).created).toBe(false);
+    }
+    expect(() => accepted(done, first.intent_id)).toThrow("illegal_transition");
+    expect(() => transition(done, first.intent_id, {kind: "uncertain", reason: "post_failed", observed_at: at(9)})).toThrow();
+    expect(() => transition(first.snapshot, "0".repeat(64), {kind: "prepared"})).toThrow("intent_missing");
+  });
+});
+
+describe("D0 crash windows and conservative recovery", () => {
+  it.each(["crash_before_post", "synchronous_post_failure", "accepted_post_then_crash",
+    "accepted_persistence_failure", "comment_conflict", "runner_cancellation"])(
+    "%s leaves durable PREPARED blocking a second equivalent intent", (failure) => {
+      const first = prepare();
+      let persisted = read([bot(serializeMemory(first.snapshot.memory))]);
+      let postCalls = 0;
+      // Model the documented future integration boundaries in memory, never GitHub.
+      const attempt = () => {
+        if (failure === "crash_before_post" || failure === "runner_cancellation") throw new Error("interrupted");
+        postCalls++;
+        if (failure === "synchronous_post_failure") throw new Error("post_rejected");
+        if (failure === "accepted_post_then_crash") throw new Error("interrupted_after_201");
+        if (failure === "comment_conflict") {
+          const expected = memoryIdentity(persisted);
+          persisted = add(persisted); // another writer changes the revision
+          transitionRetryIntent(persisted, expected, first.intent_id,
+            {kind: "accepted", receipt: receipt(first.snapshot, first.intent_id)});
+          return;
+        }
+        const candidate = accepted(persisted, first.intent_id);
+        expect(savedIntent(candidate, first.intent_id).state).toBe("ACCEPTED");
+        throw new Error("comment_write_failed"); // candidate never becomes authoritative
+      };
+      expect(attempt).toThrow(failure === "comment_conflict" ? "stale_memory" : undefined);
+      expect(postCalls).toBe(["crash_before_post", "runner_cancellation"].includes(failure) ? 0 : 1);
+      // Duplicate admission cannot reach the simulated POST again.
+      if (prepare(persisted).created) postCalls++;
+      expect(postCalls).toBeLessThanOrEqual(1);
+      expect(savedIntent(persisted, first.intent_id).state).toBe("PREPARED");
+      expect(decideRetryRecovery(savedIntent(persisted, first.intent_id), jobEvidence()).decision).toBe("KEEP_UNCERTAIN");
+      const recovered = consume(persisted, first.intent_id);
+      expect(savedIntent(recovered, first.intent_id)).toMatchObject({state: "UNCERTAIN", acceptance: null});
+      expect(prepare(recovered).created).toBe(false);
+    });
+
+  it("keeps a manual same-target rerun uncertain when no acceptance receipt survived", () => {
+    const first = prepare();
+    expect(decideRetryRecovery(savedIntent(first.snapshot, first.intent_id), jobEvidence()))
+      .toEqual({decision: "KEEP_UNCERTAIN", proof: null});
+  });
+
+  it("confirms only recorded acceptance plus a new execution in the exact next attempt", () => {
+    const first = prepare(), next = accepted(first.snapshot, first.intent_id);
+    expect(decideRetryRecovery(savedIntent(next, first.intent_id), jobEvidence()).decision).toBe("CONFIRM_CONSUMED");
+    const done = consume(next, first.intent_id);
+    expect(savedIntent(done, first.intent_id)).toMatchObject({state: "CONSUMED", proof: {run_attempt: 2}});
+    expect(read([bot(serializeMemory(done.memory))])).toEqual(done);
+    const uncertain = transition(next, first.intent_id, {kind: "uncertain", reason: "runner_interrupted", observed_at: at(6)});
+    expect(savedIntent(consume(uncertain, first.intent_id), first.intent_id).state).toBe("CONSUMED");
+  });
+
+  it("allows a later explicit acceptance receipt to resolve receipt-less uncertainty", () => {
+    const first = prepare();
+    const uncertain = transition(first.snapshot, first.intent_id, {kind: "uncertain", reason: "acceptance_unknown", observed_at: at(5)});
+    expect(savedIntent(accepted(uncertain, first.intent_id), first.intent_id).state).toBe("ACCEPTED");
+  });
+
+  it.each([
+    {repository: "other/project"}, {pr_number: 999}, {run_id: 999}, {head: "b".repeat(40)},
+    {workflow_path: ".github/workflows/unrelated.yml"}, {observed_at: at(1)},
+  ])("rejects unrelated/malformed recovery context %j", (change) => {
+    const first = prepare(), next = accepted(first.snapshot, first.intent_id);
+    expect(decideRetryRecovery(savedIntent(next, first.intent_id), {...jobEvidence(), ...change}).decision).toBe("REJECT_MISMATCH");
+    expect(() => transition(next, first.intent_id, {kind: "recover", evidence: {...jobEvidence(), ...change}})).toThrow("recovery_mismatch");
+  });
+
+  it.each(["absent", "missing_baseline", "incomplete", "gap", "clone", "queued", "ambiguous", "before_receipt", "extra_attempt"])(
+    "%s evidence cannot prove consumption or authorize another POST", (scenario) => {
+      const first = prepare(), next = accepted(first.snapshot, first.intent_id), proof = jobEvidence();
+      if (scenario === "absent") proof.jobs = [target().job];
+      if (scenario === "missing_baseline") proof.jobs = proof.jobs.slice(1);
+      if (scenario === "incomplete") proof.complete = false;
+      if (scenario === "gap") { proof.run_attempt = 3; proof.jobs[1].run_attempt = 3; }
+      if (scenario === "clone") { proof.jobs[1].started_at = at(1); proof.jobs[1].completed_at = at(2); }
+      if (scenario === "queued") proof.jobs = [proof.jobs[0], {...proof.jobs[1], status: "queued", conclusion: null, started_at: null, completed_at: null}] as typeof proof.jobs;
+      if (scenario === "ambiguous") proof.jobs.push({...proof.jobs[1], id: 555});
+      if (scenario === "before_receipt") proof.jobs[1].started_at = at(4);
+      if (scenario === "extra_attempt") proof.run_attempt = 3;
+      expect(decideRetryRecovery(savedIntent(next, first.intent_id), proof).decision).toBe("KEEP_UNCERTAIN");
+      const uncertain = transition(next, first.intent_id, {kind: "recover", evidence: proof});
+      expect(savedIntent(uncertain, first.intent_id).state).toBe("UNCERTAIN");
+      expect(prepare(uncertain).created).toBe(false);
+    });
+
+  it("rejects reused job IDs, mismatched baseline and malformed proof without timestamp-only recovery", () => {
+    const first = prepare(), next = accepted(first.snapshot, first.intent_id), intent = savedIntent(next, first.intent_id);
+    const reused = jobEvidence(); reused.jobs[1].id = reused.jobs[0].id;
+    const baseline = jobEvidence(); baseline.jobs[0].started_at = at(0);
+    const crossRun = jobEvidence(); crossRun.jobs[1].run_id++;
+    const malformed = jobEvidence(); malformed.jobs[1].run_attempt = 0;
+    for (const proof of [reused, baseline, crossRun, malformed, {...jobEvidence(), timestamp: at(9)}]) {
+      expect(decideRetryRecovery(intent, proof).decision).toBe("REJECT_MISMATCH");
+    }
+  });
+
+  it("normalizes recovery evidence ordering into one canonical witness", () => {
+    const first = prepare(), next = accepted(first.snapshot, first.intent_id), proof = jobEvidence();
+    expect(transition(next, first.intent_id, {kind: "recover", evidence: {...proof, jobs: [...proof.jobs].reverse()}}))
+      .toEqual(consume(next, first.intent_id));
+  });
+});
+
+describe("D0 bounded pinned retention and malformed state", () => {
+  it("pins all unresolved states and refuses excess capacity instead of evicting them", () => {
+    let current = v2();
+    const ids: string[] = [];
+    for (let i = 0; i < LIMITS.unresolved_intents; i++) {
+      const result = prepare(current, intentInput(i)); current = result.snapshot; ids.push(result.intent_id);
+    }
+    current = accepted(current, ids[0]);
+    current = transition(current, ids[1], {kind: "uncertain", reason: "runner_interrupted", observed_at: at(5)});
+    const body = serializeMemory(current.memory);
+    expect(() => prepare(current, intentInput(99))).toThrow("unresolved_capacity");
+    expect(serializeMemory(current.memory)).toBe(body);
+    const historical = mergeObservations(current, memoryIdentity(current), fill(40, true));
+    expect(historical.memory.intents).toEqual(current.memory.intents);
+    expect(read([bot(serializeMemory(historical.memory))]).memory.intents).toEqual(current.memory.intents);
+  });
+
+  it("prunes terminal history deterministically and permanently seals new admission against replay", () => {
+    let current = v2();
+    const pinned = prepare(current, intentInput(99)); current = pinned.snapshot;
+    for (let i = 0; i <= LIMITS.terminal_intents; i++) {
+      const result = prepare(current, intentInput(i));
+      current = consume(accepted(result.snapshot, result.intent_id), result.intent_id);
+    }
+    expect(current.memory.intents.filter((i: {state: string}) => i.state === "CONSUMED")).toHaveLength(8);
+    expect(savedIntent(current, pinned.intent_id).state).toBe("PREPARED");
+    expect(current.memory.intent_admission_closed).toBe(true);
+    const roundTrip = read([bot(serializeMemory(current.memory))]);
+    expect(upgradeMemory(roundTrip, memoryIdentity(roundTrip))).toEqual(roundTrip);
+    expect(() => prepare(roundTrip, intentInput(100))).toThrow("intent_admission_closed");
+    const retained = new Set(current.memory.intents.map((i: {id: string}) => i.id));
+    const retired = Array.from({length: 9}, (_, i) => intentInput(i)).find((input) => !retained.has(prepare(v2(), input).intent_id));
+    expect(() => prepare(roundTrip, retired!)).toThrow("intent_admission_closed");
+    expect(prepare(roundTrip, intentInput(99)).created).toBe(false);
+    expect(consume(accepted(roundTrip, pinned.intent_id), pinned.intent_id).memory.intent_admission_closed).toBe(true);
+    const reordered = structuredClone(current.memory); reordered.intents.reverse();
+    expect(serializeMemory(reordered)).toBe(serializeMemory(current.memory));
+    expect(Buffer.byteLength(serializeMemory(current.memory))).toBeLessThanOrEqual(LIMITS.body_bytes);
+  });
+
+  it("rejects forged IDs/bindings, duplicate identities, hidden fields and illegal persisted states", () => {
+    const first = prepare();
+    for (const field of ["id", "binding_digest", "evidence_fingerprint", "strategy_fingerprint"]) {
+      const memory = structuredClone(first.snapshot.memory); memory.intents[0][field] = "0".repeat(64);
+      expect(() => serializeMemory(memory)).toThrow("intent_fingerprint_mismatch");
+    }
+    const duplicate = structuredClone(first.snapshot.memory); duplicate.intents.push(duplicate.intents[0]);
+    expect(() => serializeMemory(duplicate)).toThrow("intent_collision");
+    const forgedState = structuredClone(first.snapshot.memory); forgedState.intents[0].state = "CONSUMED";
+    expect(() => serializeMemory(forgedState)).toThrow("intent_state");
+    const extra = structuredClone(first.snapshot.memory); extra.intents[0].raw_log = "private payload";
+    expect(() => serializeMemory(extra)).toThrow("fields");
+    const targetChanged = structuredClone(first.snapshot.memory); targetChanged.intents[0].target.job.id++;
+    expect(() => serializeMemory(targetChanged)).toThrow("intent_fingerprint_mismatch");
+  });
+
+  it("rejects untrusted/malformed source claims, oversized proof and raw/private fields", () => {
+    const input = intentInput();
+    expect(() => prepare(v2(), {...input, source: {...input.source, actor: "attacker"}})).toThrow();
+    expect(() => prepare(v2(), {...input, source: {...input.source, raw_review: "secret"}})).toThrow("fields");
+    expect(() => prepare(v2(), {...input, evidence: {...input.evidence, signals: []}})).toThrow();
+    expect(() => prepare(v2(), {...input, target: {...target(), run_attempt: 0}})).toThrow();
+    expect(() => prepare(v2(), {...input, source: {...input.source, kind: "pull_request_review", review_commit: "a".repeat(40)}})).toThrow("source_mismatch");
+    const first = prepare(), next = accepted(first.snapshot, first.intent_id);
+    expect(decideRetryRecovery(savedIntent(next, first.intent_id), {...jobEvidence(), jobs: Array(33).fill(target().job)}).decision).toBe("REJECT_MISMATCH");
   });
 });
