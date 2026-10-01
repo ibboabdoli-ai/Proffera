@@ -133,6 +133,7 @@ export function decideFinalGateRetry(input) {
       decision: "ALLOW_RERUN",
       intent_id: prepared.intent_id,
       persistence: persistence(prepared.snapshot),
+      binding_digest: prepared.snapshot.memory.intents.find((item) => item.id === prepared.intent_id)?.binding_digest ?? null,
       evidence,
     };
   }
