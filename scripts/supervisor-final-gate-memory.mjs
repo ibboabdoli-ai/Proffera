@@ -6,6 +6,7 @@ import {
   memoryIdentity,
   prepareRetryIntent,
   readTrustedMemory,
+  releasePreparedRetryIntent,
   serializeMemory,
   transitionRetryIntent,
   upgradeMemory,
@@ -239,6 +240,12 @@ export function markFinalGateUncertain(input) {
   return { decision: "FAIL_CLOSED_UNCERTAIN", persistence: persistence(next) };
 }
 
+export function releaseFinalGatePreparedIntent(input) {
+  const current = readMemory(input);
+  const next = releasePreparedRetryIntent(current, memoryIdentity(current), input.intent_id);
+  return { decision: "RELEASED_PRE_POST", persistence: persistence(next) };
+}
+
 export function finalGateMemoryIdentity(input) {
   const current = readMemory(input);
   return { identity: memoryIdentity(current), schema_version: current.memory.schema_version };
@@ -253,6 +260,7 @@ function main(argv) {
     decide: decideFinalGateRetry,
     accept: acceptFinalGateRetry,
     uncertain: markFinalGateUncertain,
+    releasePrepared: releaseFinalGatePreparedIntent,
     identity: finalGateMemoryIdentity,
     intents: listFinalGateRetryIntents,
     recoverAccepted: recoverAcceptedFinalGateIntent,
