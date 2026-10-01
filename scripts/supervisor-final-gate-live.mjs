@@ -6,7 +6,9 @@ import {
   decideFinalGateRetry,
   ensureFinalGateMemory,
   finalGateMemoryIdentity,
+  listFinalGateRetryIntents,
   markFinalGateUncertain,
+  recoverAcceptedFinalGateIntent,
 } from "./supervisor-final-gate-memory.mjs";
 
 const MAX_PAGES = 100;
@@ -121,12 +123,12 @@ function fetchJob(input, execute) {
     completed_at: job.completed_at,
   };
 }
-function fetchRecovery(input, execute, observedAt) {
-  const jobs = pages("repos/" + input.repository + "/actions/runs/" + input.target.run_id + "/jobs?filter=all", execute, "jobs");
+function fetchRecoveryForTarget(input, target, execute, observedAt) {
+  const jobs = pages("repos/" + input.repository + "/actions/runs/" + target.run_id + "/jobs?filter=all", execute, "jobs");
   const finals = jobs.filter((job) => job.name === "E2E public smoke").map((job) => ({
     id: job.id,
-    run_id: input.target.run_id,
-    head: input.target.head,
+    run_id: target.run_id,
+    head: target.head,
     run_attempt: job.run_attempt,
     name: job.name,
     status: job.status,
@@ -138,8 +140,8 @@ function fetchRecovery(input, execute, observedAt) {
   return {
     repository: input.repository,
     pr_number: input.pr_number,
-    run_id: input.target.run_id,
-    head: input.target.head,
+    run_id: target.run_id,
+    head: target.head,
     workflow_path: ".github/workflows/ci.yml",
     run_attempt: runAttempt,
     complete: true,
@@ -147,6 +149,30 @@ function fetchRecovery(input, execute, observedAt) {
     jobs: finals,
   };
 }
+function fetchRecovery(input, execute, observedAt) {
+  return fetchRecoveryForTarget(input, input.target, execute, observedAt);
+}
+function recoverAcceptedIntents(input, execute, now) {
+  let all = comments(input.repository, execute);
+  const accepted = listFinalGateRetryIntents(memoryInput(input, all)).filter((intent) => intent.state === "ACCEPTED");
+  for (const candidate of accepted) {
+    all = comments(input.repository, execute);
+    const current = listFinalGateRetryIntents(memoryInput(input, all)).find((intent) => intent.id === candidate.id);
+    if (!current || current.state !== "ACCEPTED") continue;
+    const result = recoverAcceptedFinalGateIntent({
+      ...memoryInput(input, all),
+      intent_id: current.id,
+      recovery_evidence: fetchRecoveryForTarget(input, current.target, execute, now()),
+    });
+    if (result.decision === "FAIL_CLOSED_MISMATCH") throw new Error("final_gate_live:accepted_recovery_mismatch");
+    if (result.persistence) {
+      persist(input.repository, result, execute);
+      verifyIdentity(input, result.persistence.identity, execute);
+    }
+  }
+  return comments(input.repository, execute);
+}
+
 function coderabbitStillClean(input, execute) {
   if (!input.require_coderabbit_clean_guard) return true;
   const reviews = pages("repos/" + input.repository + "/pulls/" + input.pr_number + "/reviews", execute)
@@ -195,7 +221,8 @@ export function runLiveFinalGate(input, execute = execFileSync, now = isoNow) {
   const initialJob = fetchJob(input, execute);
   if (JSON.stringify(initialJob) !== JSON.stringify(input.target.job)) throw new Error("final_gate_live:job_changed");
 
-  let all = ensureV2(input, execute);
+  ensureV2(input, execute);
+  let all = recoverAcceptedIntents(input, execute, now);
   const decision = decideFinalGateRetry({
     ...memoryInput(input, all),
     target: input.target,
