@@ -81,6 +81,18 @@ jobs:
         run: |
           set -euo pipefail
 
+          memory_dir="$(mktemp -d)"
+
+          fetch_memory_comments() {
+            gh api --paginate "repos/$REPOSITORY/issues/548/comments?per_page=100" --jq '.[]' | jq -s '.' > "$memory_dir/comments.json"
+          }
+
+          write_memory_input() {
+            local path="$1"
+            jq -n --arg repository "$REPOSITORY" --argjson pr_number "$pr_number" --slurpfile comments "$memory_dir/comments.json" \
+              '{repository:$repository,pr_number:$pr_number,comments:$comments[0],comments_complete:true}' > "$path"
+          }
+
           summary() {
             echo "$1" >> "$GITHUB_STEP_SUMMARY"
           }
