@@ -24,12 +24,21 @@ function ghJson(args, execute) {
 }
 function pages(endpoint, execute, selector = null) {
   const items = [];
+  let expectedTotal = null;
   for (let page = 1; page <= MAX_PAGES; page++) {
     const payload = ghJson([endpoint + (endpoint.includes("?") ? "&" : "?") + "per_page=100&page=" + page], execute);
     const current = selector ? payload?.[selector] : payload;
     if (!Array.isArray(current)) throw new Error("final_gate_live:pagination");
+    if (selector) {
+      if (!Number.isSafeInteger(payload?.total_count) || payload.total_count < 0) throw new Error("final_gate_live:pagination_total");
+      if (expectedTotal === null) expectedTotal = payload.total_count;
+      else if (payload.total_count !== expectedTotal) throw new Error("final_gate_live:pagination_changed");
+    }
     items.push(...current);
-    if (current.length < 100) return items;
+    if (current.length < 100) {
+      if (selector && items.length !== expectedTotal) throw new Error("final_gate_live:pagination_incomplete");
+      return items;
+    }
   }
   throw new Error("final_gate_live:pagination_bound");
 }
@@ -206,6 +215,10 @@ export function runLiveFinalGate(input, execute = execFileSync, now = isoNow) {
   if (fetchPrHead(input, execute) !== input.target.head) return failBeforePost(input, decision.intent_id, "head_changed", execute, now);
   const currentJob = fetchJob(input, execute);
   if (JSON.stringify(currentJob) !== JSON.stringify(input.target.job)) return failBeforePost(input, decision.intent_id, "job_changed", execute, now);
+  const currentRecovery = fetchRecovery(input, execute, now());
+  if (currentRecovery.run_attempt !== input.target.run_attempt) {
+    return failBeforePost(input, decision.intent_id, "run_attempt_changed", execute, now);
+  }
   if (!coderabbitStillClean(input, execute)) return failBeforePost(input, decision.intent_id, "review_changed", execute, now);
 
   const posted = postRerun(input, execute);
