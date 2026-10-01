@@ -35,6 +35,13 @@ export function normalizeFinalGateEvidence(source, targetHead = "") {
   if (!source || typeof source !== "object" || Array.isArray(source)) throw new Error("final_gate_memory:source");
   const { kind, actor, body = "", review_state = "" } = source;
   const normalizedTargetHead = targetHead === "" ? "" : String(targetHead).toLowerCase();
+  const explicitGenerationId = source.review_generation_id ?? null;
+  const reviewGenerationId = explicitGenerationId === null
+    ? (kind === "pull_request_review" ? Number(source.id) : null)
+    : Number(explicitGenerationId);
+  if (reviewGenerationId !== null && (!Number.isSafeInteger(reviewGenerationId) || reviewGenerationId <= 0)) {
+    throw new Error("final_gate_memory:review_generation");
+  }
   if (normalizedTargetHead && !/^[0-9a-f]{40}$/.test(normalizedTargetHead)) throw new Error("final_gate_memory:target_head");
   let code = "";
   let category = "review_blocked";
@@ -42,7 +49,7 @@ export function normalizeFinalGateEvidence(source, targetHead = "") {
 
   if (kind === "issue_comment" && actor === "coderabbitai[bot]") {
     if (/Final exact-head review is complete for/i.test(body) && /I found no issues\./i.test(body)) {
-      code = "coderabbit_clean";
+      code = reviewGenerationId === null ? "coderabbit_clean" : "coderabbit_review_completed";
     } else if (/Review limit reached|Review rate[ -]?limited|rate[ -]?limit/i.test(body)) {
       code = "provider_unavailable";
       category = "provider_unavailable";
@@ -52,10 +59,12 @@ export function normalizeFinalGateEvidence(source, targetHead = "") {
       category = "provider_unavailable";
       providerClass = "unavailable";
     } else if (body.includes("<!-- recent_review_start -->")) {
-      code = "coderabbit_review_summary";
+      code = reviewGenerationId === null ? "coderabbit_review_summary" : "coderabbit_review_completed";
     }
   } else if (kind === "issue_comment" && actor === "chatgpt-codex-connector[bot]") {
-    if (body.startsWith("Codex Review: Didn't find any major issues.")) code = "codex_clean";
+    if (body.startsWith("Codex Review: Didn't find any major issues.")) {
+      code = reviewGenerationId === null ? "codex_clean" : "codex_review_completed";
+    }
   } else if (kind === "issue_comment" && actor === OWNER) {
     if (/proffera-codex-fallback-review-request:[0-9a-f]{40}/i.test(body) && /@codex\s+review/i.test(body)) {
       code = "codex_fallback_requested";
@@ -69,9 +78,14 @@ export function normalizeFinalGateEvidence(source, targetHead = "") {
 
   if (!code) throw new Error("final_gate_memory:unsupported_evidence");
   const reviewedCommit = kind === "pull_request_review" ? String(source.review_commit ?? "") : "";
+  const reviewGenerationHead = reviewedCommit || normalizedTargetHead;
+  const isReviewGeneration = reviewGenerationId !== null
+    && ["coderabbit_review_completed", "codex_review_completed"].includes(code);
   const semantic = code === "provider_unavailable"
     ? code + ":" + providerClass + (normalizedTargetHead ? ":target_head:" + normalizedTargetHead : "")
-    : body || code;
+    : isReviewGeneration
+      ? code + ":review_generation:" + reviewGenerationId + (reviewGenerationHead ? ":head:" + reviewGenerationHead : "")
+      : body || code;
   const normalized = materialText(semantic + (reviewedCommit ? " reviewed_commit:" + reviewedCommit : ""));
   return {
     lane: "final_gate",
