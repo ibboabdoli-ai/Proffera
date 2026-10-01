@@ -104,7 +104,16 @@ function fetchSource(input, execute) {
   };
 }
 function sameSource(a, b) {
-  return JSON.stringify(a) === JSON.stringify(b);
+  const core = (value) => ({
+    kind: value?.kind,
+    id: value?.id,
+    actor: value?.actor,
+    observed_at: value?.observed_at,
+    review_commit: value?.review_commit,
+    body: value?.body,
+    review_state: value?.review_state,
+  });
+  return JSON.stringify(core(a)) === JSON.stringify(core(b));
 }
 function fetchPrHead(input, execute) {
   return String(ghJson(["repos/" + input.repository + "/pulls/" + input.pr_number], execute)?.head?.sha ?? "");
