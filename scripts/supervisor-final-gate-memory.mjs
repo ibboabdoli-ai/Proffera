@@ -36,9 +36,7 @@ export function normalizeFinalGateEvidence(source, targetHead = "") {
   const { kind, actor, body = "", review_state = "" } = source;
   const normalizedTargetHead = targetHead === "" ? "" : String(targetHead).toLowerCase();
   const explicitGenerationId = source.review_generation_id ?? null;
-  const reviewGenerationId = explicitGenerationId === null
-    ? (kind === "pull_request_review" ? Number(source.id) : null)
-    : Number(explicitGenerationId);
+  const reviewGenerationId = explicitGenerationId === null ? null : Number(explicitGenerationId);
   if (reviewGenerationId !== null && (!Number.isSafeInteger(reviewGenerationId) || reviewGenerationId <= 0)) {
     throw new Error("final_gate_memory:review_generation");
   }
@@ -49,7 +47,7 @@ export function normalizeFinalGateEvidence(source, targetHead = "") {
 
   if (kind === "issue_comment" && actor === "coderabbitai[bot]") {
     if (/Final exact-head review is complete for/i.test(body) && /I found no issues\./i.test(body)) {
-      code = reviewGenerationId === null ? "coderabbit_clean" : "coderabbit_review_completed";
+      code = "coderabbit_review_completed";
     } else if (/Review limit reached|Review rate[ -]?limited|rate[ -]?limit/i.test(body)) {
       code = "provider_unavailable";
       category = "provider_unavailable";
@@ -59,11 +57,11 @@ export function normalizeFinalGateEvidence(source, targetHead = "") {
       category = "provider_unavailable";
       providerClass = "unavailable";
     } else if (body.includes("<!-- recent_review_start -->")) {
-      code = reviewGenerationId === null ? "coderabbit_review_summary" : "coderabbit_review_completed";
+      code = "coderabbit_review_completed";
     }
   } else if (kind === "issue_comment" && actor === "chatgpt-codex-connector[bot]") {
     if (body.startsWith("Codex Review: Didn't find any major issues.")) {
-      code = reviewGenerationId === null ? "codex_clean" : "codex_review_completed";
+      code = "codex_review_completed";
     }
   } else if (kind === "issue_comment" && actor === OWNER) {
     if (/proffera-codex-fallback-review-request:[0-9a-f]{40}/i.test(body) && /@codex\s+review/i.test(body)) {
@@ -77,6 +75,9 @@ export function normalizeFinalGateEvidence(source, targetHead = "") {
   }
 
   if (!code) throw new Error("final_gate_memory:unsupported_evidence");
+  if (["coderabbit_review_completed", "codex_review_completed"].includes(code) && reviewGenerationId === null) {
+    throw new Error("final_gate_memory:review_generation_required");
+  }
   const reviewedCommit = kind === "pull_request_review" ? String(source.review_commit ?? "") : "";
   const reviewGenerationHead = reviewedCommit || normalizedTargetHead;
   const isReviewGeneration = reviewGenerationId !== null
