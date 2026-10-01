@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 // @ts-expect-error Standalone pure Node .mjs follows the existing control-plane test convention.
-import { createMemory, memoryIdentity, memoryMarker, mergeObservation, mergeObservations, serializeMemory, readTrustedMemory, fingerprintEvidence, fingerprintStrategy, normalizeEvidence, FAILURE_CATEGORIES, LIMITS, upgradeMemory, prepareRetryIntent, transitionRetryIntent, decideRetryRecovery, RETRY_INTEGRATION } from "../scripts/supervisor-failure-memory.mjs";
+import { createMemory, memoryIdentity, memoryMarker, mergeObservation, mergeObservations, serializeMemory, readTrustedMemory, fingerprintEvidence, fingerprintStrategy, normalizeEvidence, FAILURE_CATEGORIES, LIMITS, upgradeMemory, prepareRetryIntent, releasePreparedRetryIntent, transitionRetryIntent, decideRetryRecovery, RETRY_INTEGRATION } from "../scripts/supervisor-failure-memory.mjs";
 
 const repo = "ibboabdoli-ai/Proffera";
 const head = "e280c5a21505b082fec2c519a3f2e675de97770c";
@@ -473,6 +473,38 @@ describe("D0 material identity, pinned binding and optimistic transitions", () =
       expect(() => transitionRetryIntent(first.snapshot, {...memoryIdentity(first.snapshot), ...mismatch}, first.intent_id,
         {kind: "uncertain", reason: "runner_interrupted", observed_at: at(5)})).toThrow("stale_memory");
     }
+  });
+
+  it("releases only a durable PREPARED intent when no POST was attempted", () => {
+    const first = prepare();
+    const released = releasePreparedRetryIntent(first.snapshot, memoryIdentity(first.snapshot), first.intent_id);
+    expect(released.memory.intents).toHaveLength(0);
+    expect(released.memory.revision).toBe(first.snapshot.memory.revision + 1);
+
+    const retried = prepare(released, {...intentInput(), prepared_at: at(6)});
+    expect(retried.created).toBe(true);
+    expect(retried.intent_id).toBe(first.intent_id);
+  });
+
+  it("cannot release a retry intent after acceptance or uncertainty", () => {
+    const first = prepare();
+    const acceptedSnapshot = accepted(first.snapshot, first.intent_id);
+    expect(() => releasePreparedRetryIntent(
+      acceptedSnapshot,
+      memoryIdentity(acceptedSnapshot),
+      first.intent_id,
+    )).toThrow("illegal_transition");
+
+    const uncertainSnapshot = transition(first.snapshot, first.intent_id, {
+      kind: "uncertain",
+      reason: "runner_interrupted",
+      observed_at: at(5),
+    });
+    expect(() => releasePreparedRetryIntent(
+      uncertainSnapshot,
+      memoryIdentity(uncertainSnapshot),
+      first.intent_id,
+    )).toThrow("illegal_transition");
   });
 
   it("accepts only a bound explicit HTTP201 receipt and makes exact replay a no-op", () => {
