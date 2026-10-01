@@ -319,7 +319,7 @@ describe("final-gate retry decisions", () => {
     expect(accepted.persistence.body).toContain('"state":"ACCEPTED"');
   });
 
-  it("accepts a fast successor whose GitHub start time precedes the HTTP response but follows the pre-POST lower bound", () => {
+  it("accepts a fast successor reported in the same second as the pre-POST lower bound", () => {
     const first = prepare();
     const accepted = acceptFinalGateRetry({
       ...baseInput([bot(first.persistence.body)]),
@@ -333,7 +333,7 @@ describe("final-gate retry decisions", () => {
     const fastSuccessor = recovery(2);
     fastSuccessor.jobs[1] = {
       ...fastSuccessor.jobs[1],
-      started_at: "2026-10-01T08:00:05.000Z",
+      started_at: "2026-10-01T08:00:04.000Z",
       completed_at: "2026-10-01T08:00:06.000Z",
     };
     const recovered = decideFinalGateRetry({
@@ -344,6 +344,36 @@ describe("final-gate retry decisions", () => {
       recovery_evidence: fastSuccessor,
     });
     expect(recovered.decision).toBe("RECOVERED_CONSUMED");
+  });
+
+  it("recovers a receipt-bearing UNCERTAIN intent once its exact successor becomes visible", () => {
+    const first = prepare();
+    const accepted = acceptFinalGateRetry({
+      ...baseInput([bot(first.persistence.body)]),
+      intent_id: first.intent_id,
+      receipt: { http_status: 201, binding_digest: first.binding_digest, observed_at: at(5) },
+    });
+    const uncertain = markFinalGateUncertain({
+      ...baseInput([bot(accepted.persistence.body)]),
+      intent_id: first.intent_id,
+      reason: "insufficient_evidence",
+      observed_at: at(6),
+    });
+    expect(uncertain.persistence.body).toContain('"state":"UNCERTAIN"');
+
+    const recovered = recoverAcceptedFinalGateIntent({
+      ...baseInput([bot(uncertain.persistence.body)]),
+      intent_id: first.intent_id,
+      recovery_evidence: recovery(2),
+    });
+    expect(recovered.decision).toBe("RECOVERED_CONSUMED");
+    expect(recovered.persistence?.body).toContain('"state":"CONSUMED"');
+  });
+
+  it("sweeps ACCEPTED and receipt-bearing UNCERTAIN retry intents before fresh admission", () => {
+    const sourceText = readFileSync(new URL("../scripts/supervisor-final-gate-live.mjs", import.meta.url), "utf8");
+    expect(sourceText).toContain('["ACCEPTED", "UNCERTAIN"].includes(intent.state)');
+    expect(sourceText).toContain('["ACCEPTED", "UNCERTAIN"].includes(current.state)');
   });
 
   it("recovers accepted evidence to CONSUMED and suppresses later duplicate", () => {
