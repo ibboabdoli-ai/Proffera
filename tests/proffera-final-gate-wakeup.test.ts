@@ -289,8 +289,9 @@ function codeRabbitInvocation(createdAt = "2099-09-05T12:01:00Z") {
   };
 }
 
-function codeRabbitCompletedReview(submittedAt = "2099-09-05T12:02:00Z", commitId = reviewHead) {
+function codeRabbitCompletedReview(submittedAt = "2099-09-05T12:02:00Z", commitId = reviewHead, id = 7001) {
   return {
+    id,
     user: { login: "coderabbitai[bot]" },
     commit_id: commitId,
     state: "COMMENTED",
@@ -488,9 +489,19 @@ describe("event-driven final review gate", () => {
   });
 
   it("wakes for trusted current-head CodeRabbit clean completion comments and rejects spoofed or stale clean evidence", () => {
+    const commentBeforeReview = runWakeupFixture({
+      body: cleanBody(),
+      comments: [requestComment()],
+    });
+    expect(commentBeforeReview.rerun).toBe(false);
+    expect(`${commentBeforeReview.result.stdout}${commentBeforeReview.result.stderr}`).toContain(
+      "CodeRabbit clean comment arrived before its completed review generation was query-visible",
+    );
+
     const positive = runWakeupFixture({
       body: cleanBody(),
       comments: [requestComment()],
+      firstReviews: [codeRabbitCompletedReview()],
     });
     expect(positive.result.status).toBe(0);
     expect(positive.rerun).toBe(true);
@@ -593,6 +604,7 @@ describe("event-driven final review gate", () => {
     const headChanged = runWakeupFixture({
       body: cleanBody(),
       comments: [requestComment()],
+      firstReviews: [codeRabbitCompletedReview()],
       liveHead: "cccccccccccccccccccccccccccccccccccccccc",
     });
     expect(headChanged.rerun).toBe(false);
@@ -601,13 +613,16 @@ describe("event-driven final review gate", () => {
     const reviewRace = runWakeupFixture({
       body: cleanBody(),
       comments: [requestComment()],
-      firstReviews: [],
-      laterReviews: [{
-        user: { login: "coderabbitai[bot]" },
-        commit_id: reviewHead,
-        state: "CHANGES_REQUESTED",
-        submitted_at: "2099-09-05T12:04:00Z",
-      }],
+      firstReviews: [codeRabbitCompletedReview()],
+      laterReviews: [
+        codeRabbitCompletedReview(),
+        {
+          user: { login: "coderabbitai[bot]" },
+          commit_id: reviewHead,
+          state: "CHANGES_REQUESTED",
+          submitted_at: "2099-09-05T12:04:00Z",
+        },
+      ],
     });
     expect(reviewRace.rerun).toBe(false);
     expect(`${reviewRace.result.stdout}${reviewRace.result.stderr}`).toContain("CodeRabbit changes were recorded before final-gate wakeup");
@@ -913,6 +928,8 @@ ${reviewHead}
     expect(wakeup).toContain(".created_at >= $primary_time and .created_at <= $result_time");
     expect(wakeup).toContain("No trusted exact-head Codex request exists after the primary CodeRabbit request and before this result");
     expect(wakeup).toContain("Codex clean comment does not reference the exact current head");
+    expect(wakeup).toContain("Codex clean comment arrived before its completed review generation was query-visible");
+    expect(wakeup).toContain("CodeRabbit clean comment arrived before its completed review generation was query-visible");
   });
 
   it("keeps high-risk CodeRabbit-primary while allowing bounded exact-head fallback after provider failure", () => {
