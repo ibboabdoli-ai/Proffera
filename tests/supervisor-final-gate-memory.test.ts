@@ -81,10 +81,10 @@ function prepare(comments = persistedV2(), src = source(), recoveryEvidence = re
 }
 
 describe("final-gate material evidence normalization", () => {
-  it("normalizes commit-only churn out of Codex clean evidence", () => {
+  it("treats a fresh exact-head Codex result as material review evidence", () => {
     const first = normalizeFinalGateEvidence(source(1, "Codex Review: Didn't find any major issues. Reviewed commit: aaaaaaa"));
     const second = normalizeFinalGateEvidence(source(2, "Codex Review: Didn't find any major issues. Reviewed commit: bbbbbbb"));
-    expect(first).toEqual(second);
+    expect(first.signals[0].detail_digest).not.toBe(second.signals[0].detail_digest);
   });
 
   it("keeps materially different review text distinct", () => {
@@ -96,6 +96,19 @@ describe("final-gate material evidence normalization", () => {
   it("preserves short hexadecimal finding identifiers as material evidence", () => {
     const first = normalizeFinalGateEvidence(source(1, "Codex Review: Didn't find any major issues. Finding deadbee. Reviewed commit: aaaaaaa"));
     const second = normalizeFinalGateEvidence(source(2, "Codex Review: Didn't find any major issues. Finding cafebabe. Reviewed commit: aaaaaaa"));
+    expect(first.signals[0].detail_digest).not.toBe(second.signals[0].detail_digest);
+  });
+
+  it("binds pull-request review evidence to its reviewed commit", () => {
+    const base = {
+      ...source(),
+      kind: "pull_request_review",
+      actor: "coderabbitai[bot]",
+      body: "Review completed.",
+      review_state: "commented",
+    };
+    const first = normalizeFinalGateEvidence({ ...base, review_commit: "a".repeat(40) });
+    const second = normalizeFinalGateEvidence({ ...base, review_commit: "b".repeat(40) });
     expect(first.signals[0].detail_digest).not.toBe(second.signals[0].detail_digest);
   });
 
@@ -133,11 +146,11 @@ describe("final-gate retry decisions", () => {
     expect(duplicate.intent_id).toBe(first.intent_id);
   });
 
-  it("changed HEAD token alone cannot buy a second intent", () => {
+  it("fresh exact-head review evidence for a new reviewed head creates a new intent", () => {
     const first = prepare();
-    const duplicate = prepare([bot(first.persistence.body)], source(9999, "Codex Review: Didn't find any major issues. Reviewed commit: bbbbbbb"), recovery());
-    expect(duplicate.intent_id).toBe(first.intent_id);
-    expect(duplicate.decision).toBe("FAIL_CLOSED_UNCERTAIN");
+    const fresh = prepare([bot(first.persistence.body)], source(9999, "Codex Review: Didn't find any major issues. Reviewed commit: bbbbbbb"), recovery());
+    expect(fresh.decision).toBe("ALLOW_RERUN");
+    expect(fresh.intent_id).not.toBe(first.intent_id);
   });
 
   it("material review change creates an independent intent", () => {
