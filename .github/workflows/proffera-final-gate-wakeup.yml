@@ -93,6 +93,29 @@ jobs:
               '{repository:$repository,pr_number:$pr_number,comments:$comments[0],comments_complete:true}' > "$path"
           }
 
+          persist_memory_result() {
+            local result_file="$1"
+            local comment_id body_file payload_file
+            comment_id="$(jq -r '.persistence.comment_id // empty' "$result_file")"
+            body_file="$memory_dir/body.txt"
+            payload_file="$memory_dir/body.json"
+            jq -r '.persistence.body' "$result_file" > "$body_file"
+            jq -n --rawfile body "$body_file" '{body:$body}' > "$payload_file"
+            if [ -n "$comment_id" ]; then
+              gh api --method PATCH "repos/$REPOSITORY/issues/comments/$comment_id" --input "$payload_file" >/dev/null
+            else
+              gh api --method POST "repos/$REPOSITORY/issues/548/comments" --input "$payload_file" >/dev/null
+            fi
+          }
+
+          verify_memory_identity() {
+            local expected_file="$1"
+            fetch_memory_comments
+            write_memory_input "$memory_dir/identity-input.json"
+            node scripts/supervisor-final-gate-memory.mjs identity "$memory_dir/identity-input.json" > "$memory_dir/identity-result.json"
+            jq -e --argjson expected "$(cat "$expected_file")" '.identity == $expected' "$memory_dir/identity-result.json" >/dev/null
+          }
+
           summary() {
             echo "$1" >> "$GITHUB_STEP_SUMMARY"
           }
