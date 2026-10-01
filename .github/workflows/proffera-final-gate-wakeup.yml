@@ -149,6 +149,7 @@ jobs:
               EVENT_EVIDENCE_TIME="$source_time"
               EVENT_REVIEW_STATE=""
               EVENT_REVIEW_COMMIT=""
+              EVENT_REVIEW_BODY=""
               ;;
             pull_request_review)
               source_json="$(gh api "repos/$REPOSITORY/pulls/$pr_number/reviews/$INPUT_SOURCE_ID")"
@@ -167,6 +168,7 @@ jobs:
               EVENT_EVIDENCE_TIME="$source_time"
               EVENT_REVIEW_STATE="$(jq -r '(.state // "") | ascii_downcase' <<< "$source_json")"
               EVENT_REVIEW_COMMIT="$source_commit"
+              EVENT_REVIEW_BODY="$(jq -r '.body // ""' <<< "$source_json")"
               ;;
             *)
               echo "Unsupported final-gate source event."
