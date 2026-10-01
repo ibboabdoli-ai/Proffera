@@ -121,7 +121,9 @@ function capabilities(value) {
 }
 
 function minimumRisk(taskType, caps) {
-  let floor = taskType === "migration" ? 3 : taskType === "production_operation" ? 4 : 1;
+  let floor = taskType === "production_operation"
+    ? 4
+    : ["control_plane", "migration"].includes(taskType) ? 3 : 1;
   for (const capability of caps) floor = Math.max(floor, RISK_FLOORS[capability] ?? 1);
   return floor;
 }

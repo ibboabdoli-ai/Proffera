@@ -87,12 +87,22 @@ describe("Supervisor Phase B2 decision router", () => {
     }
   });
 
-  it("enforces task-type risk floors for migration and Production operations", () => {
-    expect(() => normalizeDecision(decision({
-      task_type: "migration",
-      risk_class: 2,
-      capabilities: ["repository_write"],
-    }))).toThrow("supervisor_decision:risk_underclassified");
+  it("enforces task-type risk floors for control-plane, migration and Production operations", () => {
+    for (const task_type of ["control_plane", "migration"]) {
+      expect(() => normalizeDecision(decision({
+        task_type,
+        risk_class: 2,
+        capabilities: ["repository_write"],
+      }))).toThrow("supervisor_decision:risk_underclassified");
+
+      const normalized = normalizeDecision(decision({
+        task_type,
+        risk_class: 3,
+        capabilities: ["repository_write"],
+      }));
+      expect(normalized.requires_human_authorization).toBe(true);
+      expect(normalized.autonomous_dispatch_allowed).toBe(false);
+    }
 
     expect(() => normalizeDecision(decision({
       task_type: "production_operation",
