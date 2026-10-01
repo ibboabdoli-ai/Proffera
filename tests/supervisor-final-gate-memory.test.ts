@@ -1,13 +1,7 @@
 import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
-// @ts-expect-error standalone Node module
-import {
-  acceptFinalGateRetry,
-  decideFinalGateRetry,
-  ensureFinalGateMemory,
-  markFinalGateUncertain,
-  normalizeFinalGateEvidence,
-} from "../scripts/supervisor-final-gate-memory.mjs";
+// @ts-expect-error Standalone Node .mjs follows the existing control-plane test convention.
+import { acceptFinalGateRetry, decideFinalGateRetry, ensureFinalGateMemory, markFinalGateUncertain, normalizeFinalGateEvidence } from "../scripts/supervisor-final-gate-memory.mjs";
 
 const repo = "ibboabdoli-ai/Proffera";
 const pr = 878;
