@@ -254,6 +254,10 @@ export function runLiveFinalGate(input, execute = execFileSync, now = isoNow) {
     return { decision: "FAIL_CLOSED_UNCERTAIN", intent_id: decision.intent_id };
   }
 
+  // Capture the acceptance witness before any potentially slow comment pagination.
+  // Recovery compares successor start time to this bound, so delaying the timestamp
+  // until after another API read could make a valid fast rerun look pre-acceptance.
+  const acceptedAt = now();
   all = comments(input.repository, execute);
   const accepted = acceptFinalGateRetry({
     ...memoryInput(input, all),
@@ -261,7 +265,7 @@ export function runLiveFinalGate(input, execute = execFileSync, now = isoNow) {
     receipt: {
       http_status: 201,
       binding_digest: decision.binding_digest,
-      observed_at: now(),
+      observed_at: acceptedAt,
     },
   });
   persist(input.repository, accepted, execute);

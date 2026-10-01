@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 // @ts-expect-error Standalone Node .mjs follows the existing control-plane test convention.
 import { acceptFinalGateRetry, decideFinalGateRetry, ensureFinalGateMemory, listFinalGateRetryIntents, markFinalGateUncertain, normalizeFinalGateEvidence, recoverAcceptedFinalGateIntent } from "../scripts/supervisor-final-gate-memory.mjs";
@@ -79,6 +80,20 @@ function prepare(comments = persistedV2(), src = source(), recoveryEvidence = re
     recovery_evidence: recoveryEvidence,
   });
 }
+
+describe("final-gate live acceptance ordering", () => {
+  it("captures HTTP 201 acceptance time before rereading Failure Memory comments", () => {
+    const source = readFileSync(new URL("../scripts/supervisor-final-gate-live.mjs", import.meta.url), "utf8");
+    const post = source.indexOf("const posted = postRerun(input, execute);");
+    const acceptedAt = source.indexOf("const acceptedAt = now();", post);
+    const reread = source.indexOf("all = comments(input.repository, execute);", acceptedAt);
+    const receipt = source.indexOf("observed_at: acceptedAt", reread);
+    expect(post).toBeGreaterThanOrEqual(0);
+    expect(acceptedAt).toBeGreaterThan(post);
+    expect(reread).toBeGreaterThan(acceptedAt);
+    expect(receipt).toBeGreaterThan(reread);
+  });
+});
 
 describe("final-gate material evidence normalization", () => {
   it("treats a fresh exact-head Codex result as material review evidence", () => {
