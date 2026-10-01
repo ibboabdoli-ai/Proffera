@@ -390,7 +390,7 @@ function retryTarget(value) {
   const target = {workflow_path: member(value.workflow_path, [CI_PATH]), run_id: integer(value.run_id),
     head: hex(value.head, 40), run_attempt: integer(value.run_attempt, 9999), job: finalJob(value.job)};
   if (target.job.run_id !== target.run_id || target.job.head !== target.head
-    || target.job.run_attempt > target.run_attempt || target.job.status !== "completed"
+    || target.job.run_attempt !== target.run_attempt || target.job.status !== "completed"
     || !["failure", "cancelled"].includes(target.job.conclusion) || !target.job.started_at) fail("target_mismatch");
   return target;
 }

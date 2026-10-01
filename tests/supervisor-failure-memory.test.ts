@@ -427,6 +427,13 @@ describe("D0 material identity, pinned binding and optimistic transitions", () =
     expect(current.memory.intents[0].source.id).toBe(9001);
   });
 
+  it.each([1, 3])("rejects baseline job attempt %s when the target run attempt is 2", (attempt) => {
+    const input = intentInput();
+    input.target.run_attempt = 2;
+    input.target.job.run_attempt = attempt;
+    expect(() => prepare(v2(), input)).toThrow("target_mismatch");
+  });
+
   it("ignores event/head/target churn without retargeting the original material intent", () => {
     const first = prepare();
     const input = intentInput();
