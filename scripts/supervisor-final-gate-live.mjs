@@ -157,6 +157,14 @@ function markUncertain(input, intentId, reason, execute, now) {
   persist(input.repository, result, execute);
   verifyIdentity(input, result.persistence.identity, execute);
 }
+function failBeforePost(input, intentId, reason, execute, now) {
+  // PREPARED was already durable. No POST has occurred in this serialized writer,
+  // so make the fail-closed state explicit. Equivalent evidence remains blocked;
+  // materially changed exact-head evidence receives a distinct intent identity.
+  markUncertain(input, intentId, "insufficient_evidence", execute, now);
+  return { decision: "FAIL_CLOSED_MISMATCH", intent_id: intentId, reason };
+}
+
 function postRerun(input, execute) {
   try {
     const text = gh(["--include", "--method", "POST", "repos/" + input.repository + "/actions/jobs/" + input.target.job.id + "/rerun"], execute);
@@ -194,11 +202,11 @@ export function runLiveFinalGate(input, execute = execFileSync, now = isoNow) {
   if (decision.decision !== "ALLOW_RERUN") return decision;
 
   const currentSource = fetchSource(input, execute);
-  if (!sameSource(currentSource, input.source)) return { decision: "FAIL_CLOSED_MISMATCH", reason: "source_changed" };
-  if (fetchPrHead(input, execute) !== input.target.head) return { decision: "FAIL_CLOSED_MISMATCH", reason: "head_changed" };
+  if (!sameSource(currentSource, input.source)) return failBeforePost(input, decision.intent_id, "source_changed", execute, now);
+  if (fetchPrHead(input, execute) !== input.target.head) return failBeforePost(input, decision.intent_id, "head_changed", execute, now);
   const currentJob = fetchJob(input, execute);
-  if (JSON.stringify(currentJob) !== JSON.stringify(input.target.job)) return { decision: "FAIL_CLOSED_MISMATCH", reason: "job_changed" };
-  if (!coderabbitStillClean(input, execute)) return { decision: "FAIL_CLOSED_MISMATCH", reason: "review_changed" };
+  if (JSON.stringify(currentJob) !== JSON.stringify(input.target.job)) return failBeforePost(input, decision.intent_id, "job_changed", execute, now);
+  if (!coderabbitStillClean(input, execute)) return failBeforePost(input, decision.intent_id, "review_changed", execute, now);
 
   const posted = postRerun(input, execute);
   if (!posted.accepted) {
