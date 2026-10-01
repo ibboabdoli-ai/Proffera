@@ -1,6 +1,8 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
+// @ts-expect-error Standalone pure Node .mjs follows the existing control-plane test convention.
+import { normalizeDecision } from "../scripts/supervisor-decision-router.mjs";
 
 const skill = () => readFileSync(
   resolve(process.cwd(), ".codex/skills/proffera-engineering-core/SKILL.md"),
@@ -36,6 +38,17 @@ describe("Proffera Engineering Core skill", () => {
     expect(source).toContain("Production-mutation");
     expect(source).toContain("Ambiguous retry state fails closed.");
     expect(source).toContain("do not merge without the repository's required exact-head human authorization");
+  });
+
+  it("keeps the documented decision example valid against the real normalizer", () => {
+    const source = skill();
+    const match = source.match(/```json\n([\s\S]*?)\n```/);
+
+    expect(match).not.toBeNull();
+    const normalized = normalizeDecision(JSON.parse(match?.[1] ?? "{}"));
+    expect(normalized.schema_version).toBe(1);
+    expect(normalized.route_id).toBe("worker");
+    expect(normalized.autonomous_dispatch_allowed).toBe(true);
   });
 
   it("uses only the existing router execution lanes", () => {

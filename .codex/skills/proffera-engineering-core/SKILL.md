@@ -57,12 +57,25 @@ For cross-node architecture/caller/callee work, use Graphify when its graph is s
 
 ### 3. Create the deterministic decision artifact
 
-Classify the work with all of:
+Classify the work with all fields required by the deterministic schema:
 
+- `schema_version: 1`;
 - `task_type`;
 - `risk_class` from 1 to 4;
 - `reasoning_difficulty`;
 - required `capabilities`.
+
+Example shape:
+
+```json
+{
+  "schema_version": 1,
+  "task_type": "bugfix",
+  "risk_class": 2,
+  "reasoning_difficulty": "complex",
+  "capabilities": ["repository_write", "test_execution"]
+}
+```
 
 Normalize that artifact through `scripts/supervisor-decision-router.mjs`.
 
