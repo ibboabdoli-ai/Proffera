@@ -1,7 +1,6 @@
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import {
-  createMemory,
   decideRetryRecovery,
   memoryIdentity,
   prepareRetryIntent,
@@ -25,38 +24,44 @@ function materialText(value) {
   return String(value ?? "")
     .replace(/\u001b\[[0-9;]*m/g, "")
     .replace(/<!--\s*CodeRabbit review command invocation:\s*v2:[0-9a-f]{64}\s*-->/gi, "<coderabbit-invocation>")
-    .replace(/https?:\/\/\S+/gi, "<url>")
-    .replace(/\b\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d+)?Z\b/g, "<time>")
     .replace(/\s+/g, " ")
-    .trim()
-    .toLowerCase();
+    .trim();
 }
 
-export function normalizeFinalGateEvidence(source, targetHead = "") {
+// Availability is a provider statement, not a generic skipped/disabled status.
+// The live adapter separately authenticates its actor and post-request freshness.
+export function providerUnavailable(body) {
+  if (/automatic reviews? (?:are |is )?disabled|auto(?:matic)?[ _-]?review[^\n]*disabled/i.test(body)) return null;
+  if (/Review limit reached|Review rate limited/i.test(body)) return "rate_limited";
+  if (/temporarily unavailable|service unavailable/i.test(body)) return "unavailable";
+  return null;
+}
+
+export function cleanCodeRabbitComment(body, head) {
+  if (!/^[0-9a-f]{40}$/.test(head) || /Review limit reached|Review rate[ -]?limited|rate[ -]?limit|Action not completed|Review skipped|temporarily unavailable|service unavailable|incomplete|did not complete/i.test(body)) return false;
+  const lines = String(body).split(/\r?\n/).map((line) => line.trim());
+  const sentence = (prefix) => lines.some((line) => new RegExp(`^(?:@[A-Za-z0-9-]+\\s+)?${prefix}\\s+\x60?${head}\x60?\\.$`).test(line));
+  return (lines.some((line) => /^<!-- CodeRabbit review command invocation: v2:[0-9a-f]{64} -->$/.test(line))
+    && sentence("Final exact-head review is complete for") && lines.includes("I found no issues."))
+    || (sentence("Review completed for exact HEAD") && lines.includes("I found no material findings."));
+}
+
+export function normalizeFinalGateEvidence(source, targetHead = source?.review_commit ?? "") {
   if (!source || typeof source !== "object" || Array.isArray(source)) throw new Error("final_gate_memory:source");
   const { kind, actor, body = "", review_state = "" } = source;
   const normalizedTargetHead = targetHead === "" ? "" : String(targetHead).toLowerCase();
-  const explicitGenerationId = source.review_generation_id ?? null;
-  const reviewGenerationId = explicitGenerationId === null ? null : Number(explicitGenerationId);
-  if (reviewGenerationId !== null && (!Number.isSafeInteger(reviewGenerationId) || reviewGenerationId <= 0)) {
-    throw new Error("final_gate_memory:review_generation");
-  }
-  if (normalizedTargetHead && !/^[0-9a-f]{40}$/.test(normalizedTargetHead)) throw new Error("final_gate_memory:target_head");
+  if (!/^[0-9a-f]{40}$/.test(normalizedTargetHead)) throw new Error("final_gate_memory:target_head");
   let code = "";
   let category = "review_blocked";
   let providerClass = null;
 
   if (kind === "issue_comment" && actor === "coderabbitai[bot]") {
-    if (/Final exact-head review is complete for/i.test(body) && /I found no issues\./i.test(body)) {
+    if (cleanCodeRabbitComment(body, normalizedTargetHead)) {
       code = "coderabbit_review_completed";
-    } else if (/Review limit reached|Review rate[ -]?limited|rate[ -]?limit/i.test(body)) {
+    } else if (providerUnavailable(body)) {
       code = "provider_unavailable";
       category = "provider_unavailable";
-      providerClass = "rate_limited";
-    } else if (/temporarily unavailable|service unavailable|Action not completed|Review skipped/i.test(body)) {
-      code = "provider_unavailable";
-      category = "provider_unavailable";
-      providerClass = "unavailable";
+      providerClass = providerUnavailable(body);
     } else if (body.includes("<!-- recent_review_start -->")) {
       code = "coderabbit_review_completed";
     }
@@ -65,30 +70,42 @@ export function normalizeFinalGateEvidence(source, targetHead = "") {
       code = "codex_review_completed";
     }
   } else if (kind === "issue_comment" && actor === OWNER) {
-    if (/proffera-codex-fallback-review-request:[0-9a-f]{40}/i.test(body) && /@codex\s+review/i.test(body)) {
+    if (body.includes(`<!-- proffera-codex-fallback-review-request:${normalizedTargetHead} -->`) && body.includes("@codex review")) {
       code = "codex_fallback_requested";
     }
   } else if (kind === "pull_request_review" && ["coderabbitai[bot]", "chatgpt-codex-connector[bot]"].includes(actor)) {
     if (String(review_state).toLowerCase() === "changes_requested") code = "review_changes_requested";
     else if (["commented", "approved"].includes(String(review_state).toLowerCase())) {
-      code = actor === "coderabbitai[bot]" ? "coderabbit_review_completed" : "codex_review_completed";
+      code = actor === "coderabbitai[bot]" ? "coderabbit_review_completed"
+        : String(review_state).toLowerCase() === "approved" ? "codex_review_completed" : "codex_review_pending";
     }
   }
 
   if (!code) throw new Error("final_gate_memory:unsupported_evidence");
-  if (["coderabbit_review_completed", "codex_review_completed"].includes(code) && reviewGenerationId === null) {
-    throw new Error("final_gate_memory:review_generation_required");
-  }
   const reviewedCommit = kind === "pull_request_review" ? String(source.review_commit ?? "") : "";
-  const reviewGenerationHead = reviewedCommit || normalizedTargetHead;
-  const isReviewGeneration = reviewGenerationId !== null
-    && ["coderabbit_review_completed", "codex_review_completed"].includes(code);
-  const semantic = code === "provider_unavailable"
-    ? code + ":" + providerClass + (normalizedTargetHead ? ":target_head:" + normalizedTargetHead : "")
-    : isReviewGeneration
-      ? code + ":review_generation:" + reviewGenerationId + (reviewGenerationHead ? ":head:" + reviewGenerationHead : "")
-      : body || code;
-  const normalized = materialText(semantic + (!isReviewGeneration && reviewedCommit ? " reviewed_commit:" + reviewedCommit : ""));
+  if (kind === "pull_request_review" && reviewedCommit !== normalizedTargetHead) throw new Error("final_gate_memory:review_head");
+  // The gate treats nonblocking reviews with no findings as the same clean decision.
+  // IDs, generation guesses, prose wrappers and delivery order are provenance only.
+  // Findings keep their actual location/content (including URLs and case); editing a
+  // finding is material, while reposting it under another transport ID is not.
+  const normalizeFindings = (items) => [...new Set(items.map((finding) => JSON.stringify({
+    path: finding.path ?? null,
+    line: finding.original_line ?? finding.line ?? null,
+    side: finding.side ?? null,
+    body: materialText(finding.body),
+  })))].sort();
+  const findings = normalizeFindings(source.findings ?? []);
+  const clearedChanges = [...new Set((source.cleared_changes ?? []).map((change) => JSON.stringify({
+    body: materialText(change.body), findings: normalizeFindings(change.findings ?? []),
+  })))].sort();
+  const normalized = JSON.stringify({
+    code,
+    head: normalizedTargetHead,
+    detail: code === "codex_fallback_requested"
+      ? `<!-- proffera-codex-fallback-review-request:${normalizedTargetHead} -->`
+      : code === "provider_unavailable" ? providerClass
+        : code === "review_changes_requested" ? materialText(body) : { findings, cleared_changes: clearedChanges },
+  });
   return {
     lane: "final_gate",
     category,

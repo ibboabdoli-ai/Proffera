@@ -95,7 +95,6 @@ jobs:
             exit 0
           fi
 
-          EVENT_REVIEW_GENERATION_ID=""
           case "${INPUT_SOURCE_EVENT:-}" in
             issue_comment)
               source_json="$(gh api "repos/$REPOSITORY/issues/comments/$INPUT_SOURCE_ID")"
@@ -135,7 +134,6 @@ jobs:
               EVENT_REVIEW_STATE="$(jq -r '(.state // "") | ascii_downcase' <<< "$source_json")"
               EVENT_REVIEW_COMMIT="$source_commit"
               EVENT_REVIEW_BODY="$(jq -r '.body // ""' <<< "$source_json")"
-              EVENT_REVIEW_GENERATION_ID="$INPUT_SOURCE_ID"
               ;;
             *)
               echo "Unsupported final-gate source event."
@@ -180,7 +178,7 @@ jobs:
             fi
 
             if [ "$new_coderabbit_clean_event" != "true" ] \
-              && ! grep -Eqi 'recent_review_start|Review limit reached|Review rate limited|Action not completed: Review rate limited|Review skipped|temporarily unavailable|service unavailable' <<< "${EVENT_COMMENT_BODY:-}"; then
+              && ! grep -Eqi 'recent_review_start|Review completed for exact HEAD|Review limit reached|Review rate limited|temporarily unavailable|service unavailable' <<< "${EVENT_COMMENT_BODY:-}"; then
               echo "CodeRabbit comment does not carry final-review or availability evidence; ignoring it."
               exit 0
             fi
@@ -248,22 +246,6 @@ jobs:
 
             reviews_json="$(gh api --paginate "repos/$REPOSITORY/pulls/$pr_number/reviews?per_page=100" --jq '.[]' | jq -s '.')"
             current_reviews="$(jq -c --arg sha "$head_sha" '[.[] | select(.user.login == "coderabbitai[bot]" and .commit_id == $sha)]' <<< "$reviews_json")"
-            coderabbit_review_generation_id="$(jq -r --arg request_time "$coderabbit_request_time" --arg result_time "$EVENT_EVIDENCE_TIME" '
-              [
-                .[]
-                | select(.state == "APPROVED" or .state == "COMMENTED")
-                | select((.submitted_at // "") >= $request_time and (.submitted_at // "") <= $result_time)
-              ]
-              | sort_by(.submitted_at, .id)
-              | last
-              | .id // empty
-            ' <<< "$current_reviews")"
-            if [[ "$coderabbit_review_generation_id" =~ ^[1-9][0-9]*$ ]]; then
-              EVENT_REVIEW_GENERATION_ID="$coderabbit_review_generation_id"
-            else
-              echo "CodeRabbit clean comment arrived before its completed review generation was query-visible; deferring to the review event."
-              exit 0
-            fi
             latest_changes="$(jq -r '[.[] | select(.state == "CHANGES_REQUESTED") | .submitted_at] | max // empty' <<< "$current_reviews")"
             latest_approval="$(jq -r '[.[] | select(.state == "APPROVED") | .submitted_at] | max // empty' <<< "$current_reviews")"
             if [ -n "$latest_changes" ] && { [ -z "$latest_approval" ] || [[ ! "$latest_approval" > "$latest_changes" ]]; }; then
@@ -326,7 +308,7 @@ jobs:
               --arg marker "$codex_marker" \
               --arg requester "$TRUSTED_CODEX_REQUESTER" \
               --arg primary_time "$coderabbit_request_time" \
-              --arg result_time "$EVENT_EVIDENCE_TIME" '
+              --arg result_time "$EVENT_COMMENT_CREATED_AT" '
               [
                 .[]
                 | select(.user.login == $requester)
@@ -342,24 +324,7 @@ jobs:
               exit 0
             fi
 
-            codex_reviews_json="$(gh api --paginate "repos/$REPOSITORY/pulls/$pr_number/reviews?per_page=100" --jq '.[]' | jq -s '.')"
-            codex_review_generation_id="$(jq -r --arg sha "$head_sha" --arg request_time "$trusted_request_time" --arg result_time "$EVENT_EVIDENCE_TIME" '
-              [
-                .[]
-                | select(.user.login == "chatgpt-codex-connector[bot]" and .commit_id == $sha)
-                | select(.state == "APPROVED" or .state == "COMMENTED")
-                | select((.submitted_at // "") >= $request_time and (.submitted_at // "") <= $result_time)
-              ]
-              | sort_by(.submitted_at, .id)
-              | last
-              | .id // empty
-            ' <<< "$codex_reviews_json")"
-            if [[ "$codex_review_generation_id" =~ ^[1-9][0-9]*$ ]]; then
-              EVENT_REVIEW_GENERATION_ID="$codex_review_generation_id"
-            else
-              echo "Codex clean comment arrived before its completed review generation was query-visible; deferring to the review event."
-              exit 0
-            fi
+
           fi
 
           if [ "$EVENT_NAME" = "issue_comment" ] \
@@ -387,19 +352,6 @@ jobs:
               ]
               | max // empty
             ' <<< "$current_reviews")"
-            coderabbit_review_generation_id="$(jq -r --arg completion_time "$coderabbit_review_completion_time" '
-              [
-                .[]
-                | select((.submitted_at // "") == $completion_time)
-                | select(.state == "APPROVED" or .state == "COMMENTED")
-              ]
-              | sort_by(.id)
-              | last
-              | .id // empty
-            ' <<< "$current_reviews")"
-            if [[ "$coderabbit_review_generation_id" =~ ^[1-9][0-9]*$ ]]; then
-              EVENT_REVIEW_GENERATION_ID="$coderabbit_review_generation_id"
-            fi
             if [ -z "$coderabbit_request_time" ] || [ -z "$coderabbit_review_completion_time" ] || [ -z "${EVENT_COMMENT_UPDATED_AT:-}" ] || [[ "${EVENT_COMMENT_UPDATED_AT}" < "$coderabbit_review_completion_time" ]]; then
               echo "CodeRabbit summary is not bound to a post-request completed current-head review; refusing wakeup."
               exit 0
@@ -418,6 +370,8 @@ jobs:
             echo "No CI run exists for exact current head $head_sha; nothing to re-run."
             exit 0
           fi
+
+          run_json="$(gh api "repos/$REPOSITORY/actions/runs/$run_id")"
 
           jobs_json="$(
             gh api --paginate \
@@ -490,15 +444,11 @@ jobs:
             exit 1
           fi
 
-          source_body="$EVENT_COMMENT_BODY"
-          if [ "$EVENT_NAME" = "pull_request_review" ]; then
-            source_body="$EVENT_REVIEW_BODY"
-          fi
-
           target_json="$(jq -n \
             --arg head "$head_sha" \
             --argjson run_id "$run_id" \
             --argjson run_attempt "$final_run_attempt" \
+            --argjson run "$run_json" \
             --argjson job "$final_job_json" '
             {
               workflow_path:".github/workflows/ci.yml",
@@ -507,9 +457,9 @@ jobs:
               run_attempt:$run_attempt,
               job:{
                 id:$job.id,
-                run_id:$run_id,
-                head:$head,
-                run_attempt:$run_attempt,
+                run_id:$job.run_id,
+                head:($job.head_sha // $run.head_sha),
+                run_attempt:$job.run_attempt,
                 name:$job.name,
                 status:$job.status,
                 conclusion:$job.conclusion,
@@ -525,18 +475,16 @@ jobs:
             --arg actor "$EVENT_ACTOR" \
             --arg observed_at "$EVENT_EVIDENCE_TIME" \
             --arg review_commit "$EVENT_REVIEW_COMMIT" \
-            --arg body "$source_body" \
-            --arg review_state "$EVENT_REVIEW_STATE" \
-            --arg review_generation_id "$EVENT_REVIEW_GENERATION_ID" '
+            --argjson original "$source_json" \
+            --arg review_state "$EVENT_REVIEW_STATE" '
             {
               kind:$kind,
               id:$id,
               actor:$actor,
               observed_at:$observed_at,
               review_commit:(if $kind == "pull_request_review" then $review_commit else null end),
-              body:$body,
-              review_state:$review_state,
-              review_generation_id:(if $review_generation_id == "" then null else ($review_generation_id | tonumber) end)
+              body:($original.body // ""),
+              review_state:$review_state
             }'
           )"
 
@@ -544,14 +492,12 @@ jobs:
             --arg repository "$REPOSITORY" \
             --argjson pr_number "$pr_number" \
             --argjson source "$source_for_memory" \
-            --argjson target "$target_json" \
-            --argjson require_guard "$new_coderabbit_clean_event" '
+            --argjson target "$target_json" '
             {
               repository:$repository,
               pr_number:$pr_number,
               source:$source,
-              target:$target,
-              require_coderabbit_clean_guard:$require_guard
+              target:$target
             }' > final-gate-memory-input.json
 
           node scripts/supervisor-final-gate-live.mjs final-gate-memory-input.json > final-gate-memory-result.json

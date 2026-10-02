@@ -1,13 +1,15 @@
-#!/usr/bin/env node
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import {
   acceptFinalGateRetry,
+  cleanCodeRabbitComment,
   decideFinalGateRetry,
   ensureFinalGateMemory,
   finalGateMemoryIdentity,
   listFinalGateRetryIntents,
   markFinalGateUncertain,
+  normalizeFinalGateEvidence,
+  providerUnavailable,
   recoverAcceptedFinalGateIntent,
   releaseFinalGatePreparedIntent,
 } from "./supervisor-final-gate-memory.mjs";
@@ -38,6 +40,8 @@ function pages(endpoint, execute, selector = null) {
       else if (payload.total_count !== expectedTotal) throw new Error("final_gate_live:pagination_changed");
     }
     items.push(...current);
+    if (items.some((item) => !Number.isSafeInteger(item?.id) || item.id <= 0)
+      || new Set(items.map((item) => item.id)).size !== items.length) throw new Error("final_gate_live:pagination_identity");
     if (current.length < 100) {
       if (selector && items.length !== expectedTotal) throw new Error("final_gate_live:pagination_incomplete");
       return items;
@@ -83,11 +87,13 @@ function ensureV2(input, execute) {
 function fetchSource(input, execute) {
   if (input.source.kind === "issue_comment") {
     const value = ghJson(["repos/" + input.repository + "/issues/comments/" + input.source.id], execute);
+    if (value.issue_url !== `https://api.github.com/repos/${input.repository}/issues/${input.pr_number}`) throw new Error("final_gate_live:source_scope");
     return {
       kind: "issue_comment",
       id: value.id,
       actor: value.user?.login ?? "",
       observed_at: value.updated_at ?? "",
+      created_at: value.created_at ?? "",
       review_commit: null,
       body: value.body ?? "",
       review_state: "",
@@ -117,14 +123,27 @@ function sameSource(a, b) {
   return JSON.stringify(core(a)) === JSON.stringify(core(b));
 }
 function fetchPrHead(input, execute) {
-  return String(ghJson(["repos/" + input.repository + "/pulls/" + input.pr_number], execute)?.head?.sha ?? "");
+  const pr = ghJson(["repos/" + input.repository + "/pulls/" + input.pr_number], execute);
+  if (pr.number !== input.pr_number || pr.state !== "open" || pr.draft !== false
+    || pr.base?.repo?.full_name !== input.repository) throw new Error("final_gate_live:pr_scope");
+  return String(pr.head?.sha ?? "");
 }
-function fetchJob(input, execute) {
-  const job = ghJson(["repos/" + input.repository + "/actions/jobs/" + input.target.job.id], execute);
+function fetchRun(input, target, execute) {
+  const run = ghJson([`repos/${input.repository}/actions/runs/${target.run_id}`], execute);
+  if (run.id !== target.run_id || run.head_sha !== target.head || run.path !== target.workflow_path
+    || run.repository?.full_name !== input.repository || run.event !== "pull_request"
+    || !Array.isArray(run.pull_requests) || !run.pull_requests.some((pr) => pr.number === input.pr_number)
+    || !Number.isSafeInteger(run.run_attempt) || run.run_attempt < target.run_attempt) throw new Error("final_gate_live:run_identity");
+  return run;
+}
+function jobFromRun(job, run) {
+  if (job.run_id !== run.id || (job.head_sha !== undefined && job.head_sha !== run.head_sha)
+    || !Number.isSafeInteger(job.id) || job.id <= 0
+    || !Number.isSafeInteger(job.run_attempt) || job.run_attempt < 1 || job.run_attempt > run.run_attempt) throw new Error("final_gate_live:job_identity");
   return {
     id: job.id,
     run_id: job.run_id,
-    head: input.target.head,
+    head: run.head_sha,
     run_attempt: job.run_attempt,
     name: job.name,
     status: job.status,
@@ -133,27 +152,24 @@ function fetchJob(input, execute) {
     completed_at: job.completed_at,
   };
 }
+function fetchJob(input, execute) {
+  const run = fetchRun(input, input.target, execute);
+  const job = ghJson(["repos/" + input.repository + "/actions/jobs/" + input.target.job.id], execute);
+  return jobFromRun(job, run);
+}
 function fetchRecoveryForTarget(input, target, execute, observedAt) {
+  const run = fetchRun(input, target, execute);
   const jobs = pages("repos/" + input.repository + "/actions/runs/" + target.run_id + "/jobs?filter=all", execute, "jobs");
-  const finals = jobs.filter((job) => job.name === "E2E public smoke").map((job) => ({
-    id: job.id,
-    run_id: target.run_id,
-    head: target.head,
-    run_attempt: job.run_attempt,
-    name: job.name,
-    status: job.status,
-    conclusion: job.conclusion,
-    started_at: job.started_at,
-    completed_at: job.completed_at,
-  }));
-  const runAttempt = Math.max(0, ...finals.map((job) => Number(job.run_attempt) || 0));
+  const finals = jobs.map((job) => jobFromRun(job, run)).filter((job) => job.name === "E2E public smoke");
+  const reread = fetchRun(input, target, execute);
+  if (reread.run_attempt !== run.run_attempt) throw new Error("final_gate_live:run_changed_during_pagination");
   return {
-    repository: input.repository,
+    repository: run.repository.full_name,
     pr_number: input.pr_number,
-    run_id: target.run_id,
-    head: target.head,
-    workflow_path: ".github/workflows/ci.yml",
-    run_attempt: runAttempt,
+    run_id: run.id,
+    head: run.head_sha,
+    workflow_path: run.path,
+    run_attempt: run.run_attempt,
     complete: true,
     observed_at: observedAt,
     jobs: finals,
@@ -184,13 +200,100 @@ function recoverAcceptedIntents(input, execute, now) {
   return comments(input.repository, execute);
 }
 
-function coderabbitStillClean(input, execute) {
-  if (!input.require_coderabbit_clean_guard) return true;
-  const reviews = pages("repos/" + input.repository + "/pulls/" + input.pr_number + "/reviews", execute)
-    .filter((review) => review.user?.login === "coderabbitai[bot]" && review.commit_id === input.target.head);
+function coderabbitStillClean(reviews, head) {
+  reviews = reviews.filter((review) => review.user?.login === "coderabbitai[bot]" && review.commit_id === head);
+  if (reviews.some((review) => ["CHANGES_REQUESTED", "APPROVED"].includes(review.state)
+    && !Number.isFinite(Date.parse(review.submitted_at)))) throw new Error("final_gate_live:review_time");
   const changes = reviews.filter((r) => r.state === "CHANGES_REQUESTED").map((r) => r.submitted_at ?? "").sort().at(-1) ?? "";
   const approvals = reviews.filter((r) => r.state === "APPROVED").map((r) => r.submitted_at ?? "").sort().at(-1) ?? "";
   return !changes || (approvals && approvals > changes);
+}
+
+// Admission and revalidation share this boundary for EVERY event path. A clean
+// issue comment is independently valid under CI's contract; it is never assigned
+// an unrelated "latest review" ID. Persistent summaries still need the completion
+// witness required by CI, but that witness does not become material identity.
+function validatedSource(input, source, execute) {
+  const head = input.target.head;
+  const reviews = pages(`repos/${input.repository}/pulls/${input.pr_number}/reviews`, execute);
+  if (source.kind === "pull_request_review") {
+    // A verified individual review may become visible before the list endpoint.
+    // Reconcile that exact witness; never invent a generation for a comment or
+    // prefer a contradictory representation of an already listed review.
+    const direct = { id: source.id, user: { login: source.actor }, commit_id: source.review_commit,
+      state: source.review_state.toUpperCase(), submitted_at: source.observed_at, body: source.body };
+    const listed = reviews.find((r) => r.id === direct.id);
+    if (listed && JSON.stringify([listed.user?.login, listed.commit_id, listed.state, listed.submitted_at, listed.body ?? ""])
+      !== JSON.stringify([source.actor, direct.commit_id, direct.state, direct.submitted_at, direct.body])) throw new Error("final_gate_live:review_contradiction");
+    if (!listed) reviews.push(direct);
+  }
+  if (!coderabbitStillClean(reviews, head)) throw new Error("final_gate_live:review_changed");
+  const all = pages(`repos/${input.repository}/issues/${input.pr_number}/comments`, execute);
+  const primaryBody = `<!-- proffera-coderabbit-final-review-request:${head} -->\n@coderabbitai review`;
+  const primary = all.filter((c) => c.user?.login === "github-actions[bot]" && c.body === primaryBody)
+    .sort((a, b) => a.created_at.localeCompare(b.created_at)).at(-1);
+  const at = (value) => {
+    const parsed = Date.parse(value);
+    if (!Number.isFinite(parsed)) throw new Error("final_gate_live:evidence_time");
+    return parsed;
+  };
+  const primaryTime = primary ? at(primary.created_at) : null;
+  const sourceTime = at(source.observed_at);
+  if (source.kind === "issue_comment" && at(source.created_at) > sourceTime) throw new Error("final_gate_live:evidence_time");
+  const marker = `<!-- proffera-codex-fallback-review-request:${head} -->`;
+  const fallback = all.filter((c) => c.user?.login === "ibboabdoli-ai" && c.body?.includes(marker) && c.body.includes("@codex review")
+    && primaryTime !== null && at(c.created_at) >= primaryTime)
+    .sort((a, b) => at(a.created_at) - at(b.created_at)).at(-1);
+  const requirePrimary = (time) => {
+    if (primaryTime === null || at(time) < primaryTime) throw new Error("final_gate_live:primary_request_required");
+  };
+  let findings = [];
+  let clearedChanges = [];
+  if (source.kind === "issue_comment" && source.actor === "ibboabdoli-ai") {
+    requirePrimary(source.created_at);
+  } else if (["coderabbitai[bot]", "chatgpt-codex-connector[bot]"].includes(source.actor)) {
+    if (source.actor === "chatgpt-codex-connector[bot]") {
+      const resultTime = source.kind === "issue_comment" ? at(source.created_at) : sourceTime;
+      if (!fallback || resultTime < at(fallback.created_at)) throw new Error("final_gate_live:fallback_request_required");
+    }
+    const currentInline = pages(`repos/${input.repository}/pulls/${input.pr_number}/comments`, execute)
+      .filter((c) => (c.user?.login === "chatgpt-codex-connector[bot]" ? c.commit_id : c.original_commit_id ?? c.commit_id) === head);
+    const inline = currentInline.filter((c) => c.user?.login === source.actor);
+    // A later APPROVED can change authority after a blocking decision. Preserve
+    // that material transition without making a new review ID a retry budget.
+    clearedChanges = reviews.filter((r) => r.user?.login === "coderabbitai[bot]" && r.commit_id === head && r.state === "CHANGES_REQUESTED")
+      .map((r) => ({ body: r.body ?? "", findings: currentInline.filter((c) => c.user?.login === "coderabbitai[bot]" && c.pull_request_review_id === r.id) }));
+    if (source.kind === "pull_request_review") {
+      if (source.review_commit !== head || !["commented", "approved"].includes(source.review_state)) throw new Error("final_gate_live:review_source");
+      if (source.actor === "chatgpt-codex-connector[bot]" && source.review_state !== "approved") throw new Error("final_gate_live:codex_decision_pending");
+      findings = inline.filter((c) => c.pull_request_review_id === source.id);
+    } else if (source.actor === "coderabbitai[bot]" && providerUnavailable(source.body)) {
+      requirePrimary(source.created_at);
+    } else {
+      if (source.actor === "chatgpt-codex-connector[bot]") {
+        const matches = [...source.body.matchAll(/Reviewed commit:\*{0,2}\s*`?([0-9a-fA-F]{7,40})`?/g)];
+        if (!source.body.startsWith("Codex Review: Didn't find any major issues.") || matches.length !== 1
+          || !head.startsWith(matches[0][1].toLowerCase())) throw new Error("final_gate_live:clean_head");
+      } else if (source.body.includes("<!-- recent_review_start -->")) {
+        const clean = source.body.match(/<!-- recent_review_start -->([\s\S]*?)<!-- recent_review_end -->/g);
+        if (clean?.length !== 1 || !clean[0].includes(head) || !clean[0].includes("No actionable comments were generated")
+          || primaryTime === null || !reviews.some((r) => r.user?.login === source.actor && r.commit_id === head
+            && ["COMMENTED", "APPROVED"].includes(r.state) && at(r.submitted_at) >= primaryTime && at(r.submitted_at) <= sourceTime)) {
+          throw new Error("final_gate_live:summary_completion_required");
+        }
+      } else {
+        requirePrimary(source.created_at);
+        if (!cleanCodeRabbitComment(source.body, head)) {
+          throw new Error("final_gate_live:clean_head");
+        }
+      }
+      const lowerBound = source.actor === "coderabbitai[bot]" ? primaryTime : at(fallback.created_at);
+      if (inline.some((c) => lowerBound === null || at(c.created_at) >= lowerBound)) throw new Error("final_gate_live:clean_comment_findings");
+    }
+  }
+  const validated = { ...source, findings, cleared_changes: clearedChanges };
+  normalizeFinalGateEvidence(validated, head);
+  return validated;
 }
 function markUncertain(input, intentId, reason, execute, now) {
   const all = comments(input.repository, execute);
@@ -203,18 +306,20 @@ function markUncertain(input, intentId, reason, execute, now) {
   persist(input.repository, result, execute);
   verifyIdentity(input, result.persistence.identity, execute);
 }
-function failBeforePost(input, intentId, reason, execute) {
+function failBeforePost(input, decision, reason, execute) {
   // PREPARED was durable, but this serialized writer has revalidated a mismatch and
   // has not attempted the rerun POST. Release only that PREPARED slot so a later
   // stabilized delivery can be admitted without leaving an unrecoverable tombstone.
   const all = comments(input.repository, execute);
+  const identity = finalGateMemoryIdentity(memoryInput(input, all)).identity;
+  if (JSON.stringify(identity) !== JSON.stringify(decision.persistence.identity)) throw new Error("final_gate_live:release_ownership_lost");
   const result = releaseFinalGatePreparedIntent({
     ...memoryInput(input, all),
-    intent_id: intentId,
+    intent_id: decision.intent_id,
   });
   persist(input.repository, result, execute);
   verifyIdentity(input, result.persistence.identity, execute);
-  return { decision: "FAIL_CLOSED_MISMATCH", intent_id: intentId, reason };
+  return { decision: "FAIL_CLOSED_MISMATCH", intent_id: decision.intent_id, reason };
 }
 
 function postRerun(input, execute) {
@@ -237,13 +342,14 @@ export function runLiveFinalGate(input, execute = execFileSync, now = isoNow) {
   if (fetchPrHead(input, execute) !== input.target.head) throw new Error("final_gate_live:head_changed");
   const initialJob = fetchJob(input, execute);
   if (JSON.stringify(initialJob) !== JSON.stringify(input.target.job)) throw new Error("final_gate_live:job_changed");
+  const admittedSource = validatedSource(input, initialSource, execute);
 
   ensureV2(input, execute);
   let all = recoverAcceptedIntents(input, execute, now);
   const decision = decideFinalGateRetry({
     ...memoryInput(input, all),
     target: input.target,
-    source: input.source,
+    source: admittedSource,
     prepared_at: now(),
     recovery_evidence: fetchRecovery(input, execute, now()),
   });
@@ -254,16 +360,27 @@ export function runLiveFinalGate(input, execute = execFileSync, now = isoNow) {
   }
   if (decision.decision !== "ALLOW_RERUN") return decision;
 
-  const currentSource = fetchSource(input, execute);
-  if (!sameSource(currentSource, input.source)) return failBeforePost(input, decision.intent_id, "source_changed", execute);
-  if (fetchPrHead(input, execute) !== input.target.head) return failBeforePost(input, decision.intent_id, "head_changed", execute);
-  const currentJob = fetchJob(input, execute);
-  if (JSON.stringify(currentJob) !== JSON.stringify(input.target.job)) return failBeforePost(input, decision.intent_id, "job_changed", execute);
-  const currentRecovery = fetchRecovery(input, execute, now());
-  if (currentRecovery.run_attempt !== input.target.run_attempt) {
-    return failBeforePost(input, decision.intent_id, "run_attempt_changed", execute);
+  // This catch is deliberately confined to reads before the POST boundary. Only
+  // this invocation's newly created, durably verified PREPARED record is releasable.
+  // Persist/verification ambiguity, crashes and any attempted POST stay pinned.
+  try {
+    const currentSource = fetchSource(input, execute);
+    if (!sameSource(currentSource, input.source)) throw new Error("final_gate_live:source_changed");
+    if (fetchPrHead(input, execute) !== input.target.head) throw new Error("final_gate_live:head_changed");
+    const currentJob = fetchJob(input, execute);
+    if (JSON.stringify(currentJob) !== JSON.stringify(input.target.job)) throw new Error("final_gate_live:job_changed");
+    const currentRecovery = fetchRecovery(input, execute, now());
+    if (currentRecovery.run_attempt !== input.target.run_attempt) throw new Error("final_gate_live:run_attempt_changed");
+    const currentEvidence = normalizeFinalGateEvidence(validatedSource(input, currentSource, execute), input.target.head);
+    if (JSON.stringify(currentEvidence) !== JSON.stringify(decision.evidence)) throw new Error("final_gate_live:evidence_changed");
+    // Reviews/comments may require several pages. Refresh the mutable run/head
+    // authority after those reads as well, before the final durable-intent check.
+    if (fetchPrHead(input, execute) !== input.target.head) throw new Error("final_gate_live:head_changed");
+    if (fetchRun(input, input.target, execute).run_attempt !== input.target.run_attempt) throw new Error("final_gate_live:run_attempt_changed");
+  } catch (error) {
+    return failBeforePost(input, decision, error instanceof Error ? error.message : "pre_post_read_failed", execute);
   }
-  if (!coderabbitStillClean(input, execute)) return failBeforePost(input, decision.intent_id, "review_changed", execute);
+  verifyIdentity(input, decision.persistence.identity, execute);
 
   // Capture a conservative lower bound immediately before the one allowed POST.
   // GitHub job.started_at is only second-resolution and a rerun can start before the
