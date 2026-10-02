@@ -159,11 +159,11 @@ describe("final-gate retry decisions", () => {
     expect(fresh.intent_id).not.toBe(first.intent_id);
   });
 
-  it("material review change creates an independent intent", () => {
+  it("material review change does not replace an unresolved target intent", () => {
     const first = prepare();
     const changed = prepare([bot(first.persistence.body)], { ...source(9999), findings: [{ path: "a", body: "different finding" }] }, recovery());
-    expect(changed.decision).toBe("ALLOW_RERUN");
-    expect(changed.intent_id).not.toBe(first.intent_id);
+    expect(changed.decision).toBe("FAIL_CLOSED_UNCERTAIN");
+    expect(changed.intent_id).toBe(first.intent_id);
   });
 
   it("provider outage on a newer exact head creates a new intent", () => {
@@ -353,6 +353,7 @@ describe("final-gate retry decisions", () => {
         comments,
         { ...source(9100 + i), findings: [{ path: "a", body: "finding " + i }] },
         recovery(),
+        { ...target(), run_id: 500 + i, job: { ...target().job, run_id: 500 + i } },
       );
       const accepted = acceptFinalGateRetry({
         ...baseInput([bot(prepared.persistence.body)]),
@@ -364,11 +365,11 @@ describe("final-gate retry decisions", () => {
     }
     expect(listFinalGateRetryIntents(baseInput(comments)).filter((intent: {state: string}) => intent.state === "ACCEPTED")).toHaveLength(4);
 
-    for (const intentId of ids) {
+    for (const [index, intentId] of ids.entries()) {
       const recovered = recoverAcceptedFinalGateIntent({
         ...baseInput(comments),
         intent_id: intentId,
-        recovery_evidence: recovery(2),
+        recovery_evidence: { ...recovery(2), run_id: 500 + index, jobs: recovery(2).jobs.map(j => ({ ...j, run_id: 500 + index })) },
       });
       expect(recovered.decision).toBe("RECOVERED_CONSUMED");
       if (recovered.persistence) comments = [bot(recovered.persistence.body)];
@@ -469,8 +470,8 @@ function liveFixture(src: LiveSource = { ...source(9001, fallbackBody), actor: "
     else if (endpoint.includes(`/pulls/${pr}/reviews?`)) payload = f.reviews;
     else if (endpoint.includes(`/pulls/${pr}/comments?`)) payload = f.inline;
     else if (endpoint.includes(`/issues/${pr}/comments?`)) payload = f.prComments;
-    else throw new Error(`Unsimulated ${method} ${endpoint}`);
-    return JSON.stringify(f.hooks.reply ? f.hooks.reply(endpoint, payload) : payload);
+    else if (!f.hooks.reply) throw new Error(`Unsimulated ${method} ${endpoint}`);
+    return (args.includes("--include") ? "HTTP/2.0 200 OK\r\n\r\n" : "") + JSON.stringify(f.hooks.reply ? f.hooks.reply(endpoint, payload) : payload);
   };
   return Object.assign(f, {
     input, memory, states,
@@ -633,11 +634,12 @@ describe("real adapter POST uncertainty and recovery", () => {
     f.jobs.push({ ...rawJob(2), name: "Validate", status: "in_progress", conclusion: null, completed_at: null });
     expect(f.run(original).decision).toBe("FAIL_CLOSED_MISMATCH"); expect(f.posts).toBe(0); expect(f.capacity()).toBe(4);
   });
-  it("uncertain effects stay pinned at capacity rather than being erased", () => {
+  it("uncertain effects stay pinned without spending capacity on evidence churn", () => {
     const f = liveFixture(liveReview()); f.hooks.post = () => { throw new Error("response lost"); };
     for (let i = 0; i < 4; i++) { f.inline = [findingRecord(8000 + i, 7001, "different finding " + i)]; f.run(); }
-    expect(f.posts).toBe(4); expect(f.capacity()).toBe(0);
-    f.inline = [findingRecord(9000, 7001, "fifth finding")]; expect(() => f.run()).toThrow("unresolved_capacity"); expect(f.posts).toBe(4);
+    expect(f.posts).toBe(1); expect(f.capacity()).toBe(3);
+    f.inline = [findingRecord(9000, 7001, "fifth finding")];
+    expect(f.run().decision).toBe("FAIL_CLOSED_UNCERTAIN"); expect(f.posts).toBe(1); expect(f.capacity()).toBe(3);
   });
   it("retains the existing bounded terminal eviction/admission-closure contract", () => {
     const f = liveFixture(liveReview());
@@ -716,5 +718,100 @@ describe("individually verified review visibility", () => {
       f.next(); f.reviews.push(reviewRecord(7002, "APPROVED", at(12)));
       expect(f.run().decision).toBe("SUPPRESS_DUPLICATE"); expect(f.posts).toBe(1);
     } else { expect(() => f.run()).toThrow(mode === "later_blocker" ? "review_changed" : "review_contradiction"); expect(f.posts).toBe(0); }
+  });
+});
+
+
+describe("stabilization execution boundaries", () => {
+  it("different material evidence cannot buy another POST on an uncertain target", () => {
+    const f = liveFixture(liveReview());
+    f.hooks.post = () => { throw new Error("response lost after remote acceptance"); };
+    for (let i = 0; i < 3; i++) {
+      f.inline = [findingRecord(9000 + i, 7001, "material finding " + i)];
+      expect(f.run().decision).toBe("FAIL_CLOSED_UNCERTAIN");
+    }
+    expect(f.posts).toBe(1);
+    expect(f.states()).toEqual(["UNCERTAIN"]);
+    expect(f.capacity()).toBe(3);
+  });
+
+  it("an unavailable historical run stays pending without poisoning a new target", () => {
+    const old = liveFixture(); old.run();
+    const newHead = "b".repeat(40);
+    const fresh = liveFixture({ ...liveReview(), review_commit: newHead }, {head: newHead, runId: 600});
+    fresh.all = structuredClone(old.all); fresh.time = 35;
+    fresh.hooks.before = ({ endpoint }) => {
+      if (endpoint === "repos/" + repo + "/actions/runs/500") {
+        throw Object.assign(new Error("historical run deleted"), {stdout: 'HTTP/2.0 404 Not Found\r\n\r\n{"message":"Not Found"}'});
+      }
+    };
+    expect(fresh.run().decision).toBe("ALLOW_RERUN");
+    expect(fresh.posts).toBe(1);
+    expect(fresh.memory()!.intents.find(i => i.id === old.memory()!.intents[0].id)?.state).toBe("ACCEPTED");
+  });
+});
+
+
+describe("unresolved execution target admission", () => {
+  it.each(["PREPARED", "ACCEPTED", "UNCERTAIN", "receipt_uncertain", "receipt_write_failed", "receipt_verification_failed"])("locks %s against changed material evidence", (mode) => {
+    const f = liveFixture(liveReview());
+    if (mode === "PREPARED") f.hooks.before = ({ endpoint }) => { if (f.posts && endpoint.includes("/issues/548/comments")) throw new Error("crash after POST"); };
+    if (mode === "UNCERTAIN") f.hooks.post = () => { throw new Error("response lost"); };
+    if (mode === "receipt_write_failed") f.hooks.persist = body => { if (body.includes('"state":"ACCEPTED"')) throw new Error("receipt write failed"); };
+    if (mode === "receipt_verification_failed") f.hooks.reply = (p, v) => p.includes("/issues/548/comments") && f.states().includes("ACCEPTED") ? [] : v;
+    if (["PREPARED", "receipt_write_failed", "receipt_verification_failed"].includes(mode)) expect(() => f.run()).toThrow();
+    else f.run();
+    f.hooks = {};
+    if (mode === "receipt_uncertain") f.run();
+    const id = f.memory()!.intents[0].id;
+    for (let i = 0; i < 8; i++) {
+      f.inline = [findingRecord(9000 + i, 7001, "changed material finding " + i)];
+      expect(f.run().decision).toBe("FAIL_CLOSED_UNCERTAIN");
+      expect(f.memory()!.intents.map(i => i.id)).toEqual([id]);
+      expect(f.posts).toBe(1); expect(f.capacity()).toBe(3);
+    }
+  });
+
+  it("a receipt-less intent stays pinned when an independent exact HEAD proceeds", () => {
+    const old = liveFixture(); old.hooks.post = () => { throw new Error("response lost"); }; old.run();
+    const freshHead = "b".repeat(40);
+    const fresh = liveFixture({ ...liveReview(), review_commit: freshHead }, {head: freshHead, runId: 600});
+    fresh.all = structuredClone(old.all); fresh.time = 35;
+    fresh.hooks.before = ({ endpoint }) => { if (endpoint === `repos/${repo}/actions/runs/500`) throw Object.assign(new Error("deleted"), {stdout: 'HTTP/2.0 404 Not Found\r\n\r\n{"message":"Not Found"}'}); };
+    expect(fresh.run().decision).toBe("ALLOW_RERUN");
+    expect(fresh.posts).toBe(1); expect(old.posts).toBe(1);
+    expect(fresh.memory()!.intents.find(i => i.id === old.memory()!.intents[0].id)?.state).toBe("UNCERTAIN");
+  });
+});
+
+describe("historical recovery transport classification", () => {
+  it.each(["404", "410", "401", "403", "429", "500", "unknown", "malformed", "wrong_message", "identity", "null_payload", "pagination"])("isolates only proven unavailability: %s", (mode) => {
+    const old = liveFixture(); old.run();
+    const freshHead = "b".repeat(40);
+    const fresh = liveFixture({ ...liveReview(), review_commit: freshHead }, {head: freshHead, runId: 600});
+    fresh.all = structuredClone(old.all); fresh.time = 35;
+    const saved = structuredClone(fresh.all);
+    fresh.hooks.before = ({ endpoint }) => {
+      if (endpoint !== `repos/${repo}/actions/runs/500`) return;
+      const status = Number(mode);
+      if (Number.isInteger(status)) throw Object.assign(new Error("API response " + mode), {stdout: `HTTP/2.0 ${status} status\r\nContent-Type: application/json\r\n\r\n${JSON.stringify({message: status === 404 ? "Not Found" : status === 410 ? "Gone" : "failure"})}`});
+      if (mode === "unknown") throw new Error("transport failure");
+      if (mode === "malformed") throw Object.assign(new Error("bad response"), {stdout: 'HTTP/2.0 404 Not Found\r\n\r\nnot json'});
+      if (mode === "wrong_message") throw Object.assign(new Error("permission ambiguity"), {stdout: 'HTTP/2.0 404 Not Found\r\n\r\n{"message":"Resource not accessible by integration"}'});
+    };
+    // Serve historical reads through the same transport adapter, including identity
+    // and pagination negatives. No recovery/helper function is mocked.
+    fresh.hooks.reply = (endpoint, payload) => {
+      if (endpoint === `repos/${repo}/actions/runs/500`) return mode === "null_payload" ? null : mode === "identity" ? {...old.runMeta, head_sha: freshHead} : old.runMeta;
+      if (endpoint.includes("/actions/runs/500/jobs")) return {total_count: 2, jobs: [old.jobs[0]]};
+      return payload;
+    };
+    if (["404", "410"].includes(mode)) {
+      expect(fresh.run().decision).toBe("ALLOW_RERUN"); expect(fresh.posts).toBe(1);
+      expect(fresh.memory()!.intents.find(i => i.id === old.memory()!.intents[0].id)?.state).toBe("ACCEPTED");
+    } else {
+      expect(() => fresh.run()).toThrow(mode === "identity" ? /run_identity/ : mode === "pagination" ? /pagination_incomplete/ : undefined);
+      expect(fresh.posts).toBe(0); expect(fresh.all).toEqual(saved);
+    }
   });
 });

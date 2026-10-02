@@ -156,7 +156,7 @@ export function decideFinalGateRetry(input) {
   const current = readMemory(input);
   if (current.memory.schema_version !== 2) throw new Error("final_gate_memory:v2_required");
   const evidence = normalizeFinalGateEvidence(input.source, input.target?.head ?? "");
-  const prepared = prepareRetryIntent(current, memoryIdentity(current), {
+  let prepared = prepareRetryIntent(current, memoryIdentity(current), {
     repository: input.repository,
     pr_number: Number(input.pr_number),
     evidence,
@@ -165,6 +165,19 @@ export function decideFinalGateRetry(input) {
     source: retrySource(input.source),
     prepared_at: input.prepared_at,
   });
+
+  if (prepared.created) {
+    // D0 validates the complete candidate target; evidence identity alone does not
+    // authorize another side effect on an unresolved execution boundary. Reuse
+    // its original intent and recovery path without persisting a second record.
+    const target = prepared.snapshot.memory.intents.find((item) => item.id === prepared.intent_id).target;
+    const pending = current.memory.intents.find((item) => item.state !== "CONSUMED"
+      && item.target.workflow_path === target.workflow_path
+      && item.target.head === target.head && item.target.run_id === target.run_id
+      && item.target.run_attempt === target.run_attempt
+      && item.target.job.id === target.job.id && item.target.job.name === target.job.name);
+    if (pending) prepared = {snapshot: current, intent_id: pending.id, created: false};
+  }
 
   if (prepared.created) {
     return {

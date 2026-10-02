@@ -851,7 +851,8 @@ jobs:
                     .[]
                     | select(.user.login == "coderabbitai[bot]")
                     | select((.created_at // "") >= $request_time)
-                    | select((.body // "") | test("Review limit reached|Review rate limited|Action not completed: Review rate limited|temporarily unavailable|service unavailable"; "i"))
+                    | select((.body // "") | test("Review limit reached|Review rate limited|temporarily unavailable|service unavailable"; "i"))
+                    | select((.body // "") | test("automatic reviews? (are |is )?disabled|auto(matic)?[ _-]?review[^\\n]*disabled"; "i") | not)
                   ]
                   | length
                 ' <<< "$comments_json")"
@@ -872,7 +873,8 @@ jobs:
                     .[]
                     | select(.user.login == "coderabbitai[bot]")
                     | select((.created_at // "") >= $request_time)
-                    | select((.body // "") | test("Review limit reached|Review rate limited|Action not completed: Review rate limited|Review skipped|temporarily unavailable|service unavailable"; "i"))
+                    | select((.body // "") | test("Review limit reached|Review rate limited|temporarily unavailable|service unavailable"; "i"))
+                    | select((.body // "") | test("automatic reviews? (are |is )?disabled|auto(matic)?[ _-]?review[^\\n]*disabled"; "i") | not)
                   ]
                   | length
                 ' <<< "$comments_json")"

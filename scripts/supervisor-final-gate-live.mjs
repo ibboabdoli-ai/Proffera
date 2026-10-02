@@ -128,8 +128,35 @@ function fetchPrHead(input, execute) {
     || pr.base?.repo?.full_name !== input.repository) throw new Error("final_gate_live:pr_scope");
   return String(pr.head?.sha ?? "");
 }
-function fetchRun(input, target, execute) {
-  const run = ghJson([`repos/${input.repository}/actions/runs/${target.run_id}`], execute);
+function includedResponse(text) {
+  const match = String(text ?? "").match(/^HTTP\/[0-9.]+ (\d{3})[^\r\n]*\r?\n(?:[^\r\n]+\r?\n)*\r?\n([\s\S]*)$/);
+  if (!match) throw new Error("final_gate_live:historical_response");
+  return {status: Number(match[1]), body: JSON.parse(match[2])};
+}
+function historicalRun(endpoint, execute) {
+  let response;
+  try {
+    response = gh(["--include", endpoint], execute);
+  } catch (error) {
+    // The current target has already proved Actions read access in this repository.
+    // Isolate only an explicit unavailable historical resource, never permission,
+    // transport, malformed response, pagination or identity failures. No state is
+    // deleted or consumed; the unresolved target still owns its execution lock.
+    if (!String(error?.stdout ?? "").trim()) throw error;
+    const unavailable = includedResponse(error?.stdout);
+    if ((unavailable.status === 404 && unavailable.body?.message === "Not Found")
+      || (unavailable.status === 410 && unavailable.body?.message === "Gone")) return null;
+    throw error;
+  }
+  const result = includedResponse(response);
+  if (result.status !== 200) throw new Error("final_gate_live:historical_status");
+  if (!result.body || typeof result.body !== "object" || Array.isArray(result.body)) throw new Error("final_gate_live:historical_response");
+  return result.body;
+}
+function fetchRun(input, target, execute, historical = false) {
+  const endpoint = `repos/${input.repository}/actions/runs/${target.run_id}`;
+  const run = historical ? historicalRun(endpoint, execute) : ghJson([endpoint], execute);
+  if (historical && run === null) return null;
   if (run.id !== target.run_id || run.head_sha !== target.head || run.path !== target.workflow_path
     || run.repository?.full_name !== input.repository || run.event !== "pull_request"
     || !Array.isArray(run.pull_requests) || !run.pull_requests.some((pr) => pr.number === input.pr_number)
@@ -157,11 +184,13 @@ function fetchJob(input, execute) {
   const job = ghJson(["repos/" + input.repository + "/actions/jobs/" + input.target.job.id], execute);
   return jobFromRun(job, run);
 }
-function fetchRecoveryForTarget(input, target, execute, observedAt) {
-  const run = fetchRun(input, target, execute);
+function fetchRecoveryForTarget(input, target, execute, observedAt, historical = false) {
+  const run = fetchRun(input, target, execute, historical);
+  if (run === null) return null;
   const jobs = pages("repos/" + input.repository + "/actions/runs/" + target.run_id + "/jobs?filter=all", execute, "jobs");
   const finals = jobs.map((job) => jobFromRun(job, run)).filter((job) => job.name === "E2E public smoke");
-  const reread = fetchRun(input, target, execute);
+  const reread = fetchRun(input, target, execute, historical);
+  if (reread === null) return null;
   if (reread.run_attempt !== run.run_attempt) throw new Error("final_gate_live:run_changed_during_pagination");
   return {
     repository: run.repository.full_name,
@@ -186,10 +215,12 @@ function recoverAcceptedIntents(input, execute, now) {
     all = comments(input.repository, execute);
     const current = listFinalGateRetryIntents(memoryInput(input, all)).find((intent) => intent.id === candidate.id);
     if (!current || !["ACCEPTED", "UNCERTAIN"].includes(current.state)) continue;
+    const recoveryEvidence = fetchRecoveryForTarget(input, current.target, execute, now(), true);
+    if (recoveryEvidence === null) continue;
     const result = recoverAcceptedFinalGateIntent({
       ...memoryInput(input, all),
       intent_id: current.id,
-      recovery_evidence: fetchRecoveryForTarget(input, current.target, execute, now()),
+      recovery_evidence: recoveryEvidence,
     });
     if (result.decision === "FAIL_CLOSED_MISMATCH") throw new Error("final_gate_live:accepted_recovery_mismatch");
     if (result.persistence) {

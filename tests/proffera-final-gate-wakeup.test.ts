@@ -969,7 +969,7 @@ describe("complete wakeup shell to durable adapter", () => {
   }, 30000);
   it("routes both independently accepted CodeRabbit clean formats through the existing router", () => {
     const router = source(".github/workflows/supervisor-event-router.yml");
-    const match = router.match(/if grep -Eqi '(recent_review_start\|[^']+)' <<< "\$\{COMMENT_BODY:-\}"/);
+    const match = router.match(/grep -Eqi '(recent_review_start\|[^']+)' <<< "\$\{COMMENT_BODY:-\}"/);
     expect(match).not.toBeNull();
     for (const body of [cleanBody(), `Review completed for exact HEAD ${reviewHead}.\nI found no material findings.`]) {
       const result = spawnSync("bash", ["-c", 'grep -Eqi "$MATCH" <<< "$BODY"'], { encoding: "utf8", env: { ...process.env, MATCH: match![1], BODY: body } });

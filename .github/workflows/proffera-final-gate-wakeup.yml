@@ -170,6 +170,10 @@ jobs:
 
           new_coderabbit_clean_event=false
           if [ "$EVENT_NAME" = "issue_comment" ] && [ "${EVENT_ACTOR:-}" = "coderabbitai[bot]" ]; then
+            if grep -Eqi 'automatic reviews? (are |is )?disabled|auto(matic)?[ _-]?review.*disabled' <<< "${EVENT_COMMENT_BODY:-}"; then
+              echo "Disabled automatic reviews are not provider unavailability; ignoring status."
+              exit 0
+            fi
             if grep -Eq '^<!-- CodeRabbit review command invocation: v2:[0-9a-f]{64} -->$' <<< "${EVENT_COMMENT_BODY:-}" \
               && grep -Fq 'Final exact-head review is complete for' <<< "${EVENT_COMMENT_BODY:-}" \
               && grep -Eq '(^|[[:space:]])I found no issues\.[[:space:]]*($|[[:space:]])' <<< "${EVENT_COMMENT_BODY:-}" \
