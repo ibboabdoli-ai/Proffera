@@ -81,7 +81,7 @@ const copy = {
     menuIntro:
       "Antipasti, färsk pasta, surdegspizza, utvalda huvudrätter och drycker.",
     menuFallbackNote:
-      "Menyn nedan bygger på Doni’s aktuella Wolt-meny och restaurangens egna menybilder. Publicerad CMS-data tar automatiskt över när restaurangen uppdaterar den.",
+      "Utbud och priser kan ändras. Restaurangen uppdaterar aktuell meny.",
     noMenu:
       "Menyn publiceras snart. Kontakta restaurangen för aktuella rätter och priser.",
     galleryKicker: "Galleri",
@@ -136,7 +136,7 @@ const copy = {
     menuIntro:
       "Antipasti, fresh pasta, sourdough pizza, selected mains and drinks.",
     menuFallbackNote:
-      "The menu below uses Doni’s current Wolt menu and the restaurant’s own menu photos. Published CMS data automatically takes over when the restaurant updates it.",
+      "Selection and prices may change. The restaurant maintains the current menu.",
     noMenu:
       "The menu will be published soon. Contact the restaurant for current dishes and prices.",
     galleryKicker: "Gallery",
