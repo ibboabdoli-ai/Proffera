@@ -1,0 +1,430 @@
+"use client";
+
+import {
+  DONIS_FALLBACK_IMAGES,
+  DONIS_FALLBACK_SITE,
+} from "@/lib/donis-fallback";
+import type { RestaurantSite } from "@/lib/restaurant-site-schema";
+
+const categoryIds = {
+  antipasto: "1aea7cbc-405f-5b00-8261-df6159773e19",
+  primi: "1d371ebb-f703-5ddb-a2c4-681ede901044",
+  napolitana: "89e08468-0c5b-5ef1-bd82-6e75f3933b97",
+  romana: "d5d048a2-43b1-5800-9101-9efea7bdb4da",
+  secondi: "ca7d1881-4aea-5ed7-b992-5d7d9dc439f1",
+  insalata: "7c81cfa5-839c-5445-b64f-fae98e3fdaed",
+  dessert: "44444444-4444-4444-8444-444444444444",
+  sauces: "847d17bd-5aa2-530e-93b2-f854ae83fc64",
+  drinks: "9ba8aa19-d410-5e86-bd5b-a000fb0cf211",
+} as const;
+
+const imageIds = {
+  margherita: "1d2ac5a1-4c2f-5d20-bb60-357fff38ff9d",
+  diavola: "df4d6ac1-8183-5da4-aa9c-3d0792415f79",
+  vegetariana: "ee9a1626-b67b-5dea-9897-fa10a95d3cb7",
+  prosciutto: "3f59f9dc-42c2-593c-91c7-bc9024603d6a",
+  mareMare: "e415dcb0-1af3-5bdc-910e-289ffdfbf587",
+  italiano: "6512be4c-d42f-5923-9324-95bda604b738",
+  manzo: "4e6a443b-4d2c-5182-b8a8-04b681336449",
+  laBella: "c56f4059-5b45-5c99-bebc-9e372c9ddc1d",
+  tagliatelleRagu: "df74f8b1-0015-5edc-b403-76f65f629958",
+  tagliatellePollo: "d96e8609-5f64-5fd7-8d9d-11dd04ace2e9",
+  penneVodka: "308dfc65-6337-54e6-ad62-82728ce564eb",
+  arrabiata: "e0b1fb89-eb82-5180-b3b0-5a3c93caabaf",
+  carbonara: "248502c4-f4cc-568f-b687-5e28209a7653",
+  scampiZucchini: "20d3293f-8f01-5997-988d-8cab572841c7",
+  fettuccine: "d5950982-4fcf-5d56-9bbd-855600075a7b",
+  penneCasa: "f8b12d70-71e6-5eb5-9fff-0b8c0efeef94",
+  aboutChef: "a2df4dee-64ad-592f-b44f-d4d2683c0249",
+  atmosphereTable: "f744f19e-b284-5b37-aca3-b8bb1cfd3a95",
+  tiramisu: "a9d12f79-8827-53df-a7bc-9c98d69a9d41",
+} as const;
+
+const dishIds = {
+  olives: "15428279-780b-542a-8f5f-5ee6f5c09d87",
+  garlicBread: "5017d36c-0e27-5c2a-b78b-9cdacfd0ecea",
+  cheeseFries: "9c72030c-fc17-5e14-8b7a-07efbfeea73b",
+  salsiccia: "42b32b70-4078-5488-b1e1-35477ee5e863",
+  aubergine: "57dd47bf-b365-531a-b602-a376aa1b3511",
+  bruschettaParma: "b9d726cb-1c5a-5ae3-b6f6-8dc517df0857",
+  burrata: "2877cbb7-c2b6-52ea-a493-afa292edabdb",
+  gamberi: "d5dec291-6400-5695-a9bd-5093c74d7c4c",
+  antipastiMisti: "b38050a0-90a2-5c60-b10e-596012e3199d",
+  ragu: "e69c403b-8a31-577e-ab76-c6ca7a3e35db",
+  pollo: "5174e2a4-6002-5065-8757-15e7f0adb6f5",
+  vodka: "f367f991-ba81-51a6-b557-e3f8bd17907b",
+  arrabiata: "7132ac90-dbab-53be-b400-b7519eba3cc3",
+  carbonara: "1eea8128-4a3d-5313-88cb-da1a74a62202",
+  scampiZucchini: "ff1b46a3-a725-5507-9943-0ad92efb5687",
+  fettuccine: "c71c909f-7c4a-5e58-bf24-628d8affff32",
+  penneCasa: "d983de12-58c5-5d5e-a269-acb79ccc9d83",
+  margherita: "5863f559-22d1-51fc-a5e5-2b0a4de54211",
+  vegetariana: "a4760402-c9ed-5cb6-8085-33e3754ca6e3",
+  prosciutto: "e4323fed-f493-5342-bfed-97e4e734eff6",
+  mareMare: "f8b5f1c5-eb47-588b-a81c-697f9f72209d",
+  diavola: "bce80471-6579-5843-8f40-d7c5d8aed983",
+  italiano: "ad5b9adb-26c0-5598-8232-76a676db329d",
+  manzo: "40ecf053-e05e-5457-93b2-f9578a533e65",
+  laBella: "30dc7402-bf87-5b0a-bcbe-9b4f76652017",
+  entrecote: "8e8f77e9-7382-5648-9ddb-94f66528b2a2",
+  chickenSalad: "ffdaa4f8-e4a5-5b38-84fc-24ef37764cc2",
+  tiramisu: "dddddddd-dddd-4ddd-8ddd-ddddddddddd1",
+  bearnaise: "dae36256-c879-56e6-a74b-b99604acfc3f",
+  garlicSauce: "50edecf0-818d-5740-a321-0086f0608d74",
+  tzatziki: "e2574702-c862-5ced-9902-de01620bdf69",
+  bbq: "ce2b4237-7b3b-5676-8139-e788ff8f3c18",
+  cocaCola: "4e6541e1-488d-5eea-b5d6-d466cb2a2184",
+  cocaColaZero: "eec907a0-9cf8-573d-8ad9-d533ce4c69d0",
+  fanta: "da566db3-ad4c-564b-84c9-831eacddc94c",
+  sprite: "98804256-f7bf-5fcd-a316-55f8295734e4",
+  lokaNaturell: "7b0b9393-159a-5817-98ad-a7949f99beab",
+  lokaCitron: "3f78f5fc-0d8d-52ca-9346-e6a55a04c26b",
+  lokaJordgubb: "a2fd247a-431a-511f-abac-1a1c099400b9",
+  lokaParon: "af24b050-a5a2-5a2b-bf3b-cd655366d2e1",
+  aperol: "1aa5cef0-d5e2-55f0-8afc-66a1ba72e959",
+  limoncello: "0c1bc0d8-2162-5693-96a7-f95f563b8ffa",
+  passionGt: "3767a376-1c28-5b10-ab10-080d22aaba53",
+  negroni: "375b2410-c799-581b-b330-5cd11c4af185",
+  godfather: "db5f3405-3b0d-5ec2-9b08-a8dc4c4a40eb",
+  espressoMartini: "68b062f6-cd8d-56d9-8836-afedcdee6e91",
+  whiteRussian: "3cf08dee-2dc3-56fe-83d4-e73d0f186b87",
+  irishCoffee: "93ea1543-6ae0-5cb0-9116-01a73f54ab76",
+  kaffeKarlsson: "a465dcf7-3d14-5d9c-9d14-bd061f460fb4",
+  lemonade: "151a61a8-5e6e-54d3-8f88-6cbee704c449",
+  passion: "dfa98cfb-157a-568e-91e4-a35b5cfcf6ee",
+} as const;
+
+const localized = (sv: string, en: string) => ({ sv, en });
+
+const dishImage = (id: string, sv: string, en: string) => ({
+  id,
+  alt: localized(sv, en),
+});
+
+const dish = ({
+  id,
+  categoryId,
+  name,
+  priceOre,
+  descriptionSv = "",
+  descriptionEn = "",
+  image = null,
+  sortOrder,
+}: {
+  id: string;
+  categoryId: string;
+  name: string;
+  priceOre: number | null;
+  descriptionSv?: string;
+  descriptionEn?: string;
+  image?: RestaurantSite["dishes"][number]["image"];
+  sortOrder: number;
+}): RestaurantSite["dishes"][number] => ({
+  id,
+  categoryId,
+  name,
+  priceOre,
+  description: localized(descriptionSv, descriptionEn),
+  image,
+  sortOrder,
+  hidden: false,
+  archived: false,
+});
+
+export const DONIS_LUXURY_FALLBACK_IMAGES: Record<string, string> = {
+  ...DONIS_FALLBACK_IMAGES,
+  [imageIds.margherita]:
+    "https://imageproxy.wolt.com/menu/menu-images/65a13319ea42aa5727e72fe8/8a12c398-345f-11ef-9021-36f52c208fd6_margherita.jpg",
+  [imageIds.diavola]:
+    "https://imageproxy.wolt.com/menu/menu-images/65a13319ea42aa5727e72fe8/8a179418-345f-11ef-9021-36f52c208fd6_diavola_stark_salami.jpg",
+  [imageIds.vegetariana]:
+    "https://imageproxy.wolt.com/menu/menu-images/65a13319ea42aa5727e72fe8/89ecb892-345f-11ef-9021-36f52c208fd6_vegetariana_zucchini_aubergine.jpg",
+  [imageIds.prosciutto]:
+    "https://imageproxy.wolt.com/menu/menu-images/65a13319ea42aa5727e72fe8/89ee6084-345f-11ef-9021-36f52c208fd6_proscutto_parma_ruccola_parmesan.jpg",
+  [imageIds.mareMare]:
+    "https://imageproxy.wolt.com/menu/menu-images/65a13319ea42aa5727e72fe8/89f072b6-345f-11ef-9021-36f52c208fd6_mare_mare_scampi_musslor.jpg",
+  [imageIds.italiano]:
+    "https://imageproxy.wolt.com/menu/menu-images/65a13319ea42aa5727e72fe8/8a151a3a-345f-11ef-9021-36f52c208fd6_italiano_mortadella_champinjon_oliver.jpg",
+  [imageIds.manzo]:
+    "https://imageproxy.wolt.com/menu/menu-images/65a13319ea42aa5727e72fe8/8a1a1044-345f-11ef-9021-36f52c208fd6_manzo_e_tartufo_oxfile_ruccola_champinjon.jpg",
+  [imageIds.laBella]:
+    "https://imageproxy.wolt.com/menu/menu-images/65a13319ea42aa5727e72fe8/8a1c8068-345f-11ef-9021-36f52c208fd6_la_bella_rodbeta_chevre_valnotter.jpg",
+  [imageIds.tagliatelleRagu]:
+    "https://imageproxy.wolt.com/menu/menu-images/65a13319ea42aa5727e72fe8/89fde536-345f-11ef-9021-36f52c208fd6_tagliatelle_al_ragu.jpg",
+  [imageIds.tagliatellePollo]:
+    "https://imageproxy.wolt.com/menu/menu-images/65a13319ea42aa5727e72fe8/8a005c1c-345f-11ef-9021-36f52c208fd6_tagliatelle_all_pollo_.jpg",
+  [imageIds.penneVodka]:
+    "https://imageproxy.wolt.com/menu/menu-images/65a13319ea42aa5727e72fe8/8a02f59e-345f-11ef-9021-36f52c208fd6_penne_alla_vodka.jpg",
+  [imageIds.arrabiata]:
+    "https://imageproxy.wolt.com/menu/menu-images/65a13319ea42aa5727e72fe8/8a0588a4-345f-11ef-9021-36f52c208fd6_arrabiata_con_burrata.jpg",
+  [imageIds.carbonara]:
+    "https://imageproxy.wolt.com/menu/menu-images/65a13319ea42aa5727e72fe8/8a08381a-345f-11ef-9021-36f52c208fd6_carbonara.jpg",
+  [imageIds.scampiZucchini]:
+    "https://imageproxy.wolt.com/menu/menu-images/65a13319ea42aa5727e72fe8/8a0acbb6-345f-11ef-9021-36f52c208fd6_spagetti_con_scampi_e_zucchini.jpg",
+  [imageIds.fettuccine]:
+    "https://imageproxy.wolt.com/menu/menu-images/65a13319ea42aa5727e72fe8/8a0d6ad8-345f-11ef-9021-36f52c208fd6_fettuccini_donis_graddpasta_.jpg",
+  [imageIds.penneCasa]:
+    "https://imageproxy.wolt.com/menu/menu-images/65a13319ea42aa5727e72fe8/8a1034f2-345f-11ef-9021-36f52c208fd6_penne_de_la_casa_graddpasta.jpg",
+  [imageIds.aboutChef]:
+    "https://www-static.restaurangkungsholmen.se/wp-content/uploads/2025/05/donis-ny-omoss-e1748000494564.jpg",
+  [imageIds.atmosphereTable]:
+    "https://www-static.restaurangkungsholmen.se/wp-content/uploads/2025/05/donis-utfyl.jpg",
+  [imageIds.tiramisu]:
+    "https://www-static.restaurangkungsholmen.se/wp-content/uploads/2025/05/donis-efterratt.jpg",
+};
+
+export const DONIS_LUXURY_FALLBACK_SITE: RestaurantSite = {
+  ...DONIS_FALLBACK_SITE,
+  media: {
+    ...DONIS_FALLBACK_SITE.media,
+    owner: dishImage(
+      imageIds.aboutChef,
+      "Matlagning på Doni’s Trattoria",
+      "Cooking at Doni’s Trattoria",
+    ),
+    gallery: [
+      ...DONIS_FALLBACK_SITE.media.gallery,
+      {
+        ...dishImage(
+          imageIds.atmosphereTable,
+          "Italiensk mat och vin på Doni’s Trattoria",
+          "Italian food and wine at Doni’s Trattoria",
+        ),
+        kind: "atmosphere",
+        sortOrder: 3,
+      },
+    ],
+  },
+  categories: [
+    { id: categoryIds.antipasto, name: localized("Antipasto", "Antipasto"), sortOrder: 0, hidden: false },
+    { id: categoryIds.primi, name: localized("Primi", "Primi"), sortOrder: 1, hidden: false },
+    { id: categoryIds.napolitana, name: localized("Napolitana surdegspizza", "Neapolitan sourdough pizza"), sortOrder: 2, hidden: false },
+    { id: categoryIds.romana, name: localized("Romana surdegspizza", "Roman sourdough pizza"), sortOrder: 3, hidden: false },
+    { id: categoryIds.secondi, name: localized("Secondi", "Secondi"), sortOrder: 4, hidden: false },
+    { id: categoryIds.insalata, name: localized("Insalata", "Salads"), sortOrder: 5, hidden: false },
+    { id: categoryIds.dessert, name: localized("Dessert", "Dessert"), sortOrder: 6, hidden: false },
+    { id: categoryIds.sauces, name: localized("Såser", "Sauces"), sortOrder: 7, hidden: false },
+    { id: categoryIds.drinks, name: localized("Dryck", "Drinks"), sortOrder: 8, hidden: false },
+  ],
+  dishes: [
+    dish({ id: dishIds.olives, categoryId: categoryIds.antipasto, name: "Oliver", priceOre: 4500, sortOrder: 0 }),
+    dish({ id: dishIds.garlicBread, categoryId: categoryIds.antipasto, name: "Vitlöksbröd", priceOre: 4500, descriptionSv: "Vitlöksbröd.", descriptionEn: "Garlic bread.", sortOrder: 1 }),
+    dish({ id: dishIds.cheeseFries, categoryId: categoryIds.antipasto, name: "Cheese Fries", priceOre: 8500, sortOrder: 2 }),
+    dish({ id: dishIds.salsiccia, categoryId: categoryIds.antipasto, name: "Salsiccia", priceOre: 7500, sortOrder: 3 }),
+    dish({ id: dishIds.aubergine, categoryId: categoryIds.antipasto, name: "Aubergine", priceOre: 7500, sortOrder: 4 }),
+    dish({ id: dishIds.bruschettaParma, categoryId: categoryIds.antipasto, name: "Bruschetta Parma", priceOre: 8000, sortOrder: 5 }),
+    dish({ id: dishIds.burrata, categoryId: categoryIds.antipasto, name: "Burrata di bufala", priceOre: 8500, sortOrder: 6 }),
+    dish({ id: dishIds.gamberi, categoryId: categoryIds.antipasto, name: "Gamberi con aglio e olio", priceOre: 9500, sortOrder: 7 }),
+    dish({ id: dishIds.antipastiMisti, categoryId: categoryIds.antipasto, name: "Antipasti Misti", priceOre: 10000, sortOrder: 8 }),
+
+    dish({
+      id: dishIds.ragu,
+      categoryId: categoryIds.primi,
+      name: "Tagliatelle al ragu",
+      priceOre: 18000,
+      descriptionSv: "Husets ragu toppas med 12 månaders parmesan.",
+      descriptionEn: "House ragù topped with 12-month aged parmesan.",
+      image: dishImage(imageIds.tagliatelleRagu, "Tagliatelle al ragu", "Tagliatelle al ragu"),
+      sortOrder: 0,
+    }),
+    dish({
+      id: dishIds.pollo,
+      categoryId: categoryIds.primi,
+      name: "Tagliatelle all pollo",
+      priceOre: 19000,
+      descriptionSv: "Med kyckling, soltorkade tomater, oliver, basilikapesto & parmigiano reggiano.",
+      descriptionEn: "Chicken, sun-dried tomatoes, olives, basil pesto & Parmigiano Reggiano.",
+      image: dishImage(imageIds.tagliatellePollo, "Tagliatelle all pollo", "Tagliatelle all pollo"),
+      sortOrder: 1,
+    }),
+    dish({
+      id: dishIds.vodka,
+      categoryId: categoryIds.primi,
+      name: "Penne alla vodka",
+      priceOre: 18000,
+      descriptionSv: "Krämig tomatsås med vodka, nduja & mascarpone.",
+      descriptionEn: "Creamy tomato sauce with vodka, nduja & mascarpone.",
+      image: dishImage(imageIds.penneVodka, "Penne alla vodka", "Penne alla vodka"),
+      sortOrder: 2,
+    }),
+    dish({
+      id: dishIds.arrabiata,
+      categoryId: categoryIds.primi,
+      name: "Arrabiata con burrata",
+      priceOre: 20000,
+      descriptionSv: "Tomatsås med basilika, vitlök & chili toppas med krämig burrata & parmigiano reggiano.",
+      descriptionEn: "Tomato sauce with basil, garlic & chilli, topped with creamy burrata & Parmigiano Reggiano.",
+      image: dishImage(imageIds.arrabiata, "Arrabiata con burrata", "Arrabiata con burrata"),
+      sortOrder: 3,
+    }),
+    dish({
+      id: dishIds.carbonara,
+      categoryId: categoryIds.primi,
+      name: "Spaghetti Carbonara",
+      priceOre: 20000,
+      descriptionSv: "Färsk spaghetti, guanciale, äggula, parmigiano reggiano & svartpeppar.",
+      descriptionEn: "Fresh spaghetti, guanciale, egg yolk, Parmigiano Reggiano & black pepper.",
+      image: dishImage(imageIds.carbonara, "Spaghetti Carbonara", "Spaghetti Carbonara"),
+      sortOrder: 4,
+    }),
+    dish({
+      id: dishIds.scampiZucchini,
+      categoryId: categoryIds.primi,
+      name: "Spaghetti con scampi e zucchini",
+      priceOre: 21000,
+      descriptionSv: "Färsk spaghetti, chili- & vitlöksfrästa scampi med zucchini, vitvin, körsbärstomater & persilja.",
+      descriptionEn: "Fresh spaghetti with chilli and garlic-fried scampi, zucchini, white wine, cherry tomatoes & parsley.",
+      image: dishImage(imageIds.scampiZucchini, "Spaghetti con scampi e zucchini", "Spaghetti con scampi e zucchini"),
+      sortOrder: 5,
+    }),
+    dish({
+      id: dishIds.fettuccine,
+      categoryId: categoryIds.primi,
+      name: "Fettuccine Doni's",
+      priceOre: 21000,
+      descriptionSv: "Färsk fettuccine med strimlad kalvfilé, mascarpone, spenat & tryffelkräm toppas med parmigiano reggiano.",
+      descriptionEn: "Fresh fettuccine with sliced veal fillet, mascarpone, spinach & truffle cream, topped with Parmigiano Reggiano.",
+      image: dishImage(imageIds.fettuccine, "Fettuccine Doni's", "Fettuccine Doni's"),
+      sortOrder: 6,
+    }),
+    dish({
+      id: dishIds.penneCasa,
+      categoryId: categoryIds.primi,
+      name: "Penne de la casa",
+      priceOre: 21000,
+      descriptionSv: "Oxfilé, champinjonsås med cognac & parmigiano reggiano.",
+      descriptionEn: "Beef fillet, mushroom sauce with cognac & Parmigiano Reggiano.",
+      image: dishImage(imageIds.penneCasa, "Penne de la casa", "Penne de la casa"),
+      sortOrder: 7,
+    }),
+
+    dish({
+      id: dishIds.margherita,
+      categoryId: categoryIds.napolitana,
+      name: "Margherita",
+      priceOre: 15000,
+      descriptionSv: "Fior di latte, tomatsås, parmesan & basilika.",
+      descriptionEn: "Fior di latte, tomato sauce, parmesan & basil.",
+      image: dishImage(imageIds.margherita, "Margherita", "Margherita"),
+      sortOrder: 0,
+    }),
+    dish({
+      id: dishIds.vegetariana,
+      categoryId: categoryIds.napolitana,
+      name: "Vegetariana",
+      priceOre: 18000,
+      descriptionSv: "Fior di latte, tomatsås, grillad aubergine, zucchini, paprika, vitlök & parmesan.",
+      descriptionEn: "Fior di latte, tomato sauce, grilled aubergine, zucchini, peppers, garlic & parmesan.",
+      image: dishImage(imageIds.vegetariana, "Vegetariana", "Vegetariana"),
+      sortOrder: 1,
+    }),
+    dish({
+      id: dishIds.prosciutto,
+      categoryId: categoryIds.napolitana,
+      name: "Prosciutto",
+      priceOre: 22000,
+      descriptionSv: "Fior di latte, tomatsås, prosciutto crudo, ruccola, parmesan & olivolja.",
+      descriptionEn: "Fior di latte, tomato sauce, prosciutto crudo, rocket, parmesan & olive oil.",
+      image: dishImage(imageIds.prosciutto, "Prosciutto", "Prosciutto"),
+      sortOrder: 2,
+    }),
+    dish({
+      id: dishIds.mareMare,
+      categoryId: categoryIds.napolitana,
+      name: "Mare Mare",
+      priceOre: 23000,
+      descriptionSv: "Fior di latte, tomatsås, scampi, gröna musslor, skaldjur marinerade i vitlök, chili, citron & parmesan.",
+      descriptionEn: "Fior di latte, tomato sauce, scampi, green mussels and seafood marinated with garlic, chilli, lemon & parmesan.",
+      image: dishImage(imageIds.mareMare, "Mare Mare", "Mare Mare"),
+      sortOrder: 3,
+    }),
+    dish({
+      id: dishIds.diavola,
+      categoryId: categoryIds.napolitana,
+      name: "Diavola",
+      priceOre: 23000,
+      descriptionSv: "Fior di latte, tomatsås, nduja, stark salami, chili, grillad paprika, vitlök, basilika & parmesan.",
+      descriptionEn: "Fior di latte, tomato sauce, nduja, spicy salami, chilli, grilled pepper, garlic, basil & parmesan.",
+      image: dishImage(imageIds.diavola, "Diavola", "Diavola"),
+      sortOrder: 4,
+    }),
+
+    dish({
+      id: dishIds.italiano,
+      categoryId: categoryIds.romana,
+      name: "Italiano",
+      priceOre: 17000,
+      descriptionSv: "Fior di latte, tomatsås, prosciutto, svamp, oliver, kronärtskocka & parmesan.",
+      descriptionEn: "Fior di latte, tomato sauce, prosciutto, mushrooms, olives, artichoke & parmesan.",
+      image: dishImage(imageIds.italiano, "Italiano", "Italiano"),
+      sortOrder: 0,
+    }),
+    dish({
+      id: dishIds.manzo,
+      categoryId: categoryIds.romana,
+      name: "Manzo e Tartufo",
+      priceOre: 22000,
+      descriptionSv: "Fior di latte, tomatsås, oxfilé, svamp, rödlök, tryffelkräm, ruccola & parmesan.",
+      descriptionEn: "Fior di latte, tomato sauce, beef fillet, mushrooms, red onion, truffle cream, rocket & parmesan.",
+      image: dishImage(imageIds.manzo, "Manzo e Tartufo", "Manzo e Tartufo"),
+      sortOrder: 1,
+    }),
+    dish({
+      id: dishIds.laBella,
+      categoryId: categoryIds.romana,
+      name: "La Bella",
+      priceOre: 20000,
+      descriptionSv: "Fior di latte, chèvre, rödbetor, valnötter, honung, basilika & parmesan.",
+      descriptionEn: "Fior di latte, chèvre, beetroot, walnuts, honey, basil & parmesan.",
+      image: dishImage(imageIds.laBella, "La Bella", "La Bella"),
+      sortOrder: 2,
+    }),
+
+    dish({ id: dishIds.entrecote, categoryId: categoryIds.secondi, name: "Entrecote", priceOre: null, sortOrder: 0 }),
+    dish({
+      id: dishIds.chickenSalad,
+      categoryId: categoryIds.insalata,
+      name: "Grilled Chicken Salad with Avocado",
+      priceOre: null,
+      descriptionSv: "Grillad kycklingsallad med avokado.",
+      descriptionEn: "Grilled chicken salad with avocado.",
+      sortOrder: 0,
+    }),
+
+    dish({
+      id: dishIds.tiramisu,
+      categoryId: categoryIds.dessert,
+      name: "Tiramisu",
+      priceOre: null,
+      descriptionSv: "Klassisk italiensk tiramisu.",
+      descriptionEn: "Classic Italian tiramisu.",
+      image: dishImage(imageIds.tiramisu, "Tiramisu", "Tiramisu"),
+      sortOrder: 0,
+    }),
+
+    dish({ id: dishIds.bearnaise, categoryId: categoryIds.sauces, name: "Bearnaisesås", priceOre: 4500, sortOrder: 0 }),
+    dish({ id: dishIds.garlicSauce, categoryId: categoryIds.sauces, name: "Vitlökssås", priceOre: 4500, sortOrder: 1 }),
+    dish({ id: dishIds.tzatziki, categoryId: categoryIds.sauces, name: "Tzatziki", priceOre: 4500, sortOrder: 2 }),
+    dish({ id: dishIds.bbq, categoryId: categoryIds.sauces, name: "BBQ sås", priceOre: 4500, sortOrder: 3 }),
+
+    dish({ id: dishIds.cocaCola, categoryId: categoryIds.drinks, name: "Coca-Cola Original 33cl", priceOre: 2500, sortOrder: 0 }),
+    dish({ id: dishIds.cocaColaZero, categoryId: categoryIds.drinks, name: "Coca-Cola Zero 33cl", priceOre: 2500, sortOrder: 1 }),
+    dish({ id: dishIds.fanta, categoryId: categoryIds.drinks, name: "Fanta Orange 33cl", priceOre: 2500, sortOrder: 2 }),
+    dish({ id: dishIds.sprite, categoryId: categoryIds.drinks, name: "Sprite 33cl", priceOre: 2500, sortOrder: 3 }),
+    dish({ id: dishIds.lokaNaturell, categoryId: categoryIds.drinks, name: "Loka Naturell 33cl", priceOre: 2500, sortOrder: 4 }),
+    dish({ id: dishIds.lokaCitron, categoryId: categoryIds.drinks, name: "Loka Citron 33cl", priceOre: 2500, sortOrder: 5 }),
+    dish({ id: dishIds.lokaJordgubb, categoryId: categoryIds.drinks, name: "Loka Jordgubb & Granatäpple", priceOre: 2500, sortOrder: 6 }),
+    dish({ id: dishIds.lokaParon, categoryId: categoryIds.drinks, name: "Loka Päron", priceOre: 2500, sortOrder: 7 }),
+    dish({ id: dishIds.aperol, categoryId: categoryIds.drinks, name: "Aperol spritz", priceOre: 13000, descriptionSv: "Aperol, prosecco & sodavatten.", descriptionEn: "Aperol, prosecco & soda.", sortOrder: 8 }),
+    dish({ id: dishIds.limoncello, categoryId: categoryIds.drinks, name: "Limoncello spritz", priceOre: 13000, descriptionSv: "Limoncello, prosecco & sodavatten.", descriptionEn: "Limoncello, prosecco & soda.", sortOrder: 9 }),
+    dish({ id: dishIds.passionGt, categoryId: categoryIds.drinks, name: "Passion GT", priceOre: 13000, sortOrder: 10 }),
+    dish({ id: dishIds.negroni, categoryId: categoryIds.drinks, name: "Negroni", priceOre: 13000, descriptionSv: "Gin, Martini & Campari.", descriptionEn: "Gin, Martini & Campari.", sortOrder: 11 }),
+    dish({ id: dishIds.godfather, categoryId: categoryIds.drinks, name: "Godfather martini", priceOre: 14000, sortOrder: 12 }),
+    dish({ id: dishIds.espressoMartini, categoryId: categoryIds.drinks, name: "Espresso martini", priceOre: 13000, descriptionSv: "Vodka, Kahlúa & espresso.", descriptionEn: "Vodka, Kahlúa & espresso.", sortOrder: 13 }),
+    dish({ id: dishIds.whiteRussian, categoryId: categoryIds.drinks, name: "White Russian", priceOre: 13000, descriptionSv: "Vodka, Kahlúa & grädde.", descriptionEn: "Vodka, Kahlúa & cream.", sortOrder: 14 }),
+    dish({ id: dishIds.irishCoffee, categoryId: categoryIds.drinks, name: "Irish coffee", priceOre: 13000, sortOrder: 15 }),
+    dish({ id: dishIds.kaffeKarlsson, categoryId: categoryIds.drinks, name: "Kaffe Karlsson", priceOre: 13000, sortOrder: 16 }),
+    dish({ id: dishIds.lemonade, categoryId: categoryIds.drinks, name: "Lemonad", priceOre: 5000, sortOrder: 17 }),
+    dish({ id: dishIds.passion, categoryId: categoryIds.drinks, name: "Passion", priceOre: 5000, sortOrder: 18 }),
+  ],
+};
