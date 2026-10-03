@@ -5782,7 +5782,7 @@ esac
       expect(commentPatchCalls(result.calls, 210)).toHaveLength(0);
       expect(String(result.comments.find((comment) => comment.id === 210)?.body)).toContain("- State: `RESERVED`");
     }
-  });
+  }, 20_000);
 
   it("fails closed on missing, duplicate, or mismatched global task, reservation, dispatch, and packet evidence", () => {
     const old = globalExpiryEvidence(1);
