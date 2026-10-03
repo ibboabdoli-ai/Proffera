@@ -29,6 +29,7 @@ import {
   DONIS_LUXURY_FALLBACK_IMAGES,
   DONIS_LUXURY_FALLBACK_SITE,
 } from "@/lib/donis-luxury-fallback";
+import { DONIS_GENERATED_MENU_TILE_BY_IMAGE_ID } from "@/lib/donis-generated-menu-sprite";
 import type { RestaurantSite } from "@/lib/restaurant-site-schema";
 
 type Lang = "sv" | "en";
@@ -250,6 +251,48 @@ function SectionEyebrow({ children }: { children: ReactNode }) {
   );
 }
 
+function MenuPhoto({
+  imageId,
+  src,
+  alt,
+  className = "",
+}: {
+  imageId: string;
+  src: string;
+  alt: string;
+  className?: string;
+}) {
+  const tile = DONIS_GENERATED_MENU_TILE_BY_IMAGE_ID[imageId];
+
+  if (!tile) {
+    return (
+      <img
+        src={src}
+        alt={alt}
+        loading="lazy"
+        className={className}
+      />
+    );
+  }
+
+  const x = (tile.column / 3) * 100;
+  const y = (tile.row / 3) * 100;
+
+  return (
+    <div
+      role="img"
+      aria-label={alt}
+      className={className}
+      style={{
+        backgroundImage: `url("${src}")`,
+        backgroundPosition: `${x}% ${y}%`,
+        backgroundRepeat: "no-repeat",
+        backgroundSize: "400% 400%",
+      }}
+    />
+  );
+}
+
 export function DonisTrattoriaLuxuryExperience({
   site,
   images = {},
@@ -360,6 +403,7 @@ export function DonisTrattoriaLuxuryExperience({
       (dish) =>
         dish.image &&
         Boolean(displayImages[dish.image.id]) &&
+        !DONIS_GENERATED_MENU_TILE_BY_IMAGE_ID[dish.image.id] &&
         !rawGallery.some((item) => item.id === dish.image?.id),
     )
     .map((dish) => ({
@@ -726,11 +770,11 @@ export function DonisTrattoriaLuxuryExperience({
                       className="group w-full overflow-hidden rounded-[18px] border border-white/12 bg-[#111410] text-left shadow-[0_18px_55px_rgba(0,0,0,.22)] transition duration-300 hover:-translate-y-1 hover:border-[#d6aa58]/45"
                     >
                       <div className="relative aspect-[1.55/1] overflow-hidden bg-[#171a15]">
-                        <img
+                        <MenuPhoto
+                          imageId={dish.image!.id}
                           src={displayImages[dish.image!.id]}
                           alt={dish.image!.alt[lang]}
-                          className="h-full w-full object-cover transition duration-700 group-hover:scale-[1.045]"
-                          loading="lazy"
+                          className="h-full w-full bg-cover object-cover transition duration-700 group-hover:scale-[1.045]"
                         />
                         <div className="absolute inset-0 bg-gradient-to-t from-black/35 via-transparent to-transparent" />
                       </div>
@@ -868,12 +912,12 @@ export function DonisTrattoriaLuxuryExperience({
                     <Reveal key={dish.id} delay={index * 55}>
                       <article className="group h-full overflow-hidden rounded-[20px] border border-white/12 bg-[#10130f] shadow-[0_18px_55px_rgba(0,0,0,.20)] transition duration-300 hover:-translate-y-1 hover:border-[#d6aa58]/45">
                         {dishImage ? (
-                          <div className="aspect-[1.18/1] overflow-hidden bg-[#171a15]">
-                            <img
+                          <div className="aspect-[4/3] overflow-hidden bg-[#171a15]">
+                            <MenuPhoto
+                              imageId={dish.image!.id}
                               src={dishImage}
                               alt={dish.image!.alt[lang]}
-                              loading="lazy"
-                              className="h-full w-full object-cover transition duration-700 group-hover:scale-[1.045]"
+                              className="h-full w-full bg-cover object-cover transition duration-700 group-hover:scale-[1.045]"
                             />
                           </div>
                         ) : (
