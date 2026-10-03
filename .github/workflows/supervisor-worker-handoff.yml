@@ -1043,6 +1043,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          helper="scripts/supervisor-worker-handoff.mjs"
+          test -f "$helper"
+          node --check "$helper"
           packet="$(printf '%s' "$PACKET_B64" | base64 --decode)"
           task_id="$(jq -r '.task_id' <<< "$packet")"
           descriptor="$(printf '%s' "$packet" | node "$helper" worker-strategy-descriptor)"
