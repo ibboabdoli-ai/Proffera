@@ -35,6 +35,18 @@ function materialTask(packet) {
     risk_class: packet.risk_class,
   };
 }
+function normalizeHead(value, field) {
+  if (typeof value !== "string" || !/^[a-f0-9]{40}$/.test(value)) throw new Error("worker_strategy:" + field);
+  return value;
+}
+function scopeCovers(scope, path) {
+  return scope.endsWith("/") ? path.startsWith(scope) : path === scope;
+}
+export function workerMaterialScopeChanged(packet, changed_files) {
+  const material = materialTask(packet);
+  const changed = sortedPaths(changed_files, "changed_files");
+  return changed.some((path) => material.allowed_paths.some((scope) => scopeCovers(scope, path)));
+}
 
 export function workerStrategyDescriptor(packet) {
   const material = materialTask(packet);
@@ -77,6 +89,7 @@ function normalizeDispatchStarts(value) {
       || typeof start.task_id !== "string" || !/^[A-Z][A-Z0-9-]{1,63}$/.test(start.task_id)
       || !Number.isSafeInteger(Number(start.run_id)) || Number(start.run_id) <= 0
       || !Number.isSafeInteger(Number(start.run_attempt)) || Number(start.run_attempt) <= 0
+      || typeof start.head !== "string" || !/^[a-f0-9]{40}$/.test(start.head)
       || typeof start.evidence_fingerprint !== "string" || !/^[a-f0-9]{64}$/.test(start.evidence_fingerprint)
       || typeof start.strategy_fingerprint !== "string" || !/^[a-f0-9]{64}$/.test(start.strategy_fingerprint)) {
       throw new Error("worker_strategy:dispatch_start");
@@ -85,6 +98,7 @@ function normalizeDispatchStarts(value) {
       task_id: start.task_id,
       run_id: Number(start.run_id),
       run_attempt: Number(start.run_attempt),
+      head: start.head,
       evidence_fingerprint: start.evidence_fingerprint,
       strategy_fingerprint: start.strategy_fingerprint,
     };
@@ -106,23 +120,32 @@ function durableAttemptKeys(records) {
   return keys;
 }
 
-export function decideWorkerStrategyHistory({ packet, source, records, dispatch_starts = [] }) {
+export function decideWorkerStrategyHistory({ packet, source, records, dispatch_starts = [], materially_changed_heads = [] }) {
   if (!Array.isArray(records)) throw new Error("worker_strategy:records");
+  if (!Array.isArray(materially_changed_heads)) throw new Error("worker_strategy:materially_changed_heads");
   const actor = normalizeSource(source);
   const descriptor = workerStrategyDescriptor(packet);
   const starts = normalizeDispatchStarts(dispatch_starts);
+  const reentryHeads = new Set(materially_changed_heads.map((value) => normalizeHead(value, "materially_changed_head")));
   const prior = records.filter((record) => record
     && record.action_id === "worker_codex_attempt"
     && WORKER_OUTCOMES.has(record.outcome)
     && record.evidence_fingerprint === descriptor.evidence_fingerprint
     && record.strategy_fingerprint === descriptor.strategy_fingerprint);
   const resolvedAttempts = durableAttemptKeys(prior);
-  const unresolved = starts.filter((start) =>
+  const blockingPrior = prior.filter((record) => !Array.isArray(record?.observations)
+    || record.observations.length === 0
+    || record.observations.some((observation) => !reentryHeads.has(String(observation?.head ?? ""))));
+  const matchingStarts = starts.filter((start) =>
     start.evidence_fingerprint === descriptor.evidence_fingerprint
-    && start.strategy_fingerprint === descriptor.strategy_fingerprint
-    && !resolvedAttempts.has(`${start.run_id}:${start.run_attempt}`));
+    && start.strategy_fingerprint === descriptor.strategy_fingerprint);
+  const unresolved = matchingStarts.filter((start) =>
+    !resolvedAttempts.has(`${start.run_id}:${start.run_attempt}`) && !reentryHeads.has(start.head));
+  const materialReentries = prior.reduce((count, record) => count + (Array.isArray(record?.observations)
+    ? record.observations.filter((observation) => reentryHeads.has(String(observation?.head ?? ""))).length : 0), 0)
+    + matchingStarts.filter((start) => reentryHeads.has(start.head)).length;
 
-  if (actor.kind === "human" && (prior.length > 0 || unresolved.length > 0)) {
+  if (actor.kind === "human" && (prior.length > 0 || matchingStarts.length > 0)) {
     return {
       decision: "ALLOW_HUMAN_REENTRY",
       reason: "Trusted owner evidence explicitly re-enters an unchanged or unresolved Worker strategy.",
@@ -130,6 +153,7 @@ export function decideWorkerStrategyHistory({ packet, source, records, dispatch_
       strategy_fingerprint: descriptor.strategy_fingerprint,
       prior_attempts: prior.length,
       unresolved_attempts: unresolved.length,
+      material_reentries: materialReentries,
     };
   }
   if (unresolved.length > 0) {
@@ -140,16 +164,29 @@ export function decideWorkerStrategyHistory({ packet, source, records, dispatch_
       strategy_fingerprint: descriptor.strategy_fingerprint,
       prior_attempts: prior.length,
       unresolved_attempts: unresolved.length,
+      material_reentries: materialReentries,
     };
   }
-  if (prior.length === 0) {
+  if (blockingPrior.length === 0 && materialReentries > 0) {
+    return {
+      decision: "ALLOW_MATERIAL_REENTRY",
+      reason: "Matching Worker history exists, but the current baseline changed inside the Task Packet scope.",
+      evidence_fingerprint: descriptor.evidence_fingerprint,
+      strategy_fingerprint: descriptor.strategy_fingerprint,
+      prior_attempts: prior.length,
+      unresolved_attempts: 0,
+      material_reentries: materialReentries,
+    };
+  }
+  if (blockingPrior.length === 0) {
     return {
       decision: "ALLOW",
       reason: "No matching durable or unresolved Worker strategy attempt exists.",
       evidence_fingerprint: descriptor.evidence_fingerprint,
       strategy_fingerprint: descriptor.strategy_fingerprint,
-      prior_attempts: 0,
+      prior_attempts: prior.length,
       unresolved_attempts: 0,
+      material_reentries: materialReentries,
     };
   }
   return {
@@ -157,8 +194,9 @@ export function decideWorkerStrategyHistory({ packet, source, records, dispatch_
     reason: "Matching Worker failure/strategy history exists with no material re-entry evidence; automatic repeat suppressed.",
     evidence_fingerprint: descriptor.evidence_fingerprint,
     strategy_fingerprint: descriptor.strategy_fingerprint,
-    prior_attempts: prior.length,
+    prior_attempts: blockingPrior.length,
     unresolved_attempts: 0,
+    material_reentries: materialReentries,
   };
 }
 

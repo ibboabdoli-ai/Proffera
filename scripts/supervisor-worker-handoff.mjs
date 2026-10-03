@@ -2933,6 +2933,7 @@ export function parseWorkerStrategyDispatchStarts(comments) {
     }
     const numericRunId = Number(runId);
     const runAttempt = Number(field(/^- Run Attempt: `([1-9][0-9]*)`$/gmu, "strategy run attempt"));
+    const baselineHead = field(/^- Baseline SHA: `([a-f0-9]{40})`$/gmu, "strategy baseline SHA");
     const evidenceFingerprint = field(/^- Evidence fingerprint: `([a-f0-9]{64})`$/gmu, "strategy evidence fingerprint");
     const strategyFingerprint = field(/^- Strategy fingerprint: `([a-f0-9]{64})`$/gmu, "strategy fingerprint");
     if (!Number.isSafeInteger(numericRunId) || numericRunId <= 0
@@ -2943,6 +2944,7 @@ export function parseWorkerStrategyDispatchStarts(comments) {
       task_id: taskId,
       run_id: numericRunId,
       run_attempt: runAttempt,
+      head: baselineHead,
       evidence_fingerprint: evidenceFingerprint,
       strategy_fingerprint: strategyFingerprint,
     });
@@ -2994,17 +2996,54 @@ async function workerFailureMemorySnapshots(repository, packet, comments) {
   return { failure, current, snapshots };
 }
 
+function materialWorkerBaselineHeads(packet, records, starts, strategy) {
+  const descriptor = strategy.workerStrategyDescriptor(packet);
+  const heads = new Set();
+  for (const record of records) {
+    if (record?.action_id !== "worker_codex_attempt"
+      || record?.evidence_fingerprint !== descriptor.evidence_fingerprint
+      || record?.strategy_fingerprint !== descriptor.strategy_fingerprint
+      || !Array.isArray(record.observations)) continue;
+    for (const observation of record.observations) {
+      const observed = String(observation?.head ?? "");
+      if (SHA_RE.test(observed) && observed !== packet.base_sha) heads.add(observed);
+    }
+  }
+  for (const start of starts) {
+    if (start.evidence_fingerprint === descriptor.evidence_fingerprint
+      && start.strategy_fingerprint === descriptor.strategy_fingerprint
+      && start.head !== packet.base_sha) heads.add(start.head);
+  }
+  const materiallyChanged = [];
+  for (const previous of heads) {
+    try {
+      execFileSync("git", ["merge-base", "--is-ancestor", previous, packet.base_sha], {stdio: "pipe"});
+      const changed = execFileSync("git", ["diff", "--name-only", "--no-renames", previous, packet.base_sha, "--"], {
+        encoding: "utf8", stdio: ["ignore", "pipe", "pipe"],
+      }).split("\n").map((value) => value.trim()).filter(Boolean);
+      if (changed.length > 5000) throw new Error("worker strategy baseline diff exceeds bounded file count");
+      if (strategy.workerMaterialScopeChanged(packet, changed)) materiallyChanged.push(previous);
+    } catch (error) {
+      throw new Error(`Worker strategy baseline comparison unavailable for ${previous}: ${error instanceof Error ? error.message : "unknown error"}`);
+    }
+  }
+  return materiallyChanged;
+}
+
 export async function evaluateWorkerStrategyHistory(input) {
   assertReservationMutex(input);
   const packet = normalizeTaskPacket(input.packet);
   const comments = githubAllIssueComments(input.repository);
   const { snapshots } = await workerFailureMemorySnapshots(input.repository, packet, comments);
   const strategy = await import("./supervisor-worker-strategy-memory.mjs");
+  const records = snapshots.flatMap((snapshot) => snapshot.memory.records);
+  const starts = parseWorkerStrategyDispatchStarts(comments);
   const result = strategy.decideWorkerStrategyHistory({
     packet,
     source: input.source,
-    records: snapshots.flatMap((snapshot) => snapshot.memory.records),
-    dispatch_starts: parseWorkerStrategyDispatchStarts(comments),
+    records,
+    dispatch_starts: starts,
+    materially_changed_heads: materialWorkerBaselineHeads(packet, records, starts, strategy),
   });
   // A slow history read never outlives ownership of the shared writer mutex.
   assertReservationMutex(input);

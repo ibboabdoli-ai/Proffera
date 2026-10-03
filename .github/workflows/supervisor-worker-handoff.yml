@@ -779,7 +779,7 @@ jobs:
             else
               strategy_decision="$(jq -r '.decision // ""' "$strategy_result_file")"
               case "$strategy_decision" in
-                ALLOW|ALLOW_HUMAN_REENTRY)
+                ALLOW|ALLOW_HUMAN_REENTRY|ALLOW_MATERIAL_REENTRY)
                   ;;
                 SUPPRESS_REPEAT|SUPPRESS_UNRESOLVED_ATTEMPT)
                   proceed=no
@@ -1048,6 +1048,8 @@ jobs:
           node --check "$helper"
           packet="$(printf '%s' "$PACKET_B64" | base64 --decode)"
           task_id="$(jq -r '.task_id' <<< "$packet")"
+          base_sha="$(jq -r '.base_sha' <<< "$packet")"
+          [[ "$base_sha" =~ ^[a-f0-9]{40}$ ]]
           descriptor="$(printf '%s' "$packet" | node "$helper" worker-strategy-descriptor)"
           evidence_fingerprint="$(jq -r '.evidence_fingerprint // ""' <<< "$descriptor")"
           strategy_fingerprint="$(jq -r '.strategy_fingerprint // ""' <<< "$descriptor")"
@@ -1059,6 +1061,7 @@ jobs:
           - Task ID: \`${task_id}\`
           - GitHub Run ID: \`${RUN_ID}\`
           - Run Attempt: \`${RUN_ATTEMPT}\`
+          - Baseline SHA: \`${base_sha}\`
           - Evidence fingerprint: \`${evidence_fingerprint}\`
           - Strategy fingerprint: \`${strategy_fingerprint}\`
           - State: \`DISPATCH_STARTED\`

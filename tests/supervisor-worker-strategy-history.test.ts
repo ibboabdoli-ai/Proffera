@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 // @ts-expect-error Standalone .mjs follows the repository control-plane convention.
-import { decideWorkerStrategyHistory, workerStrategyDescriptor, workerStrategyObservation } from "../scripts/supervisor-worker-strategy-memory.mjs";
+import { decideWorkerStrategyHistory, workerMaterialScopeChanged, workerStrategyDescriptor, workerStrategyObservation } from "../scripts/supervisor-worker-strategy-memory.mjs";
 // @ts-expect-error Standalone .mjs follows the repository control-plane convention.
 import { parseWorkerStrategyDispatchStarts } from "../scripts/supervisor-worker-handoff.mjs";
 
@@ -28,6 +28,7 @@ const prior = (packet = basePacket, outcome = "failed", runId: number | null = n
     evidence_fingerprint: descriptor.evidence_fingerprint,
     strategy_fingerprint: descriptor.strategy_fingerprint,
     observations: runId === null ? [] : [{
+      head: packet.base_sha,
       source: {kind: "actions", run_id: runId, attempt: runAttempt, job_id: null},
     }],
   };
@@ -38,6 +39,7 @@ const dispatchStart = (packet = basePacket, runId = 20, runAttempt = 1) => {
     task_id: packet.task_id,
     run_id: runId,
     run_attempt: runAttempt,
+    head: packet.base_sha,
     evidence_fingerprint: descriptor.evidence_fingerprint,
     strategy_fingerprint: descriptor.strategy_fingerprint,
   };
@@ -69,6 +71,14 @@ describe("Worker strategy-history material identity", () => {
   });
 });
 
+describe("Worker material baseline scope", () => {
+  it("detects only changes inside the Task Packet allowed scope", () => {
+    expect(workerMaterialScopeChanged(basePacket, ["scripts/a.mjs"])).toBe(true);
+    expect(workerMaterialScopeChanged(basePacket, ["scripts/other.mjs"])).toBe(false);
+    expect(workerMaterialScopeChanged({...basePacket, allowed_paths: ["scripts/"]}, ["scripts/nested/a.mjs"])).toBe(true);
+  });
+});
+
 describe("Worker strategy-history admission", () => {
   it("allows the first automatic attempt", () => {
     expect(decideWorkerStrategyHistory({
@@ -88,6 +98,37 @@ describe("Worker strategy-history admission", () => {
       }).decision).toBe("SUPPRESS_REPEAT");
     },
   );
+
+  it("allows automatic re-entry after a material baseline change", () => {
+    const old = {...basePacket, base_sha: "a".repeat(40)};
+    expect(decideWorkerStrategyHistory({
+      packet: {...basePacket, task_id: "NEW-TASK", base_sha: "b".repeat(40)},
+      source: {mode: "planner", actor: "github-actions[bot]"},
+      records: [prior(old, "failed", 20, 1)],
+      materially_changed_heads: [old.base_sha],
+    })).toMatchObject({decision: "ALLOW_MATERIAL_REENTRY", material_reentries: 1});
+  });
+
+  it("still suppresses unrelated baseline SHA churn", () => {
+    const old = {...basePacket, base_sha: "a".repeat(40)};
+    expect(decideWorkerStrategyHistory({
+      packet: {...basePacket, task_id: "NEW-TASK", base_sha: "b".repeat(40)},
+      source: {mode: "planner", actor: "github-actions[bot]"},
+      records: [prior(old, "failed", 20, 1)],
+      materially_changed_heads: [],
+    }).decision).toBe("SUPPRESS_REPEAT");
+  });
+
+  it("allows material re-entry past an unresolved start from the old baseline", () => {
+    const old = {...basePacket, base_sha: "a".repeat(40)};
+    expect(decideWorkerStrategyHistory({
+      packet: {...basePacket, task_id: "NEW-TASK", base_sha: "b".repeat(40)},
+      source: {mode: "planner", actor: "github-actions[bot]"},
+      records: [],
+      dispatch_starts: [dispatchStart(old, 20, 1)],
+      materially_changed_heads: [old.base_sha],
+    })).toMatchObject({decision: "ALLOW_MATERIAL_REENTRY", unresolved_attempts: 0});
+  });
 
   it("allows explicit trusted owner re-entry without treating it as new material evidence", () => {
     expect(decideWorkerStrategyHistory({
@@ -167,6 +208,7 @@ describe("Worker workflow B4.1 wiring", () => {
     const startIndex = workflow.indexOf("proffera-worker-strategy-start:v1:");
     expect(startIndex).toBeGreaterThan(0);
     expect(startIndex).toBeLessThan(workflow.indexOf("Run one bounded implementation Worker"));
+    expect(workflow).toContain("Baseline SHA:");
     expect(workflow).toContain("Evidence fingerprint:");
     expect(workflow).toContain("Strategy fingerprint:");
     expect(workflow).toContain("worker-strategy-descriptor");
@@ -199,6 +241,7 @@ describe("Worker workflow B4.1 wiring", () => {
       "- Task ID: `B4-WORKER-1`",
       "- GitHub Run ID: `20`",
       "- Run Attempt: `1`",
+      `- Baseline SHA: \`${basePacket.base_sha}\``,
       `- Evidence fingerprint: \`${descriptor.evidence_fingerprint}\``,
       `- Strategy fingerprint: \`${descriptor.strategy_fingerprint}\``,
       "- State: `DISPATCH_STARTED`",
