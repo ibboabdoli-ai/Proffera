@@ -1,11 +1,7 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 // @ts-expect-error Standalone .mjs follows the repository control-plane convention.
-import {
-  decideWorkerStrategyHistory,
-  workerStrategyDescriptor,
-  workerStrategyObservation,
-} from "../scripts/supervisor-worker-strategy-memory.mjs";
+import { decideWorkerStrategyHistory, workerStrategyDescriptor, workerStrategyObservation } from "../scripts/supervisor-worker-strategy-memory.mjs";
 
 const basePacket = {
   task_id: "B4-WORKER-1",
