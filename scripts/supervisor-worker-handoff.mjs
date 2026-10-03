@@ -2909,6 +2909,46 @@ function patchControlRecord(input, id, body) {
 }
 
 const FAILURE_MEMORY_PREFIX = "<!-- proffera-supervisor-failure-memory:";
+const WORKER_STRATEGY_START_PREFIX = "<!-- proffera-worker-strategy-start:v1:";
+
+export function parseWorkerStrategyDispatchStarts(comments) {
+  if (!Array.isArray(comments)) throw new Error("Worker strategy dispatch-start evidence is malformed");
+  const starts = [];
+  for (const comment of comments) {
+    if (comment?.user?.login !== "github-actions[bot]" || comment?.user?.type !== "Bot") continue;
+    const body = String(comment.body ?? "");
+    if (!body.includes(WORKER_STRATEGY_START_PREFIX)) continue;
+    const matches = [...body.matchAll(/<!-- proffera-worker-strategy-start:v1:([A-Z][A-Z0-9-]{1,63}):([1-9][0-9]*) -->/gu)];
+    if (matches.length !== 1) throw new Error("Worker strategy dispatch-start marker is missing or ambiguous");
+    const taskId = matches[0][1];
+    const runId = matches[0][2];
+    const strategyMarker = matches[0][0];
+    const dispatchMarker = `<!-- proffera-worker-dispatch-start:${taskId}:${runId} -->`;
+    const field = (regex, name) => exactStateBodyField(body, regex, name);
+    if (countOccurrences(body, strategyMarker) !== 1 || countOccurrences(body, dispatchMarker) !== 1
+      || field(/^- Task ID: `([A-Z][A-Z0-9-]{1,63})`$/gmu, "strategy task ID") !== taskId
+      || field(/^- GitHub Run ID: `([1-9][0-9]*)`$/gmu, "strategy run ID") !== runId
+      || field(/^- State: `([A-Z_]+)`$/gmu, "strategy state") !== "DISPATCH_STARTED") {
+      throw new Error("Worker strategy dispatch-start evidence does not match its trusted marker");
+    }
+    const numericRunId = Number(runId);
+    const runAttempt = Number(field(/^- Run Attempt: `([1-9][0-9]*)`$/gmu, "strategy run attempt"));
+    const evidenceFingerprint = field(/^- Evidence fingerprint: `([a-f0-9]{64})`$/gmu, "strategy evidence fingerprint");
+    const strategyFingerprint = field(/^- Strategy fingerprint: `([a-f0-9]{64})`$/gmu, "strategy fingerprint");
+    if (!Number.isSafeInteger(numericRunId) || numericRunId <= 0
+      || !Number.isSafeInteger(runAttempt) || runAttempt <= 0) {
+      throw new Error("Worker strategy dispatch-start run identity is malformed");
+    }
+    starts.push({
+      task_id: taskId,
+      run_id: numericRunId,
+      run_attempt: runAttempt,
+      evidence_fingerprint: evidenceFingerprint,
+      strategy_fingerprint: strategyFingerprint,
+    });
+  }
+  return starts;
+}
 
 function failureMemoryScopeCandidates(comments, currentScope) {
   const scopes = new Map([[JSON.stringify(currentScope), currentScope]]);
@@ -2964,6 +3004,7 @@ export async function evaluateWorkerStrategyHistory(input) {
     packet,
     source: input.source,
     records: snapshots.flatMap((snapshot) => snapshot.memory.records),
+    dispatch_starts: parseWorkerStrategyDispatchStarts(comments),
   });
   // A slow history read never outlives ownership of the shared writer mutex.
   assertReservationMutex(input);
@@ -3593,6 +3634,12 @@ async function main() {
     } else {
       assertReservationMutex(parsed);
     }
+    return;
+  }
+  if (mode === "worker-strategy-descriptor") {
+    const packet = normalizeTaskPacket(parsed.packet ?? parsed);
+    const strategy = await import("./supervisor-worker-strategy-memory.mjs");
+    process.stdout.write(`${JSON.stringify(strategy.workerStrategyDescriptor(packet))}\n`);
     return;
   }
   if (mode === "worker-strategy-admit") {

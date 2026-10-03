@@ -2,6 +2,8 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 // @ts-expect-error Standalone .mjs follows the repository control-plane convention.
 import { decideWorkerStrategyHistory, workerStrategyDescriptor, workerStrategyObservation } from "../scripts/supervisor-worker-strategy-memory.mjs";
+// @ts-expect-error Standalone .mjs follows the repository control-plane convention.
+import { parseWorkerStrategyDispatchStarts } from "../scripts/supervisor-worker-handoff.mjs";
 
 const basePacket = {
   task_id: "B4-WORKER-1",
@@ -18,11 +20,24 @@ const basePacket = {
   merge_allowed: false,
   auto_merge_allowed: false,
 };
-const prior = (packet = basePacket, outcome = "failed") => {
+const prior = (packet = basePacket, outcome = "failed", runId = null, runAttempt = 1) => {
   const descriptor = workerStrategyDescriptor(packet);
   return {
     action_id: "worker_codex_attempt",
     outcome,
+    evidence_fingerprint: descriptor.evidence_fingerprint,
+    strategy_fingerprint: descriptor.strategy_fingerprint,
+    observations: runId === null ? [] : [{
+      source: {kind: "actions", run_id: runId, attempt: runAttempt, job_id: null},
+    }],
+  };
+};
+const dispatchStart = (packet = basePacket, runId = 20, runAttempt = 1) => {
+  const descriptor = workerStrategyDescriptor(packet);
+  return {
+    task_id: packet.task_id,
+    run_id: runId,
+    run_attempt: runAttempt,
     evidence_fingerprint: descriptor.evidence_fingerprint,
     strategy_fingerprint: descriptor.strategy_fingerprint,
   };
@@ -82,6 +97,42 @@ describe("Worker strategy-history admission", () => {
     }).decision).toBe("ALLOW_HUMAN_REENTRY");
   });
 
+  it("suppresses a matching unresolved dispatch-start before durable outcome persistence", () => {
+    expect(decideWorkerStrategyHistory({
+      packet: {...basePacket, task_id: "PLANNER-RETRY", base_sha: "b".repeat(40)},
+      source: {mode: "planner", actor: "github-actions[bot]"},
+      records: [],
+      dispatch_starts: [dispatchStart()],
+    })).toMatchObject({decision: "SUPPRESS_UNRESOLVED_ATTEMPT", unresolved_attempts: 1});
+  });
+
+  it("does not treat a resolved dispatch-start as uncertain once its exact run attempt is durable", () => {
+    expect(decideWorkerStrategyHistory({
+      packet: {...basePacket, task_id: "PLANNER-RETRY", base_sha: "b".repeat(40)},
+      source: {mode: "planner", actor: "github-actions[bot]"},
+      records: [prior(basePacket, "failed", 20, 1)],
+      dispatch_starts: [dispatchStart(basePacket, 20, 1)],
+    })).toMatchObject({decision: "SUPPRESS_REPEAT", unresolved_attempts: 0});
+  });
+
+  it("allows explicit owner re-entry for an unresolved matching dispatch-start", () => {
+    expect(decideWorkerStrategyHistory({
+      packet: {...basePacket, task_id: "OWNER-UNCERTAIN"},
+      source: {mode: "comment", actor: "ibboabdoli-ai"},
+      records: [],
+      dispatch_starts: [dispatchStart()],
+    })).toMatchObject({decision: "ALLOW_HUMAN_REENTRY", unresolved_attempts: 1});
+  });
+
+  it("does not let an unrelated unresolved strategy block materially different work", () => {
+    expect(decideWorkerStrategyHistory({
+      packet: {...basePacket, task_goal: "A genuinely different material goal"},
+      source: {mode: "planner", actor: "github-actions[bot]"},
+      records: [],
+      dispatch_starts: [dispatchStart()],
+    }).decision).toBe("ALLOW");
+  });
+
   it("fails closed for an untrusted source even when history is empty", () => {
     expect(() => decideWorkerStrategyHistory({
       packet: basePacket,
@@ -112,11 +163,38 @@ describe("Worker workflow B4.1 wiring", () => {
     expect(workflow.indexOf("worker-strategy-admit")).toBeGreaterThan(0);
     expect(workflow.indexOf("worker-strategy-admit")).toBeLessThan(workflow.indexOf("Run one bounded implementation Worker"));
   });
+  it("persists material strategy identity with dispatch-start evidence before the model boundary", () => {
+    const startIndex = workflow.indexOf("proffera-worker-strategy-start:v1:");
+    expect(startIndex).toBeGreaterThan(0);
+    expect(startIndex).toBeLessThan(workflow.indexOf("Run one bounded implementation Worker"));
+    expect(workflow).toContain("Evidence fingerprint:");
+    expect(workflow).toContain("Strategy fingerprint:");
+    expect(workflow).toContain("worker-strategy-descriptor");
+  });
+
   it("marks the model boundary and persists history from the isolated issue-write job", () => {
     expect(workflow.indexOf("Mark Worker strategy attempt start")).toBeLessThan(workflow.indexOf("Run one bounded implementation Worker"));
     expect(workflow.indexOf("Persist Worker strategy outcome before publication decision"))
       .toBeLessThan(workflow.indexOf("Refuse failed or unvalidated Worker candidate"));
     expect(workflow).toContain("worker-strategy-record");
+  });
+
+  it("parses only versioned trusted strategy-start evidence with exact run binding", () => {
+    const descriptor = workerStrategyDescriptor(basePacket);
+    const body = [
+      "<!-- proffera-worker-dispatch-start:B4-WORKER-1:20 -->",
+      "<!-- proffera-worker-strategy-start:v1:B4-WORKER-1:20 -->",
+      "- Task ID: `B4-WORKER-1`",
+      "- GitHub Run ID: `20`",
+      "- Run Attempt: `1`",
+      `- Evidence fingerprint: \`${descriptor.evidence_fingerprint}\``,
+      `- Strategy fingerprint: \`${descriptor.strategy_fingerprint}\``,
+      "- State: `DISPATCH_STARTED`",
+    ].join("\n");
+    expect(parseWorkerStrategyDispatchStarts([{
+      user: {login: "github-actions[bot]", type: "Bot"},
+      body,
+    }])).toEqual([dispatchStart(basePacket, 20, 1)]);
   });
   it("keeps write authority out of the model-executing dispatch job", () => {
     const dispatch = workflow.slice(workflow.indexOf("  dispatch:"), workflow.indexOf("  publish:"));

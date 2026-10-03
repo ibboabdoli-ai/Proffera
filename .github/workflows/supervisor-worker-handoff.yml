@@ -781,7 +781,7 @@ jobs:
               case "$strategy_decision" in
                 ALLOW|ALLOW_HUMAN_REENTRY)
                   ;;
-                SUPPRESS_REPEAT)
+                SUPPRESS_REPEAT|SUPPRESS_UNRESOLVED_ATTEMPT)
                   proceed=no
                   state=TASK_BLOCKED
                   decision_reason="$(jq -r '.reason' "$strategy_result_file")"
@@ -1045,11 +1045,19 @@ jobs:
           set -euo pipefail
           packet="$(printf '%s' "$PACKET_B64" | base64 --decode)"
           task_id="$(jq -r '.task_id' <<< "$packet")"
+          descriptor="$(printf '%s' "$packet" | node "$helper" worker-strategy-descriptor)"
+          evidence_fingerprint="$(jq -r '.evidence_fingerprint // ""' <<< "$descriptor")"
+          strategy_fingerprint="$(jq -r '.strategy_fingerprint // ""' <<< "$descriptor")"
+          [[ "$evidence_fingerprint" =~ ^[a-f0-9]{64}$ ]]
+          [[ "$strategy_fingerprint" =~ ^[a-f0-9]{64}$ ]]
           dispatch_body="$(cat <<EOF
           <!-- proffera-worker-dispatch-start:${task_id}:${RUN_ID} -->
+          <!-- proffera-worker-strategy-start:v1:${task_id}:${RUN_ID} -->
           - Task ID: \`${task_id}\`
           - GitHub Run ID: \`${RUN_ID}\`
           - Run Attempt: \`${RUN_ATTEMPT}\`
+          - Evidence fingerprint: \`${evidence_fingerprint}\`
+          - Strategy fingerprint: \`${strategy_fingerprint}\`
           - State: \`DISPATCH_STARTED\`
           EOF
           )"
