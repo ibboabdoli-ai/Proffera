@@ -285,10 +285,19 @@ export function DonisTrattoriaLuxuryExperience({
 
   useEffect(() => {
     if (!mobileMenuOpen) return;
+
     const previous = document.body.style.overflow;
+    const desktopQuery = window.matchMedia("(min-width: 1024px)");
+    const unlockOnDesktop = (event: MediaQueryListEvent) => {
+      if (event.matches) setMobileMenuOpen(false);
+    };
+
     document.body.style.overflow = "hidden";
+    desktopQuery.addEventListener("change", unlockOnDesktop);
+
     return () => {
       document.body.style.overflow = previous;
+      desktopQuery.removeEventListener("change", unlockOnDesktop);
     };
   }, [mobileMenuOpen]);
 
@@ -623,7 +632,7 @@ export function DonisTrattoriaLuxuryExperience({
           </div>
         )}
 
-        <div className="relative z-10 mx-auto flex min-h-[600px] max-w-[1460px] items-center px-4 pb-28 pt-16 sm:px-8 lg:min-h-[660px] lg:px-12 lg:pb-32">
+        <div className="relative z-10 mx-auto flex min-h-[600px] max-w-[1460px] items-center px-4 pb-14 pt-16 sm:px-8 md:pb-32 lg:min-h-[660px] lg:px-12">
           <div className="max-w-[760px]">
             <Reveal>
               <SectionEyebrow>{t.eyebrow}</SectionEyebrow>
@@ -666,7 +675,7 @@ export function DonisTrattoriaLuxuryExperience({
           </div>
         </div>
 
-        <div className="absolute bottom-0 left-0 right-0 z-20 border-y border-white/10 bg-[#080a08]/88 backdrop-blur-xl">
+        <div className="relative z-20 border-y border-white/10 bg-[#080a08]/88 backdrop-blur-xl md:absolute md:bottom-0 md:left-0 md:right-0">
           <div className="mx-auto grid max-w-[1460px] grid-cols-2 px-4 sm:px-8 md:grid-cols-5 lg:px-12">
             {values.map((item, index) => {
               const Icon = item.icon;
