@@ -2424,6 +2424,16 @@ describe("Supervisor ↔ Worker Phase-1 handoff", () => {
     expect(evaluate(baseContext()).status).toBe("TASK_CREATED");
   });
 
+  it("keeps dependency_paths read-only while preserving them in the normalized Task Packet", () => {
+    const dependencyPacket = packet({ dependency_paths: ["src/contracts/shared-policy.ts"] });
+    const normalized = run("parse", packetComment(dependencyPacket));
+    expect(normalized.dependency_paths).toEqual(["src/contracts/shared-policy.ts"]);
+    expect(run("validate-changes", {
+      packet: dependencyPacket,
+      changed_files: ["src/contracts/shared-policy.ts"],
+    }).code).toBe("out_of_scope_change");
+  });
+
   it("rejects forged Planner authority without exact internal provenance and run binding", () => {
     const forged = baseContext({
       event: {
@@ -3043,6 +3053,12 @@ describe("Supervisor ↔ Worker Phase-1 handoff", () => {
     const helperBlocked = baseContext();
     (helperBlocked.event as Record<string, unknown>).comment_body = packetComment(packet({ allowed_paths: ["scripts/supervisor-worker-handoff.mjs"] }));
     expect(evaluate(helperBlocked).code).toBe("malformed_packet");
+
+    for (const path of ["scripts/supervisor-worker-strategy-memory.mjs", "scripts/supervisor-failure-memory.mjs"]) {
+      const policyBlocked = baseContext();
+      (policyBlocked.event as Record<string, unknown>).comment_body = packetComment(packet({ allowed_paths: [path] }));
+      expect(evaluate(policyBlocked).code).toBe("malformed_packet");
+    }
   });
 
   it("blocks the entire .github control-plane scope", () => {
@@ -6385,7 +6401,11 @@ process.stdout.write(JSON.stringify({
     expect(run("validate-changes", { packet: packet(), changed_files: ["package.json"] }).code).toBe("hard_blocked_change");
     expect(run("validate-changes", { packet: packet(), changed_files: ["scripts/supervisor-worker-handoff.mjs"] }).code).toBe("hard_blocked_change");
     expect(run("validate-changes", { packet: packet(), changed_files: ["scripts/supervisor-worker-strategy-memory.mjs"] }).code).toBe("hard_blocked_change");
-    expect(source(".github/workflows/supervisor-planner.yml")).toContain("scripts/supervisor-worker-strategy-memory.mjs");
+    expect(run("validate-changes", { packet: packet(), changed_files: ["scripts/supervisor-failure-memory.mjs"] }).code).toBe("hard_blocked_change");
+    const plannerWorkflow = source(".github/workflows/supervisor-planner.yml");
+    expect(plannerWorkflow).toContain("scripts/supervisor-worker-strategy-memory.mjs");
+    expect(plannerWorkflow).toContain("scripts/supervisor-failure-memory.mjs");
+    expect(plannerWorkflow).toContain("dependency_paths");
     expect(run("validate-changes", { packet: packet(), changed_files: ["src/unrelated.ts"] }).code).toBe("out_of_scope_change");
   });
 

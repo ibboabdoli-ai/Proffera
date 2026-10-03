@@ -13,6 +13,7 @@ const basePacket = {
   branch: "work/proffera-b4-worker-strategy-history",
   graph_path: "supervisor/worker/strategy-history",
   allowed_paths: ["scripts/a.mjs", "tests/a.test.ts"],
+  dependency_paths: ["src/contracts/worker-policy.ts"],
   forbidden_paths: ["db/migrations/"],
   required_checks: ["validate", "codeql", "targeted-ci-shadow", "production-base-health", "ai-review", "final-gate"],
   risk_class: 3,
@@ -63,6 +64,7 @@ describe("Worker strategy-history material identity", () => {
     ["goal", {task_goal: "A materially different goal"}],
     ["graph", {graph_path: "supervisor/worker/different-node"}],
     ["allowed scope", {allowed_paths: ["scripts/b.mjs"]}],
+    ["dependency scope", {dependency_paths: ["src/contracts/other-policy.ts"]}],
     ["forbidden scope", {forbidden_paths: ["src/lib/auth.ts"]}],
     ["risk", {risk_class: 4}],
   ])("changes the evidence fingerprint for material %s changes", (_name, patch) => {
@@ -74,6 +76,7 @@ describe("Worker strategy-history material identity", () => {
 describe("Worker material baseline scope", () => {
   it("detects only changes inside the Task Packet allowed scope", () => {
     expect(workerMaterialScopeChanged(basePacket, ["scripts/a.mjs"])).toBe(true);
+    expect(workerMaterialScopeChanged(basePacket, ["src/contracts/worker-policy.ts"])).toBe(true);
     expect(workerMaterialScopeChanged(basePacket, ["scripts/other.mjs"])).toBe(false);
     expect(workerMaterialScopeChanged({...basePacket, allowed_paths: ["scripts/"]}, ["scripts/nested/a.mjs"])).toBe(true);
   });

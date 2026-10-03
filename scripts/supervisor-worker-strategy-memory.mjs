@@ -31,6 +31,7 @@ function materialTask(packet) {
     task_goal: packet.task_goal,
     graph_path: packet.graph_path,
     allowed_paths: sortedPaths(packet.allowed_paths, "allowed_paths"),
+    dependency_paths: sortedPaths(packet.dependency_paths ?? [], "dependency_paths"),
     forbidden_paths: sortedPaths(packet.forbidden_paths, "forbidden_paths"),
     risk_class: packet.risk_class,
   };
@@ -45,7 +46,8 @@ function scopeCovers(scope, path) {
 export function workerMaterialScopeChanged(packet, changed_files) {
   const material = materialTask(packet);
   const changed = sortedPaths(changed_files, "changed_files");
-  return changed.some((path) => material.allowed_paths.some((scope) => scopeCovers(scope, path)));
+  const materialScopes = [...material.allowed_paths, ...material.dependency_paths];
+  return changed.some((path) => materialScopes.some((scope) => scopeCovers(scope, path)));
 }
 
 export function workerStrategyDescriptor(packet) {

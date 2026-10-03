@@ -32,6 +32,7 @@ export const HARD_BLOCKED_SCOPES = Object.freeze([
   "WORKER_BOOTSTRAP.md",
   "scripts/supervisor-worker-handoff.mjs",
   "scripts/supervisor-worker-strategy-memory.mjs",
+  "scripts/supervisor-failure-memory.mjs",
   ".env",
   ".env.",
   "vercel.json",
@@ -324,6 +325,7 @@ export function normalizeTaskPacket(raw) {
     "base_sha",
     "branch",
     "allowed_paths",
+    "dependency_paths",
     "forbidden_paths",
     "required_checks",
     "risk_class",
@@ -345,6 +347,9 @@ export function normalizeTaskPacket(raw) {
   if (!BRANCH_RE.test(branch)) throw new Error("branch must match work/proffera-* using safe lowercase characters");
 
   const allowedPaths = normalizeScopeArray(raw.allowed_paths, "allowed_paths");
+  const dependencyPaths = raw.dependency_paths === undefined
+    ? null
+    : normalizeScopeArray(raw.dependency_paths, "dependency_paths", { nonEmpty: false });
   const forbiddenPaths = normalizeScopeArray(raw.forbidden_paths, "forbidden_paths");
 
   for (const allowed of allowedPaths) {
@@ -372,6 +377,7 @@ export function normalizeTaskPacket(raw) {
     base_sha: baseSha,
     branch,
     allowed_paths: allowedPaths,
+    ...(dependencyPaths === null ? {} : { dependency_paths: dependencyPaths }),
     forbidden_paths: forbiddenPaths,
     required_checks: normalizeChecks(raw.required_checks),
     risk_class: riskClass,
