@@ -1888,23 +1888,27 @@ function retryGitHubRead(read) {
   throw lastError;
 }
 
-function githubIssueComments(repository) {
+function githubAllIssueComments(repository) {
   const evidence = [];
   for (let page = 1; page <= GITHUB_COMMENT_PAGE_LIMIT; page += 1) {
     const comments = retryGitHubRead(() => githubApiJson([
       `repos/${repository}/issues/548/comments?per_page=100&page=${page}`,
     ]));
     if (!Array.isArray(comments)) throw new Error("GitHub issue comments response is malformed");
-    for (const comment of comments) {
-      const body = String(comment?.body ?? "");
-      if (body.includes("<!-- proffera-worker-slot-reservation:")
-        || body.includes("<!-- proffera-worker-dispatch-start:")
-        || body.includes(TASK_STATE_MARKER_PREFIX)
-        || body.includes(TASK_PACKET_MARKER)) evidence.push(comment);
-    }
+    evidence.push(...comments);
     if (comments.length < 100) return evidence;
   }
   throw new Error("GitHub issue comment evidence exceeds the bounded page limit");
+}
+
+function githubIssueComments(repository) {
+  return githubAllIssueComments(repository).filter((comment) => {
+    const body = String(comment?.body ?? "");
+    return body.includes("<!-- proffera-worker-slot-reservation:")
+      || body.includes("<!-- proffera-worker-dispatch-start:")
+      || body.includes(TASK_STATE_MARKER_PREFIX)
+      || body.includes(TASK_PACKET_MARKER);
+  });
 }
 
 const RESERVATION_MUTEX = "proffera-worker-slot-reservation-mutex-v1";
@@ -2904,6 +2908,123 @@ function patchControlRecord(input, id, body) {
   execFileSync("gh", ["api", "--method", "PATCH", `repos/${input.repository}/issues/comments/${id}`, "-f", `body=${body}`], { stdio: "pipe" });
 }
 
+const FAILURE_MEMORY_PREFIX = "<!-- proffera-supervisor-failure-memory:";
+
+function failureMemoryScopeCandidates(comments, currentScope) {
+  const scopes = new Map([[JSON.stringify(currentScope), currentScope]]);
+  for (const comment of comments) {
+    if (comment?.user?.login !== "github-actions[bot]" || comment?.user?.type !== "Bot") continue;
+    const body = String(comment.body ?? "");
+    if (!body.includes(FAILURE_MEMORY_PREFIX)) continue;
+    const match = body.match(/^<!-- proffera-supervisor-failure-memory:v[12]:[a-f0-9]{64} -->\n\x60\x60\x60json\n([^\n]+)\n\x60\x60\x60$/u);
+    if (!match) throw new Error("Worker strategy history contains malformed Failure Memory");
+    let decoded;
+    try {
+      decoded = JSON.parse(match[1]);
+    } catch {
+      throw new Error("Worker strategy history contains malformed Failure Memory JSON");
+    }
+    if (!decoded?.scope || typeof decoded.scope !== "object" || Array.isArray(decoded.scope)) {
+      throw new Error("Worker strategy history contains malformed Failure Memory scope");
+    }
+    scopes.set(JSON.stringify(decoded.scope), decoded.scope);
+  }
+  return [...scopes.values()];
+}
+
+async function workerFailureMemorySnapshots(repository, packet, comments) {
+  const failure = await import("./supervisor-failure-memory.mjs");
+  const currentScope = { kind: "task", task_id: packet.task_id };
+  // This first read validates every bot-owned Failure Memory candidate before any
+  // scope filtering, so malformed or ambiguous history fails closed.
+  const current = failure.readTrustedMemory(comments, {
+    repository,
+    scope: currentScope,
+    complete: true,
+  });
+  const snapshots = [current];
+  for (const scope of failureMemoryScopeCandidates(comments, currentScope)) {
+    if (JSON.stringify(scope) === JSON.stringify(currentScope)) continue;
+    snapshots.push(failure.readTrustedMemory(comments, {
+      repository,
+      scope,
+      complete: true,
+    }));
+  }
+  return { failure, current, snapshots };
+}
+
+export async function evaluateWorkerStrategyHistory(input) {
+  assertReservationMutex(input);
+  const packet = normalizeTaskPacket(input.packet);
+  const comments = githubAllIssueComments(input.repository);
+  const { snapshots } = await workerFailureMemorySnapshots(input.repository, packet, comments);
+  const strategy = await import("./supervisor-worker-strategy-memory.mjs");
+  const result = strategy.decideWorkerStrategyHistory({
+    packet,
+    source: input.source,
+    records: snapshots.flatMap((snapshot) => snapshot.memory.records),
+  });
+  // A slow history read never outlives ownership of the shared writer mutex.
+  assertReservationMutex(input);
+  return result;
+}
+
+export async function recordWorkerStrategyOutcome(input) {
+  assertReservationMutex(input);
+  const packet = normalizeTaskPacket(input.packet);
+  const outcome = String(input.outcome ?? "");
+  const strategy = await import("./supervisor-worker-strategy-memory.mjs");
+  const comments = githubAllIssueComments(input.repository);
+  const { failure, current } = await workerFailureMemorySnapshots(input.repository, packet, comments);
+  const expected = failure.memoryIdentity(current);
+  const observation = strategy.workerStrategyObservation({
+    packet,
+    repository: input.repository,
+    outcome,
+    run_id: input.run_id,
+    run_attempt: input.run_attempt,
+    observed_at: input.observed_at,
+  });
+  const descriptor = strategy.workerStrategyDescriptor(packet);
+  const replacement = failure.mergeObservation(current, expected, observation);
+  const unchanged = JSON.stringify(failure.memoryIdentity(replacement)) === JSON.stringify(expected);
+  let expectedSnapshot = replacement;
+
+  if (!unchanged) {
+    assertReservationMutex(input);
+    const body = failure.serializeMemory(replacement.memory);
+    if (replacement.comment_id === null) {
+      const created = githubApiJson([
+        "--method", "POST", `repos/${input.repository}/issues/548/comments`, "-f", `body=${body}`,
+      ]);
+      if (!Number.isSafeInteger(created?.id) || created.id <= 0) {
+        throw new Error("Worker strategy outcome persistence returned no canonical comment ID");
+      }
+      expectedSnapshot = { comment_id: created.id, memory: replacement.memory };
+    } else {
+      patchControlRecord(input, replacement.comment_id, body);
+    }
+  }
+
+  assertReservationMutex(input);
+  const confirmedComments = githubAllIssueComments(input.repository);
+  const confirmed = failure.readTrustedMemory(confirmedComments, {
+    repository: input.repository,
+    scope: { kind: "task", task_id: packet.task_id },
+    complete: true,
+  });
+  if (JSON.stringify(failure.memoryIdentity(confirmed))
+    !== JSON.stringify(failure.memoryIdentity(expectedSnapshot))) {
+    throw new Error("Worker strategy outcome did not converge to exact durable Failure Memory");
+  }
+  return {
+    decision: unchanged ? "ALREADY_RECORDED" : "RECORDED",
+    evidence_fingerprint: descriptor.evidence_fingerprint,
+    strategy_fingerprint: descriptor.strategy_fingerprint,
+  };
+}
+
 export function reconcileUnboundTasks(input) {
   assertReservationMutex(input);
   let comments = githubIssueComments(input.repository);
@@ -3472,6 +3593,14 @@ async function main() {
     } else {
       assertReservationMutex(parsed);
     }
+    return;
+  }
+  if (mode === "worker-strategy-admit") {
+    process.stdout.write(`${JSON.stringify(await evaluateWorkerStrategyHistory(parsed))}\n`);
+    return;
+  }
+  if (mode === "worker-strategy-record") {
+    process.stdout.write(`${JSON.stringify(await recordWorkerStrategyOutcome(parsed))}\n`);
     return;
   }
   if (mode === "reconcile-unbound-tasks") {

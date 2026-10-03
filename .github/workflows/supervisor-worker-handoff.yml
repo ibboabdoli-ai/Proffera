@@ -759,6 +759,42 @@ jobs:
             state=TASK_CREATED
           fi
 
+          if [ "$proceed" = "yes" ]; then
+            strategy_input="$(jq -n \
+              --argjson control "$control_input" \
+              --argjson packet "$packet" \
+              --arg mode "$source_mode" \
+              --arg actor "$EVENT_ACTOR" \
+              '$control + {packet:$packet,source:{mode:$mode,actor:$actor}}')"
+            strategy_result_file="$(mktemp)"
+            strategy_error_file="$(mktemp)"
+            set +e
+            printf '%s' "$strategy_input" | node "$helper" worker-strategy-admit >"$strategy_result_file" 2>"$strategy_error_file"
+            strategy_status=$?
+            set -e
+            if [ "$strategy_status" -ne 0 ] || ! jq -e . "$strategy_result_file" >/dev/null 2>&1; then
+              proceed=no
+              state=TASK_BLOCKED
+              decision_reason="Worker strategy-history admission unavailable; automatic dispatch refused fail-closed."
+            else
+              strategy_decision="$(jq -r '.decision // ""' "$strategy_result_file")"
+              case "$strategy_decision" in
+                ALLOW|ALLOW_HUMAN_REENTRY)
+                  ;;
+                SUPPRESS_REPEAT)
+                  proceed=no
+                  state=TASK_BLOCKED
+                  decision_reason="$(jq -r '.reason' "$strategy_result_file")"
+                  ;;
+                *)
+                  proceed=no
+                  state=TASK_BLOCKED
+                  decision_reason="Worker strategy-history admission returned an unknown decision; automatic dispatch refused fail-closed."
+                  ;;
+              esac
+            fi
+          fi
+
           printf '%s' "$control_input" | node "$helper" reservation-mutex-check
           state_input="$(jq -n --argjson packet "$packet" --arg state "$state" --arg reason "$decision_reason" --arg run_id "$RUN_ID" '{packet:$packet,state:$state,reason:$reason,run_id:$run_id}')"
           state_body="$(printf '%s' "$state_input" | node "$helper" state-body)"
@@ -1032,6 +1068,8 @@ jobs:
     outputs:
       candidate_ready: ${{ steps.capture_candidate.outputs.ready }}
       candidate_patch_sha256: ${{ steps.capture_candidate.outputs.patch_sha256 }}
+      attempt_started: ${{ steps.attempt_start.outputs.started }}
+      attempt_outcome: ${{ steps.classify_attempt.outputs.outcome }}
     permissions:
       actions: read
       contents: read
@@ -1065,6 +1103,11 @@ jobs:
           printf '%s' "$PACKET_B64" | base64 --decode > "$packet_file"
           jq -e . "$packet_file" >/dev/null
 
+      - name: Mark Worker strategy attempt start
+        id: attempt_start
+        shell: bash
+        run: echo "started=yes" >> "$GITHUB_OUTPUT"
+
       - name: Run one bounded implementation Worker
         id: codex
         uses: openai/codex-action@86365089eb2b84e0a8fb0717b304f8bdcb13b20e
@@ -1091,10 +1134,16 @@ jobs:
           rm -f "$RUNNER_TEMP/proffera-task-packet.json"
           git add --all --intent-to-add
           if git diff --quiet HEAD; then
+            echo "ready=no" >> "$GITHUB_OUTPUT"
+            echo "status=no_change" >> "$GITHUB_OUTPUT"
             echo "Worker produced no repository change." >&2
+            exit 0
+          fi
+          if ! git diff --check HEAD; then
+            echo "ready=no" >> "$GITHUB_OUTPUT"
+            echo "status=invalid_diff" >> "$GITHUB_OUTPUT"
             exit 1
           fi
-          git diff --check HEAD
           artifact_dir="$RUNNER_TEMP/proffera-worker-candidate"
           rm -rf "$artifact_dir"
           mkdir -p "$artifact_dir"
@@ -1104,9 +1153,11 @@ jobs:
           patch_sha256="$(sha256sum "$patch" | cut -d' ' -f1)"
           printf '%s  %s\n' "$patch_sha256" "worker.patch" > "$artifact_dir/worker.patch.sha256"
           echo "ready=yes" >> "$GITHUB_OUTPUT"
+          echo "status=ready" >> "$GITHUB_OUTPUT"
           echo "patch_sha256=$patch_sha256" >> "$GITHUB_OUTPUT"
 
       - name: Upload exact Worker candidate patch
+        if: steps.capture_candidate.outputs.ready == 'yes'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: proffera-worker-candidate-${{ github.run_id }}-${{ needs.preflight.outputs.task_id }}
@@ -1117,6 +1168,8 @@ jobs:
           overwrite: false
 
       - name: Run full pre-publish validation for sensitive dispatch path
+        id: validate_candidate
+        if: steps.capture_candidate.outputs.ready == 'yes'
         shell: bash
         run: |
           set -euo pipefail
@@ -1127,6 +1180,8 @@ jobs:
           git diff --check HEAD
 
       - name: Confirm validated Worker tree matches uploaded candidate
+        id: confirm_candidate
+        if: steps.capture_candidate.outputs.ready == 'yes'
         env:
           EXPECTED_PATCH_SHA256: ${{ steps.capture_candidate.outputs.patch_sha256 }}
         shell: bash
@@ -1138,6 +1193,37 @@ jobs:
           current_sha256="$(sha256sum "$current_patch" | cut -d' ' -f1)"
           test "$current_sha256" = "$EXPECTED_PATCH_SHA256"
           git diff --check HEAD
+
+      - name: Classify bounded Worker strategy outcome
+        id: classify_attempt
+        if: always() && steps.attempt_start.outputs.started == 'yes'
+        shell: bash
+        env:
+          CODEX_OUTCOME: ${{ steps.codex.outcome }}
+          CAPTURE_OUTCOME: ${{ steps.capture_candidate.outcome }}
+          CAPTURE_STATUS: ${{ steps.capture_candidate.outputs.status }}
+          VALIDATE_OUTCOME: ${{ steps.validate_candidate.outcome }}
+          CONFIRM_OUTCOME: ${{ steps.confirm_candidate.outcome }}
+        run: |
+          set -euo pipefail
+          outcome=failed
+          if [ "$CODEX_OUTCOME" = "success" ] && [ "$CAPTURE_OUTCOME" = "success" ] && [ "$CAPTURE_STATUS" = "no_change" ]; then
+            outcome=no_change
+          elif [ "$CODEX_OUTCOME" = "success" ] \
+            && [ "$CAPTURE_OUTCOME" = "success" ] \
+            && [ "$CAPTURE_STATUS" = "ready" ] \
+            && [ "$VALIDATE_OUTCOME" = "success" ] \
+            && [ "$CONFIRM_OUTCOME" = "success" ]; then
+            outcome=succeeded
+          fi
+          echo "outcome=$outcome" >> "$GITHUB_OUTPUT"
+
+      - name: Refuse a started Worker attempt without a validated candidate
+        if: always() && steps.attempt_start.outputs.started == 'yes' && steps.classify_attempt.outputs.outcome != 'succeeded'
+        shell: bash
+        run: |
+          echo "Worker strategy attempt ended as '${{ steps.classify_attempt.outputs.outcome }}'; publication remains blocked." >&2
+          exit 1
 
   publish:
     name: Verify and publish bounded Worker result
@@ -1189,6 +1275,56 @@ jobs:
           chmod 0555 "$trusted_dir"
           sha256sum --check --status "$trusted_manifest"
           node --check "$trusted_helper"
+
+      - name: Persist Worker strategy outcome before publication decision
+        if: always() && needs.dispatch.outputs.attempt_started == 'yes'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          BASE_SHA: ${{ needs.preflight.outputs.base_sha }}
+          PACKET_B64: ${{ needs.preflight.outputs.packet_b64 }}
+          RUN_ID: ${{ github.run_id }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+          DISPATCH_RESULT: ${{ needs.dispatch.result }}
+          ATTEMPT_OUTCOME: ${{ needs.dispatch.outputs.attempt_outcome }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$BASE_SHA"
+          for path in scripts/supervisor-worker-handoff.mjs scripts/supervisor-worker-strategy-memory.mjs scripts/supervisor-failure-memory.mjs; do
+            test -f "$path"
+            test "$(git hash-object "$path")" = "$(git rev-parse "$BASE_SHA:$path")"
+            node --check "$path"
+          done
+          outcome="$ATTEMPT_OUTCOME"
+          if [ "$DISPATCH_RESULT" = "cancelled" ]; then
+            outcome=cancelled
+          fi
+          case "$outcome" in
+            failed|no_change|cancelled|succeeded) ;;
+            *) outcome=failed ;;
+          esac
+          packet="$(printf '%s' "$PACKET_B64" | base64 --decode)"
+          jq -e . <<< "$packet" >/dev/null
+          helper="scripts/supervisor-worker-handoff.mjs"
+          control_input="$(jq -cn --arg repository "$REPOSITORY" --arg run_id "$RUN_ID" '{repository:$repository,run_id:$run_id}')"
+          mutex="$(printf '%s' "$control_input" | node "$helper" reservation-mutex-acquire)"
+          control_input="$(jq -c --arg mutex "$mutex" '. + {mutex:$mutex}' <<< "$control_input")"
+          release_mutex() {
+            printf '%s' "$control_input" | node "$helper" reservation-mutex-release
+          }
+          trap 'release_mutex || true' EXIT
+          observed_at="$(date -u +'%Y-%m-%dT%H:%M:%S.000Z')"
+          record_input="$(jq -n \
+            --argjson control "$control_input" \
+            --argjson packet "$packet" \
+            --arg outcome "$outcome" \
+            --arg observed_at "$observed_at" \
+            --arg run_attempt "$RUN_ATTEMPT" \
+            '$control + {packet:$packet,outcome:$outcome,observed_at:$observed_at,run_attempt:($run_attempt|tonumber)}')"
+          printf '%s' "$record_input" | node "$helper" worker-strategy-record > "$RUNNER_TEMP/proffera-worker-strategy-record.json"
+          jq -e '.decision == "RECORDED" or .decision == "ALREADY_RECORDED"' "$RUNNER_TEMP/proffera-worker-strategy-record.json" >/dev/null
+          printf '%s' "$control_input" | node "$helper" reservation-mutex-check
 
       - name: Refuse failed or unvalidated Worker candidate
         if: needs.dispatch.result != 'success' || needs.dispatch.outputs.candidate_ready != 'yes'
