@@ -95,6 +95,9 @@ function timestamp(value) {
   if (!Number.isFinite(parsed) || new Date(parsed).toISOString() !== normalized) fail("timestamp");
   return normalized;
 }
+function timestampFloorSecond(value) {
+  return timestamp(value).replace(/\.\d{3}Z$/, ".000Z");
+}
 function scope(value) {
   if (!isRecord(value)) fail("scope");
   if (value.kind === "task") {
@@ -330,8 +333,10 @@ export const mergeObservation = (current, expected, value) => mergeObservations(
  * GitHub has no material-evidence idempotency key. Without a receipt even a matching
  * manual rerun stays UNCERTAIN. Never infer acceptance from workflow success.
  *
- * All PREPARED/ACCEPTED/UNCERTAIN intents are pinned (max 4); only CONSUMED is terminal
- * (max 8). On terminal eviction admission closes irreversibly for this document.
+ * PREPARED intents are pinned unless the same serialized writer explicitly releases
+ * one after revalidation fails and before any POST is attempted. ACCEPTED/UNCERTAIN
+ * intents remain pinned (max 4); only CONSUMED is terminal (max 8). On terminal
+ * eviction admission closes irreversibly for this document.
  * This deliberate liveness limit prevents a forgotten ID being admitted again
  * without an unbounded tombstone store. Existing recovery and A2 history still work.
  * There is no automatic reset, expiration, downgrade, retry or manual-recovery API.
@@ -448,16 +453,20 @@ function recovery(intent, input) {
     || evidence.jobs.some((j) => j.run_id !== target.run_id || j.head !== target.head || j.run_attempt > evidence.run_attempt)) return reject;
   const baseline = evidence.jobs.find((j) => j.id === target.job.id);
   if (baseline && canonical(baseline) !== canonical(target.job)) return reject;
-  if (!evidence.complete || !baseline || !intent.acceptance || evidence.run_attempt !== target.run_attempt + 1) return uncertain;
-  const later = evidence.jobs.filter((j) => j.run_attempt === target.run_attempt + 1);
+  const successorAttempt = target.run_attempt + 1;
+  if (!evidence.complete || !baseline || !intent.acceptance || evidence.run_attempt < successorAttempt) return uncertain;
+  if (evidence.run_attempt > successorAttempt
+    && !evidence.jobs.some((j) => j.run_attempt === evidence.run_attempt)) return uncertain;
+  const later = evidence.jobs.filter((j) => j.run_attempt === successorAttempt);
   if (later.length !== 1) return uncertain;
   const job = later[0];
-  if (job.id === target.job.id || !job.started_at || job.started_at < intent.acceptance.observed_at
+  if (job.id === target.job.id || !job.started_at || job.started_at < timestampFloorSecond(intent.acceptance.observed_at)
     || job.started_at <= target.job.completed_at || job.started_at > evidence.observed_at
     || (job.completed_at && job.completed_at > evidence.observed_at)
     || !["in_progress", "completed"].includes(job.status) || ["skipped", "neutral"].includes(job.conclusion)) return uncertain;
-  // Store only the bounded witness pair; input pagination completeness is adapter-attested.
-  return {decision: "CONFIRM_CONSUMED", proof: {...evidence, jobs: [baseline, job]}};
+  // Store only the bounded immediate-successor witness. A later observed run attempt
+  // must not invalidate the exact N+1 proof that consumed this retry intent.
+  return {decision: "CONFIRM_CONSUMED", proof: {...evidence, run_attempt: successorAttempt, jobs: [baseline, job]}};
 }
 function validateIntent(value, repo, memoryScope) {
   keys(value, ["repository", "pr_number", "evidence", "strategy", "id", "evidence_fingerprint", "strategy_fingerprint",
@@ -524,6 +533,25 @@ export function decideRetryRecovery(intent, evidence) {
     return {decision: "REJECT_MISMATCH", proof: null};
   }
 }
+
+/**
+ * Release only a durable PREPARED intent when the serialized writer has revalidated
+ * the live source/head/job and has not attempted the rerun POST. This is not crash
+ * recovery and cannot release ACCEPTED/UNCERTAIN/CONSUMED state.
+ */
+export function releasePreparedRetryIntent(value, expected, id) {
+  const current = checkedCurrent(value, expected);
+  hex(id);
+  const previous = current.memory.intents.find((i) => i.id === id);
+  if (!previous) fail("intent_missing");
+  if (previous.state !== "PREPARED" || previous.acceptance !== null || previous.proof !== null
+    || previous.uncertain_reason !== null || previous.updated_at !== previous.prepared_at) fail("illegal_transition");
+  return replacement(current, {
+    ...current.memory,
+    intents: current.memory.intents.filter((i) => i.id !== id),
+  });
+}
+
 /** No transition returns PREPARED. Receipt-less uncertainty cannot be inferred away. */
 export function transitionRetryIntent(value, expected, id, event) {
   const current = checkedCurrent(value, expected);
