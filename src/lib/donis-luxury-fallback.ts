@@ -35,6 +35,8 @@ const imageIds = {
   scampiZucchini: "20d3293f-8f01-5997-988d-8cab572841c7",
   fettuccine: "d5950982-4fcf-5d56-9bbd-855600075a7b",
   penneCasa: "f8b12d70-71e6-5eb5-9fff-0b8c0efeef94",
+  aboutChef: "a2df4dee-64ad-592f-b44f-d4d2683c0249",
+  atmosphereTable: "f744f19e-b284-5b37-aca3-b8bb1cfd3a95",
 } as const;
 
 const dishIds = {
@@ -162,10 +164,38 @@ export const DONIS_LUXURY_FALLBACK_IMAGES: Record<string, string> = {
     "https://imageproxy.wolt.com/menu/menu-images/65a13319ea42aa5727e72fe8/8a0d6ad8-345f-11ef-9021-36f52c208fd6_fettuccini_donis_graddpasta_.jpg",
   [imageIds.penneCasa]:
     "https://imageproxy.wolt.com/menu/menu-images/65a13319ea42aa5727e72fe8/8a1034f2-345f-11ef-9021-36f52c208fd6_penne_de_la_casa_graddpasta.jpg",
+  [imageIds.aboutChef]:
+    "https://www-static.restaurangkungsholmen.se/wp-content/uploads/2025/05/donis-ny-omoss-e1748000494564.jpg",
+  [imageIds.atmosphereTable]:
+    "https://www-static.restaurangkungsholmen.se/wp-content/uploads/2025/05/donis-utfyl.jpg",
 };
 
 export const DONIS_LUXURY_FALLBACK_SITE: RestaurantSite = {
   ...DONIS_FALLBACK_SITE,
+  links: {
+    ...DONIS_FALLBACK_SITE.links,
+    booking: "https://donitrattoria.se/?page_id=37",
+  },
+  media: {
+    ...DONIS_FALLBACK_SITE.media,
+    owner: dishImage(
+      imageIds.aboutChef,
+      "Matlagning på Doni’s Trattoria",
+      "Cooking at Doni’s Trattoria",
+    ),
+    gallery: [
+      ...DONIS_FALLBACK_SITE.media.gallery,
+      {
+        ...dishImage(
+          imageIds.atmosphereTable,
+          "Italiensk mat och vin på Doni’s Trattoria",
+          "Italian food and wine at Doni’s Trattoria",
+        ),
+        kind: "atmosphere",
+        sortOrder: 3,
+      },
+    ],
+  },
   categories: [
     { id: categoryIds.antipasto, name: localized("Antipasto", "Antipasto"), sortOrder: 0, hidden: false },
     { id: categoryIds.primi, name: localized("Primi", "Primi"), sortOrder: 1, hidden: false },
