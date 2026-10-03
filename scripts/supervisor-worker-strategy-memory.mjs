@@ -253,10 +253,10 @@ export function workerStrategyObservation({ packet, repository, outcome, run_id,
   const descriptor = workerStrategyDescriptor(packet);
   const failed = outcome !== "succeeded";
   let observationHead = packet.base_sha;
-  if (outcome === "succeeded") {
+  if (outcome === "succeeded" && result_head !== null && result_head !== undefined) {
     observationHead = normalizeHead(result_head, "result_head");
     if (observationHead === packet.base_sha) throw new Error("worker_strategy:result_head");
-  } else if (result_head !== null && result_head !== undefined) {
+  } else if (outcome !== "succeeded" && result_head !== null && result_head !== undefined) {
     throw new Error("worker_strategy:unexpected_result_head");
   }
   return {

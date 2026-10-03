@@ -263,6 +263,28 @@ describe("Worker strategy-history admission", () => {
     }).decision).toBe("SUPPRESS_REPEAT");
   });
 
+  it("keeps recoverable-only success resolvable and fail-closed until owner re-entry", () => {
+    const old = {...basePacket, base_sha: "a".repeat(40)};
+    const current = {...basePacket, task_id: "RECOVERABLE-SUCCESS", base_sha: "b".repeat(40)};
+    const records = [prior(old, "succeeded", 32, 1)];
+    const starts = [dispatchStart(old, 32, 1)];
+    expect(materialWorkerBaselineHeads(current, records, starts, workerStrategyModule)).toEqual([]);
+    expect(decideWorkerStrategyHistory({
+      packet: current,
+      source: {mode: "planner", actor: "github-actions[bot]"},
+      records,
+      dispatch_starts: starts,
+      materially_changed_heads: [],
+    }).decision).toBe("SUPPRESS_REPEAT");
+    expect(decideWorkerStrategyHistory({
+      packet: current,
+      source: {mode: "comment", actor: "ibboabdoli-ai"},
+      records,
+      dispatch_starts: starts,
+      materially_changed_heads: [],
+    }).decision).toBe("ALLOW_HUMAN_REENTRY");
+  });
+
   it("suppresses replay after a material re-entry attempt starts on the refreshed baseline", () => {
     const old = {...basePacket, base_sha: "a".repeat(40)};
     const current = {...basePacket, task_id: "NEW-TASK", base_sha: "b".repeat(40)};
@@ -374,10 +396,11 @@ describe("Worker strategy-history admission", () => {
     expect(succeeded.stop.kind).toBe("none");
     expect(succeeded.reentry.kind).toBe("human_evidence");
     expect(succeeded.head).toBe("b".repeat(40));
-    expect(() => workerStrategyObservation({
+    const recoverable = workerStrategyObservation({
       packet: basePacket, repository: "ibboabdoli-ai/Proffera", outcome: "succeeded",
       run_id: 12, run_attempt: 1, observed_at: "2026-10-03T05:02:00.000Z",
-    })).toThrow("result_head");
+    });
+    expect(recoverable.head).toBe(basePacket.base_sha);
   });
 });
 
@@ -460,7 +483,8 @@ describe("Worker workflow B4.1 wiring", () => {
     expect(workflow.slice(success)).toContain('state" = "PUBLISHED"');
     expect(workflow.slice(success)).toContain('state" = "RECOVERABLE"');
     expect(workflow.slice(success)).toContain('outcome:"succeeded"');
-    expect(workflow.slice(success)).toContain('result_head:$result_head');
+    expect(workflow.slice(success)).toContain('success_result_head="$HEAD_SHA"');
+    expect(workflow.slice(success)).toContain('result_head:(if $result_head == "" then null else $result_head end)');
   });
 
   it("materializes the Worker strategy-history dependency chain with the trusted publication helper", () => {

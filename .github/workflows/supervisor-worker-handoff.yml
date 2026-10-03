@@ -1913,9 +1913,11 @@ jobs:
           test "$(jq -r '.run_id // ""' <<< "$payload")" = "$RUN_ID"
           test "$(jq -r '.head_sha // ""' <<< "$payload")" = "$HEAD_SHA"
           state="$(jq -r '.state // ""' <<< "$payload")"
+          success_result_head=""
 
           if [ "$state" = "PUBLISHED" ]; then
             test -n "$PR_NUMBER"
+            success_result_head="$HEAD_SHA"
             test "$(jq -r '.pr_number // empty' <<< "$payload")" = "$PR_NUMBER"
             pr="$(gh api "repos/${REPOSITORY}/pulls/${PR_NUMBER}")"
             test "$(jq -r '.state // ""' <<< "$pr")" = "open"
@@ -1937,8 +1939,8 @@ jobs:
             --argjson packet "$packet" \
             --arg observed_at "$observed_at" \
             --arg run_attempt "$RUN_ATTEMPT" \
-            --arg result_head "$HEAD_SHA" \
-            '$control + {packet:$packet,outcome:"succeeded",observed_at:$observed_at,run_attempt:($run_attempt|tonumber),result_head:$result_head}')"
+            --arg result_head "$success_result_head" \
+            '$control + {packet:$packet,outcome:"succeeded",observed_at:$observed_at,run_attempt:($run_attempt|tonumber),result_head:(if $result_head == "" then null else $result_head end)}')"
           printf '%s' "$record_input" | node "$helper" worker-strategy-record > "$RUNNER_TEMP/proffera-worker-strategy-success.json"
           jq -e '.decision == "RECORDED" or .decision == "ALREADY_RECORDED"' "$RUNNER_TEMP/proffera-worker-strategy-success.json" >/dev/null
           printf '%s' "$control_input" | node "$helper" reservation-mutex-check
