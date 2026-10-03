@@ -43,11 +43,11 @@ function materialTask(packet) {
     || !Number.isInteger(packet.risk_class) || packet.risk_class < 1 || packet.risk_class > 4) {
     throw new Error("worker_strategy:packet");
   }
+  sortedPaths(packet.forbidden_paths, "forbidden_paths");
   return {
     task_goal: packet.task_goal,
     graph_path: packet.graph_path,
     allowed_paths: sortedPaths(packet.allowed_paths, "allowed_paths"),
-    forbidden_paths: sortedPaths(packet.forbidden_paths, "forbidden_paths"),
     risk_class: packet.risk_class,
   };
 }
@@ -243,26 +243,26 @@ export function decideWorkerStrategyHistory({ packet, source, records, dispatch_
   };
 }
 
-export function workerStrategyObservation({ packet, repository, outcome, run_id, run_attempt, observed_at, result_head = null }) {
+export function workerStrategyObservation({ packet, repository, outcome, run_id, run_attempt, observed_at, pr_number = null }) {
   if (repository !== EXPECTED_REPOSITORY) throw new Error("worker_strategy:repository");
   if (!WORKER_OUTCOMES.has(outcome)) throw new Error("worker_strategy:outcome");
   if (!Number.isSafeInteger(Number(run_id)) || Number(run_id) <= 0
     || !Number.isSafeInteger(Number(run_attempt)) || Number(run_attempt) <= 0) {
     throw new Error("worker_strategy:run");
   }
+  let publicationPr = null;
+  if (pr_number !== null && pr_number !== undefined) {
+    if (outcome !== "succeeded" || !Number.isSafeInteger(Number(pr_number)) || Number(pr_number) <= 0) {
+      throw new Error("worker_strategy:pr_number");
+    }
+    publicationPr = Number(pr_number);
+  }
   const descriptor = workerStrategyDescriptor(packet);
   const failed = outcome !== "succeeded";
-  let observationHead = packet.base_sha;
-  if (outcome === "succeeded" && result_head !== null && result_head !== undefined) {
-    observationHead = normalizeHead(result_head, "result_head");
-    if (observationHead === packet.base_sha) throw new Error("worker_strategy:result_head");
-  } else if (outcome !== "succeeded" && result_head !== null && result_head !== undefined) {
-    throw new Error("worker_strategy:unexpected_result_head");
-  }
   return {
     repository,
     task_id: packet.task_id,
-    pr_number: null,
+    pr_number: publicationPr,
     evidence: descriptor.evidence,
     strategy: descriptor.strategy,
     action_id: "worker_codex_attempt",
@@ -276,7 +276,7 @@ export function workerStrategyObservation({ packet, repository, outcome, run_id,
       kind: "human_evidence",
       reference_digest: descriptor.evidence_fingerprint,
     },
-    head: observationHead,
+    head: packet.base_sha,
     observed_at,
     source: {
       kind: "actions",

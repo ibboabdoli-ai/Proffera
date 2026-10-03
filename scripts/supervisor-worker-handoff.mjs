@@ -2993,16 +2993,70 @@ export async function workerFailureMemorySnapshots(repository, packet, comments)
   return { failure, current, snapshots };
 }
 
-export function materialWorkerBaselineHeads(packet, records, starts, strategy, gitCwd = undefined) {
+export function workerSuccessfulMergeHeads(repository, packet, records, starts, strategy, readPr = undefined) {
+  if (repository !== EXPECTED_REPOSITORY) throw new Error("Worker strategy repository is not trusted");
   const descriptor = strategy.workerStrategyDescriptor(packet);
-  const heads = new Set();
-  const dependencyPathsByHead = new Map();
+  const matchingStarts = new Set(starts
+    .filter((start) => start.evidence_fingerprint === descriptor.evidence_fingerprint
+      && start.strategy_fingerprint === descriptor.strategy_fingerprint)
+    .map((start) => `${start.run_id}:${start.run_attempt}`));
+  const prByAttempt = new Map();
+  for (const record of records) {
+    if (record?.action_id !== "worker_codex_attempt"
+      || record?.outcome !== "succeeded"
+      || record?.evidence_fingerprint !== descriptor.evidence_fingerprint
+      || record?.strategy_fingerprint !== descriptor.strategy_fingerprint
+      || record?.pr_number === null
+      || record?.pr_number === undefined
+      || !Array.isArray(record.observations)) continue;
+    const prNumber = Number(record.pr_number);
+    if (!Number.isSafeInteger(prNumber) || prNumber <= 0) {
+      throw new Error("Worker strategy successful publication PR is malformed");
+    }
+    for (const observation of record.observations) {
+      const source = observation?.source;
+      if (source?.kind !== "actions") continue;
+      const key = `${Number(source.run_id)}:${Number(source.attempt)}`;
+      if (!matchingStarts.has(key)) continue;
+      const previous = prByAttempt.get(key);
+      if (previous !== undefined && previous !== prNumber) {
+        throw new Error("Worker strategy successful publication PR conflicts for one run attempt");
+      }
+      prByAttempt.set(key, prNumber);
+    }
+  }
+
+  const loadPr = readPr ?? ((number) => retryGitHubRead(() =>
+    githubApiJson([`repos/${repository}/pulls/${number}`])));
+  const cache = new Map();
+  const mergedHeads = new Map();
+  for (const [key, prNumber] of prByAttempt) {
+    let pr = cache.get(prNumber);
+    if (!pr) {
+      pr = loadPr(prNumber);
+      cache.set(prNumber, pr);
+    }
+    if (Number(pr?.number) !== prNumber
+      || pr?.head?.repo?.full_name !== repository
+      || pr?.base?.repo?.full_name !== repository
+      || pr?.base?.ref !== "main"
+      || pr?.user?.login !== repository.split("/")[0]) {
+      throw new Error("Worker strategy successful publication PR provenance is invalid");
+    }
+    if (pr.merged !== true) continue;
+    const mergeHead = String(pr.merge_commit_sha ?? "");
+    if (!SHA_RE.test(mergeHead)) {
+      throw new Error("Worker strategy successful publication merge head is malformed");
+    }
+    mergedHeads.set(key, mergeHead);
+  }
+  return mergedHeads;
+}
+
+export function materialWorkerBaselineHeads(packet, records, starts, strategy, gitCwd = undefined, successMergeHeads = new Map()) {
+  const descriptor = strategy.workerStrategyDescriptor(packet);
   const startsByAttempt = new Map();
   const durableByAttempt = new Map();
-  const rememberDependencies = (head, paths) => {
-    if (!dependencyPathsByHead.has(head)) dependencyPathsByHead.set(head, new Set());
-    for (const path of paths ?? []) dependencyPathsByHead.get(head).add(path);
-  };
 
   for (const start of starts) {
     if (start.evidence_fingerprint !== descriptor.evidence_fingerprint
@@ -3028,21 +3082,25 @@ export function materialWorkerBaselineHeads(packet, records, starts, strategy, g
       if (!startsByAttempt.has(key)) continue;
       const observed = String(observation?.head ?? "");
       if (!SHA_RE.test(observed)) throw new Error("Worker strategy durable observation head is malformed");
-      const durable = durableByAttempt.get(key) ?? { outcome: record.outcome, heads: new Set() };
-      if (durable.outcome !== record.outcome) {
-        throw new Error("Worker strategy durable outcome conflicts for one run attempt");
+      const durable = durableByAttempt.get(key) ?? {
+        outcome: record.outcome,
+        pr_number: record.pr_number ?? null,
+        heads: new Set(),
+      };
+      if (durable.outcome !== record.outcome || durable.pr_number !== (record.pr_number ?? null)) {
+        throw new Error("Worker strategy durable outcome provenance conflicts for one run attempt");
       }
       durable.heads.add(observed);
       durableByAttempt.set(key, durable);
     }
   }
 
+  const comparisons = [];
   for (const [key, start] of startsByAttempt) {
     const durable = durableByAttempt.get(key);
     if (!durable) {
       if (start.head !== packet.base_sha) {
-        heads.add(start.head);
-        rememberDependencies(start.head, start.dependency_paths);
+        comparisons.push({ marker: start.head, previous: start.head, dependency_paths: start.dependency_paths });
       }
       continue;
     }
@@ -3051,28 +3109,43 @@ export function materialWorkerBaselineHeads(packet, records, starts, strategy, g
     }
     const observed = [...durable.heads][0];
     if (durable.outcome === "succeeded") {
-      // Legacy success observations recorded only the pre-execution baseline.
-      // They stay blocking because they cannot prove the published result head.
-      if (observed === start.head) continue;
-    } else if (observed !== start.head) {
+      // Successful attempts re-enter automatically only after their exact
+      // Worker PR is proven merged. Open, closed-unmerged, recoverable-only,
+      // and legacy successes remain blocking but explicit owner re-entry stays live.
+      const mergedHead = successMergeHeads.get(key);
+      if (!mergedHead) continue;
+      if (!SHA_RE.test(mergedHead)) throw new Error("Worker strategy successful merge head is malformed");
+      if (mergedHead !== packet.base_sha) {
+        comparisons.push({ marker: observed, previous: mergedHead, dependency_paths: start.dependency_paths });
+      }
+      continue;
+    }
+    if (observed !== start.head) {
       throw new Error("Worker strategy non-success outcome is not bound to its dispatch baseline");
     }
-    if (observed === packet.base_sha) continue;
-    heads.add(observed);
-    rememberDependencies(observed, start.dependency_paths);
+    if (start.head !== packet.base_sha) {
+      comparisons.push({ marker: observed, previous: start.head, dependency_paths: start.dependency_paths });
+    }
   }
 
   const materiallyChanged = [];
-  for (const previous of heads) {
+  const seenMarkers = new Set();
+  for (const comparison of comparisons) {
     try {
-      const changed = execFileSync("git", ["diff", "--name-only", "--no-renames", previous, packet.base_sha, "--"], {
+      execFileSync("git", ["merge-base", "--is-ancestor", comparison.previous, packet.base_sha], {
+        stdio: "pipe", ...(gitCwd ? {cwd: gitCwd} : {}),
+      });
+      const changed = execFileSync("git", ["diff", "--name-only", "--no-renames", comparison.previous, packet.base_sha, "--"], {
         encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], ...(gitCwd ? {cwd: gitCwd} : {}),
       }).split("\n").map((value) => value.trim()).filter(Boolean);
       if (changed.length > 5000) throw new Error("worker strategy baseline diff exceeds bounded file count");
-      const dependencyPaths = [...(dependencyPathsByHead.get(previous) ?? [])].sort();
-      if (strategy.workerMaterialScopeChanged(packet, changed, dependencyPaths)) materiallyChanged.push(previous);
+      if (strategy.workerMaterialScopeChanged(packet, changed, comparison.dependency_paths)
+        && !seenMarkers.has(comparison.marker)) {
+        seenMarkers.add(comparison.marker);
+        materiallyChanged.push(comparison.marker);
+      }
     } catch (error) {
-      throw new Error(`Worker strategy baseline comparison unavailable for ${previous}: ${error instanceof Error ? error.message : "unknown error"}`);
+      throw new Error(`Worker strategy baseline comparison unavailable for ${comparison.previous}: ${error instanceof Error ? error.message : "unknown error"}`);
     }
   }
   return materiallyChanged;
@@ -3086,12 +3159,13 @@ export async function evaluateWorkerStrategyHistory(input) {
   const strategy = await import("./supervisor-worker-strategy-memory.mjs");
   const records = snapshots.flatMap((snapshot) => snapshot.memory.records);
   const starts = parseWorkerStrategyDispatchStarts(comments);
+  const successMergeHeads = workerSuccessfulMergeHeads(input.repository, packet, records, starts, strategy);
   const result = strategy.decideWorkerStrategyHistory({
     packet,
     source: input.source,
     records,
     dispatch_starts: starts,
-    materially_changed_heads: materialWorkerBaselineHeads(packet, records, starts, strategy),
+    materially_changed_heads: materialWorkerBaselineHeads(packet, records, starts, strategy, undefined, successMergeHeads),
   });
   // A slow history read never outlives ownership of the shared writer mutex.
   assertReservationMutex(input);
@@ -3113,7 +3187,7 @@ export async function recordWorkerStrategyOutcome(input) {
     run_id: input.run_id,
     run_attempt: input.run_attempt,
     observed_at: input.observed_at,
-    result_head: input.result_head ?? null,
+    pr_number: input.pr_number ?? null,
   });
   const descriptor = strategy.workerStrategyDescriptor(packet);
   const replacement = failure.mergeObservation(current, expected, observation);
