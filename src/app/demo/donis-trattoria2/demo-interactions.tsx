@@ -5,7 +5,7 @@ import {
   CalendarDays,
   Clock3,
   Heart,
-  Instagram,
+  Camera,
   Mail,
   MapPin,
   Menu,
@@ -207,8 +207,8 @@ function Reveal({
       typeof window !== "undefined" &&
       window.matchMedia("(prefers-reduced-motion: reduce)").matches
     ) {
-      setVisible(true);
-      return;
+      const frame = window.requestAnimationFrame(() => setVisible(true));
+      return () => window.cancelAnimationFrame(frame);
     }
 
     const observer = new IntersectionObserver(
@@ -1085,7 +1085,7 @@ export function DonisTrattoriaLuxuryExperience({
                     className="group flex items-center gap-4"
                   >
                     <span className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-[#d6aa58]/30 bg-[#d6aa58]/8 text-[#e7bd67]">
-                      <Instagram className="h-4 w-4" />
+                      <Camera className="h-4 w-4" />
                     </span>
                     <span>
                       <span className="block text-[10px] font-black uppercase tracking-[0.18em] text-white/35">
@@ -1235,7 +1235,7 @@ export function DonisTrattoriaLuxuryExperience({
               aria-label={t.follow + " Instagram"}
               className="inline-flex h-11 w-11 items-center justify-center rounded-full border border-white/12 text-white/65 transition hover:border-[#d6aa58]/50 hover:text-[#e7bd67]"
             >
-              <Instagram className="h-4 w-4" />
+              <Camera className="h-4 w-4" />
             </a>
           </div>
 
