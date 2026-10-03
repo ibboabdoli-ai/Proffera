@@ -172,10 +172,6 @@ export const DONIS_LUXURY_FALLBACK_IMAGES: Record<string, string> = {
 
 export const DONIS_LUXURY_FALLBACK_SITE: RestaurantSite = {
   ...DONIS_FALLBACK_SITE,
-  links: {
-    ...DONIS_FALLBACK_SITE.links,
-    booking: "https://donitrattoria.se/?page_id=37",
-  },
   media: {
     ...DONIS_FALLBACK_SITE.media,
     owner: dishImage(
