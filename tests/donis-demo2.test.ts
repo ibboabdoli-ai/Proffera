@@ -15,25 +15,35 @@ describe("Doni demo 2", () => {
     expect(page).toContain("/demo/donis-trattoria2");
   });
 
-  it("uses a distinct premium dark visual system and data-grounded pricing", () => {
+  it("uses a distinct premium dark visual system and a Doni-specific real-menu fallback", () => {
     const source = readFileSync(
       "src/app/demo/donis-trattoria2/demo-interactions.tsx",
+      "utf8",
+    );
+    const fallback = readFileSync(
+      "src/lib/donis-luxury-fallback.ts",
       "utf8",
     );
 
     expect(source).toContain('bg-[#080a08]');
     expect(source).toContain('text-[#d6aa58]');
-    expect(source).toContain("KNOWN_DEMO_PRICES_ORE");
-    expect(source).toContain("dish.priceOre ??");
-    expect(source).toContain("DONIS_FALLBACK_SITE");
-    expect(source).toContain("DONIS_FALLBACK_IMAGES");
+    expect(source).toContain("DONIS_LUXURY_FALLBACK_SITE");
+    expect(source).toContain("DONIS_LUXURY_FALLBACK_IMAGES");
+    expect(source).toContain("dish.priceOre === null");
     expect(source).toContain("IntersectionObserver");
     expect(source).toContain("document.documentElement.lang = lang");
     expect(source).toContain("currentOrderUrl");
     expect(source).toContain("mapEmbedUrl");
+
+    expect(fallback).toContain("Tagliatelle al ragu");
+    expect(fallback).toContain("Spaghetti con scampi e zucchini");
+    expect(fallback).toContain("Napolitana surdegspizza");
+    expect(fallback).toContain("Romana surdegspizza");
+    expect(fallback).toContain("Aperol spritz");
+    expect(fallback).toContain("imageproxy.wolt.com");
   });
 
-  it("keeps the existing Doni demo untouched as a separate customer choice", () => {
+  it("keeps the existing Doni demo and its shared fallback untouched", () => {
     const firstDemo = readFileSync(
       "src/app/demo/donis-trattoria/page.tsx",
       "utf8",
@@ -42,10 +52,16 @@ describe("Doni demo 2", () => {
       "src/app/demo/donis-trattoria2/page.tsx",
       "utf8",
     );
+    const firstDemoInteractions = readFileSync(
+      "src/app/demo/donis-trattoria/demo-interactions.tsx",
+      "utf8",
+    );
 
     expect(firstDemo).toContain("./demo-interactions");
     expect(secondDemo).toContain("./demo-interactions");
     expect(firstDemo).toContain("Doni’s Trattoria | Stockholm");
     expect(secondDemo).toContain("Doni’s Trattoria | Premium concept");
+    expect(firstDemoInteractions).toContain("DONIS_FALLBACK_SITE");
+    expect(firstDemoInteractions).not.toContain("DONIS_LUXURY_FALLBACK_SITE");
   });
 });
