@@ -249,6 +249,17 @@ describe("Worker workflow B4.1 wiring", () => {
     expect(workflow.slice(success)).toContain('outcome:"succeeded"');
   });
 
+  it("materializes the Worker strategy-history dependency chain with the trusted publication helper", () => {
+    const materialize = workflow.slice(
+      workflow.indexOf("Materialize trusted publication helper in isolated job"),
+      workflow.indexOf("Persist non-success Worker strategy outcome before publication decision"),
+    );
+    expect(materialize).toContain("supervisor-worker-handoff.mjs");
+    expect(materialize).toContain("supervisor-worker-strategy-memory.mjs");
+    expect(materialize).toContain("supervisor-failure-memory.mjs");
+    expect(materialize).toContain('sha256sum "$trusted_helper" "$trusted_strategy" "$trusted_failure"');
+  });
+
   it("marks the model boundary and persists history from the isolated issue-write job", () => {
     expect(workflow.indexOf("Mark Worker strategy attempt start")).toBeLessThan(workflow.indexOf("Run one bounded implementation Worker"));
     expect(workflow).toContain("worker-strategy-record");

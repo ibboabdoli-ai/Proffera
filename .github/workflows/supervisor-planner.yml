@@ -213,7 +213,7 @@ jobs:
             If no safe independent task should start, write:
             {"action":"wait","reason":"..."}
 
-            Otherwise choose exactly one smallest bounded task that can be implemented without Production/config/provider/payment/outreach/migration changes and without touching .github/, AGENTS.md, WORKER_BOOTSTRAP.md, scripts/supervisor-worker-handoff.mjs, package/lockfiles, env files, vercel.json, or migration/schema paths.
+            Otherwise choose exactly one smallest bounded task that can be implemented without Production/config/provider/payment/outreach/migration changes and without touching .github/, AGENTS.md, WORKER_BOOTSTRAP.md, scripts/supervisor-worker-handoff.mjs, scripts/supervisor-worker-strategy-memory.mjs, package/lockfiles, env files, vercel.json, or migration/schema paths.
 
             Write:
             {"action":"dispatch","reason":"...","packet":{...}}
