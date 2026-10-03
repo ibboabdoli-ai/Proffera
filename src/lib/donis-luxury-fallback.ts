@@ -37,6 +37,7 @@ const imageIds = {
   penneCasa: "f8b12d70-71e6-5eb5-9fff-0b8c0efeef94",
   aboutChef: "a2df4dee-64ad-592f-b44f-d4d2683c0249",
   atmosphereTable: "f744f19e-b284-5b37-aca3-b8bb1cfd3a95",
+  tiramisu: "a9d12f79-8827-53df-a7bc-9c98d69a9d41",
 } as const;
 
 const dishIds = {
@@ -168,6 +169,8 @@ export const DONIS_LUXURY_FALLBACK_IMAGES: Record<string, string> = {
     "https://www-static.restaurangkungsholmen.se/wp-content/uploads/2025/05/donis-ny-omoss-e1748000494564.jpg",
   [imageIds.atmosphereTable]:
     "https://www-static.restaurangkungsholmen.se/wp-content/uploads/2025/05/donis-utfyl.jpg",
+  [imageIds.tiramisu]:
+    "https://www-static.restaurangkungsholmen.se/wp-content/uploads/2025/05/donis-efterratt.jpg",
 };
 
 export const DONIS_LUXURY_FALLBACK_SITE: RestaurantSite = {
@@ -395,7 +398,7 @@ export const DONIS_LUXURY_FALLBACK_SITE: RestaurantSite = {
       priceOre: null,
       descriptionSv: "Klassisk italiensk tiramisu.",
       descriptionEn: "Classic Italian tiramisu.",
-      image: DONIS_FALLBACK_SITE.media.gallery.find((item) => item.kind === "food") ?? null,
+      image: dishImage(imageIds.tiramisu, "Tiramisu", "Tiramisu"),
       sortOrder: 0,
     }),
 
