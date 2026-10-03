@@ -15,14 +15,14 @@ export const metadata: Metadata = {
   keywords: null,
   manifest: null,
   appleWebApp: null,
-  title: { absolute: "Doni’s Trattoria | Dark concept" },
+  title: { absolute: "Doni’s Trattoria | Premium concept" },
   description:
-    "Alternativ mörk restaurangdemo för Doni’s Trattoria på Hornsbergs Strand i Stockholm.",
+    "Premium mörk restaurangdemo för Doni’s Trattoria på Hornsbergs Strand i Stockholm.",
   robots: { index: false, follow: false },
   openGraph: {
-    title: "Doni’s Trattoria | Dark concept",
+    title: "Doni’s Trattoria | Premium concept",
     description:
-      "Alternativ mörk restaurangdemo för Doni’s Trattoria i Stockholm.",
+      "Premium mörk restaurangdemo för Doni’s Trattoria i Stockholm.",
     type: "website",
     siteName: "Doni’s Trattoria",
     url: "https://www.proffera.se/demo/donis-trattoria2",
@@ -37,7 +37,7 @@ export const metadata: Metadata = {
   },
   twitter: {
     card: "summary_large_image",
-    title: "Doni’s Trattoria | Dark concept",
+    title: "Doni’s Trattoria | Premium concept",
     description:
       "Alternativ mörk restaurangdemo för Doni’s Trattoria i Stockholm.",
     images: [heroImage],
