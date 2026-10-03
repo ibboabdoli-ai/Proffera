@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { execFileSync } from "node:child_process";
 import { describe, expect, it } from "vitest";
 // @ts-expect-error Standalone .mjs follows the repository control-plane convention.
-import { decideWorkerStrategyHistory, workerMaterialScopeChanged, workerStrategyDescriptor, workerStrategyObservation } from "../scripts/supervisor-worker-strategy-memory.mjs";
+import { decideWorkerStrategyHistory, WORKER_EXECUTION_CONTRACT, workerMaterialScopeChanged, workerStrategyDescriptor, workerStrategyObservation } from "../scripts/supervisor-worker-strategy-memory.mjs";
 // @ts-expect-error Standalone .mjs follows the repository control-plane convention.
 import * as workerStrategyModule from "../scripts/supervisor-worker-strategy-memory.mjs";
 // @ts-expect-error Standalone .mjs follows the repository control-plane convention.
@@ -28,7 +28,7 @@ const basePacket = {
   merge_allowed: false,
   auto_merge_allowed: false,
 };
-const prior = (packet = basePacket, outcome = "failed", runId: number | null = null, runAttempt = 1) => {
+const prior = (packet = basePacket, outcome = "failed", runId: number | null = null, runAttempt = 1, resultHead: string | null = null) => {
   const descriptor = workerStrategyDescriptor(packet);
   return {
     action_id: "worker_codex_attempt",
@@ -36,7 +36,7 @@ const prior = (packet = basePacket, outcome = "failed", runId: number | null = n
     evidence_fingerprint: descriptor.evidence_fingerprint,
     strategy_fingerprint: descriptor.strategy_fingerprint,
     observations: runId === null ? [] : [{
-      head: packet.base_sha,
+      head: outcome === "succeeded" && resultHead ? resultHead : packet.base_sha,
       source: {kind: "actions", run_id: runId, attempt: runAttempt, job_id: null},
     }],
   };
@@ -100,6 +100,27 @@ describe("Worker strategy-history material identity", () => {
       .not.toBe(workerStrategyDescriptor(basePacket).evidence_fingerprint);
   });
 
+  it("binds strategy identity to the canonical execution contract", () => {
+    const current = workerStrategyDescriptor(basePacket);
+    const same = workerStrategyDescriptor(basePacket, {...WORKER_EXECUTION_CONTRACT});
+    const changed = workerStrategyDescriptor(basePacket, {
+      ...WORKER_EXECUTION_CONTRACT,
+      prompt_version: "worker_builder_v2",
+      prompt: WORKER_EXECUTION_CONTRACT.prompt + "\nUse the v2 bounded Builder contract.",
+    });
+    expect(same.strategy_fingerprint).toBe(current.strategy_fingerprint);
+    expect(changed.strategy_fingerprint).not.toBe(current.strategy_fingerprint);
+    expect(changed.evidence_fingerprint).toBe(current.evidence_fingerprint);
+    expect(decideWorkerStrategyHistory({
+      packet: basePacket,
+      source: {mode: "planner", actor: "github-actions[bot]"},
+      records: [{
+        ...prior(),
+        strategy_fingerprint: changed.strategy_fingerprint,
+      }],
+    }).decision).toBe("ALLOW");
+  });
+
   it("keeps dependency declaration churn outside stable attempt identity", () => {
     const expected = workerStrategyDescriptor(basePacket).evidence_fingerprint;
     for (const dependency_paths of [
@@ -109,7 +130,9 @@ describe("Worker strategy-history material identity", () => {
       ["src/contracts/other-policy.ts", "src/contracts/worker-policy.ts"],
       ["src/contracts/worker-policy.ts", "src/contracts/worker-policy.ts"],
     ]) {
-      expect(workerStrategyDescriptor({...basePacket, dependency_paths}).evidence_fingerprint).toBe(expected);
+      const descriptor = workerStrategyDescriptor({...basePacket, dependency_paths});
+      expect(descriptor.evidence_fingerprint).toBe(expected);
+      expect(descriptor.strategy_fingerprint).toBe(workerStrategyDescriptor(basePacket).strategy_fingerprint);
     }
   });
 });
@@ -189,6 +212,55 @@ describe("Worker strategy-history admission", () => {
       records: [prior(old, "failed", 20, 1)],
       materially_changed_heads: [old.base_sha],
     })).toMatchObject({decision: "ALLOW_MATERIAL_REENTRY", material_reentries: 1});
+  });
+
+  it("keeps a successful strategy blocked on its own published result and reopens only after later relevant evidence", () => {
+    const fixture = gitFixture("scripts/a.mjs");
+    try {
+      const original = {...basePacket, base_sha: fixture.oldHead};
+      const published = {...basePacket, task_id: "SUCCESS-REPLAY", base_sha: fixture.currentHead};
+      const success = prior(original, "succeeded", 30, 1, fixture.currentHead);
+      const starts = [dispatchStart(original, 30, 1)];
+
+      const unchangedHeads = materialWorkerBaselineHeads(published, [success], starts, workerStrategyModule, fixture.dir);
+      expect(unchangedHeads).toEqual([]);
+      expect(decideWorkerStrategyHistory({
+        packet: published,
+        source: {mode: "planner", actor: "github-actions[bot]"},
+        records: [success],
+        dispatch_starts: starts,
+        materially_changed_heads: unchangedHeads,
+      }).decision).toBe("SUPPRESS_REPEAT");
+
+      writeFileSync(join(fixture.dir, "scripts", "a.mjs"), "export const changedAgain = 3;\n");
+      execFileSync("git", ["add", "scripts/a.mjs"], {cwd: fixture.dir});
+      execFileSync("git", ["commit", "-q", "-m", "later relevant evidence"], {cwd: fixture.dir});
+      const laterHead = execFileSync("git", ["rev-parse", "HEAD"], {cwd: fixture.dir, encoding: "utf8"}).trim();
+      const later = {...published, base_sha: laterHead};
+      const laterHeads = materialWorkerBaselineHeads(later, [success], starts, workerStrategyModule, fixture.dir);
+      expect(laterHeads).toEqual([fixture.currentHead]);
+      expect(decideWorkerStrategyHistory({
+        packet: later,
+        source: {mode: "planner", actor: "github-actions[bot]"},
+        records: [success],
+        dispatch_starts: starts,
+        materially_changed_heads: laterHeads,
+      }).decision).toBe("ALLOW_MATERIAL_REENTRY");
+    } finally {
+      rmSync(fixture.dir, {recursive: true, force: true});
+    }
+  });
+
+  it("keeps ambiguous legacy success provenance fail-closed", () => {
+    const old = {...basePacket, base_sha: "a".repeat(40)};
+    const legacySuccess = prior(old, "succeeded", 31, 1);
+    expect(decideWorkerStrategyHistory({
+      packet: {...old, task_id: "LEGACY-SUCCESS", base_sha: "b".repeat(40)},
+      source: {mode: "planner", actor: "github-actions[bot]"},
+      records: [legacySuccess],
+      dispatch_starts: [],
+      materially_changed_heads: [],
+    }).decision).toBe("SUPPRESS_REPEAT");
   });
 
   it("suppresses replay after a material re-entry attempt starts on the refreshed baseline", () => {
@@ -295,11 +367,17 @@ describe("Worker strategy-history admission", () => {
     const succeeded = workerStrategyObservation({
       packet: basePacket, repository: "ibboabdoli-ai/Proffera", outcome: "succeeded",
       run_id: 11, run_attempt: 1, observed_at: "2026-10-03T05:01:00.000Z",
+      result_head: "b".repeat(40),
     });
     expect(failed.stop.kind).toBe("same_evidence_strategy_failed");
     expect(failed.reentry.kind).toBe("human_evidence");
     expect(succeeded.stop.kind).toBe("none");
     expect(succeeded.reentry.kind).toBe("human_evidence");
+    expect(succeeded.head).toBe("b".repeat(40));
+    expect(() => workerStrategyObservation({
+      packet: basePacket, repository: "ibboabdoli-ai/Proffera", outcome: "succeeded",
+      run_id: 12, run_attempt: 1, observed_at: "2026-10-03T05:02:00.000Z",
+    })).toThrow("result_head");
   });
 });
 
@@ -382,6 +460,7 @@ describe("Worker workflow B4.1 wiring", () => {
     expect(workflow.slice(success)).toContain('state" = "PUBLISHED"');
     expect(workflow.slice(success)).toContain('state" = "RECOVERABLE"');
     expect(workflow.slice(success)).toContain('outcome:"succeeded"');
+    expect(workflow.slice(success)).toContain('result_head:$result_head');
   });
 
   it("materializes the Worker strategy-history dependency chain with the trusted publication helper", () => {
@@ -393,6 +472,17 @@ describe("Worker workflow B4.1 wiring", () => {
     expect(materialize).toContain("supervisor-worker-strategy-memory.mjs");
     expect(materialize).toContain("supervisor-failure-memory.mjs");
     expect(materialize).toContain('sha256sum "$trusted_helper" "$trusted_strategy" "$trusted_failure"');
+  });
+
+  it("binds the model boundary to the canonical Worker execution contract", () => {
+    const contract = workflow.indexOf("Load canonical Worker execution contract");
+    const model = workflow.indexOf("Run one bounded implementation Worker");
+    expect(contract).toBeGreaterThan(0);
+    expect(contract).toBeLessThan(model);
+    expect(workflow.slice(contract, model)).toContain('.execution_contract.action_revision');
+    expect(workflow.slice(contract, model)).toContain('.execution_contract.effort');
+    expect(workflow.slice(model, workflow.indexOf("Capture untrusted Worker candidate patch"))).toContain("steps.worker_contract.outputs.prompt");
+    expect(workflow).toContain("openai/codex-action@86365089eb2b84e0a8fb0717b304f8bdcb13b20e");
   });
 
   it("marks the model boundary and persists history from the isolated issue-write job", () => {

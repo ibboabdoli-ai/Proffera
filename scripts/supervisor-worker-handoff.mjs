@@ -2998,6 +2998,7 @@ export function materialWorkerBaselineHeads(packet, records, starts, strategy, g
   const heads = new Set();
   const dependencyPathsByHead = new Map();
   const startsByAttempt = new Map();
+  const durableByAttempt = new Map();
   const rememberDependencies = (head, paths) => {
     if (!dependencyPathsByHead.has(head)) dependencyPathsByHead.set(head, new Set());
     for (const path of paths ?? []) dependencyPathsByHead.get(head).add(path);
@@ -3013,10 +3014,6 @@ export function materialWorkerBaselineHeads(packet, records, starts, strategy, g
       throw new Error("Worker strategy dispatch-start evidence conflicts for one run attempt");
     }
     startsByAttempt.set(key, start);
-    if (start.head !== packet.base_sha) {
-      heads.add(start.head);
-      rememberDependencies(start.head, start.dependency_paths);
-    }
   }
 
   for (const record of records) {
@@ -3025,23 +3022,49 @@ export function materialWorkerBaselineHeads(packet, records, starts, strategy, g
       || record?.strategy_fingerprint !== descriptor.strategy_fingerprint
       || !Array.isArray(record.observations)) continue;
     for (const observation of record.observations) {
-      const observed = String(observation?.head ?? "");
-      if (!SHA_RE.test(observed) || observed === packet.base_sha) continue;
-      heads.add(observed);
       const source = observation?.source;
-      if (source?.kind === "actions") {
-        const start = startsByAttempt.get(`${Number(source.run_id)}:${Number(source.attempt)}`);
-        if (start?.head === observed) rememberDependencies(observed, start.dependency_paths);
+      if (source?.kind !== "actions") continue;
+      const key = `${Number(source.run_id)}:${Number(source.attempt)}`;
+      if (!startsByAttempt.has(key)) continue;
+      const observed = String(observation?.head ?? "");
+      if (!SHA_RE.test(observed)) throw new Error("Worker strategy durable observation head is malformed");
+      const durable = durableByAttempt.get(key) ?? { outcome: record.outcome, heads: new Set() };
+      if (durable.outcome !== record.outcome) {
+        throw new Error("Worker strategy durable outcome conflicts for one run attempt");
       }
+      durable.heads.add(observed);
+      durableByAttempt.set(key, durable);
     }
+  }
+
+  for (const [key, start] of startsByAttempt) {
+    const durable = durableByAttempt.get(key);
+    if (!durable) {
+      if (start.head !== packet.base_sha) {
+        heads.add(start.head);
+        rememberDependencies(start.head, start.dependency_paths);
+      }
+      continue;
+    }
+    if (durable.heads.size !== 1) {
+      throw new Error("Worker strategy durable head conflicts for one run attempt");
+    }
+    const observed = [...durable.heads][0];
+    if (durable.outcome === "succeeded") {
+      // Legacy success observations recorded only the pre-execution baseline.
+      // They stay blocking because they cannot prove the published result head.
+      if (observed === start.head) continue;
+    } else if (observed !== start.head) {
+      throw new Error("Worker strategy non-success outcome is not bound to its dispatch baseline");
+    }
+    if (observed === packet.base_sha) continue;
+    heads.add(observed);
+    rememberDependencies(observed, start.dependency_paths);
   }
 
   const materiallyChanged = [];
   for (const previous of heads) {
     try {
-      execFileSync("git", ["merge-base", "--is-ancestor", previous, packet.base_sha], {
-        stdio: "pipe", ...(gitCwd ? {cwd: gitCwd} : {}),
-      });
       const changed = execFileSync("git", ["diff", "--name-only", "--no-renames", previous, packet.base_sha, "--"], {
         encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], ...(gitCwd ? {cwd: gitCwd} : {}),
       }).split("\n").map((value) => value.trim()).filter(Boolean);
@@ -3090,6 +3113,7 @@ export async function recordWorkerStrategyOutcome(input) {
     run_id: input.run_id,
     run_attempt: input.run_attempt,
     observed_at: input.observed_at,
+    result_head: input.result_head ?? null,
   });
   const descriptor = strategy.workerStrategyDescriptor(packet);
   const replacement = failure.mergeObservation(current, expected, observation);
