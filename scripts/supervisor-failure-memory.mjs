@@ -239,11 +239,13 @@ export function memoryMarker(repo, memoryScope, version = 1) {
   member(version, [1, 2]);
   return PREFIX + "v" + version + ":" + hash({repository: repository(repo), scope: scope(memoryScope)}) + " -->";
 }
-export function serializeMemory(value) {
-  const memory = validateMemory(value);
+function serializeValidatedMemory(memory) {
   const body = memoryMarker(memory.repository, memory.scope, memory.schema_version) + "\n\x60\x60\x60json\n" + canonical(memory) + "\n\x60\x60\x60";
   if (Buffer.byteLength(body, "utf8") > LIMITS.body_bytes) fail("body_bound");
   return body;
+}
+export function serializeMemory(value) {
+  return serializeValidatedMemory(validateMemory(value));
 }
 function snapshot(value) {
   keys(value, ["comment_id", "memory"]);
@@ -255,32 +257,43 @@ export function memoryIdentity(value) {
 }
 
 /** comments must be a complete authenticated API read, not user-provided actor assertions. */
-export function readTrustedMemory(comments, {repository: repo, scope: memoryScope, complete}) {
-  const empty = createMemory(repo, memoryScope);
+export function readTrustedMemories(comments, {repository: repo, complete}) {
+  const expectedRepository = repository(repo);
   if (complete !== true || !Array.isArray(comments) || comments.length > LIMITS.comments) fail("incomplete_comments");
-  const targetScope = canonical(empty.scope);
-  const matches = [];
+  const snapshots = new Map();
+  const commentIds = new Set();
   for (const comment of comments) {
     if (comment?.user?.login !== "github-actions[bot]" || comment?.user?.type !== "Bot") continue;
-    if (typeof comment.body !== "string" || !comment.body.includes(PREFIX)) continue;
+    const body = comment?.body;
+    if (typeof body !== "string" || !body.includes(PREFIX)) continue;
     if (typeof comment.issue_url !== "string" || comment.issue_url.toLowerCase() !==
-      "https://api.github.com/repos/" + empty.repository + "/issues/548") fail("comment_provenance");
-    if (Buffer.byteLength(comment.body, "utf8") > LIMITS.body_bytes) fail("body_bound");
-    if (comment.body.split(PREFIX).length !== 2) fail("duplicate_marker");
-    // Parse every bot memory candidate before scope filtering: malformed or unknown
-    // scope/version must not be silently treated as absence and overwritten.
-    const match = comment.body.match(/^<!-- proffera-supervisor-failure-memory:v([12]):([a-f0-9]{64}) -->\n\x60\x60\x60json\n([^\n]+)\n\x60\x60\x60$/);
+      "https://api.github.com/repos/" + expectedRepository + "/issues/548") fail("comment_provenance");
+    if (Buffer.byteLength(body, "utf8") > LIMITS.body_bytes) fail("body_bound");
+    if (body.split(PREFIX).length !== 2) fail("duplicate_marker");
+    // Validate every bot-owned memory candidate before returning any scope.
+    const match = body.match(/^<!-- proffera-supervisor-failure-memory:v([12]):([a-f0-9]{64}) -->\n\x60\x60\x60json\n([^\n]+)\n\x60\x60\x60$/);
     if (!match) fail("malformed_body_or_version");
     let decoded;
     try { decoded = JSON.parse(match[3]); } catch { fail("malformed_json"); }
     const memory = validateMemory(decoded);
-    if (serializeMemory(memory) !== comment.body) fail("noncanonical_body");
-    if (memory.repository !== empty.repository) fail("repository_mismatch");
+    if (serializeValidatedMemory(memory) !== body) fail("noncanonical_body");
+    if (memory.repository !== expectedRepository) fail("repository_mismatch");
     const commentId = integer(comment.id);
-    if (canonical(memory.scope) === targetScope) matches.push({comment_id: commentId, memory});
+    const scopeKey = canonical(memory.scope);
+    if (snapshots.has(scopeKey)) fail("ambiguous_comments");
+    if (commentIds.has(commentId)) fail("duplicate_comment_id");
+    commentIds.add(commentId);
+    snapshots.set(scopeKey, {comment_id: commentId, memory});
   }
-  if (matches.length > 1) fail("ambiguous_comments");
-  return matches[0] ?? {comment_id: null, memory: empty};
+  return [...snapshots.values()].sort((a, b) => cmp(canonical(a.memory.scope), canonical(b.memory.scope)));
+}
+
+export function readTrustedMemory(comments, {repository: repo, scope: memoryScope, complete}) {
+  const empty = createMemory(repo, memoryScope);
+  const targetScope = canonical(empty.scope);
+  return readTrustedMemories(comments, {repository: empty.repository, complete})
+    .find((snapshot) => canonical(snapshot.memory.scope) === targetScope)
+    ?? {comment_id: null, memory: empty};
 }
 
 /** Pure replacement preparation. The caller must re-read under the existing mutex before writing. */

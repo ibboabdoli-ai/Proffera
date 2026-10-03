@@ -136,7 +136,31 @@ fi
   );
 
   const packetB64 = Buffer.from(
-    JSON.stringify({ task_id: "TASK-1" }),
+    JSON.stringify({
+      task_id: "TASK-1",
+      supervisor_issue: 548,
+      repository: "ibboabdoli-ai/Proffera",
+      task_title: "Large-state workflow fixture",
+      task_goal: "Exercise trusted Worker dispatch-start persistence.",
+      graph_path: "supervisor/worker/test-fixture",
+      base_sha: "a".repeat(40),
+      branch: "work/proffera-large-state-fixture",
+      allowed_paths: ["src/lib/test-fixture.ts"],
+      dependency_paths: [],
+      forbidden_paths: ["src/lib/auth.ts"],
+      required_checks: [
+        "validate",
+        "codeql",
+        "targeted-ci-shadow",
+        "production-base-health",
+        "ai-review",
+        "final-gate",
+      ],
+      risk_class: 2,
+      production_mutation_allowed: false,
+      merge_allowed: false,
+      auto_merge_allowed: false,
+    }),
     "utf8",
   ).toString("base64");
   const result = spawnSync("bash", ["-c", workflowStepScript(name)], {

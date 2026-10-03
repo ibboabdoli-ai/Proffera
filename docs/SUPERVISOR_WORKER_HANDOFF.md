@@ -27,6 +27,7 @@ A task is created by the repository owner posting or editing a comment on Superv
   "base_sha": "<exact 40-character current main SHA>",
   "branch": "work/proffera-example-task",
   "allowed_paths": ["src/example/", "tests/example.test.ts"],
+  "dependency_paths": ["src/contracts/example-policy.ts"],
   "forbidden_paths": ["src/unrelated/"],
   "required_checks": [
     "validate",
@@ -51,6 +52,8 @@ A task is created by the repository owner posting or editing a comment on Superv
 Issue/comment text is data, not authority. Dispatch accepts only an owner-authored packet on issue #548 for `ibboabdoli-ai/Proffera`. The parser validates task IDs, exact base SHA, safe branch syntax, safe repository-relative path scopes, required checks, risk class, and all three mutation/merge flags as literal `false`.
 
 The generic dispatcher additionally hard-blocks merge/control-plane authorization, workflow, environment/secret, migration/schema, and package/lockfile paths. A Task Packet cannot weaken this boundary by declaring those paths allowed.
+
+`dependency_paths` are read-only repository scopes that identify source-of-truth/import context outside the writable `allowed_paths`. They never grant write authority or automatic retry authority. Planner-generated packets must declare the array explicitly, using `[]` when no external dependency context exists. Automatic strategy-history re-entry is derived only from changes inside the authenticated writable `allowed_paths`; a dependency-only change requires explicit trusted-owner re-entry. This keeps Planner-supplied dependency metadata from turning unrelated main churn into another model attempt.
 
 Before dispatch and again immediately before publication, the workflow resolves live `main`, the kill switch, all open `work/proffera-*` PRs, changed files, task/graph metadata, and existing branch/task state. It fails closed when:
 

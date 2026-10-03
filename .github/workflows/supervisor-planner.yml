@@ -213,12 +213,12 @@ jobs:
             If no safe independent task should start, write:
             {"action":"wait","reason":"..."}
 
-            Otherwise choose exactly one smallest bounded task that can be implemented without Production/config/provider/payment/outreach/migration changes and without touching .github/, AGENTS.md, WORKER_BOOTSTRAP.md, scripts/supervisor-worker-handoff.mjs, package/lockfiles, env files, vercel.json, or migration/schema paths.
+            Otherwise choose exactly one smallest bounded task that can be implemented without Production/config/provider/payment/outreach/migration changes and without touching .github/, AGENTS.md, WORKER_BOOTSTRAP.md, scripts/supervisor-worker-handoff.mjs, scripts/supervisor-worker-strategy-memory.mjs, scripts/supervisor-failure-memory.mjs, package/lockfiles, env files, vercel.json, or migration/schema paths.
 
             Write:
             {"action":"dispatch","reason":"...","packet":{...}}
 
-            packet must use the live main_sha from supervisor-context.json as base_sha, a unique task_id and work/proffera-* branch, a narrow graph_path, explicit allowed_paths/forbidden_paths, required_checks exactly ["validate","codeql","targeted-ci-shadow","production-base-health","ai-review","final-gate"], risk_class 1..2 only, and production_mutation_allowed=false, merge_allowed=false, auto_merge_allowed=false. Class 3 or 4 work must return action "wait" because it requires explicit human authorization before implementation.
+            packet must use the live main_sha from supervisor-context.json as base_sha, a unique task_id and work/proffera-* branch, a narrow graph_path, explicit allowed_paths/dependency_paths/forbidden_paths, required_checks exactly ["validate","codeql","targeted-ci-shadow","production-base-health","ai-review","final-gate"], risk_class 1..2 only, and production_mutation_allowed=false, merge_allowed=false, auto_merge_allowed=false. dependency_paths are read-only repository scopes for source-of-truth/import context outside allowed_paths; use [] when none. They do not authorize automatic retry/re-entry: dependency-only changes require explicit trusted-owner re-entry. Class 3 or 4 work must return action "wait" because it requires explicit human authorization before implementation.
 
       - name: Validate planner output against live state
         if: steps.cheap.outputs.proceed == 'yes'
@@ -244,6 +244,10 @@ jobs:
           trusted_helper="$RUNNER_TEMP/trusted-supervisor-worker-handoff.mjs"
           test -s "$trusted_helper"
           packet="$(jq -c '.packet' supervisor-next-task.json)"
+          jq -e '.dependency_paths | type == "array"' <<< "$packet" >/dev/null || {
+            echo "Planner packet must declare dependency_paths as an array (use [] when none)." >&2
+            exit 1
+          }
           live_main="$(gh api "repos/${REPOSITORY}/git/ref/heads/main" --jq '.object.sha')"
           test "$(jq -r '.base_sha' <<< "$packet")" = "$live_main"
           comment_body="$(printf '<!-- proffera-worker-task-packet:v1 -->\n```json\n%s\n```\n' "$(jq '.' <<< "$packet")")"

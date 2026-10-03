@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 // @ts-expect-error Standalone pure Node .mjs follows the existing control-plane test convention.
-import { createMemory, memoryIdentity, memoryMarker, mergeObservation, mergeObservations, serializeMemory, readTrustedMemory, fingerprintEvidence, fingerprintStrategy, normalizeEvidence, FAILURE_CATEGORIES, LIMITS, upgradeMemory, prepareRetryIntent, releasePreparedRetryIntent, transitionRetryIntent, decideRetryRecovery, RETRY_INTEGRATION } from "../scripts/supervisor-failure-memory.mjs";
+import { createMemory, memoryIdentity, memoryMarker, mergeObservation, mergeObservations, serializeMemory, readTrustedMemories, readTrustedMemory, fingerprintEvidence, fingerprintStrategy, normalizeEvidence, FAILURE_CATEGORIES, LIMITS, upgradeMemory, prepareRetryIntent, releasePreparedRetryIntent, transitionRetryIntent, decideRetryRecovery, RETRY_INTEGRATION } from "../scripts/supervisor-failure-memory.mjs";
 
 const repo = "ibboabdoli-ai/Proffera";
 const head = "e280c5a21505b082fec2c519a3f2e675de97770c";
@@ -27,6 +27,7 @@ const add = (current: ReturnType<typeof empty>, value: unknown = observation()) 
 const bot = (body: string, id = 123) => ({id, body, user: {login: "github-actions[bot]", type: "Bot"},
   issue_url: "https://api.github.com/repos/ibboabdoli-ai/Proffera/issues/548"});
 const read = (comments: unknown[], options = {}) => readTrustedMemory(comments, {repository: repo, scope, complete: true, ...options});
+const readAll = (comments: unknown[], options = {}) => readTrustedMemories(comments, {repository: repo, complete: true, ...options});
 const fill = (n: number, distinct = false) => Array.from({length: n}, (_, i) => observation(i + 1,
   distinct ? {action_id: "action_" + i} : {}));
 
@@ -232,6 +233,55 @@ describe("trusted persisted-state boundary", () => {
     const next = add(current, observation(1, {pr_number: null}));
     expect(next.memory.records[0]).toMatchObject({task_id: null, pr_number: null, observed_head: head});
     expect(() => add(current, observation(1, {pr_number: null, head: "a".repeat(40)}))).toThrow("head_scope_mismatch");
+  });
+
+  it("indexes mixed canonical scopes once and preserves absent-target semantics", () => {
+    const taskMemory = createMemory(repo, {kind: "task", task_id: "SUP-A2-OTHER"});
+    const headMemory = createMemory(repo, {kind: "head", head});
+    const pullMemory = createMemory(repo, scope);
+    const snapshots = readAll([
+      bot(serializeMemory(taskMemory), 121),
+      bot(serializeMemory(headMemory), 122),
+      bot(serializeMemory(pullMemory), 123),
+    ]);
+    expect(snapshots.map((snapshot: {comment_id: number}) => snapshot.comment_id)).toEqual([122, 123, 121]);
+    const absentScope = {kind: "task", task_id: "SUP-A2-ABSENT"};
+    expect(read([
+      bot(serializeMemory(taskMemory), 121),
+      bot(serializeMemory(headMemory), 122),
+    ], {scope: absentScope})).toEqual({comment_id: null, memory: createMemory(repo, absentScope)});
+  });
+
+  it("rejects duplicate IDs across different scopes and malformed other-scope memory", () => {
+    const taskMemory = createMemory(repo, {kind: "task", task_id: "SUP-A2-OTHER"});
+    const headMemory = createMemory(repo, {kind: "head", head});
+    expect(() => readAll([
+      bot(serializeMemory(taskMemory), 777),
+      bot(serializeMemory(headMemory), 777),
+    ])).toThrow("duplicate_comment_id");
+    const malformedOther = bot(serializeMemory(taskMemory).replace('"revision":0', '"revision":0,"unexpected":true'), 778);
+    expect(() => read([malformedOther])).toThrow();
+  });
+
+  it("accepts canonical mixed v1/v2 scopes and does not reuse stale invocation state", () => {
+    const taskScope = {kind: "task", task_id: "SUP-A2-V2"};
+    const taskV1 = {comment_id: 901, memory: createMemory(repo, taskScope)};
+    const taskV2 = upgradeMemory(taskV1, memoryIdentity(taskV1)).memory;
+    const first = readAll([
+      bot(serializeMemory(empty().memory), 900),
+      bot(serializeMemory(taskV2), 901),
+    ]);
+    expect(first).toHaveLength(2);
+    expect(first.find((snapshot: {comment_id: number}) => snapshot.comment_id === 901)?.memory.schema_version).toBe(2);
+
+    const changed = add(empty());
+    const second = readAll([
+      bot(serializeMemory(changed.memory), 900),
+      bot(serializeMemory(taskV2), 901),
+    ]);
+    expect(second.find((snapshot: {comment_id: number}) => snapshot.comment_id === 900)?.memory.revision).toBe(1);
+    expect(memoryIdentity(second.find((snapshot: {comment_id: number}) => snapshot.comment_id === 900)))
+      .not.toEqual(memoryIdentity(first.find((snapshot: {comment_id: number}) => snapshot.comment_id === 900)));
   });
 
   it("binds known task scope to canonical task identity", () => {

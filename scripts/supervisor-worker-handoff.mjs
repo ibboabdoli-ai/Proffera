@@ -31,6 +31,8 @@ export const HARD_BLOCKED_SCOPES = Object.freeze([
   "AGENTS.md",
   "WORKER_BOOTSTRAP.md",
   "scripts/supervisor-worker-handoff.mjs",
+  "scripts/supervisor-worker-strategy-memory.mjs",
+  "scripts/supervisor-failure-memory.mjs",
   ".env",
   ".env.",
   "vercel.json",
@@ -323,6 +325,7 @@ export function normalizeTaskPacket(raw) {
     "base_sha",
     "branch",
     "allowed_paths",
+    "dependency_paths",
     "forbidden_paths",
     "required_checks",
     "risk_class",
@@ -344,6 +347,9 @@ export function normalizeTaskPacket(raw) {
   if (!BRANCH_RE.test(branch)) throw new Error("branch must match work/proffera-* using safe lowercase characters");
 
   const allowedPaths = normalizeScopeArray(raw.allowed_paths, "allowed_paths");
+  const dependencyPaths = raw.dependency_paths === undefined
+    ? null
+    : normalizeScopeArray(raw.dependency_paths, "dependency_paths", { nonEmpty: false });
   const forbiddenPaths = normalizeScopeArray(raw.forbidden_paths, "forbidden_paths");
 
   for (const allowed of allowedPaths) {
@@ -371,6 +377,7 @@ export function normalizeTaskPacket(raw) {
     base_sha: baseSha,
     branch,
     allowed_paths: allowedPaths,
+    ...(dependencyPaths === null ? {} : { dependency_paths: dependencyPaths }),
     forbidden_paths: forbiddenPaths,
     required_checks: normalizeChecks(raw.required_checks),
     risk_class: riskClass,
@@ -1888,23 +1895,27 @@ function retryGitHubRead(read) {
   throw lastError;
 }
 
-function githubIssueComments(repository) {
+function githubAllIssueComments(repository) {
   const evidence = [];
   for (let page = 1; page <= GITHUB_COMMENT_PAGE_LIMIT; page += 1) {
     const comments = retryGitHubRead(() => githubApiJson([
       `repos/${repository}/issues/548/comments?per_page=100&page=${page}`,
     ]));
     if (!Array.isArray(comments)) throw new Error("GitHub issue comments response is malformed");
-    for (const comment of comments) {
-      const body = String(comment?.body ?? "");
-      if (body.includes("<!-- proffera-worker-slot-reservation:")
-        || body.includes("<!-- proffera-worker-dispatch-start:")
-        || body.includes(TASK_STATE_MARKER_PREFIX)
-        || body.includes(TASK_PACKET_MARKER)) evidence.push(comment);
-    }
+    evidence.push(...comments);
     if (comments.length < 100) return evidence;
   }
   throw new Error("GitHub issue comment evidence exceeds the bounded page limit");
+}
+
+function githubIssueComments(repository) {
+  return githubAllIssueComments(repository).filter((comment) => {
+    const body = String(comment?.body ?? "");
+    return body.includes("<!-- proffera-worker-slot-reservation:")
+      || body.includes("<!-- proffera-worker-dispatch-start:")
+      || body.includes(TASK_STATE_MARKER_PREFIX)
+      || body.includes(TASK_PACKET_MARKER);
+  });
 }
 
 const RESERVATION_MUTEX = "proffera-worker-slot-reservation-mutex-v1";
@@ -2904,6 +2915,319 @@ function patchControlRecord(input, id, body) {
   execFileSync("gh", ["api", "--method", "PATCH", `repos/${input.repository}/issues/comments/${id}`, "-f", `body=${body}`], { stdio: "pipe" });
 }
 
+const WORKER_STRATEGY_START_PREFIX = "<!-- proffera-worker-strategy-start:v1:";
+
+export function parseWorkerStrategyDispatchStarts(comments) {
+  if (!Array.isArray(comments)) throw new Error("Worker strategy dispatch-start evidence is malformed");
+  const starts = [];
+  for (const comment of comments) {
+    if (comment?.user?.login !== "github-actions[bot]" || comment?.user?.type !== "Bot") continue;
+    const body = String(comment.body ?? "");
+    if (!body.includes(WORKER_STRATEGY_START_PREFIX)) continue;
+    const matches = [...body.matchAll(/<!-- proffera-worker-strategy-start:v1:([A-Z][A-Z0-9-]{1,63}):([1-9][0-9]*) -->/gu)];
+    if (matches.length !== 1) throw new Error("Worker strategy dispatch-start marker is missing or ambiguous");
+    const taskId = matches[0][1];
+    const runId = matches[0][2];
+    const strategyMarker = matches[0][0];
+    const dispatchMarker = `<!-- proffera-worker-dispatch-start:${taskId}:${runId} -->`;
+    const field = (regex, name) => exactStateBodyField(body, regex, name);
+    if (countOccurrences(body, strategyMarker) !== 1 || countOccurrences(body, dispatchMarker) !== 1
+      || field(/^- Task ID: `([A-Z][A-Z0-9-]{1,63})`$/gmu, "strategy task ID") !== taskId
+      || field(/^- GitHub Run ID: `([1-9][0-9]*)`$/gmu, "strategy run ID") !== runId
+      || field(/^- State: `([A-Z_]+)`$/gmu, "strategy state") !== "DISPATCH_STARTED") {
+      throw new Error("Worker strategy dispatch-start evidence does not match its trusted marker");
+    }
+    const numericRunId = Number(runId);
+    const runAttempt = Number(field(/^- Run Attempt: `([1-9][0-9]*)`$/gmu, "strategy run attempt"));
+    const baselineHead = field(/^- Baseline SHA: `([a-f0-9]{40})`$/gmu, "strategy baseline SHA");
+    const dependencyMatches = [...body.matchAll(/^- Dependency paths: `(\[[^`\r\n]*\])`$/gmu)];
+    if (dependencyMatches.length > 1) throw new Error("Worker strategy dependency-path evidence is ambiguous");
+    let dependencyPaths = [];
+    if (dependencyMatches.length === 1) {
+      let decoded;
+      try {
+        decoded = JSON.parse(dependencyMatches[0][1]);
+      } catch {
+        throw new Error("Worker strategy dependency-path evidence is malformed");
+      }
+      dependencyPaths = normalizeScopeArray(decoded, "strategy dependency paths", { nonEmpty: false }).sort();
+      if (JSON.stringify(dependencyPaths) !== dependencyMatches[0][1]) {
+        throw new Error("Worker strategy dependency-path evidence is not canonical");
+      }
+    }
+    const evidenceFingerprint = field(/^- Evidence fingerprint: `([a-f0-9]{64})`$/gmu, "strategy evidence fingerprint");
+    const strategyFingerprint = field(/^- Strategy fingerprint: `([a-f0-9]{64})`$/gmu, "strategy fingerprint");
+    if (!Number.isSafeInteger(numericRunId) || numericRunId <= 0
+      || !Number.isSafeInteger(runAttempt) || runAttempt <= 0) {
+      throw new Error("Worker strategy dispatch-start run identity is malformed");
+    }
+    starts.push({
+      task_id: taskId,
+      run_id: numericRunId,
+      run_attempt: runAttempt,
+      head: baselineHead,
+      dependency_paths: dependencyPaths,
+      evidence_fingerprint: evidenceFingerprint,
+      strategy_fingerprint: strategyFingerprint,
+    });
+  }
+  return starts;
+}
+
+export async function workerFailureMemorySnapshots(repository, packet, comments) {
+  const failure = await import("./supervisor-failure-memory.mjs");
+  const currentScope = { kind: "task", task_id: packet.task_id };
+  const currentKey = JSON.stringify(currentScope);
+  // Canonical Failure Memory validates and indexes the complete authenticated
+  // comment snapshot once. No scope-specific reread may bypass cross-scope errors.
+  const indexed = failure.readTrustedMemories(comments, {
+    repository,
+    complete: true,
+  });
+  const current = indexed.find((snapshot) => JSON.stringify(snapshot.memory.scope) === currentKey)
+    ?? { comment_id: null, memory: failure.createMemory(repository, currentScope) };
+  const snapshots = [
+    current,
+    ...indexed.filter((snapshot) => JSON.stringify(snapshot.memory.scope) !== currentKey),
+  ];
+  return { failure, current, snapshots };
+}
+
+export function workerSuccessfulMergeHeads(repository, packet, records, starts, strategy, readPr = undefined) {
+  if (repository !== EXPECTED_REPOSITORY) throw new Error("Worker strategy repository is not trusted");
+  const descriptor = strategy.workerStrategyDescriptor(packet);
+  const matchingStarts = new Set(starts
+    .filter((start) => start.evidence_fingerprint === descriptor.evidence_fingerprint
+      && start.strategy_fingerprint === descriptor.strategy_fingerprint)
+    .map((start) => `${start.run_id}:${start.run_attempt}`));
+  const prByAttempt = new Map();
+  for (const record of records) {
+    if (record?.action_id !== "worker_codex_attempt"
+      || record?.outcome !== "succeeded"
+      || record?.evidence_fingerprint !== descriptor.evidence_fingerprint
+      || record?.strategy_fingerprint !== descriptor.strategy_fingerprint
+      || record?.pr_number === null
+      || record?.pr_number === undefined
+      || !Array.isArray(record.observations)) continue;
+    const prNumber = Number(record.pr_number);
+    if (!Number.isSafeInteger(prNumber) || prNumber <= 0) {
+      throw new Error("Worker strategy successful publication PR is malformed");
+    }
+    for (const observation of record.observations) {
+      const source = observation?.source;
+      if (source?.kind !== "actions") continue;
+      const key = `${Number(source.run_id)}:${Number(source.attempt)}`;
+      if (!matchingStarts.has(key)) continue;
+      const previous = prByAttempt.get(key);
+      if (previous !== undefined && previous !== prNumber) {
+        throw new Error("Worker strategy successful publication PR conflicts for one run attempt");
+      }
+      prByAttempt.set(key, prNumber);
+    }
+  }
+
+  const loadPr = readPr ?? ((number) => retryGitHubRead(() =>
+    githubApiJson([`repos/${repository}/pulls/${number}`])));
+  const cache = new Map();
+  const mergedHeads = new Map();
+  for (const [key, prNumber] of prByAttempt) {
+    let pr = cache.get(prNumber);
+    if (!pr) {
+      pr = loadPr(prNumber);
+      cache.set(prNumber, pr);
+    }
+    if (Number(pr?.number) !== prNumber
+      || pr?.head?.repo?.full_name !== repository
+      || pr?.base?.repo?.full_name !== repository
+      || pr?.base?.ref !== "main"
+      || pr?.user?.login !== repository.split("/")[0]) {
+      throw new Error("Worker strategy successful publication PR provenance is invalid");
+    }
+    if (pr.merged !== true) continue;
+    const mergeHead = String(pr.merge_commit_sha ?? "");
+    if (!SHA_RE.test(mergeHead)) {
+      throw new Error("Worker strategy successful publication merge head is malformed");
+    }
+    mergedHeads.set(key, mergeHead);
+  }
+  return mergedHeads;
+}
+
+export function materialWorkerBaselineHeads(packet, records, starts, strategy, gitCwd = undefined, successMergeHeads = new Map()) {
+  const descriptor = strategy.workerStrategyDescriptor(packet);
+  const startsByAttempt = new Map();
+  const durableByAttempt = new Map();
+
+  for (const start of starts) {
+    if (start.evidence_fingerprint !== descriptor.evidence_fingerprint
+      || start.strategy_fingerprint !== descriptor.strategy_fingerprint) continue;
+    const key = `${start.run_id}:${start.run_attempt}`;
+    const previous = startsByAttempt.get(key);
+    if (previous && (previous.head !== start.head
+      || JSON.stringify(previous.dependency_paths) !== JSON.stringify(start.dependency_paths))) {
+      throw new Error("Worker strategy dispatch-start evidence conflicts for one run attempt");
+    }
+    startsByAttempt.set(key, start);
+  }
+
+  for (const record of records) {
+    if (record?.action_id !== "worker_codex_attempt"
+      || record?.evidence_fingerprint !== descriptor.evidence_fingerprint
+      || record?.strategy_fingerprint !== descriptor.strategy_fingerprint
+      || !Array.isArray(record.observations)) continue;
+    for (const observation of record.observations) {
+      const source = observation?.source;
+      if (source?.kind !== "actions") continue;
+      const key = `${Number(source.run_id)}:${Number(source.attempt)}`;
+      if (!startsByAttempt.has(key)) continue;
+      const observed = String(observation?.head ?? "");
+      if (!SHA_RE.test(observed)) throw new Error("Worker strategy durable observation head is malformed");
+      const durable = durableByAttempt.get(key) ?? {
+        outcome: record.outcome,
+        pr_number: record.pr_number ?? null,
+        heads: new Set(),
+      };
+      if (durable.outcome !== record.outcome || durable.pr_number !== (record.pr_number ?? null)) {
+        throw new Error("Worker strategy durable outcome provenance conflicts for one run attempt");
+      }
+      durable.heads.add(observed);
+      durableByAttempt.set(key, durable);
+    }
+  }
+
+  const comparisons = [];
+  for (const [key, start] of startsByAttempt) {
+    const durable = durableByAttempt.get(key);
+    if (!durable) {
+      if (start.head !== packet.base_sha) {
+        comparisons.push({ marker: start.head, previous: start.head, dependency_paths: start.dependency_paths });
+      }
+      continue;
+    }
+    if (durable.heads.size !== 1) {
+      throw new Error("Worker strategy durable head conflicts for one run attempt");
+    }
+    const observed = [...durable.heads][0];
+    if (durable.outcome === "succeeded") {
+      // Successful attempts re-enter automatically only after their exact
+      // Worker PR is proven merged. Open, closed-unmerged, recoverable-only,
+      // and legacy successes remain blocking but explicit owner re-entry stays live.
+      const mergedHead = successMergeHeads.get(key);
+      if (!mergedHead) continue;
+      if (!SHA_RE.test(mergedHead)) throw new Error("Worker strategy successful merge head is malformed");
+      if (mergedHead !== packet.base_sha) {
+        comparisons.push({ marker: observed, previous: mergedHead, dependency_paths: start.dependency_paths });
+      }
+      continue;
+    }
+    if (observed !== start.head) {
+      throw new Error("Worker strategy non-success outcome is not bound to its dispatch baseline");
+    }
+    if (start.head !== packet.base_sha) {
+      comparisons.push({ marker: observed, previous: start.head, dependency_paths: start.dependency_paths });
+    }
+  }
+
+  const materiallyChanged = [];
+  const seenMarkers = new Set();
+  for (const comparison of comparisons) {
+    try {
+      execFileSync("git", ["merge-base", "--is-ancestor", comparison.previous, packet.base_sha], {
+        stdio: "pipe", ...(gitCwd ? {cwd: gitCwd} : {}),
+      });
+      const changed = execFileSync("git", ["diff", "--name-only", "--no-renames", comparison.previous, packet.base_sha, "--"], {
+        encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], ...(gitCwd ? {cwd: gitCwd} : {}),
+      }).split("\n").map((value) => value.trim()).filter(Boolean);
+      if (changed.length > 5000) throw new Error("worker strategy baseline diff exceeds bounded file count");
+      if (strategy.workerMaterialScopeChanged(packet, changed, comparison.dependency_paths)
+        && !seenMarkers.has(comparison.marker)) {
+        seenMarkers.add(comparison.marker);
+        materiallyChanged.push(comparison.marker);
+      }
+    } catch (error) {
+      throw new Error(`Worker strategy baseline comparison unavailable for ${comparison.previous}: ${error instanceof Error ? error.message : "unknown error"}`);
+    }
+  }
+  return materiallyChanged;
+}
+
+export async function evaluateWorkerStrategyHistory(input) {
+  assertReservationMutex(input);
+  const packet = normalizeTaskPacket(input.packet);
+  const comments = githubAllIssueComments(input.repository);
+  const { snapshots } = await workerFailureMemorySnapshots(input.repository, packet, comments);
+  const strategy = await import("./supervisor-worker-strategy-memory.mjs");
+  const records = snapshots.flatMap((snapshot) => snapshot.memory.records);
+  const starts = parseWorkerStrategyDispatchStarts(comments);
+  const successMergeHeads = workerSuccessfulMergeHeads(input.repository, packet, records, starts, strategy);
+  const result = strategy.decideWorkerStrategyHistory({
+    packet,
+    source: input.source,
+    records,
+    dispatch_starts: starts,
+    materially_changed_heads: materialWorkerBaselineHeads(packet, records, starts, strategy, undefined, successMergeHeads),
+  });
+  // A slow history read never outlives ownership of the shared writer mutex.
+  assertReservationMutex(input);
+  return result;
+}
+
+export async function recordWorkerStrategyOutcome(input) {
+  assertReservationMutex(input);
+  const packet = normalizeTaskPacket(input.packet);
+  const outcome = String(input.outcome ?? "");
+  const strategy = await import("./supervisor-worker-strategy-memory.mjs");
+  const comments = githubAllIssueComments(input.repository);
+  const { failure, current } = await workerFailureMemorySnapshots(input.repository, packet, comments);
+  const expected = failure.memoryIdentity(current);
+  const observation = strategy.workerStrategyObservation({
+    packet,
+    repository: input.repository,
+    outcome,
+    run_id: input.run_id,
+    run_attempt: input.run_attempt,
+    observed_at: input.observed_at,
+    pr_number: input.pr_number ?? null,
+  });
+  const descriptor = strategy.workerStrategyDescriptor(packet);
+  const replacement = failure.mergeObservation(current, expected, observation);
+  const unchanged = JSON.stringify(failure.memoryIdentity(replacement)) === JSON.stringify(expected);
+  let expectedSnapshot = replacement;
+
+  if (!unchanged) {
+    assertReservationMutex(input);
+    const body = failure.serializeMemory(replacement.memory);
+    if (replacement.comment_id === null) {
+      const created = githubApiJson([
+        "--method", "POST", `repos/${input.repository}/issues/548/comments`, "-f", `body=${body}`,
+      ]);
+      if (!Number.isSafeInteger(created?.id) || created.id <= 0) {
+        throw new Error("Worker strategy outcome persistence returned no canonical comment ID");
+      }
+      expectedSnapshot = { comment_id: created.id, memory: replacement.memory };
+    } else {
+      patchControlRecord(input, replacement.comment_id, body);
+    }
+  }
+
+  assertReservationMutex(input);
+  const confirmedComments = githubAllIssueComments(input.repository);
+  const confirmed = failure.readTrustedMemory(confirmedComments, {
+    repository: input.repository,
+    scope: { kind: "task", task_id: packet.task_id },
+    complete: true,
+  });
+  if (JSON.stringify(failure.memoryIdentity(confirmed))
+    !== JSON.stringify(failure.memoryIdentity(expectedSnapshot))) {
+    throw new Error("Worker strategy outcome did not converge to exact durable Failure Memory");
+  }
+  return {
+    decision: unchanged ? "ALREADY_RECORDED" : "RECORDED",
+    evidence_fingerprint: descriptor.evidence_fingerprint,
+    strategy_fingerprint: descriptor.strategy_fingerprint,
+  };
+}
+
 export function reconcileUnboundTasks(input) {
   assertReservationMutex(input);
   let comments = githubIssueComments(input.repository);
@@ -3472,6 +3796,20 @@ async function main() {
     } else {
       assertReservationMutex(parsed);
     }
+    return;
+  }
+  if (mode === "worker-strategy-descriptor") {
+    const packet = normalizeTaskPacket(parsed.packet ?? parsed);
+    const strategy = await import("./supervisor-worker-strategy-memory.mjs");
+    process.stdout.write(`${JSON.stringify(strategy.workerStrategyDescriptor(packet))}\n`);
+    return;
+  }
+  if (mode === "worker-strategy-admit") {
+    process.stdout.write(`${JSON.stringify(await evaluateWorkerStrategyHistory(parsed))}\n`);
+    return;
+  }
+  if (mode === "worker-strategy-record") {
+    process.stdout.write(`${JSON.stringify(await recordWorkerStrategyOutcome(parsed))}\n`);
     return;
   }
   if (mode === "reconcile-unbound-tasks") {
