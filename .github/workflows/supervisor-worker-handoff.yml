@@ -1205,6 +1205,31 @@ jobs:
           test "$current_sha256" = "$EXPECTED_PATCH_SHA256"
           git diff --check HEAD
 
+      - name: Validate Worker candidate packet scope before strategy success
+        id: validate_scope
+        if: steps.capture_candidate.outputs.ready == 'yes' && steps.validate_candidate.outcome == 'success' && steps.confirm_candidate.outcome == 'success'
+        env:
+          PACKET_B64: ${{ needs.preflight.outputs.packet_b64 }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          trusted_helper="$RUNNER_TEMP/proffera-worker-scope-helper.mjs"
+          git show HEAD:scripts/supervisor-worker-handoff.mjs > "$trusted_helper"
+          test "$(git hash-object "$trusted_helper")" = "$(git rev-parse "HEAD:scripts/supervisor-worker-handoff.mjs")"
+          chmod 0444 "$trusted_helper"
+          node --check "$trusted_helper"
+          packet="$(printf '%s' "$PACKET_B64" | base64 --decode)"
+          jq -e . <<< "$packet" >/dev/null
+          git add --all --intent-to-add
+          changed_files="$(git diff --name-only --no-renames HEAD)"
+          changed_json="$(printf '%s\n' "$changed_files" | jq -R -s 'split("\n") | map(select(length > 0))')"
+          validation="$(jq -n --argjson packet "$packet" --argjson changed_files "$changed_json" '{packet:$packet,changed_files:$changed_files}' | node "$trusted_helper" validate-changes)"
+          if [ "$(jq -r '.ok' <<< "$validation")" != "true" ]; then
+            jq -r '.reason' <<< "$validation" >&2
+            exit 1
+          fi
+          git diff --check HEAD
+
       - name: Classify bounded Worker strategy outcome
         id: classify_attempt
         if: always() && steps.attempt_start.outputs.started == 'yes'
@@ -1215,6 +1240,7 @@ jobs:
           CAPTURE_STATUS: ${{ steps.capture_candidate.outputs.status }}
           VALIDATE_OUTCOME: ${{ steps.validate_candidate.outcome }}
           CONFIRM_OUTCOME: ${{ steps.confirm_candidate.outcome }}
+          SCOPE_OUTCOME: ${{ steps.validate_scope.outcome }}
         run: |
           set -euo pipefail
           outcome=failed
@@ -1224,7 +1250,8 @@ jobs:
             && [ "$CAPTURE_OUTCOME" = "success" ] \
             && [ "$CAPTURE_STATUS" = "ready" ] \
             && [ "$VALIDATE_OUTCOME" = "success" ] \
-            && [ "$CONFIRM_OUTCOME" = "success" ]; then
+            && [ "$CONFIRM_OUTCOME" = "success" ] \
+            && [ "$SCOPE_OUTCOME" = "success" ]; then
             outcome=succeeded
           fi
           echo "outcome=$outcome" >> "$GITHUB_OUTPUT"

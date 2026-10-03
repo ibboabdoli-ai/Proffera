@@ -172,6 +172,18 @@ describe("Worker workflow B4.1 wiring", () => {
     expect(workflow).toContain("worker-strategy-descriptor");
   });
 
+  it("validates packet scope before a Worker attempt can be classified as succeeded", () => {
+    const scope = workflow.indexOf("Validate Worker candidate packet scope before strategy success");
+    const classify = workflow.indexOf("Classify bounded Worker strategy outcome");
+    const refuse = workflow.indexOf("Refuse a started Worker attempt without a validated candidate");
+    expect(scope).toBeGreaterThan(workflow.indexOf("Confirm validated Worker tree matches uploaded candidate"));
+    expect(scope).toBeLessThan(classify);
+    expect(workflow.slice(scope, classify)).toContain("validate-changes");
+    expect(workflow.slice(scope, classify)).toContain("git show HEAD:scripts/supervisor-worker-handoff.mjs");
+    expect(workflow.slice(classify, refuse)).toContain("SCOPE_OUTCOME");
+    expect(workflow.slice(classify, refuse)).toContain('[ "$SCOPE_OUTCOME" = "success" ]');
+  });
+
   it("marks the model boundary and persists history from the isolated issue-write job", () => {
     expect(workflow.indexOf("Mark Worker strategy attempt start")).toBeLessThan(workflow.indexOf("Run one bounded implementation Worker"));
     expect(workflow.indexOf("Persist Worker strategy outcome before publication decision"))
