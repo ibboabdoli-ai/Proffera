@@ -15,19 +15,22 @@ describe("Doni demo 2", () => {
     expect(page).toContain("/demo/donis-trattoria2");
   });
 
-  it("uses a distinct dark luxury visual system without inventing menu prices", () => {
+  it("uses a distinct premium dark visual system and data-grounded pricing", () => {
     const source = readFileSync(
       "src/app/demo/donis-trattoria2/demo-interactions.tsx",
       "utf8",
     );
 
-    expect(source).toContain('bg-[#090909]');
-    expect(source).toContain('text-[#d4a35f]');
-    expect(source).toContain("formatPrice(dish.priceOre)");
-    expect(source).toContain("dish.priceOre !== null");
+    expect(source).toContain('bg-[#080a08]');
+    expect(source).toContain('text-[#d6aa58]');
+    expect(source).toContain("KNOWN_DEMO_PRICES_ORE");
+    expect(source).toContain("dish.priceOre ??");
     expect(source).toContain("DONIS_FALLBACK_SITE");
     expect(source).toContain("DONIS_FALLBACK_IMAGES");
     expect(source).toContain("IntersectionObserver");
+    expect(source).toContain("document.documentElement.lang = lang");
+    expect(source).toContain("currentOrderUrl");
+    expect(source).toContain("mapEmbedUrl");
   });
 
   it("keeps the existing Doni demo untouched as a separate customer choice", () => {
@@ -43,6 +46,6 @@ describe("Doni demo 2", () => {
     expect(firstDemo).toContain("./demo-interactions");
     expect(secondDemo).toContain("./demo-interactions");
     expect(firstDemo).toContain("Doni’s Trattoria | Stockholm");
-    expect(secondDemo).toContain("Doni’s Trattoria | Dark concept");
+    expect(secondDemo).toContain("Doni’s Trattoria | Premium concept");
   });
 });
