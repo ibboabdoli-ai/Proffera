@@ -1017,6 +1017,27 @@ jobs:
             exit 1
           fi
 
+          strategy_input="$(jq -n \
+            --argjson control "$control_input" \
+            --argjson packet "$packet" \
+            --arg mode "$SOURCE_MODE" \
+            --arg actor "$EVENT_ACTOR" \
+            '$control + {packet:$packet,source:{mode:$mode,actor:$actor}}')"
+          strategy_result="$(printf '%s' "$strategy_input" | node "$helper" worker-strategy-admit)"
+          strategy_decision="$(jq -r '.decision // ""' <<< "$strategy_result")"
+          case "$strategy_decision" in
+            ALLOW|ALLOW_HUMAN_REENTRY|ALLOW_MATERIAL_REENTRY)
+              ;;
+            SUPPRESS_REPEAT|SUPPRESS_UNRESOLVED_ATTEMPT)
+              jq -r '.reason' <<< "$strategy_result" >&2
+              exit 1
+              ;;
+            *)
+              echo "Worker strategy-history recheck returned an unknown decision; reservation refused fail-closed." >&2
+              exit 1
+              ;;
+          esac
+
           acquire_input="$(jq -c --argjson packet "$packet" --arg head_sha "$head_sha" --argjson planner_evidence "$planner_evidence" '. + {packet:$packet,head_sha:$head_sha,planner_evidence:$planner_evidence}' <<< "$control_input")"
           reservation_result="$(printf '%s' "$acquire_input" | node "$helper" reservation-acquire)"
           if [ "$(jq -r '.ok == true' <<< "$reservation_result")" != "true" ]; then
@@ -1317,8 +1338,8 @@ jobs:
           sha256sum --check --status "$trusted_manifest"
           node --check "$trusted_helper"
 
-      - name: Persist Worker strategy outcome before publication decision
-        if: always() && needs.dispatch.outputs.attempt_started == 'yes'
+      - name: Persist non-success Worker strategy outcome before publication decision
+        if: always() && needs.dispatch.outputs.attempt_started == 'yes' && (needs.dispatch.result != 'success' || needs.dispatch.outputs.attempt_outcome != 'succeeded')
         env:
           GH_TOKEN: ${{ github.token }}
           REPOSITORY: ${{ github.repository }}
@@ -1342,7 +1363,7 @@ jobs:
             outcome=cancelled
           fi
           case "$outcome" in
-            failed|no_change|cancelled|succeeded) ;;
+            failed|no_change|cancelled) ;;
             *) outcome=failed ;;
           esac
           packet="$(printf '%s' "$PACKET_B64" | base64 --decode)"
@@ -1822,6 +1843,74 @@ jobs:
           EOF
           )"
           gh api --method PATCH "repos/${REPOSITORY}/issues/comments/${RESERVATION_COMMENT_ID}" -f body="$new_body" >/dev/null
+
+      - name: Persist successful Worker strategy outcome after recoverable publication
+        if: needs.dispatch.outputs.attempt_started == 'yes' && needs.dispatch.outputs.attempt_outcome == 'succeeded' && (steps.publish.outputs.pr_number != '' || steps.publish.outputs.recovery_artifact == 'yes')
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          RESERVATION_COMMENT_ID: ${{ needs.preflight.outputs.reservation_comment_id }}
+          PACKET_B64: ${{ needs.preflight.outputs.packet_b64 }}
+          RUN_ID: ${{ github.run_id }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+          PR_NUMBER: ${{ steps.publish.outputs.pr_number }}
+          HEAD_SHA: ${{ steps.publish.outputs.head_sha }}
+          RECOVERY_ARTIFACT: ${{ steps.publish.outputs.recovery_artifact }}
+          RECOVERY_DIGEST: ${{ steps.publish.outputs.recovery_digest }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          helper="$RUNNER_TEMP/proffera-trusted-publish/supervisor-worker-handoff.mjs"
+          manifest="$RUNNER_TEMP/proffera-trusted-publish/supervisor-worker-handoff.sha256"
+          test -f "$helper" -a -f "$manifest"
+          sha256sum --check --status "$manifest"
+          packet="$(printf '%s' "$PACKET_B64" | base64 --decode)"
+          task_id="$(jq -r '.task_id' <<< "$packet")"
+          control_input="$(jq -cn --arg repository "$REPOSITORY" --arg run_id "$RUN_ID" '{repository:$repository,run_id:$run_id}')"
+          mutex="$(printf '%s' "$control_input" | node "$helper" reservation-mutex-acquire)"
+          control_input="$(jq -c --arg mutex "$mutex" '. + {mutex:$mutex}' <<< "$control_input")"
+          release_mutex() {
+            printf '%s' "$control_input" | node "$helper" reservation-mutex-release
+          }
+          trap 'release_mutex || true' EXIT
+
+          comment="$(gh api "repos/${REPOSITORY}/issues/comments/${RESERVATION_COMMENT_ID}")"
+          test "$(jq -r '.user.login // ""' <<< "$comment")" = "github-actions[bot]"
+          body="$(jq -r '.body // ""' <<< "$comment")"
+          payload_b64="$(sed -n 's/^- Reservation payload: `\([^`]*\)`$/\1/p' <<< "$body")"
+          payload="$(printf '%s' "$payload_b64" | base64 --decode)"
+          test "$(jq -r '.task_id // ""' <<< "$payload")" = "$task_id"
+          test "$(jq -r '.run_id // ""' <<< "$payload")" = "$RUN_ID"
+          test "$(jq -r '.head_sha // ""' <<< "$payload")" = "$HEAD_SHA"
+          state="$(jq -r '.state // ""' <<< "$payload")"
+
+          if [ "$state" = "PUBLISHED" ]; then
+            test -n "$PR_NUMBER"
+            test "$(jq -r '.pr_number // empty' <<< "$payload")" = "$PR_NUMBER"
+            pr="$(gh api "repos/${REPOSITORY}/pulls/${PR_NUMBER}")"
+            test "$(jq -r '.state // ""' <<< "$pr")" = "open"
+            test "$(jq -r '.head.sha // ""' <<< "$pr")" = "$HEAD_SHA"
+            test "$(jq -r '.head.repo.full_name // ""' <<< "$pr")" = "$REPOSITORY"
+          elif [ "$state" = "RECOVERABLE" ]; then
+            test "$RECOVERY_ARTIFACT" = "yes"
+            test -n "$RECOVERY_DIGEST"
+            test "$(jq -r '.recovery.kind // ""' <<< "$payload")" = "artifact"
+            test "$(jq -r '.recovery.digest // ""' <<< "$payload")" = "$RECOVERY_DIGEST"
+          else
+            echo "Worker success is not durably published or recoverable; success outcome persistence refused." >&2
+            exit 1
+          fi
+
+          observed_at="$(date -u +'%Y-%m-%dT%H:%M:%S.000Z')"
+          record_input="$(jq -n \
+            --argjson control "$control_input" \
+            --argjson packet "$packet" \
+            --arg observed_at "$observed_at" \
+            --arg run_attempt "$RUN_ATTEMPT" \
+            '$control + {packet:$packet,outcome:"succeeded",observed_at:$observed_at,run_attempt:($run_attempt|tonumber)}')"
+          printf '%s' "$record_input" | node "$helper" worker-strategy-record > "$RUNNER_TEMP/proffera-worker-strategy-success.json"
+          jq -e '.decision == "RECORDED" or .decision == "ALREADY_RECORDED"' "$RUNNER_TEMP/proffera-worker-strategy-success.json" >/dev/null
+          printf '%s' "$control_input" | node "$helper" reservation-mutex-check
 
       - name: Mirror validated recovery artifact to Supervisor comments
         id: recovery_mirror

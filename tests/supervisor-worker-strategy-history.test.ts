@@ -226,10 +226,31 @@ describe("Worker workflow B4.1 wiring", () => {
     expect(workflow.slice(classify, refuse)).toContain('[ "$SCOPE_OUTCOME" = "success" ]');
   });
 
+  it("rechecks strategy history under the reservation mutex before acquiring a Worker slot", () => {
+    const reserveStart = workflow.indexOf("Atomically reserve writable Worker slot");
+    const dispatchEvidence = workflow.indexOf("Persist trusted Worker dispatch-start evidence");
+    const reserve = workflow.slice(reserveStart, dispatchEvidence);
+    expect(reserve.indexOf("reservation-mutex-acquire")).toBeGreaterThanOrEqual(0);
+    expect(reserve.indexOf("worker-strategy-admit")).toBeGreaterThan(reserve.indexOf("reservation-mutex-acquire"));
+    expect(reserve.indexOf("worker-strategy-admit")).toBeLessThan(reserve.indexOf("reservation-acquire"));
+  });
+
+  it("records non-success early and delays succeeded until publication is recoverable", () => {
+    const early = workflow.indexOf("Persist non-success Worker strategy outcome before publication decision");
+    const publish = workflow.indexOf("Publish branch normally or persist validated recovery artifact");
+    const recoverable = workflow.indexOf("Mark reservation recoverable after durable artifact upload");
+    const success = workflow.indexOf("Persist successful Worker strategy outcome after recoverable publication");
+    expect(early).toBeGreaterThan(workflow.indexOf("  publish:"));
+    expect(early).toBeLessThan(publish);
+    expect(workflow.slice(early, publish)).toContain("attempt_outcome != 'succeeded'");
+    expect(success).toBeGreaterThan(recoverable);
+    expect(workflow.slice(success)).toContain('state" = "PUBLISHED"');
+    expect(workflow.slice(success)).toContain('state" = "RECOVERABLE"');
+    expect(workflow.slice(success)).toContain('outcome:"succeeded"');
+  });
+
   it("marks the model boundary and persists history from the isolated issue-write job", () => {
     expect(workflow.indexOf("Mark Worker strategy attempt start")).toBeLessThan(workflow.indexOf("Run one bounded implementation Worker"));
-    expect(workflow.indexOf("Persist Worker strategy outcome before publication decision"))
-      .toBeLessThan(workflow.indexOf("Refuse failed or unvalidated Worker candidate"));
     expect(workflow).toContain("worker-strategy-record");
   });
 
