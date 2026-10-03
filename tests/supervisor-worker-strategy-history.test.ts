@@ -263,7 +263,9 @@ describe("Worker strategy-history admission", () => {
       const laterHead = execFileSync("git", ["rev-parse", "HEAD"], {cwd: fixture.dir, encoding: "utf8"}).trim();
       const later = {...published, base_sha: laterHead};
       const laterHeads = materialWorkerBaselineHeads(later, [success], starts, workerStrategyModule, fixture.dir, mergeHeads);
-      expect(laterHeads).toEqual([fixture.currentHead]);
+      // Re-entry is keyed by the durable Failure Memory observation (the dispatch baseline);
+      // the authenticated merge commit is only the comparison baseline for later evidence.
+      expect(laterHeads).toEqual([fixture.oldHead]);
       expect(decideWorkerStrategyHistory({
         packet: later,
         source: {mode: "planner", actor: "github-actions[bot]"},
