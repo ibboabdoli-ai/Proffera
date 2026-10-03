@@ -460,7 +460,8 @@ function liveFixture(src: LiveSource = { ...source(9001, fallbackBody), actor: "
     } else if (endpoint.includes("/issues/548/comments")) {
       payload = f.all;
       if (states().includes("PREPARED")) f.verifiedPrepared = true;
-    } else if (endpoint === `repos/${repo}/issues/comments/${f.src.id}` || endpoint === `repos/${repo}/pulls/${pr}/reviews/${f.src.id}`) {
+    } else if (endpoint === `repos/${repo}/issues/comments/123`) payload = f.all[0];
+    else if (endpoint === `repos/${repo}/issues/comments/${f.src.id}` || endpoint === `repos/${repo}/pulls/${pr}/reviews/${f.src.id}`) {
       payload = { id: f.src.id, user: { login: f.src.actor }, issue_url: `https://api.github.com/repos/${repo}/issues/${pr}`, body: f.src.body, created_at: f.sourceCreatedAt, updated_at: f.src.observed_at, submitted_at: f.src.observed_at, commit_id: f.src.review_commit, state: f.src.review_state.toUpperCase() };
     } else if (endpoint === `repos/${repo}/pulls/${pr}`) {
       payload = { number: pr, state: "open", draft: f.draft, head: { sha: f.prHead }, base: { repo: { full_name: repo } } };
@@ -813,5 +814,113 @@ describe("historical recovery transport classification", () => {
       expect(() => fresh.run()).toThrow(mode === "identity" ? /run_identity/ : mode === "pagination" ? /pagination_incomplete/ : undefined);
       expect(fresh.posts).toBe(0); expect(fresh.all).toEqual(saved);
     }
+  });
+});
+
+describe("authority changes during final memory pagination", () => {
+  it.each(["head", "run_attempt", "job", "source", "blocking_review"])("rejects %s observed during the last memory read and permits a stable delivery", (mode) => {
+    const f = liveFixture();
+    const original = f.input();
+    let preparedReads = 0, paginating = false, injected = false;
+    f.hooks.before = ({endpoint}) => {
+      if (f.states().includes("PREPARED") && endpoint.includes("/issues/548/comments") && endpoint.endsWith("page=1")) preparedReads++;
+    };
+    f.hooks.reply = (endpoint, payload) => {
+      if (!injected && preparedReads === 2 && endpoint.includes("/issues/548/comments")) {
+        const page = new URL("https://offline.invalid/" + endpoint).searchParams.get("page");
+        if (page === "1") {
+          paginating = true;
+          return [...f.all, ...Array.from({length: 99}, (_, i) => bot("Ordinary Supervisor context", 2000 + i))];
+        }
+        if (paginating && page === "2") {
+          injected = true;
+          if (mode === "head") f.prHead = "b".repeat(40);
+          if (mode === "run_attempt") f.runMeta.run_attempt++;
+          if (mode === "job") f.jobs[0].completed_at = at(13);
+          if (mode === "source") f.src.body += " changed";
+          if (mode === "blocking_review") f.reviews = [reviewRecord(8001, "CHANGES_REQUESTED", at(14))];
+          return [];
+        }
+      }
+      return payload;
+    };
+    expect(f.run(original).decision).toBe("FAIL_CLOSED_MISMATCH");
+    expect(injected).toBe(true);
+    expect(f.posts).toBe(0);
+    expect(f.states()).toEqual([]);
+    expect(f.capacity()).toBe(4);
+    f.hooks = {}; f.prHead = head; f.runMeta.run_attempt = 1; f.jobs = [rawJob()]; f.src = original.source; f.reviews = [];
+    expect(f.run().decision).toBe("ALLOW_RERUN");
+    expect(f.posts).toBe(1);
+  });
+});
+describe("bounded final memory and authority guards", () => {
+  it.each(["conflict", "wrong_id", "wrong_author", "wrong_type", "wrong_scope", "missing", "read_failure"])("pins memory after %s at the final exact-comment guard", (mode) => {
+    const f = liveFixture();
+    let injected = false;
+    f.hooks.before = ({endpoint, method}) => {
+      if (mode === "conflict" && f.states().includes("PREPARED") && endpoint.includes(`/pulls/${pr}/reviews?`) && !injected) {
+        const value = JSON.parse(f.all[0].body.split("\n")[2]); value.revision++;
+        f.all[0].body = f.all[0].body.replace(/\n\{[^\n]+\}\n/, "\n" + JSON.stringify(value) + "\n");
+        injected = true;
+      }
+      if (method === "GET" && endpoint === `repos/${repo}/issues/comments/123` && mode === "read_failure") throw new Error("memory read unavailable");
+    };
+    f.hooks.reply = (endpoint, payload) => {
+      if (endpoint !== `repos/${repo}/issues/comments/123`) return payload;
+      const value = structuredClone(f.all[0]);
+      if (mode === "wrong_id") value.id++;
+      if (mode === "wrong_author") value.user.login = "untrusted-user";
+      if (mode === "wrong_type") value.user.type = "User";
+      if (mode === "wrong_scope") value.issue_url = `https://api.github.com/repos/${repo}/issues/999`;
+      return mode === "missing" ? null : value;
+    };
+    expect(() => f.run()).toThrow(mode === "read_failure" ? "memory read unavailable" : "persistence_identity");
+    expect(f.posts).toBe(0); expect(f.states()).toEqual(["PREPARED"]); expect(f.capacity()).toBe(3);
+  });
+
+  it.each(["head", "run_attempt", "job", "source", "head_read_failure", "run_read_failure", "job_read_failure", "source_read_failure"])("rejects %s after the bounded memory guard", (mode) => {
+    const f = liveFixture(); const original = f.input();
+    let guarded = false;
+    f.hooks.before = ({endpoint, method}) => {
+      if (method === "GET" && endpoint === `repos/${repo}/issues/comments/123`) {
+        guarded = true;
+        if (mode === "head") f.prHead = "b".repeat(40);
+        if (mode === "run_attempt") f.runMeta.run_attempt++;
+        if (mode === "job") f.jobs[0].completed_at = at(13);
+        if (mode === "source") f.src.body += " changed";
+      }
+      if (!guarded) return;
+      const failed = mode === "head_read_failure" && endpoint === `repos/${repo}/pulls/${pr}`
+        || mode === "run_read_failure" && endpoint === `repos/${repo}/actions/runs/500`
+        || mode === "job_read_failure" && endpoint.includes("/actions/jobs/")
+        || mode === "source_read_failure" && endpoint === `repos/${repo}/issues/comments/${f.src.id}`;
+      if (failed) throw new Error("final authority read unavailable");
+    };
+    expect(f.run(original).decision).toBe("FAIL_CLOSED_MISMATCH");
+    expect(guarded).toBe(true); expect(f.posts).toBe(0); expect(f.states()).toEqual([]); expect(f.capacity()).toBe(4);
+  });
+});
+describe("review authority after the last memory read", () => {
+  it.each(["blocking_review", "new_findings", "review_read_failure", "review_page_failure"])("rejects %s introduced during the exact-comment guard", (mode) => {
+    const f = liveFixture(liveReview()); const original = f.input();
+    let guarded = false;
+    f.hooks.before = ({endpoint, method}) => {
+      if (method === "GET" && endpoint === `repos/${repo}/issues/comments/123`) {
+        guarded = true;
+        if (mode === "blocking_review") f.reviews = [reviewRecord(8001, "CHANGES_REQUESTED", at(14))];
+        if (mode === "new_findings") f.inline = [findingRecord()];
+      }
+      if (guarded && endpoint.includes(`/pulls/${pr}/reviews?`)
+        && (mode === "review_read_failure" || mode === "review_page_failure" && endpoint.endsWith("page=2"))) {
+        throw new Error("final review evidence unavailable");
+      }
+    };
+    f.hooks.reply = (endpoint, payload) => guarded && mode === "review_page_failure" && endpoint.includes(`/pulls/${pr}/reviews?`)
+      ? Array.from({length: 100}, (_, i) => reviewRecord(2000 + i)) : payload;
+    expect(f.run(original).decision).toBe("FAIL_CLOSED_MISMATCH");
+    expect(guarded).toBe(true); expect(f.posts).toBe(0); expect(f.states()).toEqual([]); expect(f.capacity()).toBe(4);
+    f.hooks = {}; f.reviews = []; f.inline = [];
+    expect(f.run().decision).toBe("ALLOW_RERUN"); expect(f.posts).toBe(1);
   });
 });

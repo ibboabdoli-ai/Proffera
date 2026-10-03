@@ -73,6 +73,15 @@ function verifyIdentity(input, expected, execute) {
   const actual = finalGateMemoryIdentity(memoryInput(input, comments(input.repository, execute))).identity;
   if (JSON.stringify(actual) !== JSON.stringify(expected)) throw new Error("final_gate_live:persistence_identity");
 }
+function verifyPreparedComment(input, persistence, execute) {
+  // Full pagination already proved the unique authority under the serialized
+  // writer lock. This bounded tail read detects edits of that exact document;
+  // it is not a replacement for a complete trusted-memory listing.
+  const value = ghJson([`repos/${input.repository}/issues/comments/${persistence.comment_id}`], execute);
+  if (value?.id !== persistence.comment_id || value?.user?.login !== "github-actions[bot]"
+    || value?.user?.type !== "Bot" || value?.issue_url !== `https://api.github.com/repos/${input.repository}/issues/548`
+    || value?.body !== persistence.body) throw new Error("final_gate_live:persistence_identity");
+}
 function ensureV2(input, execute) {
   let all = comments(input.repository, execute);
   let result = ensureFinalGateMemory(memoryInput(input, all));
@@ -391,6 +400,9 @@ export function runLiveFinalGate(input, execute = execFileSync, now = isoNow) {
   }
   if (decision.decision !== "ALLOW_RERUN") return decision;
 
+  // Complete the final full memory read before revalidating mutable authority.
+  verifyIdentity(input, decision.persistence.identity, execute);
+
   // This catch is deliberately confined to reads before the POST boundary. Only
   // this invocation's newly created, durably verified PREPARED record is releasable.
   // Persist/verification ambiguity, crashes and any attempted POST stay pinned.
@@ -405,13 +417,29 @@ export function runLiveFinalGate(input, execute = execFileSync, now = isoNow) {
     const currentEvidence = normalizeFinalGateEvidence(validatedSource(input, currentSource, execute), input.target.head);
     if (JSON.stringify(currentEvidence) !== JSON.stringify(decision.evidence)) throw new Error("final_gate_live:evidence_changed");
     // Reviews/comments may require several pages. Refresh the mutable run/head
-    // authority after those reads as well, before the final durable-intent check.
+    // authority after those reads as well, before the bounded durable-intent check.
     if (fetchPrHead(input, execute) !== input.target.head) throw new Error("final_gate_live:head_changed");
     if (fetchRun(input, input.target, execute).run_attempt !== input.target.run_attempt) throw new Error("final_gate_live:run_attempt_changed");
   } catch (error) {
     return failBeforePost(input, decision, error instanceof Error ? error.message : "pre_post_read_failed", execute);
   }
-  verifyIdentity(input, decision.persistence.identity, execute);
+  // Memory verification ambiguity stays outside the safe-release handler.
+  verifyPreparedComment(input, decision.persistence, execute);
+  try {
+    // Revalidate all review authority after the LAST memory read, including late
+    // CodeRabbit changes requested. Reuse the canonical classifier and pagination
+    // contract, then refresh individual source/target reads after review scanning.
+    const finalSource = fetchSource(input, execute);
+    if (!sameSource(finalSource, input.source)) throw new Error("final_gate_live:source_changed");
+    const finalEvidence = normalizeFinalGateEvidence(validatedSource(input, finalSource, execute), input.target.head);
+    if (JSON.stringify(finalEvidence) !== JSON.stringify(decision.evidence)) throw new Error("final_gate_live:evidence_changed");
+    if (!sameSource(fetchSource(input, execute), input.source)) throw new Error("final_gate_live:source_changed");
+    if (JSON.stringify(fetchJob(input, execute)) !== JSON.stringify(input.target.job)) throw new Error("final_gate_live:job_changed");
+    if (fetchPrHead(input, execute) !== input.target.head) throw new Error("final_gate_live:head_changed");
+    if (fetchRun(input, input.target, execute).run_attempt !== input.target.run_attempt) throw new Error("final_gate_live:run_attempt_changed");
+  } catch (error) {
+    return failBeforePost(input, decision, error instanceof Error ? error.message : "pre_post_read_failed", execute);
+  }
 
   // Capture a conservative lower bound immediately before the one allowed POST.
   // GitHub job.started_at is only second-resolution and a rerun can start before the

@@ -121,7 +121,8 @@ function respond(args) {
   } else if (endpoint.includes('/issues/548/comments')) {
     value = state.memory;
     if (prepared()) state.verified = true;
-  } else if (endpoint === base + '/issues/comments/9001' || endpoint === base + '/pulls/801/reviews/9001') {
+  } else if (endpoint === base + '/issues/comments/123') value = state.memory[0];
+  else if (endpoint === base + '/issues/comments/9001' || endpoint === base + '/pulls/801/reviews/9001') {
     value = { id:9001, user:{login:actor}, body:f.body, created_at:when, updated_at:f.updatedAt ?? when, submitted_at:when, state:f.reviewState ?? 'COMMENTED', commit_id:f.reviewCommit ?? head, issue_url:f.sourceIssueUrl ?? 'https://api.github.com/' + base + '/issues/801' };
   } else if (endpoint === base + '/pulls/801') {
     state.headReads++;
