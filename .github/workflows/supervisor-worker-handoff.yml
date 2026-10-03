@@ -1070,7 +1070,9 @@ jobs:
           packet="$(printf '%s' "$PACKET_B64" | base64 --decode)"
           task_id="$(jq -r '.task_id' <<< "$packet")"
           base_sha="$(jq -r '.base_sha' <<< "$packet")"
+          dependency_paths="$(jq -c '(.dependency_paths // []) | sort' <<< "$packet")"
           [[ "$base_sha" =~ ^[a-f0-9]{40}$ ]]
+          jq -e 'type == "array"' <<< "$dependency_paths" >/dev/null
           descriptor="$(printf '%s' "$packet" | node "$helper" worker-strategy-descriptor)"
           evidence_fingerprint="$(jq -r '.evidence_fingerprint // ""' <<< "$descriptor")"
           strategy_fingerprint="$(jq -r '.strategy_fingerprint // ""' <<< "$descriptor")"
@@ -1083,6 +1085,7 @@ jobs:
           - GitHub Run ID: \`${RUN_ID}\`
           - Run Attempt: \`${RUN_ATTEMPT}\`
           - Baseline SHA: \`${base_sha}\`
+          - Dependency paths: \`${dependency_paths}\`
           - Evidence fingerprint: \`${evidence_fingerprint}\`
           - Strategy fingerprint: \`${strategy_fingerprint}\`
           - State: \`DISPATCH_STARTED\`

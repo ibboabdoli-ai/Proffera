@@ -2915,7 +2915,6 @@ function patchControlRecord(input, id, body) {
   execFileSync("gh", ["api", "--method", "PATCH", `repos/${input.repository}/issues/comments/${id}`, "-f", `body=${body}`], { stdio: "pipe" });
 }
 
-const FAILURE_MEMORY_PREFIX = "<!-- proffera-supervisor-failure-memory:";
 const WORKER_STRATEGY_START_PREFIX = "<!-- proffera-worker-strategy-start:v1:";
 
 export function parseWorkerStrategyDispatchStarts(comments) {
@@ -2941,6 +2940,21 @@ export function parseWorkerStrategyDispatchStarts(comments) {
     const numericRunId = Number(runId);
     const runAttempt = Number(field(/^- Run Attempt: `([1-9][0-9]*)`$/gmu, "strategy run attempt"));
     const baselineHead = field(/^- Baseline SHA: `([a-f0-9]{40})`$/gmu, "strategy baseline SHA");
+    const dependencyMatches = [...body.matchAll(/^- Dependency paths: `(\[[^`\r\n]*\])`$/gmu)];
+    if (dependencyMatches.length > 1) throw new Error("Worker strategy dependency-path evidence is ambiguous");
+    let dependencyPaths = [];
+    if (dependencyMatches.length === 1) {
+      let decoded;
+      try {
+        decoded = JSON.parse(dependencyMatches[0][1]);
+      } catch {
+        throw new Error("Worker strategy dependency-path evidence is malformed");
+      }
+      dependencyPaths = normalizeScopeArray(decoded, "strategy dependency paths", { nonEmpty: false }).sort();
+      if (JSON.stringify(dependencyPaths) !== dependencyMatches[0][1]) {
+        throw new Error("Worker strategy dependency-path evidence is not canonical");
+      }
+    }
     const evidenceFingerprint = field(/^- Evidence fingerprint: `([a-f0-9]{64})`$/gmu, "strategy evidence fingerprint");
     const strategyFingerprint = field(/^- Strategy fingerprint: `([a-f0-9]{64})`$/gmu, "strategy fingerprint");
     if (!Number.isSafeInteger(numericRunId) || numericRunId <= 0
@@ -2952,6 +2966,7 @@ export function parseWorkerStrategyDispatchStarts(comments) {
       run_id: numericRunId,
       run_attempt: runAttempt,
       head: baselineHead,
+      dependency_paths: dependencyPaths,
       evidence_fingerprint: evidenceFingerprint,
       strategy_fingerprint: strategyFingerprint,
     });
@@ -2959,53 +2974,51 @@ export function parseWorkerStrategyDispatchStarts(comments) {
   return starts;
 }
 
-function failureMemoryScopeCandidates(comments, currentScope) {
-  const scopes = new Map([[JSON.stringify(currentScope), currentScope]]);
-  for (const comment of comments) {
-    if (comment?.user?.login !== "github-actions[bot]" || comment?.user?.type !== "Bot") continue;
-    const body = String(comment.body ?? "");
-    if (!body.includes(FAILURE_MEMORY_PREFIX)) continue;
-    const match = body.match(/^<!-- proffera-supervisor-failure-memory:v[12]:[a-f0-9]{64} -->\n\x60\x60\x60json\n([^\n]+)\n\x60\x60\x60$/u);
-    if (!match) throw new Error("Worker strategy history contains malformed Failure Memory");
-    let decoded;
-    try {
-      decoded = JSON.parse(match[1]);
-    } catch {
-      throw new Error("Worker strategy history contains malformed Failure Memory JSON");
-    }
-    if (!decoded?.scope || typeof decoded.scope !== "object" || Array.isArray(decoded.scope)) {
-      throw new Error("Worker strategy history contains malformed Failure Memory scope");
-    }
-    scopes.set(JSON.stringify(decoded.scope), decoded.scope);
-  }
-  return [...scopes.values()];
-}
-
-async function workerFailureMemorySnapshots(repository, packet, comments) {
+export async function workerFailureMemorySnapshots(repository, packet, comments) {
   const failure = await import("./supervisor-failure-memory.mjs");
   const currentScope = { kind: "task", task_id: packet.task_id };
-  // This first read validates every bot-owned Failure Memory candidate before any
-  // scope filtering, so malformed or ambiguous history fails closed.
-  const current = failure.readTrustedMemory(comments, {
+  const currentKey = JSON.stringify(currentScope);
+  // Canonical Failure Memory validates and indexes the complete authenticated
+  // comment snapshot once. No scope-specific reread may bypass cross-scope errors.
+  const indexed = failure.readTrustedMemories(comments, {
     repository,
-    scope: currentScope,
     complete: true,
   });
-  const snapshots = [current];
-  for (const scope of failureMemoryScopeCandidates(comments, currentScope)) {
-    if (JSON.stringify(scope) === JSON.stringify(currentScope)) continue;
-    snapshots.push(failure.readTrustedMemory(comments, {
-      repository,
-      scope,
-      complete: true,
-    }));
-  }
+  const current = indexed.find((snapshot) => JSON.stringify(snapshot.memory.scope) === currentKey)
+    ?? { comment_id: null, memory: failure.createMemory(repository, currentScope) };
+  const snapshots = [
+    current,
+    ...indexed.filter((snapshot) => JSON.stringify(snapshot.memory.scope) !== currentKey),
+  ];
   return { failure, current, snapshots };
 }
 
-function materialWorkerBaselineHeads(packet, records, starts, strategy) {
+export function materialWorkerBaselineHeads(packet, records, starts, strategy, gitCwd = undefined) {
   const descriptor = strategy.workerStrategyDescriptor(packet);
   const heads = new Set();
+  const dependencyPathsByHead = new Map();
+  const startsByAttempt = new Map();
+  const rememberDependencies = (head, paths) => {
+    if (!dependencyPathsByHead.has(head)) dependencyPathsByHead.set(head, new Set());
+    for (const path of paths ?? []) dependencyPathsByHead.get(head).add(path);
+  };
+
+  for (const start of starts) {
+    if (start.evidence_fingerprint !== descriptor.evidence_fingerprint
+      || start.strategy_fingerprint !== descriptor.strategy_fingerprint) continue;
+    const key = `${start.run_id}:${start.run_attempt}`;
+    const previous = startsByAttempt.get(key);
+    if (previous && (previous.head !== start.head
+      || JSON.stringify(previous.dependency_paths) !== JSON.stringify(start.dependency_paths))) {
+      throw new Error("Worker strategy dispatch-start evidence conflicts for one run attempt");
+    }
+    startsByAttempt.set(key, start);
+    if (start.head !== packet.base_sha) {
+      heads.add(start.head);
+      rememberDependencies(start.head, start.dependency_paths);
+    }
+  }
+
   for (const record of records) {
     if (record?.action_id !== "worker_codex_attempt"
       || record?.evidence_fingerprint !== descriptor.evidence_fingerprint
@@ -3013,23 +3026,28 @@ function materialWorkerBaselineHeads(packet, records, starts, strategy) {
       || !Array.isArray(record.observations)) continue;
     for (const observation of record.observations) {
       const observed = String(observation?.head ?? "");
-      if (SHA_RE.test(observed) && observed !== packet.base_sha) heads.add(observed);
+      if (!SHA_RE.test(observed) || observed === packet.base_sha) continue;
+      heads.add(observed);
+      const source = observation?.source;
+      if (source?.kind === "actions") {
+        const start = startsByAttempt.get(`${Number(source.run_id)}:${Number(source.attempt)}`);
+        if (start?.head === observed) rememberDependencies(observed, start.dependency_paths);
+      }
     }
   }
-  for (const start of starts) {
-    if (start.evidence_fingerprint === descriptor.evidence_fingerprint
-      && start.strategy_fingerprint === descriptor.strategy_fingerprint
-      && start.head !== packet.base_sha) heads.add(start.head);
-  }
+
   const materiallyChanged = [];
   for (const previous of heads) {
     try {
-      execFileSync("git", ["merge-base", "--is-ancestor", previous, packet.base_sha], {stdio: "pipe"});
+      execFileSync("git", ["merge-base", "--is-ancestor", previous, packet.base_sha], {
+        stdio: "pipe", ...(gitCwd ? {cwd: gitCwd} : {}),
+      });
       const changed = execFileSync("git", ["diff", "--name-only", "--no-renames", previous, packet.base_sha, "--"], {
-        encoding: "utf8", stdio: ["ignore", "pipe", "pipe"],
+        encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], ...(gitCwd ? {cwd: gitCwd} : {}),
       }).split("\n").map((value) => value.trim()).filter(Boolean);
       if (changed.length > 5000) throw new Error("worker strategy baseline diff exceeds bounded file count");
-      if (strategy.workerMaterialScopeChanged(packet, changed)) materiallyChanged.push(previous);
+      const dependencyPaths = [...(dependencyPathsByHead.get(previous) ?? [])].sort();
+      if (strategy.workerMaterialScopeChanged(packet, changed, dependencyPaths)) materiallyChanged.push(previous);
     } catch (error) {
       throw new Error(`Worker strategy baseline comparison unavailable for ${previous}: ${error instanceof Error ? error.message : "unknown error"}`);
     }

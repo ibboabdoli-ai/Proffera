@@ -31,7 +31,6 @@ function materialTask(packet) {
     task_goal: packet.task_goal,
     graph_path: packet.graph_path,
     allowed_paths: sortedPaths(packet.allowed_paths, "allowed_paths"),
-    dependency_paths: sortedPaths(packet.dependency_paths ?? [], "dependency_paths"),
     forbidden_paths: sortedPaths(packet.forbidden_paths, "forbidden_paths"),
     risk_class: packet.risk_class,
   };
@@ -43,10 +42,11 @@ function normalizeHead(value, field) {
 function scopeCovers(scope, path) {
   return scope.endsWith("/") ? path.startsWith(scope) : path === scope;
 }
-export function workerMaterialScopeChanged(packet, changed_files) {
+export function workerMaterialScopeChanged(packet, changed_files, dependency_paths = []) {
   const material = materialTask(packet);
   const changed = sortedPaths(changed_files, "changed_files");
-  const materialScopes = [...material.allowed_paths, ...material.dependency_paths];
+  const dependencies = sortedPaths(dependency_paths, "dependency_paths");
+  const materialScopes = [...material.allowed_paths, ...dependencies];
   return changed.some((path) => materialScopes.some((scope) => scopeCovers(scope, path)));
 }
 
@@ -101,6 +101,7 @@ function normalizeDispatchStarts(value) {
       run_id: Number(start.run_id),
       run_attempt: Number(start.run_attempt),
       head: start.head,
+      dependency_paths: sortedPaths(start.dependency_paths ?? [], "dependency_paths"),
       evidence_fingerprint: start.evidence_fingerprint,
       strategy_fingerprint: start.strategy_fingerprint,
     };

@@ -1,9 +1,16 @@
-import { readFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { execFileSync } from "node:child_process";
 import { describe, expect, it } from "vitest";
 // @ts-expect-error Standalone .mjs follows the repository control-plane convention.
 import { decideWorkerStrategyHistory, workerMaterialScopeChanged, workerStrategyDescriptor, workerStrategyObservation } from "../scripts/supervisor-worker-strategy-memory.mjs";
 // @ts-expect-error Standalone .mjs follows the repository control-plane convention.
-import { parseWorkerStrategyDispatchStarts } from "../scripts/supervisor-worker-handoff.mjs";
+import * as workerStrategyModule from "../scripts/supervisor-worker-strategy-memory.mjs";
+// @ts-expect-error Standalone .mjs follows the repository control-plane convention.
+import { createMemory, serializeMemory } from "../scripts/supervisor-failure-memory.mjs";
+// @ts-expect-error Standalone .mjs follows the repository control-plane convention.
+import { materialWorkerBaselineHeads, parseWorkerStrategyDispatchStarts, workerFailureMemorySnapshots } from "../scripts/supervisor-worker-handoff.mjs";
 
 const basePacket = {
   task_id: "B4-WORKER-1",
@@ -41,10 +48,32 @@ const dispatchStart = (packet = basePacket, runId = 20, runAttempt = 1) => {
     run_id: runId,
     run_attempt: runAttempt,
     head: packet.base_sha,
+    dependency_paths: [...(packet.dependency_paths ?? [])].sort(),
     evidence_fingerprint: descriptor.evidence_fingerprint,
     strategy_fingerprint: descriptor.strategy_fingerprint,
   };
 };
+
+function gitFixture(changedPath: string) {
+  const dir = mkdtempSync(join(tmpdir(), "proffera-worker-strategy-"));
+  mkdirSync(join(dir, "scripts"), {recursive: true});
+  mkdirSync(join(dir, "src", "contracts"), {recursive: true});
+  writeFileSync(join(dir, "scripts", "a.mjs"), "export const value = 1;\n");
+  writeFileSync(join(dir, "src", "contracts", "worker-policy.ts"), "export const policy = 1;\n");
+  writeFileSync(join(dir, "src", "contracts", "new-unrelated.ts"), "export const unrelated = 1;\n");
+  writeFileSync(join(dir, "src", "unrelated.ts"), "export const other = 1;\n");
+  execFileSync("git", ["init", "-q"], {cwd: dir});
+  execFileSync("git", ["config", "user.email", "tests@proffera.local"], {cwd: dir});
+  execFileSync("git", ["config", "user.name", "Proffera Tests"], {cwd: dir});
+  execFileSync("git", ["add", "."], {cwd: dir});
+  execFileSync("git", ["commit", "-q", "-m", "baseline"], {cwd: dir});
+  const oldHead = execFileSync("git", ["rev-parse", "HEAD"], {cwd: dir, encoding: "utf8"}).trim();
+  writeFileSync(join(dir, ...changedPath.split("/")), "export const changed = 2;\n");
+  execFileSync("git", ["add", changedPath], {cwd: dir});
+  execFileSync("git", ["commit", "-q", "-m", "change"], {cwd: dir});
+  const currentHead = execFileSync("git", ["rev-parse", "HEAD"], {cwd: dir, encoding: "utf8"}).trim();
+  return {dir, oldHead, currentHead};
+}
 
 describe("Worker strategy-history material identity", () => {
   it("does not let task IDs, branches, titles, or base-SHA churn buy another attempt", () => {
@@ -64,21 +93,61 @@ describe("Worker strategy-history material identity", () => {
     ["goal", {task_goal: "A materially different goal"}],
     ["graph", {graph_path: "supervisor/worker/different-node"}],
     ["allowed scope", {allowed_paths: ["scripts/b.mjs"]}],
-    ["dependency scope", {dependency_paths: ["src/contracts/other-policy.ts"]}],
     ["forbidden scope", {forbidden_paths: ["src/lib/auth.ts"]}],
     ["risk", {risk_class: 4}],
   ])("changes the evidence fingerprint for material %s changes", (_name, patch) => {
     expect(workerStrategyDescriptor({...basePacket, ...patch}).evidence_fingerprint)
       .not.toBe(workerStrategyDescriptor(basePacket).evidence_fingerprint);
   });
+
+  it("keeps dependency declaration churn outside stable attempt identity", () => {
+    const expected = workerStrategyDescriptor(basePacket).evidence_fingerprint;
+    for (const dependency_paths of [
+      [],
+      ["src/contracts/other-policy.ts"],
+      ["src/contracts/worker-policy.ts", "src/contracts/other-policy.ts"],
+      ["src/contracts/other-policy.ts", "src/contracts/worker-policy.ts"],
+      ["src/contracts/worker-policy.ts", "src/contracts/worker-policy.ts"],
+    ]) {
+      expect(workerStrategyDescriptor({...basePacket, dependency_paths}).evidence_fingerprint).toBe(expected);
+    }
+  });
 });
 
 describe("Worker material baseline scope", () => {
-  it("detects only changes inside the Task Packet allowed scope", () => {
+  it("detects writable and previously authenticated dependency changes only", () => {
     expect(workerMaterialScopeChanged(basePacket, ["scripts/a.mjs"])).toBe(true);
-    expect(workerMaterialScopeChanged(basePacket, ["src/contracts/worker-policy.ts"])).toBe(true);
+    expect(workerMaterialScopeChanged(basePacket, ["src/contracts/worker-policy.ts"], basePacket.dependency_paths)).toBe(true);
+    expect(workerMaterialScopeChanged(basePacket, ["src/contracts/new-unrelated.ts"], basePacket.dependency_paths)).toBe(false);
     expect(workerMaterialScopeChanged(basePacket, ["scripts/other.mjs"])).toBe(false);
     expect(workerMaterialScopeChanged({...basePacket, allowed_paths: ["scripts/"]}, ["scripts/nested/a.mjs"])).toBe(true);
+  });
+
+  it.each([
+    ["authenticated dependency change", "src/contracts/worker-policy.ts", true],
+    ["newly declared unrelated dependency change", "src/contracts/new-unrelated.ts", false],
+    ["allowed writable change", "scripts/a.mjs", true],
+    ["unrelated main change", "src/unrelated.ts", false],
+  ])("derives %s from real git baselines without trusting current dependency drift", (_name, changedPath, reenter) => {
+    const fixture = gitFixture(changedPath);
+    try {
+      const old = {...basePacket, base_sha: fixture.oldHead};
+      const current = {...basePacket, task_id: "NEW-TASK", base_sha: fixture.currentHead,
+        dependency_paths: ["src/contracts/new-unrelated.ts"]};
+      const records = [prior(old, "failed", 20, 1)];
+      const starts = [dispatchStart(old, 20, 1)];
+      const heads = materialWorkerBaselineHeads(current, records, starts, workerStrategyModule, fixture.dir);
+      expect(heads).toEqual(reenter ? [fixture.oldHead] : []);
+      expect(decideWorkerStrategyHistory({
+        packet: current,
+        source: {mode: "planner", actor: "github-actions[bot]"},
+        records,
+        dispatch_starts: starts,
+        materially_changed_heads: heads,
+      }).decision).toBe(reenter ? "ALLOW_MATERIAL_REENTRY" : "SUPPRESS_REPEAT");
+    } finally {
+      rmSync(fixture.dir, {recursive: true, force: true});
+    }
   });
 });
 
@@ -102,6 +171,16 @@ describe("Worker strategy-history admission", () => {
     },
   );
 
+  it("does not let dependency declaration drift buy another automatic attempt", () => {
+    const old = {...basePacket, base_sha: "a".repeat(40)};
+    expect(decideWorkerStrategyHistory({
+      packet: {...basePacket, task_id: "NEW-TASK", base_sha: "b".repeat(40),
+        dependency_paths: ["src/contracts/new-unrelated.ts"]},
+      source: {mode: "planner", actor: "github-actions[bot]"},
+      records: [prior(old, "failed", 20, 1)],
+    }).decision).toBe("SUPPRESS_REPEAT");
+  });
+
   it("allows automatic re-entry after a material baseline change", () => {
     const old = {...basePacket, base_sha: "a".repeat(40)};
     expect(decideWorkerStrategyHistory({
@@ -110,6 +189,18 @@ describe("Worker strategy-history admission", () => {
       records: [prior(old, "failed", 20, 1)],
       materially_changed_heads: [old.base_sha],
     })).toMatchObject({decision: "ALLOW_MATERIAL_REENTRY", material_reentries: 1});
+  });
+
+  it("suppresses replay after a material re-entry attempt starts on the refreshed baseline", () => {
+    const old = {...basePacket, base_sha: "a".repeat(40)};
+    const current = {...basePacket, task_id: "NEW-TASK", base_sha: "b".repeat(40)};
+    expect(decideWorkerStrategyHistory({
+      packet: current,
+      source: {mode: "planner", actor: "github-actions[bot]"},
+      records: [prior(old, "failed", 20, 1), prior(current, "failed", 21, 1)],
+      dispatch_starts: [dispatchStart(old, 20, 1), dispatchStart(current, 21, 1)],
+      materially_changed_heads: [old.base_sha],
+    }).decision).toBe("SUPPRESS_REPEAT");
   });
 
   it("still suppresses unrelated baseline SHA churn", () => {
@@ -139,6 +230,17 @@ describe("Worker strategy-history admission", () => {
       source: {mode: "comment", actor: "ibboabdoli-ai"},
       records: [prior()],
     }).decision).toBe("ALLOW_HUMAN_REENTRY");
+  });
+
+  it("keeps a legacy start without dependency metadata fail-closed", () => {
+    const legacyStart = {...dispatchStart()};
+    Reflect.deleteProperty(legacyStart, "dependency_paths");
+    expect(decideWorkerStrategyHistory({
+      packet: {...basePacket, task_id: "PLANNER-LEGACY", base_sha: "b".repeat(40)},
+      source: {mode: "planner", actor: "github-actions[bot]"},
+      records: [],
+      dispatch_starts: [legacyStart],
+    })).toMatchObject({decision: "SUPPRESS_UNRESOLVED_ATTEMPT", unresolved_attempts: 1});
   });
 
   it("suppresses a matching unresolved dispatch-start before durable outcome persistence", () => {
@@ -201,6 +303,35 @@ describe("Worker strategy-history admission", () => {
   });
 });
 
+describe("Worker Failure Memory indexing", () => {
+  it("scans a near-bound 5000-comment snapshot once while indexing many scopes", async () => {
+    let bodyReads = 0;
+    const comments = Array.from({length: 5000}, (_, index) => {
+      const body = index < 100
+        ? serializeMemory(createMemory("ibboabdoli-ai/Proffera", {kind: "task", task_id: `BULK-${index}`}))
+        : `ordinary supervisor comment ${index}`;
+      const comment = {
+        id: index + 1000,
+        user: {login: "github-actions[bot]", type: "Bot"},
+        issue_url: "https://api.github.com/repos/ibboabdoli-ai/Proffera/issues/548",
+      } as Record<string, unknown>;
+      Object.defineProperty(comment, "body", {
+        enumerable: true,
+        get() {
+          bodyReads += 1;
+          return body;
+        },
+      });
+      return comment;
+    });
+
+    const {current, snapshots} = await workerFailureMemorySnapshots("ibboabdoli-ai/Proffera", basePacket, comments);
+    expect(current).toMatchObject({comment_id: null, memory: {scope: {kind: "task", task_id: basePacket.task_id}}});
+    expect(snapshots).toHaveLength(101);
+    expect(bodyReads).toBe(5000);
+  });
+});
+
 describe("Worker workflow B4.1 wiring", () => {
   const workflow = readFileSync(".github/workflows/supervisor-worker-handoff.yml", "utf8").replaceAll("\r\n", "\n");
   it("admits by strategy history before the Codex boundary", () => {
@@ -212,6 +343,7 @@ describe("Worker workflow B4.1 wiring", () => {
     expect(startIndex).toBeGreaterThan(0);
     expect(startIndex).toBeLessThan(workflow.indexOf("Run one bounded implementation Worker"));
     expect(workflow).toContain("Baseline SHA:");
+    expect(workflow).toContain("Dependency paths:");
     expect(workflow).toContain("Evidence fingerprint:");
     expect(workflow).toContain("Strategy fingerprint:");
     expect(workflow).toContain("worker-strategy-descriptor");
@@ -277,6 +409,7 @@ describe("Worker workflow B4.1 wiring", () => {
       "- GitHub Run ID: `20`",
       "- Run Attempt: `1`",
       `- Baseline SHA: \`${basePacket.base_sha}\``,
+      `- Dependency paths: \`${JSON.stringify([...basePacket.dependency_paths].sort())}\``,
       `- Evidence fingerprint: \`${descriptor.evidence_fingerprint}\``,
       `- Strategy fingerprint: \`${descriptor.strategy_fingerprint}\``,
       "- State: `DISPATCH_STARTED`",
@@ -286,6 +419,32 @@ describe("Worker workflow B4.1 wiring", () => {
       body,
     }])).toEqual([dispatchStart(basePacket, 20, 1)]);
   });
+  it("keeps legacy missing dependency metadata fail-closed and rejects noncanonical metadata", () => {
+    const descriptor = workerStrategyDescriptor(basePacket);
+    const baseLines = [
+      "<!-- proffera-worker-dispatch-start:B4-WORKER-1:20 -->",
+      "<!-- proffera-worker-strategy-start:v1:B4-WORKER-1:20 -->",
+      "- Task ID: `B4-WORKER-1`",
+      "- GitHub Run ID: `20`",
+      "- Run Attempt: `1`",
+      `- Baseline SHA: \`${basePacket.base_sha}\``,
+      `- Evidence fingerprint: \`${descriptor.evidence_fingerprint}\``,
+      `- Strategy fingerprint: \`${descriptor.strategy_fingerprint}\``,
+      "- State: `DISPATCH_STARTED`",
+    ];
+    expect(parseWorkerStrategyDispatchStarts([{
+      user: {login: "github-actions[bot]", type: "Bot"},
+      body: baseLines.join("\n"),
+    }])[0].dependency_paths).toEqual([]);
+
+    const noncanonical = [...baseLines];
+    noncanonical.splice(6, 0, "- Dependency paths: `[\"src/z.ts\",\"src/a.ts\"]`");
+    expect(() => parseWorkerStrategyDispatchStarts([{
+      user: {login: "github-actions[bot]", type: "Bot"},
+      body: noncanonical.join("\n"),
+    }])).toThrow("not canonical");
+  });
+
   it("keeps write authority out of the model-executing dispatch job", () => {
     const dispatch = workflow.slice(workflow.indexOf("  dispatch:"), workflow.indexOf("  publish:"));
     expect(dispatch).toContain("issues: read");

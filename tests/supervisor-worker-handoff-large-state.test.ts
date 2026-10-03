@@ -146,6 +146,7 @@ fi
       base_sha: "a".repeat(40),
       branch: "work/proffera-large-state-fixture",
       allowed_paths: ["src/lib/test-fixture.ts"],
+      dependency_paths: [],
       forbidden_paths: ["src/lib/auth.ts"],
       required_checks: [
         "validate",
