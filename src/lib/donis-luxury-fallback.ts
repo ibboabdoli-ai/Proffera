@@ -429,6 +429,3 @@ export const DONIS_LUXURY_FALLBACK_SITE: RestaurantSite = {
     dish({ id: dishIds.passion, categoryId: categoryIds.drinks, name: "Passion", priceOre: 5000, sortOrder: 18 }),
   ],
 };
-
-export const DONIS_LUXURY_FALLBACK_MENU_SOURCE_LABEL =
-  "Restaurant menu photos supplied by the restaurant plus current Doni’s Wolt menu";
