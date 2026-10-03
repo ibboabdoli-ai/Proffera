@@ -152,20 +152,20 @@ describe("Worker strategy-history material identity", () => {
 });
 
 describe("Worker material baseline scope", () => {
-  it("detects writable and previously authenticated dependency changes only", () => {
+  it("uses only writable material scope for automatic re-entry", () => {
     expect(workerMaterialScopeChanged(basePacket, ["scripts/a.mjs"])).toBe(true);
-    expect(workerMaterialScopeChanged(basePacket, ["src/contracts/worker-policy.ts"], basePacket.dependency_paths)).toBe(true);
+    expect(workerMaterialScopeChanged(basePacket, ["src/contracts/worker-policy.ts"], basePacket.dependency_paths)).toBe(false);
     expect(workerMaterialScopeChanged(basePacket, ["src/contracts/new-unrelated.ts"], basePacket.dependency_paths)).toBe(false);
     expect(workerMaterialScopeChanged(basePacket, ["scripts/other.mjs"])).toBe(false);
     expect(workerMaterialScopeChanged({...basePacket, allowed_paths: ["scripts/"]}, ["scripts/nested/a.mjs"])).toBe(true);
   });
 
   it.each([
-    ["authenticated dependency change", "src/contracts/worker-policy.ts", true],
+    ["read-only dependency change", "src/contracts/worker-policy.ts", false],
     ["newly declared unrelated dependency change", "src/contracts/new-unrelated.ts", false],
     ["allowed writable change", "scripts/a.mjs", true],
     ["unrelated main change", "src/unrelated.ts", false],
-  ])("derives %s from real git baselines without trusting current dependency drift", (_name, changedPath, reenter) => {
+  ])("derives %s from real git baselines without trusting dependency metadata as retry authority", (_name, changedPath, reenter) => {
     const fixture = gitFixture(changedPath);
     try {
       const old = {...basePacket, base_sha: fixture.oldHead};
@@ -186,6 +186,27 @@ describe("Worker material baseline scope", () => {
       rmSync(fixture.dir, {recursive: true, force: true});
     }
   });
+  it("does not let a broad Planner dependency scope turn unrelated main churn into retry evidence", () => {
+    const fixture = gitFixture("src/unrelated.ts");
+    try {
+      const old = {...basePacket, base_sha: fixture.oldHead, dependency_paths: ["src/"]};
+      const current = {...basePacket, task_id: "BROAD-DEPENDENCY-REPLAY", base_sha: fixture.currentHead, dependency_paths: ["src/"]};
+      const records = [prior(old, "failed", 29, 1)];
+      const starts = [dispatchStart(old, 29, 1)];
+      const heads = materialWorkerBaselineHeads(current, records, starts, workerStrategyModule, fixture.dir);
+      expect(heads).toEqual([]);
+      expect(decideWorkerStrategyHistory({
+        packet: current,
+        source: {mode: "planner", actor: "github-actions[bot]"},
+        records,
+        dispatch_starts: starts,
+        materially_changed_heads: heads,
+      }).decision).toBe("SUPPRESS_REPEAT");
+    } finally {
+      rmSync(fixture.dir, {recursive: true, force: true});
+    }
+  });
+
 });
 
 describe("Worker strategy-history admission", () => {

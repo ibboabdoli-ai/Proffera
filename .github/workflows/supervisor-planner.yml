@@ -218,7 +218,7 @@ jobs:
             Write:
             {"action":"dispatch","reason":"...","packet":{...}}
 
-            packet must use the live main_sha from supervisor-context.json as base_sha, a unique task_id and work/proffera-* branch, a narrow graph_path, explicit allowed_paths/dependency_paths/forbidden_paths, required_checks exactly ["validate","codeql","targeted-ci-shadow","production-base-health","ai-review","final-gate"], risk_class 1..2 only, and production_mutation_allowed=false, merge_allowed=false, auto_merge_allowed=false. dependency_paths are read-only repository scopes for material source-of-truth/import dependencies outside allowed_paths; use [] when none. Class 3 or 4 work must return action "wait" because it requires explicit human authorization before implementation.
+            packet must use the live main_sha from supervisor-context.json as base_sha, a unique task_id and work/proffera-* branch, a narrow graph_path, explicit allowed_paths/dependency_paths/forbidden_paths, required_checks exactly ["validate","codeql","targeted-ci-shadow","production-base-health","ai-review","final-gate"], risk_class 1..2 only, and production_mutation_allowed=false, merge_allowed=false, auto_merge_allowed=false. dependency_paths are read-only repository scopes for source-of-truth/import context outside allowed_paths; use [] when none. They do not authorize automatic retry/re-entry: dependency-only changes require explicit trusted-owner re-entry. Class 3 or 4 work must return action "wait" because it requires explicit human authorization before implementation.
 
       - name: Validate planner output against live state
         if: steps.cheap.outputs.proceed == 'yes'

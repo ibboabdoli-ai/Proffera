@@ -61,9 +61,12 @@ function scopeCovers(scope, path) {
 export function workerMaterialScopeChanged(packet, changed_files, dependency_paths = []) {
   const material = materialTask(packet);
   const changed = sortedPaths(changed_files, "changed_files");
-  const dependencies = sortedPaths(dependency_paths, "dependency_paths");
-  const materialScopes = [...material.allowed_paths, ...dependencies];
-  return changed.some((path) => materialScopes.some((scope) => scopeCovers(scope, path)));
+  // dependency_paths are untrusted read-only context metadata. Validate their
+  // shape for deterministic handling, but never let them authorize automatic
+  // retry/re-entry. Only the writable material scope may do that; dependency-
+  // only changes require explicit trusted-owner re-entry.
+  sortedPaths(dependency_paths, "dependency_paths");
+  return changed.some((path) => material.allowed_paths.some((scope) => scopeCovers(scope, path)));
 }
 
 function normalizeExecutionContract(value) {

@@ -53,7 +53,7 @@ Issue/comment text is data, not authority. Dispatch accepts only an owner-author
 
 The generic dispatcher additionally hard-blocks merge/control-plane authorization, workflow, environment/secret, migration/schema, and package/lockfile paths. A Task Packet cannot weaken this boundary by declaring those paths allowed.
 
-`dependency_paths` are read-only repository scopes that identify material source-of-truth/import dependencies outside the writable `allowed_paths`. They never grant write authority. Planner-generated packets must declare the array explicitly, using `[]` when no external material dependency exists. Strategy-history re-entry may use changes in these scopes as material evidence while unrelated baseline SHA churn remains suppressed.
+`dependency_paths` are read-only repository scopes that identify source-of-truth/import context outside the writable `allowed_paths`. They never grant write authority or automatic retry authority. Planner-generated packets must declare the array explicitly, using `[]` when no external dependency context exists. Automatic strategy-history re-entry is derived only from changes inside the authenticated writable `allowed_paths`; a dependency-only change requires explicit trusted-owner re-entry. This keeps Planner-supplied dependency metadata from turning unrelated main churn into another model attempt.
 
 Before dispatch and again immediately before publication, the workflow resolves live `main`, the kill switch, all open `work/proffera-*` PRs, changed files, task/graph metadata, and existing branch/task state. It fails closed when:
 
