@@ -4,7 +4,8 @@ import chunk2 from "@/lib/donis-generated-menu-sprite/chunk-2";
 import chunk3 from "@/lib/donis-generated-menu-sprite/chunk-3";
 import chunk4 from "@/lib/donis-generated-menu-sprite/chunk-4";
 import chunk5 from "@/lib/donis-generated-menu-sprite/chunk-5";
-import chunk6 from "@/lib/donis-generated-menu-sprite/chunk-6";
+import chunk60 from "@/lib/donis-generated-menu-sprite/chunk-60";
+import chunk61 from "@/lib/donis-generated-menu-sprite/chunk-61";
 import chunk7 from "@/lib/donis-generated-menu-sprite/chunk-7";
 import chunk8 from "@/lib/donis-generated-menu-sprite/chunk-8";
 
@@ -16,7 +17,8 @@ export const DONIS_GENERATED_MENU_SPRITE =
   chunk3 +
   chunk4 +
   chunk5 +
-  chunk6 +
+  chunk60 +
+  chunk61 +
   chunk7 +
   chunk8;
 
