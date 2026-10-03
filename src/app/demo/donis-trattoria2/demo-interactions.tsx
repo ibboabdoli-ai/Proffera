@@ -26,9 +26,9 @@ import {
 } from "react";
 
 import {
-  DONIS_FALLBACK_IMAGES,
-  DONIS_FALLBACK_SITE,
-} from "@/lib/donis-fallback";
+  DONIS_LUXURY_FALLBACK_IMAGES,
+  DONIS_LUXURY_FALLBACK_SITE,
+} from "@/lib/donis-luxury-fallback";
 import type { RestaurantSite } from "@/lib/restaurant-site-schema";
 
 type Lang = "sv" | "en";
@@ -46,13 +46,6 @@ const currentOrderUrl =
 const phoneHref = "tel:+4686568400";
 const emailHref = "mailto:donitrattoria@gmail.com";
 const instagramUrl = "https://www.instagram.com/donis.trattoria/";
-
-const KNOWN_DEMO_PRICES_ORE: Record<string, number> = {
-  diavola: 23000,
-  "tagliatelle al ragu": 18000,
-  "spaghetti con scampi e zucchini": 21000,
-  "arrabiata con burrata": 20000,
-};
 
 const FEATURED_PRIORITY = [
   "diavola",
@@ -86,9 +79,9 @@ const copy = {
     menuKicker: "Vår meny",
     menuTitle: "Något för alla smaker",
     menuIntro:
-      "Italienska klassiker, europeiska favoriter och noga utvalda drycker.",
+      "Antipasti, färsk pasta, surdegspizza, utvalda huvudrätter och drycker.",
     menuFallbackNote:
-      "Ett urval från Doni’s tidigare presentation. Aktuell meny och priser uppdateras av restaurangen.",
+      "Utbud och priser kan ändras. Restaurangen uppdaterar aktuell meny.",
     noMenu:
       "Menyn publiceras snart. Kontakta restaurangen för aktuella rätter och priser.",
     galleryKicker: "Galleri",
@@ -141,9 +134,9 @@ const copy = {
     menuKicker: "Our menu",
     menuTitle: "Something for every taste",
     menuIntro:
-      "Italian classics, European favourites and carefully selected drinks.",
+      "Antipasti, fresh pasta, sourdough pizza, selected mains and drinks.",
     menuFallbackNote:
-      "A selection from Doni’s previous presentation. The restaurant maintains the current menu and prices.",
+      "Selection and prices may change. The restaurant maintains the current menu.",
     noMenu:
       "The menu will be published soon. Contact the restaurant for current dishes and prices.",
     galleryKicker: "Gallery",
@@ -249,10 +242,6 @@ function normalizeDishName(value: string) {
   return value.trim().toLocaleLowerCase("sv-SE");
 }
 
-function getKnownPriceOre(dish: Dish) {
-  return dish.priceOre ?? KNOWN_DEMO_PRICES_ORE[normalizeDishName(dish.name)] ?? null;
-}
-
 function SectionEyebrow({ children }: { children: ReactNode }) {
   return (
     <p className="text-[10px] font-black uppercase tracking-[0.34em] text-[#d6aa58] sm:text-[11px]">
@@ -303,8 +292,8 @@ export function DonisTrattoriaLuxuryExperience({
 
   const t = copy[lang];
   const isFallback = site === null;
-  const displaySite = site ?? DONIS_FALLBACK_SITE;
-  const displayImages = isFallback ? DONIS_FALLBACK_IMAGES : images;
+  const displaySite = site ?? DONIS_LUXURY_FALLBACK_SITE;
+  const displayImages = isFallback ? DONIS_LUXURY_FALLBACK_IMAGES : images;
   const text = displaySite.text;
 
   const visibleDishes = [...displaySite.dishes]
@@ -419,12 +408,12 @@ export function DonisTrattoriaLuxuryExperience({
   };
 
   const formatPrice = (dish: Dish) => {
-    const priceOre = getKnownPriceOre(dish);
-    if (priceOre === null) return null;
+    if (dish.priceOre === null) return null;
     return (
-      (priceOre / 100).toLocaleString(lang === "sv" ? "sv-SE" : "en-SE", {
-        maximumFractionDigits: 2,
-      }) + " kr"
+      (dish.priceOre / 100).toLocaleString(
+        lang === "sv" ? "sv-SE" : "en-SE",
+        { maximumFractionDigits: 2 },
+      ) + " kr"
     );
   };
 
