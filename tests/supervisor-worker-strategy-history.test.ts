@@ -20,7 +20,7 @@ const basePacket = {
   merge_allowed: false,
   auto_merge_allowed: false,
 };
-const prior = (packet = basePacket, outcome = "failed", runId = null, runAttempt = 1) => {
+const prior = (packet = basePacket, outcome = "failed", runId: number | null = null, runAttempt = 1) => {
   const descriptor = workerStrategyDescriptor(packet);
   return {
     action_id: "worker_codex_attempt",
