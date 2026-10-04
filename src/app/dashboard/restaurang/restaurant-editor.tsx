@@ -1244,6 +1244,12 @@ export function RestaurantEditor({
                   "story",
                   "ownerIntroduction",
                   "philosophy",
+                  "menuTitle",
+                  "menuIntro",
+                  "galleryTitle",
+                  "galleryIntro",
+                  "contactTitle",
+                  "contactBody",
                 ] as const
               ).map((field) => (
                 <div
@@ -1259,6 +1265,12 @@ export function RestaurantEditor({
                         story: "Restaurangens berättelse",
                         ownerIntroduction: "Presentation av ägaren",
                         philosophy: "Gästfrihet",
+                        menuTitle: "Menyrubrik",
+                        menuIntro: "Menyinledning",
+                        galleryTitle: "Gallerirubrik",
+                        galleryIntro: "Galleriinledning",
+                        contactTitle: "Kontaktrubrik",
+                        contactBody: "Kontakttext",
                       }[field]
                     }
                   </h3>
