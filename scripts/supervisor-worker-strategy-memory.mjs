@@ -48,7 +48,6 @@ function materialTask(packet) {
     task_goal: packet.task_goal,
     graph_path: packet.graph_path,
     allowed_paths: sortedPaths(packet.allowed_paths, "allowed_paths"),
-    risk_class: packet.risk_class,
   };
 }
 function normalizeHead(value, field) {

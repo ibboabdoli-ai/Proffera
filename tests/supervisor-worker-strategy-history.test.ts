@@ -94,10 +94,28 @@ describe("Worker strategy-history material identity", () => {
     ["goal", {task_goal: "A materially different goal"}],
     ["graph", {graph_path: "supervisor/worker/different-node"}],
     ["allowed scope", {allowed_paths: ["scripts/b.mjs"]}],
-    ["risk", {risk_class: 4}],
   ])("changes the evidence fingerprint for material %s changes", (_name, patch) => {
     expect(workerStrategyDescriptor({...basePacket, ...patch}).evidence_fingerprint)
       .not.toBe(workerStrategyDescriptor(basePacket).evidence_fingerprint);
+  });
+
+  it("keeps risk reclassification outside stable retry identity", () => {
+    const expected = workerStrategyDescriptor({...basePacket, risk_class: 1}).evidence_fingerprint;
+    for (const risk_class of [1, 2, 3, 4]) {
+      const descriptor = workerStrategyDescriptor({...basePacket, risk_class});
+      expect(descriptor.evidence_fingerprint).toBe(expected);
+      expect(descriptor.strategy_fingerprint).toBe(workerStrategyDescriptor(basePacket).strategy_fingerprint);
+    }
+
+    const priorRiskOne = {...basePacket, risk_class: 1};
+    const currentRiskTwo = {...basePacket, task_id: "RISK-RECLASSIFIED", risk_class: 2};
+    expect(decideWorkerStrategyHistory({
+      packet: currentRiskTwo,
+      source: {mode: "planner", actor: "github-actions[bot]"},
+      records: [prior(priorRiskOne, "failed", 20, 1)],
+      dispatch_starts: [dispatchStart(priorRiskOne, 20, 1)],
+      materially_changed_heads: [],
+    }).decision).toBe("SUPPRESS_REPEAT");
   });
 
   it("binds strategy identity to the canonical execution contract", () => {
