@@ -1297,6 +1297,46 @@ export function RestaurantEditor({
               </label>
             </section>
           )}
+          {section === "business" && (
+            <section className="grid gap-5">
+              <div>
+                <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-[#8a493a]">
+                  På webbplatsen: Kontakt / Hitta hit / Footer
+                </p>
+                <h2 className="mt-1 font-serif text-2xl">Kontaktuppgifter</h2>
+                <p className="mt-2 text-sm text-[#665b50]">
+                  De här uppgifterna används direkt i Demo 2 när utkastet publiceras.
+                </p>
+              </div>
+              {([
+                ["name", "Restaurangnamn", "text"],
+                ["address", "Gatuadress", "text"],
+                ["postalCode", "Postnummer", "text"],
+                ["city", "Ort", "text"],
+                ["phone", "Telefon", "tel"],
+                ["email", "E-post", "email"],
+                ["instagram", "Instagram-namn", "text"],
+                ["instagramUrl", "Instagram-länk", "url"],
+                ["orgNumber", "Organisationsnummer", "text"],
+                ["mapUrl", "Kartlänk / Hitta hit", "url"],
+              ] as const).map(([field, label, type]) => (
+                <label key={field} className="text-sm font-semibold">
+                  {label}
+                  <input
+                    className={input}
+                    type={type}
+                    value={site.business[field]}
+                    onChange={(event) =>
+                      edit((next) => {
+                        next.business[field] = event.target.value;
+                      })
+                    }
+                    placeholder={type === "url" ? "https://" : undefined}
+                  />
+                </label>
+              ))}
+            </section>
+          )}
           {section === "hours" && (
             <section>
               <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-[#8a493a]">På webbplatsen: Kontakt / Öppettider</p>
