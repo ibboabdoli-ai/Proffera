@@ -190,9 +190,13 @@ export function proveReviewRepairPrelaunchRecovery(input) {
   const prNumber = positiveInteger(input?.pr_number, "pr_number");
   const start = normalizeRecoveryStart(input?.start, prNumber);
   const run = input?.run;
-  if (!run || typeof run !== "object" || Array.isArray(run)
-    || Number(run.id) !== start.run_id
+  if (!run || typeof run !== "object" || Array.isArray(run)) {
+    fail("recovery_run_binding");
+  }
+  const runHead = sha(run.head_sha, "recovery_run_head");
+  if (Number(run.id) !== start.run_id
     || Number(run.run_attempt) !== start.run_attempt
+    || runHead !== start.head
     || run.event !== "workflow_dispatch"
     || run.path !== ".github/workflows/supervisor-review-repair.yml"
     || run.name !== "Supervisor review repair") {
