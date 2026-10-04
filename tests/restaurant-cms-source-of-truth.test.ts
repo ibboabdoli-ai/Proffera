@@ -75,6 +75,9 @@ describe("Doni restaurant CMS source of truth", () => {
     expect(demo).not.toContain("currentOrderUrl");
     expect(demo).toContain("const order = displaySite.links.order;");
     expect(demo).toContain("{order && (");
+    expect(demo).toContain("? heroFallback");
+    expect(demo).toContain(": null;");
+    expect(demo).toContain("{hero && (");
   });
 
   it("generates Demo 2 browser and social metadata from the published CMS document", () => {
