@@ -48,7 +48,7 @@ describe("Doni demo 2", () => {
     expect(fallback).toContain("pexelsPhoto(6542787)");
     expect(fallback).toContain("pexelsPhoto(36791051)");
     expect(fallback).toContain("pexelsPhoto(4915835)");
-    const pexelsPhotoIds = [...fallback.matchAll(/pexelsPhoto\\((\\d+)\\)/g)].map(
+    const pexelsPhotoIds = [...fallback.matchAll(/pexelsPhoto\((\d+)\)/g)].map(
       (match) => match[1],
     );
     expect(pexelsPhotoIds.length).toBeGreaterThanOrEqual(30);
