@@ -397,8 +397,22 @@ export function DonisTrattoriaLuxuryExperience({
       ? galleryVisuals
       : galleryVisuals.filter((item) => item.kind === galleryFilter);
 
+  const fallbackAboutMedia = DONIS_LUXURY_FALLBACK_SITE.media.family;
+  const fallbackContactMedia = DONIS_LUXURY_FALLBACK_SITE.media.gallery.find(
+    (item) => item.kind === "exterior",
+  );
+
   const contactImage =
-    rawGallery.find((item) => item.kind === "exterior") ?? null;
+    rawGallery.find((item) => item.kind === "exterior") ??
+    (fallbackContactMedia &&
+    DONIS_LUXURY_FALLBACK_IMAGES[fallbackContactMedia.id]
+      ? {
+          id: fallbackContactMedia.id,
+          url: DONIS_LUXURY_FALLBACK_IMAGES[fallbackContactMedia.id],
+          alt: fallbackContactMedia.alt[lang],
+          kind: "exterior" as GalleryKind,
+        }
+      : null);
 
   const aboutImage =
     displaySite.media.family && displayImages[displaySite.media.family.id]
@@ -416,7 +430,14 @@ export function DonisTrattoriaLuxuryExperience({
                 item.kind === "interior" ||
                 item.kind === "exterior" ||
                 item.kind === "atmosphere",
-            ) ?? rawGallery[0] ?? { url: hero, alt: "Doni’s Trattoria" };
+            ) ??
+          (fallbackAboutMedia &&
+          DONIS_LUXURY_FALLBACK_IMAGES[fallbackAboutMedia.id]
+            ? {
+                url: DONIS_LUXURY_FALLBACK_IMAGES[fallbackAboutMedia.id],
+                alt: fallbackAboutMedia.alt[lang],
+              }
+            : rawGallery[0] ?? { url: hero, alt: "Doni’s Trattoria" });
 
   const galleryKindLabel = (kind: string) => {
     if (kind === "food") return t.kindFood;

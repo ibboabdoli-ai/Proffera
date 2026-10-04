@@ -38,6 +38,8 @@ const imageIds = {
   aboutChef: "a2df4dee-64ad-592f-b44f-d4d2683c0249",
   atmosphereTable: "f744f19e-b284-5b37-aca3-b8bb1cfd3a95",
   tiramisu: "a9d12f79-8827-53df-a7bc-9c98d69a9d41",
+  aboutInterior: "cc000001-0000-4000-8000-000000000001",
+  contactExterior: "cc000002-0000-4000-8000-000000000002",
   olives: "bb000001-0000-4000-8000-000000000001",
   garlicBread: "bb000002-0000-4000-8000-000000000002",
   cheeseFries: "bb000003-0000-4000-8000-000000000003",
@@ -209,6 +211,8 @@ export const DONIS_LUXURY_FALLBACK_IMAGES: Record<string, string> = {
     "https://www-static.restaurangkungsholmen.se/wp-content/uploads/2025/05/donis-utfyl.jpg",
   [imageIds.tiramisu]:
     "https://www-static.restaurangkungsholmen.se/wp-content/uploads/2025/05/donis-efterratt.jpg",
+  [imageIds.aboutInterior]: "/donis/about-interior.webp",
+  [imageIds.contactExterior]: "/donis/contact-exterior.webp",
   [imageIds.olives]: pexelsPhoto(24916807),
   [imageIds.garlicBread]: pexelsPhoto(20150374),
   [imageIds.cheeseFries]: pexelsPhoto(19264409),
@@ -247,8 +251,32 @@ export const DONIS_LUXURY_FALLBACK_IMAGES: Record<string, string> = {
 
 export const DONIS_LUXURY_FALLBACK_SITE: RestaurantSite = {
   ...DONIS_FALLBACK_SITE,
+  text: {
+    ...DONIS_FALLBACK_SITE.text,
+    aboutTitle: {
+      sv: "Italiensk passion vid vattnet",
+      en: "Italian passion by the water",
+    },
+    story: {
+      sv: "Doni’s Trattoria har fått ett nytt kapitel vid Hornsbergs Strand. Efter ägarbytet drivs restaurangen vidare med en familjär känsla och en tydlig idé: att skapa en varm mötesplats där italiensk mat, omtanke och personlig service står i centrum.",
+      en: "Doni’s Trattoria is beginning a new chapter by Hornsbergs Strand. Following a change of ownership, the restaurant is being carried forward with a family-minded spirit and a clear idea: to create a warm meeting place centred on Italian food, care and personal service.",
+    },
+    ownerIntroduction: {
+      sv: "För den nya ägaren handlar Doni’s om mer än pizza och pasta. Ambitionen är att bygga en personlig restaurang för familjemiddagar, spontana luncher och långa kvällar med vänner vid vattnet.",
+      en: "For the new owner, Doni’s is about more than pizza and pasta. The ambition is to build a personal restaurant for family dinners, spontaneous lunches and long evenings with friends by the water.",
+    },
+    philosophy: {
+      sv: "Menyn kombinerar italienska klassiker med några utvalda favoriter, samtidigt som Doni’s utvecklas steg för steg med fokus på bra råvaror, välkomnande service och en avslappnad atmosfär.",
+      en: "The menu combines Italian classics with a few selected favourites, while Doni’s continues to develop step by step with a focus on quality ingredients, welcoming service and a relaxed atmosphere.",
+    },
+  },
   media: {
     ...DONIS_FALLBACK_SITE.media,
+    family: dishImage(
+      imageIds.aboutInterior,
+      "Interiör på Doni’s Trattoria vid Hornsbergs Strand",
+      "Interior of Doni’s Trattoria at Hornsbergs Strand",
+    ),
     owner: dishImage(
       imageIds.aboutChef,
       "Matlagning på Doni’s Trattoria",
@@ -264,6 +292,15 @@ export const DONIS_LUXURY_FALLBACK_SITE: RestaurantSite = {
         ),
         kind: "atmosphere",
         sortOrder: 3,
+      },
+      {
+        ...dishImage(
+          imageIds.contactExterior,
+          "Doni’s Trattoria vid Hornsbergs Strand",
+          "Doni’s Trattoria by Hornsbergs Strand",
+        ),
+        kind: "exterior",
+        sortOrder: 4,
       },
     ],
   },
