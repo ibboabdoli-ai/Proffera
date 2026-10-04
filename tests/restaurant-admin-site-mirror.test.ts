@@ -49,7 +49,7 @@ describe("Doni admin mirrors the public demo", () => {
 
     expect(page).toContain("referenceHeroImage={referenceHeroImage}");
     expect(page).toContain("referenceGalleryImages={referenceGalleryImages}");
-    expect(page).toContain("DONIS_LUXURY_FALLBACK_SITE.dishes")
+    expect(page).toContain("DONIS_LUXURY_FALLBACK_SITE.dishes");
     expect(editor).toContain("Referensbilder från demosidan");
     expect(editor).toContain("referenceDishImages[dish.id]");
     expect(editor).toContain("referenceHeroImage");
