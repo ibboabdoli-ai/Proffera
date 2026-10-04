@@ -8,6 +8,8 @@ describe("Doni restaurant CMS source of truth", () => {
     expect(schema).toContain("business: z.object");
     expect(schema).toContain("const phoneOrEmpty = z");
     expect(schema).toContain("phone: phoneOrEmpty");
+    expect(schema).toContain("instagram: instagramHandleOrEmpty");
+    expect(schema).toContain("instagramUrl: instagramUrlOrEmpty");
     expect(schema).toContain('name: z.string().trim().min(1).max(120)');
     for (const field of [
       "address",
@@ -41,6 +43,8 @@ describe("Doni restaurant CMS source of truth", () => {
     expect(editor).toContain('id: "business"');
     expect(editor).toContain("Dish name EN");
     expect(editor).toContain("site.business[field]");
+    expect(editor).toContain('field === "address"');
+    expect(editor).toContain("next.business.mapUrl = \"\"");
     expect(page).toContain("DONIS_LUXURY_FALLBACK_SITE.dishes");
     expect(page).toContain("referenceItems");
   });
