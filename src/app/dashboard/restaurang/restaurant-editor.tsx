@@ -149,6 +149,21 @@ export function RestaurantEditor({
   const [section, setSection] = useState<Section>("menu");
   const [selectedDish, setSelectedDish] = useState<string | null>(null);
   const [alt, setAlt] = useState("");
+  const bundledMedia = [
+    DONIS_LUXURY_FALLBACK_SITE.media.hero,
+    DONIS_LUXURY_FALLBACK_SITE.media.owner,
+    DONIS_LUXURY_FALLBACK_SITE.media.family,
+    ...DONIS_LUXURY_FALLBACK_SITE.media.gallery,
+    ...DONIS_LUXURY_FALLBACK_SITE.dishes.map((item) => item.image),
+  ].filter(
+    (
+      item,
+    ): item is NonNullable<RestaurantSite["dishes"][number]["image"]> =>
+      item !== null,
+  );
+  const uniqueBundledMedia = Array.from(
+    new Map(bundledMedia.map((item) => [item.id, item])).values(),
+  );
   const allowNavigationRef = useRef(false);
   const restoringHistoryRef = useRef(false);
 
@@ -368,17 +383,26 @@ export function RestaurantEditor({
           aria-label="Välj befintlig bild"
           onChange={(event) => {
             const media = images.find((item) => item.id === event.target.value);
+            const bundled = uniqueBundledMedia.find(
+              (item) => item.id === event.target.value,
+            );
             setPhoto(
               media
                 ? { id: media.id, alt: { sv: media.alt, en: media.alt } }
-                : null,
+                : bundled
+                  ? { id: bundled.id, alt: structuredClone(bundled.alt) }
+                  : null,
             );
           }}
         >
           <option value="">Ingen bild</option>
-          {current && bundledUrl && !currentImage && (
-            <option value={current.id}>Demo 2-bild · {current.id.slice(0, 8)}</option>
-          )}
+          {uniqueBundledMedia
+            .filter((item) => !images.some((owned) => owned.id === item.id))
+            .map((item) => (
+              <option key={`demo-${item.id}`} value={item.id}>
+                Demo 2 · {item.alt[locale] || item.alt.sv || item.id.slice(0, 8)}
+              </option>
+            ))}
           {images.map((item) => (
             <option key={item.id} value={item.id}>
               {item.alt} · {item.id.slice(0, 8)}
@@ -1127,6 +1151,28 @@ export function RestaurantEditor({
               ))}
               <div className="border-t border-[#d9cfc1] pt-4">
                 <h3 className="font-serif text-xl">Galleri</h3>
+                <button
+                  className={`${button} mt-3 mr-2`}
+                  type="button"
+                  onClick={() =>
+                    edit((next) => {
+                      const existing = new Set(
+                        next.media.gallery.map((item) => item.id),
+                      );
+                      for (const item of DONIS_LUXURY_FALLBACK_SITE.media.gallery) {
+                        if (existing.has(item.id) || next.media.gallery.length >= 50)
+                          continue;
+                        next.media.gallery.push({
+                          ...structuredClone(item),
+                          sortOrder: next.media.gallery.length,
+                        });
+                        existing.add(item.id);
+                      }
+                    })
+                  }
+                >
+                  + Lägg till Demo 2-galleri
+                </button>
                 <button
                   className={`${button} mt-3`}
                   onClick={() => {
