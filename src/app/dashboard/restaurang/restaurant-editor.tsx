@@ -2,18 +2,29 @@
 
 import { useEffect, useRef, useState, type ChangeEvent } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { createDonisAdminStarterSite } from "@/lib/donis-fallback";
+import {
+  createDonisLuxuryAdminStarterSite,
+  DONIS_LUXURY_FALLBACK_SITE,
+} from "@/lib/donis-luxury-fallback";
 import type { RestaurantSite } from "@/lib/restaurant-site-schema";
 import { parseRestaurantPrice } from "@/lib/restaurant-price";
 import { saveDraft } from "./actions";
 
 type Media = { id: string; url: string; alt: string };
-type Section = "menu" | "categories" | "photos" | "content" | "hours" | "links";
+type Section =
+  | "menu"
+  | "categories"
+  | "photos"
+  | "content"
+  | "contact"
+  | "hours"
+  | "links";
 const sections: { id: Section; label: string; hint: string }[] = [
   { id: "menu", label: "Meny", hint: "Rätter och priser" },
   { id: "categories", label: "Kategorier", hint: "Rubriker i menyn" },
   { id: "photos", label: "Bilder", hint: "Hero, galleri och matbilder" },
   { id: "content", label: "Texter", hint: "Hero och Om oss" },
+  { id: "contact", label: "Kontakt", hint: "Adress och företagsinfo" },
   { id: "hours", label: "Öppettider", hint: "Kontaktsektionen" },
   { id: "links", label: "Länkar", hint: "Qopla och bokning" },
 ];
@@ -109,6 +120,7 @@ export function RestaurantEditor({
   referenceDishImages = {},
   referenceHeroImage,
   referenceGalleryImages = [],
+  referenceMediaImages = {},
 }: {
   initial: {
     draft: RestaurantSite;
@@ -121,6 +133,7 @@ export function RestaurantEditor({
   referenceDishImages?: Record<string, string>;
   referenceHeroImage?: string;
   referenceGalleryImages?: string[];
+  referenceMediaImages?: Record<string, string>;
 }) {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -241,7 +254,7 @@ export function RestaurantEditor({
         : "Ersätt nuvarande utkast med redigerbara exempel från demosidan? Inget sparas förrän du trycker Spara.",
     );
     if (!confirmed) return;
-    setSite(createDonisAdminStarterSite());
+    setSite(createDonisLuxuryAdminStarterSite());
     setStarter(true);
     setSection("menu");
     setSelectedDish(null);
