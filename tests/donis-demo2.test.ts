@@ -32,7 +32,8 @@ describe("Doni demo 2", () => {
     expect(source).toContain("dish.priceOre === null");
     expect(source).toContain("IntersectionObserver");
     expect(source).toContain("document.documentElement.lang = lang");
-    expect(source).toContain("currentOrderUrl");
+    expect(source).not.toContain("currentOrderUrl");
+    expect(source).toContain("const order = displaySite.links.order");
     expect(source).toContain("mapEmbedUrl");
     expect(source).not.toContain("DONIS_GENERATED_MENU_TILE_BY_IMAGE_ID");
     expect(source).not.toContain('backgroundSize: "400% 400%"');
@@ -98,7 +99,9 @@ describe("Doni demo 2", () => {
     expect(firstDemo).toContain("./demo-interactions");
     expect(secondDemo).toContain("./demo-interactions");
     expect(firstDemo).toContain("Doni’s Trattoria | Stockholm");
-    expect(secondDemo).toContain("Doni’s Trattoria | Premium concept");
+    expect(secondDemo).toContain("generateMetadata");
+    expect(secondDemo).toContain("const title = business.city");
+    expect(secondDemo).toContain("applicationName: name");
     expect(firstDemoInteractions).toContain("DONIS_FALLBACK_SITE");
     expect(firstDemoInteractions).not.toContain("DONIS_LUXURY_FALLBACK_SITE");
   });
