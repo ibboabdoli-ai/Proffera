@@ -1010,6 +1010,14 @@ describe("Supervisor control-plane v2", () => {
     expect(trustedPublishJob).toContain("PROFFERA_AUTOFIX_PUSH_TOKEN");
     expect(trustedPublishJob.indexOf("Revalidate settled current-head finding burst before publication"))
       .toBeLessThan(trustedPublishJob.indexOf("PROFFERA_AUTOFIX_PUSH_TOKEN"));
+    expect(trustedPublishJob).toContain("Current-head review finding burst changed at the push boundary");
+    expect(trustedPublishJob).toContain("push_guard_head=");
+    const repairCommitIndex = trustedPublishJob.indexOf('git commit -m "[review-repair] batch current-head verified findings"');
+    const pushBoundaryGuardIndex = trustedPublishJob.indexOf("push_boundary_findings=");
+    const repairPushIndex = trustedPublishJob.indexOf('git push origin "HEAD:refs/heads/${HEAD_REF}"');
+    expect(repairCommitIndex).toBeGreaterThanOrEqual(0);
+    expect(pushBoundaryGuardIndex).toBeGreaterThan(repairCommitIndex);
+    expect(repairPushIndex).toBeGreaterThan(pushBoundaryGuardIndex);
 
     expect(recordJob).toContain("if: always() && needs.admit.outputs.attempt_started == 'yes'");
     expect(recordJob).toContain("issues: write");

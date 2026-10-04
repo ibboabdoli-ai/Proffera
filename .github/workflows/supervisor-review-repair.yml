@@ -542,6 +542,7 @@ jobs:
           PR_NUMBER: ${{ inputs.pr_number }}
           EXPECTED_HEAD: ${{ needs.repair.outputs.head_sha }}
           HEAD_REF: ${{ needs.repair.outputs.head_ref }}
+          EXPECTED_FINDING_SET_SHA256: ${{ needs.repair.outputs.finding_set_sha256 }}
           PUSH_TOKEN: ${{ secrets.PROFFERA_AUTOFIX_PUSH_TOKEN }}
         shell: bash
         run: |
@@ -553,6 +554,36 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add --all
           git commit -m "[review-repair] batch current-head verified findings"
+          # Close the last stale-evidence window at the actual publication boundary.
+          # A reviewer may post another finding after the earlier validation guard while
+          # the candidate patch is being applied or scope-validated.
+          push_guard_head="$(gh api "repos/${REPOSITORY}/pulls/${PR_NUMBER}" --jq '.head.sha')"
+          test "$push_guard_head" = "$EXPECTED_HEAD" || {
+            echo "PR head changed immediately before Review Repair publication; refusing stale push." >&2
+            exit 1
+          }
+          review_temp="$(mktemp -d)"
+          bots='select(.user.login == "coderabbitai[bot]" or .user.login == "chatgpt-codex-connector[bot]")'
+          gh api --paginate "repos/${REPOSITORY}/pulls/${PR_NUMBER}/reviews?per_page=100" --jq '.[]' | jq -s "[.[] | ${bots}]" > "$review_temp/reviews.json"
+          gh api --paginate "repos/${REPOSITORY}/pulls/${PR_NUMBER}/comments?per_page=100" --jq '.[]' | jq -s "[.[] | ${bots}]" > "$review_temp/inline.json"
+          jq -e 'type == "array" and length <= 1000' "$review_temp/reviews.json" >/dev/null
+          jq -e 'type == "array" and length <= 1000' "$review_temp/inline.json" >/dev/null
+          jq -n --arg head "$EXPECTED_HEAD" --slurpfile reviews "$review_temp/reviews.json" --slurpfile inline "$review_temp/inline.json" '
+            [
+              ($reviews[0][]
+                | select(.commit_id == $head and .state == "CHANGES_REQUESTED")
+                | "review:" + (.id | tostring)),
+              ($inline[0][]
+                | select(.original_commit_id == $head)
+                | "inline:" + (.id | tostring))
+            ] | unique | sort
+          ' > "$review_temp/finding_ids.json"
+          push_boundary_findings="$(sha256sum "$review_temp/finding_ids.json" | cut -d' ' -f1)"
+          rm -rf "$review_temp"
+          test "$push_boundary_findings" = "$EXPECTED_FINDING_SET_SHA256" || {
+            echo "Current-head review finding burst changed at the push boundary; refusing stale repair publication." >&2
+            exit 1
+          }
           cleanup() { git config --local --unset credential.helper || true; }
           trap cleanup EXIT
           git config --local credential.helper '!f() { echo username=x-access-token; echo "password=$PUSH_TOKEN"; }; f'
