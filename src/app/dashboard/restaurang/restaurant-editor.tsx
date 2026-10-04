@@ -465,6 +465,8 @@ export function RestaurantEditor({
     });
   }
   const dish = site.dishes.find((item) => item.id === selectedDish);
+  const editableContact =
+    site.contact ?? DONIS_LUXURY_FALLBACK_SITE.contact!;
   const status = dirty
     ? "Osparade ändringar"
     : revision !== publishedRevision
@@ -1286,6 +1288,52 @@ export function RestaurantEditor({
                   ))}
                 </div>
               ))}
+              <div className="grid gap-3 border-b border-[#d9cfc1] pb-4">
+                <h3 className="font-semibold">Kontaktsektion</h3>
+                {(["sv", "en"] as const).map((language) => (
+                  <div key={language} className="grid gap-3">
+                    <label className="text-sm">
+                      {language === "sv" ? "Kontakt-rubrik SV" : "Contact title EN"}
+                      <input
+                        className={input}
+                        value={
+                          site.text.contactTitle?.[language] ??
+                          DONIS_LUXURY_FALLBACK_SITE.text.contactTitle?.[language] ??
+                          ""
+                        }
+                        onChange={(event) =>
+                          edit((next) => {
+                            next.text.contactTitle ??= { sv: "", en: "" };
+                            next.text.contactTitle[language] = event.target.value;
+                          })
+                        }
+                      />
+                    </label>
+                    <label className="text-sm">
+                      {language === "sv"
+                        ? "Kontakttext SV"
+                        : "Contact description EN"}
+                      <textarea
+                        className={`${input} min-h-20 py-3`}
+                        value={
+                          site.text.contactDescription?.[language] ??
+                          DONIS_LUXURY_FALLBACK_SITE.text.contactDescription?.[
+                            language
+                          ] ??
+                          ""
+                        }
+                        onChange={(event) =>
+                          edit((next) => {
+                            next.text.contactDescription ??= { sv: "", en: "" };
+                            next.text.contactDescription[language] =
+                              event.target.value;
+                          })
+                        }
+                      />
+                    </label>
+                  </div>
+                ))}
+              </div>
               <label className="text-sm">
                 Grundat år (om bekräftat)
                 <input
@@ -1303,6 +1351,56 @@ export function RestaurantEditor({
                   }
                 />
               </label>
+            </section>
+          )}
+          {section === "contact" && (
+            <section className="grid gap-5">
+              <div>
+                <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-[#8a493a]">
+                  På webbplatsen: Kontakt / Hitta hit
+                </p>
+                <h2 className="mt-1 font-serif text-2xl">Kontaktuppgifter</h2>
+              </div>
+              <p className="text-sm leading-6 text-[#665b50]">
+                Dessa uppgifter används direkt i Demo 2 och i kontaktsektionen.
+              </p>
+              {(
+                [
+                  ["addressLine1", "Gatuadress"],
+                  ["postalCode", "Postnummer"],
+                  ["city", "Ort"],
+                  ["phone", "Telefon"],
+                  ["email", "E-post"],
+                  ["instagram", "Instagram"],
+                  ["orgNumber", "Org.nr"],
+                  ["mapsUrl", "Google Maps / Hitta hit-länk"],
+                ] as const
+              ).map(([field, label]) => (
+                <label key={field} className="text-sm font-semibold">
+                  {label}
+                  <input
+                    className={input}
+                    type={
+                      field === "email"
+                        ? "email"
+                        : field === "mapsUrl"
+                          ? "url"
+                          : "text"
+                    }
+                    inputMode={field === "mapsUrl" ? "url" : undefined}
+                    value={editableContact[field]}
+                    onChange={(event) =>
+                      edit((next) => {
+                        next.contact ??= structuredClone(
+                          DONIS_LUXURY_FALLBACK_SITE.contact!,
+                        );
+                        next.contact[field] = event.target.value;
+                      })
+                    }
+                    placeholder={field === "mapsUrl" ? "https://" : undefined}
+                  />
+                </label>
+              ))}
             </section>
           )}
           {section === "hours" && (
