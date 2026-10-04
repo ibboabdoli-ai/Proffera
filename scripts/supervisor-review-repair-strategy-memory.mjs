@@ -12,6 +12,7 @@ import {
 
 const EXPECTED_REPOSITORY = "ibboabdoli-ai/Proffera";
 const START_PREFIX = "<!-- proffera-review-repair-start:v1:";
+const RECOVERY_PREFIX = "<!-- proffera-review-repair-recovery:v1:";
 const OUTCOMES = new Set(["failed", "no_change", "cancelled", "succeeded"]);
 export const MAX_AUTOMATIC_REVIEW_REPAIR_ATTEMPTS = 2;
 
@@ -143,6 +144,73 @@ export function reviewRepairStartBody(input) {
   return `${marker}\n\`\`\`json\n${canonical(payload)}\n\`\`\``;
 }
 
+export function reviewRepairRecoveryBody(input) {
+  repository(input?.repository);
+  const descriptor = reviewRepairStrategyDescriptor(input);
+  const runId = positiveInteger(input?.run_id, "run_id");
+  const runAttempt = positiveInteger(input?.run_attempt, "run_attempt");
+  const recoveredByRunId = positiveInteger(input?.recovered_by_run_id, "recovered_by_run_id");
+  const recoveredByRunAttempt = positiveInteger(input?.recovered_by_run_attempt, "recovered_by_run_attempt");
+  if (runId === recoveredByRunId && runAttempt === recoveredByRunAttempt) fail("recovery_self");
+  const payload = {
+    pr_number: descriptor.pr_number,
+    run_id: runId,
+    run_attempt: runAttempt,
+    head: descriptor.head,
+    finding_digest: descriptor.finding_digest,
+    evidence_fingerprint: descriptor.evidence_fingerprint,
+    strategy_fingerprint: descriptor.strategy_fingerprint,
+    recovered_by_run_id: recoveredByRunId,
+    recovered_by_run_attempt: recoveredByRunAttempt,
+    reason: "model_not_launched",
+  };
+  const marker = `${RECOVERY_PREFIX}${descriptor.pr_number}:${runId}:${runAttempt} -->`;
+  return `${marker}\n\`\`\`json\n${canonical(payload)}\n\`\`\``;
+}
+
+export function proveReviewRepairPrelaunchRecovery(input) {
+  repository(input?.repository);
+  const descriptor = reviewRepairStrategyDescriptor(input);
+  const start = input?.start;
+  if (!start || typeof start !== "object" || Array.isArray(start)
+    || start.pr_number !== descriptor.pr_number
+    || positiveInteger(start.run_id, "start_run") !== start.run_id
+    || positiveInteger(start.run_attempt, "start_attempt") !== start.run_attempt
+    || start.head !== descriptor.head
+    || start.finding_digest !== descriptor.finding_digest
+    || start.evidence_fingerprint !== descriptor.evidence_fingerprint
+    || start.strategy_fingerprint !== descriptor.strategy_fingerprint) {
+    fail("recovery_candidate_binding");
+  }
+  const run = input?.run;
+  if (!run || typeof run !== "object" || Array.isArray(run)
+    || Number(run.id) !== start.run_id
+    || Number(run.run_attempt) !== start.run_attempt
+    || run.event !== "workflow_dispatch"
+    || run.path !== ".github/workflows/supervisor-review-repair.yml"
+    || run.name !== "Supervisor review repair") {
+    fail("recovery_run_binding");
+  }
+  if (run.status !== "completed") {
+    return {recoverable: false, reason: "run_not_terminal"};
+  }
+  if (run.conclusion === "success") {
+    return {recoverable: false, reason: "run_succeeded"};
+  }
+  const jobs = input?.jobs;
+  if (!Array.isArray(jobs) || jobs.length > 1000) fail("recovery_jobs");
+  const admitJobs = jobs.filter((job) => job?.name === "Settle review burst and admit one bounded attempt");
+  if (admitJobs.length !== 1 || admitJobs[0]?.status !== "completed") fail("recovery_jobs_binding");
+  const repairJobs = jobs.filter((job) => job?.name === "Batch current-head review findings");
+  if (repairJobs.length === 0) {
+    return {recoverable: true, reason: "repair_job_absent"};
+  }
+  if (repairJobs.every((job) => job?.status === "completed" && job?.conclusion === "skipped")) {
+    return {recoverable: true, reason: "repair_job_skipped"};
+  }
+  return {recoverable: false, reason: "repair_job_may_have_launched"};
+}
+
 export function parseReviewRepairStarts(comments, {repository: repo, pr_number}) {
   repository(repo);
   const prNumber = positiveInteger(pr_number, "pr_number");
@@ -200,6 +268,108 @@ export function parseReviewRepairStarts(comments, {repository: repo, pr_number})
     }
   }
   return result.sort((a, b) => a.run_id - b.run_id || a.run_attempt - b.run_attempt);
+}
+
+
+export function parseReviewRepairRecoveries(comments, {repository: repo, pr_number}) {
+  repository(repo);
+  const prNumber = positiveInteger(pr_number, "pr_number");
+  if (!Array.isArray(comments) || comments.length > LIMITS.comments) fail("comments");
+  const result = [];
+  const seen = new Map();
+  for (const comment of comments) {
+    if (comment?.user?.login !== "github-actions[bot]" || comment?.user?.type !== "Bot") continue;
+    const body = String(comment?.body ?? "");
+    if (!body.includes(RECOVERY_PREFIX)) continue;
+    if (typeof comment.issue_url !== "string"
+      || comment.issue_url.toLowerCase() !== `https://api.github.com/repos/${EXPECTED_REPOSITORY.toLowerCase()}/issues/548`) {
+      fail("recovery_provenance");
+    }
+    if (Buffer.byteLength(body, "utf8") > LIMITS.body_bytes) fail("recovery_body_bound");
+    const match = body.match(/^<!-- proffera-review-repair-recovery:v1:([1-9][0-9]*):([1-9][0-9]*):([1-9][0-9]*) -->\n\`\`\`json\n([^\n]+)\n\`\`\`$/);
+    if (!match) fail("recovery_body");
+    const markerPr = positiveInteger(match[1], "recovery_pr");
+    const runId = positiveInteger(match[2], "recovery_run");
+    const runAttempt = positiveInteger(match[3], "recovery_attempt");
+    let payload;
+    try { payload = JSON.parse(match[4]); } catch { fail("recovery_json"); }
+    const expectedFields = [
+      "evidence_fingerprint", "finding_digest", "head", "pr_number", "reason",
+      "recovered_by_run_attempt", "recovered_by_run_id", "run_attempt", "run_id", "strategy_fingerprint",
+    ];
+    if (!payload || typeof payload !== "object" || Array.isArray(payload)
+      || Object.keys(payload).sort().join("|") !== expectedFields.sort().join("|")
+      || canonical(payload) !== match[4]
+      || payload.reason !== "model_not_launched") {
+      fail("recovery_payload");
+    }
+    if (payload.pr_number !== markerPr || payload.run_id !== runId || payload.run_attempt !== runAttempt) {
+      fail("recovery_binding");
+    }
+    sha(payload.head, "recovery_head");
+    if (payload.recovered_by_run_id !== positiveInteger(payload.recovered_by_run_id, "recovered_by_run_id")
+      || payload.recovered_by_run_attempt !== positiveInteger(payload.recovered_by_run_attempt, "recovered_by_run_attempt")
+      || (payload.recovered_by_run_id === runId && payload.recovered_by_run_attempt === runAttempt)) {
+      fail("recovery_binding");
+    }
+    for (const field of ["finding_digest", "evidence_fingerprint", "strategy_fingerprint"]) {
+      if (typeof payload[field] !== "string" || !/^[a-f0-9]{64}$/.test(payload[field])) fail("recovery_digest");
+    }
+    if (markerPr !== prNumber) continue;
+    const key = `${runId}:${runAttempt}`;
+    const normalized = {
+      pr_number: markerPr,
+      run_id: runId,
+      run_attempt: runAttempt,
+      head: payload.head,
+      finding_digest: payload.finding_digest,
+      evidence_fingerprint: payload.evidence_fingerprint,
+      strategy_fingerprint: payload.strategy_fingerprint,
+      recovered_by_run_id: payload.recovered_by_run_id,
+      recovered_by_run_attempt: payload.recovered_by_run_attempt,
+    };
+    const binding = {
+      pr_number: normalized.pr_number,
+      run_id: normalized.run_id,
+      run_attempt: normalized.run_attempt,
+      head: normalized.head,
+      finding_digest: normalized.finding_digest,
+      evidence_fingerprint: normalized.evidence_fingerprint,
+      strategy_fingerprint: normalized.strategy_fingerprint,
+    };
+    const prior = seen.get(key);
+    if (prior && canonical(prior.binding) !== canonical(binding)) fail("recovery_conflict");
+    if (!prior) {
+      seen.set(key, {binding, normalized});
+      result.push(normalized);
+    }
+  }
+  return result.sort((a, b) => a.run_id - b.run_id || a.run_attempt - b.run_attempt);
+}
+
+function activeReviewRepairStarts(comments, scope, records) {
+  const starts = parseReviewRepairStarts(comments, scope);
+  const recoveries = parseReviewRepairRecoveries(comments, scope);
+  const startByKey = new Map(starts.map((start) => [`${start.run_id}:${start.run_attempt}`, start]));
+  const recordKeys = recordAttemptKeys(records);
+  const recovered = new Set();
+  for (const recovery of recoveries) {
+    const key = `${recovery.run_id}:${recovery.run_attempt}`;
+    const start = startByKey.get(key);
+    if (!start
+      || start.head !== recovery.head
+      || start.finding_digest !== recovery.finding_digest
+      || start.evidence_fingerprint !== recovery.evidence_fingerprint
+      || start.strategy_fingerprint !== recovery.strategy_fingerprint) {
+      fail("recovery_start_binding");
+    }
+    if (recordKeys.has(key)) fail("recovery_record_conflict");
+    recovered.add(key);
+  }
+  return {
+    starts: starts.filter((start) => !recovered.has(`${start.run_id}:${start.run_attempt}`)),
+    recoveries,
+  };
 }
 
 function recordAttemptKeys(records) {
@@ -321,11 +491,27 @@ export function reviewRepairMemoryState({repository: repo, pr_number, comments})
     scope: {kind: "pull_request", pr_number: prNumber},
     complete: true,
   });
+  const active = activeReviewRepairStarts(
+    comments,
+    {repository: EXPECTED_REPOSITORY, pr_number: prNumber},
+    snapshot.memory.records,
+  );
   return {
     snapshot,
     records: snapshot.memory.records,
-    starts: parseReviewRepairStarts(comments, {repository: EXPECTED_REPOSITORY, pr_number: prNumber}),
+    starts: active.starts,
+    recoveries: active.recoveries,
   };
+}
+
+export function unresolvedReviewRepairStarts(input) {
+  const state = reviewRepairMemoryState(input);
+  const descriptor = reviewRepairStrategyDescriptor(input);
+  const recorded = recordAttemptKeys(state.records);
+  return state.starts.filter((start) =>
+    start.evidence_fingerprint === descriptor.evidence_fingerprint
+    && start.strategy_fingerprint === descriptor.strategy_fingerprint
+    && !recorded.has(`${start.run_id}:${start.run_attempt}`));
 }
 
 export function prepareReviewRepairOutcome(input) {
@@ -384,6 +570,18 @@ async function main(args) {
   }
   if (mode === "start-body") {
     process.stdout.write(JSON.stringify({body: reviewRepairStartBody(parsed)}) + "\n");
+    return;
+  }
+  if (mode === "recovery-body") {
+    process.stdout.write(JSON.stringify({body: reviewRepairRecoveryBody(parsed)}) + "\n");
+    return;
+  }
+  if (mode === "recovery-proof") {
+    process.stdout.write(JSON.stringify(proveReviewRepairPrelaunchRecovery(parsed)) + "\n");
+    return;
+  }
+  if (mode === "unresolved") {
+    process.stdout.write(JSON.stringify(unresolvedReviewRepairStarts(parsed)) + "\n");
     return;
   }
   if (mode === "admit") {

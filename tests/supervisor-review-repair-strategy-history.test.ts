@@ -5,7 +5,7 @@ import { spawnSync } from "node:child_process";
 // @ts-expect-error Standalone .mjs follows the repository control-plane convention.
 import { createMemory, memoryIdentity, mergeObservation, serializeMemory } from "../scripts/supervisor-failure-memory.mjs";
 // @ts-expect-error Standalone .mjs follows the repository control-plane convention.
-import { MAX_AUTOMATIC_REVIEW_REPAIR_ATTEMPTS, REVIEW_REPAIR_EXECUTION_CONTRACT, REVIEW_REPAIR_EXECUTION_PROMPT, decideReviewRepairStrategyHistory, parseReviewRepairStarts, prepareReviewRepairOutcome, reviewRepairObservation, reviewRepairStartBody, reviewRepairStrategyDescriptor } from "../scripts/supervisor-review-repair-strategy-memory.mjs";
+import { MAX_AUTOMATIC_REVIEW_REPAIR_ATTEMPTS, REVIEW_REPAIR_EXECUTION_CONTRACT, REVIEW_REPAIR_EXECUTION_PROMPT, decideReviewRepairStrategyHistory, parseReviewRepairRecoveries, parseReviewRepairStarts, prepareReviewRepairOutcome, proveReviewRepairPrelaunchRecovery, reviewRepairMemoryState, reviewRepairObservation, reviewRepairRecoveryBody, reviewRepairStartBody, reviewRepairStrategyDescriptor, unresolvedReviewRepairStarts } from "../scripts/supervisor-review-repair-strategy-memory.mjs";
 
 const repository = "ibboabdoli-ai/Proffera";
 const pr = 923;
@@ -77,6 +77,33 @@ function trustedComment(body: string, id = 1) {
     user: {login: "github-actions[bot]", type: "Bot"},
     body,
   };
+}
+
+function recoveryBody({
+  finding_ids = findings,
+  run_id = 10,
+  run_attempt = 1,
+  attemptHead = head,
+  recovered_by_run_id = 20,
+  recovered_by_run_attempt = 1,
+}: {
+  finding_ids?: string[];
+  run_id?: number;
+  run_attempt?: number;
+  attemptHead?: string;
+  recovered_by_run_id?: number;
+  recovered_by_run_attempt?: number;
+} = {}) {
+  return reviewRepairRecoveryBody({
+    repository,
+    pr_number: pr,
+    head: attemptHead,
+    finding_ids,
+    run_id,
+    run_attempt,
+    recovered_by_run_id,
+    recovered_by_run_attempt,
+  });
 }
 
 describe("Review Repair stable strategy identity", () => {
@@ -182,6 +209,46 @@ describe("Review Repair attempt admission", () => {
     });
   });
 
+  it("re-admits the same evidence when a trusted recovery proves the prior start never launched", () => {
+    const comments = [
+      trustedComment(reviewRepairStartBody({
+        repository, pr_number: pr, head, finding_ids: findings, run_id: 10, run_attempt: 1,
+      }), 10),
+      trustedComment(recoveryBody(), 11),
+    ];
+    const state = reviewRepairMemoryState({repository, pr_number: pr, comments});
+    expect(state.starts).toEqual([]);
+    expect(state.recoveries).toHaveLength(1);
+    expect(unresolvedReviewRepairStarts({repository, pr_number: pr, head, finding_ids: findings, comments}))
+      .toEqual([]);
+    expect(decideReviewRepairStrategyHistory({
+      pr_number: pr,
+      head,
+      finding_ids: findings,
+      records: state.records,
+      starts: state.starts,
+    })).toMatchObject({decision: "ALLOW", attempts: 0, unresolved_attempts: 0});
+  });
+
+  it("does not let a recovery erase an attempt that already has a durable outcome", () => {
+    const comments = [
+      trustedComment(reviewRepairStartBody({
+        repository, pr_number: pr, head, finding_ids: findings, run_id: 10, run_attempt: 1,
+      }), 10),
+      trustedComment(recoveryBody(), 11),
+      trustedComment(serializeMemory(mergeObservation(
+        {comment_id: null, memory: createMemory(repository, {kind: "pull_request", pr_number: pr})},
+        memoryIdentity({comment_id: null, memory: createMemory(repository, {kind: "pull_request", pr_number: pr})}),
+        reviewRepairObservation({
+          repository, pr_number: pr, head, finding_ids: findings, outcome: "failed",
+          run_id: 10, run_attempt: 1, observed_at: "2026-10-04T08:00:00Z",
+        }),
+      ).memory), 12),
+    ];
+    expect(() => reviewRepairMemoryState({repository, pr_number: pr, comments}))
+      .toThrow(/recovery_record_conflict/);
+  });
+
   it("counts failed/no-change/cancelled starts against the model budget rather than repair commits", () => {
     expect(MAX_AUTOMATIC_REVIEW_REPAIR_ATTEMPTS).toBe(2);
     const oldFindings = ["inline:11"];
@@ -267,6 +334,84 @@ describe("Review Repair start provenance and Failure Memory persistence", () => 
     expect(() => parseReviewRepairStarts([
       {...trustedComment(body), issue_url: "https://api.github.com/repos/other/repo/issues/548"},
     ], {repository, pr_number: pr})).toThrow(/start_provenance/);
+  });
+
+  it("parses only canonical trusted recovery markers and binds them to the original start", () => {
+    const body = recoveryBody({run_id: 77, run_attempt: 2, recovered_by_run_id: 88, recovered_by_run_attempt: 3});
+    expect(parseReviewRepairRecoveries([trustedComment(body)], {repository, pr_number: pr}))
+      .toEqual([{
+        ...start({run_id: 77, run_attempt: 2}),
+        recovered_by_run_id: 88,
+        recovered_by_run_attempt: 3,
+      }]);
+
+    expect(parseReviewRepairRecoveries([
+      {...trustedComment(body), user: {login: "ibboabdoli-ai", type: "User"}},
+    ], {repository, pr_number: pr})).toEqual([]);
+
+    expect(() => parseReviewRepairRecoveries([
+      {...trustedComment(body), issue_url: "https://api.github.com/repos/other/repo/issues/548"},
+    ], {repository, pr_number: pr})).toThrow(/recovery_provenance/);
+    expect(() => recoveryBody({
+      run_id: 77, run_attempt: 2, recovered_by_run_id: 77, recovered_by_run_attempt: 2,
+    })).toThrow(/recovery_self/);
+
+    const comments = [
+      trustedComment(reviewRepairStartBody({
+        repository, pr_number: pr, head, finding_ids: findings, run_id: 77, run_attempt: 2,
+      }), 10),
+      trustedComment(recoveryBody({
+        run_id: 77, run_attempt: 2, attemptHead: "b".repeat(40),
+        recovered_by_run_id: 88, recovered_by_run_attempt: 3,
+      }), 11),
+    ];
+    expect(() => reviewRepairMemoryState({repository, pr_number: pr, comments}))
+      .toThrow(/recovery_start_binding/);
+  });
+
+  it("recovers only terminal historical runs whose repair job never launched", () => {
+    const candidate = start({run_id: 77, run_attempt: 2});
+    const run = {
+      id: 77,
+      run_attempt: 2,
+      status: "completed",
+      conclusion: "cancelled",
+      event: "workflow_dispatch",
+      name: "Supervisor review repair",
+      path: ".github/workflows/supervisor-review-repair.yml",
+    };
+    const admitJob = {
+      name: "Settle review burst and admit one bounded attempt", status: "completed", conclusion: "failure",
+    };
+    const input = {
+      repository, pr_number: pr, head, finding_ids: findings, start: candidate, run, jobs: [admitJob],
+    };
+    expect(proveReviewRepairPrelaunchRecovery(input))
+      .toEqual({recoverable: true, reason: "repair_job_absent"});
+    expect(proveReviewRepairPrelaunchRecovery({
+      ...input,
+      jobs: [admitJob, {name: "Batch current-head review findings", status: "completed", conclusion: "skipped"}],
+    })).toEqual({recoverable: true, reason: "repair_job_skipped"});
+    expect(proveReviewRepairPrelaunchRecovery({
+      ...input,
+      run: {...run, status: "in_progress", conclusion: null},
+    })).toEqual({recoverable: false, reason: "run_not_terminal"});
+    for (const conclusion of ["success", "failure", "cancelled"]) {
+      expect(proveReviewRepairPrelaunchRecovery({
+        ...input,
+        jobs: [admitJob, {name: "Batch current-head review findings", status: "completed", conclusion}],
+      })).toEqual({recoverable: false, reason: "repair_job_may_have_launched"});
+    }
+    expect(proveReviewRepairPrelaunchRecovery({
+      ...input,
+      run: {...run, conclusion: "success"},
+    })).toEqual({recoverable: false, reason: "run_succeeded"});
+    expect(() => proveReviewRepairPrelaunchRecovery({...input, jobs: []}))
+      .toThrow(/recovery_jobs_binding/);
+    expect(() => proveReviewRepairPrelaunchRecovery({
+      ...input,
+      run: {...run, path: ".github/workflows/ci.yml"},
+    })).toThrow(/recovery_run_binding/);
   });
 
   it("records exact action attempts in the canonical pull-request Failure Memory", () => {
@@ -372,6 +517,32 @@ function recordingInput(outcome: "failed" | "no_change" | "cancelled" | "succeed
     observed_at: "2026-10-04T09:00:00Z",
   };
 }
+
+describe("Review Repair pre-model start recovery", () => {
+  const admission = workflowStep("admit", "Admit strategy history and record trusted attempt start").run!;
+
+  it("recovers only after exact historical Actions proof and re-reads memory before admission", () => {
+    expect(admission).toContain("supervisor-review-repair-strategy-memory.mjs unresolved");
+    expect(admission).toContain("actions/runs/${old_run_id}/attempts/${old_run_attempt}");
+    expect(admission).toContain("actions/runs/${old_run_id}/attempts/${old_run_attempt}/jobs?per_page=100");
+    expect(admission).toContain("supervisor-review-repair-strategy-memory.mjs recovery-proof");
+    expect(admission).toContain("supervisor-review-repair-strategy-memory.mjs recovery-body");
+    expect(admission).toContain("Recovered orphaned pre-model Review Repair start");
+    const recoveryPost = admission.indexOf('issues/548/comments" -f "body=$recovery_body"');
+    const refresh = admission.indexOf('if [ "$recovered_any" = "yes" ]');
+    const decision = admission.indexOf("supervisor-review-repair-strategy-memory.mjs admit");
+    expect(recoveryPost).toBeGreaterThanOrEqual(0);
+    expect(refresh).toBeGreaterThan(recoveryPost);
+    expect(decision).toBeGreaterThan(refresh);
+  });
+
+  it("keeps unresolved starts fail-closed when historical execution cannot be proven safe", () => {
+    expect(admission).toContain("Could not prove historical Review Repair run state; leaving start unresolved.");
+    expect(admission).toContain("Could not prove historical Review Repair job state; leaving start unresolved.");
+    expect(admission).toContain("Historical start remains fail-closed:");
+    expect(admission).not.toContain("actions/runs/${old_run_id}/rerun");
+  });
+});
 
 describe("Review Repair workflow rerun artifact identity", () => {
   it("gives every producing workflow attempt distinct immutable evidence and candidate names", () => {
