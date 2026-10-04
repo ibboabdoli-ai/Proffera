@@ -315,6 +315,9 @@ export function DonisTrattoriaLuxuryExperience({
   const displayImages = isFallback ? DONIS_LUXURY_FALLBACK_IMAGES : images;
   const text = displaySite.text;
   const business = displaySite.business;
+  const brandName = business.name || "Doni’s Trattoria";
+  const brandPrimary = brandName.replace(/\s+Trattoria$/i, "");
+  const brandSecondary = /\bTrattoria$/i.test(brandName) ? "Trattoria" : "";
   const fullAddress = [business.address, business.postalCode, business.city]
     .filter(Boolean)
     .join(", ");
@@ -461,7 +464,7 @@ export function DonisTrattoriaLuxuryExperience({
                 url: DONIS_LUXURY_FALLBACK_IMAGES[fallbackAboutMedia.id],
                 alt: fallbackAboutMedia.alt[lang],
               }
-            : rawGallery[0] ?? { url: hero, alt: "Doni’s Trattoria" });
+            : rawGallery[0] ?? { url: hero, alt: brandName });
 
   const galleryKindLabel = (kind: string) => {
     if (kind === "food") return t.kindFood;
@@ -500,7 +503,7 @@ export function DonisTrattoriaLuxuryExperience({
       <section id="top" className="relative min-h-[760px] overflow-hidden bg-[#080a08]">
         <img
           src={hero}
-          alt={displaySite.media.hero?.alt[lang] || "Doni’s Trattoria"}
+          alt={displaySite.media.hero?.alt[lang] || brandName}
           className="absolute inset-0 h-full w-full scale-[1.015] object-cover object-center"
           fetchPriority="high"
         />
@@ -512,7 +515,7 @@ export function DonisTrattoriaLuxuryExperience({
           <div className="mx-auto flex min-h-[76px] max-w-[1460px] items-center justify-between gap-4 px-4 sm:px-8 lg:px-12">
             <a
               href="#top"
-              aria-label="Doni’s Trattoria"
+              aria-label={brandName}
               className="group flex shrink-0 items-center gap-3"
             >
               <span
@@ -525,10 +528,10 @@ export function DonisTrattoriaLuxuryExperience({
               />
               <span>
                 <span className="block font-serif text-[25px] font-semibold leading-[0.9] tracking-[-0.04em] text-[#f6ead4]">
-                  Doni’s
+                  {brandPrimary}
                 </span>
                 <span className="mt-1 block text-[8px] font-black uppercase tracking-[0.34em] text-[#d6aa58]">
-                  Trattoria
+                  {brandSecondary}
                 </span>
               </span>
             </a>
@@ -614,7 +617,7 @@ export function DonisTrattoriaLuxuryExperience({
                 onClick={closeMobileMenu}
                 className="font-serif text-3xl text-[#f4ead8]"
               >
-                Doni’s
+                {brandPrimary}
               </a>
               <button
                 type="button"
@@ -691,7 +694,7 @@ export function DonisTrattoriaLuxuryExperience({
             <Reveal>
               <SectionEyebrow>{t.eyebrow}</SectionEyebrow>
               <h1 className="mt-5 max-w-[760px] font-serif text-[clamp(4.3rem,9vw,8.1rem)] leading-[0.78] tracking-[-0.062em] text-[#f6ead4]">
-                {text.heroTitle[lang] || "Doni’s Trattoria"}
+                {text.heroTitle[lang] || brandName}
               </h1>
               {text.heroDescription[lang] && (
                 <p className="mt-8 max-w-[620px] text-base leading-7 text-white/78 sm:text-lg sm:leading-8">
@@ -855,7 +858,7 @@ export function DonisTrattoriaLuxuryExperience({
               <div className="absolute -right-16 top-24 h-40 w-40 rounded-full border border-[#d6aa58]/10" />
               <SectionEyebrow>{t.aboutKicker}</SectionEyebrow>
               <h2 className="mt-4 max-w-[560px] font-serif text-5xl leading-[0.94] tracking-[-0.045em] text-[#f4ead8] sm:text-6xl">
-                {text.aboutTitle[lang] || "Doni’s Trattoria"}
+                {text.aboutTitle[lang] || brandName}
               </h2>
               <div className="mt-7 max-w-[620px] space-y-4 text-[15px] leading-7 text-white/64">
                 {text.story[lang] && <p>{text.story[lang]}</p>}
@@ -1115,33 +1118,38 @@ export function DonisTrattoriaLuxuryExperience({
                       </span>
                     </span>
                   </a>
-                  <a href={phoneHref} className="group flex items-center gap-4">
-                    <span className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-[#d6aa58]/30 bg-[#d6aa58]/8 text-[#e7bd67]">
-                      <Phone className="h-4 w-4" />
-                    </span>
-                    <span>
-                      <span className="block text-[10px] font-black uppercase tracking-[0.18em] text-white/35">
-                        {t.phone}
+                  {business.phone && (
+                    <a href={phoneHref} className="group flex items-center gap-4">
+                      <span className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-[#d6aa58]/30 bg-[#d6aa58]/8 text-[#e7bd67]">
+                        <Phone className="h-4 w-4" />
                       </span>
-                      <span className="mt-1 block text-sm text-white/78 transition group-hover:text-[#e7bd67]">
-                        {business.phone}
+                      <span>
+                        <span className="block text-[10px] font-black uppercase tracking-[0.18em] text-white/35">
+                          {t.phone}
+                        </span>
+                        <span className="mt-1 block text-sm text-white/78 transition group-hover:text-[#e7bd67]">
+                          {business.phone}
+                        </span>
                       </span>
-                    </span>
-                  </a>
-                  <a href={emailHref} className="group flex items-center gap-4">
-                    <span className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-[#d6aa58]/30 bg-[#d6aa58]/8 text-[#e7bd67]">
-                      <Mail className="h-4 w-4" />
-                    </span>
-                    <span className="min-w-0">
-                      <span className="block text-[10px] font-black uppercase tracking-[0.18em] text-white/35">
-                        {t.email}
+                    </a>
+                  )}
+                  {business.email && (
+                    <a href={emailHref} className="group flex items-center gap-4">
+                      <span className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-[#d6aa58]/30 bg-[#d6aa58]/8 text-[#e7bd67]">
+                        <Mail className="h-4 w-4" />
                       </span>
-                      <span className="mt-1 block truncate text-sm text-white/78 transition group-hover:text-[#e7bd67]">
-                        {business.email}
+                      <span className="min-w-0">
+                        <span className="block text-[10px] font-black uppercase tracking-[0.18em] text-white/35">
+                          {t.email}
+                        </span>
+                        <span className="mt-1 block truncate text-sm text-white/78 transition group-hover:text-[#e7bd67]">
+                          {business.email}
+                        </span>
                       </span>
-                    </span>
-                  </a>
-                  <a
+                    </a>
+                  )}
+                  {business.instagram && instagramUrl && (
+                    <a
                     href={instagramUrl}
                     target="_blank"
                     rel="noopener noreferrer"
@@ -1159,6 +1167,7 @@ export function DonisTrattoriaLuxuryExperience({
                       </span>
                     </span>
                   </a>
+                  )}
                 </div>
 
                 <div className="mt-7 flex flex-wrap gap-2">
@@ -1171,13 +1180,15 @@ export function DonisTrattoriaLuxuryExperience({
                     <CalendarDays className="h-4 w-4" />
                     {t.book}
                   </a>
-                  <a
-                    href={phoneHref}
-                    className="inline-flex min-h-11 items-center gap-2 rounded-full border border-white/15 px-5 text-xs font-bold text-white/78 transition hover:border-[#d6aa58]/50 hover:text-[#e7bd67]"
-                  >
-                    <Phone className="h-4 w-4" />
-                    {t.call}
-                  </a>
+                  {business.phone && (
+                    <a
+                      href={phoneHref}
+                      className="inline-flex min-h-11 items-center gap-2 rounded-full border border-white/15 px-5 text-xs font-bold text-white/78 transition hover:border-[#d6aa58]/50 hover:text-[#e7bd67]"
+                    >
+                      <Phone className="h-4 w-4" />
+                      {t.call}
+                    </a>
+                  )}
                   <a
                     href={mapsUrl}
                     target="_blank"
@@ -1234,7 +1245,7 @@ export function DonisTrattoriaLuxuryExperience({
                     <div className="absolute bottom-5 left-5 right-5 flex items-center justify-between gap-4">
                       <span>
                         <span className="block font-serif text-2xl text-[#f4ead8]">
-                          Doni’s Trattoria
+                          {brandName}
                         </span>
                         <span className="mt-1 block text-xs text-white/65">
                           {business.address}
@@ -1298,10 +1309,10 @@ export function DonisTrattoriaLuxuryExperience({
               />
               <span>
                 <span className="block font-serif text-2xl leading-none text-[#f4ead8]">
-                  Doni’s
+                  {brandPrimary}
                 </span>
                 <span className="mt-1 block text-[8px] font-black uppercase tracking-[0.32em] text-[#d6aa58]">
-                  Trattoria
+                  {brandSecondary}
                 </span>
               </span>
             </a>
@@ -1323,19 +1334,21 @@ export function DonisTrattoriaLuxuryExperience({
               </a>
             </nav>
 
-            <a
-              href={instagramUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              aria-label={t.follow + " Instagram"}
-              className="inline-flex h-11 w-11 items-center justify-center rounded-full border border-white/12 text-white/65 transition hover:border-[#d6aa58]/50 hover:text-[#e7bd67]"
-            >
-              <Camera className="h-4 w-4" />
-            </a>
+            {business.instagram && instagramUrl && (
+              <a
+                href={instagramUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                aria-label={t.follow + " Instagram"}
+                className="inline-flex h-11 w-11 items-center justify-center rounded-full border border-white/12 text-white/65 transition hover:border-[#d6aa58]/50 hover:text-[#e7bd67]"
+              >
+                <Camera className="h-4 w-4" />
+              </a>
+            )}
           </div>
 
           <div className="flex flex-col gap-3 pt-6 text-[11px] text-white/35 sm:flex-row sm:items-center sm:justify-between">
-            <span>© 2026 {business.name || "Doni’s Trattoria"}. {t.footerLine}</span>
+            <span>© 2026 {brandName}. {t.footerLine}</span>
             {business.orgNumber && <span>Org.nr {business.orgNumber}</span>}
           </div>
         </div>
