@@ -39,7 +39,7 @@ describe("Doni restaurant owner starter content", () => {
     expect(editor).toContain("const [dirty, setDirty] = useState(starter)");
     expect(editor).toContain("grid grid-cols-3 gap-2");
     expect(editor).toContain("referenceDishImages[item.id]");
-    expect(editor).toContain("Startinnehållet från demosidan är inlagt för redigering");
+    expect(editor).toContain("Demo 2-innehållet är inlagt för redigering");
     expect(editor).not.toContain('filter: "brightness(0)"');
     expect(editor).toContain("sm:sticky sm:bottom-0");
     expect(editor).not.toContain("fixed inset-x-0 bottom-0");
