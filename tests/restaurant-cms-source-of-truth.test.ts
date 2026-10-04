@@ -70,7 +70,7 @@ describe("Doni restaurant CMS source of truth", () => {
     expect(demo).not.toContain('const phoneHref = "tel:+4686568400"');
     expect(demo).toContain("const bookingHref = booking || phoneHref");
     expect(demo).not.toContain('booking || phoneHref || "#kontakt"');
-    expect((demo.match(/\\{bookingHref && \\(/g) ?? []).length).toBe(4);
+    expect(demo.split("{bookingHref && (").length - 1).toBe(4);
     expect(demo).toContain("const locationFeature =");
     expect(demo).toContain("const mapTitle = fullAddress");
     expect(demo).toContain("const footerLine = business.city");
