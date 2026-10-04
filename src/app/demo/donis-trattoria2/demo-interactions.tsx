@@ -29,7 +29,10 @@ import {
   DONIS_LUXURY_FALLBACK_IMAGES,
   DONIS_LUXURY_FALLBACK_SITE,
 } from "@/lib/donis-luxury-fallback";
-import type { RestaurantSite } from "@/lib/restaurant-site-schema";
+import {
+  restaurantContactDefaults,
+  type RestaurantSite,
+} from "@/lib/restaurant-site-schema";
 
 type Lang = "sv" | "en";
 type Dish = RestaurantSite["dishes"][number];
@@ -37,15 +40,8 @@ type GalleryKind = RestaurantSite["media"]["gallery"][number]["kind"];
 
 const heroFallback =
   "https://www-static.restaurangkungsholmen.se/wp-content/uploads/2025/05/donis-pizzorny.jpg";
-const mapsUrl =
-  "https://www.google.com/maps/search/?api=1&query=Doni%27s+Trattoria+Hornsbergs+Strand+77+Stockholm";
-const mapEmbedUrl =
-  "https://www.google.com/maps?q=Hornsbergs+Strand+77,+112+16+Stockholm&output=embed";
 const currentOrderUrl =
   "https://qopla.com/restaurant/doni-trattoria-italiana/qyZkGvbq9M/order";
-const phoneHref = "tel:+4686568400";
-const emailHref = "mailto:donitrattoria@gmail.com";
-const instagramUrl = "https://www.instagram.com/donis.trattoria/";
 
 const FEATURED_PRIORITY = [
   "diavola",
@@ -257,7 +253,11 @@ function normalizeDishName(value: string) {
 
 function getDishName(dish: Dish, lang: Lang) {
   if (lang === "en") {
-    return ENGLISH_DISH_NAMES[normalizeDishName(dish.name)] ?? dish.name;
+    return (
+      dish.nameEn?.trim() ||
+      ENGLISH_DISH_NAMES[normalizeDishName(dish.name)] ||
+      dish.name
+    );
   }
   return dish.name;
 }
@@ -273,11 +273,13 @@ function SectionEyebrow({ children }: { children: ReactNode }) {
 export function DonisTrattoriaLuxuryExperience({
   site,
   images = {},
+  initialLang = "sv",
 }: {
   site: RestaurantSite | null;
   images?: Record<string, string>;
+  initialLang?: Lang;
 }) {
-  const [lang, setLang] = useState<Lang>("sv");
+  const [lang, setLang] = useState<Lang>(initialLang);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [selectedCategoryId, setSelectedCategoryId] = useState<string | null>(
     null,
@@ -315,6 +317,29 @@ export function DonisTrattoriaLuxuryExperience({
   const displaySite = site ?? DONIS_LUXURY_FALLBACK_SITE;
   const displayImages = isFallback ? DONIS_LUXURY_FALLBACK_IMAGES : images;
   const text = displaySite.text;
+  const contact = displaySite.contact ?? restaurantContactDefaults;
+  const locationQuery = [
+    "Doni’s Trattoria",
+    contact.addressLine1,
+    contact.postalCity,
+  ]
+    .filter(Boolean)
+    .join(" ");
+  const mapsUrl =
+    "https://www.google.com/maps/search/?api=1&query=" +
+    encodeURIComponent(locationQuery);
+  const mapEmbedUrl =
+    "https://www.google.com/maps?q=" +
+    encodeURIComponent([contact.addressLine1, contact.postalCity].filter(Boolean).join(", ")) +
+    "&output=embed";
+  const phoneHref = contact.phone
+    ? "tel:" + contact.phone.replace(/[^+\d]/g, "")
+    : "#kontakt";
+  const emailHref = contact.email ? "mailto:" + contact.email : "#kontakt";
+  const instagramHandle = contact.instagram.replace(/^@/, "").trim();
+  const instagramUrl = instagramHandle
+    ? "https://www.instagram.com/" + instagramHandle + "/"
+    : "#kontakt";
 
   const visibleDishes = [...displaySite.dishes]
     .filter((dish) => !dish.hidden && !dish.archived)
@@ -1090,9 +1115,9 @@ export function DonisTrattoriaLuxuryExperience({
                         {t.address}
                       </span>
                       <span className="mt-1 block text-sm leading-6 text-white/78 transition group-hover:text-[#e7bd67]">
-                        Hornsbergs Strand 77
+                        {contact.addressLine1}
                         <br />
-                        112 16 Stockholm
+                        {contact.postalCity}
                       </span>
                     </span>
                   </a>
@@ -1105,7 +1130,7 @@ export function DonisTrattoriaLuxuryExperience({
                         {t.phone}
                       </span>
                       <span className="mt-1 block text-sm text-white/78 transition group-hover:text-[#e7bd67]">
-                        08-656 84 00
+                        {contact.phone}
                       </span>
                     </span>
                   </a>
@@ -1118,7 +1143,7 @@ export function DonisTrattoriaLuxuryExperience({
                         {t.email}
                       </span>
                       <span className="mt-1 block truncate text-sm text-white/78 transition group-hover:text-[#e7bd67]">
-                        donitrattoria@gmail.com
+                        {contact.email}
                       </span>
                     </span>
                   </a>
@@ -1136,7 +1161,7 @@ export function DonisTrattoriaLuxuryExperience({
                         {t.instagram}
                       </span>
                       <span className="mt-1 block text-sm text-white/78 transition group-hover:text-[#e7bd67]">
-                        @donis.trattoria
+                        {contact.instagram}
                       </span>
                     </span>
                   </a>
@@ -1218,7 +1243,7 @@ export function DonisTrattoriaLuxuryExperience({
                           Doni’s Trattoria
                         </span>
                         <span className="mt-1 block text-xs text-white/65">
-                          Hornsbergs Strand 77
+                          {contact.addressLine1}
                         </span>
                       </span>
                       <span className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-[#deb45f] text-[#15140f]">
@@ -1252,7 +1277,7 @@ export function DonisTrattoriaLuxuryExperience({
                           {t.directions}
                         </span>
                         <span className="block truncate text-[11px] text-white/50">
-                          Hornsbergs Strand 77
+                          {contact.addressLine1}
                         </span>
                       </span>
                     </div>
@@ -1317,7 +1342,7 @@ export function DonisTrattoriaLuxuryExperience({
 
           <div className="flex flex-col gap-3 pt-6 text-[11px] text-white/35 sm:flex-row sm:items-center sm:justify-between">
             <span>© 2026 Doni’s Trattoria. {t.footerLine}</span>
-            <span>Org.nr 556852-1420</span>
+            <span>Org.nr {contact.orgNumber}</span>
           </div>
         </div>
       </footer>
