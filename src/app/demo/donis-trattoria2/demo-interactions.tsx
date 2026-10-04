@@ -37,9 +37,6 @@ type GalleryKind = RestaurantSite["media"]["gallery"][number]["kind"];
 
 const heroFallback =
   "https://www-static.restaurangkungsholmen.se/wp-content/uploads/2025/05/donis-pizzorny.jpg";
-const currentOrderUrl =
-  "https://qopla.com/restaurant/doni-trattoria-italiana/qyZkGvbq9M/order";
-
 const FEATURED_PRIORITY = [
   "diavola",
   "tagliatelle al ragu",
@@ -394,7 +391,7 @@ export function DonisTrattoriaLuxuryExperience({
 
   const booking = displaySite.links.booking;
   const bookingHref = booking || phoneHref || "#kontakt";
-  const order = displaySite.links.order || currentOrderUrl;
+  const order = displaySite.links.order;
 
   const featured = [...visibleDishes]
     .filter((dish) => dish.image && Boolean(displayImages[dish.image.id]))
@@ -607,15 +604,17 @@ export function DonisTrattoriaLuxuryExperience({
                 <CalendarDays className="h-4 w-4" />
                 {t.book}
               </a>
-              <a
-                href={order}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex min-h-11 items-center gap-2 rounded-full bg-[#deb45f] px-5 text-[12px] font-black text-[#15140f] shadow-[0_10px_30px_rgba(214,170,88,.18)] transition hover:-translate-y-0.5 hover:bg-[#ebc66f]"
-              >
-                <ShoppingBag className="h-4 w-4" />
-                {t.order}
-              </a>
+              {order && (
+                <a
+                  href={order}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex min-h-11 items-center gap-2 rounded-full bg-[#deb45f] px-5 text-[12px] font-black text-[#15140f] shadow-[0_10px_30px_rgba(214,170,88,.18)] transition hover:-translate-y-0.5 hover:bg-[#ebc66f]"
+                >
+                  <ShoppingBag className="h-4 w-4" />
+                  {t.order}
+                </a>
+              )}
             </div>
 
             <button
@@ -696,15 +695,17 @@ export function DonisTrattoriaLuxuryExperience({
                 <CalendarDays className="h-4 w-4" />
                 {t.book}
               </a>
-              <a
-                href={order}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex min-h-[52px] items-center justify-center gap-2 rounded-full bg-[#deb45f] px-6 font-black text-[#15140f]"
-              >
-                <ShoppingBag className="h-4 w-4" />
-                {t.order}
-              </a>
+              {order && (
+                <a
+                  href={order}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex min-h-[52px] items-center justify-center gap-2 rounded-full bg-[#deb45f] px-6 font-black text-[#15140f]"
+                >
+                  <ShoppingBag className="h-4 w-4" />
+                  {t.order}
+                </a>
+              )}
             </div>
           </div>
         )}
@@ -729,15 +730,17 @@ export function DonisTrattoriaLuxuryExperience({
                   {t.viewMenu}
                   <ArrowRight className="h-4 w-4" />
                 </a>
-                <a
-                  href={order}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-flex min-h-12 items-center gap-2 rounded-full border border-[#d6aa58]/65 bg-black/20 px-6 text-sm font-bold text-[#f7ecd7] backdrop-blur transition hover:border-[#e7bd67] hover:text-[#e7bd67]"
-                >
-                  <ShoppingBag className="h-4 w-4" />
-                  {t.order}
-                </a>
+                {order && (
+                  <a
+                    href={order}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex min-h-12 items-center gap-2 rounded-full border border-[#d6aa58]/65 bg-black/20 px-6 text-sm font-bold text-[#f7ecd7] backdrop-blur transition hover:border-[#e7bd67] hover:text-[#e7bd67]"
+                  >
+                    <ShoppingBag className="h-4 w-4" />
+                    {t.order}
+                  </a>
+                )}
                 <a
                   href={bookingHref}
                   target={booking ? "_blank" : undefined}
@@ -907,9 +910,11 @@ export function DonisTrattoriaLuxuryExperience({
           <Reveal>
             <div className="mx-auto max-w-3xl text-center">
               <SectionEyebrow>{t.menuKicker}</SectionEyebrow>
-              <h2 className="mt-4 font-serif text-5xl leading-[0.94] tracking-[-0.045em] text-[#f4ead8] sm:text-6xl lg:text-7xl">
-                {text.menuTitle[lang] || t.menuTitle}
-              </h2>
+              {text.menuTitle[lang] && (
+                <h2 className="mt-4 font-serif text-5xl leading-[0.94] tracking-[-0.045em] text-[#f4ead8] sm:text-6xl lg:text-7xl">
+                  {text.menuTitle[lang]}
+                </h2>
+              )}
               {text.menuIntro[lang] && (
                 <p className="mx-auto mt-4 max-w-2xl text-sm leading-6 text-white/55 sm:text-base">
                   {text.menuIntro[lang]}
@@ -1018,9 +1023,11 @@ export function DonisTrattoriaLuxuryExperience({
             <Reveal>
               <div className="mx-auto max-w-3xl text-center">
                 <SectionEyebrow>{t.galleryKicker}</SectionEyebrow>
-                <h2 className="mt-4 font-serif text-5xl leading-[0.94] tracking-[-0.045em] text-[#f4ead8] sm:text-6xl">
-                  {text.galleryTitle[lang] || t.galleryTitle}
-                </h2>
+                {text.galleryTitle[lang] && (
+                  <h2 className="mt-4 font-serif text-5xl leading-[0.94] tracking-[-0.045em] text-[#f4ead8] sm:text-6xl">
+                    {text.galleryTitle[lang]}
+                  </h2>
+                )}
                 {text.galleryIntro[lang] && (
                   <p className="mx-auto mt-4 max-w-2xl text-sm leading-6 text-white/50">
                     {text.galleryIntro[lang]}
@@ -1109,9 +1116,11 @@ export function DonisTrattoriaLuxuryExperience({
           <Reveal>
             <div className="mb-10 max-w-3xl">
               <SectionEyebrow>{t.contactKicker}</SectionEyebrow>
-              <h2 className="mt-4 font-serif text-5xl leading-[0.94] tracking-[-0.045em] text-[#f4ead8] sm:text-6xl">
-                {text.contactTitle[lang] || t.contactTitle}
-              </h2>
+              {text.contactTitle[lang] && (
+                <h2 className="mt-4 font-serif text-5xl leading-[0.94] tracking-[-0.045em] text-[#f4ead8] sm:text-6xl">
+                  {text.contactTitle[lang]}
+                </h2>
+              )}
               {text.contactBody[lang] && (
                 <p className="mt-5 max-w-2xl text-sm leading-7 text-white/56 sm:text-base">
                   {text.contactBody[lang]}
