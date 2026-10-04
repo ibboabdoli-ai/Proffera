@@ -239,7 +239,14 @@ ${scriptBody}
   return { result, context, mainSha, prHead };
 }
 
-function runReviewRepairPreflight(messages: string[], options: { failPage?: number; liveHead?: string } = {}) {
+function runReviewRepairPreflight(options: {
+  state?: string;
+  baseRef?: string;
+  headRepo?: string;
+  author?: string;
+  body?: string;
+  headRef?: string;
+} = {}) {
   const workflow = source(".github/workflows/supervisor-review-repair.yml");
   const scriptBody = workflowRunStep(workflow, "Resolve trusted exact-head Phase-1 PR");
   const dir = mkdtempSync(join(tmpdir(), "proffera-review-repair-preflight-"));
@@ -250,31 +257,21 @@ function runReviewRepairPreflight(messages: string[], options: { failPage?: numb
   writeFileSync(fakeGh, `#!/usr/bin/env node
 const args = process.argv.slice(2);
 const endpoint = args.find((arg) => arg.startsWith("repos/")) || "";
-const messages = JSON.parse(process.env.FAKE_MESSAGES || "[]");
-if (endpoint.endsWith("/pulls/849")) {
-  if (args.includes("--jq")) {
-    process.stdout.write((process.env.FAKE_LIVE_HEAD || process.env.FAKE_HEAD) + "\\n");
-  } else {
-    process.stdout.write(JSON.stringify({
-      state: "open",
-      head: { sha: process.env.FAKE_HEAD, ref: "work/proffera-supervisor-auto-fastlane", repo: { full_name: "ibboabdoli-ai/Proffera" } },
-      user: { login: "ibboabdoli-ai" },
-      body: "<!-- proffera-worker-task-packet:v1 -->"
-    }) + "\\n");
-  }
-  process.exit(0);
+if (!endpoint.endsWith("/pulls/849")) {
+  process.stderr.write("unexpected gh call: " + JSON.stringify(args) + "\\n");
+  process.exit(91);
 }
-const match = endpoint.match(/\\/pulls\\/849\\/commits\\?per_page=100&page=(\\d+)$/);
-if (match) {
-  const page = Number(match[1]);
-  if (Number(process.env.FAKE_FAIL_PAGE || 0) === page) process.exit(75);
-  const start = (page - 1) * 100;
-  const slice = messages.slice(start, start + 100).map((message) => ({ commit: { message } }));
-  process.stdout.write(JSON.stringify(slice) + "\\n");
-  process.exit(0);
-}
-process.stderr.write("unexpected gh call: " + JSON.stringify(args) + "\\n");
-process.exit(91);
+process.stdout.write(JSON.stringify({
+  state: process.env.FAKE_STATE || "open",
+  base: { ref: process.env.FAKE_BASE_REF || "main" },
+  head: {
+    sha: process.env.FAKE_HEAD,
+    ref: process.env.FAKE_HEAD_REF || "work/proffera-review-repair",
+    repo: { full_name: process.env.FAKE_HEAD_REPO || "ibboabdoli-ai/Proffera" }
+  },
+  user: { login: process.env.FAKE_AUTHOR || "ibboabdoli-ai" },
+  body: process.env.FAKE_BODY || "<!-- proffera-worker-task-packet:v1 -->"
+}) + "\\n");
 `, { mode: 0o755 });
   writeFileSync(script, `#!/usr/bin/env bash
 set -euo pipefail
@@ -288,10 +285,13 @@ ${scriptBody}
     env: {
       ...process.env,
       PATH: `${dir}${delimiter}${process.env.PATH ?? ""}`,
-      FAKE_MESSAGES: JSON.stringify(messages),
-      FAKE_FAIL_PAGE: String(options.failPage ?? 0),
       FAKE_HEAD: head,
-      FAKE_LIVE_HEAD: options.liveHead ?? head,
+      FAKE_STATE: options.state ?? "open",
+      FAKE_BASE_REF: options.baseRef ?? "main",
+      FAKE_HEAD_REPO: options.headRepo ?? "ibboabdoli-ai/Proffera",
+      FAKE_AUTHOR: options.author ?? "ibboabdoli-ai",
+      FAKE_BODY: options.body ?? "<!-- proffera-worker-task-packet:v1 -->",
+      FAKE_HEAD_REF: options.headRef ?? "work/proffera-review-repair",
       GITHUB_OUTPUT: output,
     },
   });
@@ -300,12 +300,12 @@ ${scriptBody}
     outputs = readFileSync(output, "utf8");
   } catch {}
   rmSync(dir, { recursive: true, force: true });
-  return { result, outputs };
+  return { result, outputs, head };
 }
 
 function runReviewRepairEvidenceStep(largeBodySize = 800_000) {
   const workflow = source(".github/workflows/supervisor-review-repair.yml");
-  const scriptBody = workflowRunStep(workflow, "Materialize current-head review evidence");
+  const scriptBody = workflowRunStep(workflow, "Settle complete exact-head review finding burst");
   const dir = mkdtempSync(join(tmpdir(), "proffera-review-repair-evidence-"));
   const fakeGh = join(dir, "gh");
   const script = join(dir, "evidence.sh");
@@ -319,12 +319,16 @@ const endpoint = args.find((arg) => arg.startsWith("repos/")) || "";
 const jqIndex = args.indexOf("--jq");
 const body = "x".repeat(Number(process.env.FAKE_LARGE_REVIEW_BODY_SIZE || 0));
 let payload;
+if (endpoint.endsWith("/pulls/849") && jqIndex >= 0) {
+  process.stdout.write(process.env.FAKE_HEAD + "\\n");
+  process.exit(0);
+}
 if (endpoint.includes("/issues/849/comments?per_page=100")) {
-  payload = [{ user: { login: "coderabbitai[bot]" }, body }];
+  payload = [{ id: 1, user: { login: "coderabbitai[bot]" }, body }];
 } else if (endpoint.includes("/pulls/849/reviews?per_page=100")) {
-  payload = [{ user: { login: "coderabbitai[bot]" }, body, commit_id: process.env.FAKE_HEAD, state: "CHANGES_REQUESTED" }];
+  payload = [{ id: 202, user: { login: "coderabbitai[bot]" }, body, commit_id: process.env.FAKE_HEAD, state: "CHANGES_REQUESTED" }];
 } else if (endpoint.includes("/pulls/849/comments?per_page=100")) {
-  payload = [{ user: { login: "chatgpt-codex-connector[bot]" }, body, commit_id: process.env.FAKE_HEAD }];
+  payload = [{ id: 101, user: { login: "chatgpt-codex-connector[bot]" }, body, original_commit_id: process.env.FAKE_HEAD }];
 } else {
   process.stderr.write("unexpected gh call: " + JSON.stringify(args) + "\\n");
   process.exit(91);
@@ -348,12 +352,16 @@ process.exit(result.status ?? 1);
   writeFileSync(script, `#!/usr/bin/env bash
 set -euo pipefail
 gh() { node "${fakeGh.replaceAll("\\", "/")}" "$@"; }
+sleep() { :; }
 REPOSITORY=ibboabdoli-ai/Proffera
 PR_NUMBER=849
 HEAD_SHA=${head}
+GITHUB_OUTPUT="\${GITHUB_OUTPUT}"
+RUNNER_TEMP="\${RUNNER_TEMP}"
 ${scriptBody}
 `, { mode: 0o755 });
 
+  const output = join(dir, "github-output.txt");
   const result = spawnSync("bash", [script], {
     cwd: dir,
     encoding: "utf8",
@@ -361,18 +369,25 @@ ${scriptBody}
       ...process.env,
       PATH: process.env.PATH ?? "",
       TMPDIR: dir,
+      RUNNER_TEMP: dir.replaceAll("\\", "/"),
+      GITHUB_OUTPUT: output.replaceAll("\\", "/"),
       FAKE_HEAD: head,
       FAKE_LARGE_REVIEW_BODY_SIZE: String(largeBodySize),
     },
     maxBuffer: 64 * 1024 * 1024,
   });
 
+  const evidenceDir = join(dir, "proffera-review-repair-evidence");
   let evidence: Record<string, unknown> | null = null;
+  let findingIds: string[] | null = null;
+  let outputs = "";
   try {
-    evidence = JSON.parse(readFileSync(join(dir, "supervisor-review-evidence.json"), "utf8"));
+    evidence = JSON.parse(readFileSync(join(evidenceDir, "supervisor-review-evidence.json"), "utf8"));
+    findingIds = JSON.parse(readFileSync(join(evidenceDir, "finding_ids.json"), "utf8"));
+    outputs = readFileSync(output, "utf8");
   } catch {}
   rmSync(dir, { recursive: true, force: true });
-  return { result, evidence, head };
+  return { result, evidence, findingIds, outputs, head };
 }
 
 function runInvalidCloseReconcileFunction(
@@ -910,47 +925,59 @@ describe("Supervisor control-plane v2", () => {
     expect(publish).not.toContain("npm test");
     expect(publish.indexOf("validate-changes")).toBeLessThan(publish.indexOf("PROFFERA_AUTOFIX_PUSH_TOKEN"));
   });
-  it("isolates trusted review-repair publication from untrusted model and repository execution", () => {
+  it("isolates Review Repair admission, model execution, validation, publication, and durable accounting", () => {
     const repair = source(".github/workflows/supervisor-review-repair.yml");
 
-    expect(repair).toContain("sleep 45");
-    expect(repair).toContain("Qualify current-head material findings before model repair");
-    expect(repair).toContain("current_inline");
-    expect(repair).toContain(".original_commit_id == $head");
-    expect(repair).toContain("blocking_reviews");
-    expect(repair).toContain("steps.qualify.outputs.repair == 'yes'");
-    expect(repair).toContain("consecutive");
-    expect(repair).toContain("[review-repair]");
-    expect(repair).toContain('commits?per_page=100&page=${page}');
-    expect(repair).toContain("for page in 1 2 3");
-    expect(repair).toContain("250-commit endpoint limit");
-    expect(repair).toContain("live_head_after_commits");
-    expect(repair).toContain('mapfile -t recent_messages < "$recent_messages_file"');
-    expect(repair).not.toContain("mapfile -t recent_messages < <(");
-    expect(repair).toContain('--slurpfile issue_comments "$evidence_dir/issue_comments.json"');
-    expect(repair).toContain('--slurpfile reviews "$evidence_dir/reviews.json"');
-    expect(repair).toContain('--slurpfile inline "$evidence_dir/inline.json"');
-    expect(repair).toContain("issue_comments:$issue_comments[0]");
-    expect(repair).toContain("reviews:$reviews[0]");
-    expect(repair).toContain("inline_comments:$inline[0]");
-    expect(repair).not.toContain('--argjson issue_comments "$issue_comments"');
-    expect(repair).not.toContain('--argjson reviews "$reviews"');
-    expect(repair).not.toContain('--argjson inline "$inline"');
-    const publishStart = repair.indexOf("  publish:");
-    expect(publishStart).toBeGreaterThan(0);
+    expect(repair).toContain("group: proffera-final-gate-memory-${{ inputs.pr_number }}");
+    expect(repair).toContain("cancel-in-progress: false");
+    expect(repair).toContain("Settle complete exact-head review finding burst");
+    expect(repair).toContain("for attempt in $(seq 1 8)");
+    expect(repair).toContain("finding_ids.json");
+    expect(repair).toContain('"review:" + (.id | tostring)');
+    expect(repair).toContain('"inline:" + (.id | tostring)');
+    expect(repair).not.toContain("sleep 45");
+    expect(repair).not.toContain("[-40:]");
+    expect(repair).not.toContain("[-80:]");
+    expect(repair).not.toContain("consecutive");
+    expect(repair).not.toContain('commits?per_page=100&page=${page}');
+    expect(repair).toContain("supervisor-review-repair-strategy-memory.mjs admit");
+    expect(source("scripts/supervisor-review-repair-strategy-memory.mjs"))
+      .toContain("proffera-review-repair-start:v1");
+    expect(repair).toContain("Record durable Review Repair attempt outcome");
+    expect(repair).toContain("prepare-outcome");
+    expect(repair).toContain("Revalidate settled current-head finding burst before publication");
+
+    const admitStart = repair.indexOf("  admit:");
+    const repairStart = repair.indexOf("  repair:");
     const validateStart = repair.indexOf("  validate:");
-    expect(validateStart).toBeGreaterThan(0);
-    expect(validateStart).toBeLessThan(publishStart);
-    const untrustedRepairJob = repair.slice(0, validateStart);
+    const publishStart = repair.indexOf("  publish:");
+    const recordStart = repair.indexOf("  record:");
+    expect(admitStart).toBeGreaterThan(0);
+    expect(repairStart).toBeGreaterThan(admitStart);
+    expect(validateStart).toBeGreaterThan(repairStart);
+    expect(publishStart).toBeGreaterThan(validateStart);
+    expect(recordStart).toBeGreaterThan(publishStart);
+
+    const admitJob = repair.slice(admitStart, repairStart);
+    const untrustedRepairJob = repair.slice(repairStart, validateStart);
     const validationJob = repair.slice(validateStart, publishStart);
-    const trustedPublishJob = repair.slice(publishStart);
+    const trustedPublishJob = repair.slice(publishStart, recordStart);
+    const recordJob = repair.slice(recordStart);
+
+    expect(admitJob).toContain("issues: write");
+    expect(admitJob).not.toContain("codex-action@");
+    expect(admitJob).not.toContain("PROFFERA_AUTOFIX_PUSH_TOKEN");
+
     expect(untrustedRepairJob).toContain("Run one batched exact-head repair");
+    expect(untrustedRepairJob).toContain("codex-action@86365089eb2b84e0a8fb0717b304f8bdcb13b20e");
     expect(untrustedRepairJob).toContain("actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02");
+    expect(untrustedRepairJob).not.toContain("issues: write");
     expect(untrustedRepairJob).not.toContain("PROFFERA_AUTOFIX_PUSH_TOKEN");
     expect(untrustedRepairJob).not.toContain("validate-changes");
     expect(untrustedRepairJob).not.toContain("npm ci");
     expect(untrustedRepairJob).not.toContain("npm test");
     expect(untrustedRepairJob).not.toContain("npm run ");
+
     expect(validationJob).not.toContain("secrets.");
     expect(validationJob).not.toContain("codex-action@");
     expect(validationJob).toContain("persist-credentials: false");
@@ -968,19 +995,28 @@ describe("Supervisor control-plane v2", () => {
     expect(integrityStepIndex).toBeLessThan(applyStepIndex);
     expect(applyStepIndex).toBeLessThan(installStepIndex);
     expect(validationJob).toContain("Confirm validated tree matches uploaded candidate");
+
     expect(trustedPublishJob).toContain("needs: [repair, validate]");
     expect(trustedPublishJob).toContain("needs.validate.result == 'success'");
     expect(repair).toContain("patch_sha256: ${{ steps.diff.outputs.patch_sha256 }}");
-    expect(trustedPublishJob).toContain("actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0");
     expect(trustedPublishJob).toContain("EXPECTED_PATCH_SHA256: ${{ needs.repair.outputs.patch_sha256 }}");
     expect(trustedPublishJob).toContain('[[ "$EXPECTED_PATCH_SHA256" =~ ^[0-9a-f]{64}$ ]]');
     expect(trustedPublishJob).toContain('sha256sum "$artifact_dir/repair.patch"');
     expect(trustedPublishJob).toContain('test "$downloaded_patch_sha256" = "$EXPECTED_PATCH_SHA256"');
     expect(trustedPublishJob).toContain("Materialize trusted repair helper in isolated publish job");
-    expect(trustedPublishJob).toContain("git hash-object");
+    expect(trustedPublishJob).toContain("EXPECTED_FINDING_SET_SHA256");
+    expect(trustedPublishJob).toContain("Current-head review finding burst changed after model execution");
     expect(trustedPublishJob).toContain("validate-changes");
     expect(trustedPublishJob).toContain("PROFFERA_AUTOFIX_PUSH_TOKEN");
-    expect(trustedPublishJob.indexOf("validate-changes")).toBeLessThan(trustedPublishJob.indexOf("PROFFERA_AUTOFIX_PUSH_TOKEN"));
+    expect(trustedPublishJob.indexOf("Revalidate settled current-head finding burst before publication"))
+      .toBeLessThan(trustedPublishJob.indexOf("PROFFERA_AUTOFIX_PUSH_TOKEN"));
+
+    expect(recordJob).toContain("if: always() && needs.admit.outputs.attempt_started == 'yes'");
+    expect(recordJob).toContain("issues: write");
+    expect(recordJob).not.toContain("codex-action@");
+    expect(recordJob).not.toContain("PROFFERA_AUTOFIX_PUSH_TOKEN");
+    expect(recordJob).toContain("REVIEW_REPAIR_OUTCOME");
+    expect(recordJob).toContain("prepare-outcome");
     expect(repair).not.toContain("--force");
   });
 
@@ -1036,7 +1072,7 @@ describe("Supervisor control-plane v2", () => {
     expect(() => workflowJob(workflow, "missing-job")).toThrow();
   });
 
-  it("materializes large review evidence through files instead of argv", () => {
+  it("settles complete large review evidence through files and canonical finding IDs", () => {
     const result = runReviewRepairEvidenceStep();
     expect(result.result.status, `${result.result.stderr}\n${String(result.result.error ?? "")}`).toBe(0);
     expect(result.evidence).not.toBeNull();
@@ -1052,30 +1088,35 @@ describe("Supervisor control-plane v2", () => {
     expect(evidence.inline_comments).toHaveLength(1);
     expect(evidence.issue_comments[0].body).toHaveLength(800_000);
     expect(evidence.reviews[0].state).toBe("CHANGES_REQUESTED");
+    expect(result.findingIds).toEqual(["inline:101", "review:202"]);
+    expect(result.outputs).toContain("finding_count=2");
+    expect(result.result.stdout).toContain("Settled exact-head review burst: 2 material finding IDs.");
   }, 20000);
 
-  it("enforces the repair ceiling from the actual newest PR commits and fails closed on incomplete evidence", () => {
-    const messages = Array.from({ length: 25 }, (_, index) => `ordinary-${index}`);
-    messages[23] = "[review-repair] first";
-    messages[24] = "[review-repair] second";
-    const ceiling = runReviewRepairPreflight(messages);
-    expect(ceiling.result.status, ceiling.result.stderr).toBe(0);
-    expect(ceiling.outputs).toContain("proceed=no");
-    expect(ceiling.result.stdout).toContain("Automatic repair ceiling reached");
+  it("keeps preflight on live PR provenance and removes commit-based attempt budgeting", () => {
+    const valid = runReviewRepairPreflight();
+    expect(valid.result.status, valid.result.stderr).toBe(0);
+    expect(valid.outputs).toContain("head_sha=" + valid.head);
+    expect(valid.outputs).toContain("head_ref=work/proffera-review-repair");
 
-    const apiFailure = runReviewRepairPreflight(
-      Array.from({ length: 101 }, (_, index) => `ordinary-${index}`),
-      { failPage: 2 },
-    );
-    expect(apiFailure.result.status).not.toBe(0);
+    for (const invalid of [
+      runReviewRepairPreflight({state: "closed"}),
+      runReviewRepairPreflight({baseRef: "release"}),
+      runReviewRepairPreflight({headRepo: "other/repo"}),
+      runReviewRepairPreflight({author: "other-owner"}),
+      runReviewRepairPreflight({body: "no trusted task packet"}),
+      runReviewRepairPreflight({headRef: "feature/not-worker"}),
+    ]) {
+      expect(invalid.result.status).not.toBe(0);
+    }
 
-    const movingHead = runReviewRepairPreflight(["ordinary"], { liveHead: "b".repeat(40) });
-    expect(movingHead.result.status).not.toBe(0);
-    expect(movingHead.result.stderr).toContain("PR head changed while reading repair history");
-
-    const endpointLimit = runReviewRepairPreflight(Array.from({ length: 250 }, (_, index) => `ordinary-${index}`));
-    expect(endpointLimit.result.status).not.toBe(0);
-    expect(endpointLimit.result.stderr).toContain("250-commit endpoint limit");
+    const workflow = source(".github/workflows/supervisor-review-repair.yml");
+    const preflight = workflowRunStep(workflow, "Resolve trusted exact-head Phase-1 PR");
+    expect(preflight).not.toContain("[review-repair]");
+    expect(preflight).not.toContain("/commits?per_page=");
+    expect(preflight).not.toContain("consecutive");
+    expect(source("scripts/supervisor-review-repair-strategy-memory.mjs"))
+      .toContain("MAX_AUTOMATIC_REVIEW_REPAIR_ATTEMPTS = 2");
   }, 20000);
 
   it("trusted review-repair validation rejects checkout-helper tampering and out-of-scope writes", () => {
