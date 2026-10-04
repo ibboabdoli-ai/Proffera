@@ -171,6 +171,9 @@ export async function saveRestaurantDraft(value: unknown, revision: number) {
     ...parsed.site.dishes.map((dish) => dish.image),
   ].filter((item): item is NonNullable<typeof item> => item !== null);
   const mediaIds = [...new Set(media.map((item) => item.id))];
+  const workspaceMediaIds = mediaIds.filter(
+    (id) => !isDonisLuxuryBundledMediaId(id),
+  );
   const lockKey = `restaurant-site:${access.workspaceId}`;
 
   const [, rows] = await sql.transaction(
@@ -184,7 +187,7 @@ export async function saveRestaurantDraft(value: unknown, revision: number) {
           from website_gallery_items
           where workspace_id=${access.workspaceId}::uuid
             and media_type='image'
-            and id::text=any(${mediaIds}::text[])
+            and id::text=any(${workspaceMediaIds}::text[])
         ), updated as (
           update restaurant_sites
           set draft=${JSON.stringify(parsed.site)}::jsonb,
@@ -193,7 +196,7 @@ export async function saveRestaurantDraft(value: unknown, revision: number) {
           where workspace_id=${access.workspaceId}::uuid
             and public_slug=${slug}
             and draft_revision=${revision}
-            and (select media_count from media_guard)=${mediaIds.length}
+            and (select media_count from media_guard)=${workspaceMediaIds.length}
           returning draft_revision
         )
         select
@@ -205,7 +208,7 @@ export async function saveRestaurantDraft(value: unknown, revision: number) {
   );
 
   const row = rows[0] as Record<string, unknown> | undefined;
-  if (Number(row?.media_count ?? -1) !== mediaIds.length) {
+  if (Number(row?.media_count ?? -1) !== workspaceMediaIds.length) {
     return { ok: false as const, error: "En bild eller version är ogiltig." };
   }
   if (row?.draft_revision == null) {
