@@ -44,6 +44,21 @@ const phoneOrEmpty = z
     "Ange ett giltigt telefonnummer.",
   );
 
+const instagramHandleOrEmpty = z
+  .string()
+  .trim()
+  .max(31)
+  .refine(
+    (value) => !value || /^@?[A-Za-z0-9._]{1,30}$/.test(value),
+    "Ange ett giltigt Instagram-namn.",
+  );
+
+const instagramUrlOrEmpty = httpsUrlOrEmpty.refine((value) => {
+  if (!value) return true;
+  const hostname = new URL(value).hostname.toLowerCase();
+  return hostname === "instagram.com" || hostname === "www.instagram.com";
+}, "Instagram-länken måste gå till instagram.com.");
+
 export const restaurantSiteSchema = z.object({
   categories: z
     .array(
@@ -126,8 +141,8 @@ export const restaurantSiteSchema = z.object({
     city: z.string().trim().max(120),
     phone: phoneOrEmpty,
     email: emailOrEmpty,
-    instagram: z.string().trim().max(120),
-    instagramUrl: httpsUrlOrEmpty,
+    instagram: instagramHandleOrEmpty,
+    instagramUrl: instagramUrlOrEmpty,
     orgNumber: z.string().trim().max(60),
     mapUrl: httpsUrlOrEmpty,
   }).default({
@@ -140,7 +155,7 @@ export const restaurantSiteSchema = z.object({
     instagram: "@donis.trattoria",
     instagramUrl: "https://www.instagram.com/donis.trattoria/",
     orgNumber: "556852-1420",
-    mapUrl: "https://www.google.com/maps/search/?api=1&query=Doni%27s+Trattoria+Hornsbergs+Strand+77+Stockholm",
+    mapUrl: "",
   }),
   links: z.object({
     booking: httpsUrlOrEmpty,
@@ -180,7 +195,7 @@ export const emptyRestaurantSite: RestaurantSite = {
     instagram: "@donis.trattoria",
     instagramUrl: "https://www.instagram.com/donis.trattoria/",
     orgNumber: "556852-1420",
-    mapUrl: "https://www.google.com/maps/search/?api=1&query=Doni%27s+Trattoria+Hornsbergs+Strand+77+Stockholm",
+    mapUrl: "",
   },
   hours: Array.from({ length: 7 }, (_, day) => ({    day,
     closed: true,
