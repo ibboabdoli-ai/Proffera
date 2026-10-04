@@ -45,6 +45,8 @@ describe("Doni restaurant CMS source of truth", () => {
     expect(editor).toContain("site.business[field]");
     expect(editor).toContain('field === "address"');
     expect(editor).toContain("next.business.mapUrl = \"\"");
+    expect(editor).toContain('field === "instagram"');
+    expect(editor).toContain("next.business.instagramUrl = \"\"");
     expect(page).toContain("DONIS_LUXURY_FALLBACK_SITE.dishes");
     expect(page).toContain("referenceItems");
   });
@@ -82,6 +84,10 @@ describe("Doni restaurant CMS source of truth", () => {
     expect(demo).toContain("? heroFallback");
     expect(demo).toContain(": null;");
     expect(demo).toContain("{hero && (");
+    expect(demo).toContain("const hasLocation = Boolean(fullAddress || business.mapUrl)");
+    expect(demo).toContain("{fullAddress && (");
+    expect(demo).toContain("{hasLocation && (");
+    expect(demo).toContain("{mapEmbedUrl && (");
   });
 
   it("generates Demo 2 browser and social metadata from the published CMS document", () => {
