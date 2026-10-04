@@ -1,10 +1,9 @@
 import { redirect } from "next/navigation";
 
 import {
-  DONIS_FALLBACK_DISH_IMAGE_URLS,
-  DONIS_FALLBACK_IMAGES,
-  DONIS_FALLBACK_SITE,
-} from "@/lib/donis-fallback";
+  DONIS_LUXURY_FALLBACK_IMAGES,
+  DONIS_LUXURY_FALLBACK_SITE,
+} from "@/lib/donis-luxury-fallback";
 import { getRestaurantAdmin } from "@/lib/restaurant-site-db";
 import { getDashboardGalleryItems } from "@/lib/website-gallery-db";
 import {
@@ -60,27 +59,55 @@ export default async function RestaurantAdminPage() {
   const images = (await getDashboardGalleryItems()).filter(
     (item) => item.mediaType === "image",
   );
-  const referenceHeroImage =
-    !site.published && DONIS_FALLBACK_SITE.media.hero
-      ? DONIS_FALLBACK_IMAGES[DONIS_FALLBACK_SITE.media.hero.id]
-      : undefined;
-  const referenceGalleryImages = !site.published
-    ? DONIS_FALLBACK_SITE.media.gallery
-        .map((item) => DONIS_FALLBACK_IMAGES[item.id])
-        .filter((url): url is string => Boolean(url))
-    : [];
+  const referenceMedia = [
+    DONIS_LUXURY_FALLBACK_SITE.media.hero,
+    DONIS_LUXURY_FALLBACK_SITE.media.owner,
+    DONIS_LUXURY_FALLBACK_SITE.media.family,
+    ...DONIS_LUXURY_FALLBACK_SITE.media.gallery,
+    ...DONIS_LUXURY_FALLBACK_SITE.dishes.map((dish) => dish.image),
+  ].filter((item): item is NonNullable<typeof item> => Boolean(item));
+
+  const referenceItems = [
+    ...new Map(
+      referenceMedia
+        .map((item) => ({
+          id: item.id,
+          url: DONIS_LUXURY_FALLBACK_IMAGES[item.id],
+          alt: item.alt.sv || item.alt.en,
+        }))
+        .filter((item) => Boolean(item.url))
+        .map((item) => [item.id, item] as const),
+    ).values(),
+  ];
+
+  const referenceHeroImage = DONIS_LUXURY_FALLBACK_SITE.media.hero
+    ? DONIS_LUXURY_FALLBACK_IMAGES[DONIS_LUXURY_FALLBACK_SITE.media.hero.id]
+    : undefined;
+  const referenceGalleryImages = DONIS_LUXURY_FALLBACK_SITE.media.gallery
+    .map((item) => DONIS_LUXURY_FALLBACK_IMAGES[item.id])
+    .filter((url): url is string => Boolean(url));
+  const referenceDishImages = Object.fromEntries(
+    DONIS_LUXURY_FALLBACK_SITE.dishes.flatMap((dish) =>
+      dish.image && DONIS_LUXURY_FALLBACK_IMAGES[dish.image.id]
+        ? [[dish.id, DONIS_LUXURY_FALLBACK_IMAGES[dish.image.id]]]
+        : [],
+    ),
+  );
 
   return (
     <RestaurantEditor
       initial={site}
-      images={images.map(({ id, publicUrl, altText }) => ({
-        id,
-        url: publicUrl,
-        alt: altText,
-      }))}
-      referenceDishImages={
-        site.published ? {} : DONIS_FALLBACK_DISH_IMAGE_URLS
-      }
+      images={[
+        ...referenceItems,
+        ...images
+          .filter((item) => !referenceItems.some((ref) => ref.id === item.id))
+          .map(({ id, publicUrl, altText }) => ({
+            id,
+            url: publicUrl,
+            alt: altText,
+          })),
+      ]}
+      referenceDishImages={referenceDishImages}
       referenceHeroImage={referenceHeroImage}
       referenceGalleryImages={referenceGalleryImages}
     />
