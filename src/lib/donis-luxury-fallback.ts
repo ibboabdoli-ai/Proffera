@@ -4,6 +4,10 @@ import {
   DONIS_FALLBACK_IMAGES,
   DONIS_FALLBACK_SITE,
 } from "@/lib/donis-fallback";
+import {
+  DONIS_GENERATED_MENU_IMAGE_IDS,
+  DONIS_GENERATED_MENU_SPRITE,
+} from "@/lib/donis-generated-menu-sprite";
 import type { RestaurantSite } from "@/lib/restaurant-site-schema";
 
 const categoryIds = {
@@ -133,6 +137,12 @@ const dish = ({
 
 export const DONIS_LUXURY_FALLBACK_IMAGES: Record<string, string> = {
   ...DONIS_FALLBACK_IMAGES,
+  ...Object.fromEntries(
+    Object.values(DONIS_GENERATED_MENU_IMAGE_IDS).map((id) => [
+      id,
+      DONIS_GENERATED_MENU_SPRITE,
+    ]),
+  ),
   [imageIds.margherita]:
     "https://imageproxy.wolt.com/menu/menu-images/65a13319ea42aa5727e72fe8/8a12c398-345f-11ef-9021-36f52c208fd6_margherita.jpg",
   [imageIds.diavola]:
@@ -207,15 +217,15 @@ export const DONIS_LUXURY_FALLBACK_SITE: RestaurantSite = {
     { id: categoryIds.drinks, name: localized("Dryck", "Drinks"), sortOrder: 8, hidden: false },
   ],
   dishes: [
-    dish({ id: dishIds.olives, categoryId: categoryIds.antipasto, name: "Oliver", priceOre: 4500, sortOrder: 0 }),
-    dish({ id: dishIds.garlicBread, categoryId: categoryIds.antipasto, name: "Vitlöksbröd", priceOre: 4500, descriptionSv: "Vitlöksbröd.", descriptionEn: "Garlic bread.", sortOrder: 1 }),
-    dish({ id: dishIds.cheeseFries, categoryId: categoryIds.antipasto, name: "Cheese Fries", priceOre: 8500, sortOrder: 2 }),
-    dish({ id: dishIds.salsiccia, categoryId: categoryIds.antipasto, name: "Salsiccia", priceOre: 7500, sortOrder: 3 }),
-    dish({ id: dishIds.aubergine, categoryId: categoryIds.antipasto, name: "Aubergine", priceOre: 7500, sortOrder: 4 }),
-    dish({ id: dishIds.bruschettaParma, categoryId: categoryIds.antipasto, name: "Bruschetta Parma", priceOre: 8000, sortOrder: 5 }),
-    dish({ id: dishIds.burrata, categoryId: categoryIds.antipasto, name: "Burrata di bufala", priceOre: 8500, sortOrder: 6 }),
-    dish({ id: dishIds.gamberi, categoryId: categoryIds.antipasto, name: "Gamberi con aglio e olio", priceOre: 9500, sortOrder: 7 }),
-    dish({ id: dishIds.antipastiMisti, categoryId: categoryIds.antipasto, name: "Antipasti Misti", priceOre: 10000, sortOrder: 8 }),
+    dish({ id: dishIds.olives, categoryId: categoryIds.antipasto, name: "Oliver", priceOre: 4500, image: dishImage(DONIS_GENERATED_MENU_IMAGE_IDS.olives, "Oliver", "Olives"), sortOrder: 0 }),
+    dish({ id: dishIds.garlicBread, categoryId: categoryIds.antipasto, name: "Vitlöksbröd", priceOre: 4500, descriptionSv: "Vitlöksbröd.", descriptionEn: "Garlic bread.", image: dishImage(DONIS_GENERATED_MENU_IMAGE_IDS.garlicBread, "Vitlöksbröd", "Garlic bread"), sortOrder: 1 }),
+    dish({ id: dishIds.cheeseFries, categoryId: categoryIds.antipasto, name: "Cheese Fries", priceOre: 8500, image: dishImage(DONIS_GENERATED_MENU_IMAGE_IDS.cheeseFries, "Cheese Fries", "Cheese Fries"), sortOrder: 2 }),
+    dish({ id: dishIds.salsiccia, categoryId: categoryIds.antipasto, name: "Salsiccia", priceOre: 7500, image: dishImage(DONIS_GENERATED_MENU_IMAGE_IDS.salsiccia, "Salsiccia", "Salsiccia"), sortOrder: 3 }),
+    dish({ id: dishIds.aubergine, categoryId: categoryIds.antipasto, name: "Aubergine", priceOre: 7500, image: dishImage(DONIS_GENERATED_MENU_IMAGE_IDS.aubergine, "Aubergine", "Aubergine"), sortOrder: 4 }),
+    dish({ id: dishIds.bruschettaParma, categoryId: categoryIds.antipasto, name: "Bruschetta Parma", priceOre: 8000, image: dishImage(DONIS_GENERATED_MENU_IMAGE_IDS.bruschettaParma, "Bruschetta Parma", "Bruschetta Parma"), sortOrder: 5 }),
+    dish({ id: dishIds.burrata, categoryId: categoryIds.antipasto, name: "Burrata di bufala", priceOre: 8500, image: dishImage(DONIS_GENERATED_MENU_IMAGE_IDS.burrata, "Burrata di bufala", "Burrata di bufala"), sortOrder: 6 }),
+    dish({ id: dishIds.gamberi, categoryId: categoryIds.antipasto, name: "Gamberi con aglio e olio", priceOre: 9500, image: dishImage(DONIS_GENERATED_MENU_IMAGE_IDS.gamberi, "Gamberi con aglio e olio", "Gamberi con aglio e olio"), sortOrder: 7 }),
+    dish({ id: dishIds.antipastiMisti, categoryId: categoryIds.antipasto, name: "Antipasti Misti", priceOre: 10000, image: dishImage(DONIS_GENERATED_MENU_IMAGE_IDS.antipastiMisti, "Antipasti Misti", "Antipasti Misti"), sortOrder: 8 }),
 
     dish({
       id: dishIds.ragu,
@@ -380,7 +390,7 @@ export const DONIS_LUXURY_FALLBACK_SITE: RestaurantSite = {
       sortOrder: 2,
     }),
 
-    dish({ id: dishIds.entrecote, categoryId: categoryIds.secondi, name: "Entrecote", priceOre: null, sortOrder: 0 }),
+    dish({ id: dishIds.entrecote, categoryId: categoryIds.secondi, name: "Entrecote", priceOre: null, image: dishImage(DONIS_GENERATED_MENU_IMAGE_IDS.entrecote, "Entrecote", "Entrecote"), sortOrder: 0 }),
     dish({
       id: dishIds.chickenSalad,
       categoryId: categoryIds.insalata,
@@ -388,6 +398,7 @@ export const DONIS_LUXURY_FALLBACK_SITE: RestaurantSite = {
       priceOre: null,
       descriptionSv: "Grillad kycklingsallad med avokado.",
       descriptionEn: "Grilled chicken salad with avocado.",
+      image: dishImage(DONIS_GENERATED_MENU_IMAGE_IDS.chickenSalad, "Grillad kycklingsallad med avokado", "Grilled chicken salad with avocado"),
       sortOrder: 0,
     }),
 
@@ -402,29 +413,29 @@ export const DONIS_LUXURY_FALLBACK_SITE: RestaurantSite = {
       sortOrder: 0,
     }),
 
-    dish({ id: dishIds.bearnaise, categoryId: categoryIds.sauces, name: "Bearnaisesås", priceOre: 4500, sortOrder: 0 }),
-    dish({ id: dishIds.garlicSauce, categoryId: categoryIds.sauces, name: "Vitlökssås", priceOre: 4500, sortOrder: 1 }),
-    dish({ id: dishIds.tzatziki, categoryId: categoryIds.sauces, name: "Tzatziki", priceOre: 4500, sortOrder: 2 }),
-    dish({ id: dishIds.bbq, categoryId: categoryIds.sauces, name: "BBQ sås", priceOre: 4500, sortOrder: 3 }),
+    dish({ id: dishIds.bearnaise, categoryId: categoryIds.sauces, name: "Bearnaisesås", priceOre: 4500, image: dishImage(DONIS_GENERATED_MENU_IMAGE_IDS.sauces, "Bearnaisesås", "Béarnaise sauce"), sortOrder: 0 }),
+    dish({ id: dishIds.garlicSauce, categoryId: categoryIds.sauces, name: "Vitlökssås", priceOre: 4500, image: dishImage(DONIS_GENERATED_MENU_IMAGE_IDS.sauces, "Vitlökssås", "Garlic sauce"), sortOrder: 1 }),
+    dish({ id: dishIds.tzatziki, categoryId: categoryIds.sauces, name: "Tzatziki", priceOre: 4500, image: dishImage(DONIS_GENERATED_MENU_IMAGE_IDS.sauces, "Tzatziki", "Tzatziki"), sortOrder: 2 }),
+    dish({ id: dishIds.bbq, categoryId: categoryIds.sauces, name: "BBQ sås", priceOre: 4500, image: dishImage(DONIS_GENERATED_MENU_IMAGE_IDS.sauces, "BBQ sås", "BBQ sauce"), sortOrder: 3 }),
 
-    dish({ id: dishIds.cocaCola, categoryId: categoryIds.drinks, name: "Coca-Cola Original 33cl", priceOre: 2500, sortOrder: 0 }),
-    dish({ id: dishIds.cocaColaZero, categoryId: categoryIds.drinks, name: "Coca-Cola Zero 33cl", priceOre: 2500, sortOrder: 1 }),
-    dish({ id: dishIds.fanta, categoryId: categoryIds.drinks, name: "Fanta Orange 33cl", priceOre: 2500, sortOrder: 2 }),
-    dish({ id: dishIds.sprite, categoryId: categoryIds.drinks, name: "Sprite 33cl", priceOre: 2500, sortOrder: 3 }),
-    dish({ id: dishIds.lokaNaturell, categoryId: categoryIds.drinks, name: "Loka Naturell 33cl", priceOre: 2500, sortOrder: 4 }),
-    dish({ id: dishIds.lokaCitron, categoryId: categoryIds.drinks, name: "Loka Citron 33cl", priceOre: 2500, sortOrder: 5 }),
-    dish({ id: dishIds.lokaJordgubb, categoryId: categoryIds.drinks, name: "Loka Jordgubb & Granatäpple", priceOre: 2500, sortOrder: 6 }),
-    dish({ id: dishIds.lokaParon, categoryId: categoryIds.drinks, name: "Loka Päron", priceOre: 2500, sortOrder: 7 }),
-    dish({ id: dishIds.aperol, categoryId: categoryIds.drinks, name: "Aperol spritz", priceOre: 13000, descriptionSv: "Aperol, prosecco & sodavatten.", descriptionEn: "Aperol, prosecco & soda.", sortOrder: 8 }),
-    dish({ id: dishIds.limoncello, categoryId: categoryIds.drinks, name: "Limoncello spritz", priceOre: 13000, descriptionSv: "Limoncello, prosecco & sodavatten.", descriptionEn: "Limoncello, prosecco & soda.", sortOrder: 9 }),
-    dish({ id: dishIds.passionGt, categoryId: categoryIds.drinks, name: "Passion GT", priceOre: 13000, sortOrder: 10 }),
-    dish({ id: dishIds.negroni, categoryId: categoryIds.drinks, name: "Negroni", priceOre: 13000, descriptionSv: "Gin, Martini & Campari.", descriptionEn: "Gin, Martini & Campari.", sortOrder: 11 }),
-    dish({ id: dishIds.godfather, categoryId: categoryIds.drinks, name: "Godfather martini", priceOre: 14000, sortOrder: 12 }),
-    dish({ id: dishIds.espressoMartini, categoryId: categoryIds.drinks, name: "Espresso martini", priceOre: 13000, descriptionSv: "Vodka, Kahlúa & espresso.", descriptionEn: "Vodka, Kahlúa & espresso.", sortOrder: 13 }),
-    dish({ id: dishIds.whiteRussian, categoryId: categoryIds.drinks, name: "White Russian", priceOre: 13000, descriptionSv: "Vodka, Kahlúa & grädde.", descriptionEn: "Vodka, Kahlúa & cream.", sortOrder: 14 }),
-    dish({ id: dishIds.irishCoffee, categoryId: categoryIds.drinks, name: "Irish coffee", priceOre: 13000, sortOrder: 15 }),
-    dish({ id: dishIds.kaffeKarlsson, categoryId: categoryIds.drinks, name: "Kaffe Karlsson", priceOre: 13000, sortOrder: 16 }),
-    dish({ id: dishIds.lemonade, categoryId: categoryIds.drinks, name: "Lemonad", priceOre: 5000, sortOrder: 17 }),
-    dish({ id: dishIds.passion, categoryId: categoryIds.drinks, name: "Passion", priceOre: 5000, sortOrder: 18 }),
+    dish({ id: dishIds.cocaCola, categoryId: categoryIds.drinks, name: "Coca-Cola Original 33cl", priceOre: 2500, image: dishImage(DONIS_GENERATED_MENU_IMAGE_IDS.softDrinks, "Coca-Cola Original 33cl", "Coca-Cola Original 33cl"), sortOrder: 0 }),
+    dish({ id: dishIds.cocaColaZero, categoryId: categoryIds.drinks, name: "Coca-Cola Zero 33cl", priceOre: 2500, image: dishImage(DONIS_GENERATED_MENU_IMAGE_IDS.softDrinks, "Coca-Cola Zero 33cl", "Coca-Cola Zero 33cl"), sortOrder: 1 }),
+    dish({ id: dishIds.fanta, categoryId: categoryIds.drinks, name: "Fanta Orange 33cl", priceOre: 2500, image: dishImage(DONIS_GENERATED_MENU_IMAGE_IDS.softDrinks, "Fanta Orange 33cl", "Fanta Orange 33cl"), sortOrder: 2 }),
+    dish({ id: dishIds.sprite, categoryId: categoryIds.drinks, name: "Sprite 33cl", priceOre: 2500, image: dishImage(DONIS_GENERATED_MENU_IMAGE_IDS.softDrinks, "Sprite 33cl", "Sprite 33cl"), sortOrder: 3 }),
+    dish({ id: dishIds.lokaNaturell, categoryId: categoryIds.drinks, name: "Loka Naturell 33cl", priceOre: 2500, image: dishImage(DONIS_GENERATED_MENU_IMAGE_IDS.softDrinks, "Loka Naturell 33cl", "Loka Naturell 33cl"), sortOrder: 4 }),
+    dish({ id: dishIds.lokaCitron, categoryId: categoryIds.drinks, name: "Loka Citron 33cl", priceOre: 2500, image: dishImage(DONIS_GENERATED_MENU_IMAGE_IDS.softDrinks, "Loka Citron 33cl", "Loka Citron 33cl"), sortOrder: 5 }),
+    dish({ id: dishIds.lokaJordgubb, categoryId: categoryIds.drinks, name: "Loka Jordgubb & Granatäpple", priceOre: 2500, image: dishImage(DONIS_GENERATED_MENU_IMAGE_IDS.softDrinks, "Loka Jordgubb & Granatäpple", "Loka Jordgubb & Granatäpple"), sortOrder: 6 }),
+    dish({ id: dishIds.lokaParon, categoryId: categoryIds.drinks, name: "Loka Päron", priceOre: 2500, image: dishImage(DONIS_GENERATED_MENU_IMAGE_IDS.softDrinks, "Loka Päron", "Loka Päron"), sortOrder: 7 }),
+    dish({ id: dishIds.aperol, categoryId: categoryIds.drinks, name: "Aperol spritz", priceOre: 13000, descriptionSv: "Aperol, prosecco & sodavatten.", descriptionEn: "Aperol, prosecco & soda.", image: dishImage(DONIS_GENERATED_MENU_IMAGE_IDS.cocktails, "Aperol spritz", "Aperol spritz"), sortOrder: 8 }),
+    dish({ id: dishIds.limoncello, categoryId: categoryIds.drinks, name: "Limoncello spritz", priceOre: 13000, descriptionSv: "Limoncello, prosecco & sodavatten.", descriptionEn: "Limoncello, prosecco & soda.", image: dishImage(DONIS_GENERATED_MENU_IMAGE_IDS.cocktails, "Limoncello spritz", "Limoncello spritz"), sortOrder: 9 }),
+    dish({ id: dishIds.passionGt, categoryId: categoryIds.drinks, name: "Passion GT", priceOre: 13000, image: dishImage(DONIS_GENERATED_MENU_IMAGE_IDS.mocktails, "Passion GT", "Passion GT"), sortOrder: 10 }),
+    dish({ id: dishIds.negroni, categoryId: categoryIds.drinks, name: "Negroni", priceOre: 13000, descriptionSv: "Gin, Martini & Campari.", descriptionEn: "Gin, Martini & Campari.", image: dishImage(DONIS_GENERATED_MENU_IMAGE_IDS.cocktails, "Negroni", "Negroni"), sortOrder: 11 }),
+    dish({ id: dishIds.godfather, categoryId: categoryIds.drinks, name: "Godfather martini", priceOre: 14000, image: dishImage(DONIS_GENERATED_MENU_IMAGE_IDS.cocktails, "Godfather martini", "Godfather martini"), sortOrder: 12 }),
+    dish({ id: dishIds.espressoMartini, categoryId: categoryIds.drinks, name: "Espresso martini", priceOre: 13000, descriptionSv: "Vodka, Kahlúa & espresso.", descriptionEn: "Vodka, Kahlúa & espresso.", image: dishImage(DONIS_GENERATED_MENU_IMAGE_IDS.coffeeDrinks, "Espresso martini", "Espresso martini"), sortOrder: 13 }),
+    dish({ id: dishIds.whiteRussian, categoryId: categoryIds.drinks, name: "White Russian", priceOre: 13000, descriptionSv: "Vodka, Kahlúa & grädde.", descriptionEn: "Vodka, Kahlúa & cream.", image: dishImage(DONIS_GENERATED_MENU_IMAGE_IDS.coffeeDrinks, "White Russian", "White Russian"), sortOrder: 14 }),
+    dish({ id: dishIds.irishCoffee, categoryId: categoryIds.drinks, name: "Irish coffee", priceOre: 13000, image: dishImage(DONIS_GENERATED_MENU_IMAGE_IDS.coffeeDrinks, "Irish coffee", "Irish coffee"), sortOrder: 15 }),
+    dish({ id: dishIds.kaffeKarlsson, categoryId: categoryIds.drinks, name: "Kaffe Karlsson", priceOre: 13000, image: dishImage(DONIS_GENERATED_MENU_IMAGE_IDS.coffeeDrinks, "Kaffe Karlsson", "Kaffe Karlsson"), sortOrder: 16 }),
+    dish({ id: dishIds.lemonade, categoryId: categoryIds.drinks, name: "Lemonad", priceOre: 5000, image: dishImage(DONIS_GENERATED_MENU_IMAGE_IDS.mocktails, "Lemonad", "Lemonad"), sortOrder: 17 }),
+    dish({ id: dishIds.passion, categoryId: categoryIds.drinks, name: "Passion", priceOre: 5000, image: dishImage(DONIS_GENERATED_MENU_IMAGE_IDS.mocktails, "Passion", "Passion"), sortOrder: 18 }),
   ],
 };
