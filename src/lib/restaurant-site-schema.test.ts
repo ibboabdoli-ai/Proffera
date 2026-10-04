@@ -94,4 +94,39 @@ describe("restaurant site content boundary", () => {
     draft.links.booking = "https:booking.example.com/donis";
     expect(validateRestaurantSite(draft).ok).toBe(false);
   });
+
+  it("accepts editable bilingual dish names and contact details", () => {
+    const draft = structuredClone(emptyRestaurantSite);
+    draft.categories.push({
+      id: categoryId,
+      name: { sv: "Förrätt", en: "Starter" },
+      sortOrder: 0,
+      hidden: false,
+    });
+    draft.dishes.push({
+      id: dishId,
+      categoryId,
+      name: "Oliver",
+      displayName: { sv: "Oliver", en: "Olives" },
+      priceOre: 4500,
+      description: { sv: "", en: "" },
+      image: null,
+      sortOrder: 0,
+      hidden: false,
+      archived: false,
+    });
+    draft.contact = {
+      addressLine1: "Hornsbergs Strand 77",
+      postalCode: "112 16",
+      city: "Stockholm",
+      phone: "08-656 84 00",
+      email: "donitrattoria@gmail.com",
+      instagram: "@donis.trattoria",
+      orgNumber: "556852-1420",
+      mapsUrl: "https://www.google.com/maps/search/?api=1&query=Doni",
+    };
+    expect(validateRestaurantSite(draft).ok).toBe(true);
+    draft.contact.mapsUrl = "javascript:alert(1)";
+    expect(validateRestaurantSite(draft).ok).toBe(false);
+  });
 });

@@ -272,9 +272,21 @@ export function isRestaurantSiteBlank(site: RestaurantSite) {
     !text.ownerIntroduction.en &&
     !text.philosophy.sv &&
     !text.philosophy.en &&
+    !text.contactTitle?.sv &&
+    !text.contactTitle?.en &&
+    !text.contactDescription?.sv &&
+    !text.contactDescription?.en &&
     text.foundedYear === null &&
     !site.links.booking &&
     !site.links.order &&
+    !site.contact?.addressLine1 &&
+    !site.contact?.postalCode &&
+    !site.contact?.city &&
+    !site.contact?.phone &&
+    !site.contact?.email &&
+    !site.contact?.instagram &&
+    !site.contact?.orgNumber &&
+    !site.contact?.mapsUrl &&
     site.hours.every((hour) => hour.closed)
   );
 }

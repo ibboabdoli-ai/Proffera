@@ -49,7 +49,7 @@ describe("Doni restaurant owner starter content", () => {
     const db = readFileSync("src/lib/restaurant-site-db.ts", "utf8");
 
     expect(db).toContain("isRestaurantSiteBlank(draft)");
-    expect(db).toContain("createDonisAdminStarterSite()");
+    expect(db).toContain("createDonisLuxuryAdminStarterSite()");
     expect(db).toContain("starter,");
   });
 });

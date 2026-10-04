@@ -2,18 +2,29 @@
 
 import { useEffect, useRef, useState, type ChangeEvent } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { createDonisAdminStarterSite } from "@/lib/donis-fallback";
+import {
+  createDonisLuxuryAdminStarterSite,
+  DONIS_LUXURY_FALLBACK_SITE,
+} from "@/lib/donis-luxury-fallback";
 import type { RestaurantSite } from "@/lib/restaurant-site-schema";
 import { parseRestaurantPrice } from "@/lib/restaurant-price";
 import { saveDraft } from "./actions";
 
 type Media = { id: string; url: string; alt: string };
-type Section = "menu" | "categories" | "photos" | "content" | "hours" | "links";
+type Section =
+  | "menu"
+  | "categories"
+  | "photos"
+  | "content"
+  | "contact"
+  | "hours"
+  | "links";
 const sections: { id: Section; label: string; hint: string }[] = [
   { id: "menu", label: "Meny", hint: "Rätter och priser" },
   { id: "categories", label: "Kategorier", hint: "Rubriker i menyn" },
   { id: "photos", label: "Bilder", hint: "Hero, galleri och matbilder" },
   { id: "content", label: "Texter", hint: "Hero och Om oss" },
+  { id: "contact", label: "Kontakt", hint: "Adress och företagsinfo" },
   { id: "hours", label: "Öppettider", hint: "Kontaktsektionen" },
   { id: "links", label: "Länkar", hint: "Qopla och bokning" },
 ];
@@ -109,6 +120,7 @@ export function RestaurantEditor({
   referenceDishImages = {},
   referenceHeroImage,
   referenceGalleryImages = [],
+  referenceMediaImages = {},
 }: {
   initial: {
     draft: RestaurantSite;
@@ -121,6 +133,7 @@ export function RestaurantEditor({
   referenceDishImages?: Record<string, string>;
   referenceHeroImage?: string;
   referenceGalleryImages?: string[];
+  referenceMediaImages?: Record<string, string>;
 }) {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -136,6 +149,21 @@ export function RestaurantEditor({
   const [section, setSection] = useState<Section>("menu");
   const [selectedDish, setSelectedDish] = useState<string | null>(null);
   const [alt, setAlt] = useState("");
+  const bundledMedia = [
+    DONIS_LUXURY_FALLBACK_SITE.media.hero,
+    DONIS_LUXURY_FALLBACK_SITE.media.owner,
+    DONIS_LUXURY_FALLBACK_SITE.media.family,
+    ...DONIS_LUXURY_FALLBACK_SITE.media.gallery,
+    ...DONIS_LUXURY_FALLBACK_SITE.dishes.map((item) => item.image),
+  ].filter(
+    (
+      item,
+    ): item is NonNullable<RestaurantSite["dishes"][number]["image"]> =>
+      item !== null,
+  );
+  const uniqueBundledMedia = Array.from(
+    new Map(bundledMedia.map((item) => [item.id, item])).values(),
+  );
   const allowNavigationRef = useRef(false);
   const restoringHistoryRef = useRef(false);
 
@@ -241,7 +269,7 @@ export function RestaurantEditor({
         : "Ersätt nuvarande utkast med redigerbara exempel från demosidan? Inget sparas förrän du trycker Spara.",
     );
     if (!confirmed) return;
-    setSite(createDonisAdminStarterSite());
+    setSite(createDonisLuxuryAdminStarterSite());
     setStarter(true);
     setSection("menu");
     setSelectedDish(null);
@@ -331,24 +359,22 @@ export function RestaurantEditor({
     const currentImage = current
       ? images.find((image) => image.id === current.id)
       : undefined;
+    const bundledUrl = current ? referenceMediaImages[current.id] : undefined;
+    const previewUrl = currentImage?.url ?? bundledUrl ?? referenceUrl;
     return (
       <div className="grid gap-3">
-        {currentImage ? (
-          <img
-            src={currentImage.url}
-            alt={current?.alt[locale] || current?.alt.sv || ""}
-            className="aspect-[4/3] max-h-64 w-full rounded-xl object-cover"
-          />
-        ) : referenceUrl ? (
+        {previewUrl ? (
           <div className="rounded-xl border border-[#d9cfc1] bg-[#fffaf3] p-2">
             <img
-              src={referenceUrl}
-              alt=""
+              src={previewUrl}
+              alt={current?.alt[locale] || current?.alt.sv || ""}
               className="aspect-[4/3] max-h-64 w-full rounded-lg object-cover"
             />
-            <p className="mt-2 text-xs leading-5 text-[#665b50]">
-              Referensbild från nuvarande demosida. Ladda upp en ny bild för att ersätta den.
-            </p>
+            {bundledUrl && !currentImage && (
+              <p className="mt-2 text-xs leading-5 text-[#665b50]">
+                Bilden följer med Demo 2 och kan ersättas med en egen uppladdning.
+              </p>
+            )}
           </div>
         ) : null}
         <select
@@ -357,14 +383,26 @@ export function RestaurantEditor({
           aria-label="Välj befintlig bild"
           onChange={(event) => {
             const media = images.find((item) => item.id === event.target.value);
+            const bundled = uniqueBundledMedia.find(
+              (item) => item.id === event.target.value,
+            );
             setPhoto(
               media
                 ? { id: media.id, alt: { sv: media.alt, en: media.alt } }
-                : null,
+                : bundled
+                  ? { id: bundled.id, alt: structuredClone(bundled.alt) }
+                  : null,
             );
           }}
         >
           <option value="">Ingen bild</option>
+          {uniqueBundledMedia
+            .filter((item) => !images.some((owned) => owned.id === item.id))
+            .map((item) => (
+              <option key={`demo-${item.id}`} value={item.id}>
+                Demo 2 · {item.alt[locale] || item.alt.sv || item.id.slice(0, 8)}
+              </option>
+            ))}
           {images.map((item) => (
             <option key={item.id} value={item.id}>
               {item.alt} · {item.id.slice(0, 8)}
@@ -451,6 +489,8 @@ export function RestaurantEditor({
     });
   }
   const dish = site.dishes.find((item) => item.id === selectedDish);
+  const editableContact =
+    site.contact ?? DONIS_LUXURY_FALLBACK_SITE.contact!;
   const status = dirty
     ? "Osparade ändringar"
     : revision !== publishedRevision
@@ -516,7 +556,7 @@ export function RestaurantEditor({
               {busy ? "Sparar…" : "Spara"}
             </button>
             <a
-              href="/demo/donis-trattoria"
+              href="/demo/donis-trattoria2"
               target="_blank"
               rel="noopener noreferrer"
               className="font-semibold text-[#572e28] underline underline-offset-4"
@@ -603,7 +643,8 @@ export function RestaurantEditor({
                       next.dishes.push({
                         id,
                         categoryId: next.categories[0].id,
-                        name: locale === "en" ? "New dish" : "Ny rätt",
+                        name: "Ny rätt",
+                        displayName: { sv: "Ny rätt", en: "New dish" },
                         priceOre: null,
                         description: { sv: "", en: "" },
                         image: null,
@@ -626,21 +667,31 @@ export function RestaurantEditor({
                   >
                     ← Tillbaka till menyn
                   </button>
-                  <label className="text-sm font-semibold">
-                    Rättens namn
-                    <input
-                      className={input}
-                      value={dish.name}
-                      maxLength={120}
-                      onChange={(event) =>
-                        edit((next) => {
-                          next.dishes.find(
-                            (item) => item.id === dish.id,
-                          )!.name = event.target.value;
-                        })
-                      }
-                    />
-                  </label>
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    {(["sv", "en"] as const).map((language) => (
+                      <label key={language} className="text-sm font-semibold">
+                        {language === "sv" ? "Rättens namn SV" : "Dish name EN"}
+                        <input
+                          className={input}
+                          value={dish.displayName?.[language] ?? dish.name}
+                          maxLength={120}
+                          onChange={(event) =>
+                            edit((next) => {
+                              const nextDish = next.dishes.find(
+                                (item) => item.id === dish.id,
+                              )!;
+                              nextDish.displayName ??= {
+                                sv: nextDish.name,
+                                en: nextDish.name,
+                              };
+                              nextDish.displayName[language] = event.target.value;
+                              if (language === "sv") nextDish.name = event.target.value;
+                            })
+                          }
+                        />
+                      </label>
+                    ))}
+                  </div>
                   <label className="text-sm font-semibold">
                     Pris i kronor
                     <PriceInput
@@ -769,7 +820,9 @@ export function RestaurantEditor({
                               ? images.find((image) => image.id === item.image?.id)?.url
                               : undefined;
                             const previewUrl =
-                              ownedImage ?? referenceDishImages[item.id];
+                              ownedImage ??
+                              (item.image ? referenceMediaImages[item.image.id] : undefined) ??
+                              referenceDishImages[item.id];
                             return (
                               <article
                                 key={item.id}
@@ -780,7 +833,7 @@ export function RestaurantEditor({
                                     type="button"
                                     onClick={() => setSelectedDish(item.id)}
                                     className="h-16 w-16 overflow-hidden rounded-lg bg-[#eee5d8]"
-                                    aria-label={`Redigera ${item.name}`}
+                                    aria-label={`Redigera ${item.displayName?.[locale] || item.name}`}
                                   >
                                     {previewUrl ? (
                                       <img
@@ -801,7 +854,7 @@ export function RestaurantEditor({
                                         className="min-h-8 min-w-0 text-left text-base font-bold underline decoration-[#b5a797] underline-offset-4"
                                         onClick={() => setSelectedDish(item.id)}
                                       >
-                                        {item.name}
+                                        {item.displayName?.[locale] || item.name}
                                       </button>
                                       {item.hidden && (
                                         <span className="shrink-0 rounded-full bg-[#eee5d8] px-2 py-1 text-[10px] font-bold uppercase tracking-wide text-[#6c5a4d]">
@@ -813,7 +866,7 @@ export function RestaurantEditor({
                                       <label className="text-xs font-semibold">
                                         Pris (kr)
                                         <PriceInput
-                                          label={`Pris ${item.name}`}
+                                          label={`Pris ${item.displayName?.[locale] || item.name}`}
                                           className={`${input} mt-1 min-h-10 w-full text-right`}
                                           value={item.priceOre}
                                           disabled={busy}
@@ -840,7 +893,7 @@ export function RestaurantEditor({
                                   <button
                                     type="button"
                                     className={button}
-                                    aria-label={`${item.hidden ? "Visa" : "Dölj"} ${item.name}`}
+                                    aria-label={`${item.hidden ? "Visa" : "Dölj"} ${item.displayName?.[locale] || item.name}`}
                                     onClick={() =>
                                       edit((next) => {
                                         next.dishes.find(
@@ -856,7 +909,7 @@ export function RestaurantEditor({
                                       type="button"
                                       className={button}
                                       disabled={index === 0}
-                                      aria-label={`Flytta upp ${item.name}`}
+                                      aria-label={`Flytta upp ${item.displayName?.[locale] || item.name}`}
                                       onClick={() =>
                                         edit((next) =>
                                           move(
@@ -881,7 +934,7 @@ export function RestaurantEditor({
                                       type="button"
                                       className={button}
                                       disabled={index === list.length - 1}
-                                      aria-label={`Flytta ner ${item.name}`}
+                                      aria-label={`Flytta ner ${item.displayName?.[locale] || item.name}`}
                                       onClick={() =>
                                         edit((next) =>
                                           move(
@@ -930,7 +983,7 @@ export function RestaurantEditor({
                               })
                             }
                           >
-                            {item.name} · Återställ
+                            {item.displayName?.[locale] || item.name} · Återställ
                           </button>
                         ))}
                     </div>
@@ -1099,6 +1152,28 @@ export function RestaurantEditor({
               <div className="border-t border-[#d9cfc1] pt-4">
                 <h3 className="font-serif text-xl">Galleri</h3>
                 <button
+                  className={`${button} mt-3 mr-2`}
+                  type="button"
+                  onClick={() =>
+                    edit((next) => {
+                      const existing = new Set(
+                        next.media.gallery.map((item) => item.id),
+                      );
+                      for (const item of DONIS_LUXURY_FALLBACK_SITE.media.gallery) {
+                        if (existing.has(item.id) || next.media.gallery.length >= 50)
+                          continue;
+                        next.media.gallery.push({
+                          ...structuredClone(item),
+                          sortOrder: next.media.gallery.length,
+                        });
+                        existing.add(item.id);
+                      }
+                    })
+                  }
+                >
+                  + Lägg till Demo 2-galleri
+                </button>
+                <button
                   className={`${button} mt-3`}
                   onClick={() => {
                     const first = images.find(
@@ -1259,6 +1334,52 @@ export function RestaurantEditor({
                   ))}
                 </div>
               ))}
+              <div className="grid gap-3 border-b border-[#d9cfc1] pb-4">
+                <h3 className="font-semibold">Kontaktsektion</h3>
+                {(["sv", "en"] as const).map((language) => (
+                  <div key={language} className="grid gap-3">
+                    <label className="text-sm">
+                      {language === "sv" ? "Kontakt-rubrik SV" : "Contact title EN"}
+                      <input
+                        className={input}
+                        value={
+                          site.text.contactTitle?.[language] ??
+                          DONIS_LUXURY_FALLBACK_SITE.text.contactTitle?.[language] ??
+                          ""
+                        }
+                        onChange={(event) =>
+                          edit((next) => {
+                            next.text.contactTitle ??= { sv: "", en: "" };
+                            next.text.contactTitle[language] = event.target.value;
+                          })
+                        }
+                      />
+                    </label>
+                    <label className="text-sm">
+                      {language === "sv"
+                        ? "Kontakttext SV"
+                        : "Contact description EN"}
+                      <textarea
+                        className={`${input} min-h-20 py-3`}
+                        value={
+                          site.text.contactDescription?.[language] ??
+                          DONIS_LUXURY_FALLBACK_SITE.text.contactDescription?.[
+                            language
+                          ] ??
+                          ""
+                        }
+                        onChange={(event) =>
+                          edit((next) => {
+                            next.text.contactDescription ??= { sv: "", en: "" };
+                            next.text.contactDescription[language] =
+                              event.target.value;
+                          })
+                        }
+                      />
+                    </label>
+                  </div>
+                ))}
+              </div>
               <label className="text-sm">
                 Grundat år (om bekräftat)
                 <input
@@ -1276,6 +1397,56 @@ export function RestaurantEditor({
                   }
                 />
               </label>
+            </section>
+          )}
+          {section === "contact" && (
+            <section className="grid gap-5">
+              <div>
+                <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-[#8a493a]">
+                  På webbplatsen: Kontakt / Hitta hit
+                </p>
+                <h2 className="mt-1 font-serif text-2xl">Kontaktuppgifter</h2>
+              </div>
+              <p className="text-sm leading-6 text-[#665b50]">
+                Dessa uppgifter används direkt i Demo 2 och i kontaktsektionen.
+              </p>
+              {(
+                [
+                  ["addressLine1", "Gatuadress"],
+                  ["postalCode", "Postnummer"],
+                  ["city", "Ort"],
+                  ["phone", "Telefon"],
+                  ["email", "E-post"],
+                  ["instagram", "Instagram"],
+                  ["orgNumber", "Org.nr"],
+                  ["mapsUrl", "Google Maps / Hitta hit-länk"],
+                ] as const
+              ).map(([field, label]) => (
+                <label key={field} className="text-sm font-semibold">
+                  {label}
+                  <input
+                    className={input}
+                    type={
+                      field === "email"
+                        ? "email"
+                        : field === "mapsUrl"
+                          ? "url"
+                          : "text"
+                    }
+                    inputMode={field === "mapsUrl" ? "url" : undefined}
+                    value={editableContact[field]}
+                    onChange={(event) =>
+                      edit((next) => {
+                        next.contact ??= structuredClone(
+                          DONIS_LUXURY_FALLBACK_SITE.contact!,
+                        );
+                        next.contact[field] = event.target.value;
+                      })
+                    }
+                    placeholder={field === "mapsUrl" ? "https://" : undefined}
+                  />
+                </label>
+              ))}
             </section>
           )}
           {section === "hours" && (
