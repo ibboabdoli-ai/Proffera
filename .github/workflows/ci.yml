@@ -65,9 +65,9 @@ jobs:
           REPOSITORY: ${{ github.repository }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
           HEAD_REF: ${{ github.head_ref }}
+          EVENT_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           ACTOR: ${{ github.actor }}
-          PR_BODY: ${{ github.event.pull_request.body }}
         shell: bash
         run: |
           set -euo pipefail
@@ -81,6 +81,29 @@ jobs:
             echo "Refused: AI/product PR branches must use work/proffera-*; got '$HEAD_REF'."
             exit 1
           fi
+
+          # Pull-request event payload metadata can be stale relative to a same-head
+          # PR body edit (for example, immediately after refreshing from main).
+          # Re-read live metadata, but only trust it when the event's exact head,
+          # base and branch still match. This removes metadata ordering races
+          # without allowing a queued run to validate a different code revision.
+          live_pr="$(gh api "repos/${REPOSITORY}/pulls/${PR_NUMBER}")"
+          live_head_sha="$(jq -r '.head.sha' <<< "$live_pr")"
+          live_base_sha="$(jq -r '.base.sha' <<< "$live_pr")"
+          live_head_ref="$(jq -r '.head.ref' <<< "$live_pr")"
+          if [ "$live_head_sha" != "$EVENT_HEAD_SHA" ]; then
+            echo "Refused: PR head changed after this CI event; event=$EVENT_HEAD_SHA live=$live_head_sha." >&2
+            exit 1
+          fi
+          if [ "$live_base_sha" != "$BASE_SHA" ]; then
+            echo "Refused: PR base changed after this CI event; event=$BASE_SHA live=$live_base_sha." >&2
+            exit 1
+          fi
+          if [ "$live_head_ref" != "$HEAD_REF" ]; then
+            echo "Refused: PR branch changed after this CI event; event=$HEAD_REF live=$live_head_ref." >&2
+            exit 1
+          fi
+          PR_BODY="$(jq -r '.body // ""' <<< "$live_pr")"
 
           if ! grep -Fqi "Worker bootstrap: complete" <<< "$PR_BODY"; then
             echo "Refused: PR body must contain 'Worker bootstrap: complete'."
