@@ -14,6 +14,17 @@ describe("restaurant site content boundary", () => {
     expect(draft.text.story.sv).toBe("");
   });
 
+  it("backfills business details for older saved restaurant documents", () => {
+    const legacy = structuredClone(emptyRestaurantSite) as Record<string, unknown>;
+    delete legacy.business;
+    const result = validateRestaurantSite(legacy);
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.site.business.address).toBe("Hornsbergs Strand 77");
+      expect(result.site.business.email).toBe("donitrattoria@gmail.com");
+    }
+  });
+
   it("rejects a dish pointing to a category outside its menu", () => {
     const draft = structuredClone(emptyRestaurantSite);
     draft.dishes.push({
