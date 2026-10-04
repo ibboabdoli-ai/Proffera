@@ -30,6 +30,20 @@ const emailOrEmpty = z
     "Ange en giltig e-postadress.",
   );
 
+const phoneOrEmpty = z
+  .string()
+  .trim()
+  .max(60)
+  .refine(
+    (value) => {
+      if (!value) return true;
+      if (!/^\+?[\d\s().-]+$/.test(value)) return false;
+      const digits = value.replace(/\D/g, "");
+      return digits.length >= 6 && digits.length <= 15;
+    },
+    "Ange ett giltigt telefonnummer.",
+  );
+
 export const restaurantSiteSchema = z.object({
   categories: z
     .array(
@@ -110,7 +124,7 @@ export const restaurantSiteSchema = z.object({
     address: z.string().trim().max(240),
     postalCode: z.string().trim().max(24),
     city: z.string().trim().max(120),
-    phone: z.string().trim().max(60),
+    phone: phoneOrEmpty,
     email: emailOrEmpty,
     instagram: z.string().trim().max(120),
     instagramUrl: httpsUrlOrEmpty,
