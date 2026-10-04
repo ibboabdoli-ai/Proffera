@@ -185,11 +185,14 @@ export function decideWorkerStrategyHistory({ packet, source, records, dispatch_
   const matchingStarts = starts.filter((start) =>
     start.evidence_fingerprint === descriptor.evidence_fingerprint
     && start.strategy_fingerprint === descriptor.strategy_fingerprint);
+  // Unresolved dispatch starts are never cleared by material baseline evidence:
+  // without a durable outcome we cannot prove whether the Worker already
+  // published or merged. Only durable reconciliation or explicit owner
+  // re-entry may release this fail-closed state.
   const unresolved = matchingStarts.filter((start) =>
-    !resolvedAttempts.has(`${start.run_id}:${start.run_attempt}`) && !reentryHeads.has(start.head));
+    !resolvedAttempts.has(`${start.run_id}:${start.run_attempt}`));
   const materialReentries = prior.reduce((count, record) => count + (Array.isArray(record?.observations)
-    ? record.observations.filter((observation) => reentryHeads.has(String(observation?.head ?? ""))).length : 0), 0)
-    + matchingStarts.filter((start) => reentryHeads.has(start.head)).length;
+    ? record.observations.filter((observation) => reentryHeads.has(String(observation?.head ?? ""))).length : 0), 0);
 
   if (actor.kind === "human" && (prior.length > 0 || matchingStarts.length > 0)) {
     return {

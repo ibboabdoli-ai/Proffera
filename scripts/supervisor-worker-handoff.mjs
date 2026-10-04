@@ -3099,9 +3099,11 @@ export function materialWorkerBaselineHeads(packet, records, starts, strategy, g
   for (const [key, start] of startsByAttempt) {
     const durable = durableByAttempt.get(key);
     if (!durable) {
-      if (start.head !== packet.base_sha) {
-        comparisons.push({ marker: start.head, previous: start.head, dependency_paths: start.dependency_paths });
-      }
+      // A dispatch start without a durable outcome is ambiguous. Its Worker may
+      // already have published or merged even if outcome persistence failed, so
+      // repository changes after the dispatch cannot safely be treated as new
+      // external evidence. Keep it blocking until durable reconciliation or
+      // explicit trusted-owner re-entry.
       continue;
     }
     if (durable.heads.size !== 1) {

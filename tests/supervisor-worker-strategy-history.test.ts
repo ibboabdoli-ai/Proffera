@@ -186,6 +186,26 @@ describe("Worker material baseline scope", () => {
       rmSync(fixture.dir, {recursive: true, force: true});
     }
   });
+  it("keeps an unresolved start blocking after later writable changes", () => {
+    const fixture = gitFixture("scripts/a.mjs");
+    try {
+      const old = {...basePacket, base_sha: fixture.oldHead};
+      const current = {...basePacket, task_id: "UNRESOLVED-POST-PUBLICATION", base_sha: fixture.currentHead};
+      const starts = [dispatchStart(old, 28, 1)];
+      const heads = materialWorkerBaselineHeads(current, [], starts, workerStrategyModule, fixture.dir);
+      expect(heads).toEqual([]);
+      expect(decideWorkerStrategyHistory({
+        packet: current,
+        source: {mode: "planner", actor: "github-actions[bot]"},
+        records: [],
+        dispatch_starts: starts,
+        materially_changed_heads: heads,
+      })).toMatchObject({decision: "SUPPRESS_UNRESOLVED_ATTEMPT", unresolved_attempts: 1});
+    } finally {
+      rmSync(fixture.dir, {recursive: true, force: true});
+    }
+  });
+
   it("does not let a broad Planner dependency scope turn unrelated main churn into retry evidence", () => {
     const fixture = gitFixture("src/unrelated.ts");
     try {
@@ -415,7 +435,7 @@ describe("Worker strategy-history admission", () => {
     }).decision).toBe("SUPPRESS_REPEAT");
   });
 
-  it("allows material re-entry past an unresolved start from the old baseline", () => {
+  it("keeps an unresolved start fail-closed even when material evidence is supplied", () => {
     const old = {...basePacket, base_sha: "a".repeat(40)};
     expect(decideWorkerStrategyHistory({
       packet: {...basePacket, task_id: "NEW-TASK", base_sha: "b".repeat(40)},
@@ -423,7 +443,7 @@ describe("Worker strategy-history admission", () => {
       records: [],
       dispatch_starts: [dispatchStart(old, 20, 1)],
       materially_changed_heads: [old.base_sha],
-    })).toMatchObject({decision: "ALLOW_MATERIAL_REENTRY", unresolved_attempts: 0});
+    })).toMatchObject({decision: "SUPPRESS_UNRESOLVED_ATTEMPT", unresolved_attempts: 1});
   });
 
   it("allows explicit trusted owner re-entry without treating it as new material evidence", () => {
