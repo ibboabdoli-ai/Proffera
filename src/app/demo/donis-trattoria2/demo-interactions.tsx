@@ -396,7 +396,7 @@ export function DonisTrattoriaLuxuryExperience({
         : null;
 
   const booking = displaySite.links.booking;
-  const bookingHref = booking || phoneHref || "#kontakt";
+  const bookingHref = booking || phoneHref;
   const order = displaySite.links.order;
 
   const featured = [...visibleDishes]
@@ -603,15 +603,17 @@ export function DonisTrattoriaLuxuryExperience({
                   </button>
                 ))}
               </div>
-              <a
-                href={bookingHref}
-                target={booking ? "_blank" : undefined}
-                rel={booking ? "noopener noreferrer" : undefined}
-                className="inline-flex min-h-11 items-center gap-2 rounded-full border border-[#d6aa58]/70 px-5 text-[12px] font-bold text-[#f4ead8] transition hover:bg-[#d6aa58] hover:text-[#11120f]"
-              >
-                <CalendarDays className="h-4 w-4" />
-                {t.book}
-              </a>
+              {bookingHref && (
+                <a
+                  href={bookingHref}
+                  target={booking ? "_blank" : undefined}
+                  rel={booking ? "noopener noreferrer" : undefined}
+                  className="inline-flex min-h-11 items-center gap-2 rounded-full border border-[#d6aa58]/70 px-5 text-[12px] font-bold text-[#f4ead8] transition hover:bg-[#d6aa58] hover:text-[#11120f]"
+                >
+                  <CalendarDays className="h-4 w-4" />
+                  {t.book}
+                </a>
+              )}
               {order && (
                 <a
                   href={order}
@@ -694,15 +696,17 @@ export function DonisTrattoriaLuxuryExperience({
               ))}
             </div>
             <div className="mx-auto mt-8 grid max-w-md gap-3">
-              <a
-                href={bookingHref}
-                target={booking ? "_blank" : undefined}
-                rel={booking ? "noopener noreferrer" : undefined}
-                className="inline-flex min-h-[52px] items-center justify-center gap-2 rounded-full border border-[#d6aa58]/70 px-6 font-bold"
-              >
-                <CalendarDays className="h-4 w-4" />
-                {t.book}
-              </a>
+              {bookingHref && (
+                <a
+                  href={bookingHref}
+                  target={booking ? "_blank" : undefined}
+                  rel={booking ? "noopener noreferrer" : undefined}
+                  className="inline-flex min-h-[52px] items-center justify-center gap-2 rounded-full border border-[#d6aa58]/70 px-6 font-bold"
+                >
+                  <CalendarDays className="h-4 w-4" />
+                  {t.book}
+                </a>
+              )}
               {order && (
                 <a
                   href={order}
@@ -749,15 +753,17 @@ export function DonisTrattoriaLuxuryExperience({
                     {t.order}
                   </a>
                 )}
-                <a
-                  href={bookingHref}
-                  target={booking ? "_blank" : undefined}
-                  rel={booking ? "noopener noreferrer" : undefined}
-                  className="inline-flex min-h-12 items-center gap-2 rounded-full border border-white/20 bg-black/20 px-6 text-sm font-bold text-white/90 backdrop-blur transition hover:border-[#d6aa58]/70 hover:text-[#e7bd67]"
-                >
-                  <CalendarDays className="h-4 w-4" />
-                  {t.book}
-                </a>
+                {bookingHref && (
+                  <a
+                    href={bookingHref}
+                    target={booking ? "_blank" : undefined}
+                    rel={booking ? "noopener noreferrer" : undefined}
+                    className="inline-flex min-h-12 items-center gap-2 rounded-full border border-white/20 bg-black/20 px-6 text-sm font-bold text-white/90 backdrop-blur transition hover:border-[#d6aa58]/70 hover:text-[#e7bd67]"
+                  >
+                    <CalendarDays className="h-4 w-4" />
+                    {t.book}
+                  </a>
+                )}
               </div>
             </Reveal>
           </div>
@@ -1223,15 +1229,17 @@ export function DonisTrattoriaLuxuryExperience({
                 </div>
 
                 <div className="mt-7 flex flex-wrap gap-2">
-                  <a
-                    href={bookingHref}
-                    target={booking ? "_blank" : undefined}
-                    rel={booking ? "noopener noreferrer" : undefined}
-                    className="inline-flex min-h-11 items-center gap-2 rounded-full bg-[#deb45f] px-5 text-xs font-black text-[#15140f] transition hover:bg-[#ebc66f]"
-                  >
-                    <CalendarDays className="h-4 w-4" />
-                    {t.book}
-                  </a>
+                  {bookingHref && (
+                    <a
+                      href={bookingHref}
+                      target={booking ? "_blank" : undefined}
+                      rel={booking ? "noopener noreferrer" : undefined}
+                      className="inline-flex min-h-11 items-center gap-2 rounded-full bg-[#deb45f] px-5 text-xs font-black text-[#15140f] transition hover:bg-[#ebc66f]"
+                    >
+                      <CalendarDays className="h-4 w-4" />
+                      {t.book}
+                    </a>
+                  )}
                   {business.phone && (
                     <a
                       href={phoneHref}
