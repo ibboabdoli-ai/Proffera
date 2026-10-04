@@ -53,11 +53,27 @@ const instagramHandleOrEmpty = z
     "Ange ett giltigt Instagram-namn.",
   );
 
-const instagramUrlOrEmpty = httpsUrlOrEmpty.refine((value) => {
-  if (!value) return true;
-  const hostname = new URL(value).hostname.toLowerCase();
-  return hostname === "instagram.com" || hostname === "www.instagram.com";
-}, "Instagram-länken måste gå till instagram.com.");
+const instagramUrlOrEmpty = z
+  .string()
+  .trim()
+  .max(1000)
+  .refine(
+    (value) => {
+      if (!value) return true;
+      if (!/^https:\/\//i.test(value)) return false;
+      try {
+        const url = new URL(value);
+        const hostname = url.hostname.toLowerCase();
+        return (
+          url.protocol === "https:" &&
+          (hostname === "instagram.com" || hostname === "www.instagram.com")
+        );
+      } catch {
+        return false;
+      }
+    },
+    "Instagram-länken måste gå till instagram.com.",
+  );
 
 export const restaurantSiteSchema = z.object({
   categories: z
