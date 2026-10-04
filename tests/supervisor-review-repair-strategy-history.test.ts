@@ -326,7 +326,7 @@ type RepairWorkflowStep = {
   uses?: string;
   run?: string;
   env?: Record<string, string>;
-  with?: Record<string, string | boolean>;
+  with?: Record<string, string | number | boolean>;
 };
 type RepairWorkflow = {
   jobs: Record<string, {
@@ -469,6 +469,56 @@ describe("Review Repair duplicate model execution suppression", () => {
     const result = modelBoundary("1", "1", "78");
     expect(result.status).toBe(1);
     expect(result.stdout).not.toContain("MODEL_EXECUTED");
+  });
+});
+
+describe("Review Repair late retry evidence retention", () => {
+  const day = 24 * 60 * 60 * 1000;
+  const uploadedAt = Date.parse("2026-10-04T08:00:00Z");
+  const guard = workflowStep("admit", "Verify retry evidence retention policy");
+  const bash = process.platform === "win32" ? "C:/Program Files/Git/bin/bash.exe" : "bash";
+
+  it("retains both immutable producers beyond GitHub's 30-day rerun window", () => {
+    for (const [job, name] of [
+      ["admit", "Upload settled exact-head review evidence"],
+      ["repair", "Upload exact candidate repair patch"],
+    ]) {
+      expect(workflowStep(job, name).with?.["retention-days"]).toBe(31);
+    }
+    expect(rerunWorkflow.jobs.admit.steps[0]).toBe(guard);
+  });
+
+  it.each(["", "0", "1", "29", "30", "invalid", "31", "90", "400"])(
+    "rejects insufficient or malformed repository retention %j before admission",
+    (retention) => {
+      const result = spawnSync(bash, ["--noprofile", "--norc", "-c", guard.run + "\nprintf 'ADMISSION_REACHED\\n'"], {
+        encoding: "utf8", env: {...process.env, GITHUB_RETENTION_DAYS: retention},
+      });
+      expect(result.error).toBeUndefined();
+      const allowed = ["31", "90", "400"].includes(retention);
+      expect(result.status).toBe(allowed ? 0 : 1);
+      expect(result.stdout.includes("ADMISSION_REACHED")).toBe(allowed);
+    },
+  );
+
+  it.each([2, 30, 30 + 1 / 1440])("can record after %s days without losing the original attempt", (days) => {
+    const retryAt = uploadedAt + days * day;
+    // Use each actual producer's configured expiry, not an unconditional mock download.
+    for (const [job, name] of [
+      ["admit", "Upload settled exact-head review evidence"],
+      ["repair", "Upload exact candidate repair patch"],
+    ]) {
+      const retention = Number(workflowStep(job, name).with?.["retention-days"]);
+      expect(uploadedAt + retention * day).toBeGreaterThan(retryAt);
+    }
+    const input = recordingInput("failed", "3");
+    const started = trustedComment(reviewRepairStartBody(input), 10);
+    const prepared = prepareReviewRepairOutcome({...input, observed_at: new Date(retryAt).toISOString(), comments: [started]});
+    const records = JSON.parse(prepared.body.split("\n")[2]).records;
+    const starts = parseReviewRepairStarts([started], {repository, pr_number: pr});
+    expect(records[0].observations[0].source).toMatchObject({run_id: 77, attempt: 1});
+    expect(decideReviewRepairStrategyHistory({pr_number: pr, head, finding_ids: findings, records, starts}))
+      .toMatchObject({decision: "SUPPRESS_REPEAT", attempts: 1, unresolved_attempts: 0});
   });
 });
 

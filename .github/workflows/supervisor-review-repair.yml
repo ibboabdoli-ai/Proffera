@@ -41,6 +41,18 @@ jobs:
       evidence_fingerprint: ${{ steps.admit.outputs.evidence_fingerprint }}
       strategy_fingerprint: ${{ steps.admit.outputs.strategy_fingerprint }}
     steps:
+      - name: Verify retry evidence retention policy
+        shell: bash
+        run: |
+          set -euo pipefail
+          # GitHub permits retries for 30 days; keep one extra day for late-starting jobs.
+          # Fail before any start write if upload-artifact would clamp to a shorter policy.
+          retention_days="${GITHUB_RETENTION_DAYS:-}"
+          if ! [[ "$retention_days" =~ ^[1-9][0-9]{0,2}$ ]] || [ "$retention_days" -lt 31 ]; then
+            echo "Review Repair requires at least 31 days of repository artifact retention before admitting an attempt." >&2
+            exit 1
+          fi
+
       - name: Checkout trusted control-plane helpers
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -170,7 +182,7 @@ jobs:
             ${{ runner.temp }}/proffera-review-repair-evidence/supervisor-review-evidence.json
             ${{ runner.temp }}/proffera-review-repair-evidence/finding_ids.json
           if-no-files-found: error
-          retention-days: 1
+          retention-days: 31
 
       - name: Admit strategy history and record trusted attempt start
         id: admit
@@ -328,7 +340,7 @@ jobs:
           name: supervisor-review-repair-${{ github.run_id }}-${{ github.run_attempt }}-${{ needs.admit.outputs.head_sha }}
           path: ${{ runner.temp }}/proffera-review-repair-candidate
           if-no-files-found: error
-          retention-days: 1
+          retention-days: 31
   validate:
     name: Validate repair without model or push credentials
     needs: repair
