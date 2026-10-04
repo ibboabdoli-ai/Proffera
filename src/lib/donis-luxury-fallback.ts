@@ -659,7 +659,11 @@ export const DONIS_LUXURY_FALLBACK_DISH_IMAGE_URLS: Record<string, string> =
   );
 
 export function createDonisLuxuryAdminStarterSite(): RestaurantSite {
-  return structuredClone(DONIS_LUXURY_FALLBACK_SITE);
+  const site = structuredClone(DONIS_LUXURY_FALLBACK_SITE);
+  site.dishes = site.dishes.map((dish) =>
+    dish.priceOre === null ? { ...dish, hidden: true } : dish,
+  );
+  return site;
 }
 
 export function isDonisLuxuryBundledMediaId(id: string) {
