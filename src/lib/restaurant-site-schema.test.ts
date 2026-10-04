@@ -134,6 +134,17 @@ describe("restaurant site content boundary", () => {
       "https://www.instagram.com/another.profile/";
     expect(validateRestaurantSite(mismatchedProfile).ok).toBe(false);
 
+    const urlWithoutHandle = structuredClone(emptyRestaurantSite);
+    urlWithoutHandle.business.instagram = "";
+    urlWithoutHandle.business.instagramUrl =
+      "https://www.instagram.com/donis.trattoria/";
+    expect(validateRestaurantSite(urlWithoutHandle).ok).toBe(false);
+
+    const handleWithoutUrl = structuredClone(emptyRestaurantSite);
+    handleWithoutUrl.business.instagram = "@donis.trattoria";
+    handleWithoutUrl.business.instagramUrl = "";
+    expect(validateRestaurantSite(handleWithoutUrl).ok).toBe(true);
+
     const validUrl = structuredClone(emptyRestaurantSite);
     validUrl.business.instagramUrl = "https://www.instagram.com/donis.trattoria/";
     expect(validateRestaurantSite(validUrl).ok).toBe(true);
