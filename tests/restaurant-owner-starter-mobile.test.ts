@@ -1,18 +1,16 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
-import {
-  createDonisAdminStarterSite,
-  isRestaurantSiteBlank,
-} from "../src/lib/donis-fallback";
+import { isRestaurantSiteBlank } from "../src/lib/donis-fallback";
+import { createDonisLuxuryAdminStarterSite } from "../src/lib/donis-luxury-fallback";
 import {
   emptyRestaurantSite,
   validateRestaurantSite,
 } from "../src/lib/restaurant-site-schema";
 
 describe("Doni restaurant owner starter content", () => {
-  it("turns the public reference content into an editable starter without external media refs", () => {
-    const starter = createDonisAdminStarterSite();
+  it("turns the premium public reference into an editable CMS starter", () => {
+    const starter = createDonisLuxuryAdminStarterSite();
 
     expect(validateRestaurantSite(starter).ok).toBe(true);
     expect(starter.categories.length).toBeGreaterThanOrEqual(3);
@@ -20,14 +18,16 @@ describe("Doni restaurant owner starter content", () => {
     expect(starter.text.story.sv).toContain("Doni’s Trattoria");
     expect(starter.hours.some((hour) => !hour.closed)).toBe(true);
     expect(starter.links.order).toContain("qopla.com");
-    expect(starter.media.hero).toBeNull();
-    expect(starter.media.gallery).toEqual([]);
-    expect(starter.dishes.every((dish) => dish.image === null)).toBe(true);
+    expect(starter.media.hero).not.toBeNull();
+    expect(starter.media.gallery.length).toBeGreaterThanOrEqual(7);
+    expect(starter.dishes.some((dish) => dish.image !== null)).toBe(true);
+    expect(starter.dishes.filter((dish) => dish.priceOre === null).every((dish) => dish.hidden)).toBe(true);
+    expect(starter.contact?.addressLine1).toBe("Hornsbergs Strand 77");
   });
 
   it("recognizes a truly blank owner site but not the starter", () => {
     expect(isRestaurantSiteBlank(emptyRestaurantSite)).toBe(true);
-    expect(isRestaurantSiteBlank(createDonisAdminStarterSite())).toBe(false);
+    expect(isRestaurantSiteBlank(createDonisLuxuryAdminStarterSite())).toBe(false);
   });
 
   it("requires starter content to be saved before preview and uses a mobile-first layout", () => {
@@ -49,7 +49,7 @@ describe("Doni restaurant owner starter content", () => {
     const db = readFileSync("src/lib/restaurant-site-db.ts", "utf8");
 
     expect(db).toContain("isRestaurantSiteBlank(draft)");
-    expect(db).toContain("createDonisAdminStarterSite()");
+    expect(db).toContain("createDonisLuxuryAdminStarterSite()");
     expect(db).toContain("starter,");
   });
 });
