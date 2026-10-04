@@ -6,6 +6,8 @@ describe("Doni restaurant CMS source of truth", () => {
     const schema = readFileSync("src/lib/restaurant-site-schema.ts", "utf8");
     expect(schema).toContain("nameEn:");
     expect(schema).toContain("business: z.object");
+    expect(schema).toContain("const phoneOrEmpty = z");
+    expect(schema).toContain("phone: phoneOrEmpty");
     for (const field of [
       "address",
       "postalCode",
@@ -59,5 +61,12 @@ describe("Doni restaurant CMS source of truth", () => {
     expect(demo).toContain("business.orgNumber");
     expect(demo).toContain("business.mapUrl");
     expect(demo).not.toContain('const phoneHref = "tel:+4686568400"');
+    expect(demo).toContain("const locationFeature =");
+    expect(demo).toContain("const mapTitle = fullAddress");
+    expect(demo).toContain("const footerLine = business.city");
+    expect(demo).toContain("{text.menuIntro[lang]}");
+    expect(demo).not.toContain("{text.menuIntro[lang] || t.menuIntro}");
+    expect(demo).not.toContain("{text.galleryIntro[lang] || t.galleryIntro}");
+    expect(demo).not.toContain("{text.contactBody[lang] || t.contactBody}");
   });
 });
