@@ -1,5 +1,3 @@
-"use client";
-
 import {
   DONIS_FALLBACK_IMAGES,
   DONIS_FALLBACK_SITE,
