@@ -1341,6 +1341,13 @@ export function RestaurantEditor({
                     onChange={(event) =>
                       edit((next) => {
                         next.business[field] = event.target.value;
+                        if (
+                          field === "address" ||
+                          field === "postalCode" ||
+                          field === "city"
+                        ) {
+                          next.business.mapUrl = "";
+                        }
                       })
                     }
                     placeholder={type === "url" ? "https://" : undefined}
