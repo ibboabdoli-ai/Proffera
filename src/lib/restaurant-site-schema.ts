@@ -181,6 +181,14 @@ export const restaurantSiteSchema = z.object({
       mapUrl: httpsUrlOrEmpty,
     })
     .superRefine((business, ctx) => {
+      if (business.instagramUrl && !business.instagram) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["instagram"],
+          message: "Ange Instagram-namnet när en Instagram-länk används.",
+        });
+        return;
+      }
       if (!business.instagram || !business.instagramUrl) return;
       const handle = normalizeInstagramHandle(business.instagram).toLowerCase();
       const profile = instagramProfileFromUrl(business.instagramUrl)?.toLowerCase();
