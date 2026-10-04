@@ -38,6 +38,8 @@ jobs:
     concurrency:
       group: proffera-final-gate-memory-${{ inputs.pr_number }}
       cancel-in-progress: false
+      # All writers sharing this group must retain pending work (up to 100 jobs).
+      queue: max
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
