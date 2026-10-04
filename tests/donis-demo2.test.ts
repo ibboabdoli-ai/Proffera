@@ -24,10 +24,6 @@ describe("Doni demo 2", () => {
       "src/lib/donis-luxury-fallback.ts",
       "utf8",
     );
-    const generatedSprite = readFileSync(
-      "src/lib/donis-generated-menu-sprite.ts",
-      "utf8",
-    );
 
     expect(source).toContain('bg-[#080a08]');
     expect(source).toContain('text-[#d6aa58]');
@@ -38,8 +34,8 @@ describe("Doni demo 2", () => {
     expect(source).toContain("document.documentElement.lang = lang");
     expect(source).toContain("currentOrderUrl");
     expect(source).toContain("mapEmbedUrl");
-    expect(source).toContain("DONIS_GENERATED_MENU_TILE_BY_IMAGE_ID");
-    expect(source).toContain('backgroundSize: "400% 400%"');
+    expect(source).not.toContain("DONIS_GENERATED_MENU_TILE_BY_IMAGE_ID");
+    expect(source).not.toContain('backgroundSize: "400% 400%"');
 
     expect(fallback).toContain("Tagliatelle al ragu");
     expect(fallback).toContain("Spaghetti con scampi e zucchini");
@@ -47,12 +43,13 @@ describe("Doni demo 2", () => {
     expect(fallback).toContain("Romana surdegspizza");
     expect(fallback).toContain("Aperol spritz");
     expect(fallback).toContain("imageproxy.wolt.com");
-    expect(fallback).toContain("DONIS_GENERATED_MENU_IMAGE_IDS.olives");
-    expect(fallback).toContain("DONIS_GENERATED_MENU_IMAGE_IDS.entrecote");
-    expect(fallback).toContain("DONIS_GENERATED_MENU_IMAGE_IDS.softDrinks");
-    expect(fallback).toContain("DONIS_GENERATED_MENU_IMAGE_IDS.cocktails");
-    expect(generatedSprite).toContain('"data:image/webp;base64,"');
-    expect(generatedSprite).toContain("chunk8");
+    expect(fallback).toContain("images.pexels.com");
+    expect(fallback).toContain("pexelsPhoto(20150374)");
+    expect(fallback).toContain("pexelsPhoto(6542787)");
+    expect(fallback).toContain("pexelsPhoto(36791051)");
+    expect(fallback).toContain("pexelsPhoto(4915835)");
+    expect(fallback).not.toContain("DONIS_GENERATED_MENU_SPRITE");
+    expect(fallback).not.toContain("DONIS_GENERATED_MENU_IMAGE_IDS");
   });
 
   it("keeps the existing Doni demo and its shared fallback untouched", () => {
