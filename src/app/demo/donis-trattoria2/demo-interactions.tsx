@@ -54,6 +54,19 @@ const FEATURED_PRIORITY = [
   "arrabiata con burrata",
 ];
 
+const ENGLISH_DISH_NAMES: Record<string, string> = {
+  "oliver": "Olives",
+  "vitlöksbröd": "Garlic Bread",
+  "bearnaisesås": "Béarnaise Sauce",
+  "vitlökssås": "Garlic Sauce",
+  "bbq sås": "BBQ Sauce",
+  "loka naturell 33cl": "Loka Natural 33cl",
+  "loka citron 33cl": "Loka Lemon 33cl",
+  "loka jordgubb & granatäpple": "Loka Strawberry & Pomegranate",
+  "loka päron": "Loka Pear",
+  "lemonad": "Lemonade",
+};
+
 const copy = {
   sv: {
     about: "Om oss",
@@ -75,7 +88,7 @@ const copy = {
     featuredKicker: "Utvalda favoriter",
     featuredTitle: "Från köket",
     aboutKicker: "Om oss",
-    aboutCta: "Läs mer om oss",
+    aboutCta: "Se restaurangen",
     menuKicker: "Vår meny",
     menuTitle: "Något för alla smaker",
     menuIntro:
@@ -130,7 +143,7 @@ const copy = {
     featuredKicker: "Selected favourites",
     featuredTitle: "From the kitchen",
     aboutKicker: "About",
-    aboutCta: "Read more about us",
+    aboutCta: "Explore the restaurant",
     menuKicker: "Our menu",
     menuTitle: "Something for every taste",
     menuIntro:
@@ -240,6 +253,13 @@ function Reveal({
 
 function normalizeDishName(value: string) {
   return value.trim().toLocaleLowerCase("sv-SE");
+}
+
+function getDishName(dish: Dish, lang: Lang) {
+  if (lang === "en") {
+    return ENGLISH_DISH_NAMES[normalizeDishName(dish.name)] ?? dish.name;
+  }
+  return dish.name;
 }
 
 function SectionEyebrow({ children }: { children: ReactNode }) {
@@ -380,6 +400,24 @@ export function DonisTrattoriaLuxuryExperience({
       ? galleryVisuals
       : galleryVisuals.filter((item) => item.kind === galleryFilter);
 
+  const fallbackAboutMedia = DONIS_LUXURY_FALLBACK_SITE.media.family;
+  const fallbackContactMedia = DONIS_LUXURY_FALLBACK_SITE.media.gallery.find(
+    (item) => item.kind === "exterior",
+  );
+
+  const contactImage =
+    rawGallery.find((item) => item.kind === "exterior") ??
+    (isFallback &&
+    fallbackContactMedia &&
+    DONIS_LUXURY_FALLBACK_IMAGES[fallbackContactMedia.id]
+      ? {
+          id: fallbackContactMedia.id,
+          url: DONIS_LUXURY_FALLBACK_IMAGES[fallbackContactMedia.id],
+          alt: fallbackContactMedia.alt[lang],
+          kind: "exterior" as GalleryKind,
+        }
+      : null);
+
   const aboutImage =
     displaySite.media.family && displayImages[displaySite.media.family.id]
       ? {
@@ -396,7 +434,15 @@ export function DonisTrattoriaLuxuryExperience({
                 item.kind === "interior" ||
                 item.kind === "exterior" ||
                 item.kind === "atmosphere",
-            ) ?? rawGallery[0] ?? { url: hero, alt: "Doni’s Trattoria" };
+            ) ??
+          (isFallback &&
+          fallbackAboutMedia &&
+          DONIS_LUXURY_FALLBACK_IMAGES[fallbackAboutMedia.id]
+            ? {
+                url: DONIS_LUXURY_FALLBACK_IMAGES[fallbackAboutMedia.id],
+                alt: fallbackAboutMedia.alt[lang],
+              }
+            : rawGallery[0] ?? { url: hero, alt: "Doni’s Trattoria" });
 
   const galleryKindLabel = (kind: string) => {
     if (kind === "food") return t.kindFood;
@@ -737,7 +783,7 @@ export function DonisTrattoriaLuxuryExperience({
                       <div className="p-4">
                         <div className="flex items-start justify-between gap-4">
                           <h3 className="font-serif text-[22px] leading-tight text-[#f6ead4]">
-                            {dish.name}
+                            {getDishName(dish, lang)}
                           </h3>
                           {price && (
                             <span className="shrink-0 text-sm font-black text-[#deb45f]">
@@ -800,7 +846,7 @@ export function DonisTrattoriaLuxuryExperience({
                 {text.philosophy[lang] && <p>{text.philosophy[lang]}</p>}
               </div>
               <a
-                href="#kontakt"
+                href={galleryVisuals.length > 0 ? "#galleri" : "#meny"}
                 className="mt-8 inline-flex w-fit min-h-12 items-center gap-2 rounded-full bg-[#deb45f] px-6 text-sm font-black text-[#15140f] transition hover:-translate-y-0.5 hover:bg-[#ebc66f]"
               >
                 {t.aboutCta}
@@ -884,7 +930,7 @@ export function DonisTrattoriaLuxuryExperience({
                         <div className="p-5">
                           <div className="flex items-start justify-between gap-4">
                             <h3 className="font-serif text-2xl leading-tight text-[#f6ead4]">
-                              {dish.name}
+                              {getDishName(dish, lang)}
                             </h3>
                             {price && (
                               <span className="shrink-0 text-sm font-black text-[#deb45f]">
@@ -1151,36 +1197,68 @@ export function DonisTrattoriaLuxuryExperience({
             </Reveal>
 
             <Reveal delay={120} className="lg:col-span-5">
-              <div className="relative h-[360px] overflow-hidden rounded-[24px] border border-white/10 bg-[#10130f] lg:h-full lg:min-h-[430px]">
-                <iframe
-                  title={t.mapTitle}
-                  src={mapEmbedUrl}
-                  loading="lazy"
-                  referrerPolicy="no-referrer-when-downgrade"
-                  className="pointer-events-none absolute inset-0 h-full w-full border-0 opacity-80 grayscale-[20%] contrast-[1.03]"
-                />
-                <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(180deg,rgba(8,10,8,.06),rgba(8,10,8,.48))]" />
-                <a
-                  href={mapsUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="group absolute bottom-5 left-5 right-5 flex items-center justify-between gap-4 rounded-[16px] border border-white/12 bg-[#090b09]/88 p-4 backdrop-blur-xl"
-                >
-                  <div className="flex min-w-0 items-center gap-3">
-                    <span className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#deb45f] text-[#15140f]">
-                      <MapPin className="h-4 w-4" />
-                    </span>
-                    <span className="min-w-0">
-                      <span className="block truncate font-serif text-lg text-[#f4ead8]">
-                        Doni’s Trattoria
+              <div className="grid h-full gap-4">
+                {contactImage && (
+                  <a
+                    href={mapsUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="group relative min-h-[235px] overflow-hidden rounded-[24px] border border-white/10 bg-[#10130f]"
+                  >
+                    <img
+                      src={contactImage.url}
+                      alt={contactImage.alt}
+                      loading="lazy"
+                      className="absolute inset-0 h-full w-full object-cover transition duration-700 group-hover:scale-[1.025]"
+                    />
+                    <div className="absolute inset-0 bg-gradient-to-t from-black/58 via-black/5 to-transparent" />
+                    <div className="absolute bottom-5 left-5 right-5 flex items-center justify-between gap-4">
+                      <span>
+                        <span className="block font-serif text-2xl text-[#f4ead8]">
+                          Doni’s Trattoria
+                        </span>
+                        <span className="mt-1 block text-xs text-white/65">
+                          Hornsbergs Strand 77
+                        </span>
                       </span>
-                      <span className="block truncate text-[11px] text-white/50">
-                        Hornsbergs Strand 77
+                      <span className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-[#deb45f] text-[#15140f]">
+                        <Navigation className="h-4 w-4" />
                       </span>
-                    </span>
-                  </div>
-                  <Navigation className="h-5 w-5 shrink-0 text-[#d6aa58] transition group-hover:translate-x-0.5" />
-                </a>
+                    </div>
+                  </a>
+                )}
+
+                <div className="relative min-h-[220px] overflow-hidden rounded-[24px] border border-white/10 bg-[#10130f]">
+                  <iframe
+                    title={t.mapTitle}
+                    src={mapEmbedUrl}
+                    loading="lazy"
+                    referrerPolicy="no-referrer-when-downgrade"
+                    className="pointer-events-none absolute inset-0 h-full w-full border-0 opacity-80 grayscale-[20%] contrast-[1.03]"
+                  />
+                  <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(180deg,rgba(8,10,8,.06),rgba(8,10,8,.40))]" />
+                  <a
+                    href={mapsUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="group absolute bottom-4 left-4 right-4 flex items-center justify-between gap-4 rounded-[16px] border border-white/12 bg-[#090b09]/88 p-3 backdrop-blur-xl"
+                  >
+                    <div className="flex min-w-0 items-center gap-3">
+                      <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#deb45f] text-[#15140f]">
+                        <MapPin className="h-4 w-4" />
+                      </span>
+                      <span className="min-w-0">
+                        <span className="block truncate text-sm font-bold text-[#f4ead8]">
+                          {t.directions}
+                        </span>
+                        <span className="block truncate text-[11px] text-white/50">
+                          Hornsbergs Strand 77
+                        </span>
+                      </span>
+                    </div>
+                    <ArrowRight className="h-4 w-4 shrink-0 text-[#d6aa58] transition group-hover:translate-x-0.5" />
+                  </a>
+                </div>
               </div>
             </Reveal>
           </div>

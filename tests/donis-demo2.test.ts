@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
 describe("Doni demo 2", () => {
@@ -55,6 +55,30 @@ describe("Doni demo 2", () => {
     expect(new Set(pexelsPhotoIds).size).toBeGreaterThanOrEqual(30);
     expect(fallback).not.toContain("DONIS_GENERATED_MENU_SPRITE");
     expect(fallback).not.toContain("DONIS_GENERATED_MENU_IMAGE_IDS");
+
+    expect(source).toContain('"oliver": "Olives"');
+    expect(source).toContain('"vitlöksbröd": "Garlic Bread"');
+    expect(source).toContain('"lemonad": "Lemonade"');
+    expect(source).toContain('"loka citron 33cl": "Loka Lemon 33cl"');
+    expect(source).toContain("getDishName(dish, lang)");
+    expect(source).toMatch(/isFallback &&\s+fallbackContactMedia/);
+    expect(source).toMatch(/isFallback &&\s+fallbackAboutMedia/);
+    expect(source).toContain('aboutCta: "Se restaurangen"');
+    expect(source).toContain('aboutCta: "Explore the restaurant"');
+    expect(source).toContain(
+      'href={galleryVisuals.length > 0 ? "#galleri" : "#meny"}',
+    );
+    expect(source).toContain("const contactImage =");
+    expect(source).toContain("contactImage.url");
+
+    expect(fallback).toContain("Efter ägarbytet");
+    expect(fallback).toContain("Following a change of ownership");
+    expect(fallback).toContain('"/donis/about-interior.webp"');
+    expect(fallback).toContain('"/donis/contact-exterior.webp"');
+    expect(fallback).toContain("imageIds.aboutInterior");
+    expect(fallback).toContain("imageIds.contactExterior");
+    expect(existsSync("public/donis/about-interior.webp")).toBe(true);
+    expect(existsSync("public/donis/contact-exterior.webp")).toBe(true);
   });
 
   it("keeps the existing Doni demo and its shared fallback untouched", () => {
