@@ -10,10 +10,12 @@ import {
   validateRestaurantSite,
   type RestaurantSite,
 } from "@/lib/restaurant-site-schema";
+import { isRestaurantSiteBlank } from "@/lib/donis-fallback";
 import {
-  createDonisAdminStarterSite,
-  isRestaurantSiteBlank,
-} from "@/lib/donis-fallback";
+  createDonisLuxuryAdminStarterSite,
+  DONIS_LUXURY_FALLBACK_IMAGES,
+  isDonisLuxuryBundledMediaId,
+} from "@/lib/donis-luxury-fallback";
 
 const slug = "donis-trattoria";
 
@@ -43,7 +45,7 @@ export async function getRestaurantAdmin() {
   const published = rows[0].published ? readSite(rows[0].published) : null;
   const starter = !published && isRestaurantSiteBlank(draft);
   return {
-    draft: starter ? createDonisAdminStarterSite() : draft,
+    draft: starter ? createDonisLuxuryAdminStarterSite() : draft,
     published,
     revision: Number(rows[0].draft_revision),
     publishedRevision:
@@ -99,19 +101,31 @@ export async function getRestaurantImageUrls(
     ),
   ];
   if (!ids.length) return {};
+  const bundled = Object.fromEntries(
+    ids.flatMap((id) =>
+      DONIS_LUXURY_FALLBACK_IMAGES[id]
+        ? [[id, DONIS_LUXURY_FALLBACK_IMAGES[id]]]
+        : [],
+    ),
+  );
+  const databaseIds = ids.filter((id) => !isDonisLuxuryBundledMediaId(id));
+  if (!databaseIds.length) return bundled;
   try {
     const rows = await sql`
       select g.id::text, g.public_url from website_gallery_items g
       join restaurant_sites r on r.workspace_id=g.workspace_id
       join workspaces w on w.id=r.workspace_id
       where r.public_slug=${slug} and w.status in ('active','trial')
-        and g.media_type='image' and g.id::text=any(${ids}::text[])
+        and g.media_type='image' and g.id::text=any(${databaseIds}::text[])
     `;
-    return Object.fromEntries(
-      rows.map((row) => [String(row.id), String(row.public_url)]),
-    );
+    return {
+      ...bundled,
+      ...Object.fromEntries(
+        rows.map((row) => [String(row.id), String(row.public_url)]),
+      ),
+    };
   } catch {
-    return {};
+    return bundled;
   }
 }
 
@@ -129,12 +143,13 @@ async function mediaBelongsToWorkspace(
     ...site.dishes.map((dish) => dish.image),
   ].filter((item): item is NonNullable<typeof item> => item !== null);
   const ids = [...new Set(media.map((item) => item.id))];
-  if (!ids.length) return true;
+  const workspaceIds = ids.filter((id) => !isDonisLuxuryBundledMediaId(id));
+  if (!workspaceIds.length) return true;
   const rows = await sql`
     select id::text from website_gallery_items
-    where workspace_id=${workspaceId}::uuid and media_type='image' and id::text = any(${ids}::text[])
+    where workspace_id=${workspaceId}::uuid and media_type='image' and id::text = any(${workspaceIds}::text[])
   `;
-  return rows.length === ids.length;
+  return rows.length === workspaceIds.length;
 }
 
 export async function saveRestaurantDraft(value: unknown, revision: number) {
