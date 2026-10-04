@@ -338,6 +338,26 @@ export function DonisTrattoriaLuxuryExperience({
       ? `https://www.instagram.com/${business.instagram.replace(/^@/, "")}/`
       : "");
 
+  const locationLabel =
+    [business.address, business.city].filter(Boolean).join(" · ") ||
+    (lang === "sv" ? "Välkommen" : "Welcome");
+  const locationFeature =
+    business.address || business.city
+      ? lang === "sv"
+        ? `På ${business.address || business.city}`
+        : `At ${business.address || business.city}`
+      : lang === "sv"
+        ? "Välkommen"
+        : "Welcome";
+  const mapTitle = fullAddress ? `${brandName} – ${fullAddress}` : brandName;
+  const footerLine = business.city
+    ? lang === "sv"
+      ? `Italienska smaker i ${business.city}.`
+      : `Italian flavours in ${business.city}.`
+    : lang === "sv"
+      ? "Italienska smaker."
+      : "Italian flavours.";
+
   const visibleDishes = [...displaySite.dishes]
     .filter((dish) => !dish.hidden && !dish.archived)
     .sort((a, b) => a.sortOrder - b.sortOrder);
@@ -488,7 +508,7 @@ export function DonisTrattoriaLuxuryExperience({
   const values = [
     { icon: UtensilsCrossed, label: t.featureTaste },
     { icon: Heart, label: t.featureFamily },
-    { icon: Waves, label: t.featureWater },
+    { icon: Waves, label: locationFeature },
     { icon: Wine, label: t.featureWine },
     { icon: UsersRound, label: t.featureWelcome },
   ];
@@ -847,7 +867,7 @@ export function DonisTrattoriaLuxuryExperience({
               />
               <div className="absolute inset-0 bg-[linear-gradient(180deg,transparent_45%,rgba(5,6,5,.72)_100%)]" />
               <div className="absolute bottom-5 left-5 rounded-full border border-[#d6aa58]/45 bg-black/45 px-4 py-2 text-[10px] font-black uppercase tracking-[0.22em] text-[#e9c779] backdrop-blur">
-                Hornsbergs Strand · Stockholm
+                {locationLabel}
               </div>
             </div>
           </Reveal>
@@ -890,9 +910,11 @@ export function DonisTrattoriaLuxuryExperience({
               <h2 className="mt-4 font-serif text-5xl leading-[0.94] tracking-[-0.045em] text-[#f4ead8] sm:text-6xl lg:text-7xl">
                 {text.menuTitle[lang] || t.menuTitle}
               </h2>
-              <p className="mx-auto mt-4 max-w-2xl text-sm leading-6 text-white/55 sm:text-base">
-                {text.menuIntro[lang] || t.menuIntro}
-              </p>
+              {text.menuIntro[lang] && (
+                <p className="mx-auto mt-4 max-w-2xl text-sm leading-6 text-white/55 sm:text-base">
+                  {text.menuIntro[lang]}
+                </p>
+              )}
               {isFallback && (
                 <p className="mx-auto mt-3 max-w-2xl text-xs leading-5 text-white/35">
                   {t.menuFallbackNote}
@@ -999,9 +1021,11 @@ export function DonisTrattoriaLuxuryExperience({
                 <h2 className="mt-4 font-serif text-5xl leading-[0.94] tracking-[-0.045em] text-[#f4ead8] sm:text-6xl">
                   {text.galleryTitle[lang] || t.galleryTitle}
                 </h2>
-                <p className="mx-auto mt-4 max-w-2xl text-sm leading-6 text-white/50">
-                  {text.galleryIntro[lang] || t.galleryIntro}
-                </p>
+                {text.galleryIntro[lang] && (
+                  <p className="mx-auto mt-4 max-w-2xl text-sm leading-6 text-white/50">
+                    {text.galleryIntro[lang]}
+                  </p>
+                )}
               </div>
             </Reveal>
 
@@ -1088,9 +1112,11 @@ export function DonisTrattoriaLuxuryExperience({
               <h2 className="mt-4 font-serif text-5xl leading-[0.94] tracking-[-0.045em] text-[#f4ead8] sm:text-6xl">
                 {text.contactTitle[lang] || t.contactTitle}
               </h2>
-              <p className="mt-5 max-w-2xl text-sm leading-7 text-white/56 sm:text-base">
-                {text.contactBody[lang] || t.contactBody}
-              </p>
+              {text.contactBody[lang] && (
+                <p className="mt-5 max-w-2xl text-sm leading-7 text-white/56 sm:text-base">
+                  {text.contactBody[lang]}
+                </p>
+              )}
             </div>
           </Reveal>
 
@@ -1260,7 +1286,7 @@ export function DonisTrattoriaLuxuryExperience({
 
                 <div className="relative min-h-[220px] overflow-hidden rounded-[24px] border border-white/10 bg-[#10130f]">
                   <iframe
-                    title={t.mapTitle}
+                    title={mapTitle}
                     src={mapEmbedUrl}
                     loading="lazy"
                     referrerPolicy="no-referrer-when-downgrade"
@@ -1348,7 +1374,7 @@ export function DonisTrattoriaLuxuryExperience({
           </div>
 
           <div className="flex flex-col gap-3 pt-6 text-[11px] text-white/35 sm:flex-row sm:items-center sm:justify-between">
-            <span>© 2026 {brandName}. {t.footerLine}</span>
+            <span>© 2026 {brandName}. {footerLine}</span>
             {business.orgNumber && <span>Org.nr {business.orgNumber}</span>}
           </div>
         </div>
