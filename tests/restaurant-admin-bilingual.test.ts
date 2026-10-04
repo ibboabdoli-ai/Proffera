@@ -11,6 +11,7 @@ describe("Doni restaurant admin bilingual flow", () => {
     expect(source).toContain('"Hantera restaurangen": "Manage the restaurant"');
     expect(source).toContain('"Spara utkast": "Save draft"');
     expect(source).toContain('"Bokning och beställning": "Booking and ordering"');
+    expect(source).toContain('"Kontaktuppgifter": "Contact details"');
     expect(source).toContain('"Öppna restaurangens webbplats ↗": "Open restaurant website ↗"');
     expect(source).toContain('root.querySelectorAll("[aria-label], [title]")');
   });
@@ -25,7 +26,7 @@ describe("Doni restaurant admin bilingual flow", () => {
       "utf8",
     );
     const publicExperience = readFileSync(
-      "src/app/demo/donis-trattoria/demo-interactions.tsx",
+      "src/app/demo/donis-trattoria2/demo-interactions.tsx",
       "utf8",
     );
 
