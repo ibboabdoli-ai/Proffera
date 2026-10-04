@@ -77,6 +77,8 @@ const translations: Record<string, string> = {
   "Familjebild": "Family photo",
   "Galleri": "Gallery",
   "+ Lägg till från mediabiblioteket": "+ Add from media library",
+  "+ Lägg till Demo 2-galleri": "+ Add Demo 2 gallery",
+  "Bilden följer med Demo 2 och kan ersättas med en egen uppladdning.": "This image is included with Demo 2 and can be replaced with your own upload.",
   "Interiör": "Interior",
   "Exteriör": "Exterior",
   "Stämning": "Atmosphere",
