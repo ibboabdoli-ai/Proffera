@@ -623,7 +623,9 @@ describe("Review Repair start provenance and Failure Memory persistence", () => 
     expect(decideReviewRepairStrategyHistory({
       pr_number: pr, head: "d".repeat(40), finding_ids: ["inline:999"],
       records: state.records, starts: state.starts,
-    })).toMatchObject({decision: "ALLOW", attempts: 1});
+    })).toMatchObject({
+      decision: "SUPPRESS_UNRESOLVED_ATTEMPT", attempts: 1, unresolved_attempts: 1,
+    });
   });
 
   it("records exact action attempts in the canonical pull-request Failure Memory", () => {
