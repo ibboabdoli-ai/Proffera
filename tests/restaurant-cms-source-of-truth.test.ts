@@ -68,5 +68,11 @@ describe("Doni restaurant CMS source of truth", () => {
     expect(demo).not.toContain("{text.menuIntro[lang] || t.menuIntro}");
     expect(demo).not.toContain("{text.galleryIntro[lang] || t.galleryIntro}");
     expect(demo).not.toContain("{text.contactBody[lang] || t.contactBody}");
+    expect(demo).not.toContain("{text.menuTitle[lang] || t.menuTitle}");
+    expect(demo).not.toContain("{text.galleryTitle[lang] || t.galleryTitle}");
+    expect(demo).not.toContain("{text.contactTitle[lang] || t.contactTitle}");
+    expect(demo).not.toContain("currentOrderUrl");
+    expect(demo).toContain("const order = displaySite.links.order;");
+    expect(demo).toContain("{order && (");
   });
 });
