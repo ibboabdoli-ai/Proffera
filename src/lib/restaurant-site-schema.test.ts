@@ -65,6 +65,16 @@ describe("restaurant site content boundary", () => {
     expect(validateRestaurantSite(draft).ok).toBe(false);
   });
 
+  it("rejects an invalid editable restaurant email but allows an empty one", () => {
+    const invalid = structuredClone(emptyRestaurantSite);
+    invalid.business.email = "not-an-email";
+    expect(validateRestaurantSite(invalid).ok).toBe(false);
+
+    const empty = structuredClone(emptyRestaurantSite);
+    empty.business.email = "";
+    expect(validateRestaurantSite(empty).ok).toBe(true);
+  });
+
   it("rejects repeated opening-day records", () => {
     const draft = structuredClone(emptyRestaurantSite);
     draft.hours[1].day = 0;
