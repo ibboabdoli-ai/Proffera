@@ -120,7 +120,7 @@ export const restaurantSiteSchema = z.object({
     )
     .length(7),
   business: z.object({
-    name: z.string().trim().max(120),
+    name: z.string().trim().min(1).max(120),
     address: z.string().trim().max(240),
     postalCode: z.string().trim().max(24),
     city: z.string().trim().max(120),
