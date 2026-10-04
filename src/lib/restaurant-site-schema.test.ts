@@ -104,6 +104,13 @@ describe("restaurant site content boundary", () => {
     slashHandle.business.instagram = "foo/bar";
     expect(validateRestaurantSite(slashHandle).ok).toBe(false);
 
+    for (const handle of [".", ".foo", "foo.", "foo..bar"]) {
+      const invalidPeriods = structuredClone(emptyRestaurantSite);
+      invalidPeriods.business.instagram = handle;
+      invalidPeriods.business.instagramUrl = "";
+      expect(validateRestaurantSite(invalidPeriods).ok).toBe(false);
+    }
+
     const validHandle = structuredClone(emptyRestaurantSite);
     validHandle.business.instagram = "@donis.trattoria";
     expect(validateRestaurantSite(validHandle).ok).toBe(true);
@@ -116,9 +123,26 @@ describe("restaurant site content boundary", () => {
     malformedUrl.business.instagramUrl = "not-a-url";
     expect(validateRestaurantSite(malformedUrl).ok).toBe(false);
 
+    const nonProfileUrl = structuredClone(emptyRestaurantSite);
+    nonProfileUrl.business.instagramUrl =
+      "https://www.instagram.com/donis.trattoria/reels/";
+    expect(validateRestaurantSite(nonProfileUrl).ok).toBe(false);
+
+    const mismatchedProfile = structuredClone(emptyRestaurantSite);
+    mismatchedProfile.business.instagram = "@donis.trattoria";
+    mismatchedProfile.business.instagramUrl =
+      "https://www.instagram.com/another.profile/";
+    expect(validateRestaurantSite(mismatchedProfile).ok).toBe(false);
+
     const validUrl = structuredClone(emptyRestaurantSite);
     validUrl.business.instagramUrl = "https://www.instagram.com/donis.trattoria/";
     expect(validateRestaurantSite(validUrl).ok).toBe(true);
+
+    const caseInsensitiveMatch = structuredClone(emptyRestaurantSite);
+    caseInsensitiveMatch.business.instagram = "@Donis.Trattoria";
+    caseInsensitiveMatch.business.instagramUrl =
+      "https://instagram.com/donis.trattoria/";
+    expect(validateRestaurantSite(caseInsensitiveMatch).ok).toBe(true);
   });
 
   it("rejects repeated opening-day records", () => {
