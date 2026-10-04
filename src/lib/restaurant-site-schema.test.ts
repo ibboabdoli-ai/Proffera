@@ -75,6 +75,12 @@ describe("restaurant site content boundary", () => {
     expect(validateRestaurantSite(empty).ok).toBe(true);
   });
 
+  it("requires a nonempty editable restaurant name", () => {
+    const draft = structuredClone(emptyRestaurantSite);
+    draft.business.name = "   ";
+    expect(validateRestaurantSite(draft).ok).toBe(false);
+  });
+
   it("rejects unusable phone values while allowing real and empty numbers", () => {
     const invalid = structuredClone(emptyRestaurantSite);
     invalid.business.phone = "call us";
