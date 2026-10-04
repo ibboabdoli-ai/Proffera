@@ -75,6 +75,20 @@ describe("restaurant site content boundary", () => {
     expect(validateRestaurantSite(empty).ok).toBe(true);
   });
 
+  it("rejects unusable phone values while allowing real and empty numbers", () => {
+    const invalid = structuredClone(emptyRestaurantSite);
+    invalid.business.phone = "call us";
+    expect(validateRestaurantSite(invalid).ok).toBe(false);
+
+    const valid = structuredClone(emptyRestaurantSite);
+    valid.business.phone = "+46 8-656 84 00";
+    expect(validateRestaurantSite(valid).ok).toBe(true);
+
+    const empty = structuredClone(emptyRestaurantSite);
+    empty.business.phone = "";
+    expect(validateRestaurantSite(empty).ok).toBe(true);
+  });
+
   it("rejects repeated opening-day records", () => {
     const draft = structuredClone(emptyRestaurantSite);
     draft.hours[1].day = 0;
