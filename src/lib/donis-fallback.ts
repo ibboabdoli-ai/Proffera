@@ -301,10 +301,16 @@ export function isRestaurantSiteBlank(site: RestaurantSite) {
     !text.philosophy.en &&
     text.menuTitle.sv === "Något för alla smaker" &&
     text.menuTitle.en === "Something for every taste" &&
+    text.menuIntro.sv === "Antipasti, färsk pasta, surdegspizza, utvalda huvudrätter och drycker." &&
+    text.menuIntro.en === "Antipasti, fresh pasta, sourdough pizza, selected mains and drinks." &&
     text.galleryTitle.sv === "En smak av Doni’s" &&
     text.galleryTitle.en === "A taste of Doni’s" &&
+    text.galleryIntro.sv === "Mat, detaljer och stämning från Doni’s vid Hornsbergs Strand." &&
+    text.galleryIntro.en === "Food, details and atmosphere from Doni’s by Hornsbergs Strand." &&
     text.contactTitle.sv === "Välkommen till oss" &&
     text.contactTitle.en === "Welcome to Doni’s" &&
+    text.contactBody.sv === "Njut av god mat, vackra omgivningar och en avslappnad atmosfär vid Hornsbergs Strand. Boka bord, ring oss eller kom förbi." &&
+    text.contactBody.en === "Enjoy good food, beautiful surroundings and a relaxed atmosphere by Hornsbergs Strand. Book a table, call us or simply stop by." &&
     site.business.name === "Doni’s Trattoria" &&
     site.business.address === "Hornsbergs Strand 77" &&
     site.business.postalCode === "112 16" &&
@@ -312,7 +318,9 @@ export function isRestaurantSiteBlank(site: RestaurantSite) {
     site.business.phone === "08-656 84 00" &&
     site.business.email === "donitrattoria@gmail.com" &&
     site.business.instagram === "@donis.trattoria" &&
+    site.business.instagramUrl === "https://www.instagram.com/donis.trattoria/" &&
     site.business.orgNumber === "556852-1420" &&
+    site.business.mapUrl === "https://www.google.com/maps/search/?api=1&query=Doni%27s+Trattoria+Hornsbergs+Strand+77+Stockholm" &&
     text.foundedYear === null &&
     !site.links.booking &&
     !site.links.order &&
