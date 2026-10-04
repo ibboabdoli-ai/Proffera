@@ -2,18 +2,19 @@
 
 import { useEffect, useRef, useState, type ChangeEvent } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { createDonisAdminStarterSite } from "@/lib/donis-fallback";
+import { createDonisLuxuryAdminStarterSite } from "@/lib/donis-luxury-fallback";
 import type { RestaurantSite } from "@/lib/restaurant-site-schema";
 import { parseRestaurantPrice } from "@/lib/restaurant-price";
 import { saveDraft } from "./actions";
 
 type Media = { id: string; url: string; alt: string };
-type Section = "menu" | "categories" | "photos" | "content" | "hours" | "links";
+type Section = "menu" | "categories" | "photos" | "content" | "business" | "hours" | "links";
 const sections: { id: Section; label: string; hint: string }[] = [
   { id: "menu", label: "Meny", hint: "Rätter och priser" },
   { id: "categories", label: "Kategorier", hint: "Rubriker i menyn" },
   { id: "photos", label: "Bilder", hint: "Hero, galleri och matbilder" },
   { id: "content", label: "Texter", hint: "Hero och Om oss" },
+  { id: "business", label: "Kontakt", hint: "Adress, telefon och Instagram" },
   { id: "hours", label: "Öppettider", hint: "Kontaktsektionen" },
   { id: "links", label: "Länkar", hint: "Qopla och bokning" },
 ];
@@ -241,7 +242,7 @@ export function RestaurantEditor({
         : "Ersätt nuvarande utkast med redigerbara exempel från demosidan? Inget sparas förrän du trycker Spara.",
     );
     if (!confirmed) return;
-    setSite(createDonisAdminStarterSite());
+    setSite(createDonisLuxuryAdminStarterSite());
     setStarter(true);
     setSection("menu");
     setSelectedDish(null);
