@@ -13,6 +13,7 @@ describe("Doni Demo 2 CMS ownership contract", () => {
     expect(db).toContain("any(${workspaceMediaIds}::text[])");
     expect(db).toContain("workspaceMediaIds.length");
     expect(fallback).toContain("createDonisLuxuryAdminStarterSite");
+    expect(fallback).toContain("dish.priceOre === null ? { ...dish, hidden: true } : dish");
     expect(fallback).toContain("DONIS_LUXURY_FALLBACK_DISH_IMAGE_URLS");
   });
 
