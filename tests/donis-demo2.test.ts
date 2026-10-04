@@ -45,14 +45,14 @@ describe("Doni demo 2", () => {
     expect(fallback).toContain("imageproxy.wolt.com");
     expect(fallback).toContain("images.pexels.com");
     expect(fallback).toContain("pexelsPhoto(20150374)");
-    expect(fallback).toContain("pexelsPhoto(6542787)");
+    expect(fallback).toContain('"/donis/cms/entrecote.webp"');
     expect(fallback).toContain("pexelsPhoto(36791051)");
     expect(fallback).toContain("pexelsPhoto(4915835)");
     const pexelsPhotoIds = [...fallback.matchAll(/pexelsPhoto\((\d+)\)/g)].map(
       (match) => match[1],
     );
-    expect(pexelsPhotoIds.length).toBeGreaterThanOrEqual(30);
-    expect(new Set(pexelsPhotoIds).size).toBeGreaterThanOrEqual(30);
+    expect(pexelsPhotoIds.length).toBeGreaterThanOrEqual(25);
+    expect(new Set(pexelsPhotoIds).size).toBeGreaterThanOrEqual(25);
     expect(fallback).not.toContain("DONIS_GENERATED_MENU_SPRITE");
     expect(fallback).not.toContain("DONIS_GENERATED_MENU_IMAGE_IDS");
 
@@ -61,6 +61,10 @@ describe("Doni demo 2", () => {
     expect(source).toContain('"lemonad": "Lemonade"');
     expect(source).toContain('"loka citron 33cl": "Loka Lemon 33cl"');
     expect(source).toContain("getDishName(dish, lang)");
+    expect(source).toContain("dish.nameEn?.trim()");
+    expect(source).toContain("const contact = displaySite.contact");
+    expect(source).toContain("contact.addressLine1");
+    expect(source).toContain("contact.orgNumber");
     expect(source).toMatch(/isFallback &&\s+fallbackContactMedia/);
     expect(source).toMatch(/isFallback &&\s+fallbackAboutMedia/);
     expect(source).toContain('aboutCta: "Se restaurangen"');
@@ -79,6 +83,13 @@ describe("Doni demo 2", () => {
     expect(fallback).toContain("imageIds.contactExterior");
     expect(existsSync("public/donis/about-interior.webp")).toBe(true);
     expect(existsSync("public/donis/contact-exterior.webp")).toBe(true);
+    expect(existsSync("public/donis/cms/bruschetta-parma.webp")).toBe(true);
+    expect(existsSync("public/donis/cms/burrata-gamberi.webp")).toBe(true);
+    expect(existsSync("public/donis/cms/entrecote.webp")).toBe(true);
+    expect(existsSync("public/donis/cms/drink-peroni.webp")).toBe(true);
+    expect(existsSync("public/donis/cms/interior-lamps.webp")).toBe(true);
+    expect(existsSync("public/donis/cms/interior-tree.webp")).toBe(true);
+    expect(existsSync("public/donis/cms/exterior-wide.webp")).toBe(true);
   });
 
   it("keeps the existing Doni demo and its shared fallback untouched", () => {
