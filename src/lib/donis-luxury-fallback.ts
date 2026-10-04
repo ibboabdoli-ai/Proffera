@@ -4,10 +4,6 @@ import {
   DONIS_FALLBACK_IMAGES,
   DONIS_FALLBACK_SITE,
 } from "@/lib/donis-fallback";
-import {
-  DONIS_GENERATED_MENU_IMAGE_IDS,
-  DONIS_GENERATED_MENU_SPRITE,
-} from "@/lib/donis-generated-menu-sprite";
 import type { RestaurantSite } from "@/lib/restaurant-site-schema";
 
 const categoryIds = {
@@ -42,7 +38,45 @@ const imageIds = {
   aboutChef: "a2df4dee-64ad-592f-b44f-d4d2683c0249",
   atmosphereTable: "f744f19e-b284-5b37-aca3-b8bb1cfd3a95",
   tiramisu: "a9d12f79-8827-53df-a7bc-9c98d69a9d41",
+  olives: "bb000001-0000-4000-8000-000000000001",
+  garlicBread: "bb000002-0000-4000-8000-000000000002",
+  cheeseFries: "bb000003-0000-4000-8000-000000000003",
+  salsiccia: "bb000004-0000-4000-8000-000000000004",
+  aubergine: "bb000005-0000-4000-8000-000000000005",
+  bruschettaParma: "bb000006-0000-4000-8000-000000000006",
+  burrata: "bb000007-0000-4000-8000-000000000007",
+  gamberi: "bb000008-0000-4000-8000-000000000008",
+  antipastiMisti: "bb000009-0000-4000-8000-000000000009",
+  entrecote: "bb000010-0000-4000-8000-000000000010",
+  chickenSalad: "bb000011-0000-4000-8000-000000000011",
+  bearnaise: "bb000012-0000-4000-8000-000000000012",
+  garlicSauce: "bb000013-0000-4000-8000-000000000013",
+  tzatziki: "bb000014-0000-4000-8000-000000000014",
+  bbq: "bb000015-0000-4000-8000-000000000015",
+  cocaCola: "bb000016-0000-4000-8000-000000000016",
+  cocaColaZero: "bb000017-0000-4000-8000-000000000017",
+  fanta: "bb000018-0000-4000-8000-000000000018",
+  sprite: "bb000019-0000-4000-8000-000000000019",
+  lokaNaturell: "bb000020-0000-4000-8000-000000000020",
+  lokaCitron: "bb000021-0000-4000-8000-000000000021",
+  lokaJordgubb: "bb000022-0000-4000-8000-000000000022",
+  lokaParon: "bb000023-0000-4000-8000-000000000023",
+  aperol: "bb000024-0000-4000-8000-000000000024",
+  limoncello: "bb000025-0000-4000-8000-000000000025",
+  passionGt: "bb000026-0000-4000-8000-000000000026",
+  negroni: "bb000027-0000-4000-8000-000000000027",
+  godfather: "bb000028-0000-4000-8000-000000000028",
+  espressoMartini: "bb000029-0000-4000-8000-000000000029",
+  whiteRussian: "bb000030-0000-4000-8000-000000000030",
+  irishCoffee: "bb000031-0000-4000-8000-000000000031",
+  kaffeKarlsson: "bb000032-0000-4000-8000-000000000032",
+  lemonade: "bb000033-0000-4000-8000-000000000033",
+  passion: "bb000034-0000-4000-8000-000000000034",
 } as const;
+
+
+const pexelsPhoto = (photoId: number) =>
+  `https://images.pexels.com/photos/${photoId}/pexels-photo-${photoId}.jpeg?auto=compress&cs=tinysrgb&w=1200&h=900&fit=crop`;
 
 const dishIds = {
   olives: "15428279-780b-542a-8f5f-5ee6f5c09d87",
@@ -137,12 +171,6 @@ const dish = ({
 
 export const DONIS_LUXURY_FALLBACK_IMAGES: Record<string, string> = {
   ...DONIS_FALLBACK_IMAGES,
-  ...Object.fromEntries(
-    Object.values(DONIS_GENERATED_MENU_IMAGE_IDS).map((id) => [
-      id,
-      DONIS_GENERATED_MENU_SPRITE,
-    ]),
-  ),
   [imageIds.margherita]:
     "https://imageproxy.wolt.com/menu/menu-images/65a13319ea42aa5727e72fe8/8a12c398-345f-11ef-9021-36f52c208fd6_margherita.jpg",
   [imageIds.diavola]:
@@ -181,6 +209,40 @@ export const DONIS_LUXURY_FALLBACK_IMAGES: Record<string, string> = {
     "https://www-static.restaurangkungsholmen.se/wp-content/uploads/2025/05/donis-utfyl.jpg",
   [imageIds.tiramisu]:
     "https://www-static.restaurangkungsholmen.se/wp-content/uploads/2025/05/donis-efterratt.jpg",
+  [imageIds.olives]: pexelsPhoto(24916807),
+  [imageIds.garlicBread]: pexelsPhoto(20150374),
+  [imageIds.cheeseFries]: pexelsPhoto(19264409),
+  [imageIds.salsiccia]: pexelsPhoto(36782577),
+  [imageIds.aubergine]: pexelsPhoto(19674153),
+  [imageIds.bruschettaParma]: pexelsPhoto(31779540),
+  [imageIds.burrata]: pexelsPhoto(20184722),
+  [imageIds.gamberi]: pexelsPhoto(8697543),
+  [imageIds.antipastiMisti]: pexelsPhoto(29068724),
+  [imageIds.entrecote]: pexelsPhoto(6542787),
+  [imageIds.chickenSalad]: pexelsPhoto(37357456),
+  [imageIds.bearnaise]: pexelsPhoto(14552779),
+  [imageIds.garlicSauce]: pexelsPhoto(5056827),
+  [imageIds.tzatziki]: pexelsPhoto(8066270),
+  [imageIds.bbq]: pexelsPhoto(33428752),
+  [imageIds.cocaCola]: pexelsPhoto(8879626),
+  [imageIds.cocaColaZero]: pexelsPhoto(20045266),
+  [imageIds.fanta]: pexelsPhoto(5659362),
+  [imageIds.sprite]: pexelsPhoto(28944484),
+  [imageIds.lokaNaturell]: pexelsPhoto(17086296),
+  [imageIds.lokaCitron]: pexelsPhoto(32023924),
+  [imageIds.lokaJordgubb]: pexelsPhoto(20371527),
+  [imageIds.lokaParon]: pexelsPhoto(27219798),
+  [imageIds.aperol]: pexelsPhoto(36791051),
+  [imageIds.limoncello]: pexelsPhoto(7014091),
+  [imageIds.passionGt]: pexelsPhoto(36548104),
+  [imageIds.negroni]: pexelsPhoto(6210915),
+  [imageIds.godfather]: pexelsPhoto(12266292),
+  [imageIds.espressoMartini]: pexelsPhoto(15389024),
+  [imageIds.whiteRussian]: pexelsPhoto(13148602),
+  [imageIds.irishCoffee]: pexelsPhoto(4915835),
+  [imageIds.kaffeKarlsson]: pexelsPhoto(3860486),
+  [imageIds.lemonade]: pexelsPhoto(32023924),
+  [imageIds.passion]: pexelsPhoto(19034675),
 };
 
 export const DONIS_LUXURY_FALLBACK_SITE: RestaurantSite = {
@@ -217,15 +279,15 @@ export const DONIS_LUXURY_FALLBACK_SITE: RestaurantSite = {
     { id: categoryIds.drinks, name: localized("Dryck", "Drinks"), sortOrder: 8, hidden: false },
   ],
   dishes: [
-    dish({ id: dishIds.olives, categoryId: categoryIds.antipasto, name: "Oliver", priceOre: 4500, image: dishImage(DONIS_GENERATED_MENU_IMAGE_IDS.olives, "Oliver", "Olives"), sortOrder: 0 }),
-    dish({ id: dishIds.garlicBread, categoryId: categoryIds.antipasto, name: "Vitlöksbröd", priceOre: 4500, descriptionSv: "Vitlöksbröd.", descriptionEn: "Garlic bread.", image: dishImage(DONIS_GENERATED_MENU_IMAGE_IDS.garlicBread, "Vitlöksbröd", "Garlic bread"), sortOrder: 1 }),
-    dish({ id: dishIds.cheeseFries, categoryId: categoryIds.antipasto, name: "Cheese Fries", priceOre: 8500, image: dishImage(DONIS_GENERATED_MENU_IMAGE_IDS.cheeseFries, "Cheese Fries", "Cheese Fries"), sortOrder: 2 }),
-    dish({ id: dishIds.salsiccia, categoryId: categoryIds.antipasto, name: "Salsiccia", priceOre: 7500, image: dishImage(DONIS_GENERATED_MENU_IMAGE_IDS.salsiccia, "Salsiccia", "Salsiccia"), sortOrder: 3 }),
-    dish({ id: dishIds.aubergine, categoryId: categoryIds.antipasto, name: "Aubergine", priceOre: 7500, image: dishImage(DONIS_GENERATED_MENU_IMAGE_IDS.aubergine, "Aubergine", "Aubergine"), sortOrder: 4 }),
-    dish({ id: dishIds.bruschettaParma, categoryId: categoryIds.antipasto, name: "Bruschetta Parma", priceOre: 8000, image: dishImage(DONIS_GENERATED_MENU_IMAGE_IDS.bruschettaParma, "Bruschetta Parma", "Bruschetta Parma"), sortOrder: 5 }),
-    dish({ id: dishIds.burrata, categoryId: categoryIds.antipasto, name: "Burrata di bufala", priceOre: 8500, image: dishImage(DONIS_GENERATED_MENU_IMAGE_IDS.burrata, "Burrata di bufala", "Burrata di bufala"), sortOrder: 6 }),
-    dish({ id: dishIds.gamberi, categoryId: categoryIds.antipasto, name: "Gamberi con aglio e olio", priceOre: 9500, image: dishImage(DONIS_GENERATED_MENU_IMAGE_IDS.gamberi, "Gamberi con aglio e olio", "Gamberi con aglio e olio"), sortOrder: 7 }),
-    dish({ id: dishIds.antipastiMisti, categoryId: categoryIds.antipasto, name: "Antipasti Misti", priceOre: 10000, image: dishImage(DONIS_GENERATED_MENU_IMAGE_IDS.antipastiMisti, "Antipasti Misti", "Antipasti Misti"), sortOrder: 8 }),
+    dish({ id: dishIds.olives, categoryId: categoryIds.antipasto, name: "Oliver", priceOre: 4500, image: dishImage(imageIds.olives, "Oliver", "Olives"), sortOrder: 0 }),
+    dish({ id: dishIds.garlicBread, categoryId: categoryIds.antipasto, name: "Vitlöksbröd", priceOre: 4500, descriptionSv: "Vitlöksbröd.", descriptionEn: "Garlic bread.", image: dishImage(imageIds.garlicBread, "Vitlöksbröd", "Garlic bread"), sortOrder: 1 }),
+    dish({ id: dishIds.cheeseFries, categoryId: categoryIds.antipasto, name: "Cheese Fries", priceOre: 8500, image: dishImage(imageIds.cheeseFries, "Cheese Fries", "Cheese Fries"), sortOrder: 2 }),
+    dish({ id: dishIds.salsiccia, categoryId: categoryIds.antipasto, name: "Salsiccia", priceOre: 7500, image: dishImage(imageIds.salsiccia, "Salsiccia", "Salsiccia"), sortOrder: 3 }),
+    dish({ id: dishIds.aubergine, categoryId: categoryIds.antipasto, name: "Aubergine", priceOre: 7500, image: dishImage(imageIds.aubergine, "Aubergine", "Aubergine"), sortOrder: 4 }),
+    dish({ id: dishIds.bruschettaParma, categoryId: categoryIds.antipasto, name: "Bruschetta Parma", priceOre: 8000, image: dishImage(imageIds.bruschettaParma, "Bruschetta Parma", "Bruschetta Parma"), sortOrder: 5 }),
+    dish({ id: dishIds.burrata, categoryId: categoryIds.antipasto, name: "Burrata di bufala", priceOre: 8500, image: dishImage(imageIds.burrata, "Burrata di bufala", "Burrata di bufala"), sortOrder: 6 }),
+    dish({ id: dishIds.gamberi, categoryId: categoryIds.antipasto, name: "Gamberi con aglio e olio", priceOre: 9500, image: dishImage(imageIds.gamberi, "Gamberi con aglio e olio", "Gamberi con aglio e olio"), sortOrder: 7 }),
+    dish({ id: dishIds.antipastiMisti, categoryId: categoryIds.antipasto, name: "Antipasti Misti", priceOre: 10000, image: dishImage(imageIds.antipastiMisti, "Antipasti Misti", "Antipasti Misti"), sortOrder: 8 }),
 
     dish({
       id: dishIds.ragu,
@@ -390,7 +452,7 @@ export const DONIS_LUXURY_FALLBACK_SITE: RestaurantSite = {
       sortOrder: 2,
     }),
 
-    dish({ id: dishIds.entrecote, categoryId: categoryIds.secondi, name: "Entrecote", priceOre: null, image: dishImage(DONIS_GENERATED_MENU_IMAGE_IDS.entrecote, "Entrecote", "Entrecote"), sortOrder: 0 }),
+    dish({ id: dishIds.entrecote, categoryId: categoryIds.secondi, name: "Entrecote", priceOre: null, image: dishImage(imageIds.entrecote, "Entrecote", "Entrecote"), sortOrder: 0 }),
     dish({
       id: dishIds.chickenSalad,
       categoryId: categoryIds.insalata,
@@ -398,7 +460,7 @@ export const DONIS_LUXURY_FALLBACK_SITE: RestaurantSite = {
       priceOre: null,
       descriptionSv: "Grillad kycklingsallad med avokado.",
       descriptionEn: "Grilled chicken salad with avocado.",
-      image: dishImage(DONIS_GENERATED_MENU_IMAGE_IDS.chickenSalad, "Grillad kycklingsallad med avokado", "Grilled chicken salad with avocado"),
+      image: dishImage(imageIds.chickenSalad, "Grillad kycklingsallad med avokado", "Grilled chicken salad with avocado"),
       sortOrder: 0,
     }),
 
