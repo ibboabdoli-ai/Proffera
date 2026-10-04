@@ -83,7 +83,7 @@ export default async function RestaurantAdminPage() {
       }
       referenceHeroImage={referenceHeroImage}
       referenceGalleryImages={referenceGalleryImages}
-      referenceMediaImages={site.published ? {} : DONIS_LUXURY_FALLBACK_IMAGES}
+      referenceMediaImages={DONIS_LUXURY_FALLBACK_IMAGES}
     />
   );
 }
