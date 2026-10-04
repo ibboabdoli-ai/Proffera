@@ -2,18 +2,29 @@
 
 import { useEffect, useRef, useState, type ChangeEvent } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { createDonisAdminStarterSite } from "@/lib/donis-fallback";
-import type { RestaurantSite } from "@/lib/restaurant-site-schema";
+import { createDonisLuxuryAdminStarterSite } from "@/lib/donis-luxury-fallback";
+import {
+  restaurantContactDefaults,
+  type RestaurantSite,
+} from "@/lib/restaurant-site-schema";
 import { parseRestaurantPrice } from "@/lib/restaurant-price";
 import { saveDraft } from "./actions";
 
 type Media = { id: string; url: string; alt: string };
-type Section = "menu" | "categories" | "photos" | "content" | "hours" | "links";
+type Section =
+  | "menu"
+  | "categories"
+  | "photos"
+  | "content"
+  | "contact"
+  | "hours"
+  | "links";
 const sections: { id: Section; label: string; hint: string }[] = [
   { id: "menu", label: "Meny", hint: "Rätter och priser" },
   { id: "categories", label: "Kategorier", hint: "Rubriker i menyn" },
   { id: "photos", label: "Bilder", hint: "Hero, galleri och matbilder" },
   { id: "content", label: "Texter", hint: "Hero och Om oss" },
+  { id: "contact", label: "Kontakt", hint: "Adress, telefon och socialt" },
   { id: "hours", label: "Öppettider", hint: "Kontaktsektionen" },
   { id: "links", label: "Länkar", hint: "Qopla och bokning" },
 ];
@@ -241,7 +252,7 @@ export function RestaurantEditor({
         : "Ersätt nuvarande utkast med redigerbara exempel från demosidan? Inget sparas förrän du trycker Spara.",
     );
     if (!confirmed) return;
-    setSite(createDonisAdminStarterSite());
+    setSite(createDonisLuxuryAdminStarterSite());
     setStarter(true);
     setSection("menu");
     setSelectedDish(null);
@@ -516,7 +527,7 @@ export function RestaurantEditor({
               {busy ? "Sparar…" : "Spara"}
             </button>
             <a
-              href="/demo/donis-trattoria"
+              href="/demo/donis-trattoria2"
               target="_blank"
               rel="noopener noreferrer"
               className="font-semibold text-[#572e28] underline underline-offset-4"
@@ -603,7 +614,8 @@ export function RestaurantEditor({
                       next.dishes.push({
                         id,
                         categoryId: next.categories[0].id,
-                        name: locale === "en" ? "New dish" : "Ny rätt",
+                        name: "Ny rätt",
+                        nameEn: "New dish",
                         priceOre: null,
                         description: { sv: "", en: "" },
                         image: null,
@@ -626,21 +638,38 @@ export function RestaurantEditor({
                   >
                     ← Tillbaka till menyn
                   </button>
-                  <label className="text-sm font-semibold">
-                    Rättens namn
-                    <input
-                      className={input}
-                      value={dish.name}
-                      maxLength={120}
-                      onChange={(event) =>
-                        edit((next) => {
-                          next.dishes.find(
-                            (item) => item.id === dish.id,
-                          )!.name = event.target.value;
-                        })
-                      }
-                    />
-                  </label>
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <label className="text-sm font-semibold">
+                      Namn SV
+                      <input
+                        className={input}
+                        value={dish.name}
+                        maxLength={120}
+                        onChange={(event) =>
+                          edit((next) => {
+                            next.dishes.find(
+                              (item) => item.id === dish.id,
+                            )!.name = event.target.value;
+                          })
+                        }
+                      />
+                    </label>
+                    <label className="text-sm font-semibold">
+                      Namn EN
+                      <input
+                        className={input}
+                        value={dish.nameEn ?? ""}
+                        maxLength={120}
+                        onChange={(event) =>
+                          edit((next) => {
+                            next.dishes.find(
+                              (item) => item.id === dish.id,
+                            )!.nameEn = event.target.value;
+                          })
+                        }
+                      />
+                    </label>
+                  </div>
                   <label className="text-sm font-semibold">
                     Pris i kronor
                     <PriceInput
@@ -1276,6 +1305,43 @@ export function RestaurantEditor({
                   }
                 />
               </label>
+            </section>
+          )}
+          {section === "contact" && (
+            <section className="grid gap-5">
+              <div>
+                <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-[#8a493a]">
+                  På webbplatsen: Kontakt / Hitta hit / Footer
+                </p>
+                <h2 className="mt-1 font-serif text-2xl">Kontaktuppgifter</h2>
+                <p className="mt-2 text-sm text-[#665b50]">
+                  Dessa uppgifter används direkt på den publicerade restaurangsidan.
+                </p>
+              </div>
+              {(
+                [
+                  ["addressLine1", "Adress"],
+                  ["postalCity", "Postnummer och ort"],
+                  ["phone", "Telefon"],
+                  ["email", "E-post"],
+                  ["instagram", "Instagram"],
+                  ["orgNumber", "Org.nr"],
+                ] as const
+              ).map(([field, label]) => (
+                <label key={field} className="text-sm font-semibold">
+                  {label}
+                  <input
+                    className={input}
+                    value={(site.contact ?? restaurantContactDefaults)[field]}
+                    onChange={(event) =>
+                      edit((next) => {
+                        next.contact ??= { ...restaurantContactDefaults };
+                        next.contact[field] = event.target.value;
+                      })
+                    }
+                  />
+                </label>
+              ))}
             </section>
           )}
           {section === "hours" && (
