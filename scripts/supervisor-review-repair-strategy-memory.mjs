@@ -144,44 +144,51 @@ export function reviewRepairStartBody(input) {
   return `${marker}\n\`\`\`json\n${canonical(payload)}\n\`\`\``;
 }
 
+function normalizeRecoveryStart(value, prNumber) {
+  if (!value || typeof value !== "object" || Array.isArray(value)
+    || value.pr_number !== prNumber
+    || positiveInteger(value.run_id, "start_run") !== value.run_id
+    || positiveInteger(value.run_attempt, "start_attempt") !== value.run_attempt) {
+    fail("recovery_candidate_binding");
+  }
+  sha(value.head, "start_head");
+  for (const field of ["finding_digest", "evidence_fingerprint", "strategy_fingerprint"]) {
+    if (typeof value[field] !== "string" || !/^[a-f0-9]{64}$/.test(value[field])) {
+      fail("recovery_candidate_binding");
+    }
+  }
+  return {
+    pr_number: prNumber,
+    run_id: value.run_id,
+    run_attempt: value.run_attempt,
+    head: value.head,
+    finding_digest: value.finding_digest,
+    evidence_fingerprint: value.evidence_fingerprint,
+    strategy_fingerprint: value.strategy_fingerprint,
+  };
+}
+
 export function reviewRepairRecoveryBody(input) {
   repository(input?.repository);
-  const descriptor = reviewRepairStrategyDescriptor(input);
-  const runId = positiveInteger(input?.run_id, "run_id");
-  const runAttempt = positiveInteger(input?.run_attempt, "run_attempt");
+  const prNumber = positiveInteger(input?.pr_number, "pr_number");
+  const start = normalizeRecoveryStart(input?.start, prNumber);
   const recoveredByRunId = positiveInteger(input?.recovered_by_run_id, "recovered_by_run_id");
   const recoveredByRunAttempt = positiveInteger(input?.recovered_by_run_attempt, "recovered_by_run_attempt");
-  if (runId === recoveredByRunId && runAttempt === recoveredByRunAttempt) fail("recovery_self");
+  if (start.run_id === recoveredByRunId && start.run_attempt === recoveredByRunAttempt) fail("recovery_self");
   const payload = {
-    pr_number: descriptor.pr_number,
-    run_id: runId,
-    run_attempt: runAttempt,
-    head: descriptor.head,
-    finding_digest: descriptor.finding_digest,
-    evidence_fingerprint: descriptor.evidence_fingerprint,
-    strategy_fingerprint: descriptor.strategy_fingerprint,
+    ...start,
     recovered_by_run_id: recoveredByRunId,
     recovered_by_run_attempt: recoveredByRunAttempt,
     reason: "model_not_launched",
   };
-  const marker = `${RECOVERY_PREFIX}${descriptor.pr_number}:${runId}:${runAttempt} -->`;
+  const marker = `${RECOVERY_PREFIX}${prNumber}:${start.run_id}:${start.run_attempt} -->`;
   return `${marker}\n\`\`\`json\n${canonical(payload)}\n\`\`\``;
 }
 
 export function proveReviewRepairPrelaunchRecovery(input) {
   repository(input?.repository);
-  const descriptor = reviewRepairStrategyDescriptor(input);
-  const start = input?.start;
-  if (!start || typeof start !== "object" || Array.isArray(start)
-    || start.pr_number !== descriptor.pr_number
-    || positiveInteger(start.run_id, "start_run") !== start.run_id
-    || positiveInteger(start.run_attempt, "start_attempt") !== start.run_attempt
-    || start.head !== descriptor.head
-    || start.finding_digest !== descriptor.finding_digest
-    || start.evidence_fingerprint !== descriptor.evidence_fingerprint
-    || start.strategy_fingerprint !== descriptor.strategy_fingerprint) {
-    fail("recovery_candidate_binding");
-  }
+  const prNumber = positiveInteger(input?.pr_number, "pr_number");
+  const start = normalizeRecoveryStart(input?.start, prNumber);
   const run = input?.run;
   if (!run || typeof run !== "object" || Array.isArray(run)
     || Number(run.id) !== start.run_id
@@ -506,12 +513,11 @@ export function reviewRepairMemoryState({repository: repo, pr_number, comments})
 
 export function unresolvedReviewRepairStarts(input) {
   const state = reviewRepairMemoryState(input);
-  const descriptor = reviewRepairStrategyDescriptor(input);
   const recorded = recordAttemptKeys(state.records);
-  return state.starts.filter((start) =>
-    start.evidence_fingerprint === descriptor.evidence_fingerprint
-    && start.strategy_fingerprint === descriptor.strategy_fingerprint
-    && !recorded.has(`${start.run_id}:${start.run_attempt}`));
+  // Recovery is PR-scoped, not current-evidence-scoped. A pre-model orphan from
+  // an older head/finding burst must not keep consuming the bounded model budget
+  // after review evidence changes.
+  return state.starts.filter((start) => !recorded.has(`${start.run_id}:${start.run_attempt}`));
 }
 
 export function prepareReviewRepairOutcome(input) {

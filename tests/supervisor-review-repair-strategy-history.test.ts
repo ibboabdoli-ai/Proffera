@@ -97,10 +97,7 @@ function recoveryBody({
   return reviewRepairRecoveryBody({
     repository,
     pr_number: pr,
-    head: attemptHead,
-    finding_ids,
-    run_id,
-    run_attempt,
+    start: start({finding_ids, run_id, run_attempt, attemptHead}),
     recovered_by_run_id,
     recovered_by_run_attempt,
   });
@@ -249,6 +246,166 @@ describe("Review Repair attempt admission", () => {
       .toThrow(/recovery_record_conflict/);
   });
 
+  it("recovers a proven pre-model start after head and findings change without spending budget", () => {
+    const oldHead = "b".repeat(40);
+    const oldFindings = ["inline:11"];
+    const oldStart = start({finding_ids: oldFindings, run_id: 30, attemptHead: oldHead});
+    const beforeRecovery = [trustedComment(reviewRepairStartBody({
+      repository, pr_number: pr, head: oldHead, finding_ids: oldFindings, run_id: 30, run_attempt: 1,
+    }), 30)];
+
+    expect(unresolvedReviewRepairStarts({
+      repository, pr_number: pr, head, finding_ids: findings, comments: beforeRecovery,
+    })).toEqual([oldStart]);
+    expect(proveReviewRepairPrelaunchRecovery({
+      repository,
+      pr_number: pr,
+      start: oldStart,
+      run: {
+        id: 30, run_attempt: 1, status: "completed", conclusion: "cancelled",
+        event: "workflow_dispatch", name: "Supervisor review repair",
+        path: ".github/workflows/supervisor-review-repair.yml",
+      },
+      jobs: [{
+        name: "Settle review burst and admit one bounded attempt", status: "completed", conclusion: "failure",
+      }],
+    })).toEqual({recoverable: true, reason: "repair_job_absent"});
+
+    const comments = [
+      ...beforeRecovery,
+      trustedComment(recoveryBody({
+        finding_ids: oldFindings, run_id: 30, attemptHead: oldHead,
+        recovered_by_run_id: 40, recovered_by_run_attempt: 1,
+      }), 31),
+    ];
+    const state = reviewRepairMemoryState({repository, pr_number: pr, comments});
+    expect(state.starts).toEqual([]);
+    expect(decideReviewRepairStrategyHistory({
+      pr_number: pr, head, finding_ids: findings, records: state.records, starts: state.starts,
+    })).toMatchObject({decision: "ALLOW", attempts: 0, unresolved_attempts: 0});
+  });
+
+  it("recovers two proven pre-model starts from different historical evidence without exhausting budget", () => {
+    const oldA = {head: "b".repeat(40), findings: ["inline:11"], run: 31};
+    const oldB = {head: "c".repeat(40), findings: ["review:12"], run: 32};
+    const comments = [
+      trustedComment(reviewRepairStartBody({
+        repository, pr_number: pr, head: oldA.head, finding_ids: oldA.findings, run_id: oldA.run, run_attempt: 1,
+      }), 40),
+      trustedComment(reviewRepairStartBody({
+        repository, pr_number: pr, head: oldB.head, finding_ids: oldB.findings, run_id: oldB.run, run_attempt: 1,
+      }), 41),
+    ];
+    const oldStarts = [
+      start({finding_ids: oldA.findings, run_id: oldA.run, attemptHead: oldA.head}),
+      start({finding_ids: oldB.findings, run_id: oldB.run, attemptHead: oldB.head}),
+    ];
+    expect(unresolvedReviewRepairStarts({
+      repository, pr_number: pr, head, finding_ids: findings, comments,
+    })).toEqual(oldStarts);
+    for (const [index, candidate] of oldStarts.entries()) {
+      expect(proveReviewRepairPrelaunchRecovery({
+        repository,
+        pr_number: pr,
+        start: candidate,
+        run: {
+          id: candidate.run_id, run_attempt: candidate.run_attempt,
+          status: "completed", conclusion: "cancelled",
+          event: "workflow_dispatch", name: "Supervisor review repair",
+          path: ".github/workflows/supervisor-review-repair.yml",
+        },
+        jobs: index === 0
+          ? [{name: "Settle review burst and admit one bounded attempt", status: "completed", conclusion: "failure"}]
+          : [
+              {name: "Settle review burst and admit one bounded attempt", status: "completed", conclusion: "failure"},
+              {name: "Batch current-head review findings", status: "completed", conclusion: "skipped"},
+            ],
+      })).toMatchObject({recoverable: true});
+    }
+
+    comments.push(
+      trustedComment(recoveryBody({
+        finding_ids: oldA.findings, run_id: oldA.run, attemptHead: oldA.head,
+        recovered_by_run_id: 50, recovered_by_run_attempt: 1,
+      }), 42),
+      trustedComment(recoveryBody({
+        finding_ids: oldB.findings, run_id: oldB.run, attemptHead: oldB.head,
+        recovered_by_run_id: 50, recovered_by_run_attempt: 1,
+      }), 43),
+    );
+    const state = reviewRepairMemoryState({repository, pr_number: pr, comments});
+    expect(state.starts).toEqual([]);
+    expect(decideReviewRepairStrategyHistory({
+      pr_number: pr, head, finding_ids: findings, records: state.records, starts: state.starts,
+    })).toMatchObject({decision: "ALLOW", attempts: 0});
+  });
+
+  it("keeps an older different-evidence start in budget when its repair may have launched", () => {
+    const oldHead = "b".repeat(40);
+    const oldFindings = ["inline:11"];
+    const candidate = start({finding_ids: oldFindings, run_id: 33, attemptHead: oldHead});
+    const proof = proveReviewRepairPrelaunchRecovery({
+      repository,
+      pr_number: pr,
+      start: candidate,
+      run: {
+        id: 33, run_attempt: 1, head_sha: oldHead, status: "completed", conclusion: "cancelled",
+        event: "workflow_dispatch", name: "Supervisor review repair",
+        path: ".github/workflows/supervisor-review-repair.yml",
+      },
+      jobs: [
+        {name: "Settle review burst and admit one bounded attempt", status: "completed", conclusion: "success"},
+        {name: "Batch current-head review findings", status: "completed", conclusion: "failure"},
+      ],
+    });
+    expect(proof).toEqual({recoverable: false, reason: "repair_job_may_have_launched"});
+
+    const comments = [trustedComment(reviewRepairStartBody({
+      repository, pr_number: pr, head: oldHead, finding_ids: oldFindings, run_id: 33, run_attempt: 1,
+    }), 50)];
+    const state = reviewRepairMemoryState({repository, pr_number: pr, comments});
+    expect(decideReviewRepairStrategyHistory({
+      pr_number: pr, head, finding_ids: findings, records: state.records, starts: state.starts,
+    })).toMatchObject({decision: "ALLOW", attempts: 1});
+  });
+
+  it("charges only the real model execution when an older pre-model start is recovered", () => {
+    const orphanHead = "b".repeat(40);
+    const orphanFindings = ["inline:11"];
+    const realHead = "c".repeat(40);
+    const realFindings = ["review:12"];
+    const memory = createMemory(repository, {kind: "pull_request", pr_number: pr});
+    const realObservation = reviewRepairObservation({
+      repository, pr_number: pr, head: realHead, finding_ids: realFindings, outcome: "failed",
+      run_id: 35, run_attempt: 1, observed_at: "2026-10-04T08:00:00Z",
+    });
+    const realMemory = mergeObservation(
+      {comment_id: null, memory},
+      memoryIdentity({comment_id: null, memory}),
+      realObservation,
+    ).memory;
+    const comments = [
+      trustedComment(reviewRepairStartBody({
+        repository, pr_number: pr, head: orphanHead, finding_ids: orphanFindings, run_id: 34, run_attempt: 1,
+      }), 60),
+      trustedComment(recoveryBody({
+        finding_ids: orphanFindings, run_id: 34, attemptHead: orphanHead,
+        recovered_by_run_id: 40, recovered_by_run_attempt: 1,
+      }), 61),
+      trustedComment(reviewRepairStartBody({
+        repository, pr_number: pr, head: realHead, finding_ids: realFindings, run_id: 35, run_attempt: 1,
+      }), 62),
+      trustedComment(serializeMemory(realMemory), 63),
+    ];
+    const state = reviewRepairMemoryState({repository, pr_number: pr, comments});
+    expect(state.starts).toEqual([start({
+      finding_ids: realFindings, run_id: 35, attemptHead: realHead,
+    })]);
+    expect(decideReviewRepairStrategyHistory({
+      pr_number: pr, head, finding_ids: findings, records: state.records, starts: state.starts,
+    })).toMatchObject({decision: "ALLOW", attempts: 1, unresolved_attempts: 0});
+  });
+
   it("counts failed/no-change/cancelled starts against the model budget rather than repair commits", () => {
     expect(MAX_AUTOMATIC_REVIEW_REPAIR_ATTEMPTS).toBe(2);
     const oldFindings = ["inline:11"];
@@ -384,7 +541,7 @@ describe("Review Repair start provenance and Failure Memory persistence", () => 
       name: "Settle review burst and admit one bounded attempt", status: "completed", conclusion: "failure",
     };
     const input = {
-      repository, pr_number: pr, head, finding_ids: findings, start: candidate, run, jobs: [admitJob],
+      repository, pr_number: pr, start: candidate, run, jobs: [admitJob],
     };
     expect(proveReviewRepairPrelaunchRecovery(input))
       .toEqual({recoverable: true, reason: "repair_job_absent"});
@@ -412,6 +569,27 @@ describe("Review Repair start provenance and Failure Memory persistence", () => 
       ...input,
       run: {...run, path: ".github/workflows/ci.yml"},
     })).toThrow(/recovery_run_binding/);
+    expect(() => proveReviewRepairPrelaunchRecovery({
+      ...input,
+      run: {...run, id: 78},
+    })).toThrow(/recovery_run_binding/);
+    expect(() => proveReviewRepairPrelaunchRecovery({
+      ...input,
+      run: {...run, run_attempt: 3},
+    })).toThrow(/recovery_run_binding/);
+    expect(() => proveReviewRepairPrelaunchRecovery({
+      ...input,
+      jobs: [{name: "Batch current-head review findings", status: "completed", conclusion: "skipped"}],
+    })).toThrow(/recovery_jobs_binding/);
+
+    const comments = [trustedComment(reviewRepairStartBody({
+      repository, pr_number: pr, head: candidate.head, finding_ids: findings, run_id: 77, run_attempt: 2,
+    }), 70)];
+    const state = reviewRepairMemoryState({repository, pr_number: pr, comments});
+    expect(decideReviewRepairStrategyHistory({
+      pr_number: pr, head: "d".repeat(40), finding_ids: ["inline:999"],
+      records: state.records, starts: state.starts,
+    })).toMatchObject({decision: "ALLOW", attempts: 1});
   });
 
   it("records exact action attempts in the canonical pull-request Failure Memory", () => {
@@ -528,6 +706,18 @@ describe("Review Repair pre-model start recovery", () => {
     expect(admission).toContain("supervisor-review-repair-strategy-memory.mjs recovery-proof");
     expect(admission).toContain("supervisor-review-repair-strategy-memory.mjs recovery-body");
     expect(admission).toContain("Recovered orphaned pre-model Review Repair start");
+    const proofStart = admission.indexOf('proof_input="$RUNNER_TEMP/review-repair-recovery-proof-');
+    const proofEnd = admission.indexOf("supervisor-review-repair-strategy-memory.mjs recovery-proof", proofStart);
+    const proofInput = admission.slice(proofStart, proofEnd);
+    expect(proofInput).toContain('--argjson start "$candidate"');
+    expect(proofInput).not.toContain('--arg head "$HEAD_SHA"');
+    expect(proofInput).not.toContain("finding_ids.json");
+    const recoveryStart = admission.indexOf('recovery_input="$RUNNER_TEMP/review-repair-recovery-');
+    const recoveryEnd = admission.indexOf("supervisor-review-repair-strategy-memory.mjs recovery-body", recoveryStart);
+    const recoveryInput = admission.slice(recoveryStart, recoveryEnd);
+    expect(recoveryInput).toContain('--argjson start "$candidate"');
+    expect(recoveryInput).not.toContain('--arg head "$HEAD_SHA"');
+    expect(recoveryInput).not.toContain("finding_ids.json");
     const recoveryPost = admission.indexOf('issues/548/comments" -f "body=$recovery_body"');
     const refresh = admission.indexOf('if [ "$recovered_any" = "yes" ]');
     const decision = admission.indexOf("supervisor-review-repair-strategy-memory.mjs admit");
