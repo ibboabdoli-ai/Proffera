@@ -95,6 +95,28 @@ describe("restaurant site content boundary", () => {
     expect(validateRestaurantSite(empty).ok).toBe(true);
   });
 
+  it("validates Instagram handles and destinations", () => {
+    const invalidHandle = structuredClone(emptyRestaurantSite);
+    invalidHandle.business.instagram = "our account";
+    expect(validateRestaurantSite(invalidHandle).ok).toBe(false);
+
+    const slashHandle = structuredClone(emptyRestaurantSite);
+    slashHandle.business.instagram = "foo/bar";
+    expect(validateRestaurantSite(slashHandle).ok).toBe(false);
+
+    const validHandle = structuredClone(emptyRestaurantSite);
+    validHandle.business.instagram = "@donis.trattoria";
+    expect(validateRestaurantSite(validHandle).ok).toBe(true);
+
+    const invalidUrl = structuredClone(emptyRestaurantSite);
+    invalidUrl.business.instagramUrl = "https://example.com/donis";
+    expect(validateRestaurantSite(invalidUrl).ok).toBe(false);
+
+    const validUrl = structuredClone(emptyRestaurantSite);
+    validUrl.business.instagramUrl = "https://www.instagram.com/donis.trattoria/";
+    expect(validateRestaurantSite(validUrl).ok).toBe(true);
+  });
+
   it("rejects repeated opening-day records", () => {
     const draft = structuredClone(emptyRestaurantSite);
     draft.hours[1].day = 0;
