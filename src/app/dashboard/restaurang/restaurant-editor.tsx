@@ -344,24 +344,22 @@ export function RestaurantEditor({
     const currentImage = current
       ? images.find((image) => image.id === current.id)
       : undefined;
+    const bundledUrl = current ? referenceMediaImages[current.id] : undefined;
+    const previewUrl = currentImage?.url ?? bundledUrl ?? referenceUrl;
     return (
       <div className="grid gap-3">
-        {currentImage ? (
-          <img
-            src={currentImage.url}
-            alt={current?.alt[locale] || current?.alt.sv || ""}
-            className="aspect-[4/3] max-h-64 w-full rounded-xl object-cover"
-          />
-        ) : referenceUrl ? (
+        {previewUrl ? (
           <div className="rounded-xl border border-[#d9cfc1] bg-[#fffaf3] p-2">
             <img
-              src={referenceUrl}
-              alt=""
+              src={previewUrl}
+              alt={current?.alt[locale] || current?.alt.sv || ""}
               className="aspect-[4/3] max-h-64 w-full rounded-lg object-cover"
             />
-            <p className="mt-2 text-xs leading-5 text-[#665b50]">
-              Referensbild från nuvarande demosida. Ladda upp en ny bild för att ersätta den.
-            </p>
+            {bundledUrl && !currentImage && (
+              <p className="mt-2 text-xs leading-5 text-[#665b50]">
+                Bilden följer med Demo 2 och kan ersättas med en egen uppladdning.
+              </p>
+            )}
           </div>
         ) : null}
         <select
@@ -378,6 +376,9 @@ export function RestaurantEditor({
           }}
         >
           <option value="">Ingen bild</option>
+          {current && bundledUrl && !currentImage && (
+            <option value={current.id}>Demo 2-bild · {current.id.slice(0, 8)}</option>
+          )}
           {images.map((item) => (
             <option key={item.id} value={item.id}>
               {item.alt} · {item.id.slice(0, 8)}
@@ -616,7 +617,8 @@ export function RestaurantEditor({
                       next.dishes.push({
                         id,
                         categoryId: next.categories[0].id,
-                        name: locale === "en" ? "New dish" : "Ny rätt",
+                        name: "Ny rätt",
+                        displayName: { sv: "Ny rätt", en: "New dish" },
                         priceOre: null,
                         description: { sv: "", en: "" },
                         image: null,
@@ -639,21 +641,31 @@ export function RestaurantEditor({
                   >
                     ← Tillbaka till menyn
                   </button>
-                  <label className="text-sm font-semibold">
-                    Rättens namn
-                    <input
-                      className={input}
-                      value={dish.name}
-                      maxLength={120}
-                      onChange={(event) =>
-                        edit((next) => {
-                          next.dishes.find(
-                            (item) => item.id === dish.id,
-                          )!.name = event.target.value;
-                        })
-                      }
-                    />
-                  </label>
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    {(["sv", "en"] as const).map((language) => (
+                      <label key={language} className="text-sm font-semibold">
+                        {language === "sv" ? "Rättens namn SV" : "Dish name EN"}
+                        <input
+                          className={input}
+                          value={dish.displayName?.[language] ?? dish.name}
+                          maxLength={120}
+                          onChange={(event) =>
+                            edit((next) => {
+                              const nextDish = next.dishes.find(
+                                (item) => item.id === dish.id,
+                              )!;
+                              nextDish.displayName ??= {
+                                sv: nextDish.name,
+                                en: nextDish.name,
+                              };
+                              nextDish.displayName[language] = event.target.value;
+                              if (language === "sv") nextDish.name = event.target.value;
+                            })
+                          }
+                        />
+                      </label>
+                    ))}
+                  </div>
                   <label className="text-sm font-semibold">
                     Pris i kronor
                     <PriceInput
@@ -782,7 +794,9 @@ export function RestaurantEditor({
                               ? images.find((image) => image.id === item.image?.id)?.url
                               : undefined;
                             const previewUrl =
-                              ownedImage ?? referenceDishImages[item.id];
+                              ownedImage ??
+                              (item.image ? referenceMediaImages[item.image.id] : undefined) ??
+                              referenceDishImages[item.id];
                             return (
                               <article
                                 key={item.id}
@@ -793,7 +807,7 @@ export function RestaurantEditor({
                                     type="button"
                                     onClick={() => setSelectedDish(item.id)}
                                     className="h-16 w-16 overflow-hidden rounded-lg bg-[#eee5d8]"
-                                    aria-label={`Redigera ${item.name}`}
+                                    aria-label={`Redigera ${item.displayName?.[locale] || item.name}`}
                                   >
                                     {previewUrl ? (
                                       <img
@@ -814,7 +828,7 @@ export function RestaurantEditor({
                                         className="min-h-8 min-w-0 text-left text-base font-bold underline decoration-[#b5a797] underline-offset-4"
                                         onClick={() => setSelectedDish(item.id)}
                                       >
-                                        {item.name}
+                                        {item.displayName?.[locale] || item.name}
                                       </button>
                                       {item.hidden && (
                                         <span className="shrink-0 rounded-full bg-[#eee5d8] px-2 py-1 text-[10px] font-bold uppercase tracking-wide text-[#6c5a4d]">
@@ -826,7 +840,7 @@ export function RestaurantEditor({
                                       <label className="text-xs font-semibold">
                                         Pris (kr)
                                         <PriceInput
-                                          label={`Pris ${item.name}`}
+                                          label={`Pris ${item.displayName?.[locale] || item.name}`}
                                           className={`${input} mt-1 min-h-10 w-full text-right`}
                                           value={item.priceOre}
                                           disabled={busy}
@@ -853,7 +867,7 @@ export function RestaurantEditor({
                                   <button
                                     type="button"
                                     className={button}
-                                    aria-label={`${item.hidden ? "Visa" : "Dölj"} ${item.name}`}
+                                    aria-label={`${item.hidden ? "Visa" : "Dölj"} ${item.displayName?.[locale] || item.name}`}
                                     onClick={() =>
                                       edit((next) => {
                                         next.dishes.find(
@@ -869,7 +883,7 @@ export function RestaurantEditor({
                                       type="button"
                                       className={button}
                                       disabled={index === 0}
-                                      aria-label={`Flytta upp ${item.name}`}
+                                      aria-label={`Flytta upp ${item.displayName?.[locale] || item.name}`}
                                       onClick={() =>
                                         edit((next) =>
                                           move(
@@ -894,7 +908,7 @@ export function RestaurantEditor({
                                       type="button"
                                       className={button}
                                       disabled={index === list.length - 1}
-                                      aria-label={`Flytta ner ${item.name}`}
+                                      aria-label={`Flytta ner ${item.displayName?.[locale] || item.name}`}
                                       onClick={() =>
                                         edit((next) =>
                                           move(
@@ -943,7 +957,7 @@ export function RestaurantEditor({
                               })
                             }
                           >
-                            {item.name} · Återställ
+                            {item.displayName?.[locale] || item.name} · Återställ
                           </button>
                         ))}
                     </div>
