@@ -32,6 +32,8 @@ jobs:
     outputs:
       repair: ${{ steps.admit.outputs.repair }}
       attempt_started: ${{ steps.admit.outputs.attempt_started }}
+      admitted_run_id: ${{ steps.admit.outputs.admitted_run_id }}
+      admitted_run_attempt: ${{ steps.admit.outputs.admitted_run_attempt }}
       head_sha: ${{ steps.preflight.outputs.head_sha }}
       head_ref: ${{ steps.preflight.outputs.head_ref }}
       finding_set_sha256: ${{ steps.settle.outputs.finding_set_sha256 }}
@@ -163,7 +165,7 @@ jobs:
       - name: Upload settled exact-head review evidence
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: supervisor-review-evidence-${{ github.run_id }}-${{ steps.preflight.outputs.head_sha }}
+          name: supervisor-review-evidence-${{ github.run_id }}-${{ github.run_attempt }}-${{ steps.preflight.outputs.head_sha }}
           path: |
             ${{ runner.temp }}/proffera-review-repair-evidence/supervisor-review-evidence.json
             ${{ runner.temp }}/proffera-review-repair-evidence/finding_ids.json
@@ -220,6 +222,9 @@ jobs:
           jq -e '.id | numbers' >/dev/null <<< "$created"
           echo "repair=yes" >> "$GITHUB_OUTPUT"
           echo "attempt_started=yes" >> "$GITHUB_OUTPUT"
+          # Export identity only after the exact durable start has been acknowledged.
+          echo "admitted_run_id=$GITHUB_RUN_ID" >> "$GITHUB_OUTPUT"
+          echo "admitted_run_attempt=$GITHUB_RUN_ATTEMPT" >> "$GITHUB_OUTPUT"
 
   repair:
     name: Batch current-head review findings
@@ -234,11 +239,29 @@ jobs:
       pull-requests: read
     outputs:
       changed: ${{ steps.diff.outputs.changed }}
+      run_id: ${{ needs.admit.outputs.admitted_run_id }}
+      run_attempt: ${{ needs.admit.outputs.admitted_run_attempt }}
       head_sha: ${{ needs.admit.outputs.head_sha }}
       head_ref: ${{ needs.admit.outputs.head_ref }}
       patch_sha256: ${{ steps.diff.outputs.patch_sha256 }}
       finding_set_sha256: ${{ needs.admit.outputs.finding_set_sha256 }}
     steps:
+      - name: Reject reuse of an admitted model attempt
+        env:
+          ADMITTED_RUN_ID: ${{ needs.admit.outputs.admitted_run_id }}
+          ADMITTED_RUN_ATTEMPT: ${{ needs.admit.outputs.admitted_run_attempt }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$ADMITTED_RUN_ID" =~ ^[1-9][0-9]*$ ]]
+          [[ "$ADMITTED_RUN_ATTEMPT" =~ ^[1-9][0-9]*$ ]]
+          # Selected-job reruns keep earlier admission outputs. They may retry
+          # validation/recording, but must never invoke the same admitted model again.
+          if [ "$GITHUB_RUN_ID" != "$ADMITTED_RUN_ID" ] || [ "$GITHUB_RUN_ATTEMPT" != "$ADMITTED_RUN_ATTEMPT" ]; then
+            echo "This model attempt was admitted in another run attempt; refusing duplicate execution." >&2
+            exit 1
+          fi
+
       - name: Checkout exact PR head
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -255,7 +278,7 @@ jobs:
       - name: Download settled exact-head review evidence
         uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5
         with:
-          name: supervisor-review-evidence-${{ github.run_id }}-${{ needs.admit.outputs.head_sha }}
+          name: supervisor-review-evidence-${{ needs.admit.outputs.admitted_run_id }}-${{ needs.admit.outputs.admitted_run_attempt }}-${{ needs.admit.outputs.head_sha }}
           path: .
 
       - name: Run one batched exact-head repair
@@ -302,7 +325,7 @@ jobs:
         if: steps.diff.outputs.changed == 'yes'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: supervisor-review-repair-${{ github.run_id }}-${{ needs.admit.outputs.head_sha }}
+          name: supervisor-review-repair-${{ github.run_id }}-${{ github.run_attempt }}-${{ needs.admit.outputs.head_sha }}
           path: ${{ runner.temp }}/proffera-review-repair-candidate
           if-no-files-found: error
           retention-days: 1
@@ -331,7 +354,7 @@ jobs:
       - name: Download exact candidate repair patch
         uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5
         with:
-          name: supervisor-review-repair-${{ github.run_id }}-${{ needs.repair.outputs.head_sha }}
+          name: supervisor-review-repair-${{ needs.repair.outputs.run_id }}-${{ needs.repair.outputs.run_attempt }}-${{ needs.repair.outputs.head_sha }}
           path: ${{ runner.temp }}/proffera-review-repair-candidate
 
       - name: Verify candidate artifact integrity
@@ -416,7 +439,7 @@ jobs:
       - name: Download exact candidate repair patch
         uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5
         with:
-          name: supervisor-review-repair-${{ github.run_id }}-${{ needs.repair.outputs.head_sha }}
+          name: supervisor-review-repair-${{ needs.repair.outputs.run_id }}-${{ needs.repair.outputs.run_attempt }}-${{ needs.repair.outputs.head_sha }}
           path: ${{ runner.temp }}/proffera-review-repair-candidate
 
       - name: Verify candidate artifact integrity
@@ -621,7 +644,7 @@ jobs:
       - name: Download settled exact-head review evidence
         uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5
         with:
-          name: supervisor-review-evidence-${{ github.run_id }}-${{ needs.admit.outputs.head_sha }}
+          name: supervisor-review-evidence-${{ needs.admit.outputs.admitted_run_id }}-${{ needs.admit.outputs.admitted_run_attempt }}-${{ needs.admit.outputs.head_sha }}
           path: ${{ runner.temp }}/proffera-review-repair-evidence
 
       - name: Classify the started model attempt
@@ -655,16 +678,21 @@ jobs:
           REPOSITORY: ${{ github.repository }}
           PR_NUMBER: ${{ inputs.pr_number }}
           HEAD_SHA: ${{ needs.admit.outputs.head_sha }}
+          ADMITTED_RUN_ID: ${{ needs.admit.outputs.admitted_run_id }}
+          ADMITTED_RUN_ATTEMPT: ${{ needs.admit.outputs.admitted_run_attempt }}
         shell: bash
         run: |
           set -euo pipefail
+          [[ "$ADMITTED_RUN_ID" =~ ^[1-9][0-9]*$ ]]
+          [[ "$ADMITTED_RUN_ATTEMPT" =~ ^[1-9][0-9]*$ ]]
+          test "$ADMITTED_RUN_ID" = "$GITHUB_RUN_ID"
           evidence_dir="$RUNNER_TEMP/proffera-review-repair-evidence"
           test -s "$evidence_dir/finding_ids.json"
 
           prepare_plan() {
             local comments_file="$1"
             local output_file="$2"
-            jq -n               --arg repository "$REPOSITORY"               --arg pr_number "$PR_NUMBER"               --arg head "$HEAD_SHA"               --arg outcome "$REVIEW_REPAIR_OUTCOME"               --arg run_id "$GITHUB_RUN_ID"               --arg run_attempt "$GITHUB_RUN_ATTEMPT"               --arg observed_at "$REVIEW_REPAIR_OBSERVED_AT"               --slurpfile finding_ids "$evidence_dir/finding_ids.json"               --slurpfile comments "$comments_file"               '{
+            jq -n               --arg repository "$REPOSITORY"               --arg pr_number "$PR_NUMBER"               --arg head "$HEAD_SHA"               --arg outcome "$REVIEW_REPAIR_OUTCOME"               --arg run_id "$ADMITTED_RUN_ID"               --arg run_attempt "$ADMITTED_RUN_ATTEMPT"               --arg observed_at "$REVIEW_REPAIR_OBSERVED_AT"               --slurpfile finding_ids "$evidence_dir/finding_ids.json"               --slurpfile comments "$comments_file"               '{
                 repository:$repository,
                 pr_number:($pr_number|tonumber),
                 head:$head,

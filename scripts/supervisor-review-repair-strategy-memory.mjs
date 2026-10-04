@@ -332,7 +332,30 @@ export function prepareReviewRepairOutcome(input) {
   const state = reviewRepairMemoryState(input);
   const expected = memoryIdentity(state.snapshot);
   const observation = reviewRepairObservation(input);
-  const replacement = mergeObservation(state.snapshot, expected, observation);
+  const descriptor = reviewRepairStrategyDescriptor(input);
+  const sameAttempt = (source) => source?.kind === "actions"
+    && source.run_id === observation.source.run_id
+    && source.attempt === observation.source.attempt;
+  const admitted = state.starts.find((start) => start.run_id === observation.source.run_id
+    && start.run_attempt === observation.source.attempt);
+  if (!admitted || admitted.head !== descriptor.head
+    || admitted.finding_digest !== descriptor.finding_digest
+    || admitted.evidence_fingerprint !== descriptor.evidence_fingerprint
+    || admitted.strategy_fingerprint !== descriptor.strategy_fingerprint) {
+    fail("outcome_start_binding");
+  }
+  const recorded = state.records.filter((record) => record.action_id === "review_repair_attempt"
+    && record.observations.some((item) => sameAttempt(item.source)));
+  if (recorded.some((record) => record.evidence_fingerprint !== descriptor.evidence_fingerprint
+    || record.strategy_fingerprint !== descriptor.strategy_fingerprint
+    || record.observations.some((item) => sameAttempt(item.source) && item.head !== descriptor.head))) {
+    fail("outcome_attempt_conflict");
+  }
+  // A record-only retry is not a new observation or model execution. Preserve the
+  // first durable terminal outcome, including its original timestamp, on replay.
+  const replacement = recorded.length > 0
+    ? state.snapshot
+    : mergeObservation(state.snapshot, expected, observation);
   const after = memoryIdentity(replacement);
   return {
     unchanged: canonical(expected) === canonical(after),
