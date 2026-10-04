@@ -5,7 +5,8 @@ describe("Doni restaurant CMS source of truth", () => {
   it("stores public business identity and bilingual dish names in the restaurant site model", () => {
     const schema = readFileSync("src/lib/restaurant-site-schema.ts", "utf8");
     expect(schema).toContain("nameEn:");
-    expect(schema).toContain("business: z.object");
+    expect(schema).toContain("business: z");
+    expect(schema).toContain(".superRefine((business, ctx) =>");
     expect(schema).toContain("const phoneOrEmpty = z");
     expect(schema).toContain("phone: phoneOrEmpty");
     expect(schema).toContain("instagram: instagramHandleOrEmpty");
