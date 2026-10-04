@@ -6,17 +6,6 @@ const localized = z.object({
 });
 const image = z.object({ id: z.string().uuid(), alt: localized });
 
-const contact = z.object({
-  addressLine1: z.string().trim().max(240),
-  postalCode: z.string().trim().max(40),
-  city: z.string().trim().max(120),
-  phone: z.string().trim().max(80),
-  email: z.string().trim().max(200),
-  instagram: z.string().trim().max(240),
-  orgNumber: z.string().trim().max(80),
-  mapsUrl: z.string().trim().max(1000),
-});
-
 const httpsUrlOrEmpty = z
   .string()
   .trim()
@@ -31,6 +20,17 @@ const httpsUrlOrEmpty = z
       return false;
     }
   });
+
+const contact = z.object({
+  addressLine1: z.string().trim().max(240),
+  postalCode: z.string().trim().max(40),
+  city: z.string().trim().max(120),
+  phone: z.string().trim().max(80),
+  email: z.string().trim().max(200),
+  instagram: z.string().trim().max(240),
+  orgNumber: z.string().trim().max(80),
+  mapsUrl: httpsUrlOrEmpty,
+});
 
 export const restaurantSiteSchema = z.object({
   categories: z
