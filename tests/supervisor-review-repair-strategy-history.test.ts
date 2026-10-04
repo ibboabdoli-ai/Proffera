@@ -10,6 +10,7 @@ import { MAX_AUTOMATIC_REVIEW_REPAIR_ATTEMPTS, REVIEW_REPAIR_EXECUTION_CONTRACT,
 const repository = "ibboabdoli-ai/Proffera";
 const pr = 923;
 const head = "a".repeat(40);
+const dispatchHead = "f".repeat(40);
 const findings = ["inline:101", "review:202"];
 
 function failureRecord({
@@ -262,7 +263,7 @@ describe("Review Repair attempt admission", () => {
       pr_number: pr,
       start: oldStart,
       run: {
-        id: 30, run_attempt: 1, head_sha: oldHead, status: "completed", conclusion: "cancelled",
+        id: 30, run_attempt: 1, head_sha: dispatchHead, head_branch: "main", status: "completed", conclusion: "cancelled",
         event: "workflow_dispatch", name: "Supervisor review repair",
         path: ".github/workflows/supervisor-review-repair.yml",
       },
@@ -309,7 +310,7 @@ describe("Review Repair attempt admission", () => {
         pr_number: pr,
         start: candidate,
         run: {
-          id: candidate.run_id, run_attempt: candidate.run_attempt, head_sha: candidate.head,
+          id: candidate.run_id, run_attempt: candidate.run_attempt, head_sha: dispatchHead, head_branch: "main",
           status: "completed", conclusion: "cancelled",
           event: "workflow_dispatch", name: "Supervisor review repair",
           path: ".github/workflows/supervisor-review-repair.yml",
@@ -349,7 +350,7 @@ describe("Review Repair attempt admission", () => {
       pr_number: pr,
       start: candidate,
       run: {
-        id: 33, run_attempt: 1, head_sha: oldHead, status: "completed", conclusion: "cancelled",
+        id: 33, run_attempt: 1, head_sha: dispatchHead, head_branch: "main", status: "completed", conclusion: "cancelled",
         event: "workflow_dispatch", name: "Supervisor review repair",
         path: ".github/workflows/supervisor-review-repair.yml",
       },
@@ -531,7 +532,8 @@ describe("Review Repair start provenance and Failure Memory persistence", () => 
     const run = {
       id: 77,
       run_attempt: 2,
-      head_sha: candidate.head,
+      head_sha: dispatchHead,
+      head_branch: "main",
       status: "completed",
       conclusion: "cancelled",
       event: "workflow_dispatch",
@@ -550,9 +552,10 @@ describe("Review Repair start provenance and Failure Memory persistence", () => 
       ...input,
       jobs: [admitJob, {name: "Batch current-head review findings", status: "completed", conclusion: "skipped"}],
     })).toEqual({recoverable: true, reason: "repair_job_skipped"});
+    expect(run.head_sha).not.toBe(candidate.head);
     expect(() => proveReviewRepairPrelaunchRecovery({
       ...input,
-      run: {...run, head_sha: "b".repeat(40)},
+      run: {...run, head_branch: "work/not-main"},
     })).toThrow(/recovery_run_binding/);
     expect(() => proveReviewRepairPrelaunchRecovery({
       ...input,

@@ -193,10 +193,13 @@ export function proveReviewRepairPrelaunchRecovery(input) {
   if (!run || typeof run !== "object" || Array.isArray(run)) {
     fail("recovery_run_binding");
   }
-  const runHead = sha(run.head_sha, "recovery_run_head");
+  // This workflow_dispatch run executes from the trusted default branch. Its
+  // head_sha is the dispatch-ref SHA, not the target PR head stored in start.head.
+  // The exact run ID/attempt binds the authenticated historical run to the start.
+  sha(run.head_sha, "recovery_run_head");
   if (Number(run.id) !== start.run_id
     || Number(run.run_attempt) !== start.run_attempt
-    || runHead !== start.head
+    || run.head_branch !== "main"
     || run.event !== "workflow_dispatch"
     || run.path !== ".github/workflows/supervisor-review-repair.yml"
     || run.name !== "Supervisor review repair") {
