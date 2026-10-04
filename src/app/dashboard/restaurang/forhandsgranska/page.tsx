@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 
-import { DonisTrattoriaExperience } from "@/app/demo/donis-trattoria/demo-interactions";
+import { DonisTrattoriaLuxuryExperience } from "@/app/demo/donis-trattoria2/demo-interactions";
 import {
   getRestaurantAdmin,
   getRestaurantImageUrls,
@@ -68,7 +68,7 @@ export default async function PreviewPage({
           </form>
         </div>
       </div>
-      <DonisTrattoriaExperience
+      <DonisTrattoriaLuxuryExperience
         site={site.draft}
         images={images}
         initialLang={locale}
