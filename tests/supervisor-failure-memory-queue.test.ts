@@ -11,7 +11,7 @@ type Workflow = {
 };
 const yamlLoad = createRequire(import.meta.url)("js-yaml").load as (text: string) => Workflow;
 const directory = new URL("../.github/workflows/", import.meta.url);
-const group = "proffera-final-gate-memory-${{ inputs.pr_number }}";
+const group = "proffera-final-gate-memory-${{ fromJSON(inputs.pr_number) }}";
 const workflows = Object.fromEntries(readdirSync(directory).filter((name) => /\.ya?ml$/.test(name))
   .map((name) => [name, yamlLoad(readFileSync(new URL(name, directory), "utf8"))]));
 const writers = [
@@ -75,6 +75,15 @@ describe("Shared Failure Memory writer queue", () => {
     expect(settings(index)).toEqual({group, queue: "max", "cancel-in-progress": false});
   });
 
+  it("canonicalizes the PR number inside every shared mutex key", () => {
+    expect(group).toBe("proffera-final-gate-memory-${{ fromJSON(inputs.pr_number) }}");
+    for (const [file, job] of writers) {
+      const config = workflows[file].jobs[job].concurrency;
+      expect(typeof config).not.toBe("string");
+      expect((config as Concurrency).group).toBe(group);
+      expect((config as Concurrency).group).not.toContain("${{ inputs.pr_number }}");
+    }
+  });
   it("finds every shared-group participant, including the sibling final-gate workflow", () => {
     const found: string[] = [];
     for (const [file, workflow] of Object.entries(workflows)) {
@@ -94,9 +103,13 @@ describe("Shared Failure Memory writer queue", () => {
     for (const job of ["repair", "validate", "publish"]) {
       expect(workflows["supervisor-review-repair.yml"].jobs[job].concurrency).toBeUndefined();
     }
-    const key = (pr: number) => settings(0).group.replace("${{ inputs.pr_number }}", String(pr));
-    expect(key(929)).not.toBe(key(930));
-    expect(key(929)).toBe("proffera-final-gate-memory-929");
+    const key = (input: string) =>
+      settings(0).group.replace("${{ fromJSON(inputs.pr_number) }}", String(JSON.parse(input)));
+    expect(key("929")).not.toBe(key("930"));
+    expect(key("929")).toBe("proffera-final-gate-memory-929");
+    expect(key("929.0")).toBe(key("929"));
+    expect(key("9.29e2")).toBe(key("929"));
+    expect(() => key("0929")).toThrow();
   });
 
   it("reproduces lost recording under the historical one-pending-job policy", () => {

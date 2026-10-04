@@ -928,7 +928,7 @@ describe("Supervisor control-plane v2", () => {
   it("isolates Review Repair admission, model execution, validation, publication, and durable accounting", () => {
     const repair = source(".github/workflows/supervisor-review-repair.yml");
 
-    expect(repair).toContain("group: proffera-final-gate-memory-${{ inputs.pr_number }}");
+    expect(repair).toContain("group: proffera-final-gate-memory-${{ fromJSON(inputs.pr_number) }}");
     expect(repair).toContain("cancel-in-progress: false");
     expect(repair).toContain("Settle complete exact-head review finding burst");
     expect(repair).toContain("for attempt in $(seq 1 8)");

@@ -36,7 +36,7 @@ jobs:
     name: Wake final gate
     if: github.event_name == 'workflow_dispatch'
     concurrency:
-      group: proffera-final-gate-memory-${{ inputs.pr_number }}
+      group: proffera-final-gate-memory-${{ fromJSON(inputs.pr_number) }}
       cancel-in-progress: false
       # All writers sharing this group must retain pending work (up to 100 jobs).
       queue: max
