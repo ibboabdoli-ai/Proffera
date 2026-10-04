@@ -45,7 +45,7 @@ export default async function RestaurantAdminPage() {
             Proffera för att koppla ägarens arbetsyta.
           </p>
           <a
-            href="/demo/donis-trattoria"
+            href="/demo/donis-trattoria2"
             target="_blank"
             rel="noopener noreferrer"
             className="mt-5 inline-flex min-h-11 items-center rounded-lg border border-[#ab9d8b] bg-white px-4 text-sm font-semibold text-[#342a23]"
