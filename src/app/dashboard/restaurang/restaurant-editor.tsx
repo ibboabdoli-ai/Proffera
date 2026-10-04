@@ -517,7 +517,7 @@ export function RestaurantEditor({
               {busy ? "Sparar…" : "Spara"}
             </button>
             <a
-              href="/demo/donis-trattoria"
+              href="/demo/donis-trattoria2"
               target="_blank"
               rel="noopener noreferrer"
               className="font-semibold text-[#572e28] underline underline-offset-4"
