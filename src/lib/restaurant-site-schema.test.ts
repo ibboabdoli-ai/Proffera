@@ -112,6 +112,10 @@ describe("restaurant site content boundary", () => {
     invalidUrl.business.instagramUrl = "https://example.com/donis";
     expect(validateRestaurantSite(invalidUrl).ok).toBe(false);
 
+    const malformedUrl = structuredClone(emptyRestaurantSite);
+    malformedUrl.business.instagramUrl = "not-a-url";
+    expect(validateRestaurantSite(malformedUrl).ok).toBe(false);
+
     const validUrl = structuredClone(emptyRestaurantSite);
     validUrl.business.instagramUrl = "https://www.instagram.com/donis.trattoria/";
     expect(validateRestaurantSite(validUrl).ok).toBe(true);
