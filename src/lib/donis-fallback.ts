@@ -216,6 +216,21 @@ export const DONIS_FALLBACK_SITE: RestaurantSite = {
       sv: "Enkel mat, tydliga smaker och en miljö som passar både vardag, familjemiddag och en kväll med vänner.",
       en: "Straightforward food, clear flavours and a setting for everyday meals, family dinners and evenings with friends.",
     },
+    menuTitle: { sv: "Något för alla smaker", en: "Something for every taste" },
+    menuIntro: {
+      sv: "Antipasti, färsk pasta, surdegspizza, utvalda huvudrätter och drycker.",
+      en: "Antipasti, fresh pasta, sourdough pizza, selected mains and drinks.",
+    },
+    galleryTitle: { sv: "En smak av Doni’s", en: "A taste of Doni’s" },
+    galleryIntro: {
+      sv: "Mat, detaljer och stämning från Doni’s vid Hornsbergs Strand.",
+      en: "Food, details and atmosphere from Doni’s by Hornsbergs Strand.",
+    },
+    contactTitle: { sv: "Välkommen till oss", en: "Welcome to Doni’s" },
+    contactBody: {
+      sv: "Njut av god mat, vackra omgivningar och en avslappnad atmosfär vid Hornsbergs Strand. Boka bord, ring oss eller kom förbi.",
+      en: "Enjoy good food, beautiful surroundings and a relaxed atmosphere by Hornsbergs Strand. Book a table, call us or simply stop by.",
+    },
     foundedYear: null,
   },
   business: {
