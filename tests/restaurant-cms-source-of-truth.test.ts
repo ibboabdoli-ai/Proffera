@@ -8,6 +8,7 @@ describe("Doni restaurant CMS source of truth", () => {
     expect(schema).toContain("business: z.object");
     expect(schema).toContain("const phoneOrEmpty = z");
     expect(schema).toContain("phone: phoneOrEmpty");
+    expect(schema).toContain('name: z.string().trim().min(1).max(120)');
     for (const field of [
       "address",
       "postalCode",
@@ -74,5 +75,21 @@ describe("Doni restaurant CMS source of truth", () => {
     expect(demo).not.toContain("currentOrderUrl");
     expect(demo).toContain("const order = displaySite.links.order;");
     expect(demo).toContain("{order && (");
+  });
+
+  it("generates Demo 2 browser and social metadata from the published CMS document", () => {
+    const page = readFileSync(
+      "src/app/demo/donis-trattoria2/page.tsx",
+      "utf8",
+    );
+
+    expect(page).toContain("export async function generateMetadata()");
+    expect(page).toContain("const business = displaySite.business");
+    expect(page).toContain("const name = business.name");
+    expect(page).toContain("business.city");
+    expect(page).toContain("displaySite.text.heroDescription.sv.trim()");
+    expect(page).toContain("siteName: name");
+    expect(page).not.toContain("Doni’s Trattoria | Premium concept");
+    expect(page).not.toContain("Premium mörk restaurangdemo");
   });
 });
