@@ -44,35 +44,52 @@ const phoneOrEmpty = z
     "Ange ett giltigt telefonnummer.",
   );
 
+const instagramHandlePattern = /^[A-Za-z0-9_]+(?:\.[A-Za-z0-9_]+)*$/;
+
+const normalizeInstagramHandle = (value: string) => value.replace(/^@/, "");
+
 const instagramHandleOrEmpty = z
   .string()
   .trim()
   .max(31)
   .refine(
-    (value) => !value || /^@?[A-Za-z0-9._]{1,30}$/.test(value),
+    (value) =>
+      !value ||
+      instagramHandlePattern.test(normalizeInstagramHandle(value)),
     "Ange ett giltigt Instagram-namn.",
   );
+
+const instagramProfileFromUrl = (value: string) => {
+  if (!value || !/^https:\/\//i.test(value)) return null;
+  try {
+    const url = new URL(value);
+    const hostname = url.hostname.toLowerCase();
+    if (
+      url.protocol !== "https:" ||
+      (hostname !== "instagram.com" && hostname !== "www.instagram.com")
+    )
+      return null;
+
+    const segments = url.pathname.split("/").filter(Boolean);
+    if (
+      segments.length !== 1 ||
+      !instagramHandlePattern.test(segments[0] ?? "")
+    )
+      return null;
+
+    return segments[0];
+  } catch {
+    return null;
+  }
+};
 
 const instagramUrlOrEmpty = z
   .string()
   .trim()
   .max(1000)
   .refine(
-    (value) => {
-      if (!value) return true;
-      if (!/^https:\/\//i.test(value)) return false;
-      try {
-        const url = new URL(value);
-        const hostname = url.hostname.toLowerCase();
-        return (
-          url.protocol === "https:" &&
-          (hostname === "instagram.com" || hostname === "www.instagram.com")
-        );
-      } catch {
-        return false;
-      }
-    },
-    "Instagram-länken måste gå till instagram.com.",
+    (value) => !value || instagramProfileFromUrl(value) !== null,
+    "Instagram-länken måste gå direkt till en giltig profil på instagram.com.",
   );
 
 export const restaurantSiteSchema = z.object({
@@ -150,18 +167,32 @@ export const restaurantSiteSchema = z.object({
       }),
     )
     .length(7),
-  business: z.object({
-    name: z.string().trim().min(1).max(120),
-    address: z.string().trim().max(240),
-    postalCode: z.string().trim().max(24),
-    city: z.string().trim().max(120),
-    phone: phoneOrEmpty,
-    email: emailOrEmpty,
-    instagram: instagramHandleOrEmpty,
-    instagramUrl: instagramUrlOrEmpty,
-    orgNumber: z.string().trim().max(60),
-    mapUrl: httpsUrlOrEmpty,
-  }).default({
+  business: z
+    .object({
+      name: z.string().trim().min(1).max(120),
+      address: z.string().trim().max(240),
+      postalCode: z.string().trim().max(24),
+      city: z.string().trim().max(120),
+      phone: phoneOrEmpty,
+      email: emailOrEmpty,
+      instagram: instagramHandleOrEmpty,
+      instagramUrl: instagramUrlOrEmpty,
+      orgNumber: z.string().trim().max(60),
+      mapUrl: httpsUrlOrEmpty,
+    })
+    .superRefine((business, ctx) => {
+      if (!business.instagram || !business.instagramUrl) return;
+      const handle = normalizeInstagramHandle(business.instagram).toLowerCase();
+      const profile = instagramProfileFromUrl(business.instagramUrl)?.toLowerCase();
+      if (profile !== handle) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["instagramUrl"],
+          message: "Instagram-länken måste matcha Instagram-namnet.",
+        });
+      }
+    })
+    .default({
     name: "Doni’s Trattoria",
     address: "Hornsbergs Strand 77",
     postalCode: "112 16",
