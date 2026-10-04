@@ -243,7 +243,7 @@ export const DONIS_FALLBACK_SITE: RestaurantSite = {
     instagram: "@donis.trattoria",
     instagramUrl: "https://www.instagram.com/donis.trattoria/",
     orgNumber: "556852-1420",
-    mapUrl: "https://www.google.com/maps/search/?api=1&query=Doni%27s+Trattoria+Hornsbergs+Strand+77+Stockholm",
+    mapUrl: "",
   },
   hours: [
     { day: 0, closed: false, open: "10:30", close: "21:00" },
@@ -320,7 +320,7 @@ export function isRestaurantSiteBlank(site: RestaurantSite) {
     site.business.instagram === "@donis.trattoria" &&
     site.business.instagramUrl === "https://www.instagram.com/donis.trattoria/" &&
     site.business.orgNumber === "556852-1420" &&
-    site.business.mapUrl === "https://www.google.com/maps/search/?api=1&query=Doni%27s+Trattoria+Hornsbergs+Strand+77+Stockholm" &&
+    !site.business.mapUrl &&
     text.foundedYear === null &&
     !site.links.booking &&
     !site.links.order &&
