@@ -1348,6 +1348,9 @@ export function RestaurantEditor({
                         ) {
                           next.business.mapUrl = "";
                         }
+                        if (field === "instagram") {
+                          next.business.instagramUrl = "";
+                        }
                       })
                     }
                     placeholder={type === "url" ? "https://" : undefined}
