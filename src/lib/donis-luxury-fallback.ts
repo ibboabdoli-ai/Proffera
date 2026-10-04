@@ -72,6 +72,10 @@ const imageIds = {
   kaffeKarlsson: "bb000032-0000-4000-8000-000000000032",
   lemonade: "bb000033-0000-4000-8000-000000000033",
   passion: "bb000034-0000-4000-8000-000000000034",
+  cmsDrinkPeroni: "dd000001-0000-4000-8000-000000000001",
+  cmsInteriorLamps: "dd000002-0000-4000-8000-000000000002",
+  cmsInteriorTree: "dd000003-0000-4000-8000-000000000003",
+  cmsExteriorWide: "dd000004-0000-4000-8000-000000000004",
 } as const;
 
 
@@ -219,11 +223,11 @@ export const DONIS_LUXURY_FALLBACK_IMAGES: Record<string, string> = {
   [imageIds.cheeseFries]: pexelsPhoto(19264409),
   [imageIds.salsiccia]: pexelsPhoto(36782577),
   [imageIds.aubergine]: pexelsPhoto(19674153),
-  [imageIds.bruschettaParma]: pexelsPhoto(31779540),
-  [imageIds.burrata]: pexelsPhoto(20184722),
+  [imageIds.bruschettaParma]: "/donis/cms/bruschetta-parma.webp",
+  [imageIds.burrata]: "/donis/cms/burrata-gamberi.webp",
   [imageIds.gamberi]: pexelsPhoto(8697543),
   [imageIds.antipastiMisti]: pexelsPhoto(29068724),
-  [imageIds.entrecote]: pexelsPhoto(6542787),
+  [imageIds.entrecote]: "/donis/cms/entrecote.webp",
   [imageIds.chickenSalad]: pexelsPhoto(37357456),
   [imageIds.bearnaise]: pexelsPhoto(14552779),
   [imageIds.garlicSauce]: pexelsPhoto(5056827),
@@ -248,6 +252,10 @@ export const DONIS_LUXURY_FALLBACK_IMAGES: Record<string, string> = {
   [imageIds.kaffeKarlsson]: pexelsPhoto(3860486),
   [imageIds.lemonade]: pexelsPhoto(32023924),
   [imageIds.passion]: pexelsPhoto(19034675),
+  [imageIds.cmsDrinkPeroni]: "/donis/cms/drink-peroni.webp",
+  [imageIds.cmsInteriorLamps]: "/donis/cms/interior-lamps.webp",
+  [imageIds.cmsInteriorTree]: "/donis/cms/interior-tree.webp",
+  [imageIds.cmsExteriorWide]: "/donis/cms/exterior-wide.webp",
 };
 
 export const DONIS_LUXURY_FALLBACK_SITE: RestaurantSite = {
@@ -310,6 +318,42 @@ export const DONIS_LUXURY_FALLBACK_SITE: RestaurantSite = {
         ),
         kind: "exterior",
         sortOrder: 4,
+      },
+      {
+        ...dishImage(
+          imageIds.cmsDrinkPeroni,
+          "Middag, dryck och levande ljus på Doni’s Trattoria",
+          "Dinner, drinks and candlelight at Doni’s Trattoria",
+        ),
+        kind: "atmosphere",
+        sortOrder: 5,
+      },
+      {
+        ...dishImage(
+          imageIds.cmsInteriorLamps,
+          "Detaljer och belysning i Doni’s Trattoria",
+          "Interior details and lighting at Doni’s Trattoria",
+        ),
+        kind: "interior",
+        sortOrder: 6,
+      },
+      {
+        ...dishImage(
+          imageIds.cmsInteriorTree,
+          "Matsalen med blommande träd på Doni’s Trattoria",
+          "Dining room with the flowering tree at Doni’s Trattoria",
+        ),
+        kind: "interior",
+        sortOrder: 7,
+      },
+      {
+        ...dishImage(
+          imageIds.cmsExteriorWide,
+          "Uteserveringen på Doni’s Trattoria vid Hornsbergs Strand",
+          "Doni’s Trattoria terrace by Hornsbergs Strand",
+        ),
+        kind: "exterior",
+        sortOrder: 8,
       },
     ],
   },
