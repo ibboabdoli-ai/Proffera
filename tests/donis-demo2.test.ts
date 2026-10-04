@@ -58,7 +58,11 @@ describe("Doni demo 2", () => {
 
     expect(source).toContain('"oliver": "Olives"');
     expect(source).toContain('"vitlöksbröd": "Garlic Bread"');
+    expect(source).toContain('"lemonad": "Lemonade"');
+    expect(source).toContain('"loka citron 33cl": "Loka Lemon 33cl"');
     expect(source).toContain("getDishName(dish, lang)");
+    expect(source).toMatch(/isFallback &&\s+fallbackContactMedia/);
+    expect(source).toMatch(/isFallback &&\s+fallbackAboutMedia/);
     expect(source).toContain('aboutCta: "Se restaurangen"');
     expect(source).toContain('aboutCta: "Explore the restaurant"');
     expect(source).toContain(

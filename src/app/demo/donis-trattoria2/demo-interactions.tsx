@@ -60,8 +60,11 @@ const ENGLISH_DISH_NAMES: Record<string, string> = {
   "bearnaisesås": "Béarnaise Sauce",
   "vitlökssås": "Garlic Sauce",
   "bbq sås": "BBQ Sauce",
+  "loka naturell 33cl": "Loka Natural 33cl",
+  "loka citron 33cl": "Loka Lemon 33cl",
   "loka jordgubb & granatäpple": "Loka Strawberry & Pomegranate",
   "loka päron": "Loka Pear",
+  "lemonad": "Lemonade",
 };
 
 const copy = {
@@ -404,7 +407,8 @@ export function DonisTrattoriaLuxuryExperience({
 
   const contactImage =
     rawGallery.find((item) => item.kind === "exterior") ??
-    (fallbackContactMedia &&
+    (isFallback &&
+    fallbackContactMedia &&
     DONIS_LUXURY_FALLBACK_IMAGES[fallbackContactMedia.id]
       ? {
           id: fallbackContactMedia.id,
@@ -431,7 +435,8 @@ export function DonisTrattoriaLuxuryExperience({
                 item.kind === "exterior" ||
                 item.kind === "atmosphere",
             ) ??
-          (fallbackAboutMedia &&
+          (isFallback &&
+          fallbackAboutMedia &&
           DONIS_LUXURY_FALLBACK_IMAGES[fallbackAboutMedia.id]
             ? {
                 url: DONIS_LUXURY_FALLBACK_IMAGES[fallbackAboutMedia.id],
