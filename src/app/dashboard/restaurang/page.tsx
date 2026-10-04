@@ -1,10 +1,10 @@
 import { redirect } from "next/navigation";
 
 import {
-  DONIS_FALLBACK_DISH_IMAGE_URLS,
-  DONIS_FALLBACK_IMAGES,
-  DONIS_FALLBACK_SITE,
-} from "@/lib/donis-fallback";
+  DONIS_LUXURY_FALLBACK_DISH_IMAGE_URLS,
+  DONIS_LUXURY_FALLBACK_IMAGES,
+  DONIS_LUXURY_FALLBACK_SITE,
+} from "@/lib/donis-luxury-fallback";
 import { getRestaurantAdmin } from "@/lib/restaurant-site-db";
 import { getDashboardGalleryItems } from "@/lib/website-gallery-db";
 import {
@@ -46,7 +46,7 @@ export default async function RestaurantAdminPage() {
             Proffera för att koppla ägarens arbetsyta.
           </p>
           <a
-            href="/demo/donis-trattoria"
+            href="/demo/donis-trattoria2"
             target="_blank"
             rel="noopener noreferrer"
             className="mt-5 inline-flex min-h-11 items-center rounded-lg border border-[#ab9d8b] bg-white px-4 text-sm font-semibold text-[#342a23]"
@@ -61,12 +61,12 @@ export default async function RestaurantAdminPage() {
     (item) => item.mediaType === "image",
   );
   const referenceHeroImage =
-    !site.published && DONIS_FALLBACK_SITE.media.hero
-      ? DONIS_FALLBACK_IMAGES[DONIS_FALLBACK_SITE.media.hero.id]
+    !site.published && DONIS_LUXURY_FALLBACK_SITE.media.hero
+      ? DONIS_LUXURY_FALLBACK_IMAGES[DONIS_LUXURY_FALLBACK_SITE.media.hero.id]
       : undefined;
   const referenceGalleryImages = !site.published
-    ? DONIS_FALLBACK_SITE.media.gallery
-        .map((item) => DONIS_FALLBACK_IMAGES[item.id])
+    ? DONIS_LUXURY_FALLBACK_SITE.media.gallery
+        .map((item) => DONIS_LUXURY_FALLBACK_IMAGES[item.id])
         .filter((url): url is string => Boolean(url))
     : [];
 
@@ -79,10 +79,11 @@ export default async function RestaurantAdminPage() {
         alt: altText,
       }))}
       referenceDishImages={
-        site.published ? {} : DONIS_FALLBACK_DISH_IMAGE_URLS
+        site.published ? {} : DONIS_LUXURY_FALLBACK_DISH_IMAGE_URLS
       }
       referenceHeroImage={referenceHeroImage}
       referenceGalleryImages={referenceGalleryImages}
+      referenceMediaImages={site.published ? {} : DONIS_LUXURY_FALLBACK_IMAGES}
     />
   );
 }
