@@ -218,6 +218,18 @@ export const DONIS_FALLBACK_SITE: RestaurantSite = {
     },
     foundedYear: null,
   },
+  business: {
+    name: "Doni’s Trattoria",
+    address: "Hornsbergs Strand 77",
+    postalCode: "112 16",
+    city: "Stockholm",
+    phone: "08-656 84 00",
+    email: "donitrattoria@gmail.com",
+    instagram: "@donis.trattoria",
+    instagramUrl: "https://www.instagram.com/donis.trattoria/",
+    orgNumber: "556852-1420",
+    mapUrl: "https://www.google.com/maps/search/?api=1&query=Doni%27s+Trattoria+Hornsbergs+Strand+77+Stockholm",
+  },
   hours: [
     { day: 0, closed: false, open: "10:30", close: "21:00" },
     { day: 1, closed: false, open: "10:30", close: "21:00" },
