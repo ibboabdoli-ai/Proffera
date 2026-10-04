@@ -21,6 +21,15 @@ const httpsUrlOrEmpty = z
     }
   });
 
+const emailOrEmpty = z
+  .string()
+  .trim()
+  .max(320)
+  .refine(
+    (value) => !value || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value),
+    "Ange en giltig e-postadress.",
+  );
+
 export const restaurantSiteSchema = z.object({
   categories: z
     .array(
@@ -102,7 +111,7 @@ export const restaurantSiteSchema = z.object({
     postalCode: z.string().trim().max(24),
     city: z.string().trim().max(120),
     phone: z.string().trim().max(60),
-    email: z.string().trim().max(320),
+    email: emailOrEmpty,
     instagram: z.string().trim().max(120),
     instagramUrl: httpsUrlOrEmpty,
     orgNumber: z.string().trim().max(60),
