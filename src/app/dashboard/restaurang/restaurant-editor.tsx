@@ -605,6 +605,7 @@ export function RestaurantEditor({
                         id,
                         categoryId: next.categories[0].id,
                         name: locale === "en" ? "New dish" : "Ny rätt",
+                        nameEn: locale === "en" ? "New dish" : "",
                         priceOre: null,
                         description: { sv: "", en: "" },
                         image: null,
@@ -627,21 +628,38 @@ export function RestaurantEditor({
                   >
                     ← Tillbaka till menyn
                   </button>
-                  <label className="text-sm font-semibold">
-                    Rättens namn
-                    <input
-                      className={input}
-                      value={dish.name}
-                      maxLength={120}
-                      onChange={(event) =>
-                        edit((next) => {
-                          next.dishes.find(
-                            (item) => item.id === dish.id,
-                          )!.name = event.target.value;
-                        })
-                      }
-                    />
-                  </label>
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <label className="text-sm font-semibold">
+                      Rättens namn SV
+                      <input
+                        className={input}
+                        value={dish.name}
+                        maxLength={120}
+                        onChange={(event) =>
+                          edit((next) => {
+                            next.dishes.find(
+                              (item) => item.id === dish.id,
+                            )!.name = event.target.value;
+                          })
+                        }
+                      />
+                    </label>
+                    <label className="text-sm font-semibold">
+                      Dish name EN
+                      <input
+                        className={input}
+                        value={dish.nameEn ?? ""}
+                        maxLength={120}
+                        onChange={(event) =>
+                          edit((next) => {
+                            next.dishes.find(
+                              (item) => item.id === dish.id,
+                            )!.nameEn = event.target.value;
+                          })
+                        }
+                      />
+                    </label>
+                  </div>
                   <label className="text-sm font-semibold">
                     Pris i kronor
                     <PriceInput
