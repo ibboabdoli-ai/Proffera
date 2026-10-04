@@ -6,6 +6,17 @@ const localized = z.object({
 });
 const image = z.object({ id: z.string().uuid(), alt: localized });
 
+const contact = z.object({
+  addressLine1: z.string().trim().max(240),
+  postalCode: z.string().trim().max(40),
+  city: z.string().trim().max(120),
+  phone: z.string().trim().max(80),
+  email: z.string().trim().max(200),
+  instagram: z.string().trim().max(240),
+  orgNumber: z.string().trim().max(80),
+  mapsUrl: z.string().trim().max(1000),
+});
+
 const httpsUrlOrEmpty = z
   .string()
   .trim()
@@ -38,6 +49,7 @@ export const restaurantSiteSchema = z.object({
         id: z.string().uuid(),
         categoryId: z.string().uuid(),
         name: z.string().trim().min(1).max(120),
+        displayName: localized.optional(),
         priceOre: z.number().int().min(0).max(10000000).nullable(),
         description: localized,
         image: image.nullable(),
@@ -77,6 +89,8 @@ export const restaurantSiteSchema = z.object({
     story: localized,
     ownerIntroduction: localized,
     philosophy: localized,
+    contactTitle: localized.optional(),
+    contactDescription: localized.optional(),
     foundedYear: z.number().int().min(1800).max(2100).nullable(),
   }),
   hours: z
@@ -93,6 +107,7 @@ export const restaurantSiteSchema = z.object({
     booking: httpsUrlOrEmpty,
     order: httpsUrlOrEmpty,
   }),
+  contact: contact.optional(),
 });
 
 export type RestaurantSite = z.infer<typeof restaurantSiteSchema>;
