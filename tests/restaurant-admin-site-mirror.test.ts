@@ -9,7 +9,7 @@ describe("Doni admin mirrors the public demo", () => {
     );
 
     expect(editor).toContain("function loadDemoExamples()");
-    expect(editor).toContain("createDonisAdminStarterSite()");
+    expect(editor).toContain("createDonisLuxuryAdminStarterSite()");
     expect(editor).toContain("Ladda demosidans exempel");
     expect(editor).toContain("setStarter(true)");
     expect(editor).toContain("setDirty(true)");
@@ -27,6 +27,7 @@ describe("Doni admin mirrors the public demo", () => {
       "Rubriker i menyn",
       "Hero, galleri och matbilder",
       "Hero och Om oss",
+      "Adress och företagsinfo",
       "Kontaktsektionen",
       "Qopla och bokning",
       "På webbplatsen: Meny",
@@ -49,7 +50,8 @@ describe("Doni admin mirrors the public demo", () => {
 
     expect(page).toContain("referenceHeroImage={referenceHeroImage}");
     expect(page).toContain("referenceGalleryImages={referenceGalleryImages}");
-    expect(page).toContain("site.published ? {} : DONIS_FALLBACK_DISH_IMAGE_URLS");
+    expect(page).toContain("DONIS_LUXURY_FALLBACK_DISH_IMAGE_URLS");
+    expect(page).toContain("referenceMediaImages={DONIS_LUXURY_FALLBACK_IMAGES}");
     expect(editor).toContain("Referensbilder från demosidan");
     expect(editor).toContain("referenceDishImages[dish.id]");
     expect(editor).toContain("referenceHeroImage");
