@@ -419,10 +419,10 @@ export function decideReviewRepairStrategyHistory({pr_number, head, finding_ids,
   const matchingRecords = records.filter((record) => record?.action_id === "review_repair_attempt"
     && record?.evidence_fingerprint === descriptor.evidence_fingerprint
     && record?.strategy_fingerprint === descriptor.strategy_fingerprint);
-  const matchingStarts = starts.filter((start) =>
-    start.evidence_fingerprint === descriptor.evidence_fingerprint
-    && start.strategy_fingerprint === descriptor.strategy_fingerprint);
-  const unresolved = matchingStarts.filter((start) => !allRecordKeys.has(`${start.run_id}:${start.run_attempt}`));
+  // Admission is PR-scoped: while any model attempt lacks a durable outcome,
+  // a changed head/finding burst must not start a concurrent model execution.
+  // Proven pre-launch orphans are removed from starts before this decision.
+  const unresolved = starts.filter((start) => !allRecordKeys.has(`${start.run_id}:${start.run_attempt}`));
 
   if (matchingRecords.length > 0) {
     return {
@@ -436,7 +436,7 @@ export function decideReviewRepairStrategyHistory({pr_number, head, finding_ids,
   if (unresolved.length > 0) {
     return {
       decision: "SUPPRESS_UNRESOLVED_ATTEMPT",
-      reason: "The same settled review burst and repair strategy already started without a durable outcome.",
+      reason: "A Review Repair model attempt for this PR already started without a durable outcome.",
       attempts: allAttempts.size,
       unresolved_attempts: unresolved.length,
       ...descriptor,

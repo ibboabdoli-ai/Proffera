@@ -207,6 +207,22 @@ describe("Review Repair attempt admission", () => {
     });
   });
 
+  it("blocks changed review evidence while any PR-scoped model attempt is unresolved", () => {
+    const oldHead = "b".repeat(40);
+    const oldFindings = ["inline:11"];
+    expect(decideReviewRepairStrategyHistory({
+      pr_number: pr,
+      head,
+      finding_ids: findings,
+      records: [],
+      starts: [start({finding_ids: oldFindings, run_id: 29, attemptHead: oldHead})],
+    })).toMatchObject({
+      decision: "SUPPRESS_UNRESOLVED_ATTEMPT",
+      attempts: 1,
+      unresolved_attempts: 1,
+    });
+  });
+
   it("re-admits the same evidence when a trusted recovery proves the prior start never launched", () => {
     const comments = [
       trustedComment(reviewRepairStartBody({
@@ -367,7 +383,9 @@ describe("Review Repair attempt admission", () => {
     const state = reviewRepairMemoryState({repository, pr_number: pr, comments});
     expect(decideReviewRepairStrategyHistory({
       pr_number: pr, head, finding_ids: findings, records: state.records, starts: state.starts,
-    })).toMatchObject({decision: "ALLOW", attempts: 1});
+    })).toMatchObject({
+      decision: "SUPPRESS_UNRESOLVED_ATTEMPT", attempts: 1, unresolved_attempts: 1,
+    });
   });
 
   it("charges only the real model execution when an older pre-model start is recovered", () => {
