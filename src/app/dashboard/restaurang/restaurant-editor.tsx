@@ -249,8 +249,8 @@ export function RestaurantEditor({
     setDirty(true);
     setNotice(
       locale === "en"
-        ? "Demo examples loaded. Enter real prices, review the text and replace reference photos before publishing."
-        : "Demosidans exempel är inlästa. Fyll i riktiga priser, kontrollera texterna och ersätt referensbilder innan publicering.",
+        ? "Demo 2 content loaded into the draft. Review prices, text and photos before saving and publishing."
+        : "Demo 2-innehållet är inläst i utkastet. Kontrollera priser, texter och bilder innan du sparar och publicerar.",
     );
   }
 
@@ -535,29 +535,29 @@ export function RestaurantEditor({
           </p>
         )}
       </header>
-      {!initial.published && (
-        <div className="mt-3 rounded-xl border border-[#d8c6a7] bg-[#fff7e8] p-3 text-sm leading-6 text-[#5d4b37]">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div className="min-w-0 flex-1">
-              <strong className="block">Exempel från demosidan</strong>
-              <span>
-                {starter
-                  ? "Startinnehållet från demosidan är inlagt för redigering. Kontrollera priser, texter och bilder och spara utkastet."
-                  : "Nuvarande utkast innehåller egna eller tidigare teständringar. Du kan ersätta det med samma exempel som visas på demosidan."}
-              </span>
-            </div>
-            {!starter && (
-              <button
-                type="button"
-                onClick={loadDemoExamples}
-                className="min-h-11 rounded-lg bg-[#572e28] px-4 text-sm font-bold text-white"
-              >
-                Ladda demosidans exempel
-              </button>
-            )}
+      <div className="mt-3 rounded-xl border border-[#d8c6a7] bg-[#fff7e8] p-3 text-sm leading-6 text-[#5d4b37]">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="min-w-0 flex-1">
+            <strong className="block">Demo 2 som innehållsmall</strong>
+            <span>
+              {starter
+                ? "Demo 2-innehållet är inlagt för redigering. Kontrollera priser, texter och bilder och spara utkastet."
+                : initial.published
+                  ? "Den publicerade sidan ligger kvar tills du publicerar igen. Du kan ladda Demo 2-innehållet i utkastet och sedan anpassa det."
+                  : "Nuvarande utkast kan ersättas med samma innehåll som används i Demo 2."}
+            </span>
           </div>
+          {!starter && (
+            <button
+              type="button"
+              onClick={loadDemoExamples}
+              className="min-h-11 rounded-lg bg-[#572e28] px-4 text-sm font-bold text-white"
+            >
+              Ladda Demo 2-innehåll
+            </button>
+          )}
         </div>
-      )}
+      </div>
       <div
         className={`mt-6 grid gap-8 md:grid-cols-[170px_minmax(0,1fr)] ${busy ? "pointer-events-none opacity-60" : ""}`}
       >
