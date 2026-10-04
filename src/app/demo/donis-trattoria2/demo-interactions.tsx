@@ -885,10 +885,10 @@ export function DonisTrattoriaLuxuryExperience({
             <div className="mx-auto max-w-3xl text-center">
               <SectionEyebrow>{t.menuKicker}</SectionEyebrow>
               <h2 className="mt-4 font-serif text-5xl leading-[0.94] tracking-[-0.045em] text-[#f4ead8] sm:text-6xl lg:text-7xl">
-                {t.menuTitle}
+                {text.menuTitle[lang] || t.menuTitle}
               </h2>
               <p className="mx-auto mt-4 max-w-2xl text-sm leading-6 text-white/55 sm:text-base">
-                {t.menuIntro}
+                {text.menuIntro[lang] || t.menuIntro}
               </p>
               {isFallback && (
                 <p className="mx-auto mt-3 max-w-2xl text-xs leading-5 text-white/35">
@@ -994,10 +994,10 @@ export function DonisTrattoriaLuxuryExperience({
               <div className="mx-auto max-w-3xl text-center">
                 <SectionEyebrow>{t.galleryKicker}</SectionEyebrow>
                 <h2 className="mt-4 font-serif text-5xl leading-[0.94] tracking-[-0.045em] text-[#f4ead8] sm:text-6xl">
-                  {t.galleryTitle}
+                  {text.galleryTitle[lang] || t.galleryTitle}
                 </h2>
                 <p className="mx-auto mt-4 max-w-2xl text-sm leading-6 text-white/50">
-                  {t.galleryIntro}
+                  {text.galleryIntro[lang] || t.galleryIntro}
                 </p>
               </div>
             </Reveal>
@@ -1083,10 +1083,10 @@ export function DonisTrattoriaLuxuryExperience({
             <div className="mb-10 max-w-3xl">
               <SectionEyebrow>{t.contactKicker}</SectionEyebrow>
               <h2 className="mt-4 font-serif text-5xl leading-[0.94] tracking-[-0.045em] text-[#f4ead8] sm:text-6xl">
-                {t.contactTitle}
+                {text.contactTitle[lang] || t.contactTitle}
               </h2>
               <p className="mt-5 max-w-2xl text-sm leading-7 text-white/56 sm:text-base">
-                {t.contactBody}
+                {text.contactBody[lang] || t.contactBody}
               </p>
             </div>
           </Reveal>
