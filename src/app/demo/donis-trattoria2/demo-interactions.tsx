@@ -387,7 +387,9 @@ export function DonisTrattoriaLuxuryExperience({
   const hero =
     displaySite.media.hero && displayImages[displaySite.media.hero.id]
       ? displayImages[displaySite.media.hero.id]
-      : heroFallback;
+      : isFallback
+        ? heroFallback
+        : null;
 
   const booking = displaySite.links.booking;
   const bookingHref = booking || phoneHref || "#kontakt";
@@ -481,7 +483,7 @@ export function DonisTrattoriaLuxuryExperience({
                 url: DONIS_LUXURY_FALLBACK_IMAGES[fallbackAboutMedia.id],
                 alt: fallbackAboutMedia.alt[lang],
               }
-            : rawGallery[0] ?? { url: hero, alt: brandName });
+            : rawGallery[0] ?? (hero ? { url: hero, alt: brandName } : null));
 
   const galleryKindLabel = (kind: string) => {
     if (kind === "food") return t.kindFood;
@@ -518,12 +520,14 @@ export function DonisTrattoriaLuxuryExperience({
       className="min-h-screen overflow-x-hidden bg-[#080a08] text-[#f4ead8] selection:bg-[#d6aa58] selection:text-[#0c0d0b]"
     >
       <section id="top" className="relative min-h-[760px] overflow-hidden bg-[#080a08]">
-        <img
-          src={hero}
-          alt={displaySite.media.hero?.alt[lang] || brandName}
-          className="absolute inset-0 h-full w-full scale-[1.015] object-cover object-center"
-          fetchPriority="high"
-        />
+        {hero && (
+          <img
+            src={hero}
+            alt={displaySite.media.hero?.alt[lang] || brandName}
+            className="absolute inset-0 h-full w-full scale-[1.015] object-cover object-center"
+            fetchPriority="high"
+          />
+        )}
         <div className="absolute inset-0 bg-[linear-gradient(90deg,rgba(5,7,5,.98)_0%,rgba(5,7,5,.90)_27%,rgba(5,7,5,.48)_58%,rgba(5,7,5,.18)_78%,rgba(5,7,5,.42)_100%)]" />
         <div className="absolute inset-0 bg-[linear-gradient(180deg,rgba(4,5,4,.55)_0%,transparent_28%,rgba(4,5,4,.78)_100%)]" />
         <div className="absolute inset-0 bg-[radial-gradient(circle_at_72%_48%,rgba(222,160,71,.20),transparent_34%)]" />
@@ -859,21 +863,28 @@ export function DonisTrattoriaLuxuryExperience({
         id="om"
         className="scroll-mt-20 border-b border-white/10 bg-[#090b09] px-4 py-20 sm:px-8 sm:py-24 lg:px-12 lg:py-28"
       >
-        <div className="mx-auto grid max-w-[1460px] overflow-hidden rounded-[28px] border border-white/10 bg-[#0e110e] lg:grid-cols-[1.02fr_.98fr]">
-          <Reveal className="min-h-[420px] lg:min-h-[560px]">
-            <div className="relative h-full min-h-[420px] overflow-hidden lg:min-h-[560px]">
-              <img
-                src={aboutImage.url}
-                alt={aboutImage.alt}
-                loading="lazy"
-                className="absolute inset-0 h-full w-full object-cover"
-              />
-              <div className="absolute inset-0 bg-[linear-gradient(180deg,transparent_45%,rgba(5,6,5,.72)_100%)]" />
-              <div className="absolute bottom-5 left-5 rounded-full border border-[#d6aa58]/45 bg-black/45 px-4 py-2 text-[10px] font-black uppercase tracking-[0.22em] text-[#e9c779] backdrop-blur">
-                {locationLabel}
+        <div
+          className={
+            "mx-auto grid max-w-[1460px] overflow-hidden rounded-[28px] border border-white/10 bg-[#0e110e] " +
+            (aboutImage ? "lg:grid-cols-[1.02fr_.98fr]" : "")
+          }
+        >
+          {aboutImage && (
+            <Reveal className="min-h-[420px] lg:min-h-[560px]">
+              <div className="relative h-full min-h-[420px] overflow-hidden lg:min-h-[560px]">
+                <img
+                  src={aboutImage.url}
+                  alt={aboutImage.alt}
+                  loading="lazy"
+                  className="absolute inset-0 h-full w-full object-cover"
+                />
+                <div className="absolute inset-0 bg-[linear-gradient(180deg,transparent_45%,rgba(5,6,5,.72)_100%)]" />
+                <div className="absolute bottom-5 left-5 rounded-full border border-[#d6aa58]/45 bg-black/45 px-4 py-2 text-[10px] font-black uppercase tracking-[0.22em] text-[#e9c779] backdrop-blur">
+                  {locationLabel}
+                </div>
               </div>
-            </div>
-          </Reveal>
+            </Reveal>
+          )}
 
           <Reveal delay={90} className="flex">
             <div className="relative flex w-full flex-col justify-center overflow-hidden px-6 py-14 sm:px-10 lg:px-14 lg:py-16">
