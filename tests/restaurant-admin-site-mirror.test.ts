@@ -9,7 +9,7 @@ describe("Doni admin mirrors the public demo", () => {
     );
 
     expect(editor).toContain("function loadDemoExamples()");
-    expect(editor).toContain("createDonisAdminStarterSite()");
+    expect(editor).toContain("createDonisLuxuryAdminStarterSite()");
     expect(editor).toContain("Ladda demosidans exempel");
     expect(editor).toContain("setStarter(true)");
     expect(editor).toContain("setDirty(true)");
@@ -37,7 +37,7 @@ describe("Doni admin mirrors the public demo", () => {
     }
   });
 
-  it("shows public reference media without converting it into owned media", () => {
+  it("surfaces Demo 2 reference media as selectable curated CMS media", () => {
     const page = readFileSync(
       "src/app/dashboard/restaurang/page.tsx",
       "utf8",
@@ -49,7 +49,7 @@ describe("Doni admin mirrors the public demo", () => {
 
     expect(page).toContain("referenceHeroImage={referenceHeroImage}");
     expect(page).toContain("referenceGalleryImages={referenceGalleryImages}");
-    expect(page).toContain("site.published ? {} : DONIS_FALLBACK_DISH_IMAGE_URLS");
+    expect(page).toContain("DONIS_LUXURY_FALLBACK_SITE.dishes")
     expect(editor).toContain("Referensbilder från demosidan");
     expect(editor).toContain("referenceDishImages[dish.id]");
     expect(editor).toContain("referenceHeroImage");
