@@ -401,7 +401,7 @@ export function DonisTrattoriaLuxuryExperience({
       kind: "food" as GalleryKind,
     }));
 
-  const galleryVisuals = [...rawGallery, ...dishGallery].slice(0, 9);
+  const galleryVisuals = [...rawGallery, ...dishGallery].slice(0, 12);
 
   const galleryKinds = Array.from(
     new Set(galleryVisuals.map((item) => item.kind)),
