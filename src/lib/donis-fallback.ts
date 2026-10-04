@@ -299,6 +299,20 @@ export function isRestaurantSiteBlank(site: RestaurantSite) {
     !text.ownerIntroduction.en &&
     !text.philosophy.sv &&
     !text.philosophy.en &&
+    text.menuTitle.sv === "Något för alla smaker" &&
+    text.menuTitle.en === "Something for every taste" &&
+    text.galleryTitle.sv === "En smak av Doni’s" &&
+    text.galleryTitle.en === "A taste of Doni’s" &&
+    text.contactTitle.sv === "Välkommen till oss" &&
+    text.contactTitle.en === "Welcome to Doni’s" &&
+    site.business.name === "Doni’s Trattoria" &&
+    site.business.address === "Hornsbergs Strand 77" &&
+    site.business.postalCode === "112 16" &&
+    site.business.city === "Stockholm" &&
+    site.business.phone === "08-656 84 00" &&
+    site.business.email === "donitrattoria@gmail.com" &&
+    site.business.instagram === "@donis.trattoria" &&
+    site.business.orgNumber === "556852-1420" &&
     text.foundedYear === null &&
     !site.links.booking &&
     !site.links.order &&
