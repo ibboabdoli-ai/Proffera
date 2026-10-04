@@ -38,13 +38,6 @@ const imageIds = {
   tiramisu: "a9d12f79-8827-53df-a7bc-9c98d69a9d41",
   aboutInterior: "cc000001-0000-4000-8000-000000000001",
   contactExterior: "cc000002-0000-4000-8000-000000000002",
-  galleryDrinksShrimp: "cc000003-0000-4000-8000-000000000003",
-  galleryBruschetta: "cc000004-0000-4000-8000-000000000004",
-  galleryBurrataPasta: "cc000005-0000-4000-8000-000000000005",
-  galleryEntrecote: "cc000006-0000-4000-8000-000000000006",
-  galleryInteriorLamps: "cc000007-0000-4000-8000-000000000007",
-  galleryInteriorEvening: "cc000008-0000-4000-8000-000000000008",
-  galleryExteriorTerrace: "cc000009-0000-4000-8000-000000000009",
   olives: "bb000001-0000-4000-8000-000000000001",
   garlicBread: "bb000002-0000-4000-8000-000000000002",
   cheeseFries: "bb000003-0000-4000-8000-000000000003",
@@ -232,13 +225,6 @@ export const DONIS_LUXURY_FALLBACK_IMAGES: Record<string, string> = {
     "https://www-static.restaurangkungsholmen.se/wp-content/uploads/2025/05/donis-efterratt.jpg",
   [imageIds.aboutInterior]: "/donis/about-interior.webp",
   [imageIds.contactExterior]: "/donis/contact-exterior.webp",
-  [imageIds.galleryDrinksShrimp]: "/donis/gallery-drinks-shrimp.webp",
-  [imageIds.galleryBruschetta]: "/donis/gallery-bruschetta-parma.webp",
-  [imageIds.galleryBurrataPasta]: "/donis/gallery-burrata-pasta.webp",
-  [imageIds.galleryEntrecote]: "/donis/gallery-entrecote.webp",
-  [imageIds.galleryInteriorLamps]: "/donis/gallery-interior-lamps.webp",
-  [imageIds.galleryInteriorEvening]: "/donis/gallery-interior-evening.webp",
-  [imageIds.galleryExteriorTerrace]: "/donis/gallery-exterior-terrace.webp",
   [imageIds.olives]: pexelsPhoto(24916807),
   [imageIds.garlicBread]: pexelsPhoto(20150374),
   [imageIds.cheeseFries]: pexelsPhoto(19264409),
@@ -347,69 +333,6 @@ export const DONIS_LUXURY_FALLBACK_SITE: RestaurantSite = {
         kind: "exterior",
         sortOrder: 4,
       },
-      {
-        ...dishImage(
-          imageIds.galleryDrinksShrimp,
-          "Mat, öl och vin i kvällsljus på Doni’s",
-          "Food, beer and wine in the evening atmosphere at Doni’s",
-        ),
-        kind: "atmosphere",
-        sortOrder: 5,
-      },
-      {
-        ...dishImage(
-          imageIds.galleryBruschetta,
-          "Bruschetta med prosciutto på Doni’s",
-          "Prosciutto bruschetta at Doni’s",
-        ),
-        kind: "food",
-        sortOrder: 6,
-      },
-      {
-        ...dishImage(
-          imageIds.galleryBurrataPasta,
-          "Burrata och pasta på Doni’s",
-          "Burrata and pasta at Doni’s",
-        ),
-        kind: "food",
-        sortOrder: 7,
-      },
-      {
-        ...dishImage(
-          imageIds.galleryEntrecote,
-          "Entrecote med pommes på Doni’s",
-          "Entrecote with fries at Doni’s",
-        ),
-        kind: "food",
-        sortOrder: 8,
-      },
-      {
-        ...dishImage(
-          imageIds.galleryInteriorLamps,
-          "Detaljer från interiören på Doni’s",
-          "Interior details at Doni’s",
-        ),
-        kind: "interior",
-        sortOrder: 9,
-      },
-      {
-        ...dishImage(
-          imageIds.galleryInteriorEvening,
-          "Kvällsstämning i restaurangen",
-          "Evening atmosphere inside the restaurant",
-        ),
-        kind: "interior",
-        sortOrder: 10,
-      },
-      {
-        ...dishImage(
-          imageIds.galleryExteriorTerrace,
-          "Uteserveringen på Doni’s Trattoria",
-          "The outdoor terrace at Doni’s Trattoria",
-        ),
-        kind: "exterior",
-        sortOrder: 11,
-      },
     ],
   },
   categories: [
@@ -429,8 +352,8 @@ export const DONIS_LUXURY_FALLBACK_SITE: RestaurantSite = {
     dish({ id: dishIds.cheeseFries, categoryId: categoryIds.antipasto, name: "Cheese Fries", priceOre: 8500, image: dishImage(imageIds.cheeseFries, "Cheese Fries", "Cheese Fries"), sortOrder: 2 }),
     dish({ id: dishIds.salsiccia, categoryId: categoryIds.antipasto, name: "Salsiccia", priceOre: 7500, image: dishImage(imageIds.salsiccia, "Salsiccia", "Salsiccia"), sortOrder: 3 }),
     dish({ id: dishIds.aubergine, categoryId: categoryIds.antipasto, name: "Aubergine", priceOre: 7500, image: dishImage(imageIds.aubergine, "Aubergine", "Aubergine"), sortOrder: 4 }),
-    dish({ id: dishIds.bruschettaParma, categoryId: categoryIds.antipasto, name: "Bruschetta Parma", priceOre: 8000, image: dishImage(imageIds.galleryBruschetta, "Bruschetta Parma", "Bruschetta Parma"), sortOrder: 5 }),
-    dish({ id: dishIds.burrata, categoryId: categoryIds.antipasto, name: "Burrata di bufala", priceOre: 8500, image: dishImage(imageIds.galleryBurrataPasta, "Burrata di bufala", "Burrata di bufala"), sortOrder: 6 }),
+    dish({ id: dishIds.bruschettaParma, categoryId: categoryIds.antipasto, name: "Bruschetta Parma", priceOre: 8000, image: dishImage(imageIds.bruschettaParma, "Bruschetta Parma", "Bruschetta Parma"), sortOrder: 5 }),
+    dish({ id: dishIds.burrata, categoryId: categoryIds.antipasto, name: "Burrata di bufala", priceOre: 8500, image: dishImage(imageIds.burrata, "Burrata di bufala", "Burrata di bufala"), sortOrder: 6 }),
     dish({ id: dishIds.gamberi, categoryId: categoryIds.antipasto, name: "Gamberi con aglio e olio", priceOre: 9500, image: dishImage(imageIds.gamberi, "Gamberi con aglio e olio", "Gamberi con aglio e olio"), sortOrder: 7 }),
     dish({ id: dishIds.antipastiMisti, categoryId: categoryIds.antipasto, name: "Antipasti Misti", priceOre: 10000, image: dishImage(imageIds.antipastiMisti, "Antipasti Misti", "Antipasti Misti"), sortOrder: 8 }),
 
@@ -597,7 +520,7 @@ export const DONIS_LUXURY_FALLBACK_SITE: RestaurantSite = {
       sortOrder: 2,
     }),
 
-    dish({ id: dishIds.entrecote, categoryId: categoryIds.secondi, name: "Entrecote", priceOre: null, image: dishImage(imageIds.galleryEntrecote, "Entrecote", "Entrecote"), sortOrder: 0 }),
+    dish({ id: dishIds.entrecote, categoryId: categoryIds.secondi, name: "Entrecote", priceOre: null, image: dishImage(imageIds.entrecote, "Entrecote", "Entrecote"), sortOrder: 0 }),
     dish({
       id: dishIds.chickenSalad,
       categoryId: categoryIds.insalata,
