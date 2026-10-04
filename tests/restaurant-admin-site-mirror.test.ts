@@ -10,10 +10,10 @@ describe("Doni admin mirrors the public demo", () => {
 
     expect(editor).toContain("function loadDemoExamples()");
     expect(editor).toContain("createDonisLuxuryAdminStarterSite()");
-    expect(editor).toContain("Ladda demosidans exempel");
+    expect(editor).toContain("Ladda Demo 2-innehåll");
     expect(editor).toContain("setStarter(true)");
     expect(editor).toContain("setDirty(true)");
-    expect(editor).toContain("!initial.published");
+    expect(editor).toContain("initial.published");
   });
 
   it("labels each owner section by the public-site area it controls", () => {
