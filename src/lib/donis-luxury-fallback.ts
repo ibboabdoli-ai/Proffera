@@ -549,6 +549,15 @@ export const DONIS_LUXURY_FALLBACK_SITE: RestaurantSite = {
 };
 
 
+export const DONIS_LUXURY_DISH_IMAGE_URLS: Record<string, string> =
+  Object.fromEntries(
+    DONIS_LUXURY_FALLBACK_SITE.dishes.flatMap((item) =>
+      item.image && DONIS_LUXURY_FALLBACK_IMAGES[item.image.id]
+        ? [[item.id, DONIS_LUXURY_FALLBACK_IMAGES[item.image.id]]]
+        : [],
+    ),
+  );
+
 export function isDonisLuxuryBuiltinImageId(id: string) {
   return Object.prototype.hasOwnProperty.call(DONIS_LUXURY_FALLBACK_IMAGES, id);
 }
