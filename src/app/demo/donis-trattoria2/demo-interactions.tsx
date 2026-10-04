@@ -318,13 +318,17 @@ export function DonisTrattoriaLuxuryExperience({
   const fullAddress = [business.address, business.postalCode, business.city]
     .filter(Boolean)
     .join(", ");
+  const hasLocation = Boolean(fullAddress || business.mapUrl);
   const mapsUrl =
     business.mapUrl ||
-    `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(
-      [business.name, fullAddress].filter(Boolean).join(" "),
-    )}`;
-  const mapEmbedUrl =
-    `https://www.google.com/maps?q=${encodeURIComponent(fullAddress)}&output=embed`;
+    (fullAddress
+      ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(
+          [business.name, fullAddress].filter(Boolean).join(" "),
+        )}`
+      : "");
+  const mapEmbedUrl = fullAddress
+    ? `https://www.google.com/maps?q=${encodeURIComponent(fullAddress)}&output=embed`
+    : "";
   const phoneHref = business.phone
     ? `tel:${business.phone.replace(/[^+\d]/g, "")}`
     : "";
@@ -1144,26 +1148,28 @@ export function DonisTrattoriaLuxuryExperience({
             <Reveal className="lg:col-span-4">
               <div className="h-full rounded-[24px] border border-white/10 bg-[#10130f] p-6 sm:p-7">
                 <div className="grid gap-5">
-                  <a
-                    href={mapsUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="group flex items-start gap-4"
-                  >
-                    <span className="mt-0.5 inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-[#d6aa58]/30 bg-[#d6aa58]/8 text-[#e7bd67]">
-                      <MapPin className="h-4 w-4" />
-                    </span>
-                    <span>
-                      <span className="block text-[10px] font-black uppercase tracking-[0.18em] text-white/35">
-                        {t.address}
+                  {fullAddress && (
+                    <a
+                      href={mapsUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="group flex items-start gap-4"
+                    >
+                      <span className="mt-0.5 inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-[#d6aa58]/30 bg-[#d6aa58]/8 text-[#e7bd67]">
+                        <MapPin className="h-4 w-4" />
                       </span>
-                      <span className="mt-1 block text-sm leading-6 text-white/78 transition group-hover:text-[#e7bd67]">
-                        {business.address}
-                        {(business.postalCode || business.city) && <br />}
-                        {[business.postalCode, business.city].filter(Boolean).join(" ")}
+                      <span>
+                        <span className="block text-[10px] font-black uppercase tracking-[0.18em] text-white/35">
+                          {t.address}
+                        </span>
+                        <span className="mt-1 block text-sm leading-6 text-white/78 transition group-hover:text-[#e7bd67]">
+                          {business.address}
+                          {(business.postalCode || business.city) && <br />}
+                          {[business.postalCode, business.city].filter(Boolean).join(" ")}
+                        </span>
                       </span>
-                    </span>
-                  </a>
+                    </a>
+                  )}
                   {business.phone && (
                     <a href={phoneHref} className="group flex items-center gap-4">
                       <span className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-[#d6aa58]/30 bg-[#d6aa58]/8 text-[#e7bd67]">
@@ -1235,15 +1241,17 @@ export function DonisTrattoriaLuxuryExperience({
                       {t.call}
                     </a>
                   )}
-                  <a
-                    href={mapsUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="inline-flex min-h-11 items-center gap-2 rounded-full border border-white/15 px-5 text-xs font-bold text-white/78 transition hover:border-[#d6aa58]/50 hover:text-[#e7bd67]"
-                  >
-                    <Navigation className="h-4 w-4" />
-                    {t.directions}
-                  </a>
+                  {hasLocation && (
+                    <a
+                      href={mapsUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex min-h-11 items-center gap-2 rounded-full border border-white/15 px-5 text-xs font-bold text-white/78 transition hover:border-[#d6aa58]/50 hover:text-[#e7bd67]"
+                    >
+                      <Navigation className="h-4 w-4" />
+                      {t.directions}
+                    </a>
+                  )}
                 </div>
               </div>
             </Reveal>
@@ -1272,71 +1280,97 @@ export function DonisTrattoriaLuxuryExperience({
               </div>
             </Reveal>
 
-            <Reveal delay={120} className="lg:col-span-5">
-              <div className="grid h-full gap-4">
-                {contactImage && (
-                  <a
-                    href={mapsUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="group relative min-h-[235px] overflow-hidden rounded-[24px] border border-white/10 bg-[#10130f]"
-                  >
-                    <img
-                      src={contactImage.url}
-                      alt={contactImage.alt}
-                      loading="lazy"
-                      className="absolute inset-0 h-full w-full object-cover transition duration-700 group-hover:scale-[1.025]"
-                    />
-                    <div className="absolute inset-0 bg-gradient-to-t from-black/58 via-black/5 to-transparent" />
-                    <div className="absolute bottom-5 left-5 right-5 flex items-center justify-between gap-4">
-                      <span>
-                        <span className="block font-serif text-2xl text-[#f4ead8]">
-                          {brandName}
-                        </span>
-                        <span className="mt-1 block text-xs text-white/65">
-                          {business.address}
-                        </span>
-                      </span>
-                      <span className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-[#deb45f] text-[#15140f]">
-                        <Navigation className="h-4 w-4" />
-                      </span>
-                    </div>
-                  </a>
-                )}
+            {(contactImage || hasLocation) && (
+              <Reveal delay={120} className="lg:col-span-5">
+                <div className="grid h-full gap-4">
+                  {contactImage &&
+                    (hasLocation ? (
+                      <a
+                        href={mapsUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="group relative min-h-[235px] overflow-hidden rounded-[24px] border border-white/10 bg-[#10130f]"
+                      >
+                        <img
+                          src={contactImage.url}
+                          alt={contactImage.alt}
+                          loading="lazy"
+                          className="absolute inset-0 h-full w-full object-cover transition duration-700 group-hover:scale-[1.025]"
+                        />
+                        <div className="absolute inset-0 bg-gradient-to-t from-black/58 via-black/5 to-transparent" />
+                        <div className="absolute bottom-5 left-5 right-5 flex items-center justify-between gap-4">
+                          <span>
+                            <span className="block font-serif text-2xl text-[#f4ead8]">
+                              {brandName}
+                            </span>
+                            {business.address && (
+                              <span className="mt-1 block text-xs text-white/65">
+                                {business.address}
+                              </span>
+                            )}
+                          </span>
+                          <span className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-[#deb45f] text-[#15140f]">
+                            <Navigation className="h-4 w-4" />
+                          </span>
+                        </div>
+                      </a>
+                    ) : (
+                      <div className="relative min-h-[235px] overflow-hidden rounded-[24px] border border-white/10 bg-[#10130f]">
+                        <img
+                          src={contactImage.url}
+                          alt={contactImage.alt}
+                          loading="lazy"
+                          className="absolute inset-0 h-full w-full object-cover"
+                        />
+                        <div className="absolute inset-0 bg-gradient-to-t from-black/58 via-black/5 to-transparent" />
+                        <div className="absolute bottom-5 left-5 right-5">
+                          <span className="block font-serif text-2xl text-[#f4ead8]">
+                            {brandName}
+                          </span>
+                        </div>
+                      </div>
+                    ))}
 
-                <div className="relative min-h-[220px] overflow-hidden rounded-[24px] border border-white/10 bg-[#10130f]">
-                  <iframe
-                    title={mapTitle}
-                    src={mapEmbedUrl}
-                    loading="lazy"
-                    referrerPolicy="no-referrer-when-downgrade"
-                    className="pointer-events-none absolute inset-0 h-full w-full border-0 opacity-80 grayscale-[20%] contrast-[1.03]"
-                  />
-                  <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(180deg,rgba(8,10,8,.06),rgba(8,10,8,.40))]" />
-                  <a
-                    href={mapsUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="group absolute bottom-4 left-4 right-4 flex items-center justify-between gap-4 rounded-[16px] border border-white/12 bg-[#090b09]/88 p-3 backdrop-blur-xl"
-                  >
-                    <div className="flex min-w-0 items-center gap-3">
-                      <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#deb45f] text-[#15140f]">
-                        <MapPin className="h-4 w-4" />
-                      </span>
-                      <span className="min-w-0">
-                        <span className="block truncate text-sm font-bold text-[#f4ead8]">
-                          {t.directions}
-                        </span>
-                        <span className="block truncate text-[11px] text-white/50">
-                          {business.address}
-                        </span>
-                      </span>
+                  {hasLocation && (
+                    <div className="relative min-h-[220px] overflow-hidden rounded-[24px] border border-white/10 bg-[#10130f]">
+                      {mapEmbedUrl && (
+                        <iframe
+                          title={mapTitle}
+                          src={mapEmbedUrl}
+                          loading="lazy"
+                          referrerPolicy="no-referrer-when-downgrade"
+                          className="pointer-events-none absolute inset-0 h-full w-full border-0 opacity-80 grayscale-[20%] contrast-[1.03]"
+                        />
+                      )}
+                      <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(180deg,rgba(8,10,8,.06),rgba(8,10,8,.40))]" />
+                      <a
+                        href={mapsUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="group absolute bottom-4 left-4 right-4 flex items-center justify-between gap-4 rounded-[16px] border border-white/12 bg-[#090b09]/88 p-3 backdrop-blur-xl"
+                      >
+                        <div className="flex min-w-0 items-center gap-3">
+                          <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#deb45f] text-[#15140f]">
+                            <MapPin className="h-4 w-4" />
+                          </span>
+                          <span className="min-w-0">
+                            <span className="block truncate text-sm font-bold text-[#f4ead8]">
+                              {t.directions}
+                            </span>
+                            {fullAddress && (
+                              <span className="block truncate text-[11px] text-white/50">
+                                {fullAddress}
+                              </span>
+                            )}
+                          </span>
+                        </div>
+                        <ArrowRight className="h-4 w-4 shrink-0 text-[#d6aa58] transition group-hover:translate-x-0.5" />
+                      </a>
                     </div>
-                    <ArrowRight className="h-4 w-4 shrink-0 text-[#d6aa58] transition group-hover:translate-x-0.5" />
-                  </a>
+                  )}
                 </div>
-              </div>
-            </Reveal>
+              </Reveal>
+            )}
           </div>
         </div>
       </section>
