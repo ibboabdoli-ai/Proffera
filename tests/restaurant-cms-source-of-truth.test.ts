@@ -54,6 +54,8 @@ describe("Doni restaurant CMS source of truth", () => {
     expect(page).toContain("alt: { sv: altText, en: altText }");
     expect(editor).toContain("type LocalizedAlt = { sv: string; en: string }");
     expect(editor).toContain("? { id: media.id, alt: media.alt }");
+    expect(editor).toContain("alt: first.alt");
+    expect(editor).not.toContain("alt: { sv: first.alt, en: first.alt }");
   });
 
   it("previews and publishes against the same Demo 2 presentation", () => {
