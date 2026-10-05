@@ -50,6 +50,10 @@ describe("Doni restaurant CMS source of truth", () => {
     expect(editor).toContain("next.business.instagramUrl = \"\"");
     expect(page).toContain("DONIS_LUXURY_FALLBACK_SITE.dishes");
     expect(page).toContain("referenceItems");
+    expect(page).toContain("alt: item.alt");
+    expect(page).toContain("alt: { sv: altText, en: altText }");
+    expect(editor).toContain("type LocalizedAlt = { sv: string; en: string }");
+    expect(editor).toContain("? { id: media.id, alt: media.alt }");
   });
 
   it("previews and publishes against the same Demo 2 presentation", () => {
