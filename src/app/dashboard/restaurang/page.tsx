@@ -86,14 +86,6 @@ export default async function RestaurantAdminPage() {
   const referenceGalleryImages = DONIS_LUXURY_FALLBACK_SITE.media.gallery
     .map((item) => DONIS_LUXURY_FALLBACK_IMAGES[item.id])
     .filter((url): url is string => Boolean(url));
-  const referenceDishImages = Object.fromEntries(
-    DONIS_LUXURY_FALLBACK_SITE.dishes.flatMap((dish) =>
-      dish.image && DONIS_LUXURY_FALLBACK_IMAGES[dish.image.id]
-        ? [[dish.id, DONIS_LUXURY_FALLBACK_IMAGES[dish.image.id]]]
-        : [],
-    ),
-  );
-
   return (
     <RestaurantEditor
       initial={site}
@@ -107,7 +99,6 @@ export default async function RestaurantAdminPage() {
             alt: { sv: altText, en: altText },
           })),
       ]}
-      referenceDishImages={referenceDishImages}
       referenceHeroImage={referenceHeroImage}
       referenceGalleryImages={referenceGalleryImages}
     />
