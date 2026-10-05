@@ -136,6 +136,7 @@ export function RestaurantEditor({
   const [notice, setNotice] = useState("");
   const [section, setSection] = useState<Section>("menu");
   const [selectedDish, setSelectedDish] = useState<string | null>(null);
+  const [priceInputEpoch, setPriceInputEpoch] = useState(0);
   const [alt, setAlt] = useState("");
   const allowNavigationRef = useRef(false);
   const restoringHistoryRef = useRef(false);
@@ -243,6 +244,7 @@ export function RestaurantEditor({
     );
     if (!confirmed) return;
     setSite(createDonisLuxuryAdminStarterSite());
+    setPriceInputEpoch((current) => current + 1);
     setStarter(true);
     setSection("menu");
     setSelectedDish(null);
@@ -668,7 +670,7 @@ export function RestaurantEditor({
                   <label className="text-sm font-semibold">
                     Pris i kronor
                     <PriceInput
-                      key={dish.id}
+                      key={`${priceInputEpoch}:${dish.id}`}
                       label={`Pris ${dish.name}`}
                       value={dish.priceOre}
                       disabled={busy}
@@ -835,6 +837,7 @@ export function RestaurantEditor({
                                       <label className="text-xs font-semibold">
                                         Pris (kr)
                                         <PriceInput
+                                          key={`${priceInputEpoch}:${item.id}`}
                                           label={`Pris ${item.name}`}
                                           className={`${input} mt-1 min-h-10 w-full text-right`}
                                           value={item.priceOre}
