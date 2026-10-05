@@ -569,7 +569,31 @@ describe("Review Repair start provenance and Failure Memory persistence", () => 
     expect(proveReviewRepairPrelaunchRecovery({
       ...input,
       jobs: [admitJob, {name: "Batch current-head review findings", status: "completed", conclusion: "skipped"}],
-    })).toEqual({recoverable: true, reason: "repair_job_skipped"});
+    })).toEqual({recoverable: true, reason: "model_step_skipped"});
+    expect(proveReviewRepairPrelaunchRecovery({
+      ...input,
+      jobs: [admitJob, {
+        name: "Batch current-head review findings",
+        status: "completed",
+        conclusion: "failure",
+        steps: [
+          {name: "Revalidate exact-head review evidence before model", status: "completed", conclusion: "failure"},
+          {name: "Run one batched exact-head repair", status: "completed", conclusion: "skipped"},
+        ],
+      }],
+    })).toEqual({recoverable: true, reason: "model_step_skipped"});
+    expect(proveReviewRepairPrelaunchRecovery({
+      ...input,
+      jobs: [admitJob, {
+        name: "Batch current-head review findings",
+        status: "completed",
+        conclusion: "failure",
+        steps: [
+          {name: "Revalidate exact-head review evidence before model", status: "completed", conclusion: "success"},
+          {name: "Run one batched exact-head repair", status: "completed", conclusion: "failure"},
+        ],
+      }],
+    })).toEqual({recoverable: false, reason: "repair_job_may_have_launched"});
     expect(run.head_sha).not.toBe(candidate.head);
     expect(() => proveReviewRepairPrelaunchRecovery({
       ...input,
@@ -682,6 +706,8 @@ describe("Review Repair start provenance and Failure Memory persistence", () => 
 
 type RepairWorkflowStep = {
   name: string;
+  id?: string;
+  if?: string;
   uses?: string;
   run?: string;
   env?: Record<string, string>;
@@ -771,6 +797,24 @@ describe("Review Repair workflow dispatch provenance", () => {
 
 describe("Review Repair pre-model start recovery", () => {
   const admission = workflowStep("admit", "Admit strategy history and record trusted attempt start").run!;
+
+  it("revalidates head and finding set immediately before the model and does not charge a skipped model", () => {
+    const repairSteps = rerunWorkflow.jobs.repair.steps.map((step) => step.name);
+    const guardIndex = repairSteps.indexOf("Revalidate exact-head review evidence before model");
+    const modelIndex = repairSteps.indexOf("Run one batched exact-head repair");
+    expect(guardIndex).toBeGreaterThanOrEqual(0);
+    expect(modelIndex).toBe(guardIndex + 1);
+    const guard = workflowStep("repair", "Revalidate exact-head review evidence before model").run!;
+    expect(guard).toContain("PR head changed before Review Repair model execution");
+    expect(guard).toContain("Current-head review finding burst changed before model execution");
+    expect(guard).toContain("EXPECTED_FINDING_SET_SHA256");
+
+    const classify = workflowStep("record", "Classify the started model attempt").run!;
+    expect(classify).toContain("Run one batched exact-head repair");
+    expect(classify).toContain('echo "persist=no" >> "$GITHUB_OUTPUT"');
+    expect(workflowStep("record", "Persist exact attempt outcome in canonical Failure Memory").if)
+      .toBe("steps.classify.outputs.persist == 'yes'");
+  });
 
   it("recovers only after exact historical Actions proof and re-reads memory before admission", () => {
     expect(admission).toContain("supervisor-review-repair-strategy-memory.mjs unresolved");

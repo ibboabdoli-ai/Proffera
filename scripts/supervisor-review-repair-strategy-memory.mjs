@@ -208,19 +208,29 @@ export function proveReviewRepairPrelaunchRecovery(input) {
   if (run.status !== "completed") {
     return {recoverable: false, reason: "run_not_terminal"};
   }
-  if (run.conclusion === "success") {
-    return {recoverable: false, reason: "run_succeeded"};
-  }
   const jobs = input?.jobs;
   if (!Array.isArray(jobs) || jobs.length > 1000) fail("recovery_jobs");
   const admitJobs = jobs.filter((job) => job?.name === "Settle review burst and admit one bounded attempt");
   if (admitJobs.length !== 1 || admitJobs[0]?.status !== "completed") fail("recovery_jobs_binding");
   const repairJobs = jobs.filter((job) => job?.name === "Batch current-head review findings");
   if (repairJobs.length === 0) {
+    if (run.conclusion === "success") return {recoverable: false, reason: "run_succeeded"};
     return {recoverable: true, reason: "repair_job_absent"};
   }
-  if (repairJobs.every((job) => job?.status === "completed" && job?.conclusion === "skipped")) {
-    return {recoverable: true, reason: "repair_job_skipped"};
+  const modelDefinitelySkipped = repairJobs.every((job) => {
+    if (job?.status === "completed" && job?.conclusion === "skipped") return true;
+    const modelSteps = Array.isArray(job?.steps)
+      ? job.steps.filter((step) => step?.name === "Run one batched exact-head repair")
+      : [];
+    return modelSteps.length === 1
+      && modelSteps[0]?.status === "completed"
+      && modelSteps[0]?.conclusion === "skipped";
+  });
+  if (modelDefinitelySkipped) {
+    return {recoverable: true, reason: "model_step_skipped"};
+  }
+  if (run.conclusion === "success") {
+    return {recoverable: false, reason: "run_succeeded"};
   }
   return {recoverable: false, reason: "repair_job_may_have_launched"};
 }
