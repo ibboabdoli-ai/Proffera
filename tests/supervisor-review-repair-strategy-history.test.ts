@@ -756,11 +756,12 @@ describe("Review Repair workflow dispatch provenance", () => {
       .toBeLessThan(steps.indexOf("Checkout trusted control-plane helpers"));
     expect(runReviewRepairDispatchGuard().status).toBe(0);
 
-    for (const overrides of [
+    const invalidDispatches: Array<Record<string, string>> = [
       {DISPATCH_REF: "refs/heads/work/proffera-review-repair", DISPATCH_REF_NAME: "work/proffera-review-repair"},
       {DISPATCH_REF: "refs/tags/v1", DISPATCH_REF_NAME: "v1", DISPATCH_REF_TYPE: "tag"},
       {EVENT_NAME: "pull_request"},
-    ]) {
+    ];
+    for (const overrides of invalidDispatches) {
       const result = runReviewRepairDispatchGuard(overrides);
       expect(result.status).toBe(1);
       expect(result.stderr).toContain("only accepts workflow_dispatch runs from refs/heads/main");
