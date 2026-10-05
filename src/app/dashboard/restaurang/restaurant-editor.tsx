@@ -304,12 +304,15 @@ export function RestaurantEditor({
   async function upload(
     event: ChangeEvent<HTMLInputElement>,
     onDone: (media: Media) => void,
-    fallbackAlt = "",
+    fallbackAlt?: LocalizedAlt,
   ) {
     const file = event.target.files?.[0];
     if (!file) return;
 
-    const resolvedAlt = imageUploadAlt(file, fallbackAlt);
+    const typedAlt = alt.trim();
+    const fallbackText =
+      fallbackAlt?.[locale] || fallbackAlt?.sv || fallbackAlt?.en || "";
+    const resolvedAlt = imageUploadAlt(file, fallbackText);
     setBusy(true);
     try {
       const data = new FormData();
@@ -327,7 +330,10 @@ export function RestaurantEditor({
       const media: Media = {
         id: result.id,
         url: result.url,
-        alt: { sv: result.alt, en: result.alt },
+        alt:
+          !typedAlt && fallbackAlt
+            ? { ...fallbackAlt }
+            : { sv: result.alt, en: result.alt },
       };
       setImages((current) => [media, ...current]);
       onDone(media);
@@ -360,7 +366,7 @@ export function RestaurantEditor({
         {currentImage ? (
           <img
             src={currentImage.url}
-            alt={current?.alt[locale] || current?.alt.sv || ""}
+            alt={currentAlt}
             className="aspect-[4/3] max-h-64 w-full rounded-xl object-cover"
           />
         ) : referenceUrl ? (
@@ -409,7 +415,7 @@ export function RestaurantEditor({
                     id: media.id,
                     alt: media.alt,
                   }),
-                currentAlt,
+                current?.alt,
               )
             }
             className="mt-2 block w-full text-sm"
@@ -430,7 +436,7 @@ export function RestaurantEditor({
                     id: media.id,
                     alt: media.alt,
                   }),
-                currentAlt,
+                current?.alt,
               )
             }
             className="mt-2 block w-full text-sm"
