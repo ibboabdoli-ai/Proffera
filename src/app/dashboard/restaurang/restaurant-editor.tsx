@@ -1144,7 +1144,7 @@ export function RestaurantEditor({
                         return;
                       next.media.gallery.push({
                         id: first.id,
-                        alt: { sv: first.alt, en: first.alt },
+                        alt: first.alt,
                         kind: "interior",
                         sortOrder: next.media.gallery.length,
                       });
