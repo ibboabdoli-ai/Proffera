@@ -111,6 +111,18 @@ describe("restaurant site content boundary", () => {
       expect(validateRestaurantSite(invalidPeriods).ok).toBe(false);
     }
 
+    const overlongHandle = structuredClone(emptyRestaurantSite);
+    overlongHandle.business.instagram = "a".repeat(31);
+    overlongHandle.business.instagramUrl =
+      "https://www.instagram.com/" + "a".repeat(31) + "/";
+    expect(validateRestaurantSite(overlongHandle).ok).toBe(false);
+
+    const maxLengthHandle = structuredClone(emptyRestaurantSite);
+    maxLengthHandle.business.instagram = "@" + "a".repeat(30);
+    maxLengthHandle.business.instagramUrl =
+      "https://www.instagram.com/" + "a".repeat(30) + "/";
+    expect(validateRestaurantSite(maxLengthHandle).ok).toBe(true);
+
     const validHandle = structuredClone(emptyRestaurantSite);
     validHandle.business.instagram = "@donis.trattoria";
     expect(validateRestaurantSite(validHandle).ok).toBe(true);
