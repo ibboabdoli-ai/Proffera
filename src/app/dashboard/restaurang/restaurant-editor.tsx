@@ -7,7 +7,9 @@ import type { RestaurantSite } from "@/lib/restaurant-site-schema";
 import { parseRestaurantPrice } from "@/lib/restaurant-price";
 import { saveDraft } from "./actions";
 
-type Media = { id: string; url: string; alt: string };
+type LocalizedAlt = { sv: string; en: string };
+type Media = { id: string; url: string; alt: LocalizedAlt };
+type UploadedMedia = { id: string; url: string; alt: string };
 type Section = "menu" | "categories" | "photos" | "content" | "business" | "hours" | "links";
 const sections: { id: Section; label: string; hint: string }[] = [
   { id: "menu", label: "Meny", hint: "Rätter och priser" },
@@ -303,13 +305,18 @@ export function RestaurantEditor({
         method: "POST",
         body: data,
       });
-      const result = (await response.json()) as Media & { error?: string };
+      const result = (await response.json()) as UploadedMedia & { error?: string };
       if (!response.ok) {
         setNotice(result.error ?? "Uppladdningen misslyckades.");
         return;
       }
-      setImages((current) => [result, ...current]);
-      onDone(result);
+      const media: Media = {
+        id: result.id,
+        url: result.url,
+        alt: { sv: result.alt, en: result.alt },
+      };
+      setImages((current) => [media, ...current]);
+      onDone(media);
       setAlt("");
       setNotice(
         "Bilden uppladdad. Spara utkastet och publicera för att visa ändringen.",
@@ -360,7 +367,7 @@ export function RestaurantEditor({
             const media = images.find((item) => item.id === event.target.value);
             setPhoto(
               media
-                ? { id: media.id, alt: { sv: media.alt, en: media.alt } }
+                ? { id: media.id, alt: media.alt }
                 : null,
             );
           }}
@@ -368,7 +375,7 @@ export function RestaurantEditor({
           <option value="">Ingen bild</option>
           {images.map((item) => (
             <option key={item.id} value={item.id}>
-              {item.alt} · {item.id.slice(0, 8)}
+              {item.alt[locale] || item.alt.sv || item.alt.en} · {item.id.slice(0, 8)}
             </option>
           ))}
         </select>
@@ -382,7 +389,7 @@ export function RestaurantEditor({
               upload(event, (media) =>
                 setPhoto({
                   id: media.id,
-                  alt: { sv: media.alt, en: media.alt },
+                  alt: media.alt,
                 }),
               )
             }
@@ -400,7 +407,7 @@ export function RestaurantEditor({
               upload(event, (media) =>
                 setPhoto({
                   id: media.id,
-                  alt: { sv: media.alt, en: media.alt },
+                  alt: media.alt,
                 }),
               )
             }
