@@ -34,6 +34,8 @@ const translations: Record<string, string> = {
   "Kategorier": "Categories",
   "Bilder": "Photos",
   "Texter": "Content",
+  "Kontakt": "Contact",
+  "Adress, telefon och Instagram": "Address, phone and Instagram",
   "Öppettider": "Opening hours",
   "Länkar": "Links",
   "+ Lägg till rätt": "+ Add dish",
