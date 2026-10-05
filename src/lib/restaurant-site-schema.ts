@@ -53,9 +53,11 @@ const instagramHandleOrEmpty = z
   .trim()
   .max(31)
   .refine(
-    (value) =>
-      !value ||
-      instagramHandlePattern.test(normalizeInstagramHandle(value)),
+    (value) => {
+      if (!value) return true;
+      const handle = normalizeInstagramHandle(value);
+      return handle.length <= 30 && instagramHandlePattern.test(handle);
+    },
     "Ange ett giltigt Instagram-namn.",
   );
 
@@ -71,13 +73,15 @@ const instagramProfileFromUrl = (value: string) => {
       return null;
 
     const segments = url.pathname.split("/").filter(Boolean);
+    const profile = segments[0] ?? "";
     if (
       segments.length !== 1 ||
-      !instagramHandlePattern.test(segments[0] ?? "")
+      profile.length > 30 ||
+      !instagramHandlePattern.test(profile)
     )
       return null;
 
-    return segments[0];
+    return profile;
   } catch {
     return null;
   }
