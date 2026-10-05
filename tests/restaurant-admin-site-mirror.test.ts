@@ -80,7 +80,9 @@ describe("Doni admin mirrors the public demo", () => {
     expect(editor).not.toContain("if (!alt.trim())");
     expect(editor).toContain("Ladda upp ny bild till galleriet");
     expect(editor).toContain('kind: "food"');
-    expect(editor).toContain("currentAlt,");
+    expect(editor).toContain("fallbackAlt?: LocalizedAlt");
+    expect(editor).toContain("!typedAlt && fallbackAlt");
+    expect(editor).toContain("? { ...fallbackAlt }");
   });
 
   it("keeps menu description fields editable without inventing dish copy", () => {
