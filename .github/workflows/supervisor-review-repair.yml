@@ -14,23 +14,74 @@ permissions:
   issues: read
   pull-requests: read
 
-concurrency:
-  group: proffera-supervisor-review-repair-${{ inputs.pr_number }}
-  cancel-in-progress: true
-
 jobs:
-  repair:
-    name: Batch current-head review findings
+  admit:
+    name: Settle review burst and admit one bounded attempt
+    concurrency:
+      # Serialize only the trusted admission/start write with other per-PR Failure Memory writers.
+      # Duplicate deliveries queue here; the durable start marker suppresses the second model attempt.
+      group: proffera-final-gate-memory-${{ fromJSON(inputs.pr_number) }}
+      cancel-in-progress: false
+      # All writers sharing this group must retain pending work (up to 100 jobs).
+      queue: max
     runs-on: ubuntu-latest
-    timeout-minutes: 35
+    timeout-minutes: 8
+    permissions:
+      actions: read
+      contents: read
+      issues: write
+      pull-requests: read
     outputs:
-      changed: ${{ steps.diff.outputs.changed }}
+      repair: ${{ steps.admit.outputs.repair }}
+      attempt_started: ${{ steps.admit.outputs.attempt_started }}
+      admitted_run_id: ${{ steps.admit.outputs.admitted_run_id }}
+      admitted_run_attempt: ${{ steps.admit.outputs.admitted_run_attempt }}
       head_sha: ${{ steps.preflight.outputs.head_sha }}
       head_ref: ${{ steps.preflight.outputs.head_ref }}
-      patch_sha256: ${{ steps.diff.outputs.patch_sha256 }}
+      finding_set_sha256: ${{ steps.settle.outputs.finding_set_sha256 }}
+      finding_count: ${{ steps.settle.outputs.finding_count }}
+      evidence_fingerprint: ${{ steps.admit.outputs.evidence_fingerprint }}
+      strategy_fingerprint: ${{ steps.admit.outputs.strategy_fingerprint }}
     steps:
-      - name: Debounce review bursts
-        run: sleep 45
+      - name: Require trusted main workflow dispatch
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          DISPATCH_REF: ${{ github.ref }}
+          DISPATCH_REF_NAME: ${{ github.ref_name }}
+          DISPATCH_REF_TYPE: ${{ github.ref_type }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "$EVENT_NAME" != "workflow_dispatch" ] \
+            || [ "$DISPATCH_REF_TYPE" != "branch" ] \
+            || [ "$DISPATCH_REF" != "refs/heads/main" ] \
+            || [ "$DISPATCH_REF_NAME" != "main" ]; then
+            echo "Review Repair only accepts workflow_dispatch runs from refs/heads/main." >&2
+            exit 1
+          fi
+
+      - name: Verify retry evidence retention policy
+        shell: bash
+        run: |
+          set -euo pipefail
+          # GitHub permits retries for 30 days; keep one extra day for late-starting jobs.
+          # Fail before any start write if upload-artifact would clamp to a shorter policy.
+          retention_days="${GITHUB_RETENTION_DAYS:-}"
+          if ! [[ "$retention_days" =~ ^[1-9][0-9]{0,2}$ ]] || [ "$retention_days" -lt 31 ]; then
+            echo "Review Repair requires at least 31 days of repository artifact retention before admitting an attempt." >&2
+            exit 1
+          fi
+
+      - name: Checkout trusted control-plane helpers
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 22
 
       - name: Resolve trusted exact-head Phase-1 PR
         id: preflight
@@ -43,65 +94,20 @@ jobs:
           set -euo pipefail
           pr="$(gh api "repos/${REPOSITORY}/pulls/${PR_NUMBER}")"
           test "$(jq -r '.state' <<< "$pr")" = "open"
+          test "$(jq -r '.base.ref' <<< "$pr")" = "main"
           test "$(jq -r '.head.repo.full_name' <<< "$pr")" = "$REPOSITORY"
           test "$(jq -r '.user.login' <<< "$pr")" = "${REPOSITORY%%/*}"
           body="$(jq -r '.body // ""' <<< "$pr")"
           grep -Fq '<!-- proffera-worker-task-packet:v1 -->' <<< "$body"
           head_sha="$(jq -r '.head.sha' <<< "$pr")"
           head_ref="$(jq -r '.head.ref' <<< "$pr")"
-          commits_ndjson="$(mktemp)"
-          for page in 1 2 3; do
-            page_json="$(gh api "repos/${REPOSITORY}/pulls/${PR_NUMBER}/commits?per_page=100&page=${page}")"
-            jq -e 'type == "array"' >/dev/null <<< "$page_json"
-            page_count="$(jq 'length' <<< "$page_json")"
-            jq -c '.[]' <<< "$page_json" >> "$commits_ndjson"
-            if [ "$page" -eq 3 ] && [ "$page_count" -ge 50 ]; then
-              echo "Pull-request commit history reached the 250-commit endpoint limit; refusing automatic repair." >&2
-              exit 1
-            fi
-            if [ "$page_count" -lt 100 ]; then
-              break
-            fi
-          done
-          live_head_after_commits="$(gh api "repos/${REPOSITORY}/pulls/${PR_NUMBER}" --jq '.head.sha')"
-          if [ "$live_head_after_commits" != "$head_sha" ]; then
-            echo "PR head changed while reading repair history; refusing automatic repair." >&2
-            exit 1
-          fi
-          commits_json="$(jq -s '.' "$commits_ndjson")"
-          recent_messages_file="$(mktemp)"
-          jq -r '.[-5:][] | .commit.message | split("\n")[0]' <<< "$commits_json" > "$recent_messages_file"
-          mapfile -t recent_messages < "$recent_messages_file"
-          consecutive=0
-          for ((i=${#recent_messages[@]}-1; i>=0; i--)); do
-            if [[ "${recent_messages[$i]}" == "[review-repair]"* ]]; then consecutive=$((consecutive+1)); else break; fi
-          done
-          if [ "$consecutive" -ge 2 ]; then
-            echo "Automatic repair ceiling reached for consecutive review-repair commits."
-            echo "proceed=no" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          echo "proceed=yes" >> "$GITHUB_OUTPUT"
+          [[ "$head_sha" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$head_ref" == work/proffera-* ]]
           echo "head_sha=$head_sha" >> "$GITHUB_OUTPUT"
           echo "head_ref=$head_ref" >> "$GITHUB_OUTPUT"
 
-      - name: Checkout exact PR head
-        if: steps.preflight.outputs.proceed == 'yes'
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-        with:
-          ref: ${{ steps.preflight.outputs.head_sha }}
-          fetch-depth: 0
-          persist-credentials: false
-
-      - name: Setup Node
-        if: steps.preflight.outputs.proceed == 'yes'
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
-        with:
-          node-version: 22
-          cache: npm
-
-      - name: Materialize current-head review evidence
-        if: steps.preflight.outputs.proceed == 'yes'
+      - name: Settle complete exact-head review finding burst
+        id: settle
         env:
           GH_TOKEN: ${{ github.token }}
           REPOSITORY: ${{ github.repository }}
@@ -110,40 +116,290 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          evidence_dir="$(mktemp -d)"
+          evidence_dir="$RUNNER_TEMP/proffera-review-repair-evidence"
+          rm -rf "$evidence_dir"
+          mkdir -p "$evidence_dir"
           bots='select(.user.login == "coderabbitai[bot]" or .user.login == "chatgpt-codex-connector[bot]")'
-          gh api --paginate "repos/${REPOSITORY}/issues/${PR_NUMBER}/comments?per_page=100" --jq '.[]' | jq -s "[.[] | ${bots}] | .[-40:]" > "$evidence_dir/issue_comments.json"
-          gh api --paginate "repos/${REPOSITORY}/pulls/${PR_NUMBER}/reviews?per_page=100" --jq '.[]' | jq -s "[.[] | ${bots}] | .[-40:]" > "$evidence_dir/reviews.json"
-          gh api --paginate "repos/${REPOSITORY}/pulls/${PR_NUMBER}/comments?per_page=100" --jq '.[]' | jq -s "[.[] | ${bots}] | .[-80:]" > "$evidence_dir/inline.json"
-          jq -e 'type == "array"' "$evidence_dir/issue_comments.json" >/dev/null
-          jq -e 'type == "array"' "$evidence_dir/reviews.json" >/dev/null
-          jq -e 'type == "array"' "$evidence_dir/inline.json" >/dev/null
-          jq -n --arg head "$HEAD_SHA" \
-            --slurpfile issue_comments "$evidence_dir/issue_comments.json" \
-            --slurpfile reviews "$evidence_dir/reviews.json" \
-            --slurpfile inline "$evidence_dir/inline.json" \
-            '{head_sha:$head,issue_comments:$issue_comments[0],reviews:$reviews[0],inline_comments:$inline[0]}' > supervisor-review-evidence.json
 
-      - name: Qualify current-head material findings before model repair
-        if: steps.preflight.outputs.proceed == 'yes'
-        id: qualify
+          collect_snapshot() {
+            local target="$1"
+            rm -rf "$target"
+            mkdir -p "$target"
+            gh api --paginate "repos/${REPOSITORY}/issues/${PR_NUMBER}/comments?per_page=100" --jq '.[]'               | jq -s "[.[] | ${bots}]" > "$target/issue_comments.json"
+            gh api --paginate "repos/${REPOSITORY}/pulls/${PR_NUMBER}/reviews?per_page=100" --jq '.[]'               | jq -s "[.[] | ${bots}]" > "$target/reviews.json"
+            gh api --paginate "repos/${REPOSITORY}/pulls/${PR_NUMBER}/comments?per_page=100" --jq '.[]'               | jq -s "[.[] | ${bots}]" > "$target/inline.json"
+
+            for file in issue_comments reviews inline; do
+              jq -e 'type == "array" and length <= 1000' "$target/${file}.json" >/dev/null || {
+                echo "Review evidence exceeds the bounded complete-snapshot limit." >&2
+                return 1
+              }
+              bytes="$(wc -c < "$target/${file}.json")"
+              if [ "$bytes" -gt 16777216 ]; then
+                echo "Review evidence exceeds the bounded byte limit." >&2
+                return 1
+              fi
+            done
+
+            live_head="$(gh api "repos/${REPOSITORY}/pulls/${PR_NUMBER}" --jq '.head.sha')"
+            test "$live_head" = "$HEAD_SHA" || {
+              echo "PR head changed while settling review evidence." >&2
+              return 1
+            }
+
+            jq -n --arg head "$HEAD_SHA"               --slurpfile reviews "$target/reviews.json"               --slurpfile inline "$target/inline.json" '
+                [
+                  ($reviews[0][]
+                    | select(.commit_id == $head and .state == "CHANGES_REQUESTED")
+                    | "review:" + (.id | tostring)),
+                  ($inline[0][]
+                    | select(.original_commit_id == $head)
+                    | "inline:" + (.id | tostring))
+                ] | unique | sort
+              ' > "$target/finding_ids.json"
+
+            jq -n --arg head "$HEAD_SHA"               --slurpfile issue_comments "$target/issue_comments.json"               --slurpfile reviews "$target/reviews.json"               --slurpfile inline "$target/inline.json"               '{head_sha:$head,issue_comments:$issue_comments[0],reviews:$reviews[0],inline_comments:$inline[0]}'               > "$target/supervisor-review-evidence.json"
+          }
+
+          previous=""
+          stable_matches=0
+          stable=no
+          for attempt in $(seq 1 8); do
+            snapshot="$evidence_dir/snapshot-${attempt}"
+            collect_snapshot "$snapshot"
+            current="$(sha256sum "$snapshot/finding_ids.json" | cut -d' ' -f1)"
+            if [ -n "$previous" ] && [ "$current" = "$previous" ]; then
+              stable_matches=$((stable_matches + 1))
+            else
+              stable_matches=0
+            fi
+            if [ "$stable_matches" -ge 3 ]; then
+              cp "$snapshot/finding_ids.json" "$evidence_dir/finding_ids.json"
+              cp "$snapshot/supervisor-review-evidence.json" "$evidence_dir/supervisor-review-evidence.json"
+              stable=yes
+              break
+            fi
+            previous="$current"
+            sleep 15
+          done
+          if [ "$stable" != "yes" ]; then
+            echo "Current-head review finding burst did not settle within the bounded window." >&2
+            exit 1
+          fi
+
+          finding_count="$(jq 'length' "$evidence_dir/finding_ids.json")"
+          finding_set_sha256="$(sha256sum "$evidence_dir/finding_ids.json" | cut -d' ' -f1)"
+          echo "finding_count=$finding_count" >> "$GITHUB_OUTPUT"
+          echo "finding_set_sha256=$finding_set_sha256" >> "$GITHUB_OUTPUT"
+          echo "Settled exact-head review burst: $finding_count material finding IDs."
+
+      - name: Upload settled exact-head review evidence
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: supervisor-review-evidence-${{ github.run_id }}-${{ github.run_attempt }}-${{ steps.preflight.outputs.head_sha }}
+          path: |
+            ${{ runner.temp }}/proffera-review-repair-evidence/supervisor-review-evidence.json
+            ${{ runner.temp }}/proffera-review-repair-evidence/finding_ids.json
+          if-no-files-found: error
+          retention-days: 31
+
+      - name: Admit strategy history and record trusted attempt start
+        id: admit
         env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          PR_NUMBER: ${{ inputs.pr_number }}
           HEAD_SHA: ${{ steps.preflight.outputs.head_sha }}
+          FINDING_COUNT: ${{ steps.settle.outputs.finding_count }}
         shell: bash
         run: |
           set -euo pipefail
-          current_inline="$(jq -r --arg head "$HEAD_SHA" '[.inline_comments[] | select(.original_commit_id == $head)] | length' supervisor-review-evidence.json)"
-          blocking_reviews="$(jq -r --arg head "$HEAD_SHA" '[.reviews[] | select(.commit_id == $head and .state == "CHANGES_REQUESTED")] | length' supervisor-review-evidence.json)"
-          if [ "$current_inline" -eq 0 ] && [ "$blocking_reviews" -eq 0 ]; then
-            echo "repair=no" >> "$GITHUB_OUTPUT"
-            echo "No current-head material review finding; skipping Codex repair."
+          echo "repair=no" >> "$GITHUB_OUTPUT"
+          echo "attempt_started=no" >> "$GITHUB_OUTPUT"
+          if [ "$FINDING_COUNT" -eq 0 ]; then
+            echo "No settled current-head material review finding; no model attempt is admitted."
             exit 0
           fi
+
+          comments_file="$RUNNER_TEMP/proffera-review-repair-comments.json"
+          gh api --paginate "repos/${REPOSITORY}/issues/548/comments?per_page=100" --jq '.[]' | jq -s '.' > "$comments_file"
+          jq -e 'type == "array"' "$comments_file" >/dev/null
+
+          input_file="$RUNNER_TEMP/proffera-review-repair-admit.json"
+          build_admit_input() {
+            jq -n               --arg repository "$REPOSITORY"               --arg pr_number "$PR_NUMBER"               --arg head "$HEAD_SHA"               --slurpfile finding_ids "$RUNNER_TEMP/proffera-review-repair-evidence/finding_ids.json"               --slurpfile comments "$comments_file"               '{repository:$repository,pr_number:($pr_number|tonumber),head:$head,finding_ids:$finding_ids[0],comments:$comments[0]}'               > "$input_file"
+          }
+          build_admit_input
+
+          # Recovery is PR-scoped rather than current-evidence-scoped: an orphaned
+          # pre-model start from an older head/finding burst must not consume budget
+          # forever. Retire it only after the exact historical run attempt is terminal
+          # and its repair job is absent or definitively skipped. Any ambiguity remains
+          # fail-closed.
+          recovered_any=no
+          unresolved="$(node scripts/supervisor-review-repair-strategy-memory.mjs unresolved < "$input_file")"
+          while IFS= read -r candidate; do
+            [ -n "$candidate" ] || continue
+            old_run_id="$(jq -r '.run_id' <<< "$candidate")"
+            old_run_attempt="$(jq -r '.run_attempt' <<< "$candidate")"
+            run_file="$RUNNER_TEMP/review-repair-run-${old_run_id}-${old_run_attempt}.json"
+            jobs_file="$RUNNER_TEMP/review-repair-jobs-${old_run_id}-${old_run_attempt}.json"
+            if ! gh api "repos/${REPOSITORY}/actions/runs/${old_run_id}/attempts/${old_run_attempt}" > "$run_file"; then
+              echo "Could not prove historical Review Repair run state; leaving start unresolved."
+              continue
+            fi
+            if ! gh api --paginate "repos/${REPOSITORY}/actions/runs/${old_run_id}/attempts/${old_run_attempt}/jobs?per_page=100" --jq '.jobs[]' | jq -s '.' > "$jobs_file"; then
+              echo "Could not prove historical Review Repair job state; leaving start unresolved."
+              continue
+            fi
+
+            proof_input="$RUNNER_TEMP/review-repair-recovery-proof-${old_run_id}-${old_run_attempt}.json"
+            jq -n               --arg repository "$REPOSITORY"               --arg pr_number "$PR_NUMBER"               --argjson start "$candidate"               --slurpfile run "$run_file"               --slurpfile jobs "$jobs_file"               '{repository:$repository,pr_number:($pr_number|tonumber),start:$start,run:$run[0],jobs:$jobs[0]}'               > "$proof_input"
+            proof="$(node scripts/supervisor-review-repair-strategy-memory.mjs recovery-proof < "$proof_input")"
+            if [ "$(jq -r '.recoverable' <<< "$proof")" != "true" ]; then
+              echo "Historical start remains fail-closed: $(jq -r '.reason' <<< "$proof")"
+              continue
+            fi
+
+            recovery_input="$RUNNER_TEMP/review-repair-recovery-${old_run_id}-${old_run_attempt}.json"
+            jq -n               --arg repository "$REPOSITORY"               --arg pr_number "$PR_NUMBER"               --argjson start "$candidate"               --arg recovered_by_run_id "$GITHUB_RUN_ID"               --arg recovered_by_run_attempt "$GITHUB_RUN_ATTEMPT"               '{repository:$repository,pr_number:($pr_number|tonumber),start:$start,recovered_by_run_id:($recovered_by_run_id|tonumber),recovered_by_run_attempt:($recovered_by_run_attempt|tonumber)}'               > "$recovery_input"
+            recovery_body="$(node scripts/supervisor-review-repair-strategy-memory.mjs recovery-body < "$recovery_input" | jq -r '.body')"
+            recovered="$(gh api --method POST "repos/${REPOSITORY}/issues/548/comments" -f "body=$recovery_body")"
+            jq -e '.id | numbers' >/dev/null <<< "$recovered"
+            recovered_any=yes
+            echo "Recovered orphaned pre-model Review Repair start ${old_run_id}:${old_run_attempt}."
+          done < <(jq -c '.[]' <<< "$unresolved")
+
+          if [ "$recovered_any" = "yes" ]; then
+            gh api --paginate "repos/${REPOSITORY}/issues/548/comments?per_page=100" --jq '.[]' | jq -s '.' > "$comments_file"
+            jq -e 'type == "array"' "$comments_file" >/dev/null
+            build_admit_input
+          fi
+
+          decision="$(node scripts/supervisor-review-repair-strategy-memory.mjs admit < "$input_file")"
+          code="$(jq -r '.decision' <<< "$decision")"
+          echo "Review Repair strategy-history decision: $code"
+          echo "evidence_fingerprint=$(jq -r '.evidence_fingerprint' <<< "$decision")" >> "$GITHUB_OUTPUT"
+          echo "strategy_fingerprint=$(jq -r '.strategy_fingerprint' <<< "$decision")" >> "$GITHUB_OUTPUT"
+
+          case "$code" in
+            ALLOW)
+              ;;
+            SUPPRESS_REPEAT|SUPPRESS_UNRESOLVED_ATTEMPT|HUMAN_REQUIRED)
+              echo "Automatic Review Repair stopped: $(jq -r '.reason' <<< "$decision")"
+              exit 0
+              ;;
+            *)
+              echo "Unknown Review Repair strategy-history decision: $code" >&2
+              exit 1
+              ;;
+          esac
+
+          start_input="$RUNNER_TEMP/proffera-review-repair-start.json"
+          jq -n             --arg repository "$REPOSITORY"             --arg pr_number "$PR_NUMBER"             --arg head "$HEAD_SHA"             --arg run_id "$GITHUB_RUN_ID"             --arg run_attempt "$GITHUB_RUN_ATTEMPT"             --slurpfile finding_ids "$RUNNER_TEMP/proffera-review-repair-evidence/finding_ids.json"             '{repository:$repository,pr_number:($pr_number|tonumber),head:$head,finding_ids:$finding_ids[0],run_id:($run_id|tonumber),run_attempt:($run_attempt|tonumber)}'             > "$start_input"
+          start_body="$(node scripts/supervisor-review-repair-strategy-memory.mjs start-body < "$start_input" | jq -r '.body')"
+          created="$(gh api --method POST "repos/${REPOSITORY}/issues/548/comments" -f "body=$start_body")"
+          jq -e '.id | numbers' >/dev/null <<< "$created"
           echo "repair=yes" >> "$GITHUB_OUTPUT"
-          echo "Current-head material review evidence exists; one bounded repair batch is allowed."
+          echo "attempt_started=yes" >> "$GITHUB_OUTPUT"
+          # Export identity only after the exact durable start has been acknowledged.
+          echo "admitted_run_id=$GITHUB_RUN_ID" >> "$GITHUB_OUTPUT"
+          echo "admitted_run_attempt=$GITHUB_RUN_ATTEMPT" >> "$GITHUB_OUTPUT"
+
+  repair:
+    name: Batch current-head review findings
+    needs: admit
+    if: needs.admit.outputs.repair == 'yes'
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    permissions:
+      actions: read
+      contents: read
+      issues: read
+      pull-requests: read
+    outputs:
+      changed: ${{ steps.diff.outputs.changed }}
+      run_id: ${{ needs.admit.outputs.admitted_run_id }}
+      run_attempt: ${{ needs.admit.outputs.admitted_run_attempt }}
+      head_sha: ${{ needs.admit.outputs.head_sha }}
+      head_ref: ${{ needs.admit.outputs.head_ref }}
+      patch_sha256: ${{ steps.diff.outputs.patch_sha256 }}
+      finding_set_sha256: ${{ needs.admit.outputs.finding_set_sha256 }}
+    steps:
+      - name: Reject reuse of an admitted model attempt
+        env:
+          ADMITTED_RUN_ID: ${{ needs.admit.outputs.admitted_run_id }}
+          ADMITTED_RUN_ATTEMPT: ${{ needs.admit.outputs.admitted_run_attempt }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$ADMITTED_RUN_ID" =~ ^[1-9][0-9]*$ ]]
+          [[ "$ADMITTED_RUN_ATTEMPT" =~ ^[1-9][0-9]*$ ]]
+          # Selected-job reruns keep earlier admission outputs. They may retry
+          # validation/recording, but must never invoke the same admitted model again.
+          if [ "$GITHUB_RUN_ID" != "$ADMITTED_RUN_ID" ] || [ "$GITHUB_RUN_ATTEMPT" != "$ADMITTED_RUN_ATTEMPT" ]; then
+            echo "This model attempt was admitted in another run attempt; refusing duplicate execution." >&2
+            exit 1
+          fi
+
+      - name: Checkout exact PR head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ needs.admit.outputs.head_sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Download settled exact-head review evidence
+        uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5
+        with:
+          name: supervisor-review-evidence-${{ needs.admit.outputs.admitted_run_id }}-${{ needs.admit.outputs.admitted_run_attempt }}-${{ needs.admit.outputs.head_sha }}
+          path: .
+
+      - name: Revalidate exact-head review evidence before model
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          PR_NUMBER: ${{ inputs.pr_number }}
+          EXPECTED_HEAD: ${{ needs.admit.outputs.head_sha }}
+          EXPECTED_FINDING_SET_SHA256: ${{ needs.admit.outputs.finding_set_sha256 }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          live_head="$(gh api "repos/${REPOSITORY}/pulls/${PR_NUMBER}" --jq '.head.sha')"
+          test "$live_head" = "$EXPECTED_HEAD" || {
+            echo "PR head changed before Review Repair model execution; refusing stale model attempt." >&2
+            exit 1
+          }
+          temp="$(mktemp -d)"
+          trap 'rm -rf "$temp"' EXIT
+          bots='select(.user.login == "coderabbitai[bot]" or .user.login == "chatgpt-codex-connector[bot]")'
+          gh api --paginate "repos/${REPOSITORY}/pulls/${PR_NUMBER}/reviews?per_page=100" --jq '.[]' | jq -s "[.[] | ${bots}]" > "$temp/reviews.json"
+          gh api --paginate "repos/${REPOSITORY}/pulls/${PR_NUMBER}/comments?per_page=100" --jq '.[]' | jq -s "[.[] | ${bots}]" > "$temp/inline.json"
+          jq -e 'type == "array" and length <= 1000' "$temp/reviews.json" >/dev/null
+          jq -e 'type == "array" and length <= 1000' "$temp/inline.json" >/dev/null
+          jq -n --arg head "$EXPECTED_HEAD" --slurpfile reviews "$temp/reviews.json" --slurpfile inline "$temp/inline.json" '
+            [
+              ($reviews[0][]
+                | select(.commit_id == $head and .state == "CHANGES_REQUESTED")
+                | "review:" + (.id | tostring)),
+              ($inline[0][]
+                | select(.original_commit_id == $head)
+                | "inline:" + (.id | tostring))
+            ] | unique | sort
+          ' > "$temp/finding_ids.json"
+          observed="$(sha256sum "$temp/finding_ids.json" | cut -d' ' -f1)"
+          test "$observed" = "$EXPECTED_FINDING_SET_SHA256" || {
+            echo "Current-head review finding burst changed before model execution; refusing stale model attempt." >&2
+            exit 1
+          }
 
       - name: Run one batched exact-head repair
-        if: steps.qualify.outputs.repair == 'yes'
         uses: openai/codex-action@86365089eb2b84e0a8fb0717b304f8bdcb13b20e
         with:
           openai-api-key: ${{ secrets.OPENAI_API_KEY }}
@@ -160,12 +416,11 @@ jobs:
             Do not touch any file outside the Task Packet, install packages, commit, push, open/merge PRs, approve, deploy, mutate Production, change secrets/config, or alter migrations. If there is no valid finding, leave the tree unchanged.
 
       - name: Capture candidate repair patch
-        if: steps.qualify.outputs.repair == 'yes'
         id: diff
         shell: bash
         run: |
           set -euo pipefail
-          rm -f supervisor-review-evidence.json
+          rm -f supervisor-review-evidence.json finding_ids.json
           git add --all --intent-to-add
           if git diff --quiet HEAD; then
             echo "changed=no" >> "$GITHUB_OUTPUT"
@@ -188,11 +443,10 @@ jobs:
         if: steps.diff.outputs.changed == 'yes'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: supervisor-review-repair-${{ github.run_id }}-${{ steps.preflight.outputs.head_sha }}
+          name: supervisor-review-repair-${{ github.run_id }}-${{ github.run_attempt }}-${{ needs.admit.outputs.head_sha }}
           path: ${{ runner.temp }}/proffera-review-repair-candidate
           if-no-files-found: error
-          retention-days: 1
-
+          retention-days: 31
   validate:
     name: Validate repair without model or push credentials
     needs: repair
@@ -218,7 +472,7 @@ jobs:
       - name: Download exact candidate repair patch
         uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5
         with:
-          name: supervisor-review-repair-${{ github.run_id }}-${{ needs.repair.outputs.head_sha }}
+          name: supervisor-review-repair-${{ needs.repair.outputs.run_id }}-${{ needs.repair.outputs.run_attempt }}-${{ needs.repair.outputs.head_sha }}
           path: ${{ runner.temp }}/proffera-review-repair-candidate
 
       - name: Verify candidate artifact integrity
@@ -303,7 +557,7 @@ jobs:
       - name: Download exact candidate repair patch
         uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5
         with:
-          name: supervisor-review-repair-${{ github.run_id }}-${{ needs.repair.outputs.head_sha }}
+          name: supervisor-review-repair-${{ needs.repair.outputs.run_id }}-${{ needs.repair.outputs.run_attempt }}-${{ needs.repair.outputs.head_sha }}
           path: ${{ runner.temp }}/proffera-review-repair-candidate
 
       - name: Verify candidate artifact integrity
@@ -347,6 +601,43 @@ jobs:
           test -s "$trusted_helper"
           test "$(git hash-object "$trusted_helper")" = "$expected_blob_sha"
           node --check "$trusted_helper"
+
+      - name: Revalidate settled current-head finding burst before publication
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          PR_NUMBER: ${{ inputs.pr_number }}
+          EXPECTED_HEAD: ${{ needs.repair.outputs.head_sha }}
+          EXPECTED_FINDING_SET_SHA256: ${{ needs.repair.outputs.finding_set_sha256 }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          live_head="$(gh api "repos/${REPOSITORY}/pulls/${PR_NUMBER}" --jq '.head.sha')"
+          test "$live_head" = "$EXPECTED_HEAD" || {
+            echo "PR head changed after the settled review burst; refusing publication." >&2
+            exit 1
+          }
+          temp="$(mktemp -d)"
+          bots='select(.user.login == "coderabbitai[bot]" or .user.login == "chatgpt-codex-connector[bot]")'
+          gh api --paginate "repos/${REPOSITORY}/pulls/${PR_NUMBER}/reviews?per_page=100" --jq '.[]'             | jq -s "[.[] | ${bots}]" > "$temp/reviews.json"
+          gh api --paginate "repos/${REPOSITORY}/pulls/${PR_NUMBER}/comments?per_page=100" --jq '.[]'             | jq -s "[.[] | ${bots}]" > "$temp/inline.json"
+          jq -e 'type == "array" and length <= 1000' "$temp/reviews.json" >/dev/null
+          jq -e 'type == "array" and length <= 1000' "$temp/inline.json" >/dev/null
+          jq -n --arg head "$EXPECTED_HEAD"             --slurpfile reviews "$temp/reviews.json"             --slurpfile inline "$temp/inline.json" '
+              [
+                ($reviews[0][]
+                  | select(.commit_id == $head and .state == "CHANGES_REQUESTED")
+                  | "review:" + (.id | tostring)),
+                ($inline[0][]
+                  | select(.original_commit_id == $head)
+                  | "inline:" + (.id | tostring))
+              ] | unique | sort
+            ' > "$temp/finding_ids.json"
+          observed="$(sha256sum "$temp/finding_ids.json" | cut -d' ' -f1)"
+          test "$observed" = "$EXPECTED_FINDING_SET_SHA256" || {
+            echo "Current-head review finding burst changed after model execution; refusing stale repair publication." >&2
+            exit 1
+          }
 
       - name: Apply candidate patch without executing PR-controlled code
         shell: bash
@@ -392,6 +683,7 @@ jobs:
           PR_NUMBER: ${{ inputs.pr_number }}
           EXPECTED_HEAD: ${{ needs.repair.outputs.head_sha }}
           HEAD_REF: ${{ needs.repair.outputs.head_ref }}
+          EXPECTED_FINDING_SET_SHA256: ${{ needs.repair.outputs.finding_set_sha256 }}
           PUSH_TOKEN: ${{ secrets.PROFFERA_AUTOFIX_PUSH_TOKEN }}
         shell: bash
         run: |
@@ -403,6 +695,36 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add --all
           git commit -m "[review-repair] batch current-head verified findings"
+          # Close the last stale-evidence window at the actual publication boundary.
+          # A reviewer may post another finding after the earlier validation guard while
+          # the candidate patch is being applied or scope-validated.
+          push_guard_head="$(gh api "repos/${REPOSITORY}/pulls/${PR_NUMBER}" --jq '.head.sha')"
+          test "$push_guard_head" = "$EXPECTED_HEAD" || {
+            echo "PR head changed immediately before Review Repair publication; refusing stale push." >&2
+            exit 1
+          }
+          review_temp="$(mktemp -d)"
+          bots='select(.user.login == "coderabbitai[bot]" or .user.login == "chatgpt-codex-connector[bot]")'
+          gh api --paginate "repos/${REPOSITORY}/pulls/${PR_NUMBER}/reviews?per_page=100" --jq '.[]' | jq -s "[.[] | ${bots}]" > "$review_temp/reviews.json"
+          gh api --paginate "repos/${REPOSITORY}/pulls/${PR_NUMBER}/comments?per_page=100" --jq '.[]' | jq -s "[.[] | ${bots}]" > "$review_temp/inline.json"
+          jq -e 'type == "array" and length <= 1000' "$review_temp/reviews.json" >/dev/null
+          jq -e 'type == "array" and length <= 1000' "$review_temp/inline.json" >/dev/null
+          jq -n --arg head "$EXPECTED_HEAD" --slurpfile reviews "$review_temp/reviews.json" --slurpfile inline "$review_temp/inline.json" '
+            [
+              ($reviews[0][]
+                | select(.commit_id == $head and .state == "CHANGES_REQUESTED")
+                | "review:" + (.id | tostring)),
+              ($inline[0][]
+                | select(.original_commit_id == $head)
+                | "inline:" + (.id | tostring))
+            ] | unique | sort
+          ' > "$review_temp/finding_ids.json"
+          push_boundary_findings="$(sha256sum "$review_temp/finding_ids.json" | cut -d' ' -f1)"
+          rm -rf "$review_temp"
+          test "$push_boundary_findings" = "$EXPECTED_FINDING_SET_SHA256" || {
+            echo "Current-head review finding burst changed at the push boundary; refusing stale repair publication." >&2
+            exit 1
+          }
           cleanup() { git config --local --unset credential.helper || true; }
           trap cleanup EXIT
           git config --local credential.helper '!f() { echo username=x-access-token; echo "password=$PUSH_TOKEN"; }; f'
@@ -410,3 +732,167 @@ jobs:
           GIT_TERMINAL_PROMPT=0 git push origin "HEAD:refs/heads/${HEAD_REF}"
           cleanup
           trap - EXIT
+
+  record:
+    name: Record durable Review Repair attempt outcome
+    needs: [admit, repair, validate, publish]
+    if: always() && needs.admit.outputs.attempt_started == 'yes'
+    concurrency:
+      group: proffera-final-gate-memory-${{ fromJSON(inputs.pr_number) }}
+      cancel-in-progress: false
+      # All writers sharing this group must retain pending work (up to 100 jobs).
+      queue: max
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    permissions:
+      actions: read
+      contents: read
+      issues: write
+      pull-requests: read
+    steps:
+      - name: Checkout trusted Review Repair strategy helper
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 22
+
+      - name: Download settled exact-head review evidence
+        uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5
+        with:
+          name: supervisor-review-evidence-${{ needs.admit.outputs.admitted_run_id }}-${{ needs.admit.outputs.admitted_run_attempt }}-${{ needs.admit.outputs.head_sha }}
+          path: ${{ runner.temp }}/proffera-review-repair-evidence
+
+      - name: Classify the started model attempt
+        id: classify
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          ADMITTED_RUN_ID: ${{ needs.admit.outputs.admitted_run_id }}
+          ADMITTED_RUN_ATTEMPT: ${{ needs.admit.outputs.admitted_run_attempt }}
+          REPAIR_RESULT: ${{ needs.repair.result }}
+          CHANGED: ${{ needs.repair.outputs.changed }}
+          VALIDATE_RESULT: ${{ needs.validate.result }}
+          PUBLISH_RESULT: ${{ needs.publish.result }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "persist=yes" >> "$GITHUB_OUTPUT"
+          if [ "$REPAIR_RESULT" = "skipped" ]; then
+            echo "persist=no" >> "$GITHUB_OUTPUT"
+            echo "Review Repair model job was skipped; no model attempt outcome will be charged."
+            exit 0
+          fi
+          if [ "$REPAIR_RESULT" != "success" ]; then
+            jobs_file="$RUNNER_TEMP/review-repair-current-attempt-jobs.json"
+            gh api --paginate "repos/${REPOSITORY}/actions/runs/${ADMITTED_RUN_ID}/attempts/${ADMITTED_RUN_ATTEMPT}/jobs?per_page=100" --jq '.jobs[]' | jq -s '.' > "$jobs_file"
+            jq -e 'type == "array"' "$jobs_file" >/dev/null
+            repair_count="$(jq '[.[] | select(.name == "Batch current-head review findings")] | length' "$jobs_file")"
+            test "$repair_count" = "1"
+            model_steps="$(jq '[.[] | select(.name == "Batch current-head review findings") | .steps[]? | select(.name == "Run one batched exact-head repair")]' "$jobs_file")"
+            model_count="$(jq 'length' <<< "$model_steps")"
+            if [ "$model_count" = "1" ] \
+              && [ "$(jq -r '.[0].status // ""' <<< "$model_steps")" = "completed" ] \
+              && [ "$(jq -r '.[0].conclusion // ""' <<< "$model_steps")" = "skipped" ]; then
+              echo "persist=no" >> "$GITHUB_OUTPUT"
+              echo "Review Repair stopped before the model step; leaving the durable start recoverable without charging budget."
+              exit 0
+            fi
+          fi
+          outcome=failed
+          if [ "$REPAIR_RESULT" = "cancelled" ] || [ "$VALIDATE_RESULT" = "cancelled" ] || [ "$PUBLISH_RESULT" = "cancelled" ]; then
+            outcome=cancelled
+          elif [ "$REPAIR_RESULT" != "success" ]; then
+            outcome=failed
+          elif [ "$CHANGED" != "yes" ]; then
+            outcome=no_change
+          elif [ "$VALIDATE_RESULT" = "success" ] && [ "$PUBLISH_RESULT" = "success" ]; then
+            outcome=succeeded
+          else
+            outcome=failed
+          fi
+          echo "REVIEW_REPAIR_OUTCOME=$outcome" >> "$GITHUB_ENV"
+          echo "REVIEW_REPAIR_OBSERVED_AT=$(date -u +'%Y-%m-%dT%H:%M:%SZ')" >> "$GITHUB_ENV"
+          echo "Durable Review Repair attempt outcome: $outcome"
+
+      - name: Persist exact attempt outcome in canonical Failure Memory
+        if: steps.classify.outputs.persist == 'yes'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          PR_NUMBER: ${{ inputs.pr_number }}
+          HEAD_SHA: ${{ needs.admit.outputs.head_sha }}
+          ADMITTED_RUN_ID: ${{ needs.admit.outputs.admitted_run_id }}
+          ADMITTED_RUN_ATTEMPT: ${{ needs.admit.outputs.admitted_run_attempt }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$ADMITTED_RUN_ID" =~ ^[1-9][0-9]*$ ]]
+          [[ "$ADMITTED_RUN_ATTEMPT" =~ ^[1-9][0-9]*$ ]]
+          test "$ADMITTED_RUN_ID" = "$GITHUB_RUN_ID"
+          evidence_dir="$RUNNER_TEMP/proffera-review-repair-evidence"
+          test -s "$evidence_dir/finding_ids.json"
+
+          prepare_plan() {
+            local comments_file="$1"
+            local output_file="$2"
+            jq -n               --arg repository "$REPOSITORY"               --arg pr_number "$PR_NUMBER"               --arg head "$HEAD_SHA"               --arg outcome "$REVIEW_REPAIR_OUTCOME"               --arg run_id "$ADMITTED_RUN_ID"               --arg run_attempt "$ADMITTED_RUN_ATTEMPT"               --arg observed_at "$REVIEW_REPAIR_OBSERVED_AT"               --slurpfile finding_ids "$evidence_dir/finding_ids.json"               --slurpfile comments "$comments_file"               '{
+                repository:$repository,
+                pr_number:($pr_number|tonumber),
+                head:$head,
+                finding_ids:$finding_ids[0],
+                outcome:$outcome,
+                run_id:($run_id|tonumber),
+                run_attempt:($run_attempt|tonumber),
+                observed_at:$observed_at,
+                comments:$comments[0]
+              }'               | node scripts/supervisor-review-repair-strategy-memory.mjs prepare-outcome > "$output_file"
+          }
+
+          comments_a="$RUNNER_TEMP/review-repair-comments-a.json"
+          comments_b="$RUNNER_TEMP/review-repair-comments-b.json"
+          gh api --paginate "repos/${REPOSITORY}/issues/548/comments?per_page=100" --jq '.[]' | jq -s '.' > "$comments_a"
+          jq -e 'type == "array"' "$comments_a" >/dev/null
+          plan_a="$RUNNER_TEMP/review-repair-plan-a.json"
+          prepare_plan "$comments_a" "$plan_a"
+
+          # Re-read under the shared non-cancelling per-PR memory mutex before mutation.
+          gh api --paginate "repos/${REPOSITORY}/issues/548/comments?per_page=100" --jq '.[]' | jq -s '.' > "$comments_b"
+          jq -e 'type == "array"' "$comments_b" >/dev/null
+          plan_b="$RUNNER_TEMP/review-repair-plan-b.json"
+          prepare_plan "$comments_b" "$plan_b"
+          test "$(jq -S -c '.expected' "$plan_a")" = "$(jq -S -c '.expected' "$plan_b")" || {
+            echo "Failure Memory changed between outcome preparation and write; refusing stale mutation." >&2
+            exit 1
+          }
+
+          if [ "$(jq -r '.unchanged' "$plan_b")" = "true" ]; then
+            echo "Review Repair attempt outcome is already durably recorded."
+            exit 0
+          fi
+
+          body_file="$RUNNER_TEMP/review-repair-memory-body.txt"
+          jq -r '.body' "$plan_b" > "$body_file"
+          payload="$RUNNER_TEMP/review-repair-memory-payload.json"
+          jq -n --rawfile body "$body_file" '{body:$body}' > "$payload"
+          comment_id="$(jq -r '.comment_id // empty' "$plan_b")"
+          if [ -z "$comment_id" ]; then
+            created="$(gh api --method POST "repos/${REPOSITORY}/issues/548/comments" --input "$payload")"
+            jq -e '.id | numbers' >/dev/null <<< "$created"
+          else
+            gh api --method PATCH "repos/${REPOSITORY}/issues/comments/${comment_id}" --input "$payload" >/dev/null
+          fi
+
+          confirmed_comments="$RUNNER_TEMP/review-repair-comments-confirmed.json"
+          gh api --paginate "repos/${REPOSITORY}/issues/548/comments?per_page=100" --jq '.[]' | jq -s '.' > "$confirmed_comments"
+          confirmed_plan="$RUNNER_TEMP/review-repair-plan-confirmed.json"
+          prepare_plan "$confirmed_comments" "$confirmed_plan"
+          test "$(jq -r '.unchanged' "$confirmed_plan")" = "true" || {
+            echo "Review Repair attempt outcome did not converge to canonical Failure Memory." >&2
+            exit 1
+          }
+          echo "Review Repair attempt outcome persisted and re-read exactly."

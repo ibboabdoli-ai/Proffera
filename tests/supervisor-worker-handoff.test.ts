@@ -6401,9 +6401,11 @@ process.stdout.write(JSON.stringify({
     expect(run("validate-changes", { packet: packet(), changed_files: ["package.json"] }).code).toBe("hard_blocked_change");
     expect(run("validate-changes", { packet: packet(), changed_files: ["scripts/supervisor-worker-handoff.mjs"] }).code).toBe("hard_blocked_change");
     expect(run("validate-changes", { packet: packet(), changed_files: ["scripts/supervisor-worker-strategy-memory.mjs"] }).code).toBe("hard_blocked_change");
+    expect(run("validate-changes", { packet: packet(), changed_files: ["scripts/supervisor-review-repair-strategy-memory.mjs"] }).code).toBe("hard_blocked_change");
     expect(run("validate-changes", { packet: packet(), changed_files: ["scripts/supervisor-failure-memory.mjs"] }).code).toBe("hard_blocked_change");
     const plannerWorkflow = source(".github/workflows/supervisor-planner.yml");
     expect(plannerWorkflow).toContain("scripts/supervisor-worker-strategy-memory.mjs");
+    expect(plannerWorkflow).toContain("scripts/supervisor-review-repair-strategy-memory.mjs");
     expect(plannerWorkflow).toContain("scripts/supervisor-failure-memory.mjs");
     expect(plannerWorkflow).toContain("dependency_paths");
     expect(run("validate-changes", { packet: packet(), changed_files: ["src/unrelated.ts"] }).code).toBe("out_of_scope_change");
