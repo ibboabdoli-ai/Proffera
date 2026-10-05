@@ -69,6 +69,20 @@ describe("Doni admin mirrors the public demo", () => {
     );
   });
 
+  it("supports direct gallery uploads and does not silently reject blank upload descriptions", () => {
+    const editor = readFileSync(
+      "src/app/dashboard/restaurang/restaurant-editor.tsx",
+      "utf8",
+    );
+
+    expect(editor).toContain("function imageUploadAlt");
+    expect(editor).toContain("const resolvedAlt = imageUploadAlt(file, fallbackAlt)");
+    expect(editor).not.toContain("if (!alt.trim())");
+    expect(editor).toContain("Ladda upp ny bild till galleriet");
+    expect(editor).toContain('kind: "food"');
+    expect(editor).toContain("currentAlt,");
+  });
+
   it("keeps menu description fields editable without inventing dish copy", () => {
     const editor = readFileSync(
       "src/app/dashboard/restaurang/restaurant-editor.tsx",
