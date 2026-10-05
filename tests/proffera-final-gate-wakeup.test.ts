@@ -366,7 +366,7 @@ describe("event-driven final review gate", () => {
     expect(wakeup).toContain('require_success "E2E public smoke run"');
     expect(wakeup).toContain('select(.name == "E2E public smoke")');
     expect(wakeup).toContain("scripts/supervisor-final-gate-live.mjs");
-    expect(wakeup).toContain("proffera-final-gate-memory-${{ inputs.pr_number }}");
+    expect(wakeup).toContain("proffera-final-gate-memory-${{ fromJSON(inputs.pr_number) }}");
     expect(wakeup).toContain("cancel-in-progress: false");
     expect(wakeup).toContain("issues: write");
     expect(wakeup).toContain("Failure Memory: ACCEPTED");

@@ -32,6 +32,7 @@ export const HARD_BLOCKED_SCOPES = Object.freeze([
   "WORKER_BOOTSTRAP.md",
   "scripts/supervisor-worker-handoff.mjs",
   "scripts/supervisor-worker-strategy-memory.mjs",
+  "scripts/supervisor-review-repair-strategy-memory.mjs",
   "scripts/supervisor-failure-memory.mjs",
   ".env",
   ".env.",
