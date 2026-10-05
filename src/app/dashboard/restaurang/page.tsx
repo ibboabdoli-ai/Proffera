@@ -73,7 +73,7 @@ export default async function RestaurantAdminPage() {
         .map((item) => ({
           id: item.id,
           url: DONIS_LUXURY_FALLBACK_IMAGES[item.id],
-          alt: item.alt.sv || item.alt.en,
+          alt: item.alt,
         }))
         .filter((item) => Boolean(item.url))
         .map((item) => [item.id, item] as const),
@@ -104,7 +104,7 @@ export default async function RestaurantAdminPage() {
           .map(({ id, publicUrl, altText }) => ({
             id,
             url: publicUrl,
-            alt: altText,
+            alt: { sv: altText, en: altText },
           })),
       ]}
       referenceDishImages={referenceDishImages}
