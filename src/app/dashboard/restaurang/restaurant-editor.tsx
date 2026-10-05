@@ -109,7 +109,6 @@ function PriceInput({
 export function RestaurantEditor({
   initial,
   images: initialImages,
-  referenceDishImages = {},
   referenceHeroImage,
   referenceGalleryImages = [],
 }: {
@@ -121,7 +120,6 @@ export function RestaurantEditor({
     starter?: boolean;
   };
   images: Media[];
-  referenceDishImages?: Record<string, string>;
   referenceHeroImage?: string;
   referenceGalleryImages?: string[];
 }) {
@@ -742,7 +740,6 @@ export function RestaurantEditor({
                         next.dishes.find((item) => item.id === dish.id)!.image =
                           photo;
                       }),
-                    referenceDishImages[dish.id],
                   )}
                   <div className="flex flex-wrap gap-2">
                     <button
@@ -794,8 +791,7 @@ export function RestaurantEditor({
                             const ownedImage = item.image
                               ? images.find((image) => image.id === item.image?.id)?.url
                               : undefined;
-                            const previewUrl =
-                              ownedImage ?? referenceDishImages[item.id];
+                            const previewUrl = ownedImage;
                             return (
                               <article
                                 key={item.id}
