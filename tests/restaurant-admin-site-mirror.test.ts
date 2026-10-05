@@ -51,9 +51,22 @@ describe("Doni admin mirrors the public demo", () => {
     expect(page).toContain("referenceGalleryImages={referenceGalleryImages}");
     expect(page).toContain("DONIS_LUXURY_FALLBACK_SITE.dishes");
     expect(editor).toContain("Referensbilder från demosidan");
-    expect(editor).toContain("referenceDishImages[dish.id]");
+    expect(editor).not.toContain("referenceDishImages");
+    expect(editor).toContain("const previewUrl = ownedImage;");
     expect(editor).toContain("referenceHeroImage");
     expect(editor).toContain("referenceGalleryImages");
+  });
+
+  it("translates the contact navigation in the English dashboard", () => {
+    const localeBoundary = readFileSync(
+      "src/components/dashboard/dashboard-global-locale-boundary.tsx",
+      "utf8",
+    );
+
+    expect(localeBoundary).toContain('"Kontakt": "Contact"');
+    expect(localeBoundary).toContain(
+      '"Adress, telefon och Instagram": "Address, phone and Instagram"',
+    );
   });
 
   it("keeps menu description fields editable without inventing dish copy", () => {
