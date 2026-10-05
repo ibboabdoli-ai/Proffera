@@ -54,6 +54,37 @@ describe("restaurant site content boundary", () => {
     expect(validateRestaurantSite(draft).ok).toBe(false);
   });
 
+  it("accepts bilingual dish names and editable contact details", () => {
+    const draft = structuredClone(emptyRestaurantSite);
+    draft.categories.push({
+      id: categoryId,
+      name: { sv: "Pasta", en: "Pasta" },
+      sortOrder: 0,
+      hidden: false,
+    });
+    draft.dishes.push({
+      id: dishId,
+      categoryId,
+      name: "Vitlöksbröd",
+      nameEn: "Garlic Bread",
+      priceOre: 4500,
+      description: { sv: "", en: "" },
+      image: null,
+      sortOrder: 0,
+      hidden: false,
+      archived: false,
+    });
+    draft.contact = {
+      addressLine1: "Hornsbergs Strand 77",
+      postalCity: "112 16 Stockholm",
+      phone: "08-656 84 00",
+      email: "donitrattoria@gmail.com",
+      instagram: "@donis.trattoria",
+      orgNumber: "556852-1420",
+    };
+    expect(validateRestaurantSite(draft).ok).toBe(true);
+  });
+
   it("rejects repeated opening-day records", () => {
     const draft = structuredClone(emptyRestaurantSite);
     draft.hours[1].day = 0;

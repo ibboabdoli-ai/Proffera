@@ -7,19 +7,30 @@ import {
 } from "@/lib/workspace-access";
 import {
   emptyRestaurantSite,
+  restaurantContactDefaults,
   validateRestaurantSite,
   type RestaurantSite,
 } from "@/lib/restaurant-site-schema";
+import { isRestaurantSiteBlank } from "@/lib/donis-fallback";
 import {
-  createDonisAdminStarterSite,
-  isRestaurantSiteBlank,
-} from "@/lib/donis-fallback";
+  createDonisLuxuryAdminStarterSite,
+  getDonisLuxuryBuiltinImageUrl,
+  isDonisLuxuryBuiltinImageId,
+} from "@/lib/donis-luxury-fallback";
 
 const slug = "donis-trattoria";
 
 function readSite(value: unknown): RestaurantSite {
   const parsed = validateRestaurantSite(value);
-  return parsed.ok ? parsed.site : emptyRestaurantSite;
+  if (!parsed.ok) return structuredClone(emptyRestaurantSite);
+  return {
+    ...parsed.site,
+    dishes: parsed.site.dishes.map((dish) => ({
+      ...dish,
+      nameEn: dish.nameEn ?? "",
+    })),
+    contact: parsed.site.contact ?? { ...restaurantContactDefaults },
+  };
 }
 
 export async function getRestaurantAdmin() {
@@ -43,7 +54,7 @@ export async function getRestaurantAdmin() {
   const published = rows[0].published ? readSite(rows[0].published) : null;
   const starter = !published && isRestaurantSiteBlank(draft);
   return {
-    draft: starter ? createDonisAdminStarterSite() : draft,
+    draft: starter ? createDonisLuxuryAdminStarterSite() : draft,
     published,
     revision: Number(rows[0].draft_revision),
     publishedRevision:
@@ -86,7 +97,6 @@ export async function getRestaurantImageUrls(
   site: RestaurantSite,
 ): Promise<Record<string, string>> {
   const sql = getSql();
-  if (!sql) return {};
   const ids = [
     ...new Set(
       [
@@ -99,19 +109,31 @@ export async function getRestaurantImageUrls(
     ),
   ];
   if (!ids.length) return {};
+
+  const builtin = Object.fromEntries(
+    ids
+      .filter(isDonisLuxuryBuiltinImageId)
+      .map((id) => [id, getDonisLuxuryBuiltinImageUrl(id)]),
+  );
+  const databaseIds = ids.filter((id) => !isDonisLuxuryBuiltinImageId(id));
+  if (!databaseIds.length || !sql) return builtin;
+
   try {
     const rows = await sql`
       select g.id::text, g.public_url from website_gallery_items g
       join restaurant_sites r on r.workspace_id=g.workspace_id
       join workspaces w on w.id=r.workspace_id
       where r.public_slug=${slug} and w.status in ('active','trial')
-        and g.media_type='image' and g.id::text=any(${ids}::text[])
+        and g.media_type='image' and g.id::text=any(${databaseIds}::text[])
     `;
-    return Object.fromEntries(
-      rows.map((row) => [String(row.id), String(row.public_url)]),
-    );
+    return {
+      ...builtin,
+      ...Object.fromEntries(
+        rows.map((row) => [String(row.id), String(row.public_url)]),
+      ),
+    };
   } catch {
-    return {};
+    return builtin;
   }
 }
 
@@ -128,7 +150,9 @@ async function mediaBelongsToWorkspace(
     ...site.media.gallery,
     ...site.dishes.map((dish) => dish.image),
   ].filter((item): item is NonNullable<typeof item> => item !== null);
-  const ids = [...new Set(media.map((item) => item.id))];
+  const ids = [...new Set(media.map((item) => item.id))].filter(
+    (id) => !isDonisLuxuryBuiltinImageId(id),
+  );
   if (!ids.length) return true;
   const rows = await sql`
     select id::text from website_gallery_items
@@ -156,6 +180,9 @@ export async function saveRestaurantDraft(value: unknown, revision: number) {
     ...parsed.site.dishes.map((dish) => dish.image),
   ].filter((item): item is NonNullable<typeof item> => item !== null);
   const mediaIds = [...new Set(media.map((item) => item.id))];
+  const databaseMediaIds = mediaIds.filter(
+    (id) => !isDonisLuxuryBuiltinImageId(id),
+  );
   const lockKey = `restaurant-site:${access.workspaceId}`;
 
   const [, rows] = await sql.transaction(
@@ -169,7 +196,7 @@ export async function saveRestaurantDraft(value: unknown, revision: number) {
           from website_gallery_items
           where workspace_id=${access.workspaceId}::uuid
             and media_type='image'
-            and id::text=any(${mediaIds}::text[])
+            and id::text=any(${databaseMediaIds}::text[])
         ), updated as (
           update restaurant_sites
           set draft=${JSON.stringify(parsed.site)}::jsonb,
@@ -178,7 +205,7 @@ export async function saveRestaurantDraft(value: unknown, revision: number) {
           where workspace_id=${access.workspaceId}::uuid
             and public_slug=${slug}
             and draft_revision=${revision}
-            and (select media_count from media_guard)=${mediaIds.length}
+            and (select media_count from media_guard)=${databaseMediaIds.length}
           returning draft_revision
         )
         select
@@ -190,7 +217,7 @@ export async function saveRestaurantDraft(value: unknown, revision: number) {
   );
 
   const row = rows[0] as Record<string, unknown> | undefined;
-  if (Number(row?.media_count ?? -1) !== mediaIds.length) {
+  if (Number(row?.media_count ?? -1) !== databaseMediaIds.length) {
     return { ok: false as const, error: "En bild eller version är ogiltig." };
   }
   if (row?.draft_revision == null) {

@@ -1,5 +1,3 @@
-"use client";
-
 import {
   DONIS_FALLBACK_IMAGES,
   DONIS_FALLBACK_SITE,
@@ -74,6 +72,10 @@ const imageIds = {
   kaffeKarlsson: "bb000032-0000-4000-8000-000000000032",
   lemonade: "bb000033-0000-4000-8000-000000000033",
   passion: "bb000034-0000-4000-8000-000000000034",
+  cmsDrinkPeroni: "dd000001-0000-4000-8000-000000000001",
+  cmsInteriorLamps: "dd000002-0000-4000-8000-000000000002",
+  cmsInteriorTree: "dd000003-0000-4000-8000-000000000003",
+  cmsExteriorWide: "dd000004-0000-4000-8000-000000000004",
 } as const;
 
 
@@ -145,6 +147,7 @@ const dish = ({
   id,
   categoryId,
   name,
+  nameEn,
   priceOre,
   descriptionSv = "",
   descriptionEn = "",
@@ -154,6 +157,7 @@ const dish = ({
   id: string;
   categoryId: string;
   name: string;
+  nameEn?: string;
   priceOre: number | null;
   descriptionSv?: string;
   descriptionEn?: string;
@@ -163,6 +167,7 @@ const dish = ({
   id,
   categoryId,
   name,
+  nameEn,
   priceOre,
   description: localized(descriptionSv, descriptionEn),
   image,
@@ -218,11 +223,11 @@ export const DONIS_LUXURY_FALLBACK_IMAGES: Record<string, string> = {
   [imageIds.cheeseFries]: pexelsPhoto(19264409),
   [imageIds.salsiccia]: pexelsPhoto(36782577),
   [imageIds.aubergine]: pexelsPhoto(19674153),
-  [imageIds.bruschettaParma]: pexelsPhoto(31779540),
-  [imageIds.burrata]: pexelsPhoto(20184722),
+  [imageIds.bruschettaParma]: "/donis/cms/bruschetta-parma.webp",
+  [imageIds.burrata]: "/donis/cms/burrata-gamberi.webp",
   [imageIds.gamberi]: pexelsPhoto(8697543),
   [imageIds.antipastiMisti]: pexelsPhoto(29068724),
-  [imageIds.entrecote]: pexelsPhoto(6542787),
+  [imageIds.entrecote]: "/donis/cms/entrecote.webp",
   [imageIds.chickenSalad]: pexelsPhoto(37357456),
   [imageIds.bearnaise]: pexelsPhoto(14552779),
   [imageIds.garlicSauce]: pexelsPhoto(5056827),
@@ -247,10 +252,22 @@ export const DONIS_LUXURY_FALLBACK_IMAGES: Record<string, string> = {
   [imageIds.kaffeKarlsson]: pexelsPhoto(3860486),
   [imageIds.lemonade]: pexelsPhoto(32023924),
   [imageIds.passion]: pexelsPhoto(19034675),
+  [imageIds.cmsDrinkPeroni]: "/donis/cms/drink-peroni.webp",
+  [imageIds.cmsInteriorLamps]: "/donis/cms/interior-lamps.webp",
+  [imageIds.cmsInteriorTree]: "/donis/cms/interior-tree.webp",
+  [imageIds.cmsExteriorWide]: "/donis/cms/exterior-wide.webp",
 };
 
 export const DONIS_LUXURY_FALLBACK_SITE: RestaurantSite = {
   ...DONIS_FALLBACK_SITE,
+  contact: {
+    addressLine1: "Hornsbergs Strand 77",
+    postalCity: "112 16 Stockholm",
+    phone: "08-656 84 00",
+    email: "donitrattoria@gmail.com",
+    instagram: "@donis.trattoria",
+    orgNumber: "556852-1420",
+  },
   text: {
     ...DONIS_FALLBACK_SITE.text,
     aboutTitle: {
@@ -302,6 +319,42 @@ export const DONIS_LUXURY_FALLBACK_SITE: RestaurantSite = {
         kind: "exterior",
         sortOrder: 4,
       },
+      {
+        ...dishImage(
+          imageIds.cmsDrinkPeroni,
+          "Middag, dryck och levande ljus på Doni’s Trattoria",
+          "Dinner, drinks and candlelight at Doni’s Trattoria",
+        ),
+        kind: "atmosphere",
+        sortOrder: 5,
+      },
+      {
+        ...dishImage(
+          imageIds.cmsInteriorLamps,
+          "Detaljer och belysning i Doni’s Trattoria",
+          "Interior details and lighting at Doni’s Trattoria",
+        ),
+        kind: "interior",
+        sortOrder: 6,
+      },
+      {
+        ...dishImage(
+          imageIds.cmsInteriorTree,
+          "Matsalen med blommande träd på Doni’s Trattoria",
+          "Dining room with the flowering tree at Doni’s Trattoria",
+        ),
+        kind: "interior",
+        sortOrder: 7,
+      },
+      {
+        ...dishImage(
+          imageIds.cmsExteriorWide,
+          "Uteserveringen på Doni’s Trattoria vid Hornsbergs Strand",
+          "Doni’s Trattoria terrace by Hornsbergs Strand",
+        ),
+        kind: "exterior",
+        sortOrder: 8,
+      },
     ],
   },
   categories: [
@@ -316,8 +369,8 @@ export const DONIS_LUXURY_FALLBACK_SITE: RestaurantSite = {
     { id: categoryIds.drinks, name: localized("Dryck", "Drinks"), sortOrder: 8, hidden: false },
   ],
   dishes: [
-    dish({ id: dishIds.olives, categoryId: categoryIds.antipasto, name: "Oliver", priceOre: 4500, image: dishImage(imageIds.olives, "Oliver", "Olives"), sortOrder: 0 }),
-    dish({ id: dishIds.garlicBread, categoryId: categoryIds.antipasto, name: "Vitlöksbröd", priceOre: 4500, descriptionSv: "Vitlöksbröd.", descriptionEn: "Garlic bread.", image: dishImage(imageIds.garlicBread, "Vitlöksbröd", "Garlic bread"), sortOrder: 1 }),
+    dish({ id: dishIds.olives, categoryId: categoryIds.antipasto, name: "Oliver", nameEn: "Olives", priceOre: 4500, image: dishImage(imageIds.olives, "Oliver", "Olives"), sortOrder: 0 }),
+    dish({ id: dishIds.garlicBread, categoryId: categoryIds.antipasto, name: "Vitlöksbröd", nameEn: "Garlic Bread", priceOre: 4500, descriptionSv: "Vitlöksbröd.", descriptionEn: "Garlic bread.", image: dishImage(imageIds.garlicBread, "Vitlöksbröd", "Garlic bread"), sortOrder: 1 }),
     dish({ id: dishIds.cheeseFries, categoryId: categoryIds.antipasto, name: "Cheese Fries", priceOre: 8500, image: dishImage(imageIds.cheeseFries, "Cheese Fries", "Cheese Fries"), sortOrder: 2 }),
     dish({ id: dishIds.salsiccia, categoryId: categoryIds.antipasto, name: "Salsiccia", priceOre: 7500, image: dishImage(imageIds.salsiccia, "Salsiccia", "Salsiccia"), sortOrder: 3 }),
     dish({ id: dishIds.aubergine, categoryId: categoryIds.antipasto, name: "Aubergine", priceOre: 7500, image: dishImage(imageIds.aubergine, "Aubergine", "Aubergine"), sortOrder: 4 }),
@@ -512,19 +565,19 @@ export const DONIS_LUXURY_FALLBACK_SITE: RestaurantSite = {
       sortOrder: 0,
     }),
 
-    dish({ id: dishIds.bearnaise, categoryId: categoryIds.sauces, name: "Bearnaisesås", priceOre: 4500, image: dishImage(imageIds.bearnaise, "Bearnaisesås", "Béarnaise sauce"), sortOrder: 0 }),
-    dish({ id: dishIds.garlicSauce, categoryId: categoryIds.sauces, name: "Vitlökssås", priceOre: 4500, image: dishImage(imageIds.garlicSauce, "Vitlökssås", "Garlic sauce"), sortOrder: 1 }),
+    dish({ id: dishIds.bearnaise, categoryId: categoryIds.sauces, name: "Bearnaisesås", nameEn: "Béarnaise Sauce", priceOre: 4500, image: dishImage(imageIds.bearnaise, "Bearnaisesås", "Béarnaise sauce"), sortOrder: 0 }),
+    dish({ id: dishIds.garlicSauce, categoryId: categoryIds.sauces, name: "Vitlökssås", nameEn: "Garlic Sauce", priceOre: 4500, image: dishImage(imageIds.garlicSauce, "Vitlökssås", "Garlic sauce"), sortOrder: 1 }),
     dish({ id: dishIds.tzatziki, categoryId: categoryIds.sauces, name: "Tzatziki", priceOre: 4500, image: dishImage(imageIds.tzatziki, "Tzatziki", "Tzatziki"), sortOrder: 2 }),
-    dish({ id: dishIds.bbq, categoryId: categoryIds.sauces, name: "BBQ sås", priceOre: 4500, image: dishImage(imageIds.bbq, "BBQ sås", "BBQ sauce"), sortOrder: 3 }),
+    dish({ id: dishIds.bbq, categoryId: categoryIds.sauces, name: "BBQ sås", nameEn: "BBQ Sauce", priceOre: 4500, image: dishImage(imageIds.bbq, "BBQ sås", "BBQ sauce"), sortOrder: 3 }),
 
     dish({ id: dishIds.cocaCola, categoryId: categoryIds.drinks, name: "Coca-Cola Original 33cl", priceOre: 2500, image: dishImage(imageIds.cocaCola, "Coca-Cola Original 33cl", "Coca-Cola Original 33cl"), sortOrder: 0 }),
     dish({ id: dishIds.cocaColaZero, categoryId: categoryIds.drinks, name: "Coca-Cola Zero 33cl", priceOre: 2500, image: dishImage(imageIds.cocaColaZero, "Coca-Cola Zero 33cl", "Coca-Cola Zero 33cl"), sortOrder: 1 }),
     dish({ id: dishIds.fanta, categoryId: categoryIds.drinks, name: "Fanta Orange 33cl", priceOre: 2500, image: dishImage(imageIds.fanta, "Fanta Orange 33cl", "Fanta Orange 33cl"), sortOrder: 2 }),
     dish({ id: dishIds.sprite, categoryId: categoryIds.drinks, name: "Sprite 33cl", priceOre: 2500, image: dishImage(imageIds.sprite, "Sprite 33cl", "Sprite 33cl"), sortOrder: 3 }),
-    dish({ id: dishIds.lokaNaturell, categoryId: categoryIds.drinks, name: "Loka Naturell 33cl", priceOre: 2500, image: dishImage(imageIds.lokaNaturell, "Loka Naturell 33cl", "Loka Naturell 33cl"), sortOrder: 4 }),
-    dish({ id: dishIds.lokaCitron, categoryId: categoryIds.drinks, name: "Loka Citron 33cl", priceOre: 2500, image: dishImage(imageIds.lokaCitron, "Loka Citron 33cl", "Loka Citron 33cl"), sortOrder: 5 }),
-    dish({ id: dishIds.lokaJordgubb, categoryId: categoryIds.drinks, name: "Loka Jordgubb & Granatäpple", priceOre: 2500, image: dishImage(imageIds.lokaJordgubb, "Loka Jordgubb & Granatäpple", "Loka Jordgubb & Granatäpple"), sortOrder: 6 }),
-    dish({ id: dishIds.lokaParon, categoryId: categoryIds.drinks, name: "Loka Päron", priceOre: 2500, image: dishImage(imageIds.lokaParon, "Loka Päron", "Loka Päron"), sortOrder: 7 }),
+    dish({ id: dishIds.lokaNaturell, categoryId: categoryIds.drinks, name: "Loka Naturell 33cl", nameEn: "Loka Natural 33cl", priceOre: 2500, image: dishImage(imageIds.lokaNaturell, "Loka Naturell 33cl", "Loka Naturell 33cl"), sortOrder: 4 }),
+    dish({ id: dishIds.lokaCitron, categoryId: categoryIds.drinks, name: "Loka Citron 33cl", nameEn: "Loka Lemon 33cl", priceOre: 2500, image: dishImage(imageIds.lokaCitron, "Loka Citron 33cl", "Loka Citron 33cl"), sortOrder: 5 }),
+    dish({ id: dishIds.lokaJordgubb, categoryId: categoryIds.drinks, name: "Loka Jordgubb & Granatäpple", nameEn: "Loka Strawberry & Pomegranate", priceOre: 2500, image: dishImage(imageIds.lokaJordgubb, "Loka Jordgubb & Granatäpple", "Loka Jordgubb & Granatäpple"), sortOrder: 6 }),
+    dish({ id: dishIds.lokaParon, categoryId: categoryIds.drinks, name: "Loka Päron", nameEn: "Loka Pear", priceOre: 2500, image: dishImage(imageIds.lokaParon, "Loka Päron", "Loka Päron"), sortOrder: 7 }),
     dish({ id: dishIds.aperol, categoryId: categoryIds.drinks, name: "Aperol spritz", priceOre: 13000, descriptionSv: "Aperol, prosecco & sodavatten.", descriptionEn: "Aperol, prosecco & soda.", image: dishImage(imageIds.aperol, "Aperol spritz", "Aperol spritz"), sortOrder: 8 }),
     dish({ id: dishIds.limoncello, categoryId: categoryIds.drinks, name: "Limoncello spritz", priceOre: 13000, descriptionSv: "Limoncello, prosecco & sodavatten.", descriptionEn: "Limoncello, prosecco & soda.", image: dishImage(imageIds.limoncello, "Limoncello spritz", "Limoncello spritz"), sortOrder: 9 }),
     dish({ id: dishIds.passionGt, categoryId: categoryIds.drinks, name: "Passion GT", priceOre: 13000, image: dishImage(imageIds.passionGt, "Passion GT", "Passion GT"), sortOrder: 10 }),
@@ -534,7 +587,57 @@ export const DONIS_LUXURY_FALLBACK_SITE: RestaurantSite = {
     dish({ id: dishIds.whiteRussian, categoryId: categoryIds.drinks, name: "White Russian", priceOre: 13000, descriptionSv: "Vodka, Kahlúa & grädde.", descriptionEn: "Vodka, Kahlúa & cream.", image: dishImage(imageIds.whiteRussian, "White Russian", "White Russian"), sortOrder: 14 }),
     dish({ id: dishIds.irishCoffee, categoryId: categoryIds.drinks, name: "Irish coffee", priceOre: 13000, image: dishImage(imageIds.irishCoffee, "Irish coffee", "Irish coffee"), sortOrder: 15 }),
     dish({ id: dishIds.kaffeKarlsson, categoryId: categoryIds.drinks, name: "Kaffe Karlsson", priceOre: 13000, image: dishImage(imageIds.kaffeKarlsson, "Kaffe Karlsson", "Kaffe Karlsson"), sortOrder: 16 }),
-    dish({ id: dishIds.lemonade, categoryId: categoryIds.drinks, name: "Lemonad", priceOre: 5000, image: dishImage(imageIds.lemonade, "Lemonad", "Lemonad"), sortOrder: 17 }),
+    dish({ id: dishIds.lemonade, categoryId: categoryIds.drinks, name: "Lemonad", nameEn: "Lemonade", priceOre: 5000, image: dishImage(imageIds.lemonade, "Lemonad", "Lemonad"), sortOrder: 17 }),
     dish({ id: dishIds.passion, categoryId: categoryIds.drinks, name: "Passion", priceOre: 5000, image: dishImage(imageIds.passion, "Passion", "Passion"), sortOrder: 18 }),
   ],
 };
+
+
+export const DONIS_LUXURY_DISH_IMAGE_URLS: Record<string, string> =
+  Object.fromEntries(
+    DONIS_LUXURY_FALLBACK_SITE.dishes.flatMap((item) =>
+      item.image && DONIS_LUXURY_FALLBACK_IMAGES[item.image.id]
+        ? [[item.id, DONIS_LUXURY_FALLBACK_IMAGES[item.image.id]]]
+        : [],
+    ),
+  );
+
+export function isDonisLuxuryBuiltinImageId(id: string) {
+  return Object.prototype.hasOwnProperty.call(DONIS_LUXURY_FALLBACK_IMAGES, id);
+}
+
+export function getDonisLuxuryBuiltinImageUrl(id: string) {
+  return DONIS_LUXURY_FALLBACK_IMAGES[id];
+}
+
+export function getDonisLuxuryBuiltinMedia() {
+  const altById = new Map<string, { sv: string; en: string }>();
+  const add = (image: { id: string; alt: { sv: string; en: string } } | null) => {
+    if (image) altById.set(image.id, image.alt);
+  };
+
+  add(DONIS_LUXURY_FALLBACK_SITE.media.hero);
+  add(DONIS_LUXURY_FALLBACK_SITE.media.owner);
+  add(DONIS_LUXURY_FALLBACK_SITE.media.family);
+  DONIS_LUXURY_FALLBACK_SITE.media.gallery.forEach(add);
+  DONIS_LUXURY_FALLBACK_SITE.dishes.forEach((item) => add(item.image));
+
+  return Object.entries(DONIS_LUXURY_FALLBACK_IMAGES).map(([id, url]) => ({
+    id,
+    url,
+    alt:
+      altById.get(id) ?? {
+        sv: "Doni’s Trattoria",
+        en: "Doni’s Trattoria",
+      },
+  }));
+}
+
+export function createDonisLuxuryAdminStarterSite(): RestaurantSite {
+  const site = structuredClone(DONIS_LUXURY_FALLBACK_SITE);
+  site.dishes = site.dishes.map((item) => ({
+    ...item,
+    hidden: item.priceOre === null ? true : item.hidden,
+  }));
+  return site;
+}
