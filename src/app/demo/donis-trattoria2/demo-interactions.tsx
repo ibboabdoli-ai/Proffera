@@ -313,6 +313,12 @@ export function DonisTrattoriaLuxuryExperience({
   const text = displaySite.text;
   const business = displaySite.business;
   const brandName = business.name || "Doni’s Trattoria";
+  const normalizedBrandName = brandName
+    .trim()
+    .replace(/[’‘]/g, "'")
+    .replace(/\s+/g, " ")
+    .toLowerCase();
+  const showDonisLogo = normalizedBrandName === "doni's trattoria";
   const brandPrimary = brandName.replace(/\s+Trattoria$/i, "");
   const brandSecondary = /\bTrattoria$/i.test(brandName) ? "Trattoria" : "";
   const fullAddress = [business.address, business.postalCode, business.city]
@@ -543,14 +549,16 @@ export function DonisTrattoriaLuxuryExperience({
               aria-label={brandName}
               className="group flex shrink-0 items-center gap-3"
             >
-              <span
-                aria-hidden="true"
-                className="h-12 w-14 rounded-[14px] border border-[#d6aa58]/40 bg-[#ead7ae] bg-center bg-no-repeat transition group-hover:border-[#d6aa58]"
-                style={{
-                  backgroundImage: "url('/donis-logo.png')",
-                  backgroundSize: "82% auto",
-                }}
-              />
+              {showDonisLogo && (
+                <span
+                  aria-hidden="true"
+                  className="h-12 w-14 rounded-[14px] border border-[#d6aa58]/40 bg-[#ead7ae] bg-center bg-no-repeat transition group-hover:border-[#d6aa58]"
+                  style={{
+                    backgroundImage: "url('/donis-logo.png')",
+                    backgroundSize: "82% auto",
+                  }}
+                />
+              )}
               <span>
                 <span className="block font-serif text-[25px] font-semibold leading-[0.9] tracking-[-0.04em] text-[#f6ead4]">
                   {brandPrimary}
@@ -1387,14 +1395,16 @@ export function DonisTrattoriaLuxuryExperience({
         <div className="mx-auto max-w-[1460px]">
           <div className="flex flex-col gap-8 border-b border-white/8 pb-8 lg:flex-row lg:items-center lg:justify-between">
             <a href="#top" className="flex w-fit items-center gap-3">
-              <span
-                aria-hidden="true"
-                className="h-12 w-14 rounded-[14px] border border-[#d6aa58]/30 bg-[#ead7ae] bg-center bg-no-repeat"
-                style={{
-                  backgroundImage: "url('/donis-logo.png')",
-                  backgroundSize: "82% auto",
-                }}
-              />
+              {showDonisLogo && (
+                <span
+                  aria-hidden="true"
+                  className="h-12 w-14 rounded-[14px] border border-[#d6aa58]/30 bg-[#ead7ae] bg-center bg-no-repeat"
+                  style={{
+                    backgroundImage: "url('/donis-logo.png')",
+                    backgroundSize: "82% auto",
+                  }}
+                />
+              )}
               <span>
                 <span className="block font-serif text-2xl leading-none text-[#f4ead8]">
                   {brandPrimary}
