@@ -3,20 +3,7 @@ import { readFileSync } from "node:fs";
 // @ts-expect-error Standalone .mjs follows the repository control-plane convention.
 import { createMemory, memoryIdentity, mergeObservation } from "../scripts/supervisor-failure-memory.mjs";
 // @ts-expect-error Standalone .mjs follows the repository control-plane convention.
-import {
-  CI_AUTOFIX_EXECUTION_CONTRACT,
-  CI_AUTOFIX_EXECUTION_PROMPT,
-  ciAutofixMemoryState,
-  ciAutofixObservation,
-  ciAutofixRecoveryBody,
-  ciAutofixStartBody,
-  ciAutofixStrategyDescriptor,
-  decideCiAutofixStrategyHistory,
-  parseCiAutofixStarts,
-  prepareCiAutofixOutcome,
-  proveCiAutofixPrelaunchRecovery,
-  unresolvedCiAutofixStarts,
-} from "../scripts/supervisor-ci-autofix-strategy-memory.mjs";
+import { CI_AUTOFIX_EXECUTION_CONTRACT, CI_AUTOFIX_EXECUTION_PROMPT, ciAutofixMemoryState, ciAutofixObservation, ciAutofixRecoveryBody, ciAutofixStartBody, ciAutofixStrategyDescriptor, decideCiAutofixStrategyHistory, parseCiAutofixStarts, prepareCiAutofixOutcome, proveCiAutofixPrelaunchRecovery, unresolvedCiAutofixStarts } from "../scripts/supervisor-ci-autofix-strategy-memory.mjs";
 
 const repository = "ibboabdoli-ai/Proffera";
 const pr = 934;
