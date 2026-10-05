@@ -76,7 +76,7 @@ describe("Doni admin mirrors the public demo", () => {
     );
 
     expect(editor).toContain("function imageUploadAlt");
-    expect(editor).toContain("const resolvedAlt = imageUploadAlt(file, fallbackAlt)");
+    expect(editor).toContain("const resolvedAlt = imageUploadAlt(file, fallbackText)");
     expect(editor).not.toContain("if (!alt.trim())");
     expect(editor).toContain("Ladda upp ny bild till galleriet");
     expect(editor).toContain('kind: "food"');
