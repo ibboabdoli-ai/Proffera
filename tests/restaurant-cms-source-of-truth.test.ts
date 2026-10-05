@@ -81,6 +81,8 @@ describe("Doni restaurant CMS source of truth", () => {
     expect(demo).toContain("const locationFeature =");
     expect(demo).toContain("const mapTitle = fullAddress");
     expect(demo).toContain("const footerLine = business.city");
+    expect(demo).toContain("const showDonisLogo = normalizedBrandName === \"doni's trattoria\"");
+    expect(demo.split("{showDonisLogo && (").length - 1).toBe(2);
     expect(demo).toContain("{text.menuIntro[lang]}");
     expect(demo).not.toContain("{text.menuIntro[lang] || t.menuIntro}");
     expect(demo).not.toContain("{text.galleryIntro[lang] || t.galleryIntro}");
