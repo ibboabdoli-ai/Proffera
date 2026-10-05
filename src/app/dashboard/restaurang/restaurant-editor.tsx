@@ -285,22 +285,39 @@ export function RestaurantEditor({
     }
   }
 
+  function imageUploadAlt(file: File, fallbackAlt = "") {
+    const typed = alt.trim();
+    if (typed) return typed.slice(0, 180);
+
+    const fallback = fallbackAlt.trim();
+    if (fallback) return fallback.slice(0, 180);
+
+    const fromFilename = file.name
+      .replace(/\.[^.]+$/, "")
+      .replace(/[-_]+/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+
+    return (fromFilename || "Restaurangbild").slice(0, 180);
+  }
+
   async function upload(
     event: ChangeEvent<HTMLInputElement>,
     onDone: (media: Media) => void,
+    fallbackAlt?: LocalizedAlt,
   ) {
     const file = event.target.files?.[0];
     if (!file) return;
-    if (!alt.trim()) {
-      setNotice("Skriv bildens alt-text innan du laddar upp.");
-      event.target.value = "";
-      return;
-    }
+
+    const typedAlt = alt.trim();
+    const fallbackText =
+      fallbackAlt?.[locale] || fallbackAlt?.sv || fallbackAlt?.en || "";
+    const resolvedAlt = imageUploadAlt(file, fallbackText);
     setBusy(true);
     try {
       const data = new FormData();
       data.set("file", file);
-      data.set("alt", alt.trim());
+      data.set("alt", resolvedAlt);
       const response = await fetch("/api/dashboard/restaurang/upload", {
         method: "POST",
         body: data,
@@ -313,7 +330,10 @@ export function RestaurantEditor({
       const media: Media = {
         id: result.id,
         url: result.url,
-        alt: { sv: result.alt, en: result.alt },
+        alt:
+          !typedAlt && fallbackAlt
+            ? { ...fallbackAlt }
+            : { sv: result.alt, en: result.alt },
       };
       setImages((current) => [media, ...current]);
       onDone(media);
@@ -339,12 +359,14 @@ export function RestaurantEditor({
     const currentImage = current
       ? images.find((image) => image.id === current.id)
       : undefined;
+    const currentAlt =
+      current?.alt[locale] || current?.alt.sv || current?.alt.en || "";
     return (
       <div className="grid gap-3">
         {currentImage ? (
           <img
             src={currentImage.url}
-            alt={current?.alt[locale] || current?.alt.sv || ""}
+            alt={currentAlt}
             className="aspect-[4/3] max-h-64 w-full rounded-xl object-cover"
           />
         ) : referenceUrl ? (
@@ -386,11 +408,14 @@ export function RestaurantEditor({
             accept="image/jpeg,image/png,image/webp,image/avif"
             disabled={busy}
             onChange={(event) =>
-              upload(event, (media) =>
-                setPhoto({
-                  id: media.id,
-                  alt: media.alt,
-                }),
+              upload(
+                event,
+                (media) =>
+                  setPhoto({
+                    id: media.id,
+                    alt: media.alt,
+                  }),
+                current?.alt,
               )
             }
             className="mt-2 block w-full text-sm"
@@ -404,11 +429,14 @@ export function RestaurantEditor({
             capture="environment"
             disabled={busy}
             onChange={(event) =>
-              upload(event, (media) =>
-                setPhoto({
-                  id: media.id,
-                  alt: media.alt,
-                }),
+              upload(
+                event,
+                (media) =>
+                  setPhoto({
+                    id: media.id,
+                    alt: media.alt,
+                  }),
+                current?.alt,
               )
             }
             className="mt-2 block w-full text-sm"
@@ -726,7 +754,7 @@ export function RestaurantEditor({
                   ))}
                   <h3 className="font-serif text-xl">Rättens bild</h3>
                   <label className="text-sm font-semibold">
-                    Bildbeskrivning inför uppladdning
+                    Bildbeskrivning inför uppladdning (valfritt)
                     <input
                       className={input}
                       value={alt}
@@ -1096,7 +1124,7 @@ export function RestaurantEditor({
                 </div>
               )}
               <label className="text-sm font-semibold">
-                Bildbeskrivning inför uppladdning
+                Bildbeskrivning inför uppladdning (valfritt)
                 <input
                   className={input}
                   value={alt}
@@ -1123,6 +1151,33 @@ export function RestaurantEditor({
               ))}
               <div className="border-t border-[#d9cfc1] pt-4">
                 <h3 className="font-serif text-xl">Galleri</h3>
+                <label className="mt-3 block text-sm font-semibold">
+                  Ladda upp ny bild till galleriet
+                  <input
+                    type="file"
+                    accept="image/jpeg,image/png,image/webp,image/avif"
+                    disabled={busy}
+                    onChange={(event) =>
+                      upload(event, (media) =>
+                        edit((next) => {
+                          if (
+                            next.media.gallery.some(
+                              (item) => item.id === media.id,
+                            )
+                          )
+                            return;
+                          next.media.gallery.push({
+                            id: media.id,
+                            alt: media.alt,
+                            kind: "food",
+                            sortOrder: next.media.gallery.length,
+                          });
+                        }),
+                      )
+                    }
+                    className="mt-2 block w-full text-sm"
+                  />
+                </label>
                 <button
                   className={`${button} mt-3`}
                   onClick={() => {
