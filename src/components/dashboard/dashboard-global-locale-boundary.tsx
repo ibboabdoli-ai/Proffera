@@ -43,7 +43,7 @@ const translations: Record<string, string> = {
   "Rättens namn": "Dish name",
   "Pris i kronor": "Price in SEK",
   "Rättens bild": "Dish photo",
-  "Bildbeskrivning inför uppladdning": "Photo description before upload",
+  "Bildbeskrivning inför uppladdning (valfritt)": "Photo description before upload (optional)",
   "Visa rätt igen": "Show dish again",
   "Dölj tillfälligt": "Hide temporarily",
   "Arkivera rätt": "Archive dish",
