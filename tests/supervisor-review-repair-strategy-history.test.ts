@@ -732,6 +732,42 @@ function recordingInput(outcome: "failed" | "no_change" | "cancelled" | "succeed
   };
 }
 
+function runReviewRepairDispatchGuard(overrides: Record<string, string> = {}) {
+  const step = workflowStep("admit", "Require trusted main workflow dispatch");
+  return spawnSync("bash", ["-c", step.run!], {
+    encoding: "utf8",
+    env: {
+      ...process.env,
+      EVENT_NAME: "workflow_dispatch",
+      DISPATCH_REF: "refs/heads/main",
+      DISPATCH_REF_NAME: "main",
+      DISPATCH_REF_TYPE: "branch",
+      ...overrides,
+    },
+  });
+}
+
+describe("Review Repair workflow dispatch provenance", () => {
+  it("accepts only workflow_dispatch from the main branch before admission can mutate state", () => {
+    const steps = rerunWorkflow.jobs.admit.steps.map((step) => step.name);
+    expect(steps.indexOf("Require trusted main workflow dispatch"))
+      .toBeLessThan(steps.indexOf("Verify retry evidence retention policy"));
+    expect(steps.indexOf("Require trusted main workflow dispatch"))
+      .toBeLessThan(steps.indexOf("Checkout trusted control-plane helpers"));
+    expect(runReviewRepairDispatchGuard().status).toBe(0);
+
+    for (const overrides of [
+      {DISPATCH_REF: "refs/heads/work/proffera-review-repair", DISPATCH_REF_NAME: "work/proffera-review-repair"},
+      {DISPATCH_REF: "refs/tags/v1", DISPATCH_REF_NAME: "v1", DISPATCH_REF_TYPE: "tag"},
+      {EVENT_NAME: "pull_request"},
+    ]) {
+      const result = runReviewRepairDispatchGuard(overrides);
+      expect(result.status).toBe(1);
+      expect(result.stderr).toContain("only accepts workflow_dispatch runs from refs/heads/main");
+    }
+  });
+});
+
 describe("Review Repair pre-model start recovery", () => {
   const admission = workflowStep("admit", "Admit strategy history and record trusted attempt start").run!;
 

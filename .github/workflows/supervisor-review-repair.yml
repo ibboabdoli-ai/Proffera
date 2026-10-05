@@ -43,6 +43,23 @@ jobs:
       evidence_fingerprint: ${{ steps.admit.outputs.evidence_fingerprint }}
       strategy_fingerprint: ${{ steps.admit.outputs.strategy_fingerprint }}
     steps:
+      - name: Require trusted main workflow dispatch
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          DISPATCH_REF: ${{ github.ref }}
+          DISPATCH_REF_NAME: ${{ github.ref_name }}
+          DISPATCH_REF_TYPE: ${{ github.ref_type }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "$EVENT_NAME" != "workflow_dispatch" ] \
+            || [ "$DISPATCH_REF_TYPE" != "branch" ] \
+            || [ "$DISPATCH_REF" != "refs/heads/main" ] \
+            || [ "$DISPATCH_REF_NAME" != "main" ]; then
+            echo "Review Repair only accepts workflow_dispatch runs from refs/heads/main." >&2
+            exit 1
+          fi
+
       - name: Verify retry evidence retention policy
         shell: bash
         run: |
