@@ -919,7 +919,12 @@ describe("Review Repair late retry evidence retention", () => {
     ]) {
       expect(workflowStep(job, name).with?.["retention-days"]).toBe(31);
     }
-    expect(rerunWorkflow.jobs.admit.steps[0]).toBe(guard);
+    const admitSteps = rerunWorkflow.jobs.admit.steps;
+    const guardIndex = admitSteps.indexOf(guard);
+    const startIndex = admitSteps.findIndex((step) =>
+      step.name === "Admit strategy history and record trusted attempt start");
+    expect(guardIndex).toBeGreaterThanOrEqual(0);
+    expect(guardIndex).toBeLessThan(startIndex);
   });
 
   it.each(["", "0", "1", "29", "30", "invalid", "31", "90", "400"])(
