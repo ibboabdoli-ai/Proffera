@@ -30,7 +30,10 @@ describe("restaurant editor identity wiring", () => {
       "src/app/dashboard/restaurang/restaurant-editor.tsx",
       "utf8",
     );
-    expect(source).toMatch(/<PriceInput\s+key=\{dish\.id\}\s/);
+    expect(source).toContain("const [priceInputEpoch, setPriceInputEpoch] = useState(0)");
+    expect(source).toContain("setPriceInputEpoch((current) => current + 1)");
+    expect(source).toContain("key={`${priceInputEpoch}:${dish.id}`}");
+    expect(source).toContain("key={`${priceInputEpoch}:${item.id}`}");
   });
 });
 

@@ -2,18 +2,21 @@
 
 import { useEffect, useRef, useState, type ChangeEvent } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { createDonisAdminStarterSite } from "@/lib/donis-fallback";
+import { createDonisLuxuryAdminStarterSite } from "@/lib/donis-luxury-fallback";
 import type { RestaurantSite } from "@/lib/restaurant-site-schema";
 import { parseRestaurantPrice } from "@/lib/restaurant-price";
 import { saveDraft } from "./actions";
 
-type Media = { id: string; url: string; alt: string };
-type Section = "menu" | "categories" | "photos" | "content" | "hours" | "links";
+type LocalizedAlt = { sv: string; en: string };
+type Media = { id: string; url: string; alt: LocalizedAlt };
+type UploadedMedia = { id: string; url: string; alt: string };
+type Section = "menu" | "categories" | "photos" | "content" | "business" | "hours" | "links";
 const sections: { id: Section; label: string; hint: string }[] = [
   { id: "menu", label: "Meny", hint: "Rätter och priser" },
   { id: "categories", label: "Kategorier", hint: "Rubriker i menyn" },
   { id: "photos", label: "Bilder", hint: "Hero, galleri och matbilder" },
   { id: "content", label: "Texter", hint: "Hero och Om oss" },
+  { id: "business", label: "Kontakt", hint: "Adress, telefon och Instagram" },
   { id: "hours", label: "Öppettider", hint: "Kontaktsektionen" },
   { id: "links", label: "Länkar", hint: "Qopla och bokning" },
 ];
@@ -106,7 +109,6 @@ function PriceInput({
 export function RestaurantEditor({
   initial,
   images: initialImages,
-  referenceDishImages = {},
   referenceHeroImage,
   referenceGalleryImages = [],
 }: {
@@ -118,7 +120,6 @@ export function RestaurantEditor({
     starter?: boolean;
   };
   images: Media[];
-  referenceDishImages?: Record<string, string>;
   referenceHeroImage?: string;
   referenceGalleryImages?: string[];
 }) {
@@ -135,6 +136,7 @@ export function RestaurantEditor({
   const [notice, setNotice] = useState("");
   const [section, setSection] = useState<Section>("menu");
   const [selectedDish, setSelectedDish] = useState<string | null>(null);
+  const [priceInputEpoch, setPriceInputEpoch] = useState(0);
   const [alt, setAlt] = useState("");
   const allowNavigationRef = useRef(false);
   const restoringHistoryRef = useRef(false);
@@ -241,15 +243,16 @@ export function RestaurantEditor({
         : "Ersätt nuvarande utkast med redigerbara exempel från demosidan? Inget sparas förrän du trycker Spara.",
     );
     if (!confirmed) return;
-    setSite(createDonisAdminStarterSite());
+    setSite(createDonisLuxuryAdminStarterSite());
+    setPriceInputEpoch((current) => current + 1);
     setStarter(true);
     setSection("menu");
     setSelectedDish(null);
     setDirty(true);
     setNotice(
       locale === "en"
-        ? "Demo examples loaded. Enter real prices, review the text and replace reference photos before publishing."
-        : "Demosidans exempel är inlästa. Fyll i riktiga priser, kontrollera texterna och ersätt referensbilder innan publicering.",
+        ? "Demo 2 content loaded into the draft. Review prices, text and photos before saving and publishing."
+        : "Demo 2-innehållet är inläst i utkastet. Kontrollera priser, texter och bilder innan du sparar och publicerar.",
     );
   }
 
@@ -302,13 +305,18 @@ export function RestaurantEditor({
         method: "POST",
         body: data,
       });
-      const result = (await response.json()) as Media & { error?: string };
+      const result = (await response.json()) as UploadedMedia & { error?: string };
       if (!response.ok) {
         setNotice(result.error ?? "Uppladdningen misslyckades.");
         return;
       }
-      setImages((current) => [result, ...current]);
-      onDone(result);
+      const media: Media = {
+        id: result.id,
+        url: result.url,
+        alt: { sv: result.alt, en: result.alt },
+      };
+      setImages((current) => [media, ...current]);
+      onDone(media);
       setAlt("");
       setNotice(
         "Bilden uppladdad. Spara utkastet och publicera för att visa ändringen.",
@@ -359,7 +367,7 @@ export function RestaurantEditor({
             const media = images.find((item) => item.id === event.target.value);
             setPhoto(
               media
-                ? { id: media.id, alt: { sv: media.alt, en: media.alt } }
+                ? { id: media.id, alt: media.alt }
                 : null,
             );
           }}
@@ -367,7 +375,7 @@ export function RestaurantEditor({
           <option value="">Ingen bild</option>
           {images.map((item) => (
             <option key={item.id} value={item.id}>
-              {item.alt} · {item.id.slice(0, 8)}
+              {item.alt[locale] || item.alt.sv || item.alt.en} · {item.id.slice(0, 8)}
             </option>
           ))}
         </select>
@@ -381,7 +389,7 @@ export function RestaurantEditor({
               upload(event, (media) =>
                 setPhoto({
                   id: media.id,
-                  alt: { sv: media.alt, en: media.alt },
+                  alt: media.alt,
                 }),
               )
             }
@@ -399,7 +407,7 @@ export function RestaurantEditor({
               upload(event, (media) =>
                 setPhoto({
                   id: media.id,
-                  alt: { sv: media.alt, en: media.alt },
+                  alt: media.alt,
                 }),
               )
             }
@@ -516,7 +524,7 @@ export function RestaurantEditor({
               {busy ? "Sparar…" : "Spara"}
             </button>
             <a
-              href="/demo/donis-trattoria"
+              href="/demo/donis-trattoria2"
               target="_blank"
               rel="noopener noreferrer"
               className="font-semibold text-[#572e28] underline underline-offset-4"
@@ -534,29 +542,29 @@ export function RestaurantEditor({
           </p>
         )}
       </header>
-      {!initial.published && (
-        <div className="mt-3 rounded-xl border border-[#d8c6a7] bg-[#fff7e8] p-3 text-sm leading-6 text-[#5d4b37]">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div className="min-w-0 flex-1">
-              <strong className="block">Exempel från demosidan</strong>
-              <span>
-                {starter
-                  ? "Startinnehållet från demosidan är inlagt för redigering. Kontrollera priser, texter och bilder och spara utkastet."
-                  : "Nuvarande utkast innehåller egna eller tidigare teständringar. Du kan ersätta det med samma exempel som visas på demosidan."}
-              </span>
-            </div>
-            {!starter && (
-              <button
-                type="button"
-                onClick={loadDemoExamples}
-                className="min-h-11 rounded-lg bg-[#572e28] px-4 text-sm font-bold text-white"
-              >
-                Ladda demosidans exempel
-              </button>
-            )}
+      <div className="mt-3 rounded-xl border border-[#d8c6a7] bg-[#fff7e8] p-3 text-sm leading-6 text-[#5d4b37]">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="min-w-0 flex-1">
+            <strong className="block">Demo 2 som innehållsmall</strong>
+            <span>
+              {starter
+                ? "Demo 2-innehållet är inlagt för redigering. Kontrollera priser, texter och bilder och spara utkastet."
+                : initial.published
+                  ? "Den publicerade sidan ligger kvar tills du publicerar igen. Du kan ladda Demo 2-innehållet i utkastet och sedan anpassa det."
+                  : "Nuvarande utkast kan ersättas med samma innehåll som används i Demo 2."}
+            </span>
           </div>
+          {!starter && (
+            <button
+              type="button"
+              onClick={loadDemoExamples}
+              className="min-h-11 rounded-lg bg-[#572e28] px-4 text-sm font-bold text-white"
+            >
+              Ladda Demo 2-innehåll
+            </button>
+          )}
         </div>
-      )}
+      </div>
       <div
         className={`mt-6 grid gap-8 md:grid-cols-[170px_minmax(0,1fr)] ${busy ? "pointer-events-none opacity-60" : ""}`}
       >
@@ -604,6 +612,7 @@ export function RestaurantEditor({
                         id,
                         categoryId: next.categories[0].id,
                         name: locale === "en" ? "New dish" : "Ny rätt",
+                        nameEn: locale === "en" ? "New dish" : "",
                         priceOre: null,
                         description: { sv: "", en: "" },
                         image: null,
@@ -626,25 +635,42 @@ export function RestaurantEditor({
                   >
                     ← Tillbaka till menyn
                   </button>
-                  <label className="text-sm font-semibold">
-                    Rättens namn
-                    <input
-                      className={input}
-                      value={dish.name}
-                      maxLength={120}
-                      onChange={(event) =>
-                        edit((next) => {
-                          next.dishes.find(
-                            (item) => item.id === dish.id,
-                          )!.name = event.target.value;
-                        })
-                      }
-                    />
-                  </label>
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <label className="text-sm font-semibold">
+                      Rättens namn SV
+                      <input
+                        className={input}
+                        value={dish.name}
+                        maxLength={120}
+                        onChange={(event) =>
+                          edit((next) => {
+                            next.dishes.find(
+                              (item) => item.id === dish.id,
+                            )!.name = event.target.value;
+                          })
+                        }
+                      />
+                    </label>
+                    <label className="text-sm font-semibold">
+                      Dish name EN
+                      <input
+                        className={input}
+                        value={dish.nameEn ?? ""}
+                        maxLength={120}
+                        onChange={(event) =>
+                          edit((next) => {
+                            next.dishes.find(
+                              (item) => item.id === dish.id,
+                            )!.nameEn = event.target.value;
+                          })
+                        }
+                      />
+                    </label>
+                  </div>
                   <label className="text-sm font-semibold">
                     Pris i kronor
                     <PriceInput
-                      key={dish.id}
+                      key={`${priceInputEpoch}:${dish.id}`}
                       label={`Pris ${dish.name}`}
                       value={dish.priceOre}
                       disabled={busy}
@@ -716,7 +742,6 @@ export function RestaurantEditor({
                         next.dishes.find((item) => item.id === dish.id)!.image =
                           photo;
                       }),
-                    referenceDishImages[dish.id],
                   )}
                   <div className="flex flex-wrap gap-2">
                     <button
@@ -768,8 +793,7 @@ export function RestaurantEditor({
                             const ownedImage = item.image
                               ? images.find((image) => image.id === item.image?.id)?.url
                               : undefined;
-                            const previewUrl =
-                              ownedImage ?? referenceDishImages[item.id];
+                            const previewUrl = ownedImage;
                             return (
                               <article
                                 key={item.id}
@@ -813,6 +837,7 @@ export function RestaurantEditor({
                                       <label className="text-xs font-semibold">
                                         Pris (kr)
                                         <PriceInput
+                                          key={`${priceInputEpoch}:${item.id}`}
                                           label={`Pris ${item.name}`}
                                           className={`${input} mt-1 min-h-10 w-full text-right`}
                                           value={item.priceOre}
@@ -1118,7 +1143,7 @@ export function RestaurantEditor({
                         return;
                       next.media.gallery.push({
                         id: first.id,
-                        alt: { sv: first.alt, en: first.alt },
+                        alt: first.alt,
                         kind: "interior",
                         sortOrder: next.media.gallery.length,
                       });
@@ -1225,6 +1250,12 @@ export function RestaurantEditor({
                   "story",
                   "ownerIntroduction",
                   "philosophy",
+                  "menuTitle",
+                  "menuIntro",
+                  "galleryTitle",
+                  "galleryIntro",
+                  "contactTitle",
+                  "contactBody",
                 ] as const
               ).map((field) => (
                 <div
@@ -1240,6 +1271,12 @@ export function RestaurantEditor({
                         story: "Restaurangens berättelse",
                         ownerIntroduction: "Presentation av ägaren",
                         philosophy: "Gästfrihet",
+                        menuTitle: "Menyrubrik",
+                        menuIntro: "Menyinledning",
+                        galleryTitle: "Gallerirubrik",
+                        galleryIntro: "Galleriinledning",
+                        contactTitle: "Kontaktrubrik",
+                        contactBody: "Kontakttext",
                       }[field]
                     }
                   </h3>
@@ -1276,6 +1313,56 @@ export function RestaurantEditor({
                   }
                 />
               </label>
+            </section>
+          )}
+          {section === "business" && (
+            <section className="grid gap-5">
+              <div>
+                <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-[#8a493a]">
+                  På webbplatsen: Kontakt / Hitta hit / Footer
+                </p>
+                <h2 className="mt-1 font-serif text-2xl">Kontaktuppgifter</h2>
+                <p className="mt-2 text-sm text-[#665b50]">
+                  De här uppgifterna används direkt i Demo 2 när utkastet publiceras.
+                </p>
+              </div>
+              {([
+                ["name", "Restaurangnamn", "text"],
+                ["address", "Gatuadress", "text"],
+                ["postalCode", "Postnummer", "text"],
+                ["city", "Ort", "text"],
+                ["phone", "Telefon", "tel"],
+                ["email", "E-post", "email"],
+                ["instagram", "Instagram-namn", "text"],
+                ["instagramUrl", "Instagram-länk", "url"],
+                ["orgNumber", "Organisationsnummer", "text"],
+                ["mapUrl", "Kartlänk / Hitta hit", "url"],
+              ] as const).map(([field, label, type]) => (
+                <label key={field} className="text-sm font-semibold">
+                  {label}
+                  <input
+                    className={input}
+                    type={type}
+                    value={site.business[field]}
+                    onChange={(event) =>
+                      edit((next) => {
+                        next.business[field] = event.target.value;
+                        if (
+                          field === "address" ||
+                          field === "postalCode" ||
+                          field === "city"
+                        ) {
+                          next.business.mapUrl = "";
+                        }
+                        if (field === "instagram") {
+                          next.business.instagramUrl = "";
+                        }
+                      })
+                    }
+                    placeholder={type === "url" ? "https://" : undefined}
+                  />
+                </label>
+              ))}
             </section>
           )}
           {section === "hours" && (

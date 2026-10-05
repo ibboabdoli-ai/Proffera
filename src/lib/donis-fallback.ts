@@ -216,7 +216,34 @@ export const DONIS_FALLBACK_SITE: RestaurantSite = {
       sv: "Enkel mat, tydliga smaker och en miljö som passar både vardag, familjemiddag och en kväll med vänner.",
       en: "Straightforward food, clear flavours and a setting for everyday meals, family dinners and evenings with friends.",
     },
+    menuTitle: { sv: "Något för alla smaker", en: "Something for every taste" },
+    menuIntro: {
+      sv: "Antipasti, färsk pasta, surdegspizza, utvalda huvudrätter och drycker.",
+      en: "Antipasti, fresh pasta, sourdough pizza, selected mains and drinks.",
+    },
+    galleryTitle: { sv: "En smak av Doni’s", en: "A taste of Doni’s" },
+    galleryIntro: {
+      sv: "Mat, detaljer och stämning från Doni’s vid Hornsbergs Strand.",
+      en: "Food, details and atmosphere from Doni’s by Hornsbergs Strand.",
+    },
+    contactTitle: { sv: "Välkommen till oss", en: "Welcome to Doni’s" },
+    contactBody: {
+      sv: "Njut av god mat, vackra omgivningar och en avslappnad atmosfär vid Hornsbergs Strand. Boka bord, ring oss eller kom förbi.",
+      en: "Enjoy good food, beautiful surroundings and a relaxed atmosphere by Hornsbergs Strand. Book a table, call us or simply stop by.",
+    },
     foundedYear: null,
+  },
+  business: {
+    name: "Doni’s Trattoria",
+    address: "Hornsbergs Strand 77",
+    postalCode: "112 16",
+    city: "Stockholm",
+    phone: "08-656 84 00",
+    email: "donitrattoria@gmail.com",
+    instagram: "@donis.trattoria",
+    instagramUrl: "https://www.instagram.com/donis.trattoria/",
+    orgNumber: "556852-1420",
+    mapUrl: "",
   },
   hours: [
     { day: 0, closed: false, open: "10:30", close: "21:00" },
@@ -272,6 +299,28 @@ export function isRestaurantSiteBlank(site: RestaurantSite) {
     !text.ownerIntroduction.en &&
     !text.philosophy.sv &&
     !text.philosophy.en &&
+    text.menuTitle.sv === "Något för alla smaker" &&
+    text.menuTitle.en === "Something for every taste" &&
+    text.menuIntro.sv === "Antipasti, färsk pasta, surdegspizza, utvalda huvudrätter och drycker." &&
+    text.menuIntro.en === "Antipasti, fresh pasta, sourdough pizza, selected mains and drinks." &&
+    text.galleryTitle.sv === "En smak av Doni’s" &&
+    text.galleryTitle.en === "A taste of Doni’s" &&
+    text.galleryIntro.sv === "Mat, detaljer och stämning från Doni’s vid Hornsbergs Strand." &&
+    text.galleryIntro.en === "Food, details and atmosphere from Doni’s by Hornsbergs Strand." &&
+    text.contactTitle.sv === "Välkommen till oss" &&
+    text.contactTitle.en === "Welcome to Doni’s" &&
+    text.contactBody.sv === "Njut av god mat, vackra omgivningar och en avslappnad atmosfär vid Hornsbergs Strand. Boka bord, ring oss eller kom förbi." &&
+    text.contactBody.en === "Enjoy good food, beautiful surroundings and a relaxed atmosphere by Hornsbergs Strand. Book a table, call us or simply stop by." &&
+    site.business.name === "Doni’s Trattoria" &&
+    site.business.address === "Hornsbergs Strand 77" &&
+    site.business.postalCode === "112 16" &&
+    site.business.city === "Stockholm" &&
+    site.business.phone === "08-656 84 00" &&
+    site.business.email === "donitrattoria@gmail.com" &&
+    site.business.instagram === "@donis.trattoria" &&
+    site.business.instagramUrl === "https://www.instagram.com/donis.trattoria/" &&
+    site.business.orgNumber === "556852-1420" &&
+    !site.business.mapUrl &&
     text.foundedYear === null &&
     !site.links.booking &&
     !site.links.order &&

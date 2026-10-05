@@ -37,16 +37,6 @@ type GalleryKind = RestaurantSite["media"]["gallery"][number]["kind"];
 
 const heroFallback =
   "https://www-static.restaurangkungsholmen.se/wp-content/uploads/2025/05/donis-pizzorny.jpg";
-const mapsUrl =
-  "https://www.google.com/maps/search/?api=1&query=Doni%27s+Trattoria+Hornsbergs+Strand+77+Stockholm";
-const mapEmbedUrl =
-  "https://www.google.com/maps?q=Hornsbergs+Strand+77,+112+16+Stockholm&output=embed";
-const currentOrderUrl =
-  "https://qopla.com/restaurant/doni-trattoria-italiana/qyZkGvbq9M/order";
-const phoneHref = "tel:+4686568400";
-const emailHref = "mailto:donitrattoria@gmail.com";
-const instagramUrl = "https://www.instagram.com/donis.trattoria/";
-
 const FEATURED_PRIORITY = [
   "diavola",
   "tagliatelle al ragu",
@@ -257,7 +247,11 @@ function normalizeDishName(value: string) {
 
 function getDishName(dish: Dish, lang: Lang) {
   if (lang === "en") {
-    return ENGLISH_DISH_NAMES[normalizeDishName(dish.name)] ?? dish.name;
+    return (
+      dish.nameEn?.trim() ||
+      ENGLISH_DISH_NAMES[normalizeDishName(dish.name)] ||
+      dish.name
+    );
   }
   return dish.name;
 }
@@ -273,11 +267,13 @@ function SectionEyebrow({ children }: { children: ReactNode }) {
 export function DonisTrattoriaLuxuryExperience({
   site,
   images = {},
+  initialLang = "sv",
 }: {
   site: RestaurantSite | null;
   images?: Record<string, string>;
+  initialLang?: Lang;
 }) {
-  const [lang, setLang] = useState<Lang>("sv");
+  const [lang, setLang] = useState<Lang>(initialLang);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [selectedCategoryId, setSelectedCategoryId] = useState<string | null>(
     null,
@@ -315,6 +311,59 @@ export function DonisTrattoriaLuxuryExperience({
   const displaySite = site ?? DONIS_LUXURY_FALLBACK_SITE;
   const displayImages = isFallback ? DONIS_LUXURY_FALLBACK_IMAGES : images;
   const text = displaySite.text;
+  const business = displaySite.business;
+  const brandName = business.name || "Doni’s Trattoria";
+  const normalizedBrandName = brandName
+    .trim()
+    .replace(/[’‘]/g, "'")
+    .replace(/\s+/g, " ")
+    .toLowerCase();
+  const showDonisLogo = normalizedBrandName === "doni's trattoria";
+  const brandPrimary = brandName.replace(/\s+Trattoria$/i, "");
+  const brandSecondary = /\bTrattoria$/i.test(brandName) ? "Trattoria" : "";
+  const fullAddress = [business.address, business.postalCode, business.city]
+    .filter(Boolean)
+    .join(", ");
+  const hasLocation = Boolean(fullAddress || business.mapUrl);
+  const mapsUrl =
+    business.mapUrl ||
+    (fullAddress
+      ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(
+          [business.name, fullAddress].filter(Boolean).join(" "),
+        )}`
+      : "");
+  const mapEmbedUrl = fullAddress
+    ? `https://www.google.com/maps?q=${encodeURIComponent(fullAddress)}&output=embed`
+    : "";
+  const phoneHref = business.phone
+    ? `tel:${business.phone.replace(/[^+\d]/g, "")}`
+    : "";
+  const emailHref = business.email ? `mailto:${business.email}` : "";
+  const instagramUrl =
+    business.instagramUrl ||
+    (business.instagram
+      ? `https://www.instagram.com/${business.instagram.replace(/^@/, "")}/`
+      : "");
+
+  const locationLabel =
+    [business.address, business.city].filter(Boolean).join(" · ") ||
+    (lang === "sv" ? "Välkommen" : "Welcome");
+  const locationFeature =
+    business.address || business.city
+      ? lang === "sv"
+        ? `På ${business.address || business.city}`
+        : `At ${business.address || business.city}`
+      : lang === "sv"
+        ? "Välkommen"
+        : "Welcome";
+  const mapTitle = fullAddress ? `${brandName} – ${fullAddress}` : brandName;
+  const footerLine = business.city
+    ? lang === "sv"
+      ? `Italienska smaker i ${business.city}.`
+      : `Italian flavours in ${business.city}.`
+    : lang === "sv"
+      ? "Italienska smaker."
+      : "Italian flavours.";
 
   const visibleDishes = [...displaySite.dishes]
     .filter((dish) => !dish.hidden && !dish.archived)
@@ -348,11 +397,13 @@ export function DonisTrattoriaLuxuryExperience({
   const hero =
     displaySite.media.hero && displayImages[displaySite.media.hero.id]
       ? displayImages[displaySite.media.hero.id]
-      : heroFallback;
+      : isFallback
+        ? heroFallback
+        : null;
 
   const booking = displaySite.links.booking;
   const bookingHref = booking || phoneHref;
-  const order = displaySite.links.order || currentOrderUrl;
+  const order = displaySite.links.order;
 
   const featured = [...visibleDishes]
     .filter((dish) => dish.image && Boolean(displayImages[dish.image.id]))
@@ -442,7 +493,7 @@ export function DonisTrattoriaLuxuryExperience({
                 url: DONIS_LUXURY_FALLBACK_IMAGES[fallbackAboutMedia.id],
                 alt: fallbackAboutMedia.alt[lang],
               }
-            : rawGallery[0] ?? { url: hero, alt: "Doni’s Trattoria" });
+            : rawGallery[0] ?? (hero ? { url: hero, alt: brandName } : null));
 
   const galleryKindLabel = (kind: string) => {
     if (kind === "food") return t.kindFood;
@@ -466,7 +517,7 @@ export function DonisTrattoriaLuxuryExperience({
   const values = [
     { icon: UtensilsCrossed, label: t.featureTaste },
     { icon: Heart, label: t.featureFamily },
-    { icon: Waves, label: t.featureWater },
+    { icon: Waves, label: locationFeature },
     { icon: Wine, label: t.featureWine },
     { icon: UsersRound, label: t.featureWelcome },
   ];
@@ -479,12 +530,14 @@ export function DonisTrattoriaLuxuryExperience({
       className="min-h-screen overflow-x-hidden bg-[#080a08] text-[#f4ead8] selection:bg-[#d6aa58] selection:text-[#0c0d0b]"
     >
       <section id="top" className="relative min-h-[760px] overflow-hidden bg-[#080a08]">
-        <img
-          src={hero}
-          alt={displaySite.media.hero?.alt[lang] || "Doni’s Trattoria"}
-          className="absolute inset-0 h-full w-full scale-[1.015] object-cover object-center"
-          fetchPriority="high"
-        />
+        {hero && (
+          <img
+            src={hero}
+            alt={displaySite.media.hero?.alt[lang] || brandName}
+            className="absolute inset-0 h-full w-full scale-[1.015] object-cover object-center"
+            fetchPriority="high"
+          />
+        )}
         <div className="absolute inset-0 bg-[linear-gradient(90deg,rgba(5,7,5,.98)_0%,rgba(5,7,5,.90)_27%,rgba(5,7,5,.48)_58%,rgba(5,7,5,.18)_78%,rgba(5,7,5,.42)_100%)]" />
         <div className="absolute inset-0 bg-[linear-gradient(180deg,rgba(4,5,4,.55)_0%,transparent_28%,rgba(4,5,4,.78)_100%)]" />
         <div className="absolute inset-0 bg-[radial-gradient(circle_at_72%_48%,rgba(222,160,71,.20),transparent_34%)]" />
@@ -493,23 +546,25 @@ export function DonisTrattoriaLuxuryExperience({
           <div className="mx-auto flex min-h-[76px] max-w-[1460px] items-center justify-between gap-4 px-4 sm:px-8 lg:px-12">
             <a
               href="#top"
-              aria-label="Doni’s Trattoria"
+              aria-label={brandName}
               className="group flex shrink-0 items-center gap-3"
             >
-              <span
-                aria-hidden="true"
-                className="h-12 w-14 rounded-[14px] border border-[#d6aa58]/40 bg-[#ead7ae] bg-center bg-no-repeat transition group-hover:border-[#d6aa58]"
-                style={{
-                  backgroundImage: "url('/donis-logo.png')",
-                  backgroundSize: "82% auto",
-                }}
-              />
+              {showDonisLogo && (
+                <span
+                  aria-hidden="true"
+                  className="h-12 w-14 rounded-[14px] border border-[#d6aa58]/40 bg-[#ead7ae] bg-center bg-no-repeat transition group-hover:border-[#d6aa58]"
+                  style={{
+                    backgroundImage: "url('/donis-logo.png')",
+                    backgroundSize: "82% auto",
+                  }}
+                />
+              )}
               <span>
                 <span className="block font-serif text-[25px] font-semibold leading-[0.9] tracking-[-0.04em] text-[#f6ead4]">
-                  Doni’s
+                  {brandPrimary}
                 </span>
                 <span className="mt-1 block text-[8px] font-black uppercase tracking-[0.34em] text-[#d6aa58]">
-                  Trattoria
+                  {brandSecondary}
                 </span>
               </span>
             </a>
@@ -556,24 +611,28 @@ export function DonisTrattoriaLuxuryExperience({
                   </button>
                 ))}
               </div>
-              <a
-                href={bookingHref}
-                target={booking ? "_blank" : undefined}
-                rel={booking ? "noopener noreferrer" : undefined}
-                className="inline-flex min-h-11 items-center gap-2 rounded-full border border-[#d6aa58]/70 px-5 text-[12px] font-bold text-[#f4ead8] transition hover:bg-[#d6aa58] hover:text-[#11120f]"
-              >
-                <CalendarDays className="h-4 w-4" />
-                {t.book}
-              </a>
-              <a
-                href={order}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex min-h-11 items-center gap-2 rounded-full bg-[#deb45f] px-5 text-[12px] font-black text-[#15140f] shadow-[0_10px_30px_rgba(214,170,88,.18)] transition hover:-translate-y-0.5 hover:bg-[#ebc66f]"
-              >
-                <ShoppingBag className="h-4 w-4" />
-                {t.order}
-              </a>
+              {bookingHref && (
+                <a
+                  href={bookingHref}
+                  target={booking ? "_blank" : undefined}
+                  rel={booking ? "noopener noreferrer" : undefined}
+                  className="inline-flex min-h-11 items-center gap-2 rounded-full border border-[#d6aa58]/70 px-5 text-[12px] font-bold text-[#f4ead8] transition hover:bg-[#d6aa58] hover:text-[#11120f]"
+                >
+                  <CalendarDays className="h-4 w-4" />
+                  {t.book}
+                </a>
+              )}
+              {order && (
+                <a
+                  href={order}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex min-h-11 items-center gap-2 rounded-full bg-[#deb45f] px-5 text-[12px] font-black text-[#15140f] shadow-[0_10px_30px_rgba(214,170,88,.18)] transition hover:-translate-y-0.5 hover:bg-[#ebc66f]"
+                >
+                  <ShoppingBag className="h-4 w-4" />
+                  {t.order}
+                </a>
+              )}
             </div>
 
             <button
@@ -595,7 +654,7 @@ export function DonisTrattoriaLuxuryExperience({
                 onClick={closeMobileMenu}
                 className="font-serif text-3xl text-[#f4ead8]"
               >
-                Doni’s
+                {brandPrimary}
               </a>
               <button
                 type="button"
@@ -645,24 +704,28 @@ export function DonisTrattoriaLuxuryExperience({
               ))}
             </div>
             <div className="mx-auto mt-8 grid max-w-md gap-3">
-              <a
-                href={bookingHref}
-                target={booking ? "_blank" : undefined}
-                rel={booking ? "noopener noreferrer" : undefined}
-                className="inline-flex min-h-[52px] items-center justify-center gap-2 rounded-full border border-[#d6aa58]/70 px-6 font-bold"
-              >
-                <CalendarDays className="h-4 w-4" />
-                {t.book}
-              </a>
-              <a
-                href={order}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex min-h-[52px] items-center justify-center gap-2 rounded-full bg-[#deb45f] px-6 font-black text-[#15140f]"
-              >
-                <ShoppingBag className="h-4 w-4" />
-                {t.order}
-              </a>
+              {bookingHref && (
+                <a
+                  href={bookingHref}
+                  target={booking ? "_blank" : undefined}
+                  rel={booking ? "noopener noreferrer" : undefined}
+                  className="inline-flex min-h-[52px] items-center justify-center gap-2 rounded-full border border-[#d6aa58]/70 px-6 font-bold"
+                >
+                  <CalendarDays className="h-4 w-4" />
+                  {t.book}
+                </a>
+              )}
+              {order && (
+                <a
+                  href={order}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex min-h-[52px] items-center justify-center gap-2 rounded-full bg-[#deb45f] px-6 font-black text-[#15140f]"
+                >
+                  <ShoppingBag className="h-4 w-4" />
+                  {t.order}
+                </a>
+              )}
             </div>
           </div>
         )}
@@ -672,7 +735,7 @@ export function DonisTrattoriaLuxuryExperience({
             <Reveal>
               <SectionEyebrow>{t.eyebrow}</SectionEyebrow>
               <h1 className="mt-5 max-w-[760px] font-serif text-[clamp(4.3rem,9vw,8.1rem)] leading-[0.78] tracking-[-0.062em] text-[#f6ead4]">
-                {text.heroTitle[lang] || "Doni’s Trattoria"}
+                {text.heroTitle[lang] || brandName}
               </h1>
               {text.heroDescription[lang] && (
                 <p className="mt-8 max-w-[620px] text-base leading-7 text-white/78 sm:text-lg sm:leading-8">
@@ -687,24 +750,28 @@ export function DonisTrattoriaLuxuryExperience({
                   {t.viewMenu}
                   <ArrowRight className="h-4 w-4" />
                 </a>
-                <a
-                  href={order}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-flex min-h-12 items-center gap-2 rounded-full border border-[#d6aa58]/65 bg-black/20 px-6 text-sm font-bold text-[#f7ecd7] backdrop-blur transition hover:border-[#e7bd67] hover:text-[#e7bd67]"
-                >
-                  <ShoppingBag className="h-4 w-4" />
-                  {t.order}
-                </a>
-                <a
-                  href={bookingHref}
-                  target={booking ? "_blank" : undefined}
-                  rel={booking ? "noopener noreferrer" : undefined}
-                  className="inline-flex min-h-12 items-center gap-2 rounded-full border border-white/20 bg-black/20 px-6 text-sm font-bold text-white/90 backdrop-blur transition hover:border-[#d6aa58]/70 hover:text-[#e7bd67]"
-                >
-                  <CalendarDays className="h-4 w-4" />
-                  {t.book}
-                </a>
+                {order && (
+                  <a
+                    href={order}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex min-h-12 items-center gap-2 rounded-full border border-[#d6aa58]/65 bg-black/20 px-6 text-sm font-bold text-[#f7ecd7] backdrop-blur transition hover:border-[#e7bd67] hover:text-[#e7bd67]"
+                  >
+                    <ShoppingBag className="h-4 w-4" />
+                    {t.order}
+                  </a>
+                )}
+                {bookingHref && (
+                  <a
+                    href={bookingHref}
+                    target={booking ? "_blank" : undefined}
+                    rel={booking ? "noopener noreferrer" : undefined}
+                    className="inline-flex min-h-12 items-center gap-2 rounded-full border border-white/20 bg-black/20 px-6 text-sm font-bold text-white/90 backdrop-blur transition hover:border-[#d6aa58]/70 hover:text-[#e7bd67]"
+                  >
+                    <CalendarDays className="h-4 w-4" />
+                    {t.book}
+                  </a>
+                )}
               </div>
             </Reveal>
           </div>
@@ -814,21 +881,28 @@ export function DonisTrattoriaLuxuryExperience({
         id="om"
         className="scroll-mt-20 border-b border-white/10 bg-[#090b09] px-4 py-20 sm:px-8 sm:py-24 lg:px-12 lg:py-28"
       >
-        <div className="mx-auto grid max-w-[1460px] overflow-hidden rounded-[28px] border border-white/10 bg-[#0e110e] lg:grid-cols-[1.02fr_.98fr]">
-          <Reveal className="min-h-[420px] lg:min-h-[560px]">
-            <div className="relative h-full min-h-[420px] overflow-hidden lg:min-h-[560px]">
-              <img
-                src={aboutImage.url}
-                alt={aboutImage.alt}
-                loading="lazy"
-                className="absolute inset-0 h-full w-full object-cover"
-              />
-              <div className="absolute inset-0 bg-[linear-gradient(180deg,transparent_45%,rgba(5,6,5,.72)_100%)]" />
-              <div className="absolute bottom-5 left-5 rounded-full border border-[#d6aa58]/45 bg-black/45 px-4 py-2 text-[10px] font-black uppercase tracking-[0.22em] text-[#e9c779] backdrop-blur">
-                Hornsbergs Strand · Stockholm
+        <div
+          className={
+            "mx-auto grid max-w-[1460px] overflow-hidden rounded-[28px] border border-white/10 bg-[#0e110e] " +
+            (aboutImage ? "lg:grid-cols-[1.02fr_.98fr]" : "")
+          }
+        >
+          {aboutImage && (
+            <Reveal className="min-h-[420px] lg:min-h-[560px]">
+              <div className="relative h-full min-h-[420px] overflow-hidden lg:min-h-[560px]">
+                <img
+                  src={aboutImage.url}
+                  alt={aboutImage.alt}
+                  loading="lazy"
+                  className="absolute inset-0 h-full w-full object-cover"
+                />
+                <div className="absolute inset-0 bg-[linear-gradient(180deg,transparent_45%,rgba(5,6,5,.72)_100%)]" />
+                <div className="absolute bottom-5 left-5 rounded-full border border-[#d6aa58]/45 bg-black/45 px-4 py-2 text-[10px] font-black uppercase tracking-[0.22em] text-[#e9c779] backdrop-blur">
+                  {locationLabel}
+                </div>
               </div>
-            </div>
-          </Reveal>
+            </Reveal>
+          )}
 
           <Reveal delay={90} className="flex">
             <div className="relative flex w-full flex-col justify-center overflow-hidden px-6 py-14 sm:px-10 lg:px-14 lg:py-16">
@@ -836,7 +910,7 @@ export function DonisTrattoriaLuxuryExperience({
               <div className="absolute -right-16 top-24 h-40 w-40 rounded-full border border-[#d6aa58]/10" />
               <SectionEyebrow>{t.aboutKicker}</SectionEyebrow>
               <h2 className="mt-4 max-w-[560px] font-serif text-5xl leading-[0.94] tracking-[-0.045em] text-[#f4ead8] sm:text-6xl">
-                {text.aboutTitle[lang] || "Doni’s Trattoria"}
+                {text.aboutTitle[lang] || brandName}
               </h2>
               <div className="mt-7 max-w-[620px] space-y-4 text-[15px] leading-7 text-white/64">
                 {text.story[lang] && <p>{text.story[lang]}</p>}
@@ -865,12 +939,16 @@ export function DonisTrattoriaLuxuryExperience({
           <Reveal>
             <div className="mx-auto max-w-3xl text-center">
               <SectionEyebrow>{t.menuKicker}</SectionEyebrow>
-              <h2 className="mt-4 font-serif text-5xl leading-[0.94] tracking-[-0.045em] text-[#f4ead8] sm:text-6xl lg:text-7xl">
-                {t.menuTitle}
-              </h2>
-              <p className="mx-auto mt-4 max-w-2xl text-sm leading-6 text-white/55 sm:text-base">
-                {t.menuIntro}
-              </p>
+              {text.menuTitle[lang] && (
+                <h2 className="mt-4 font-serif text-5xl leading-[0.94] tracking-[-0.045em] text-[#f4ead8] sm:text-6xl lg:text-7xl">
+                  {text.menuTitle[lang]}
+                </h2>
+              )}
+              {text.menuIntro[lang] && (
+                <p className="mx-auto mt-4 max-w-2xl text-sm leading-6 text-white/55 sm:text-base">
+                  {text.menuIntro[lang]}
+                </p>
+              )}
               {isFallback && (
                 <p className="mx-auto mt-3 max-w-2xl text-xs leading-5 text-white/35">
                   {t.menuFallbackNote}
@@ -974,12 +1052,16 @@ export function DonisTrattoriaLuxuryExperience({
             <Reveal>
               <div className="mx-auto max-w-3xl text-center">
                 <SectionEyebrow>{t.galleryKicker}</SectionEyebrow>
-                <h2 className="mt-4 font-serif text-5xl leading-[0.94] tracking-[-0.045em] text-[#f4ead8] sm:text-6xl">
-                  {t.galleryTitle}
-                </h2>
-                <p className="mx-auto mt-4 max-w-2xl text-sm leading-6 text-white/50">
-                  {t.galleryIntro}
-                </p>
+                {text.galleryTitle[lang] && (
+                  <h2 className="mt-4 font-serif text-5xl leading-[0.94] tracking-[-0.045em] text-[#f4ead8] sm:text-6xl">
+                    {text.galleryTitle[lang]}
+                  </h2>
+                )}
+                {text.galleryIntro[lang] && (
+                  <p className="mx-auto mt-4 max-w-2xl text-sm leading-6 text-white/50">
+                    {text.galleryIntro[lang]}
+                  </p>
+                )}
               </div>
             </Reveal>
 
@@ -1063,12 +1145,16 @@ export function DonisTrattoriaLuxuryExperience({
           <Reveal>
             <div className="mb-10 max-w-3xl">
               <SectionEyebrow>{t.contactKicker}</SectionEyebrow>
-              <h2 className="mt-4 font-serif text-5xl leading-[0.94] tracking-[-0.045em] text-[#f4ead8] sm:text-6xl">
-                {t.contactTitle}
-              </h2>
-              <p className="mt-5 max-w-2xl text-sm leading-7 text-white/56 sm:text-base">
-                {t.contactBody}
-              </p>
+              {text.contactTitle[lang] && (
+                <h2 className="mt-4 font-serif text-5xl leading-[0.94] tracking-[-0.045em] text-[#f4ead8] sm:text-6xl">
+                  {text.contactTitle[lang]}
+                </h2>
+              )}
+              {text.contactBody[lang] && (
+                <p className="mt-5 max-w-2xl text-sm leading-7 text-white/56 sm:text-base">
+                  {text.contactBody[lang]}
+                </p>
+              )}
             </div>
           </Reveal>
 
@@ -1076,53 +1162,60 @@ export function DonisTrattoriaLuxuryExperience({
             <Reveal className="lg:col-span-4">
               <div className="h-full rounded-[24px] border border-white/10 bg-[#10130f] p-6 sm:p-7">
                 <div className="grid gap-5">
-                  <a
-                    href={mapsUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="group flex items-start gap-4"
-                  >
-                    <span className="mt-0.5 inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-[#d6aa58]/30 bg-[#d6aa58]/8 text-[#e7bd67]">
-                      <MapPin className="h-4 w-4" />
-                    </span>
-                    <span>
-                      <span className="block text-[10px] font-black uppercase tracking-[0.18em] text-white/35">
-                        {t.address}
+                  {fullAddress && (
+                    <a
+                      href={mapsUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="group flex items-start gap-4"
+                    >
+                      <span className="mt-0.5 inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-[#d6aa58]/30 bg-[#d6aa58]/8 text-[#e7bd67]">
+                        <MapPin className="h-4 w-4" />
                       </span>
-                      <span className="mt-1 block text-sm leading-6 text-white/78 transition group-hover:text-[#e7bd67]">
-                        Hornsbergs Strand 77
-                        <br />
-                        112 16 Stockholm
+                      <span>
+                        <span className="block text-[10px] font-black uppercase tracking-[0.18em] text-white/35">
+                          {t.address}
+                        </span>
+                        <span className="mt-1 block text-sm leading-6 text-white/78 transition group-hover:text-[#e7bd67]">
+                          {business.address}
+                          {(business.postalCode || business.city) && <br />}
+                          {[business.postalCode, business.city].filter(Boolean).join(" ")}
+                        </span>
                       </span>
-                    </span>
-                  </a>
-                  <a href={phoneHref} className="group flex items-center gap-4">
-                    <span className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-[#d6aa58]/30 bg-[#d6aa58]/8 text-[#e7bd67]">
-                      <Phone className="h-4 w-4" />
-                    </span>
-                    <span>
-                      <span className="block text-[10px] font-black uppercase tracking-[0.18em] text-white/35">
-                        {t.phone}
+                    </a>
+                  )}
+                  {business.phone && (
+                    <a href={phoneHref} className="group flex items-center gap-4">
+                      <span className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-[#d6aa58]/30 bg-[#d6aa58]/8 text-[#e7bd67]">
+                        <Phone className="h-4 w-4" />
                       </span>
-                      <span className="mt-1 block text-sm text-white/78 transition group-hover:text-[#e7bd67]">
-                        08-656 84 00
+                      <span>
+                        <span className="block text-[10px] font-black uppercase tracking-[0.18em] text-white/35">
+                          {t.phone}
+                        </span>
+                        <span className="mt-1 block text-sm text-white/78 transition group-hover:text-[#e7bd67]">
+                          {business.phone}
+                        </span>
                       </span>
-                    </span>
-                  </a>
-                  <a href={emailHref} className="group flex items-center gap-4">
-                    <span className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-[#d6aa58]/30 bg-[#d6aa58]/8 text-[#e7bd67]">
-                      <Mail className="h-4 w-4" />
-                    </span>
-                    <span className="min-w-0">
-                      <span className="block text-[10px] font-black uppercase tracking-[0.18em] text-white/35">
-                        {t.email}
+                    </a>
+                  )}
+                  {business.email && (
+                    <a href={emailHref} className="group flex items-center gap-4">
+                      <span className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-[#d6aa58]/30 bg-[#d6aa58]/8 text-[#e7bd67]">
+                        <Mail className="h-4 w-4" />
                       </span>
-                      <span className="mt-1 block truncate text-sm text-white/78 transition group-hover:text-[#e7bd67]">
-                        donitrattoria@gmail.com
+                      <span className="min-w-0">
+                        <span className="block text-[10px] font-black uppercase tracking-[0.18em] text-white/35">
+                          {t.email}
+                        </span>
+                        <span className="mt-1 block truncate text-sm text-white/78 transition group-hover:text-[#e7bd67]">
+                          {business.email}
+                        </span>
                       </span>
-                    </span>
-                  </a>
-                  <a
+                    </a>
+                  )}
+                  {business.instagram && instagramUrl && (
+                    <a
                     href={instagramUrl}
                     target="_blank"
                     rel="noopener noreferrer"
@@ -1136,38 +1229,45 @@ export function DonisTrattoriaLuxuryExperience({
                         {t.instagram}
                       </span>
                       <span className="mt-1 block text-sm text-white/78 transition group-hover:text-[#e7bd67]">
-                        @donis.trattoria
+                        {business.instagram}
                       </span>
                     </span>
                   </a>
+                  )}
                 </div>
 
                 <div className="mt-7 flex flex-wrap gap-2">
-                  <a
-                    href={bookingHref}
-                    target={booking ? "_blank" : undefined}
-                    rel={booking ? "noopener noreferrer" : undefined}
-                    className="inline-flex min-h-11 items-center gap-2 rounded-full bg-[#deb45f] px-5 text-xs font-black text-[#15140f] transition hover:bg-[#ebc66f]"
-                  >
-                    <CalendarDays className="h-4 w-4" />
-                    {t.book}
-                  </a>
-                  <a
-                    href={phoneHref}
-                    className="inline-flex min-h-11 items-center gap-2 rounded-full border border-white/15 px-5 text-xs font-bold text-white/78 transition hover:border-[#d6aa58]/50 hover:text-[#e7bd67]"
-                  >
-                    <Phone className="h-4 w-4" />
-                    {t.call}
-                  </a>
-                  <a
-                    href={mapsUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="inline-flex min-h-11 items-center gap-2 rounded-full border border-white/15 px-5 text-xs font-bold text-white/78 transition hover:border-[#d6aa58]/50 hover:text-[#e7bd67]"
-                  >
-                    <Navigation className="h-4 w-4" />
-                    {t.directions}
-                  </a>
+                  {bookingHref && (
+                    <a
+                      href={bookingHref}
+                      target={booking ? "_blank" : undefined}
+                      rel={booking ? "noopener noreferrer" : undefined}
+                      className="inline-flex min-h-11 items-center gap-2 rounded-full bg-[#deb45f] px-5 text-xs font-black text-[#15140f] transition hover:bg-[#ebc66f]"
+                    >
+                      <CalendarDays className="h-4 w-4" />
+                      {t.book}
+                    </a>
+                  )}
+                  {business.phone && (
+                    <a
+                      href={phoneHref}
+                      className="inline-flex min-h-11 items-center gap-2 rounded-full border border-white/15 px-5 text-xs font-bold text-white/78 transition hover:border-[#d6aa58]/50 hover:text-[#e7bd67]"
+                    >
+                      <Phone className="h-4 w-4" />
+                      {t.call}
+                    </a>
+                  )}
+                  {hasLocation && (
+                    <a
+                      href={mapsUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex min-h-11 items-center gap-2 rounded-full border border-white/15 px-5 text-xs font-bold text-white/78 transition hover:border-[#d6aa58]/50 hover:text-[#e7bd67]"
+                    >
+                      <Navigation className="h-4 w-4" />
+                      {t.directions}
+                    </a>
+                  )}
                 </div>
               </div>
             </Reveal>
@@ -1196,71 +1296,97 @@ export function DonisTrattoriaLuxuryExperience({
               </div>
             </Reveal>
 
-            <Reveal delay={120} className="lg:col-span-5">
-              <div className="grid h-full gap-4">
-                {contactImage && (
-                  <a
-                    href={mapsUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="group relative min-h-[235px] overflow-hidden rounded-[24px] border border-white/10 bg-[#10130f]"
-                  >
-                    <img
-                      src={contactImage.url}
-                      alt={contactImage.alt}
-                      loading="lazy"
-                      className="absolute inset-0 h-full w-full object-cover transition duration-700 group-hover:scale-[1.025]"
-                    />
-                    <div className="absolute inset-0 bg-gradient-to-t from-black/58 via-black/5 to-transparent" />
-                    <div className="absolute bottom-5 left-5 right-5 flex items-center justify-between gap-4">
-                      <span>
-                        <span className="block font-serif text-2xl text-[#f4ead8]">
-                          Doni’s Trattoria
-                        </span>
-                        <span className="mt-1 block text-xs text-white/65">
-                          Hornsbergs Strand 77
-                        </span>
-                      </span>
-                      <span className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-[#deb45f] text-[#15140f]">
-                        <Navigation className="h-4 w-4" />
-                      </span>
-                    </div>
-                  </a>
-                )}
+            {(contactImage || hasLocation) && (
+              <Reveal delay={120} className="lg:col-span-5">
+                <div className="grid h-full gap-4">
+                  {contactImage &&
+                    (hasLocation ? (
+                      <a
+                        href={mapsUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="group relative min-h-[235px] overflow-hidden rounded-[24px] border border-white/10 bg-[#10130f]"
+                      >
+                        <img
+                          src={contactImage.url}
+                          alt={contactImage.alt}
+                          loading="lazy"
+                          className="absolute inset-0 h-full w-full object-cover transition duration-700 group-hover:scale-[1.025]"
+                        />
+                        <div className="absolute inset-0 bg-gradient-to-t from-black/58 via-black/5 to-transparent" />
+                        <div className="absolute bottom-5 left-5 right-5 flex items-center justify-between gap-4">
+                          <span>
+                            <span className="block font-serif text-2xl text-[#f4ead8]">
+                              {brandName}
+                            </span>
+                            {business.address && (
+                              <span className="mt-1 block text-xs text-white/65">
+                                {business.address}
+                              </span>
+                            )}
+                          </span>
+                          <span className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-[#deb45f] text-[#15140f]">
+                            <Navigation className="h-4 w-4" />
+                          </span>
+                        </div>
+                      </a>
+                    ) : (
+                      <div className="relative min-h-[235px] overflow-hidden rounded-[24px] border border-white/10 bg-[#10130f]">
+                        <img
+                          src={contactImage.url}
+                          alt={contactImage.alt}
+                          loading="lazy"
+                          className="absolute inset-0 h-full w-full object-cover"
+                        />
+                        <div className="absolute inset-0 bg-gradient-to-t from-black/58 via-black/5 to-transparent" />
+                        <div className="absolute bottom-5 left-5 right-5">
+                          <span className="block font-serif text-2xl text-[#f4ead8]">
+                            {brandName}
+                          </span>
+                        </div>
+                      </div>
+                    ))}
 
-                <div className="relative min-h-[220px] overflow-hidden rounded-[24px] border border-white/10 bg-[#10130f]">
-                  <iframe
-                    title={t.mapTitle}
-                    src={mapEmbedUrl}
-                    loading="lazy"
-                    referrerPolicy="no-referrer-when-downgrade"
-                    className="pointer-events-none absolute inset-0 h-full w-full border-0 opacity-80 grayscale-[20%] contrast-[1.03]"
-                  />
-                  <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(180deg,rgba(8,10,8,.06),rgba(8,10,8,.40))]" />
-                  <a
-                    href={mapsUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="group absolute bottom-4 left-4 right-4 flex items-center justify-between gap-4 rounded-[16px] border border-white/12 bg-[#090b09]/88 p-3 backdrop-blur-xl"
-                  >
-                    <div className="flex min-w-0 items-center gap-3">
-                      <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#deb45f] text-[#15140f]">
-                        <MapPin className="h-4 w-4" />
-                      </span>
-                      <span className="min-w-0">
-                        <span className="block truncate text-sm font-bold text-[#f4ead8]">
-                          {t.directions}
-                        </span>
-                        <span className="block truncate text-[11px] text-white/50">
-                          Hornsbergs Strand 77
-                        </span>
-                      </span>
+                  {hasLocation && (
+                    <div className="relative min-h-[220px] overflow-hidden rounded-[24px] border border-white/10 bg-[#10130f]">
+                      {mapEmbedUrl && (
+                        <iframe
+                          title={mapTitle}
+                          src={mapEmbedUrl}
+                          loading="lazy"
+                          referrerPolicy="no-referrer-when-downgrade"
+                          className="pointer-events-none absolute inset-0 h-full w-full border-0 opacity-80 grayscale-[20%] contrast-[1.03]"
+                        />
+                      )}
+                      <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(180deg,rgba(8,10,8,.06),rgba(8,10,8,.40))]" />
+                      <a
+                        href={mapsUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="group absolute bottom-4 left-4 right-4 flex items-center justify-between gap-4 rounded-[16px] border border-white/12 bg-[#090b09]/88 p-3 backdrop-blur-xl"
+                      >
+                        <div className="flex min-w-0 items-center gap-3">
+                          <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#deb45f] text-[#15140f]">
+                            <MapPin className="h-4 w-4" />
+                          </span>
+                          <span className="min-w-0">
+                            <span className="block truncate text-sm font-bold text-[#f4ead8]">
+                              {t.directions}
+                            </span>
+                            {fullAddress && (
+                              <span className="block truncate text-[11px] text-white/50">
+                                {fullAddress}
+                              </span>
+                            )}
+                          </span>
+                        </div>
+                        <ArrowRight className="h-4 w-4 shrink-0 text-[#d6aa58] transition group-hover:translate-x-0.5" />
+                      </a>
                     </div>
-                    <ArrowRight className="h-4 w-4 shrink-0 text-[#d6aa58] transition group-hover:translate-x-0.5" />
-                  </a>
+                  )}
                 </div>
-              </div>
-            </Reveal>
+              </Reveal>
+            )}
           </div>
         </div>
       </section>
@@ -1269,20 +1395,22 @@ export function DonisTrattoriaLuxuryExperience({
         <div className="mx-auto max-w-[1460px]">
           <div className="flex flex-col gap-8 border-b border-white/8 pb-8 lg:flex-row lg:items-center lg:justify-between">
             <a href="#top" className="flex w-fit items-center gap-3">
-              <span
-                aria-hidden="true"
-                className="h-12 w-14 rounded-[14px] border border-[#d6aa58]/30 bg-[#ead7ae] bg-center bg-no-repeat"
-                style={{
-                  backgroundImage: "url('/donis-logo.png')",
-                  backgroundSize: "82% auto",
-                }}
-              />
+              {showDonisLogo && (
+                <span
+                  aria-hidden="true"
+                  className="h-12 w-14 rounded-[14px] border border-[#d6aa58]/30 bg-[#ead7ae] bg-center bg-no-repeat"
+                  style={{
+                    backgroundImage: "url('/donis-logo.png')",
+                    backgroundSize: "82% auto",
+                  }}
+                />
+              )}
               <span>
                 <span className="block font-serif text-2xl leading-none text-[#f4ead8]">
-                  Doni’s
+                  {brandPrimary}
                 </span>
                 <span className="mt-1 block text-[8px] font-black uppercase tracking-[0.32em] text-[#d6aa58]">
-                  Trattoria
+                  {brandSecondary}
                 </span>
               </span>
             </a>
@@ -1304,20 +1432,22 @@ export function DonisTrattoriaLuxuryExperience({
               </a>
             </nav>
 
-            <a
-              href={instagramUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              aria-label={t.follow + " Instagram"}
-              className="inline-flex h-11 w-11 items-center justify-center rounded-full border border-white/12 text-white/65 transition hover:border-[#d6aa58]/50 hover:text-[#e7bd67]"
-            >
-              <Camera className="h-4 w-4" />
-            </a>
+            {business.instagram && instagramUrl && (
+              <a
+                href={instagramUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                aria-label={t.follow + " Instagram"}
+                className="inline-flex h-11 w-11 items-center justify-center rounded-full border border-white/12 text-white/65 transition hover:border-[#d6aa58]/50 hover:text-[#e7bd67]"
+              >
+                <Camera className="h-4 w-4" />
+              </a>
+            )}
           </div>
 
           <div className="flex flex-col gap-3 pt-6 text-[11px] text-white/35 sm:flex-row sm:items-center sm:justify-between">
-            <span>© 2026 Doni’s Trattoria. {t.footerLine}</span>
-            <span>Org.nr 556852-1420</span>
+            <span>© 2026 {brandName}. {footerLine}</span>
+            {business.orgNumber && <span>Org.nr {business.orgNumber}</span>}
           </div>
         </div>
       </footer>

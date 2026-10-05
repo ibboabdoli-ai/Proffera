@@ -9,11 +9,11 @@ describe("Doni admin mirrors the public demo", () => {
     );
 
     expect(editor).toContain("function loadDemoExamples()");
-    expect(editor).toContain("createDonisAdminStarterSite()");
-    expect(editor).toContain("Ladda demosidans exempel");
+    expect(editor).toContain("createDonisLuxuryAdminStarterSite()");
+    expect(editor).toContain("Ladda Demo 2-innehåll");
     expect(editor).toContain("setStarter(true)");
     expect(editor).toContain("setDirty(true)");
-    expect(editor).toContain("!initial.published");
+    expect(editor).toContain("initial.published");
   });
 
   it("labels each owner section by the public-site area it controls", () => {
@@ -37,7 +37,7 @@ describe("Doni admin mirrors the public demo", () => {
     }
   });
 
-  it("shows public reference media without converting it into owned media", () => {
+  it("surfaces Demo 2 reference media as selectable curated CMS media", () => {
     const page = readFileSync(
       "src/app/dashboard/restaurang/page.tsx",
       "utf8",
@@ -49,11 +49,24 @@ describe("Doni admin mirrors the public demo", () => {
 
     expect(page).toContain("referenceHeroImage={referenceHeroImage}");
     expect(page).toContain("referenceGalleryImages={referenceGalleryImages}");
-    expect(page).toContain("site.published ? {} : DONIS_FALLBACK_DISH_IMAGE_URLS");
+    expect(page).toContain("DONIS_LUXURY_FALLBACK_SITE.dishes");
     expect(editor).toContain("Referensbilder från demosidan");
-    expect(editor).toContain("referenceDishImages[dish.id]");
+    expect(editor).not.toContain("referenceDishImages");
+    expect(editor).toContain("const previewUrl = ownedImage;");
     expect(editor).toContain("referenceHeroImage");
     expect(editor).toContain("referenceGalleryImages");
+  });
+
+  it("translates the contact navigation in the English dashboard", () => {
+    const localeBoundary = readFileSync(
+      "src/components/dashboard/dashboard-global-locale-boundary.tsx",
+      "utf8",
+    );
+
+    expect(localeBoundary).toContain('"Kontakt": "Contact"');
+    expect(localeBoundary).toContain(
+      '"Adress, telefon och Instagram": "Address, phone and Instagram"',
+    );
   });
 
   it("keeps menu description fields editable without inventing dish copy", () => {

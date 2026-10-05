@@ -25,7 +25,7 @@ describe("Doni restaurant admin bilingual flow", () => {
       "utf8",
     );
     const publicExperience = readFileSync(
-      "src/app/demo/donis-trattoria/demo-interactions.tsx",
+      "src/app/demo/donis-trattoria2/demo-interactions.tsx",
       "utf8",
     );
 

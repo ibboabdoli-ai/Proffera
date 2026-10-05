@@ -1,10 +1,11 @@
 import { redirect } from "next/navigation";
 
-import { DonisTrattoriaExperience } from "@/app/demo/donis-trattoria/demo-interactions";
+import { DonisTrattoriaLuxuryExperience } from "@/app/demo/donis-trattoria2/demo-interactions";
 import {
   getRestaurantAdmin,
   getRestaurantImageUrls,
 } from "@/lib/restaurant-site-db";
+import { projectPublicRestaurantSite } from "@/lib/restaurant-site-public";
 import { publishDraft } from "../actions";
 
 export const dynamic = "force-dynamic";
@@ -34,7 +35,8 @@ export default async function PreviewPage({
 }) {
   const site = await getRestaurantAdmin();
   if (!site) redirect("/dashboard/restaurang");
-  const images = await getRestaurantImageUrls(site.draft);
+  const previewSite = projectPublicRestaurantSite(site.draft);
+  const images = await getRestaurantImageUrls(previewSite);
   const { error, lang } = await searchParams;
   const locale = lang === "en" ? "en" : "sv";
   return (
@@ -68,8 +70,8 @@ export default async function PreviewPage({
           </form>
         </div>
       </div>
-      <DonisTrattoriaExperience
-        site={site.draft}
+      <DonisTrattoriaLuxuryExperience
+        site={previewSite}
         images={images}
         initialLang={locale}
       />
