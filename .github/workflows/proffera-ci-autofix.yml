@@ -308,6 +308,37 @@ jobs:
           gh api --paginate "repos/$REPOSITORY/issues/548/comments?per_page=100" --jq '.[]' | jq -s '.' > "$comments_file"
           jq -e 'type == "array"' "$comments_file" >/dev/null
 
+          backfill_terminal_memory() {
+            local comments_path="$1"
+            jq -n --arg repository "$REPOSITORY" --arg pr_number "$PR_NUMBER" \
+              --slurpfile comments "$comments_path" \
+              '{repository:$repository,pr_number:($pr_number|tonumber),comments:$comments[0]}' \
+              | node scripts/supervisor-ci-autofix-strategy-memory.mjs backfill-terminals
+          }
+
+          backfill_plan="$(backfill_terminal_memory "$comments_file")"
+          if [ "$(jq -r '.unchanged' <<< "$backfill_plan")" != "true" ]; then
+            backfill_body_file="$RUNNER_TEMP/ci-autofix-backfill-body.txt"
+            jq -r '.body' <<< "$backfill_plan" > "$backfill_body_file"
+            backfill_payload="$RUNNER_TEMP/ci-autofix-backfill-payload.json"
+            jq -n --rawfile body "$backfill_body_file" '{body:$body}' > "$backfill_payload"
+            backfill_comment_id="$(jq -r '.comment_id // empty' <<< "$backfill_plan")"
+            if [ -z "$backfill_comment_id" ]; then
+              created_backfill="$(gh api --method POST "repos/$REPOSITORY/issues/548/comments" --input "$backfill_payload")"
+              jq -e '.id | numbers' >/dev/null <<< "$created_backfill"
+            else
+              gh api --method PATCH "repos/$REPOSITORY/issues/comments/$backfill_comment_id" --input "$backfill_payload" >/dev/null
+            fi
+            gh api --paginate "repos/$REPOSITORY/issues/548/comments?per_page=100" --jq '.[]' | jq -s '.' > "$comments_file"
+            jq -e 'type == "array"' "$comments_file" >/dev/null
+            confirmed_backfill="$(backfill_terminal_memory "$comments_file")"
+            test "$(jq -r '.unchanged' <<< "$confirmed_backfill")" = "true" || {
+              echo "CI Autofix terminal backfill did not converge to canonical Failure Memory." >&2
+              exit 1
+            }
+            echo "Backfilled $(jq -r '.backfilled' <<< "$backfill_plan") terminal CI Autofix attempt(s) into canonical Failure Memory."
+          fi
+
           build_input() {
             jq -n --arg repository "$REPOSITORY" --arg pr_number "$PR_NUMBER" --arg head "$HEAD_SHA" \
               --arg source_run_id "$SOURCE_RUN_ID" --arg source_run_attempt "$SOURCE_RUN_ATTEMPT" \
@@ -636,13 +667,12 @@ jobs:
           if [ "$AUTOFIX_RESULT" != "success" ]; then
             jobs_file="$RUNNER_TEMP/ci-autofix-current-attempt-jobs.json"
             gh api --paginate "repos/$REPOSITORY/actions/runs/$ADMITTED_RUN_ID/attempts/$ADMITTED_RUN_ATTEMPT/jobs?per_page=100" --jq '.jobs[]' | jq -s '.' > "$jobs_file"
-            jq -e 'type == "array"' "$jobs_file" >/dev/null
-            model_steps="$(jq '[.[] | select(.name == "Bounded Codex CI autofix") | .steps[]? | select(.name == "Run one bounded Codex repair attempt")]' "$jobs_file")"
-            if [ "$(jq 'length' <<< "$model_steps")" = "1" ] \
-              && [ "$(jq -r '.[0].status // ""' <<< "$model_steps")" = "completed" ] \
-              && [ "$(jq -r '.[0].conclusion // ""' <<< "$model_steps")" = "skipped" ]; then
+            jq -e 'type == "array" and length <= 1000' "$jobs_file" >/dev/null
+            model_proof="$(jq -n --slurpfile jobs "$jobs_file" '{jobs:$jobs[0]}' \
+              | node scripts/supervisor-ci-autofix-strategy-memory.mjs model-proof)"
+            if [ "$(jq -r '.recoverable' <<< "$model_proof")" = "true" ]; then
               echo "persist=no" >> "$GITHUB_OUTPUT"
-              echo "CI Autofix stopped before the model step; leaving the durable start recoverable without charging strategy history."
+              echo "CI Autofix stopped before the model step ($(jq -r '.reason' <<< "$model_proof")); leaving the durable start recoverable without charging strategy history."
               exit 0
             fi
           fi
