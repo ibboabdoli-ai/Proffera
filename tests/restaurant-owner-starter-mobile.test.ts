@@ -36,7 +36,8 @@ describe("Doni restaurant owner starter content", () => {
       "utf8",
     );
 
-    expect(editor).toContain("const [dirty, setDirty] = useState(starter)");
+    expect(editor).toContain("Boolean(initial.starter) || normalizedInitial.changed");
+    expect(editor).toContain("normalizeUploadedGalleryNames(initial.draft)");
     expect(editor).toContain("grid grid-cols-3 gap-2");
     expect(editor).toContain("const previewUrl = ownedImage;");
     expect(editor).not.toContain("referenceDishImages");

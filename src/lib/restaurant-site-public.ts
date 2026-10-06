@@ -9,8 +9,7 @@ export function projectPublicRestaurantSite(
     (dish) =>
       visibleCategoryIds.has(dish.categoryId) &&
       !dish.hidden &&
-      !dish.archived &&
-      dish.priceOre !== null,
+      !dish.archived,
   );
 
   // A gallery item reused as any dish image stays out of the public gallery,

@@ -71,6 +71,10 @@ describe("Doni demo 2", () => {
     );
     expect(source).toContain("const contactImage =");
     expect(source).toContain("contactImage.url");
+    expect(source).toContain("rawGallery.length >= 9");
+    expect(source).toContain("? rawGallery");
+    expect(source).toContain(": [...rawGallery, ...dishGallery].slice(0, 9)");
+
 
     expect(fallback).toContain("Efter ägarbytet");
     expect(fallback).toContain("Following a change of ownership");

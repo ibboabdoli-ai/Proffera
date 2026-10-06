@@ -119,6 +119,7 @@ const translations: Record<string, string> = {
   "Skriv bildens alt-text innan du laddar upp.": "Enter the photo alt text before uploading.",
   "Uppladdningen misslyckades.": "Upload failed.",
   "Bilden uppladdad. Spara utkastet och publicera för att visa ändringen.": "Photo uploaded. Save the draft and publish to show the change.",
+  "Bildnamn från filnamn har städats. Spara utkastet för att behålla ändringarna.": "Filename-based photo names were cleaned up. Save the draft to keep the changes.",
   "Alla bilder finns redan i galleriet. Ladda upp en ny bild.": "All photos are already in the gallery. Upload a new photo.",
   "Ladda upp en bild först.": "Upload a photo first.",
   "Bilden finns redan i galleriet. Välj en annan bild.": "This photo is already in the gallery. Choose another photo.",
