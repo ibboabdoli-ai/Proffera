@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 // @ts-expect-error Standalone .mjs follows the repository control-plane convention.
 import { createMemory, memoryIdentity, mergeObservation } from "../scripts/supervisor-failure-memory.mjs";
 // @ts-expect-error Standalone .mjs follows the repository control-plane convention.
-import { CI_AUTOFIX_EXECUTION_CONTRACT, CI_AUTOFIX_EXECUTION_PROMPT, ciAutofixMemoryState, ciAutofixObservation, ciAutofixRecoveryBody, ciAutofixStartBody, ciAutofixStrategyDescriptor, ciAutofixTerminalBody, decideCiAutofixStrategyHistory, parseCiAutofixStarts, parseCiAutofixTerminals, prepareCiAutofixOutcome, prepareCiAutofixTerminal, prepareCiAutofixTerminalBackfill, proveCiAutofixModelNotLaunched, proveCiAutofixPrelaunchRecovery, unresolvedCiAutofixStarts } from "../scripts/supervisor-ci-autofix-strategy-memory.mjs";
+import { CI_AUTOFIX_EXECUTION_CONTRACT, CI_AUTOFIX_EXECUTION_PROMPT, ciAutofixMemoryState, ciAutofixObservation, ciAutofixRecoveryBody, ciAutofixStartBody, ciAutofixStrategyDescriptor, ciAutofixTerminalBody, decideCiAutofixStrategyHistory, parseCiAutofixStarts, parseCiAutofixTerminals, prepareCiAutofixOutcome, prepareCiAutofixTerminal, prepareCiAutofixTerminalBackfill, proveCiAutofixIndeterminateRecovery, proveCiAutofixModelNotLaunched, proveCiAutofixPrelaunchRecovery, unresolvedCiAutofixStarts } from "../scripts/supervisor-ci-autofix-strategy-memory.mjs";
 
 const repository = "ibboabdoli-ai/Proffera";
 const pr = 934;
@@ -191,6 +191,58 @@ describe("CI Autofix durable admission and outcomes", () => {
       name: "Bounded Codex CI autofix", status: "completed", conclusion: "failure",
       steps: [{name: "Run one bounded Codex repair attempt", status: "completed", conclusion: "success"}],
     }]})).toEqual({recoverable: false, reason: "model_step_may_have_launched"});
+  });
+
+  it("turns a terminal post-model orphan into outcome unknown without claiming success or failure", () => {
+    const input = {
+      repository, pr_number: pr, start: start(),
+      run: {
+        id: 50, run_attempt: 1, head_sha: "f".repeat(40), head_branch: "main",
+        event: "workflow_run", path: ".github/workflows/proffera-ci-autofix.yml",
+        name: "Proffera CI autofix", status: "completed", conclusion: "failure",
+        updated_at: "2026-10-05T18:01:00Z",
+      },
+      jobs: [
+        {name: "Admit one bounded CI autofix strategy", status: "completed", conclusion: "success"},
+        {name: "Bounded Codex CI autofix", status: "completed", conclusion: "failure",
+          steps: [{name: "Run one bounded Codex repair attempt", status: "completed", conclusion: "success"}]},
+      ],
+    };
+    expect(proveCiAutofixIndeterminateRecovery(input)).toEqual({
+      recoverable: true, reason: "model_outcome_unknown", observed_at: "2026-10-05T18:01:00Z",
+    });
+    expect(proveCiAutofixIndeterminateRecovery({
+      ...input,
+      jobs: [
+        input.jobs[0],
+        {name: "Bounded Codex CI autofix", status: "completed", conclusion: "failure", steps: []},
+      ],
+    })).toEqual({recoverable: false, reason: "model_not_launched"});
+  });
+
+  it("keeps unknown historical evidence suppressed while allowing materially changed evidence", () => {
+    const terminalBody = ciAutofixTerminalBody({
+      repository, pr_number: pr, head, failures,
+      source_run_id: 40, source_run_attempt: 1, run_id: 50, run_attempt: 1,
+      outcome: "unknown", observed_at: "2026-10-05T18:01:00Z",
+    });
+    const state = ciAutofixMemoryState({
+      repository, pr_number: pr,
+      comments: [
+        trustedComment(ciAutofixStartBody({
+          repository, pr_number: pr, head, failures,
+          source_run_id: 40, source_run_attempt: 1, run_id: 50, run_attempt: 1,
+        }), 10),
+        trustedComment(terminalBody, 11),
+      ],
+    });
+    expect(decideCiAutofixStrategyHistory({
+      pr_number: pr, head, failures, records: state.records, starts: state.starts, terminals: state.terminals,
+    })).toMatchObject({decision: "SUPPRESS_REPEAT", unresolved_attempts: 0});
+    expect(decideCiAutofixStrategyHistory({
+      pr_number: pr, head: "b".repeat(40), failures,
+      records: state.records, starts: state.starts, terminals: state.terminals,
+    })).toMatchObject({decision: "ALLOW_MATERIAL_REENTRY", unresolved_attempts: 0});
   });
 
   it("removes a proven pre-model orphan", () => {
@@ -384,6 +436,16 @@ describe("CI Autofix workflow accounting boundary", () => {
     for (const outcome of ["cancelled", "no_change", "succeeded", "failed"]) {
       expect(workflow).toContain(`outcome=${outcome}`);
     }
+  });
+
+  it("recovers post-model bookkeeping loss as unknown and backfills terminal-only accounting before admission", () => {
+    const admitStart = workflow.indexOf("  admit:\n");
+    const admitEnd = workflow.indexOf("\n  autofix:", admitStart);
+    const admit = workflow.slice(admitStart, admitEnd);
+    expect(admit).toContain("indeterminate-proof");
+    expect(admit).toContain('--arg outcome "unknown"');
+    expect(admit).toContain("apply_terminal_backfill");
+    expect(admit.indexOf("indeterminate-proof")).toBeLessThan(admit.lastIndexOf("apply_terminal_backfill"));
   });
 
   it("backfills terminal-only accounting before admission and classifies pre-model startup failures without charging history", () => {
