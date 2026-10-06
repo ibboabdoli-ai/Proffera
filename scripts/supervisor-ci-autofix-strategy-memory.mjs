@@ -89,31 +89,42 @@ export function ciAutofixFailureDetailDigest(log) {
   let assertion = false;
   const lines = stripVTControlCharacters(log).replaceAll("\r\n", "\n").split(/[\n\r]/).flatMap((raw) => {
     let line = raw.replace(/^\d{4}-\d\d-\d\d[T ]\d\d:\d\d:\d\d(?:\.\d+)?Z?[ \t]?/, "");
-    if (summary(line)) { assertion = false; return [line]; }
-    if (/^\s*(?:(?:FAIL(?:ED)?|[❯×✗])\s|(?:\w*Error|Error|fatal|Exception):)/i.test(line)) assertion = false;
-    if (/\b(?:Expected|Received|AssertionError)\b/i.test(line)) assertion = true;
+    if (summary(line)) { assertion = false; return [{line, assertion}]; }
+    // Reporter titles can contain assertion words without being assertion values.
+    const reporter = /^\s*(?:FAIL(?:ED)?|[❯×✗✓✔])\s/i.test(line);
+    if (reporter || /^\s*(?:\w*Error|Error|fatal|Exception):/i.test(line)) assertion = false;
+    if (!reporter && /\b(?:Expected|Received|AssertionError)\b/i.test(line)) assertion = true;
     // Assertion payloads, including whitespace and text resembling timing/path
     // metadata, are material. Never apply generic whitespace or number stripping.
-    if (assertion) return [line];
+    if (assertion) return [{line, assertion}];
     if (/^\s*(?:##\[(?:group|endgroup)\]|(?:download|install|progress)\b.*\b\d+(?:\.\d+)?%|\d+(?:\.\d+)?%\s*$|(?:✓|✔)\s|(?:Start at|Duration)\s)/i.test(line)) return [];
     line = line
       .replace(/(?:\/home\/runner\/work\/_temp|\/tmp)\/[a-f0-9-]{20,}(?=[/.\s]|$)/gi, "<runner-temp>")
       .replace(/\b((?:request|trace|span|runner)[_-]id[=:]\s*)[a-f0-9-]{16,}\b/gi, "$1<transient-id>")
       .replace(/^\s*(elapsed|duration|took)[:=]?\s*\d+(?:\.\d+)?\s*(?:ms|s|sec(?:onds)?|m(?:in(?:utes)?)?)\s*$/i, "$1 <duration>")
       .replace(/^([ \t]*[❯×✗✓✔].*?)\s+\d+(?:\.\d+)?\s*(?:ms|s)\s*$/, "$1");
-    return [line];
+    return [{line, assertion}];
   });
-  if (!lines.some(Boolean) || lines.some((line) => line.length > 2048)) fail("failure_detail_lines");
+  if (!lines.some(({line}) => line) || lines.some(({line}) => line.length > 2048)) fail("failure_detail_lines");
   const anchor = /(?:\b(?:error|err!|fail(?:ed|ure)?|fatal|exception|assertion(?:error)?|expected|received|caused by)\b|##\[error\]|[×✗])/i;
   // Keep assertions and multiline values attached to their error/test scope.
   // Sorting individual Expected/Received lines would erase their association.
   const blocks = [];
   let scope = "";
   let block = [];
-  for (const line of lines) {
-    if (!line) continue;
+  const finishBlock = () => {
+    // Separators after a complete block are reporter noise; interior blank lines
+    // in multiline assertion values remain material.
+    while (block.at(-1) === "") block.pop();
+    if (block.length) blocks.push(block.join("\n"));
+  };
+  for (const {line, assertion: payload} of lines) {
+    if (!line) {
+      if (payload && block.length) block.push(line);
+      continue;
+    }
     if (summary(line)) {
-      if (block.length) blocks.push(block.join("\n"));
+      finishBlock();
       blocks.push(line);
       block = [];
       scope = "";
@@ -122,15 +133,15 @@ export function ciAutofixFailureDetailDigest(log) {
     const testHeader = /^\s*(?:FAIL(?:ED)?|[×✗])\s/.test(line);
     const errorHeader = /^\s*(?:##\[error\])?(?:\w*Error|Error|fatal|Exception):/i.test(line);
     if (testHeader || errorHeader) {
-      if (block.length) blocks.push(block.join("\n"));
+      finishBlock();
       if (testHeader) scope = line;
       block = scope && !testHeader ? [scope, line] : [line];
     } else if (block.length || anchor.test(line)) {
       block.push(line);
     }
   }
-  if (block.length) blocks.push(block.join("\n"));
-  if (!blocks.length) blocks.push(lines.join("\n"));
+  finishBlock();
+  if (!blocks.length) blocks.push(lines.map(({line}) => line).join("\n"));
   const normalized = [...new Set(blocks)].sort();
   if (normalized.length > 256 || Buffer.byteLength(canonical(normalized)) > 65536) fail("failure_detail_bound");
   return digest({version: 1, blocks: normalized});

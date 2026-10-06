@@ -749,6 +749,34 @@ describe("CI Autofix complete execution identity and bounded material evidence",
     expect(ciAutofixFailureDetailDigest(log)).toBe(ciAutofixFailureDetailDigest(log.replaceAll("17ms", "23ms")));
   });
 
+  it.each(["expected", "Received", "AssertionError"])("keeps reporter titles containing %s out of assertion mode", (word) => {
+    const log = `❯ tests/${word}.test.ts (2 tests | 1 failed) 17ms\n× math > returns ${word} result 17ms\n✓ math > handles ${word} 17ms\n\n${material}`;
+    const failureSet = (value: string) => [{job: "Unit and worker tests", steps: ["Test"], detail_digest: ciAutofixFailureDetailDigest(value)}];
+    const original = failureSet(log);
+    const rerun = failureSet(log.replaceAll("17ms", "23ms"));
+    expect(rerun).toEqual(original);
+    expect(ciAutofixFailureDetailDigest(log.replace(`✓ math > handles ${word} 17ms\n`, ""))).toBe(original[0].detail_digest);
+    expect(decideCiAutofixStrategyHistory({
+      pr_number: pr, head, failures: rerun, records: [record("no_change", {failureSet: original})], starts: [],
+    })).toMatchObject({decision: "SUPPRESS_REPEAT", prior_attempts: 1});
+  });
+
+  it("preserves interior blank assertion lines while ignoring inter-block separators", () => {
+    const log = 'FAIL test A\nAssertionError: expected strings to match\nExpected: "a\n\nb"\nReceived: "different"';
+    const transported = (value: string) => value.split("\n").map((line) => `2026-10-06T10:00:01.111Z ${line}`).join("\n");
+    const failureSet = (value: string) => [{job: "Unit and worker tests", steps: ["Test"], detail_digest: ciAutofixFailureDetailDigest(transported(value))}];
+    const original = failureSet(log);
+    const changed = failureSet(log.replace('a\n\nb', 'a\nb'));
+    expect(changed).not.toEqual(original);
+    expect(decideCiAutofixStrategyHistory({
+      pr_number: pr, head, failures: changed, records: [record("failed", {failureSet: original})], starts: [],
+    })).toMatchObject({decision: "ALLOW_MATERIAL_REENTRY", prior_attempts: 1});
+    const next = 'FAIL test B\nAssertionError: expected 1 to equal 2\nExpected: 2\nReceived: 1';
+    const footer = '\nTest Files 2 failed (2)\nTests 2 failed (2)';
+    expect(ciAutofixFailureDetailDigest(transported(log + '\n' + next + footer)))
+      .toBe(ciAutofixFailureDetailDigest(transported(next + '\n\n\n' + log + '\n\n' + footer)));
+  });
+
   it("distinguishes material failures in the same step, including multiline expected/received swaps", () => {
     const first = ciAutofixFailureDetailDigest(material);
     expect(ciAutofixFailureDetailDigest(material.replace("Received: 13", "Received: 14"))).not.toBe(first);
