@@ -569,8 +569,14 @@ describe("CI Autofix workflow accounting boundary", () => {
     const persist = run("record", "Persist exact CI Autofix outcome in canonical Failure Memory");
     const classify = run("record", "Classify the started CI Autofix model attempt");
     expect(persist).toContain("prepare-terminal");
-    expect(persist.indexOf('terminal_plan="$(node scripts/supervisor-ci-autofix-strategy-memory.mjs prepare-terminal'))
-      .toBeLessThan(persist.indexOf('prepare_plan "$comments_a" "$plan_a"'));
+    const terminalIndex = persist.indexOf(
+      'terminal_plan="$(node scripts/supervisor-ci-autofix-strategy-memory.mjs prepare-terminal',
+    );
+    const firstOutcomePlanIndex = persist.indexOf(
+      'plan_a="$RUNNER_TEMP/proffera-ci-autofix-plan-a.json"',
+    );
+    expect(terminalIndex).toBeGreaterThanOrEqual(0);
+    expect(firstOutcomePlanIndex).toBeGreaterThan(terminalIndex);
     expect(classify.indexOf('[ "$PUBLISHED" = "yes" ]'))
       .toBeLessThan(classify.indexOf('[ "$AUTOFIX_RESULT" != "success" ]'));
   });
