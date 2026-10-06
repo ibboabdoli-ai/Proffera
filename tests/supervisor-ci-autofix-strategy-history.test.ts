@@ -577,8 +577,11 @@ describe("CI Autofix workflow accounting boundary", () => {
     );
     expect(terminalIndex).toBeGreaterThanOrEqual(0);
     expect(firstOutcomePlanIndex).toBeGreaterThan(terminalIndex);
-    expect(classify.indexOf('[ "$PUBLISHED" = "yes" ]'))
-      .toBeLessThan(classify.indexOf('[ "$AUTOFIX_RESULT" != "success" ]'));
+    const outcomeStart = classify.indexOf("outcome=failed");
+    const outcomeBlock = classify.slice(outcomeStart);
+    expect(outcomeStart).toBeGreaterThanOrEqual(0);
+    expect(outcomeBlock.indexOf('[ "$PUBLISHED" = "yes" ]'))
+      .toBeLessThan(outcomeBlock.indexOf('[ "$AUTOFIX_RESULT" != "success" ]'));
   });
 
   it("protects the CI Autofix strategy helper from ordinary Worker scope", () => {
