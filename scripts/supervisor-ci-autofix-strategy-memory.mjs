@@ -227,7 +227,7 @@ export function parseCiAutofixTerminals(comments, {repository: repo, pr_number})
   for (const comment of comments) {
     if (comment?.user?.login !== "github-actions[bot]" || comment?.user?.type !== "Bot") continue;
     const body = String(comment?.body ?? "");
-    if (!body.includes(TERMINAL_PREFIX)) continue;
+    if (!body.startsWith(TERMINAL_PREFIX)) continue;
     if (typeof comment.issue_url !== "string"
       || comment.issue_url.toLowerCase() !== `https://api.github.com/repos/${EXPECTED_REPOSITORY.toLowerCase()}/issues/548`) {
       fail("terminal_provenance");
@@ -335,7 +335,7 @@ export function parseCiAutofixStarts(comments, {repository: repo, pr_number}) {
   for (const comment of comments) {
     if (comment?.user?.login !== "github-actions[bot]" || comment?.user?.type !== "Bot") continue;
     const body = String(comment?.body ?? "");
-    if (!body.includes(START_PREFIX)) continue;
+    if (!body.startsWith(START_PREFIX)) continue;
     if (typeof comment.issue_url !== "string"
       || comment.issue_url.toLowerCase() !== `https://api.github.com/repos/${EXPECTED_REPOSITORY.toLowerCase()}/issues/548`) {
       fail("start_provenance");
@@ -384,7 +384,7 @@ export function parseCiAutofixRecoveries(comments, {repository: repo, pr_number}
   for (const comment of comments) {
     if (comment?.user?.login !== "github-actions[bot]" || comment?.user?.type !== "Bot") continue;
     const body = String(comment?.body ?? "");
-    if (!body.includes(RECOVERY_PREFIX)) continue;
+    if (!body.startsWith(RECOVERY_PREFIX)) continue;
     if (typeof comment.issue_url !== "string"
       || comment.issue_url.toLowerCase() !== `https://api.github.com/repos/${EXPECTED_REPOSITORY.toLowerCase()}/issues/548`) {
       fail("recovery_provenance");
