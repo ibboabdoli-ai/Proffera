@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 // @ts-expect-error Standalone .mjs follows the repository control-plane convention.
 import { createMemory, memoryIdentity, mergeObservation } from "../scripts/supervisor-failure-memory.mjs";
 // @ts-expect-error Standalone .mjs follows the repository control-plane convention.
-import { CI_AUTOFIX_EXECUTION_CONTRACT, CI_AUTOFIX_EXECUTION_PROMPT, ciAutofixMemoryState, ciAutofixObservation, ciAutofixRecoveryBody, ciAutofixStartBody, ciAutofixStrategyDescriptor, decideCiAutofixStrategyHistory, parseCiAutofixStarts, prepareCiAutofixOutcome, proveCiAutofixPrelaunchRecovery, unresolvedCiAutofixStarts } from "../scripts/supervisor-ci-autofix-strategy-memory.mjs";
+import { CI_AUTOFIX_EXECUTION_CONTRACT, CI_AUTOFIX_EXECUTION_PROMPT, ciAutofixMemoryState, ciAutofixObservation, ciAutofixRecoveryBody, ciAutofixStartBody, ciAutofixStrategyDescriptor, ciAutofixTerminalBody, decideCiAutofixStrategyHistory, parseCiAutofixStarts, parseCiAutofixTerminals, prepareCiAutofixOutcome, prepareCiAutofixTerminal, proveCiAutofixPrelaunchRecovery, unresolvedCiAutofixStarts } from "../scripts/supervisor-ci-autofix-strategy-memory.mjs";
 
 const repository = "ibboabdoli-ai/Proffera";
 const pr = 934;
@@ -193,6 +193,62 @@ describe("CI Autofix durable admission and outcomes", () => {
     })).toMatchObject({decision: "ALLOW"});
   });
 
+  it("keeps terminal attempts resolved after bounded Failure Memory history is pruned", () => {
+    const startBody = ciAutofixStartBody({
+      repository, pr_number: pr, head, failures,
+      source_run_id: 40, source_run_attempt: 1, run_id: 50, run_attempt: 1,
+    });
+    const terminalBody = ciAutofixTerminalBody({
+      repository, pr_number: pr, head, failures,
+      source_run_id: 40, source_run_attempt: 1, run_id: 50, run_attempt: 1,
+      outcome: "failed", observed_at: "2026-10-05T18:00:00Z",
+    });
+    const comments = [trustedComment(startBody, 10), trustedComment(terminalBody, 11)];
+    const state = ciAutofixMemoryState({repository, pr_number: pr, comments});
+    expect(state.records).toEqual([]);
+    expect(state.terminals).toHaveLength(1);
+    expect(unresolvedCiAutofixStarts({repository, pr_number: pr, comments})).toEqual([]);
+    expect(decideCiAutofixStrategyHistory({
+      pr_number: pr, head, failures, records: state.records, starts: state.starts, terminals: state.terminals,
+    })).toMatchObject({decision: "SUPPRESS_REPEAT", prior_attempts: 1, unresolved_attempts: 0});
+  });
+
+  it("persists the first terminal tombstone idempotently and rejects conflicting attempt bindings", () => {
+    const input = {
+      repository, pr_number: pr, head, failures,
+      source_run_id: 40, source_run_attempt: 1, run_id: 50, run_attempt: 1,
+      outcome: "failed" as const, observed_at: "2026-10-05T18:00:00Z", comments: [] as ReturnType<typeof trustedComment>[],
+    };
+    const first = prepareCiAutofixTerminal(input);
+    expect(first.unchanged).toBe(false);
+    const comments = [trustedComment(first.body, 11)];
+    const retry = prepareCiAutofixTerminal({...input, outcome: "succeeded", observed_at: "2026-10-05T18:05:00Z", comments});
+    expect(retry.unchanged).toBe(true);
+    expect(retry.terminal.outcome).toBe("failed");
+    expect(parseCiAutofixTerminals(comments, {repository, pr_number: pr})).toHaveLength(1);
+    expect(() => prepareCiAutofixTerminal({...input, head: "b".repeat(40), comments})).toThrow(/terminal_attempt_conflict/);
+  });
+
+  it("restores a pruned canonical record from the durable terminal outcome rather than a changed retry result", () => {
+    const startBody = ciAutofixStartBody({
+      repository, pr_number: pr, head, failures,
+      source_run_id: 40, source_run_attempt: 1, run_id: 50, run_attempt: 1,
+    });
+    const terminalBody = ciAutofixTerminalBody({
+      repository, pr_number: pr, head, failures,
+      source_run_id: 40, source_run_attempt: 1, run_id: 50, run_attempt: 1,
+      outcome: "failed", observed_at: "2026-10-05T18:00:00Z",
+    });
+    const restored = prepareCiAutofixOutcome({
+      repository, pr_number: pr, head, failures, source_run_id: 40, source_run_attempt: 1,
+      run_id: 50, run_attempt: 1, outcome: "succeeded", observed_at: "2026-10-05T18:05:00Z",
+      comments: [trustedComment(startBody, 10), trustedComment(terminalBody, 11)],
+    });
+    const memory = JSON.parse(restored.body.split("\n")[2]);
+    expect(memory.records[0].outcome).toBe("failed");
+    expect(memory.records[0].observations[0].observed_at).toBe("2026-10-05T18:00:00.000Z");
+  });
+
   it("persists a started attempt idempotently and preserves the first terminal outcome", () => {
     const initial = [trustedComment(ciAutofixStartBody({
       repository, pr_number: pr, head, failures,
@@ -253,10 +309,22 @@ describe("CI Autofix workflow accounting boundary", () => {
 
   it("uses complete exact source-run job evidence and records all terminal model outcomes", () => {
     expect(workflow).toContain("actions/runs/$RUN_ID/attempts/$RUN_ATTEMPT/jobs?per_page=100");
+    expect(workflow).toContain('gh run view "$RUN_ID" --repo "$REPOSITORY" --attempt "$RUN_ATTEMPT" --log-failed');
     expect(workflow).toContain("gh api --paginate");
     for (const outcome of ["cancelled", "no_change", "succeeded", "failed"]) {
       expect(workflow).toContain(`outcome=${outcome}`);
     }
+  });
+
+  it("persists terminal tombstones before bounded Failure Memory and treats publication as authoritative", () => {
+    const recordStart = workflow.indexOf("  record:\n");
+    const record = workflow.slice(recordStart);
+    expect(record).toContain("prepare-terminal");
+    expect(record.indexOf("prepare-terminal")).toBeLessThan(record.indexOf("prepare-outcome"));
+    const classifyStart = record.indexOf('outcome=failed');
+    const classifyEnd = record.indexOf('echo "CI_AUTOFIX_OUTCOME=', classifyStart);
+    const classify = record.slice(classifyStart, classifyEnd);
+    expect(classify.indexOf('[ "$PUBLISHED" = "yes" ]')).toBeLessThan(classify.indexOf('[ "$AUTOFIX_RESULT" != "success" ]'));
   });
 
   it("protects the CI Autofix strategy helper from ordinary Worker scope", () => {

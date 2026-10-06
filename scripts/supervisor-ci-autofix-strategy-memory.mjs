@@ -13,6 +13,7 @@ import {
 const EXPECTED_REPOSITORY = "ibboabdoli-ai/Proffera";
 const START_PREFIX = "<!-- proffera-ci-autofix-start:v1:";
 const RECOVERY_PREFIX = "<!-- proffera-ci-autofix-recovery:v1:";
+const TERMINAL_PREFIX = "<!-- proffera-ci-autofix-terminal:v1:";
 const OUTCOMES = new Set(["failed", "no_change", "cancelled", "succeeded"]);
 
 export const CI_AUTOFIX_EXECUTION_PROMPT = `You are repairing one failed CI run on an already authorized Proffera pull request.
@@ -185,6 +186,109 @@ export function ciAutofixRecoveryBody(input) {
   return `${marker}\n\`\`\`json\n${canonical(payload)}\n\`\`\``;
 }
 
+function ciAutofixTerminalDescriptor(input) {
+  repository(input?.repository);
+  const descriptor = ciAutofixStrategyDescriptor(input);
+  const outcome = String(input?.outcome ?? "");
+  if (!OUTCOMES.has(outcome)) fail("outcome");
+  const runId = positiveInteger(input?.run_id, "run_id");
+  const runAttempt = positiveInteger(input?.run_attempt, "run_attempt");
+  const sourceRunId = positiveInteger(input?.source_run_id, "source_run_id");
+  const sourceRunAttempt = positiveInteger(input?.source_run_attempt, "source_run_attempt");
+  const observedAt = String(input?.observed_at ?? "");
+  if (!/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d{3})?Z$/.test(observedAt)) fail("observed_at");
+  return {
+    pr_number: descriptor.pr_number,
+    run_id: runId,
+    run_attempt: runAttempt,
+    source_run_id: sourceRunId,
+    source_run_attempt: sourceRunAttempt,
+    head: descriptor.head,
+    failure_digest: descriptor.failure_digest,
+    evidence_fingerprint: descriptor.evidence_fingerprint,
+    strategy_fingerprint: descriptor.strategy_fingerprint,
+    outcome,
+    observed_at: observedAt,
+  };
+}
+
+export function ciAutofixTerminalBody(input) {
+  const terminal = ciAutofixTerminalDescriptor(input);
+  const marker = `${TERMINAL_PREFIX}${terminal.pr_number}:${terminal.run_id}:${terminal.run_attempt} -->`;
+  return `${marker}\n\`\`\`json\n${canonical(terminal)}\n\`\`\``;
+}
+
+export function parseCiAutofixTerminals(comments, {repository: repo, pr_number}) {
+  repository(repo);
+  const prNumber = positiveInteger(pr_number, "pr_number");
+  if (!Array.isArray(comments) || comments.length > LIMITS.comments) fail("comments");
+  const result = [];
+  const seen = new Map();
+  for (const comment of comments) {
+    if (comment?.user?.login !== "github-actions[bot]" || comment?.user?.type !== "Bot") continue;
+    const body = String(comment?.body ?? "");
+    if (!body.includes(TERMINAL_PREFIX)) continue;
+    if (typeof comment.issue_url !== "string"
+      || comment.issue_url.toLowerCase() !== `https://api.github.com/repos/${EXPECTED_REPOSITORY.toLowerCase()}/issues/548`) {
+      fail("terminal_provenance");
+    }
+    if (Buffer.byteLength(body, "utf8") > LIMITS.body_bytes) fail("terminal_body_bound");
+    const match = body.match(/^<!-- proffera-ci-autofix-terminal:v1:([1-9][0-9]*):([1-9][0-9]*):([1-9][0-9]*) -->\n\`\`\`json\n([^\n]+)\n\`\`\`$/);
+    if (!match) fail("terminal_body");
+    const markerPr = positiveInteger(match[1], "terminal_pr");
+    const runId = positiveInteger(match[2], "terminal_run");
+    const runAttempt = positiveInteger(match[3], "terminal_attempt");
+    let payload;
+    try { payload = JSON.parse(match[4]); } catch { fail("terminal_json"); }
+    const expectedFields = ["evidence_fingerprint", "failure_digest", "head", "observed_at", "outcome", "pr_number",
+      "run_attempt", "run_id", "source_run_attempt", "source_run_id", "strategy_fingerprint"];
+    if (!payload || typeof payload !== "object" || Array.isArray(payload)
+      || Object.keys(payload).sort().join("|") !== expectedFields.sort().join("|")
+      || canonical(payload) !== match[4]) fail("terminal_payload");
+    if (payload.pr_number !== markerPr || payload.run_id !== runId || payload.run_attempt !== runAttempt) {
+      fail("terminal_binding");
+    }
+    sha(payload.head, "terminal_head");
+    positiveInteger(payload.source_run_id, "terminal_source_run");
+    positiveInteger(payload.source_run_attempt, "terminal_source_attempt");
+    if (!OUTCOMES.has(payload.outcome)
+      || !/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d{3})?Z$/.test(payload.observed_at)) fail("terminal_outcome");
+    for (const field of ["failure_digest", "evidence_fingerprint", "strategy_fingerprint"]) {
+      if (typeof payload[field] !== "string" || !/^[a-f0-9]{64}$/.test(payload[field])) fail("terminal_digest");
+    }
+    if (markerPr !== prNumber) continue;
+    const normalized = {
+      pr_number: markerPr, run_id: runId, run_attempt: runAttempt,
+      source_run_id: payload.source_run_id, source_run_attempt: payload.source_run_attempt,
+      head: payload.head, failure_digest: payload.failure_digest,
+      evidence_fingerprint: payload.evidence_fingerprint, strategy_fingerprint: payload.strategy_fingerprint,
+      outcome: payload.outcome, observed_at: payload.observed_at,
+    };
+    const key = `${runId}:${runAttempt}`;
+    const prior = seen.get(key);
+    if (prior && canonical(prior) !== canonical(normalized)) fail("terminal_conflict");
+    if (!prior) { seen.set(key, normalized); result.push(normalized); }
+  }
+  return result.sort((a, b) => a.run_id - b.run_id || a.run_attempt - b.run_attempt);
+}
+
+export function prepareCiAutofixTerminal(input) {
+  const proposed = ciAutofixTerminalDescriptor(input);
+  const terminals = parseCiAutofixTerminals(input?.comments, {
+    repository: EXPECTED_REPOSITORY, pr_number: proposed.pr_number,
+  });
+  const existing = terminals.find((terminal) =>
+    terminal.run_id === proposed.run_id && terminal.run_attempt === proposed.run_attempt);
+  if (existing) {
+    for (const field of ["pr_number", "run_id", "run_attempt", "source_run_id", "source_run_attempt", "head",
+      "failure_digest", "evidence_fingerprint", "strategy_fingerprint"]) {
+      if (existing[field] !== proposed[field]) fail("terminal_attempt_conflict");
+    }
+    return {unchanged: true, terminal: existing, body: ciAutofixTerminalBody({...input, ...existing})};
+  }
+  return {unchanged: false, terminal: proposed, body: ciAutofixTerminalBody(input)};
+}
+
 export function proveCiAutofixPrelaunchRecovery(input) {
   repository(input?.repository);
   const prNumber = positiveInteger(input?.pr_number, "pr_number");
@@ -348,11 +452,12 @@ function recordAttemptKeys(records) {
   return keys;
 }
 
-function activeCiAutofixStarts(comments, scope, records) {
+function activeCiAutofixStarts(comments, scope, records, terminals) {
   const starts = parseCiAutofixStarts(comments, scope);
   const recoveries = parseCiAutofixRecoveries(comments, scope);
   const startByKey = new Map(starts.map((start) => [`${start.run_id}:${start.run_attempt}`, start]));
   const recordKeys = recordAttemptKeys(records);
+  const terminalKeys = new Set(terminals.map((terminal) => `${terminal.run_id}:${terminal.run_attempt}`));
   const recovered = new Set();
   for (const recovery of recoveries) {
     const key = `${recovery.run_id}:${recovery.run_attempt}`;
@@ -364,35 +469,40 @@ function activeCiAutofixStarts(comments, scope, records) {
       || start.failure_digest !== recovery.failure_digest
       || start.evidence_fingerprint !== recovery.evidence_fingerprint
       || start.strategy_fingerprint !== recovery.strategy_fingerprint) fail("recovery_start_binding");
-    if (recordKeys.has(key)) fail("recovery_record_conflict");
+    if (recordKeys.has(key) || terminalKeys.has(key)) fail("recovery_record_conflict");
     recovered.add(key);
   }
   return {starts: starts.filter((start) => !recovered.has(`${start.run_id}:${start.run_attempt}`)), recoveries};
 }
 
-export function decideCiAutofixStrategyHistory({pr_number, head, failures: failureSet, records, starts}) {
+export function decideCiAutofixStrategyHistory({pr_number, head, failures: failureSet, records, starts, terminals = []}) {
   const descriptor = ciAutofixStrategyDescriptor({pr_number, head, failures: failureSet});
-  if (!Array.isArray(records) || !Array.isArray(starts)) fail("history");
+  if (!Array.isArray(records) || !Array.isArray(starts) || !Array.isArray(terminals)) fail("history");
   const recordKeys = recordAttemptKeys(records);
+  const terminalKeys = new Set(terminals.map((terminal) => `${terminal.run_id}:${terminal.run_attempt}`));
+  const durableAttemptKeys = new Set([...recordKeys, ...terminalKeys]);
   const laneRecords = records.filter((record) => record?.action_id === "ci_autofix_attempt");
   const matchingRecords = laneRecords.filter((record) =>
     record?.evidence_fingerprint === descriptor.evidence_fingerprint
     && record?.strategy_fingerprint === descriptor.strategy_fingerprint);
-  const unresolved = starts.filter((start) => !recordKeys.has(`${start.run_id}:${start.run_attempt}`));
-  if (matchingRecords.length > 0) {
+  const matchingTerminals = terminals.filter((terminal) =>
+    terminal?.evidence_fingerprint === descriptor.evidence_fingerprint
+    && terminal?.strategy_fingerprint === descriptor.strategy_fingerprint);
+  const unresolved = starts.filter((start) => !durableAttemptKeys.has(`${start.run_id}:${start.run_attempt}`));
+  if (matchingRecords.length > 0 || matchingTerminals.length > 0) {
     return {decision: "SUPPRESS_REPEAT",
       reason: "The same exact-head CI failure evidence and autofix strategy already has a durable model-attempt outcome.",
-      prior_attempts: laneRecords.length, unresolved_attempts: unresolved.length, ...descriptor};
+      prior_attempts: durableAttemptKeys.size, unresolved_attempts: unresolved.length, ...descriptor};
   }
   if (unresolved.length > 0) {
     return {decision: "SUPPRESS_UNRESOLVED_ATTEMPT",
       reason: "A CI Autofix model attempt for this PR already started without a durable outcome.",
-      prior_attempts: laneRecords.length, unresolved_attempts: unresolved.length, ...descriptor};
+      prior_attempts: durableAttemptKeys.size, unresolved_attempts: unresolved.length, ...descriptor};
   }
-  if (laneRecords.length > 0) {
+  if (durableAttemptKeys.size > 0) {
     return {decision: "ALLOW_MATERIAL_REENTRY",
       reason: "The exact-head deterministic CI evidence changed after prior durable CI Autofix history.",
-      prior_attempts: laneRecords.length, unresolved_attempts: 0, ...descriptor};
+      prior_attempts: durableAttemptKeys.size, unresolved_attempts: 0, ...descriptor};
   }
   return {decision: "ALLOW", reason: "No matching durable or unresolved CI Autofix strategy attempt exists.",
     prior_attempts: 0, unresolved_attempts: 0, ...descriptor};
@@ -433,22 +543,39 @@ export function ciAutofixMemoryState({repository: repo, pr_number, comments}) {
     scope: {kind: "pull_request", pr_number: prNumber},
     complete: true,
   });
+  const terminals = parseCiAutofixTerminals(comments, {repository: EXPECTED_REPOSITORY, pr_number: prNumber});
   const active = activeCiAutofixStarts(
-    comments, {repository: EXPECTED_REPOSITORY, pr_number: prNumber}, snapshot.memory.records);
-  return {snapshot, records: snapshot.memory.records, starts: active.starts, recoveries: active.recoveries};
+    comments, {repository: EXPECTED_REPOSITORY, pr_number: prNumber}, snapshot.memory.records, terminals);
+  return {snapshot, records: snapshot.memory.records, starts: active.starts, recoveries: active.recoveries, terminals};
 }
 
 export function unresolvedCiAutofixStarts(input) {
   const state = ciAutofixMemoryState(input);
   const recorded = recordAttemptKeys(state.records);
-  return state.starts.filter((start) => !recorded.has(`${start.run_id}:${start.run_attempt}`));
+  const terminalKeys = new Set(state.terminals.map((terminal) => `${terminal.run_id}:${terminal.run_attempt}`));
+  return state.starts.filter((start) => !recorded.has(`${start.run_id}:${start.run_attempt}`)
+    && !terminalKeys.has(`${start.run_id}:${start.run_attempt}`));
 }
 
 export function prepareCiAutofixOutcome(input) {
   const state = ciAutofixMemoryState(input);
   const expected = memoryIdentity(state.snapshot);
-  const observation = ciAutofixObservation(input);
   const descriptor = ciAutofixStrategyDescriptor(input);
+  const requestedObservation = ciAutofixObservation(input);
+  const terminal = state.terminals.find((item) =>
+    item.run_id === requestedObservation.source.run_id && item.run_attempt === requestedObservation.source.attempt);
+  if (terminal) {
+    for (const field of ["source_run_id", "source_run_attempt", "head", "failure_digest",
+      "evidence_fingerprint", "strategy_fingerprint"]) {
+      const expectedValue = field === "source_run_id" ? positiveInteger(input?.source_run_id, "source_run_id")
+        : field === "source_run_attempt" ? positiveInteger(input?.source_run_attempt, "source_run_attempt")
+          : descriptor[field];
+      if (terminal[field] !== expectedValue) fail("outcome_terminal_conflict");
+    }
+  }
+  const observation = terminal
+    ? ciAutofixObservation({...input, outcome: terminal.outcome, observed_at: terminal.observed_at})
+    : requestedObservation;
   const sourceRunId = positiveInteger(input?.source_run_id, "source_run_id");
   const sourceRunAttempt = positiveInteger(input?.source_run_attempt, "source_run_attempt");
   const sameAttempt = (source) => source?.kind === "actions"
@@ -495,13 +622,15 @@ async function main(args) {
   if (mode === "descriptor") return void process.stdout.write(JSON.stringify(ciAutofixStrategyDescriptor(parsed)) + "\n");
   if (mode === "start-body") return void process.stdout.write(JSON.stringify({body: ciAutofixStartBody(parsed)}) + "\n");
   if (mode === "recovery-body") return void process.stdout.write(JSON.stringify({body: ciAutofixRecoveryBody(parsed)}) + "\n");
+  if (mode === "terminal-body") return void process.stdout.write(JSON.stringify({body: ciAutofixTerminalBody(parsed)}) + "\n");
+  if (mode === "prepare-terminal") return void process.stdout.write(JSON.stringify(prepareCiAutofixTerminal(parsed)) + "\n");
   if (mode === "recovery-proof") return void process.stdout.write(JSON.stringify(proveCiAutofixPrelaunchRecovery(parsed)) + "\n");
   if (mode === "unresolved") return void process.stdout.write(JSON.stringify(unresolvedCiAutofixStarts(parsed)) + "\n");
   if (mode === "admit") {
     const state = ciAutofixMemoryState(parsed);
     return void process.stdout.write(JSON.stringify(decideCiAutofixStrategyHistory({
       pr_number: parsed.pr_number, head: parsed.head, failures: parsed.failures,
-      records: state.records, starts: state.starts,
+      records: state.records, starts: state.starts, terminals: state.terminals,
     })) + "\n");
   }
   if (mode === "prepare-outcome") {
