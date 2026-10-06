@@ -11,13 +11,16 @@ type Workflow = {
 };
 const yamlLoad = createRequire(import.meta.url)("js-yaml").load as (text: string) => Workflow;
 const directory = new URL("../.github/workflows/", import.meta.url);
-const group = "proffera-final-gate-memory-${{ fromJSON(inputs.pr_number) }}";
+const inputGroup = "proffera-final-gate-memory-${{ fromJSON(inputs.pr_number) }}";
+const ciGroup = "proffera-final-gate-memory-${{ fromJSON(needs.prepare.outputs.pr_number) }}";
 const workflows = Object.fromEntries(readdirSync(directory).filter((name) => /\.ya?ml$/.test(name))
   .map((name) => [name, yamlLoad(readFileSync(new URL(name, directory), "utf8"))]));
 const writers = [
-  ["supervisor-review-repair.yml", "admit"],
-  ["supervisor-review-repair.yml", "record"],
-  ["proffera-final-gate-wakeup.yml", "wake-final-gate"],
+  ["supervisor-review-repair.yml", "admit", inputGroup],
+  ["supervisor-review-repair.yml", "record", inputGroup],
+  ["proffera-final-gate-wakeup.yml", "wake-final-gate", inputGroup],
+  ["proffera-ci-autofix.yml", "admit", ciGroup],
+  ["proffera-ci-autofix.yml", "record", ciGroup],
 ] as const;
 function settings(index: number): Concurrency {
   const [file, job] = writers[index];
@@ -71,17 +74,19 @@ function attempt(outcome: "failed" | "no_change" | "cancelled" | "succeeded" = "
 }
 
 describe("Shared Failure Memory writer queue", () => {
-  it.each([0, 1, 2])("opts writer %i into the same bounded non-cancelling multi-entry queue", (index) => {
-    expect(settings(index)).toEqual({group, queue: "max", "cancel-in-progress": false});
+  it.each([0, 1, 2, 3, 4])("opts writer %i into the same bounded non-cancelling multi-entry queue", (index) => {
+    expect(settings(index)).toEqual({group: writers[index][2], queue: "max", "cancel-in-progress": false});
   });
 
   it("canonicalizes the PR number inside every shared mutex key", () => {
-    expect(group).toBe("proffera-final-gate-memory-${{ fromJSON(inputs.pr_number) }}");
-    for (const [file, job] of writers) {
+    expect(inputGroup).toBe("proffera-final-gate-memory-${{ fromJSON(inputs.pr_number) }}");
+    expect(ciGroup).toBe("proffera-final-gate-memory-${{ fromJSON(needs.prepare.outputs.pr_number) }}");
+    for (const [file, job, expectedGroup] of writers) {
       const config = workflows[file].jobs[job].concurrency;
       expect(typeof config).not.toBe("string");
-      expect((config as Concurrency).group).toBe(group);
+      expect((config as Concurrency).group).toBe(expectedGroup);
       expect((config as Concurrency).group).not.toContain("${{ inputs.pr_number }}");
+      expect((config as Concurrency).group).not.toContain("${{ needs.prepare.outputs.pr_number }}");
     }
   });
   it("finds every shared-group participant, including the sibling final-gate workflow", () => {
@@ -91,7 +96,8 @@ describe("Shared Failure Memory writer queue", () => {
         .map(([id, value]) => [id, value.concurrency])] as [string, Concurrency | string | undefined][]) {
         const name = typeof config === "string" ? config : config?.group;
         if (!name?.toLowerCase().includes("proffera-final-gate-memory-")) continue;
-        expect(config).toEqual({group, queue: "max", "cancel-in-progress": false});
+        expect(config).toMatchObject({queue: "max", "cancel-in-progress": false});
+        expect([inputGroup, ciGroup]).toContain((config as Concurrency).group);
         found.push(`${file}/${job}`);
       }
     }
@@ -99,17 +105,26 @@ describe("Shared Failure Memory writer queue", () => {
   });
 
   it("keeps the per-PR mutex off model, validation, publication and workflow-wide execution", () => {
-    for (const [file] of writers) expect(workflows[file].concurrency).toBeUndefined();
+    for (const file of [...new Set(writers.map(([name]) => name))]) {
+      const config = workflows[file].concurrency;
+      const name = typeof config === "string" ? config : config?.group;
+      expect(name ?? "").not.toContain("proffera-final-gate-memory-");
+    }
     for (const job of ["repair", "validate", "publish"]) {
       expect(workflows["supervisor-review-repair.yml"].jobs[job].concurrency).toBeUndefined();
     }
     const key = (input: string) =>
       settings(0).group.replace("${{ fromJSON(inputs.pr_number) }}", String(JSON.parse(input)));
+    const ciKey = (input: string) =>
+      settings(3).group.replace("${{ fromJSON(needs.prepare.outputs.pr_number) }}", String(JSON.parse(input)));
     expect(key("929")).not.toBe(key("930"));
     expect(key("929")).toBe("proffera-final-gate-memory-929");
     expect(key("929.0")).toBe(key("929"));
     expect(key("9.29e2")).toBe(key("929"));
+    expect(ciKey("929.0")).toBe(key("929"));
+    expect(ciKey("9.29e2")).toBe(key("929"));
     expect(() => key("0929")).toThrow();
+    expect(() => ciKey("0929")).toThrow();
   });
 
   it("reproduces lost recording under the historical one-pending-job policy", () => {
