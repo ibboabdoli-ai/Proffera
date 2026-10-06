@@ -580,7 +580,7 @@ describe("CI Autofix workflow accounting boundary", () => {
     const model = step("autofix", "Run one bounded Codex repair attempt");
     expect(model.uses).toBe(`openai/codex-action@${CI_AUTOFIX_EXECUTION_CONTRACT.action_revision}`);
     expect(model.with).toEqual({
-      "openai-api-key": "${{ secrets." + CI_AUTOFIX_EXECUTION_CONTRACT.api_key_source + " }}",
+      "openai-api-key": "${{ secrets." + CI_AUTOFIX_EXECUTION_CONTRACT.credential_source_name + " }}",
       "permission-profile": CI_AUTOFIX_EXECUTION_CONTRACT.permission_profile,
       "safety-strategy": CI_AUTOFIX_EXECUTION_CONTRACT.safety_strategy,
       "allow-bot-users": CI_AUTOFIX_EXECUTION_CONTRACT.allow_bot_users,
@@ -720,11 +720,15 @@ describe("CI Autofix complete execution identity and bounded material evidence",
     ["allow_bot_users", "another-bot"], ["action_revision", "b".repeat(40)],
     ["effort", "low"], ["prompt_version", "ci_autofix_next"],
     ["prompt", CI_AUTOFIX_EXECUTION_PROMPT + "\nChanged"], ["model", "explicit-model"],
-    ["api_key_source", "ANOTHER_KEY"],
+    ["credential_source_name", "ANOTHER_KEY"],
   ])("includes %s in strategy identity", (key, value) => {
     const input = {pr_number: pr, head, failures};
     expect(ciAutofixStrategyDescriptor(input, {...CI_AUTOFIX_EXECUTION_CONTRACT, [key]: value}).strategy_fingerprint)
       .not.toBe(ciAutofixStrategyDescriptor(input).strategy_fingerprint);
+  });
+  it("preserves the v2 strategy wire identity across the credential-source naming cleanup", () => {
+    expect(ciAutofixStrategyDescriptor({pr_number: pr, head, failures}).strategy_fingerprint)
+      .toBe("9fd41e1234cc327a13bbbb0757aeaa505118413d272776df345dadabe5ca1ace");
   });
 
   const material = "Error: assertion failed\nExpected: 12\nReceived: 13\n at tests/a.test.ts:42";
@@ -913,9 +917,9 @@ describe("CI Autofix truthful terminal outcomes", () => {
     expect(classifyCiAutofixOutcome({jobs: jobs(conclusion, [step(modelName, "cancelled")])}))
       .toEqual({persist: true, outcome: "unknown"});
   });
-  it("accepts only proven model failure, no-change or successful publication", () => {
+  it("does not treat an action failure as a proven model result and accepts only proven no-change/publication", () => {
     expect(classifyCiAutofixOutcome({jobs: jobs("failure", [step(modelName, "failure")])}))
-      .toEqual({persist: true, outcome: "failed"});
+      .toEqual({persist: true, outcome: "unknown"});
     const noChange = jobs("success", [step(modelName, "success"), step("Validate bounded repair without repository token", "success")]);
     expect(classifyCiAutofixOutcome({jobs: noChange, changed: "no"})).toEqual({persist: true, outcome: "no_change"});
     expect(classifyCiAutofixOutcome({jobs: noChange})).toEqual({persist: true, outcome: "unknown"});

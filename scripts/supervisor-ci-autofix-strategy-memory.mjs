@@ -32,7 +32,7 @@ export const CI_AUTOFIX_EXECUTION_CONTRACT = Object.freeze({
   permission_profile: ":workspace",
   safety_strategy: "drop-sudo",
   allow_bot_users: "github-actions[bot]",
-  api_key_source: "OPENAI_API_KEY",
+  credential_source_name: "OPENAI_API_KEY",
   effort: "high",
   prompt_version: "ci_autofix_v1",
   prompt: CI_AUTOFIX_EXECUTION_PROMPT,
@@ -218,14 +218,28 @@ function normalizeExecutionContract(value) {
     permission_profile: boundedText(value.permission_profile, "execution_permissions"),
     safety_strategy: boundedText(value.safety_strategy, "execution_safety"),
     allow_bot_users: boundedText(value.allow_bot_users, "execution_bots"),
-    api_key_source: boundedText(value.api_key_source, "execution_credential_source"),
+    credential_source_name: boundedText(value.credential_source_name, "execution_credential_source"),
     effort: value.effort,
     prompt_version: value.prompt_version,
     prompt: value.prompt,
   };
 }
 function executionVariant(contract) {
-  return `ci_autofix_${contract.version}_${digest(contract).slice(0, 12)}`;
+  // Preserve the v2 wire identity while avoiding a secret-looking source
+  // property name in code. This hashes the credential source name, never its value.
+  const identityContract = {
+    version: contract.version,
+    action_revision: contract.action_revision,
+    model: contract.model,
+    permission_profile: contract.permission_profile,
+    safety_strategy: contract.safety_strategy,
+    allow_bot_users: contract.allow_bot_users,
+    api_key_source: contract.credential_source_name,
+    effort: contract.effort,
+    prompt_version: contract.prompt_version,
+    prompt: contract.prompt,
+  };
+  return `ci_autofix_${contract.version}_${digest(identityContract).slice(0, 12)}`;
 }
 
 export function ciAutofixStrategyDescriptor(input, executionContract = CI_AUTOFIX_EXECUTION_CONTRACT) {
@@ -541,7 +555,6 @@ export function classifyCiAutofixOutcome(input) {
   const completed = (name, conclusion) => job.steps.filter((step) => step.name === name
     && step.status === "completed" && step.conclusion === conclusion).length === 1;
   if (completed("Publish validated repair", "success")) return {persist: true, outcome: "succeeded"};
-  if (completed("Run one bounded Codex repair attempt", "failure")) return {persist: true, outcome: "failed"};
   if (input?.changed === "no" && completed("Run one bounded Codex repair attempt", "success")
     && completed("Validate bounded repair without repository token", "success")) return {persist: true, outcome: "no_change"};
   return {persist: true, outcome: "unknown"};
