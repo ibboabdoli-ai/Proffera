@@ -12,6 +12,7 @@ env:
     .github/*
     AGENTS.md
     WORKER_BOOTSTRAP.md
+    scripts/supervisor-ci-autofix-candidate.mjs
     .env*
     vercel.json
     next.config.*
@@ -472,12 +473,13 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      pull-requests: write
+      pull-requests: read
       actions: read
     outputs:
-      changed: ${{ steps.validate_repair.outputs.changed }}
-      new_head: ${{ steps.validate_repair.outputs.new_head }}
-      published: ${{ steps.publish.outputs.published }}
+      changed: ${{ steps.candidate.outputs.changed }}
+      patch_sha256: ${{ steps.candidate.outputs.patch_sha256 }}
+      artifact_id: ${{ steps.artifact.outputs.artifact-id }}
+      final_message: ${{ steps.codex.outputs.final-message }}
     steps:
       - name: Checkout exact failed head
         if: needs.prepare.outputs.api_available == 'yes' && needs.prepare.outputs.push_available == 'yes'
@@ -563,76 +565,251 @@ jobs:
 
             You may run targeted lint, typecheck, Vitest or other already-installed local checks. Do not commit, push, merge, deploy, access Production, or use network-based package installation. If the failure cannot be safely fixed inside these limits, leave the checkout unchanged and explain the blocker in your final message.
 
-      - name: Validate bounded repair without repository token
+      - name: Capture bounded repair candidate
         if: needs.prepare.outputs.api_available == 'yes' && needs.prepare.outputs.push_available == 'yes'
-        id: validate_repair
+        id: candidate
         env:
-          BASE_SHA: ${{ needs.prepare.outputs.base_sha }}
-          EXPECTED_HEAD: ${{ needs.prepare.outputs.head_sha }}
+          REPOSITORY: ${{ github.repository }}
           PR_NUMBER: ${{ needs.prepare.outputs.pr_number }}
+          EXPECTED_HEAD: ${{ needs.admit.outputs.head_sha }}
+          BASE_SHA: ${{ needs.prepare.outputs.base_sha }}
+          ADMITTED_RUN_ID: ${{ needs.admit.outputs.admitted_run_id }}
+          ADMITTED_RUN_ATTEMPT: ${{ needs.admit.outputs.admitted_run_attempt }}
+          SOURCE_RUN_ID: ${{ needs.admit.outputs.source_run_id }}
+          SOURCE_RUN_ATTEMPT: ${{ needs.admit.outputs.source_run_attempt }}
         shell: bash
         run: |
           set -euo pipefail
           rm -f .codex-ci-failure.log
-          git config --local core.hooksPath /dev/null
-
-          is_blocked_path() {
-            local path="$1"
-            local pattern
-            while IFS= read -r pattern; do
-              [ -z "$pattern" ] && continue
-              if [[ "$path" == $pattern ]]; then
-                return 0
-              fi
-            done <<< "$BLOCKED_PATH_PATTERNS"
-            return 1
-          }
-
-          changed="$(git ls-files --modified --deleted --others --exclude-standard)"
-          if [ -z "$changed" ]; then
+          # This checkout and all its Git state are untrusted. Export data only;
+          # isolated jobs reconstruct and authorize the entire candidate tree.
+          git -c core.hooksPath=/dev/null -c core.fsmonitor=false add --all --intent-to-add
+          artifact_dir="$RUNNER_TEMP/ci-autofix-candidate"
+          mkdir -p "$artifact_dir"
+          patch="$artifact_dir/repair.patch"
+          git --no-replace-objects diff --binary --full-index --no-ext-diff --no-textconv --no-renames "$EXPECTED_HEAD" > "$patch"
+          if [ ! -s "$patch" ]; then
             echo "changed=no" >> "$GITHUB_OUTPUT"
-            echo "Codex made no repository changes."
             exit 0
           fi
+          test "$(wc -c < "$patch")" -le 10485760
+          patch_sha256="$(sha256sum "$patch" | cut -d' ' -f1)"
+          jq -n --arg repository "$REPOSITORY" --arg pr "$PR_NUMBER" \
+            --arg head "$EXPECTED_HEAD" --arg base "$BASE_SHA" \
+            --arg run "$ADMITTED_RUN_ID" --arg attempt "$ADMITTED_RUN_ATTEMPT" \
+            --arg source "$SOURCE_RUN_ID" --arg source_attempt "$SOURCE_RUN_ATTEMPT" \
+            --arg patch "$patch_sha256" \
+            '{version:1,repository:$repository,pr_number:($pr|tonumber),head:$head,base_sha:$base,run_id:($run|tonumber),run_attempt:($attempt|tonumber),source_run_id:($source|tonumber),source_run_attempt:($source_attempt|tonumber),patch_sha256:$patch}' \
+            > "$artifact_dir/manifest.json"
+          echo "patch_sha256=$patch_sha256" >> "$GITHUB_OUTPUT"
+          echo "changed=yes" >> "$GITHUB_OUTPUT"
 
-          pr_files="$(git diff --name-only "$BASE_SHA...$EXPECTED_HEAD")"
-          while IFS= read -r file; do
-            [ -z "$file" ] && continue
-            if is_blocked_path "$file"; then
-              echo "Refused: Codex touched blocked path '$file'." >&2
-              git reset --hard HEAD
-              git clean -fd
-              exit 1
-            fi
-            if ! grep -Fxq "$file" <<< "$pr_files" && [[ "$file" != tests/* ]]; then
-              echo "Refused: Codex expanded the PR outside existing files/tests with '$file'." >&2
-              git reset --hard HEAD
-              git clean -fd
-              exit 1
-            fi
-          done <<< "$changed"
+      - name: Upload exact CI Autofix candidate
+        if: steps.candidate.outputs.changed == 'yes'
+        id: artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: ci-autofix-${{ github.run_id }}-${{ github.run_attempt }}-${{ needs.admit.outputs.head_sha }}
+          path: ${{ runner.temp }}/ci-autofix-candidate
+          if-no-files-found: error
+          retention-days: 31
 
+  validate:
+    name: Validate CI Autofix candidate
+    needs: [prepare, admit, autofix]
+    if: needs.autofix.outputs.changed == 'yes'
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    permissions:
+      actions: read
+      contents: read
+    env:
+      REPOSITORY: ${{ github.repository }}
+      PR_NUMBER: ${{ needs.prepare.outputs.pr_number }}
+      EXPECTED_HEAD: ${{ needs.admit.outputs.head_sha }}
+      BASE_SHA: ${{ needs.prepare.outputs.base_sha }}
+      ADMITTED_RUN_ID: ${{ needs.admit.outputs.admitted_run_id }}
+      ADMITTED_RUN_ATTEMPT: ${{ needs.admit.outputs.admitted_run_attempt }}
+      SOURCE_RUN_ID: ${{ needs.admit.outputs.source_run_id }}
+      SOURCE_RUN_ATTEMPT: ${{ needs.admit.outputs.source_run_attempt }}
+      EXPECTED_PATCH_SHA256: ${{ needs.autofix.outputs.patch_sha256 }}
+    outputs:
+      tree: ${{ steps.candidate.outputs.tree }}
+    steps:
+      - name: Require original admitted workflow attempt
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_RUN_ID" = "$ADMITTED_RUN_ID"
+          test "$GITHUB_RUN_ATTEMPT" = "$ADMITTED_RUN_ATTEMPT"
+
+      - name: Checkout exact admitted head in fresh job
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ needs.admit.outputs.head_sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 22
+
+      - name: Download exact immutable CI Autofix candidate
+        uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5
+        with:
+          artifact-ids: ${{ needs.autofix.outputs.artifact_id }}
+          merge-multiple: true
+          path: ${{ runner.temp }}/ci-autofix-candidate
+
+      - name: Materialize candidate helper from immutable workflow revision
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$GITHUB_WORKFLOW_SHA" =~ ^[a-f0-9]{40}$ ]]
+          trusted_dir="$RUNNER_TEMP/ci-autofix-trusted"
+          mkdir -p "$trusted_dir"
+          helper_json="$(gh api "repos/$REPOSITORY/contents/scripts/supervisor-ci-autofix-candidate.mjs?ref=$GITHUB_WORKFLOW_SHA")"
+          expected_blob="$(jq -r '.sha' <<< "$helper_json")"
+          [[ "$expected_blob" =~ ^[a-f0-9]{40}$ ]]
+          jq -r '.content' <<< "$helper_json" | tr -d '\n' | base64 --decode > "$trusted_dir/candidate.mjs"
+          test "$(git hash-object "$trusted_dir/candidate.mjs")" = "$expected_blob"
+
+      - name: Reconstruct and validate complete candidate scope
+        id: candidate
+        shell: bash
+        run: |
+          set -euo pipefail
+          export CANDIDATE_DIR="$RUNNER_TEMP/ci-autofix-candidate"
+          result="$(node "$RUNNER_TEMP/ci-autofix-trusted/candidate.mjs" prepare-worktree)"
+          echo "tree=$(jq -r '.tree' <<< "$result")" >> "$GITHUB_OUTPUT"
+
+      - name: Install repository dependencies
+        run: npm ci --no-audit --no-fund
+
+      - name: Validate bounded repair without repository token
+        shell: bash
+        run: |
+          set -euo pipefail
           npm run lint
           npm run typecheck
           npm test
           python3 -m py_compile scripts/company-directory-discovery.py
           python3 tests/test_company_directory_discovery_worker.py
           npm run build
-          git diff --check
+          git diff --check HEAD
 
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add --all
-          git commit -m "[codex-autofix] Fix CI blocker for PR #$PR_NUMBER"
-          echo "changed=yes" >> "$GITHUB_OUTPUT"
-          echo "new_head=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+      - name: Reject changes introduced during candidate validation
+        env:
+          VALIDATED_TREE: ${{ steps.candidate.outputs.tree }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          git -c core.hooksPath=/dev/null -c core.fsmonitor=false add --all
+          test "$(git write-tree)" = "$VALIDATED_TREE"
+
+  publish:
+    name: Publish CI Autofix candidate
+    needs: [prepare, admit, autofix, validate]
+    if: needs.autofix.outputs.changed == 'yes' && needs.validate.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      actions: read
+      contents: read
+      pull-requests: write
+    env:
+      REPOSITORY: ${{ github.repository }}
+      PR_NUMBER: ${{ needs.prepare.outputs.pr_number }}
+      EXPECTED_HEAD: ${{ needs.admit.outputs.head_sha }}
+      BASE_SHA: ${{ needs.prepare.outputs.base_sha }}
+      ADMITTED_RUN_ID: ${{ needs.admit.outputs.admitted_run_id }}
+      ADMITTED_RUN_ATTEMPT: ${{ needs.admit.outputs.admitted_run_attempt }}
+      SOURCE_RUN_ID: ${{ needs.admit.outputs.source_run_id }}
+      SOURCE_RUN_ATTEMPT: ${{ needs.admit.outputs.source_run_attempt }}
+      EXPECTED_PATCH_SHA256: ${{ needs.autofix.outputs.patch_sha256 }}
+      VALIDATED_TREE: ${{ needs.validate.outputs.tree }}
+    outputs:
+      published: ${{ steps.publish.outputs.published }}
+      new_head: ${{ steps.commit.outputs.new_head }}
+    steps:
+      - name: Require original admitted workflow attempt
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_RUN_ID" = "$ADMITTED_RUN_ID"
+          test "$GITHUB_RUN_ATTEMPT" = "$ADMITTED_RUN_ATTEMPT"
+
+      - name: Checkout exact admitted head in fresh job
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ needs.admit.outputs.head_sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 22
+
+      - name: Download exact immutable CI Autofix candidate
+        uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5
+        with:
+          artifact-ids: ${{ needs.autofix.outputs.artifact_id }}
+          merge-multiple: true
+          path: ${{ runner.temp }}/ci-autofix-candidate
+
+      - name: Materialize candidate helper from immutable workflow revision
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$GITHUB_WORKFLOW_SHA" =~ ^[a-f0-9]{40}$ ]]
+          trusted_dir="$RUNNER_TEMP/ci-autofix-trusted"
+          mkdir -p "$trusted_dir"
+          helper_json="$(gh api "repos/$REPOSITORY/contents/scripts/supervisor-ci-autofix-candidate.mjs?ref=$GITHUB_WORKFLOW_SHA")"
+          expected_blob="$(jq -r '.sha' <<< "$helper_json")"
+          [[ "$expected_blob" =~ ^[a-f0-9]{40}$ ]]
+          jq -r '.content' <<< "$helper_json" | tr -d '\n' | base64 --decode > "$trusted_dir/candidate.mjs"
+          test "$(git hash-object "$trusted_dir/candidate.mjs")" = "$expected_blob"
+
+      - name: Independently reconstruct and validate publication scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          export CANDIDATE_DIR="$RUNNER_TEMP/ci-autofix-candidate"
+          result="$(node "$RUNNER_TEMP/ci-autofix-trusted/candidate.mjs" prepare)"
+          test "$(jq -r '.tree' <<< "$result")" = "$VALIDATED_TREE"
+
+      - name: Create validated repair commit without candidate execution
+        id: commit
+        env:
+          GIT_CONFIG_NOSYSTEM: "1"
+          GIT_CONFIG_GLOBAL: /dev/null
+          GIT_NO_REPLACE_OBJECTS: "1"
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
+          test "$(git write-tree)" = "$VALIDATED_TREE"
+          new_head="$(git -c core.hooksPath=/dev/null \
+            -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' \
+            commit-tree "$VALIDATED_TREE" -p "$EXPECTED_HEAD" -m "[codex-autofix] Fix CI blocker for PR #$PR_NUMBER")"
+          echo "new_head=$new_head" >> "$GITHUB_OUTPUT"
 
       - name: Publish validated repair
         id: publish
-        if: needs.prepare.outputs.api_available == 'yes' && needs.prepare.outputs.push_available == 'yes' && steps.validate_repair.outputs.new_head != ''
+        if: steps.commit.outputs.new_head != ''
         env:
           GH_TOKEN: ${{ github.token }}
           PUSH_TOKEN: ${{ secrets.PROFFERA_AUTOFIX_PUSH_TOKEN }}
+          GIT_CONFIG_NOSYSTEM: "1"
+          GIT_CONFIG_GLOBAL: /dev/null
+          GIT_NO_REPLACE_OBJECTS: "1"
+          GIT_TERMINAL_PROMPT: "0"
           REPOSITORY: ${{ github.repository }}
           PR_NUMBER: ${{ needs.prepare.outputs.pr_number }}
           HEAD_REF: ${{ needs.prepare.outputs.head_ref }}
@@ -641,7 +818,7 @@ jobs:
           ADMITTED_RUN_ATTEMPT: ${{ needs.admit.outputs.admitted_run_attempt }}
           SOURCE_RUN_ID: ${{ needs.admit.outputs.source_run_id }}
           SOURCE_RUN_ATTEMPT: ${{ needs.admit.outputs.source_run_attempt }}
-          NEW_HEAD: ${{ steps.validate_repair.outputs.new_head }}
+          NEW_HEAD: ${{ steps.commit.outputs.new_head }}
         shell: bash
         run: |
           set -euo pipefail
@@ -654,7 +831,8 @@ jobs:
             '.id == ($run|tonumber) and .run_attempt == ($attempt|tonumber) and .head_sha == $head and .status == "completed" and .conclusion == "failure"' \
             >/dev/null <<< "$source_run"
           [[ "$HEAD_REF" == work/proffera-* ]]
-          test "$(git rev-parse HEAD)" = "$NEW_HEAD"
+          test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
+          test "$(git rev-parse "$NEW_HEAD^{tree}")" = "$VALIDATED_TREE"
           test "$(git show -s --format=%P "$NEW_HEAD")" = "$EXPECTED_HEAD"
           current_pr="$(gh api "repos/$REPOSITORY/pulls/$PR_NUMBER")"
           if [ "$(jq -r '.head.sha' <<< "$current_pr")" != "$EXPECTED_HEAD" ] \
@@ -695,8 +873,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           REPOSITORY: ${{ github.repository }}
           PR_NUMBER: ${{ needs.prepare.outputs.pr_number }}
-          NEW_HEAD: ${{ steps.validate_repair.outputs.new_head }}
-          CODEX_MESSAGE: ${{ steps.codex.outputs.final-message }}
+          NEW_HEAD: ${{ steps.commit.outputs.new_head }}
+          CODEX_MESSAGE: ${{ needs.autofix.outputs.final_message }}
         shell: bash
         run: |
           set -euo pipefail
@@ -726,7 +904,7 @@ jobs:
 
   record:
     name: Record durable CI Autofix attempt outcome
-    needs: [prepare, admit, autofix]
+    needs: [prepare, admit, autofix, validate, publish]
     if: always() && needs.admit.outputs.attempt_started == 'yes'
     concurrency:
       group: proffera-final-gate-memory-${{ fromJSON(needs.prepare.outputs.pr_number) }}
@@ -758,7 +936,7 @@ jobs:
           ADMITTED_RUN_ID: ${{ needs.admit.outputs.admitted_run_id }}
           ADMITTED_RUN_ATTEMPT: ${{ needs.admit.outputs.admitted_run_attempt }}
           CHANGED: ${{ needs.autofix.outputs.changed }}
-          PUBLISHED: ${{ needs.autofix.outputs.published }}
+          PUBLISHED: ${{ needs.publish.outputs.published }}
         shell: bash
         run: |
           set -euo pipefail

@@ -569,11 +569,11 @@ describe("CI Autofix workflow accounting boundary", () => {
     expect(terminalIndex).toBeGreaterThanOrEqual(0);
     expect(firstOutcomePlanIndex).toBeGreaterThan(terminalIndex);
     expect(classify).toContain('--arg published "$PUBLISHED"');
-    const publish = run("autofix", "Publish validated repair");
+    const publish = run("publish", "Publish validated repair");
     expect(publish.trim().split("\n").at(-1)).toBe('echo "published=yes" >> "$GITHUB_OUTPUT"');
     expect(publish.indexOf('git -c core.hooksPath=')).toBeLessThan(publish.indexOf('echo "published=yes"'));
     expect(publish.slice(publish.indexOf('git -c core.hooksPath='))).not.toContain('gh api');
-    expect(run("autofix", "Verify and report published repair")).not.toContain("git push");
+    expect(run("publish", "Verify and report published repair")).not.toContain("git push");
   });
 
   it("aligns every explicit action input and action-default model with the canonical strategy", () => {
@@ -598,7 +598,7 @@ describe("CI Autofix workflow accounting boundary", () => {
       const calls = join(dir, "pushes");
       writeFileSync(join(dir, "git"), `#!/bin/bash
 if [ "$1" = rev-parse ]; then
-  if [ "$2" = HEAD ]; then echo "$NEW_HEAD"; else echo "$EXPECTED_HEAD"; fi
+  if [ "$2" = HEAD ]; then echo "$EXPECTED_HEAD"; else echo "$VALIDATED_TREE"; fi
 elif [ "$1" = show ]; then echo "$EXPECTED_HEAD"
 elif [ "$1" = -c ] && [ "$3" = push ]; then echo push >> "$PUSH_CALLS"; fi
 `, {mode: 0o755});
@@ -617,17 +617,17 @@ fi
         RUNNER_TEMP: dir, PUSH_CALLS: calls, EXPECTED_HEAD: head, NEW_HEAD: "b".repeat(40), LIVE_HEAD: head,
         GITHUB_RUN_ID: "50", GITHUB_RUN_ATTEMPT: "1", ADMITTED_RUN_ID: "50", ADMITTED_RUN_ATTEMPT: "1",
         SOURCE_RUN_ID: "40", SOURCE_RUN_ATTEMPT: "1", HEAD_REF: "work/proffera-example", PR_NUMBER: "934", REPOSITORY: repository,
-        PUSH_TOKEN: "fixture", FAILURE: failure};
-      const publish = spawnSync("bash", ["-c", run("autofix", "Publish validated repair")], {env, encoding: "utf8"});
+        PUSH_TOKEN: "fixture", VALIDATED_TREE: "d".repeat(40), FAILURE: failure};
+      const publish = spawnSync("bash", ["-c", run("publish", "Publish validated repair")], {env, encoding: "utf8"});
       expect(publish.status, publish.stderr).toBe(0);
       expect(readFileSync(output, "utf8")).toContain("published=yes");
-      const report = spawnSync("bash", ["-c", run("autofix", "Verify and report published repair")], {
+      const report = spawnSync("bash", ["-c", run("publish", "Verify and report published repair")], {
         env: {...env, PHASE: "report"}, encoding: "utf8",
       });
       expect(report.status).not.toBe(0);
       expect(readFileSync(output, "utf8")).toContain("published=yes");
       expect(readFileSync(calls, "utf8")).toBe("push\n");
-      const stale = spawnSync("bash", ["-c", run("autofix", "Publish validated repair")], {
+      const stale = spawnSync("bash", ["-c", run("publish", "Publish validated repair")], {
         env: {...env, LIVE_HEAD: "c".repeat(40)}, encoding: "utf8",
       });
       expect(stale.status).not.toBe(0);
@@ -659,7 +659,7 @@ fi
       const candidate = git(["rev-parse", "HEAD"]);
       const ref = "refs/heads/work/proffera-fixture";
       git(["push", remote, candidate + ":" + ref]);
-      const hook = run("autofix", "Publish validated repair").match(/<<'HOOK'\n([\s\S]*?)\nHOOK/);
+      const hook = run("publish", "Publish validated repair").match(/<<'HOOK'\n([\s\S]*?)\nHOOK/);
       expect(hook).not.toBeNull();
       const env = {...process.env, NEW_HEAD: candidate, EXPECTED_HEAD: expected,
         HEAD_REF: "work/proffera-fixture", REMOTE_FIXTURE: remote, BASE_FIXTURE: base};
@@ -927,6 +927,27 @@ describe("CI Autofix truthful terminal outcomes", () => {
       .toEqual({persist: true, outcome: "succeeded"});
     expect(classifyCiAutofixOutcome({jobs: jobs("failure", [step(modelName, "success"), step("Publish validated repair", "success"),
       step("Verify and report published repair", "failure")])})).toEqual({persist: true, outcome: "succeeded"});
+  });
+
+  it("recovers publication from the isolated job even when reporting failed and the output was lost", () => {
+    const model = jobs("success", [step(modelName, "success"), step("Capture bounded repair candidate", "success")]);
+    const publication = {name: "Publish CI Autofix candidate", status: "completed", conclusion: "failure", steps: [
+      step("Publish validated repair", "success"), step("Verify and report published repair", "failure"),
+    ]};
+    expect(classifyCiAutofixOutcome({jobs: [...model, publication]})).toEqual({persist: true, outcome: "succeeded"});
+    expect(classifyCiAutofixOutcome({jobs: [...model, {...publication, steps: [step("Publish validated repair", "cancelled")]}]}))
+      .toEqual({persist: true, outcome: "unknown"});
+    expect(() => classifyCiAutofixOutcome({jobs: [...model, publication, publication]})).toThrow("autofix_jobs_binding");
+  });
+
+  it("recognizes current no-change capture and rejects contradictory downstream execution before model launch", () => {
+    const model = jobs("success", [step(modelName, "success"), step("Capture bounded repair candidate", "success")]);
+    const skipped = {name: "Publish CI Autofix candidate", status: "completed", conclusion: "skipped", steps: []};
+    expect(classifyCiAutofixOutcome({jobs: [...model, skipped], changed: "no"})).toEqual({persist: true, outcome: "no_change"});
+    expect(classifyCiAutofixOutcome({jobs: [...jobs("timed_out", []), skipped]})).toMatchObject({persist: false});
+    const impossible = {...skipped, conclusion: "success", steps: [step("Publish validated repair", "success")]};
+    expect(() => classifyCiAutofixOutcome({jobs: [...jobs("timed_out", []), impossible]})).toThrow("model_evidence_contradictory");
+    expect(() => classifyCiAutofixOutcome({jobs: [impossible]})).toThrow("model_evidence_contradictory");
   });
 });
 

@@ -514,16 +514,22 @@ export function prepareCiAutofixTerminal(input) {
 export function proveCiAutofixModelNotLaunched(input) {
   const jobs = input?.jobs;
   if (!Array.isArray(jobs) || jobs.length > 1000) fail("recovery_jobs");
+  const downstream = jobs.filter((job) => ["Validate CI Autofix candidate", "Publish CI Autofix candidate"].includes(job?.name));
+  if (new Set(downstream.map((job) => job.name)).size !== downstream.length) fail("autofix_jobs_binding");
+  const downstreamRan = downstream.some((job) => job.status !== "completed" || job.conclusion !== "skipped"
+    || job.steps?.some((step) => step.status !== "completed" || step.conclusion !== "skipped"));
   const autofixJobs = jobs.filter((job) => job?.name === "Bounded Codex CI autofix");
-  if (autofixJobs.length === 0) return {recoverable: true, reason: "autofix_job_absent"};
+  if (autofixJobs.length === 0) return downstreamRan
+    ? {recoverable: false, reason: "model_evidence_contradictory"}
+    : {recoverable: true, reason: "autofix_job_absent"};
   if (autofixJobs.length !== 1) fail("autofix_jobs_binding");
   const job = autofixJobs[0];
   if (job?.status !== "completed") return {recoverable: false, reason: "autofix_job_not_terminal"};
   if (!Array.isArray(job.steps)) return {recoverable: false, reason: "job_steps_unavailable"};
   const modelSteps = job.steps.filter((step) => step?.name === "Run one bounded Codex repair attempt");
-  const postModel = job.steps.filter((step) => ["Validate bounded repair without repository token",
+  const postModel = job.steps.filter((step) => ["Capture bounded repair candidate", "Validate bounded repair without repository token",
     "Push validated repair and report", "Publish validated repair", "Verify and report published repair"].includes(step?.name));
-  const postModelRan = postModel.some((step) => step?.conclusion !== "skipped");
+  const postModelRan = downstreamRan || postModel.some((step) => step?.conclusion !== "skipped");
   if (modelSteps.length > 1 || postModelRan && (modelSteps.length === 0 || modelSteps[0]?.conclusion === "skipped")) {
     return {recoverable: false, reason: "model_evidence_contradictory"};
   }
@@ -554,9 +560,14 @@ export function classifyCiAutofixOutcome(input) {
   const job = input.jobs.find((item) => item.name === "Bounded Codex CI autofix");
   const completed = (name, conclusion) => job.steps.filter((step) => step.name === name
     && step.status === "completed" && step.conclusion === conclusion).length === 1;
-  if (completed("Publish validated repair", "success")) return {persist: true, outcome: "succeeded"};
+  const publication = input.jobs.find((item) => item.name === "Publish CI Autofix candidate");
+  const publishedSteps = publication?.steps?.filter((step) => step.name === "Publish validated repair") ?? [];
+  if (publishedSteps.length > 1) fail("publication_steps_binding");
+  if (completed("Publish validated repair", "success")
+    || publishedSteps[0]?.status === "completed" && publishedSteps[0]?.conclusion === "success") return {persist: true, outcome: "succeeded"};
   if (input?.changed === "no" && completed("Run one bounded Codex repair attempt", "success")
-    && completed("Validate bounded repair without repository token", "success")) return {persist: true, outcome: "no_change"};
+    && (completed("Capture bounded repair candidate", "success")
+      || completed("Validate bounded repair without repository token", "success"))) return {persist: true, outcome: "no_change"};
   return {persist: true, outcome: "unknown"};
 }
 
