@@ -207,6 +207,7 @@ function ciAutofixTerminalDescriptor(input) {
     failure_digest: descriptor.failure_digest,
     evidence_fingerprint: descriptor.evidence_fingerprint,
     strategy_fingerprint: descriptor.strategy_fingerprint,
+    failures: descriptor.failures,
     outcome,
     observed_at: observedAt,
   };
@@ -240,7 +241,7 @@ export function parseCiAutofixTerminals(comments, {repository: repo, pr_number})
     const runAttempt = positiveInteger(match[3], "terminal_attempt");
     let payload;
     try { payload = JSON.parse(match[4]); } catch { fail("terminal_json"); }
-    const expectedFields = ["evidence_fingerprint", "failure_digest", "head", "observed_at", "outcome", "pr_number",
+    const expectedFields = ["evidence_fingerprint", "failure_digest", "failures", "head", "observed_at", "outcome", "pr_number",
       "run_attempt", "run_id", "source_run_attempt", "source_run_id", "strategy_fingerprint"];
     if (!payload || typeof payload !== "object" || Array.isArray(payload)
       || Object.keys(payload).sort().join("|") !== expectedFields.sort().join("|")
@@ -251,6 +252,12 @@ export function parseCiAutofixTerminals(comments, {repository: repo, pr_number})
     sha(payload.head, "terminal_head");
     positiveInteger(payload.source_run_id, "terminal_source_run");
     positiveInteger(payload.source_run_attempt, "terminal_source_attempt");
+    const terminalDescriptor = ciAutofixStrategyDescriptor({
+      pr_number: markerPr, head: payload.head, failures: payload.failures,
+    });
+    if (payload.failure_digest !== terminalDescriptor.failure_digest
+      || payload.evidence_fingerprint !== terminalDescriptor.evidence_fingerprint
+      || payload.strategy_fingerprint !== terminalDescriptor.strategy_fingerprint) fail("terminal_descriptor");
     if (!OUTCOMES.has(payload.outcome)
       || !/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d{3})?Z$/.test(payload.observed_at)) fail("terminal_outcome");
     for (const field of ["failure_digest", "evidence_fingerprint", "strategy_fingerprint"]) {
@@ -260,7 +267,7 @@ export function parseCiAutofixTerminals(comments, {repository: repo, pr_number})
     const normalized = {
       pr_number: markerPr, run_id: runId, run_attempt: runAttempt,
       source_run_id: payload.source_run_id, source_run_attempt: payload.source_run_attempt,
-      head: payload.head, failure_digest: payload.failure_digest,
+      head: payload.head, failure_digest: payload.failure_digest, failures: terminalDescriptor.failures,
       evidence_fingerprint: payload.evidence_fingerprint, strategy_fingerprint: payload.strategy_fingerprint,
       outcome: payload.outcome, observed_at: payload.observed_at,
     };
@@ -284,9 +291,33 @@ export function prepareCiAutofixTerminal(input) {
       "failure_digest", "evidence_fingerprint", "strategy_fingerprint"]) {
       if (existing[field] !== proposed[field]) fail("terminal_attempt_conflict");
     }
+    if (canonical(existing.failures) !== canonical(proposed.failures)) fail("terminal_attempt_conflict");
     return {unchanged: true, terminal: existing, body: ciAutofixTerminalBody({...input, ...existing})};
   }
   return {unchanged: false, terminal: proposed, body: ciAutofixTerminalBody(input)};
+}
+
+export function proveCiAutofixModelNotLaunched(input) {
+  const jobs = input?.jobs;
+  if (!Array.isArray(jobs) || jobs.length > 1000) fail("recovery_jobs");
+  const autofixJobs = jobs.filter((job) => job?.name === "Bounded Codex CI autofix");
+  if (autofixJobs.length === 0) return {recoverable: true, reason: "autofix_job_absent"};
+  if (autofixJobs.length !== 1) fail("autofix_jobs_binding");
+  const job = autofixJobs[0];
+  if (job?.status !== "completed") return {recoverable: false, reason: "autofix_job_not_terminal"};
+  if (job?.conclusion === "skipped") return {recoverable: true, reason: "autofix_job_skipped"};
+  const modelSteps = Array.isArray(job?.steps)
+    ? job.steps.filter((step) => step?.name === "Run one bounded Codex repair attempt")
+    : [];
+  if (modelSteps.length === 0 && ["failure", "cancelled"].includes(job?.conclusion)) {
+    return {recoverable: true, reason: "model_step_absent"};
+  }
+  if (modelSteps.length === 1
+    && modelSteps[0]?.status === "completed"
+    && modelSteps[0]?.conclusion === "skipped") {
+    return {recoverable: true, reason: "model_step_skipped"};
+  }
+  return {recoverable: false, reason: "model_step_may_have_launched"};
 }
 
 export function proveCiAutofixPrelaunchRecovery(input) {
@@ -307,21 +338,13 @@ export function proveCiAutofixPrelaunchRecovery(input) {
   if (!Array.isArray(jobs) || jobs.length > 1000) fail("recovery_jobs");
   const admitJobs = jobs.filter((job) => job?.name === "Admit one bounded CI autofix strategy");
   if (admitJobs.length !== 1 || admitJobs[0]?.status !== "completed") fail("recovery_jobs_binding");
-  const autofixJobs = jobs.filter((job) => job?.name === "Bounded Codex CI autofix");
-  if (autofixJobs.length === 0) {
-    if (run.conclusion === "success") return {recoverable: false, reason: "run_succeeded"};
-    return {recoverable: true, reason: "autofix_job_absent"};
+  const launchProof = proveCiAutofixModelNotLaunched({jobs});
+  if (launchProof.recoverable) {
+    if (launchProof.reason === "autofix_job_absent" && run.conclusion === "success") {
+      return {recoverable: false, reason: "run_succeeded"};
+    }
+    return launchProof;
   }
-  const modelDefinitelySkipped = autofixJobs.every((job) => {
-    if (job?.status === "completed" && job?.conclusion === "skipped") return true;
-    const modelSteps = Array.isArray(job?.steps)
-      ? job.steps.filter((step) => step?.name === "Run one bounded Codex repair attempt")
-      : [];
-    return modelSteps.length === 1
-      && modelSteps[0]?.status === "completed"
-      && modelSteps[0]?.conclusion === "skipped";
-  });
-  if (modelDefinitelySkipped) return {recoverable: true, reason: "model_step_skipped"};
   if (run.conclusion === "success") return {recoverable: false, reason: "run_succeeded"};
   return {recoverable: false, reason: "autofix_job_may_have_launched"};
 }
@@ -557,6 +580,57 @@ export function unresolvedCiAutofixStarts(input) {
     && !terminalKeys.has(`${start.run_id}:${start.run_attempt}`));
 }
 
+export function prepareCiAutofixTerminalBackfill(input) {
+  const state = ciAutofixMemoryState(input);
+  const expected = memoryIdentity(state.snapshot);
+  const starts = parseCiAutofixStarts(input?.comments, {
+    repository: EXPECTED_REPOSITORY, pr_number: positiveInteger(input?.pr_number, "pr_number"),
+  });
+  const startByKey = new Map(starts.map((start) => [`${start.run_id}:${start.run_attempt}`, start]));
+  const recorded = recordAttemptKeys(state.records);
+  let replacement = state.snapshot;
+  let currentIdentity = expected;
+  let backfilled = 0;
+
+  for (const terminal of state.terminals) {
+    const key = `${terminal.run_id}:${terminal.run_attempt}`;
+    if (recorded.has(key)) continue;
+    const start = startByKey.get(key);
+    if (!start
+      || start.source_run_id !== terminal.source_run_id
+      || start.source_run_attempt !== terminal.source_run_attempt
+      || start.head !== terminal.head
+      || start.failure_digest !== terminal.failure_digest
+      || start.evidence_fingerprint !== terminal.evidence_fingerprint
+      || start.strategy_fingerprint !== terminal.strategy_fingerprint) fail("terminal_start_binding");
+    const observation = ciAutofixObservation({
+      repository: EXPECTED_REPOSITORY,
+      pr_number: terminal.pr_number,
+      head: terminal.head,
+      failures: terminal.failures,
+      outcome: terminal.outcome,
+      run_id: terminal.run_id,
+      run_attempt: terminal.run_attempt,
+      observed_at: terminal.observed_at,
+    });
+    const next = mergeObservation(replacement, currentIdentity, observation);
+    const nextIdentity = memoryIdentity(next);
+    if (canonical(currentIdentity) !== canonical(nextIdentity)) backfilled += 1;
+    replacement = next;
+    currentIdentity = nextIdentity;
+  }
+
+  const after = memoryIdentity(replacement);
+  return {
+    unchanged: canonical(expected) === canonical(after),
+    backfilled,
+    comment_id: replacement.comment_id,
+    expected,
+    after,
+    body: serializeMemory(replacement.memory),
+  };
+}
+
 export function prepareCiAutofixOutcome(input) {
   const state = ciAutofixMemoryState(input);
   const expected = memoryIdentity(state.snapshot);
@@ -624,6 +698,8 @@ async function main(args) {
   if (mode === "recovery-body") return void process.stdout.write(JSON.stringify({body: ciAutofixRecoveryBody(parsed)}) + "\n");
   if (mode === "terminal-body") return void process.stdout.write(JSON.stringify({body: ciAutofixTerminalBody(parsed)}) + "\n");
   if (mode === "prepare-terminal") return void process.stdout.write(JSON.stringify(prepareCiAutofixTerminal(parsed)) + "\n");
+  if (mode === "backfill-terminals") return void process.stdout.write(JSON.stringify(prepareCiAutofixTerminalBackfill(parsed)) + "\n");
+  if (mode === "model-proof") return void process.stdout.write(JSON.stringify(proveCiAutofixModelNotLaunched(parsed)) + "\n");
   if (mode === "recovery-proof") return void process.stdout.write(JSON.stringify(proveCiAutofixPrelaunchRecovery(parsed)) + "\n");
   if (mode === "unresolved") return void process.stdout.write(JSON.stringify(unresolvedCiAutofixStarts(parsed)) + "\n");
   if (mode === "admit") {
