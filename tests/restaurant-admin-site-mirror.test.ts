@@ -69,20 +69,23 @@ describe("Doni admin mirrors the public demo", () => {
     );
   });
 
-  it("supports direct gallery uploads and does not silently reject blank upload descriptions", () => {
+  it("supports direct gallery uploads and cleans filename-like image names", () => {
     const editor = readFileSync(
       "src/app/dashboard/restaurang/restaurant-editor.tsx",
       "utf8",
     );
 
-    expect(editor).toContain("function imageUploadAlt");
-    expect(editor).toContain("const resolvedAlt = imageUploadAlt(file, fallbackText)");
+    expect(editor).toContain("function imageUploadFallback");
+    expect(editor).toContain("function isUuidLikeImageLabel");
+    expect(editor).toContain("function normalizeUploadedGalleryNames");
+    expect(editor).toContain("const generatedAlt = fallbackAlt ?? imageUploadFallback(file)");
     expect(editor).not.toContain("if (!alt.trim())");
     expect(editor).toContain("Ladda upp ny bild till galleriet");
     expect(editor).toContain('kind: "food"');
     expect(editor).toContain("fallbackAlt?: LocalizedAlt");
-    expect(editor).toContain("!typedAlt && fallbackAlt");
-    expect(editor).toContain("? { ...fallbackAlt }");
+    expect(editor).toContain("Bild från Doni’s Trattoria");
+    expect(editor).toContain("Photo from Doni’s Trattoria");
+    expect(editor).toContain("Bildnamn från filnamn har städats");
   });
 
   it("keeps menu description fields editable without inventing dish copy", () => {
