@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { pathToFileURL } from "node:url";
+import { stripVTControlCharacters } from "node:util";
 import {
   fingerprintEvidence,
   fingerprintStrategy,
@@ -25,8 +26,13 @@ Diagnose the actual current-head CI failure and make the smallest correct code/t
 You may run targeted lint, typecheck, Vitest or other already-installed local checks. Do not commit, push, merge, deploy, access Production, or use network-based package installation. If the failure cannot be safely fixed inside these limits, leave the checkout unchanged and explain the blocker in your final message.`;
 
 export const CI_AUTOFIX_EXECUTION_CONTRACT = Object.freeze({
-  version: "ci_autofix_v1",
+  version: "ci_autofix_v2",
   action_revision: "86365089eb2b84e0a8fb0717b304f8bdcb13b20e",
+  model: "action-default",
+  permission_profile: ":workspace",
+  safety_strategy: "drop-sudo",
+  allow_bot_users: "github-actions[bot]",
+  api_key_source: "OPENAI_API_KEY",
   effort: "high",
   prompt_version: "ci_autofix_v1",
   prompt: CI_AUTOFIX_EXECUTION_PROMPT,
@@ -63,13 +69,128 @@ function failures(value) {
   if (!Array.isArray(value) || value.length === 0 || value.length > 64) fail("failures");
   const normalized = value.map((item) => {
     if (!item || typeof item !== "object" || Array.isArray(item)
-      || Object.keys(item).sort().join("|") !== "job|steps"
+      || !["job|steps", "detail_digest|job|steps"].includes(Object.keys(item).sort().join("|"))
       || !Array.isArray(item.steps) || item.steps.length > 64) fail("failure_shape");
     const steps = [...new Set(item.steps.map((step) => boundedText(step, "failure_step")))].sort();
-    return {job: boundedText(item.job, "failure_job", 200), steps};
+    if (item.detail_digest !== undefined && !/^[a-f0-9]{64}$/.test(item.detail_digest)) fail("failure_detail_digest");
+    return {job: boundedText(item.job, "failure_job", 200), steps,
+      ...(item.detail_digest === undefined ? {} : {detail_digest: item.detail_digest})};
   });
+  if (normalized.some((item) => item.detail_digest) && normalized.some((item) => !item.detail_digest)) fail("mixed_failure_versions");
   return [...new Map(normalized.map((item) => [canonical(item), item])).values()]
     .sort((a, b) => canonical(a).localeCompare(canonical(b)));
+}
+
+// Logs never enter public memory. Bound input and normalized output; reject overflow
+// instead of silently truncating two different failures to an identical prefix.
+export function ciAutofixFailureDetailDigest(log) {
+  if (typeof log !== "string" || Buffer.byteLength(log) > 4 * 1024 * 1024) fail("failure_log_bound");
+  const summary = (line) => /^\s*(?:(?:Test Files|Tests)\s+\d+\s+(?:failed|passed|skipped)\b|##\[error\]Process completed with exit code \d+\.)/.test(line);
+  let assertion = false;
+  const lines = stripVTControlCharacters(log).replaceAll("\r\n", "\n").split(/[\n\r]/).flatMap((raw) => {
+    let line = raw.replace(/^\d{4}-\d\d-\d\d[T ]\d\d:\d\d:\d\d(?:\.\d+)?Z?[ \t]?/, "");
+    if (summary(line)) { assertion = false; return [line]; }
+    if (/^\s*(?:(?:FAIL(?:ED)?|[❯×✗])\s|(?:\w*Error|Error|fatal|Exception):)/i.test(line)) assertion = false;
+    if (/\b(?:Expected|Received|AssertionError)\b/i.test(line)) assertion = true;
+    // Assertion payloads, including whitespace and text resembling timing/path
+    // metadata, are material. Never apply generic whitespace or number stripping.
+    if (assertion) return [line];
+    if (/^\s*(?:##\[(?:group|endgroup)\]|(?:download|install|progress)\b.*\b\d+(?:\.\d+)?%|\d+(?:\.\d+)?%\s*$|(?:✓|✔)\s|(?:Start at|Duration)\s)/i.test(line)) return [];
+    line = line
+      .replace(/(?:\/home\/runner\/work\/_temp|\/tmp)\/[a-f0-9-]{20,}(?=[/.\s]|$)/gi, "<runner-temp>")
+      .replace(/\b((?:request|trace|span|runner)[_-]id[=:]\s*)[a-f0-9-]{16,}\b/gi, "$1<transient-id>")
+      .replace(/^\s*(elapsed|duration|took)[:=]?\s*\d+(?:\.\d+)?\s*(?:ms|s|sec(?:onds)?|m(?:in(?:utes)?)?)\s*$/i, "$1 <duration>")
+      .replace(/^([ \t]*[❯×✗✓✔].*?)\s+\d+(?:\.\d+)?\s*(?:ms|s)\s*$/, "$1");
+    return [line];
+  });
+  if (!lines.some(Boolean) || lines.some((line) => line.length > 2048)) fail("failure_detail_lines");
+  const anchor = /(?:\b(?:error|err!|fail(?:ed|ure)?|fatal|exception|assertion(?:error)?|expected|received|caused by)\b|##\[error\]|[×✗])/i;
+  // Keep assertions and multiline values attached to their error/test scope.
+  // Sorting individual Expected/Received lines would erase their association.
+  const blocks = [];
+  let scope = "";
+  let block = [];
+  for (const line of lines) {
+    if (!line) continue;
+    if (summary(line)) {
+      if (block.length) blocks.push(block.join("\n"));
+      blocks.push(line);
+      block = [];
+      scope = "";
+      continue;
+    }
+    const testHeader = /^\s*(?:FAIL(?:ED)?|[×✗])\s/.test(line);
+    const errorHeader = /^\s*(?:##\[error\])?(?:\w*Error|Error|fatal|Exception):/i.test(line);
+    if (testHeader || errorHeader) {
+      if (block.length) blocks.push(block.join("\n"));
+      if (testHeader) scope = line;
+      block = scope && !testHeader ? [scope, line] : [line];
+    } else if (block.length || anchor.test(line)) {
+      block.push(line);
+    }
+  }
+  if (block.length) blocks.push(block.join("\n"));
+  if (!blocks.length) blocks.push(lines.join("\n"));
+  const normalized = [...new Set(blocks)].sort();
+  if (normalized.length > 256 || Buffer.byteLength(canonical(normalized)) > 65536) fail("failure_detail_bound");
+  return digest({version: 1, blocks: normalized});
+}
+
+function sourceFailedJobs(input) {
+  const runId = positiveInteger(input?.source_run_id, "source_run_id");
+  const attempt = positiveInteger(input?.source_run_attempt, "source_run_attempt");
+  const head = sha(input?.head);
+  const prNumber = positiveInteger(input?.pr_number, "pr_number");
+  const run = input?.run;
+  if (run?.id !== runId || run?.run_attempt !== attempt || run?.head_sha !== head
+    || run?.path !== ".github/workflows/ci.yml" || run?.name !== "CI"
+    || run?.event !== "pull_request" || run?.status !== "completed" || run?.conclusion !== "failure"
+    || !Array.isArray(run.pull_requests) || !run.pull_requests.some((pr) => pr.number === prNumber
+      && pr.head?.sha === head && pr.head?.repo?.url === `https://api.github.com/repos/${EXPECTED_REPOSITORY}`)) fail("source_run_binding");
+  if (!Array.isArray(input.jobs) || input.jobs.length > 1000) fail("source_jobs");
+  const failed = input.jobs.filter((job) => ["failure", "timed_out"].includes(job?.conclusion));
+  if (!failed.length || failed.length > 64) fail("failures");
+  const ids = new Set();
+  for (const job of failed) {
+    const id = positiveInteger(job.id, "source_job_id");
+    if (ids.has(id) || job.run_id !== runId || job.run_attempt !== attempt || job.head_sha !== head
+      || job.status !== "completed" || !Array.isArray(job.steps)) fail("source_job_binding");
+    ids.add(id);
+  }
+  return failed;
+}
+
+export function ciAutofixSourceFailures(input) {
+  return failures(sourceFailedJobs(input).map((job) => ({
+    job: job.name, steps: job.steps.filter((step) => ["failure", "timed_out"].includes(step.conclusion)).map((step) => step.name),
+    detail_digest: ciAutofixFailureDetailDigest(input.logs?.[job.id]),
+  })));
+}
+
+// Read-only adapter. Exact attempt endpoints and authenticated job IDs prevent a
+// rerun from borrowing logs from another attempt. No shell or unbounded log hash.
+async function collectCiAutofixFailures(input) {
+  const {execFileSync} = await import("node:child_process");
+  const repo = repository(input?.repository);
+  const runId = positiveInteger(input?.source_run_id, "source_run_id");
+  const attempt = positiveInteger(input?.source_run_attempt, "source_run_attempt");
+  const api = (args) => {
+    try { return execFileSync("gh", ["api", ...args], {encoding: "utf8", maxBuffer: 4 * 1024 * 1024, timeout: 60000}); }
+    catch { fail("source_evidence_unavailable_or_over_bound"); }
+  };
+  const endpoint = `repos/${repo}/actions/runs/${runId}/attempts/${attempt}`;
+  const latest = JSON.parse(api([`repos/${repo}/actions/runs/${runId}`]));
+  if (latest.id !== runId || latest.run_attempt !== attempt || latest.head_sha !== input.head
+    || latest.status !== "completed" || latest.conclusion !== "failure") fail("source_run_superseded");
+  const run = JSON.parse(api([endpoint]));
+  const pages = JSON.parse(api([`${endpoint}/jobs?per_page=100`, "--paginate", "--slurp"]));
+  if (!Array.isArray(pages) || pages.some((page) => !Array.isArray(page.jobs))) fail("source_jobs");
+  const jobs = pages.flatMap((page) => page.jobs);
+  if (pages.some((page) => page.total_count !== jobs.length)) fail("source_jobs_incomplete");
+  const source = {...input, run, jobs};
+  const logs = Object.fromEntries(sourceFailedJobs(source).map((job) => [job.id,
+    api([`repos/${repo}/actions/jobs/${job.id}/logs`])]));
+  return ciAutofixSourceFailures({...source, logs});
 }
 function normalizeExecutionContract(value) {
   if (!value || typeof value !== "object" || Array.isArray(value)
@@ -77,10 +198,16 @@ function normalizeExecutionContract(value) {
     || typeof value.action_revision !== "string" || !/^[a-f0-9]{40}$/.test(value.action_revision)
     || typeof value.effort !== "string" || !value.effort
     || typeof value.prompt_version !== "string" || !/^[A-Za-z][A-Za-z0-9_.-]*$/.test(value.prompt_version)
-    || typeof value.prompt !== "string" || !value.prompt.trim()) fail("execution_contract");
+    || typeof value.prompt !== "string" || !value.prompt.trim()
+    || Object.keys(value).sort().join("|") !== Object.keys(CI_AUTOFIX_EXECUTION_CONTRACT).sort().join("|")) fail("execution_contract");
   return {
     version: value.version,
     action_revision: value.action_revision,
+    model: boundedText(value.model, "execution_model"),
+    permission_profile: boundedText(value.permission_profile, "execution_permissions"),
+    safety_strategy: boundedText(value.safety_strategy, "execution_safety"),
+    allow_bot_users: boundedText(value.allow_bot_users, "execution_bots"),
+    api_key_source: boundedText(value.api_key_source, "execution_credential_source"),
     effort: value.effort,
     prompt_version: value.prompt_version,
     prompt: value.prompt,
@@ -95,7 +222,8 @@ export function ciAutofixStrategyDescriptor(input, executionContract = CI_AUTOFI
   const head = sha(input?.head);
   const normalizedFailures = failures(input?.failures);
   const contract = normalizeExecutionContract(executionContract);
-  const failureDigest = digest({version: 1, pr_number: prNumber, head, failures: normalizedFailures});
+  const failureDigest = digest({version: normalizedFailures[0].detail_digest ? 2 : 1,
+    pr_number: prNumber, head, failures: normalizedFailures});
   const evidence = {
     lane: "ci_autofix",
     category: "unknown",
@@ -138,9 +266,13 @@ export function ciAutofixStartBody(input) {
     failure_digest: descriptor.failure_digest,
     evidence_fingerprint: descriptor.evidence_fingerprint,
     strategy_fingerprint: descriptor.strategy_fingerprint,
+    ...(descriptor.failures[0].detail_digest ? {failures: descriptor.failures} : {}),
   };
   const marker = `${START_PREFIX}${descriptor.pr_number}:${runId}:${runAttempt} -->`;
-  return `${marker}\n\`\`\`json\n${canonical(payload)}\n\`\`\``;
+  const body = `${marker}\n\`\`\`json\n${canonical(payload)}\n\`\`\``;
+  // Leave room for the outcome/timestamp when this same snapshot becomes terminal.
+  if (Buffer.byteLength(body) > LIMITS.body_bytes - 1024) fail("start_body_bound");
+  return body;
 }
 
 function normalizeRecoveryStart(value, prNumber) {
@@ -156,6 +288,11 @@ function normalizeRecoveryStart(value, prNumber) {
   for (const field of ["failure_digest", "evidence_fingerprint", "strategy_fingerprint"]) {
     if (typeof value[field] !== "string" || !/^[a-f0-9]{64}$/.test(value[field])) fail("recovery_candidate_binding");
   }
+  if (value.failures !== undefined) {
+    const descriptor = ciAutofixStrategyDescriptor({pr_number: prNumber, head: value.head, failures: value.failures});
+    if (!descriptor.failures[0].detail_digest || descriptor.failure_digest !== value.failure_digest
+      || descriptor.evidence_fingerprint !== value.evidence_fingerprint) fail("start_evidence_binding");
+  }
   return {
     pr_number: prNumber,
     run_id: value.run_id,
@@ -166,6 +303,7 @@ function normalizeRecoveryStart(value, prNumber) {
     failure_digest: value.failure_digest,
     evidence_fingerprint: value.evidence_fingerprint,
     strategy_fingerprint: value.strategy_fingerprint,
+    ...(value.failures === undefined ? {} : {failures: failures(value.failures)}),
   };
 }
 
@@ -215,7 +353,9 @@ function ciAutofixTerminalDescriptor(input) {
 
 function serializeCiAutofixTerminal(terminal) {
   const marker = `${TERMINAL_PREFIX}${terminal.pr_number}:${terminal.run_id}:${terminal.run_attempt} -->`;
-  return `${marker}\n\`\`\`json\n${canonical(terminal)}\n\`\`\``;
+  const body = `${marker}\n\`\`\`json\n${canonical(terminal)}\n\`\`\``;
+  if (Buffer.byteLength(body) > LIMITS.body_bytes) fail("terminal_body_bound");
+  return body;
 }
 
 export function ciAutofixTerminalBody(input) {
@@ -354,11 +494,21 @@ export function proveCiAutofixModelNotLaunched(input) {
   if (autofixJobs.length !== 1) fail("autofix_jobs_binding");
   const job = autofixJobs[0];
   if (job?.status !== "completed") return {recoverable: false, reason: "autofix_job_not_terminal"};
-  if (job?.conclusion === "skipped") return {recoverable: true, reason: "autofix_job_skipped"};
-  const modelSteps = Array.isArray(job?.steps)
-    ? job.steps.filter((step) => step?.name === "Run one bounded Codex repair attempt")
-    : [];
-  if (modelSteps.length === 0 && ["failure", "cancelled"].includes(job?.conclusion)) {
+  if (!Array.isArray(job.steps)) return {recoverable: false, reason: "job_steps_unavailable"};
+  const modelSteps = job.steps.filter((step) => step?.name === "Run one bounded Codex repair attempt");
+  const postModel = job.steps.filter((step) => ["Validate bounded repair without repository token",
+    "Push validated repair and report", "Publish validated repair", "Verify and report published repair"].includes(step?.name));
+  const postModelRan = postModel.some((step) => step?.conclusion !== "skipped");
+  if (modelSteps.length > 1 || postModelRan && (modelSteps.length === 0 || modelSteps[0]?.conclusion === "skipped")) {
+    return {recoverable: false, reason: "model_evidence_contradictory"};
+  }
+  if (job?.conclusion === "skipped") {
+    if (job.steps.some((step) => step?.status !== "completed" || step?.conclusion !== "skipped")) {
+      return {recoverable: false, reason: "model_evidence_contradictory"};
+    }
+    return {recoverable: true, reason: "autofix_job_skipped"};
+  }
+  if (modelSteps.length === 0 && ["failure", "cancelled", "timed_out", "startup_failure"].includes(job?.conclusion)) {
     return {recoverable: true, reason: "model_step_absent"};
   }
   if (modelSteps.length === 1
@@ -367,6 +517,23 @@ export function proveCiAutofixModelNotLaunched(input) {
     return {recoverable: true, reason: "model_step_skipped"};
   }
   return {recoverable: false, reason: "model_step_may_have_launched"};
+}
+
+// A failed/cancelled job is not itself a model result. Only positive step/output
+// evidence may strengthen unknown. This helper also serves historical recovery.
+export function classifyCiAutofixOutcome(input) {
+  const launch = proveCiAutofixModelNotLaunched(input);
+  if (input?.published === "yes") return {persist: true, outcome: "succeeded"};
+  if (launch.recoverable) return {persist: false, reason: launch.reason};
+  if (launch.reason !== "model_step_may_have_launched") fail(launch.reason);
+  const job = input.jobs.find((item) => item.name === "Bounded Codex CI autofix");
+  const completed = (name, conclusion) => job.steps.filter((step) => step.name === name
+    && step.status === "completed" && step.conclusion === conclusion).length === 1;
+  if (completed("Publish validated repair", "success")) return {persist: true, outcome: "succeeded"};
+  if (completed("Run one bounded Codex repair attempt", "failure")) return {persist: true, outcome: "failed"};
+  if (input?.changed === "no" && completed("Run one bounded Codex repair attempt", "success")
+    && completed("Validate bounded repair without repository token", "success")) return {persist: true, outcome: "no_change"};
+  return {persist: true, outcome: "unknown"};
 }
 
 export function proveCiAutofixPrelaunchRecovery(input) {
@@ -383,6 +550,9 @@ export function proveCiAutofixPrelaunchRecovery(input) {
     || run.path !== ".github/workflows/proffera-ci-autofix.yml"
     || run.name !== "Proffera CI autofix") fail("recovery_run_binding");
   if (run.status !== "completed") return {recoverable: false, reason: "run_not_terminal"};
+  if (!["success", "failure", "cancelled", "timed_out", "startup_failure", "skipped"].includes(run.conclusion)) {
+    return {recoverable: false, reason: "run_conclusion_unknown"};
+  }
   const jobs = input?.jobs;
   if (!Array.isArray(jobs) || jobs.length > 1000) fail("recovery_jobs");
   const admitJobs = jobs.filter((job) => job?.name === "Admit one bounded CI autofix strategy");
@@ -423,7 +593,9 @@ export function proveCiAutofixIndeterminateRecovery(input) {
   }
   const observedAt = String(run.updated_at ?? "");
   if (!/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d{3})?Z$/.test(observedAt)) fail("indeterminate_observed_at");
-  return {recoverable: true, reason: "model_outcome_unknown", observed_at: observedAt};
+  const result = classifyCiAutofixOutcome({jobs});
+  return {recoverable: true, reason: "model_outcome_" + result.outcome,
+    outcome: result.outcome, observed_at: observedAt};
 }
 
 export function parseCiAutofixStarts(comments, {repository: repo, pr_number}) {
@@ -450,6 +622,7 @@ export function parseCiAutofixStarts(comments, {repository: repo, pr_number}) {
     try { payload = JSON.parse(match[4]); } catch { fail("start_json"); }
     const expectedFields = ["evidence_fingerprint", "failure_digest", "head", "pr_number", "run_attempt", "run_id",
       "source_run_attempt", "source_run_id", "strategy_fingerprint"];
+    if (payload?.failures !== undefined) expectedFields.push("failures");
     if (!payload || typeof payload !== "object" || Array.isArray(payload)
       || Object.keys(payload).sort().join("|") !== expectedFields.sort().join("|")
       || canonical(payload) !== match[4]) fail("start_payload");
@@ -461,12 +634,7 @@ export function parseCiAutofixStarts(comments, {repository: repo, pr_number}) {
       if (typeof payload[field] !== "string" || !/^[a-f0-9]{64}$/.test(payload[field])) fail("start_digest");
     }
     if (markerPr !== prNumber) continue;
-    const normalized = {
-      pr_number: markerPr, run_id: runId, run_attempt: runAttempt,
-      source_run_id: payload.source_run_id, source_run_attempt: payload.source_run_attempt,
-      head: payload.head, failure_digest: payload.failure_digest,
-      evidence_fingerprint: payload.evidence_fingerprint, strategy_fingerprint: payload.strategy_fingerprint,
-    };
+    const normalized = normalizeRecoveryStart(payload, markerPr);
     const key = `${runId}:${runAttempt}`;
     const prior = seen.get(key);
     if (prior && canonical(prior) !== canonical(normalized)) fail("start_conflict");
@@ -500,6 +668,7 @@ export function parseCiAutofixRecoveries(comments, {repository: repo, pr_number}
     const expectedFields = ["evidence_fingerprint", "failure_digest", "head", "pr_number", "reason",
       "recovered_by_run_attempt", "recovered_by_run_id", "run_attempt", "run_id",
       "source_run_attempt", "source_run_id", "strategy_fingerprint"];
+    if (payload?.failures !== undefined) expectedFields.push("failures");
     if (!payload || typeof payload !== "object" || Array.isArray(payload)
       || Object.keys(payload).sort().join("|") !== expectedFields.sort().join("|")
       || canonical(payload) !== match[4] || payload.reason !== "model_not_launched") fail("recovery_payload");
@@ -515,10 +684,7 @@ export function parseCiAutofixRecoveries(comments, {repository: repo, pr_number}
     }
     if (markerPr !== prNumber) continue;
     const normalized = {
-      pr_number: markerPr, run_id: runId, run_attempt: runAttempt,
-      source_run_id: payload.source_run_id, source_run_attempt: payload.source_run_attempt,
-      head: payload.head, failure_digest: payload.failure_digest,
-      evidence_fingerprint: payload.evidence_fingerprint, strategy_fingerprint: payload.strategy_fingerprint,
+      ...normalizeRecoveryStart(payload, markerPr),
       recovered_by_run_id: payload.recovered_by_run_id,
       recovered_by_run_attempt: payload.recovered_by_run_attempt,
     };
@@ -657,6 +823,15 @@ export function unresolvedCiAutofixStarts(input) {
     && !terminalKeys.has(`${start.run_id}:${start.run_attempt}`));
 }
 
+export function ciAutofixAdmittedFailures(input) {
+  const starts = parseCiAutofixStarts(input?.comments, input);
+  const runId = positiveInteger(input?.run_id, "run_id");
+  const attempt = positiveInteger(input?.run_attempt, "run_attempt");
+  const start = starts.find((item) => item.run_id === runId && item.run_attempt === attempt);
+  if (!start?.failures) fail("admitted_failure_snapshot_missing");
+  return start.failures;
+}
+
 export function prepareCiAutofixTerminalBackfill(input) {
   const state = ciAutofixMemoryState(input);
   const expected = memoryIdentity(state.snapshot);
@@ -779,6 +954,9 @@ async function main(args) {
     process.stdin.on("error", reject);
   });
   const parsed = input.trim() ? JSON.parse(input) : {};
+  if (mode === "admitted-failures") return void process.stdout.write(JSON.stringify(ciAutofixAdmittedFailures(parsed)) + "\n");
+  if (mode === "collect-failures") return void process.stdout.write(JSON.stringify(await collectCiAutofixFailures(parsed)) + "\n");
+  if (mode === "classify-outcome") return void process.stdout.write(JSON.stringify(classifyCiAutofixOutcome(parsed)) + "\n");
   if (mode === "descriptor") return void process.stdout.write(JSON.stringify(ciAutofixStrategyDescriptor(parsed)) + "\n");
   if (mode === "start-body") return void process.stdout.write(JSON.stringify({body: ciAutofixStartBody(parsed)}) + "\n");
   if (mode === "recovery-body") return void process.stdout.write(JSON.stringify({body: ciAutofixRecoveryBody(parsed)}) + "\n");
