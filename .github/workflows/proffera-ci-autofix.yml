@@ -13,6 +13,7 @@ env:
     AGENTS.md
     WORKER_BOOTSTRAP.md
     scripts/supervisor-ci-autofix-candidate.mjs
+    scripts/supervisor-ci-autofix-strategy-memory.mjs
     .env*
     vercel.json
     next.config.*

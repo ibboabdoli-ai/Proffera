@@ -2,7 +2,7 @@ import {afterEach, describe, expect, it} from "vitest";
 import {createHash} from "node:crypto";
 import {spawnSync} from "node:child_process";
 import {chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync} from "node:fs";
-import {join} from "node:path";
+import {dirname, join} from "node:path";
 import {tmpdir} from "node:os";
 import {createRequire} from "node:module";
 // @ts-expect-error Standalone .mjs follows the repository control-plane convention.
@@ -17,7 +17,7 @@ const git = (cwd: string, ...args: string[]) => {
   expect(result.status, result.stderr).toBe(0);
   return result.stdout.trim();
 };
-function fixture() {
+function fixture(originalControlPath?: string) {
   const root = mkdtempSync(join(tmpdir(), "ci-autofix-isolation-")); roots.push(root);
   const trusted = join(root, "trusted"); mkdirSync(trusted);
   git(trusted, "init", "-q"); git(trusted, "config", "user.name", "Fixture"); git(trusted, "config", "user.email", "fixture@example.invalid");
@@ -25,9 +25,15 @@ function fixture() {
   writeFileSync(join(trusted, "tests", "allowed.ts"), "base\n");
   writeFileSync(join(trusted, ".github", "workflows", "protected.yml"), "protected\n");
   writeFileSync(join(trusted, "unrelated.txt"), "unchanged\n");
+  if (originalControlPath) {
+    mkdirSync(dirname(join(trusted, originalControlPath)), {recursive: true});
+    writeFileSync(join(trusted, originalControlPath), "base control helper\n");
+  }
   git(trusted, "add", "."); git(trusted, "commit", "-qm", "base");
   const base = git(trusted, "rev-parse", "HEAD");
-  writeFileSync(join(trusted, "tests", "allowed.ts"), "expected\n"); git(trusted, "commit", "-qam", "expected");
+  writeFileSync(join(trusted, "tests", "allowed.ts"), "expected\n");
+  if (originalControlPath) writeFileSync(join(trusted, originalControlPath), "reviewed control helper\n");
+  git(trusted, "commit", "-qam", "expected");
   const head = git(trusted, "rev-parse", "HEAD");
   const clone = (name: string) => {const path = join(root, name); git(root, "clone", "-q", "--no-local", trusted, path); return path;};
   const model = clone("model"); const validation = clone("validation"); const publication = clone("publication");
@@ -45,6 +51,19 @@ function fixture() {
 }
 
 describe("CI Autofix isolated candidate reconstruction", () => {
+  it.each([
+    "scripts/supervisor-ci-autofix-candidate.mjs",
+    "scripts/supervisor-ci-autofix-strategy-memory.mjs",
+  ])("rejects edits to %s even when the original PR already changes it", (path) => {
+    const f = fixture(path);
+    expect(git(f.model, "diff", "--name-only", f.base + "..." + f.head)).toContain(path);
+    writeFileSync(join(f.model, path), "autonomous control helper rewrite\n");
+    git(f.model, "add", path);
+    const input = f.capture();
+    expect(() => prepareCiAutofixCandidate(input, {cwd: f.validation, worktree: true})).toThrow("blocked_path");
+    expect(() => prepareCiAutofixCandidate(input, {cwd: f.publication})).toThrow("blocked_path");
+  });
+
   it("rejects a staged blocked file hidden from the old guard alongside an allowed unstaged edit", () => {
     const f = fixture();
     writeFileSync(join(f.model, ".github/workflows/protected.yml"), "blocked modification\n"); git(f.model, "add", ".github");
