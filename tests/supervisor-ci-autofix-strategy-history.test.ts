@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 // @ts-expect-error Standalone .mjs follows the repository control-plane convention.
 import { createMemory, memoryIdentity, mergeObservation } from "../scripts/supervisor-failure-memory.mjs";
 // @ts-expect-error Standalone .mjs follows the repository control-plane convention.
-import { CI_AUTOFIX_EXECUTION_CONTRACT, CI_AUTOFIX_EXECUTION_PROMPT, ciAutofixMemoryState, ciAutofixObservation, ciAutofixRecoveryBody, ciAutofixStartBody, ciAutofixStrategyDescriptor, ciAutofixTerminalBody, decideCiAutofixStrategyHistory, parseCiAutofixStarts, parseCiAutofixTerminals, prepareCiAutofixOutcome, prepareCiAutofixTerminal, proveCiAutofixPrelaunchRecovery, unresolvedCiAutofixStarts } from "../scripts/supervisor-ci-autofix-strategy-memory.mjs";
+import { CI_AUTOFIX_EXECUTION_CONTRACT, CI_AUTOFIX_EXECUTION_PROMPT, ciAutofixMemoryState, ciAutofixObservation, ciAutofixRecoveryBody, ciAutofixStartBody, ciAutofixStrategyDescriptor, ciAutofixTerminalBody, decideCiAutofixStrategyHistory, parseCiAutofixStarts, parseCiAutofixTerminals, prepareCiAutofixOutcome, prepareCiAutofixTerminal, prepareCiAutofixTerminalBackfill, proveCiAutofixModelNotLaunched, proveCiAutofixPrelaunchRecovery, unresolvedCiAutofixStarts } from "../scripts/supervisor-ci-autofix-strategy-memory.mjs";
 
 const repository = "ibboabdoli-ai/Proffera";
 const pr = 934;
@@ -163,6 +163,10 @@ describe("CI Autofix durable admission and outcomes", () => {
       .toEqual({recoverable: true, reason: "autofix_job_absent"});
     expect(proveCiAutofixPrelaunchRecovery({...input, jobs: [admit, {
       name: "Bounded Codex CI autofix", status: "completed", conclusion: "failure",
+      steps: [],
+    }]})).toEqual({recoverable: true, reason: "model_step_absent"});
+    expect(proveCiAutofixPrelaunchRecovery({...input, jobs: [admit, {
+      name: "Bounded Codex CI autofix", status: "completed", conclusion: "failure",
       steps: [
         {name: "Revalidate exact failed head before model", status: "completed", conclusion: "failure"},
         {name: "Run one bounded Codex repair attempt", status: "completed", conclusion: "skipped"},
@@ -172,6 +176,21 @@ describe("CI Autofix durable admission and outcomes", () => {
       name: "Bounded Codex CI autofix", status: "completed", conclusion: "failure",
       steps: [{name: "Run one bounded Codex repair attempt", status: "completed", conclusion: "failure"}],
     }]})).toEqual({recoverable: false, reason: "autofix_job_may_have_launched"});
+  });
+
+  it("classifies authenticated absent or skipped model steps as pre-model without guessing launched work", () => {
+    expect(proveCiAutofixModelNotLaunched({jobs: []}))
+      .toEqual({recoverable: true, reason: "autofix_job_absent"});
+    expect(proveCiAutofixModelNotLaunched({jobs: [{
+      name: "Bounded Codex CI autofix", status: "completed", conclusion: "failure", steps: [],
+    }]})).toEqual({recoverable: true, reason: "model_step_absent"});
+    expect(proveCiAutofixModelNotLaunched({jobs: [{
+      name: "Bounded Codex CI autofix", status: "completed", conclusion: "cancelled", steps: [],
+    }]})).toEqual({recoverable: true, reason: "model_step_absent"});
+    expect(proveCiAutofixModelNotLaunched({jobs: [{
+      name: "Bounded Codex CI autofix", status: "completed", conclusion: "failure",
+      steps: [{name: "Run one bounded Codex repair attempt", status: "completed", conclusion: "success"}],
+    }]})).toEqual({recoverable: false, reason: "model_step_may_have_launched"});
   });
 
   it("removes a proven pre-model orphan", () => {
@@ -248,6 +267,31 @@ describe("CI Autofix durable admission and outcomes", () => {
     expect(memory.records[0].outcome).toBe("failed");
     expect(memory.records[0].observations[0].first_seen).toBe("2026-10-05T18:00:00.000Z");
     expect(memory.records[0].observations[0].last_seen).toBe("2026-10-05T18:00:00.000Z");
+  });
+
+  it("backfills a terminal-only attempt into canonical Failure Memory without rerunning the model", () => {
+    const startBody = ciAutofixStartBody({
+      repository, pr_number: pr, head, failures,
+      source_run_id: 40, source_run_attempt: 1, run_id: 50, run_attempt: 1,
+    });
+    const terminalBody = ciAutofixTerminalBody({
+      repository, pr_number: pr, head, failures,
+      source_run_id: 40, source_run_attempt: 1, run_id: 50, run_attempt: 1,
+      outcome: "failed", observed_at: "2026-10-05T18:00:00Z",
+    });
+    const initial = [trustedComment(startBody, 10), trustedComment(terminalBody, 11)];
+    const first = prepareCiAutofixTerminalBackfill({repository, pr_number: pr, comments: initial});
+    expect(first.unchanged).toBe(false);
+    expect(first.backfilled).toBe(1);
+    const memory = JSON.parse(first.body.split("\n")[2]);
+    expect(memory.records).toHaveLength(1);
+    expect(memory.records[0].outcome).toBe("failed");
+    expect(memory.records[0].observations[0].source).toMatchObject({run_id: 50, attempt: 1});
+
+    const persisted = [...initial, trustedComment(first.body, 12)];
+    const second = prepareCiAutofixTerminalBackfill({repository, pr_number: pr, comments: persisted});
+    expect(second.unchanged).toBe(true);
+    expect(second.backfilled).toBe(0);
   });
 
   it("persists a started attempt idempotently and preserves the first terminal outcome", () => {
@@ -340,6 +384,19 @@ describe("CI Autofix workflow accounting boundary", () => {
     for (const outcome of ["cancelled", "no_change", "succeeded", "failed"]) {
       expect(workflow).toContain(`outcome=${outcome}`);
     }
+  });
+
+  it("backfills terminal-only accounting before admission and classifies pre-model startup failures without charging history", () => {
+    const admitStart = workflow.indexOf("  admit:\n");
+    const admitEnd = workflow.indexOf("\n  autofix:", admitStart);
+    const admit = workflow.slice(admitStart, admitEnd);
+    expect(admit).toContain("backfill-terminals");
+    expect(admit.indexOf("backfill-terminals")).toBeLessThan(admit.indexOf(" unresolved <<<"));
+
+    const recordStart = workflow.indexOf("  record:\n");
+    const record = workflow.slice(recordStart);
+    expect(record).toContain("model-proof");
+    expect(record).not.toContain('model_steps="$(jq');
   });
 
   it("persists terminal tombstones before bounded Failure Memory and treats publication as authoritative", () => {
