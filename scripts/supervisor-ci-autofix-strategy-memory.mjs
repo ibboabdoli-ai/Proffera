@@ -213,10 +213,60 @@ function ciAutofixTerminalDescriptor(input) {
   };
 }
 
-export function ciAutofixTerminalBody(input) {
-  const terminal = ciAutofixTerminalDescriptor(input);
+function serializeCiAutofixTerminal(terminal) {
   const marker = `${TERMINAL_PREFIX}${terminal.pr_number}:${terminal.run_id}:${terminal.run_attempt} -->`;
   return `${marker}\n\`\`\`json\n${canonical(terminal)}\n\`\`\``;
+}
+
+export function ciAutofixTerminalBody(input) {
+  return serializeCiAutofixTerminal(ciAutofixTerminalDescriptor(input));
+}
+
+function ciAutofixTerminalFromStartDescriptor(input) {
+  repository(input?.repository);
+  const prNumber = positiveInteger(input?.pr_number, "pr_number");
+  const start = normalizeRecoveryStart(input?.start, prNumber);
+  const descriptor = ciAutofixStrategyDescriptor({
+    pr_number: prNumber, head: start.head, failures: input?.failures,
+  });
+  if (descriptor.failure_digest !== start.failure_digest
+    || descriptor.evidence_fingerprint !== start.evidence_fingerprint) fail("historical_terminal_evidence");
+  const outcome = String(input?.outcome ?? "");
+  if (!OUTCOMES.has(outcome)) fail("outcome");
+  const observedAt = String(input?.observed_at ?? "");
+  if (!/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d{3})?Z$/.test(observedAt)) fail("observed_at");
+  return {
+    pr_number: prNumber,
+    run_id: start.run_id,
+    run_attempt: start.run_attempt,
+    source_run_id: start.source_run_id,
+    source_run_attempt: start.source_run_attempt,
+    head: start.head,
+    failure_digest: start.failure_digest,
+    evidence_fingerprint: start.evidence_fingerprint,
+    strategy_fingerprint: start.strategy_fingerprint,
+    failures: descriptor.failures,
+    outcome,
+    observed_at: observedAt,
+  };
+}
+
+export function prepareCiAutofixTerminalFromStart(input) {
+  const proposed = ciAutofixTerminalFromStartDescriptor(input);
+  const terminals = parseCiAutofixTerminals(input?.comments, {
+    repository: EXPECTED_REPOSITORY, pr_number: proposed.pr_number,
+  });
+  const existing = terminals.find((terminal) =>
+    terminal.run_id === proposed.run_id && terminal.run_attempt === proposed.run_attempt);
+  if (existing) {
+    for (const field of ["pr_number", "run_id", "run_attempt", "source_run_id", "source_run_attempt", "head",
+      "failure_digest", "evidence_fingerprint", "strategy_fingerprint", "outcome", "observed_at"]) {
+      if (existing[field] !== proposed[field]) fail("historical_terminal_conflict");
+    }
+    if (canonical(existing.failures) !== canonical(proposed.failures)) fail("historical_terminal_conflict");
+    return {unchanged: true, terminal: existing, body: serializeCiAutofixTerminal(existing)};
+  }
+  return {unchanged: false, terminal: proposed, body: serializeCiAutofixTerminal(proposed)};
 }
 
 export function parseCiAutofixTerminals(comments, {repository: repo, pr_number}) {
@@ -618,6 +668,7 @@ export function prepareCiAutofixTerminalBackfill(input) {
   let replacement = state.snapshot;
   let currentIdentity = expected;
   let backfilled = 0;
+  let skipped_historical_strategy = 0;
 
   for (const terminal of state.terminals) {
     const key = `${terminal.run_id}:${terminal.run_attempt}`;
@@ -630,6 +681,13 @@ export function prepareCiAutofixTerminalBackfill(input) {
       || start.failure_digest !== terminal.failure_digest
       || start.evidence_fingerprint !== terminal.evidence_fingerprint
       || start.strategy_fingerprint !== terminal.strategy_fingerprint) fail("terminal_start_binding");
+    const currentDescriptor = ciAutofixStrategyDescriptor({
+      pr_number: terminal.pr_number, head: terminal.head, failures: terminal.failures,
+    });
+    if (terminal.strategy_fingerprint !== currentDescriptor.strategy_fingerprint) {
+      skipped_historical_strategy += 1;
+      continue;
+    }
     const observation = ciAutofixObservation({
       repository: EXPECTED_REPOSITORY,
       pr_number: terminal.pr_number,
@@ -651,6 +709,7 @@ export function prepareCiAutofixTerminalBackfill(input) {
   return {
     unchanged: canonical(expected) === canonical(after),
     backfilled,
+    skipped_historical_strategy,
     comment_id: replacement.comment_id,
     expected,
     after,
@@ -725,6 +784,7 @@ async function main(args) {
   if (mode === "recovery-body") return void process.stdout.write(JSON.stringify({body: ciAutofixRecoveryBody(parsed)}) + "\n");
   if (mode === "terminal-body") return void process.stdout.write(JSON.stringify({body: ciAutofixTerminalBody(parsed)}) + "\n");
   if (mode === "prepare-terminal") return void process.stdout.write(JSON.stringify(prepareCiAutofixTerminal(parsed)) + "\n");
+  if (mode === "prepare-terminal-from-start") return void process.stdout.write(JSON.stringify(prepareCiAutofixTerminalFromStart(parsed)) + "\n");
   if (mode === "backfill-terminals") return void process.stdout.write(JSON.stringify(prepareCiAutofixTerminalBackfill(parsed)) + "\n");
   if (mode === "model-proof") return void process.stdout.write(JSON.stringify(proveCiAutofixModelNotLaunched(parsed)) + "\n");
   if (mode === "recovery-proof") return void process.stdout.write(JSON.stringify(proveCiAutofixPrelaunchRecovery(parsed)) + "\n");
