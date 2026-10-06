@@ -48,6 +48,63 @@ const input =
 const button =
   "min-h-11 rounded-lg border border-[#ab9d8b] px-4 py-2 text-sm font-semibold text-[#342a23]";
 
+function isUuidLikeImageLabel(value: string) {
+  return /^[0-9a-f]{8}[ -][0-9a-f]{4}[ -][0-9a-f]{4}[ -][0-9a-f]{4}[ -][0-9a-f]{12}$/i.test(
+    value.trim(),
+  );
+}
+
+function galleryFallbackAlt(kind: RestaurantSite["media"]["gallery"][number]["kind"]): LocalizedAlt {
+  if (kind === "interior")
+    return {
+      sv: "Interiör på Doni’s Trattoria",
+      en: "Interior at Doni’s Trattoria",
+    };
+  if (kind === "exterior")
+    return {
+      sv: "Doni’s Trattoria vid Hornsbergs Strand",
+      en: "Doni’s Trattoria by Hornsbergs Strand",
+    };
+  if (kind === "atmosphere")
+    return {
+      sv: "Stämning på Doni’s Trattoria",
+      en: "Atmosphere at Doni’s Trattoria",
+    };
+  if (kind === "family")
+    return {
+      sv: "Familj och team på Doni’s Trattoria",
+      en: "Family and team at Doni’s Trattoria",
+    };
+  return {
+    sv: "Mat på Doni’s Trattoria",
+    en: "Food at Doni’s Trattoria",
+  };
+}
+
+function normalizeUploadedGalleryNames(site: RestaurantSite) {
+  const next = structuredClone(site);
+  let changed = false;
+
+  next.media.gallery.forEach((item) => {
+    const fallback = galleryFallbackAlt(item.kind);
+    if (
+      isUuidLikeImageLabel(item.alt.sv) ||
+      /^Interiör på Doni’s Trattoria vid Hornsbergs Strand\s*\d+$/i.test(
+        item.alt.sv.trim(),
+      )
+    ) {
+      item.alt.sv = fallback.sv;
+      changed = true;
+    }
+    if (isUuidLikeImageLabel(item.alt.en)) {
+      item.alt.en = fallback.en;
+      changed = true;
+    }
+  });
+
+  return { site: next, changed };
+}
+
 function moveGalleryById(
   items: RestaurantSite["media"]["gallery"],
   id: string,
@@ -126,14 +183,30 @@ export function RestaurantEditor({
   const router = useRouter();
   const searchParams = useSearchParams();
   const locale = searchParams.get("lang") === "en" ? "en" : "sv";
-  const [site, setSite] = useState(initial.draft);
-  const [images, setImages] = useState(initialImages);
+  const [normalizedInitial] = useState(() =>
+    normalizeUploadedGalleryNames(initial.draft),
+  );
+  const [site, setSite] = useState(normalizedInitial.site);
+  const [images, setImages] = useState(() =>
+    initialImages.map((image) => {
+      const galleryItem = normalizedInitial.site.media.gallery.find(
+        (item) => item.id === image.id,
+      );
+      return galleryItem ? { ...image, alt: galleryItem.alt } : image;
+    }),
+  );
   const [revision, setRevision] = useState(initial.revision);
   const publishedRevision = initial.publishedRevision;
   const [starter, setStarter] = useState(Boolean(initial.starter));
-  const [dirty, setDirty] = useState(starter);
+  const [dirty, setDirty] = useState(
+    Boolean(initial.starter) || normalizedInitial.changed,
+  );
   const [busy, setBusy] = useState(false);
-  const [notice, setNotice] = useState("");
+  const [notice, setNotice] = useState(
+    normalizedInitial.changed
+      ? "Bildnamn från filnamn har städats. Spara utkastet för att behålla ändringarna."
+      : "",
+  );
   const [section, setSection] = useState<Section>("menu");
   const [selectedDish, setSelectedDish] = useState<string | null>(null);
   const [priceInputEpoch, setPriceInputEpoch] = useState(0);
@@ -285,20 +358,21 @@ export function RestaurantEditor({
     }
   }
 
-  function imageUploadAlt(file: File, fallbackAlt = "") {
-    const typed = alt.trim();
-    if (typed) return typed.slice(0, 180);
-
-    const fallback = fallbackAlt.trim();
-    if (fallback) return fallback.slice(0, 180);
-
+  function imageUploadFallback(file: File): LocalizedAlt {
     const fromFilename = file.name
       .replace(/\.[^.]+$/, "")
       .replace(/[-_]+/g, " ")
       .replace(/\s+/g, " ")
       .trim();
 
-    return (fromFilename || "Restaurangbild").slice(0, 180);
+    if (!fromFilename || isUuidLikeImageLabel(fromFilename)) {
+      return {
+        sv: "Bild från Doni’s Trattoria",
+        en: "Photo from Doni’s Trattoria",
+      };
+    }
+
+    return { sv: fromFilename.slice(0, 180), en: fromFilename.slice(0, 180) };
   }
 
   async function upload(
@@ -310,9 +384,12 @@ export function RestaurantEditor({
     if (!file) return;
 
     const typedAlt = alt.trim();
-    const fallbackText =
-      fallbackAlt?.[locale] || fallbackAlt?.sv || fallbackAlt?.en || "";
-    const resolvedAlt = imageUploadAlt(file, fallbackText);
+    const generatedAlt = fallbackAlt ?? imageUploadFallback(file);
+    const resolvedAlt =
+      typedAlt ||
+      generatedAlt[locale] ||
+      generatedAlt.sv ||
+      generatedAlt.en;
     setBusy(true);
     try {
       const data = new FormData();
@@ -330,10 +407,7 @@ export function RestaurantEditor({
       const media: Media = {
         id: result.id,
         url: result.url,
-        alt:
-          !typedAlt && fallbackAlt
-            ? { ...fallbackAlt }
-            : { sv: result.alt, en: result.alt },
+        alt: typedAlt ? { sv: result.alt, en: result.alt } : generatedAlt,
       };
       setImages((current) => [media, ...current]);
       onDone(media);
