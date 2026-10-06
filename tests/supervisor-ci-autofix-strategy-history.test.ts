@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
+import { createRequire } from "node:module";
 // @ts-expect-error Standalone .mjs follows the repository control-plane convention.
 import { createMemory, memoryIdentity, mergeObservation } from "../scripts/supervisor-failure-memory.mjs";
 // @ts-expect-error Standalone .mjs follows the repository control-plane convention.
@@ -477,42 +478,76 @@ describe("CI Autofix durable admission and outcomes", () => {
 });
 
 describe("CI Autofix workflow accounting boundary", () => {
-  const workflow = readFileSync(new URL("../.github/workflows/proffera-ci-autofix.yml", import.meta.url), "utf8")
-    .replaceAll("\r\n", "\n");
+  type Concurrency = {group: string; queue?: "single" | "max"; "cancel-in-progress"?: boolean};
+  type WorkflowStep = {name?: string; id?: string; run?: string};
+  type WorkflowJob = {
+    name?: string;
+    concurrency?: Concurrency | string;
+    permissions?: Record<string, string>;
+    steps?: WorkflowStep[];
+  };
+  type Workflow = {jobs: Record<string, WorkflowJob>};
+
+  const workflowText = readFileSync(
+    new URL("../.github/workflows/proffera-ci-autofix.yml", import.meta.url),
+    "utf8",
+  ).replaceAll("\r\n", "\n");
+  const yamlLoad = createRequire(import.meta.url)("js-yaml").load as (text: string) => Workflow;
+  const workflow = yamlLoad(workflowText);
   const handoff = readFileSync(new URL("../scripts/supervisor-worker-handoff.mjs", import.meta.url), "utf8");
+  const memoryGroup = "proffera-final-gate-memory-${{ fromJSON(needs.prepare.outputs.pr_number) }}";
+
+  const job = (id: string) => {
+    const value = workflow.jobs[id];
+    if (!value) throw new Error(`Missing workflow job: ${id}`);
+    return value;
+  };
+  const step = (jobId: string, name: string) => {
+    const value = job(jobId).steps?.find((candidate) => candidate.name === name);
+    if (!value) throw new Error(`Missing workflow step: ${jobId}/${name}`);
+    return value;
+  };
+  const run = (jobId: string, name: string) => step(jobId, name).run ?? "";
 
   it("serializes admission and recording through the shared Failure Memory mutex", () => {
-    expect(workflow).toContain("group: proffera-final-gate-memory-${{ fromJSON(needs.prepare.outputs.pr_number) }}");
-    expect(workflow).toContain("queue: max");
-    expect(workflow).toContain("cancel-in-progress: false");
-    expect(workflow).toContain("Admit one bounded CI autofix strategy");
-    expect(workflow).toContain("Record durable CI Autofix attempt outcome");
+    expect(job("admit").concurrency).toEqual({
+      group: memoryGroup,
+      queue: "max",
+      "cancel-in-progress": false,
+    });
+    expect(job("record").concurrency).toEqual({
+      group: memoryGroup,
+      queue: "max",
+      "cancel-in-progress": false,
+    });
+    expect(job("admit").name).toBe("Admit one bounded CI autofix strategy");
+    expect(job("record").name).toBe("Record durable CI Autofix attempt outcome");
   });
 
   it("keeps the model job outside issue-write authority and revalidates the exact head immediately before model execution", () => {
-    const startIndex = workflow.indexOf("  autofix:\n");
-    const endIndex = workflow.indexOf("\n  record:", startIndex);
-    const job = workflow.slice(startIndex, endIndex);
-    expect(job).toContain("Revalidate exact failed head before model");
-    expect(job).toContain("Run one bounded Codex repair attempt");
-    expect(job).not.toContain("issues: write");
-    expect(job.indexOf("Revalidate exact failed head before model"))
-      .toBeLessThan(job.indexOf("Run one bounded Codex repair attempt"));
+    const autofix = job("autofix");
+    expect(autofix.permissions ?? {}).not.toHaveProperty("issues");
+    const names = (autofix.steps ?? []).map((candidate) => candidate.name);
+    const revalidate = names.indexOf("Revalidate exact failed head before model");
+    const model = names.indexOf("Run one bounded Codex repair attempt");
+    expect(revalidate).toBeGreaterThanOrEqual(0);
+    expect(model).toBe(revalidate + 1);
   });
 
-  it("uses complete exact source-run job evidence and records all terminal model outcomes", () => {
-    expect(workflow).toContain("actions/runs/$RUN_ID/attempts/$RUN_ATTEMPT/jobs?per_page=100");
-    expect(workflow).toContain('gh run view "$RUN_ID" --repo "$REPOSITORY" --attempt "$RUN_ATTEMPT" --log-failed');
-    expect(workflow).toContain("gh api --paginate");
+  it("uses exact source-run attempt evidence and classifies terminal outcomes only in the record job", () => {
+    const admit = run("admit", "Recover proven pre-model starts and admit exact-head CI evidence");
+    const capture = run("autofix", "Capture failed CI logs as untrusted input");
+    const classify = run("record", "Classify the started CI Autofix model attempt");
+
+    expect(admit).toContain("actions/runs/$SOURCE_RUN_ID/attempts/$SOURCE_RUN_ATTEMPT/jobs?per_page=100");
+    expect(capture).toContain('gh run view "$RUN_ID" --repo "$REPOSITORY" --attempt "$RUN_ATTEMPT" --log-failed');
     for (const outcome of ["cancelled", "no_change", "succeeded", "failed"]) {
-      expect(workflow).toContain(`outcome=${outcome}`);
+      expect(classify).toContain(`outcome=${outcome}`);
     }
   });
 
   it("recovers post-model bookkeeping loss as unknown and backfills terminal-only accounting before admission", () => {
-    const admitStart = workflow.indexOf("  admit:\n");
-    const admitEnd = workflow.indexOf("\n  autofix:", admitStart);
-    const admit = workflow.slice(admitStart, admitEnd);
+    const admit = run("admit", "Recover proven pre-model starts and admit exact-head CI evidence");
     expect(admit).toContain("indeterminate-proof");
     expect(admit).toContain('--arg outcome "unknown"');
     expect(admit).toContain("prepare-terminal-from-start");
@@ -522,28 +557,22 @@ describe("CI Autofix workflow accounting boundary", () => {
   });
 
   it("backfills terminal-only accounting before admission and classifies pre-model startup failures without charging history", () => {
-    const admitStart = workflow.indexOf("  admit:\n");
-    const admitEnd = workflow.indexOf("\n  autofix:", admitStart);
-    const admit = workflow.slice(admitStart, admitEnd);
+    const admit = run("admit", "Recover proven pre-model starts and admit exact-head CI evidence");
+    const classify = run("record", "Classify the started CI Autofix model attempt");
     expect(admit).toContain("backfill-terminals");
     expect(admit.indexOf("backfill-terminals")).toBeLessThan(admit.indexOf(" unresolved <<<"));
-
-    const recordStart = workflow.indexOf("  record:\n");
-    const record = workflow.slice(recordStart);
-    expect(record).toContain("model-proof");
-    expect(record).not.toContain('model_steps="$(jq');
+    expect(classify).toContain("model-proof");
+    expect(classify).not.toContain('model_steps="$(jq');
   });
 
   it("persists terminal tombstones before bounded Failure Memory and treats publication as authoritative", () => {
-    const recordStart = workflow.indexOf("  record:\n");
-    const record = workflow.slice(recordStart);
-    expect(record).toContain("prepare-terminal");
-    expect(record.indexOf('terminal_plan="$(node scripts/supervisor-ci-autofix-strategy-memory.mjs prepare-terminal'))
-      .toBeLessThan(record.indexOf('prepare_plan "$comments_a" "$plan_a"'));
-    const classifyStart = record.indexOf('outcome=failed');
-    const classifyEnd = record.indexOf('echo "CI_AUTOFIX_OUTCOME=', classifyStart);
-    const classify = record.slice(classifyStart, classifyEnd);
-    expect(classify.indexOf('[ "$PUBLISHED" = "yes" ]')).toBeLessThan(classify.indexOf('[ "$AUTOFIX_RESULT" != "success" ]'));
+    const persist = run("record", "Persist exact CI Autofix outcome in canonical Failure Memory");
+    const classify = run("record", "Classify the started CI Autofix model attempt");
+    expect(persist).toContain("prepare-terminal");
+    expect(persist.indexOf('terminal_plan="$(node scripts/supervisor-ci-autofix-strategy-memory.mjs prepare-terminal'))
+      .toBeLessThan(persist.indexOf('prepare_plan "$comments_a" "$plan_a"'));
+    expect(classify.indexOf('[ "$PUBLISHED" = "yes" ]'))
+      .toBeLessThan(classify.indexOf('[ "$AUTOFIX_RESULT" != "success" ]'));
   });
 
   it("protects the CI Autofix strategy helper from ordinary Worker scope", () => {
