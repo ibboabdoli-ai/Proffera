@@ -14,7 +14,7 @@ const EXPECTED_REPOSITORY = "ibboabdoli-ai/Proffera";
 const START_PREFIX = "<!-- proffera-ci-autofix-start:v1:";
 const RECOVERY_PREFIX = "<!-- proffera-ci-autofix-recovery:v1:";
 const TERMINAL_PREFIX = "<!-- proffera-ci-autofix-terminal:v1:";
-const OUTCOMES = new Set(["failed", "no_change", "cancelled", "succeeded"]);
+const OUTCOMES = new Set(["failed", "no_change", "cancelled", "succeeded", "unknown"]);
 
 export const CI_AUTOFIX_EXECUTION_PROMPT = `You are repairing one failed CI run on an already authorized Proffera pull request.
 
@@ -347,6 +347,34 @@ export function proveCiAutofixPrelaunchRecovery(input) {
   }
   if (run.conclusion === "success") return {recoverable: false, reason: "run_succeeded"};
   return {recoverable: false, reason: "autofix_job_may_have_launched"};
+}
+
+export function proveCiAutofixIndeterminateRecovery(input) {
+  repository(input?.repository);
+  const prNumber = positiveInteger(input?.pr_number, "pr_number");
+  const start = normalizeRecoveryStart(input?.start, prNumber);
+  const run = input?.run;
+  if (!run || typeof run !== "object" || Array.isArray(run)) fail("indeterminate_run_binding");
+  sha(run.head_sha, "indeterminate_run_head");
+  if (Number(run.id) !== start.run_id
+    || Number(run.run_attempt) !== start.run_attempt
+    || run.head_branch !== "main"
+    || run.event !== "workflow_run"
+    || run.path !== ".github/workflows/proffera-ci-autofix.yml"
+    || run.name !== "Proffera CI autofix") fail("indeterminate_run_binding");
+  if (run.status !== "completed") return {recoverable: false, reason: "run_not_terminal"};
+  const jobs = input?.jobs;
+  if (!Array.isArray(jobs) || jobs.length > 1000) fail("recovery_jobs");
+  const admitJobs = jobs.filter((job) => job?.name === "Admit one bounded CI autofix strategy");
+  if (admitJobs.length !== 1 || admitJobs[0]?.status !== "completed") fail("recovery_jobs_binding");
+  const launchProof = proveCiAutofixModelNotLaunched({jobs});
+  if (launchProof.recoverable) return {recoverable: false, reason: "model_not_launched"};
+  if (launchProof.reason !== "model_step_may_have_launched") {
+    return {recoverable: false, reason: launchProof.reason};
+  }
+  const observedAt = String(run.updated_at ?? "");
+  if (!/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d{3})?Z$/.test(observedAt)) fail("indeterminate_observed_at");
+  return {recoverable: true, reason: "model_outcome_unknown", observed_at: observedAt};
 }
 
 export function parseCiAutofixStarts(comments, {repository: repo, pr_number}) {
@@ -701,6 +729,7 @@ async function main(args) {
   if (mode === "backfill-terminals") return void process.stdout.write(JSON.stringify(prepareCiAutofixTerminalBackfill(parsed)) + "\n");
   if (mode === "model-proof") return void process.stdout.write(JSON.stringify(proveCiAutofixModelNotLaunched(parsed)) + "\n");
   if (mode === "recovery-proof") return void process.stdout.write(JSON.stringify(proveCiAutofixPrelaunchRecovery(parsed)) + "\n");
+  if (mode === "indeterminate-proof") return void process.stdout.write(JSON.stringify(proveCiAutofixIndeterminateRecovery(parsed)) + "\n");
   if (mode === "unresolved") return void process.stdout.write(JSON.stringify(unresolvedCiAutofixStarts(parsed)) + "\n");
   if (mode === "admit") {
     const state = ciAutofixMemoryState(parsed);
