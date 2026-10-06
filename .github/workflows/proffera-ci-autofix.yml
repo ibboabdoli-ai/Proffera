@@ -316,8 +316,12 @@ jobs:
               | node scripts/supervisor-ci-autofix-strategy-memory.mjs backfill-terminals
           }
 
-          backfill_plan="$(backfill_terminal_memory "$comments_file")"
-          if [ "$(jq -r '.unchanged' <<< "$backfill_plan")" != "true" ]; then
+          apply_terminal_backfill() {
+            local backfill_plan backfill_body_file backfill_payload backfill_comment_id created_backfill confirmed_backfill
+            backfill_plan="$(backfill_terminal_memory "$comments_file")"
+            if [ "$(jq -r '.unchanged' <<< "$backfill_plan")" = "true" ]; then
+              return 0
+            fi
             backfill_body_file="$RUNNER_TEMP/ci-autofix-backfill-body.txt"
             jq -r '.body' <<< "$backfill_plan" > "$backfill_body_file"
             backfill_payload="$RUNNER_TEMP/ci-autofix-backfill-payload.json"
@@ -337,7 +341,9 @@ jobs:
               exit 1
             }
             echo "Backfilled $(jq -r '.backfilled' <<< "$backfill_plan") terminal CI Autofix attempt(s) into canonical Failure Memory."
-          fi
+          }
+
+          apply_terminal_backfill
 
           build_input() {
             jq -n --arg repository "$REPOSITORY" --arg pr_number "$PR_NUMBER" --arg head "$HEAD_SHA" \
@@ -348,7 +354,7 @@ jobs:
 
           input_json="$(build_input)"
           unresolved="$(node scripts/supervisor-ci-autofix-strategy-memory.mjs unresolved <<< "$input_json")"
-          recovered_any=no
+          history_changed=no
           while IFS= read -r candidate; do
             [ -n "$candidate" ] || continue
             old_run_id="$(jq -r '.run_id' <<< "$candidate")"
@@ -368,23 +374,63 @@ jobs:
               --slurpfile run "$run_file" --slurpfile jobs "$old_jobs_file" \
               '{repository:$repository,pr_number:($pr_number|tonumber),start:$start,run:$run[0],jobs:$jobs[0]}' > "$proof_input"
             proof="$(node scripts/supervisor-ci-autofix-strategy-memory.mjs recovery-proof < "$proof_input")"
-            if [ "$(jq -r '.recoverable' <<< "$proof")" != "true" ]; then
-              echo "Historical CI Autofix start remains fail-closed: $(jq -r '.reason' <<< "$proof")"
+            if [ "$(jq -r '.recoverable' <<< "$proof")" = "true" ]; then
+              recovery_input="$RUNNER_TEMP/ci-autofix-recovery-${old_run_id}-${old_run_attempt}.json"
+              jq -n --arg repository "$REPOSITORY" --arg pr_number "$PR_NUMBER" --argjson start "$candidate" \
+                --arg recovered_by_run_id "$GITHUB_RUN_ID" --arg recovered_by_run_attempt "$GITHUB_RUN_ATTEMPT" \
+                '{repository:$repository,pr_number:($pr_number|tonumber),start:$start,recovered_by_run_id:($recovered_by_run_id|tonumber),recovered_by_run_attempt:($recovered_by_run_attempt|tonumber)}' > "$recovery_input"
+              recovery_body="$(node scripts/supervisor-ci-autofix-strategy-memory.mjs recovery-body < "$recovery_input" | jq -r '.body')"
+              created="$(gh api --method POST "repos/$REPOSITORY/issues/548/comments" -f "body=$recovery_body")"
+              jq -e '.id | numbers' >/dev/null <<< "$created"
+              history_changed=yes
               continue
             fi
-            recovery_input="$RUNNER_TEMP/ci-autofix-recovery-${old_run_id}-${old_run_attempt}.json"
-            jq -n --arg repository "$REPOSITORY" --arg pr_number "$PR_NUMBER" --argjson start "$candidate" \
-              --arg recovered_by_run_id "$GITHUB_RUN_ID" --arg recovered_by_run_attempt "$GITHUB_RUN_ATTEMPT" \
-              '{repository:$repository,pr_number:($pr_number|tonumber),start:$start,recovered_by_run_id:($recovered_by_run_id|tonumber),recovered_by_run_attempt:($recovered_by_run_attempt|tonumber)}' > "$recovery_input"
-            recovery_body="$(node scripts/supervisor-ci-autofix-strategy-memory.mjs recovery-body < "$recovery_input" | jq -r '.body')"
-            created="$(gh api --method POST "repos/$REPOSITORY/issues/548/comments" -f "body=$recovery_body")"
-            jq -e '.id | numbers' >/dev/null <<< "$created"
-            recovered_any=yes
-          done < <(jq -c '.[]' <<< "$unresolved")
 
-          if [ "$recovered_any" = "yes" ]; then
+            indeterminate="$(node scripts/supervisor-ci-autofix-strategy-memory.mjs indeterminate-proof < "$proof_input")"
+            if [ "$(jq -r '.recoverable' <<< "$indeterminate")" != "true" ]; then
+              echo "Historical CI Autofix start remains fail-closed: $(jq -r '.reason' <<< "$proof") / $(jq -r '.reason' <<< "$indeterminate")"
+              continue
+            fi
+
+            old_source_run_id="$(jq -r '.source_run_id' <<< "$candidate")"
+            old_source_run_attempt="$(jq -r '.source_run_attempt' <<< "$candidate")"
+            old_source_jobs="$RUNNER_TEMP/ci-autofix-source-jobs-${old_source_run_id}-${old_source_run_attempt}.json"
+            old_failures="$RUNNER_TEMP/ci-autofix-source-failures-${old_source_run_id}-${old_source_run_attempt}.json"
+            if ! gh api --paginate "repos/$REPOSITORY/actions/runs/$old_source_run_id/attempts/$old_source_run_attempt/jobs?per_page=100" --jq '.jobs[]' | jq -s '.' > "$old_source_jobs"; then
+              echo "Could not reconstruct historical CI Autofix source evidence; leaving start unresolved."
+              continue
+            fi
+            jq -e 'type == "array" and length <= 1000' "$old_source_jobs" >/dev/null
+            jq '[.[] | select(.conclusion == "failure") | {job:.name,steps:([.steps[]? | select(.conclusion == "failure") | .name] | unique | sort)}] | sort_by(.job)' "$old_source_jobs" > "$old_failures"
+            jq -e 'type == "array" and length > 0 and length <= 64' "$old_failures" >/dev/null
+
             gh api --paginate "repos/$REPOSITORY/issues/548/comments?per_page=100" --jq '.[]' | jq -s '.' > "$comments_file"
             jq -e 'type == "array"' "$comments_file" >/dev/null
+            terminal_input="$RUNNER_TEMP/ci-autofix-indeterminate-${old_run_id}-${old_run_attempt}.json"
+            jq -n --arg repository "$REPOSITORY" --arg pr_number "$PR_NUMBER" \
+              --arg head "$(jq -r '.head' <<< "$candidate")" \
+              --arg source_run_id "$old_source_run_id" --arg source_run_attempt "$old_source_run_attempt" \
+              --arg run_id "$old_run_id" --arg run_attempt "$old_run_attempt" \
+              --arg outcome "unknown" --arg observed_at "$(jq -r '.observed_at' <<< "$indeterminate")" \
+              --slurpfile failures "$old_failures" --slurpfile comments "$comments_file" \
+              '{repository:$repository,pr_number:($pr_number|tonumber),head:$head,source_run_id:($source_run_id|tonumber),source_run_attempt:($source_run_attempt|tonumber),run_id:($run_id|tonumber),run_attempt:($run_attempt|tonumber),outcome:$outcome,observed_at:$observed_at,failures:$failures[0],comments:$comments[0]}' > "$terminal_input"
+            terminal_plan="$(node scripts/supervisor-ci-autofix-strategy-memory.mjs prepare-terminal < "$terminal_input")"
+            test "$(jq -r '.terminal.failure_digest' <<< "$terminal_plan")" = "$(jq -r '.failure_digest' <<< "$candidate")"
+            test "$(jq -r '.terminal.evidence_fingerprint' <<< "$terminal_plan")" = "$(jq -r '.evidence_fingerprint' <<< "$candidate")"
+            test "$(jq -r '.terminal.strategy_fingerprint' <<< "$terminal_plan")" = "$(jq -r '.strategy_fingerprint' <<< "$candidate")"
+            if [ "$(jq -r '.unchanged' <<< "$terminal_plan")" != "true" ]; then
+              terminal_body="$(jq -r '.body' <<< "$terminal_plan")"
+              created_terminal="$(gh api --method POST "repos/$REPOSITORY/issues/548/comments" -f "body=$terminal_body")"
+              jq -e '.id | numbers' >/dev/null <<< "$created_terminal"
+            fi
+            history_changed=yes
+            echo "Recorded historical CI Autofix attempt ${old_run_id}:${old_run_attempt} as outcome unknown after authenticated post-model interruption."
+          done < <(jq -c '.[]' <<< "$unresolved")
+
+          if [ "$history_changed" = "yes" ]; then
+            gh api --paginate "repos/$REPOSITORY/issues/548/comments?per_page=100" --jq '.[]' | jq -s '.' > "$comments_file"
+            jq -e 'type == "array"' "$comments_file" >/dev/null
+            apply_terminal_backfill
             input_json="$(build_input)"
           fi
 
