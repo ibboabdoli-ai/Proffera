@@ -264,6 +264,38 @@ describe("CI Autofix durable admission and outcomes", () => {
     })).toMatchObject({decision: "ALLOW"});
   });
 
+  it("keeps historical terminal fingerprints valid across strategy contract updates", () => {
+    const current = ciAutofixStrategyDescriptor({pr_number: pr, head, failures});
+    const historical = ciAutofixStrategyDescriptor(
+      {pr_number: pr, head, failures},
+      {
+        ...CI_AUTOFIX_EXECUTION_CONTRACT,
+        prompt_version: "ci_autofix_v0",
+        prompt: CI_AUTOFIX_EXECUTION_PROMPT + "\nHistorical bounded strategy.",
+      },
+    );
+    expect(historical.strategy_fingerprint).not.toBe(current.strategy_fingerprint);
+
+    const startBody = ciAutofixStartBody({
+      repository, pr_number: pr, head, failures,
+      source_run_id: 40, source_run_attempt: 1, run_id: 50, run_attempt: 1,
+    }).replace(current.strategy_fingerprint, historical.strategy_fingerprint);
+    const terminalBody = ciAutofixTerminalBody({
+      repository, pr_number: pr, head, failures,
+      source_run_id: 40, source_run_attempt: 1, run_id: 50, run_attempt: 1,
+      outcome: "failed", observed_at: "2026-10-05T18:00:00Z",
+    }).replace(current.strategy_fingerprint, historical.strategy_fingerprint);
+
+    const state = ciAutofixMemoryState({
+      repository, pr_number: pr,
+      comments: [trustedComment(startBody, 10), trustedComment(terminalBody, 11)],
+    });
+    expect(state.terminals[0].strategy_fingerprint).toBe(historical.strategy_fingerprint);
+    expect(decideCiAutofixStrategyHistory({
+      pr_number: pr, head, failures, records: state.records, starts: state.starts, terminals: state.terminals,
+    })).toMatchObject({decision: "ALLOW_MATERIAL_REENTRY", prior_attempts: 1, unresolved_attempts: 0});
+  });
+
   it("keeps terminal attempts resolved after bounded Failure Memory history is pruned", () => {
     const startBody = ciAutofixStartBody({
       repository, pr_number: pr, head, failures,
