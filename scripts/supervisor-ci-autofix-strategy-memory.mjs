@@ -256,8 +256,7 @@ export function parseCiAutofixTerminals(comments, {repository: repo, pr_number})
       pr_number: markerPr, head: payload.head, failures: payload.failures,
     });
     if (payload.failure_digest !== terminalDescriptor.failure_digest
-      || payload.evidence_fingerprint !== terminalDescriptor.evidence_fingerprint
-      || payload.strategy_fingerprint !== terminalDescriptor.strategy_fingerprint) fail("terminal_descriptor");
+      || payload.evidence_fingerprint !== terminalDescriptor.evidence_fingerprint) fail("terminal_descriptor");
     if (!OUTCOMES.has(payload.outcome)
       || !/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d{3})?Z$/.test(payload.observed_at)) fail("terminal_outcome");
     for (const field of ["failure_digest", "evidence_fingerprint", "strategy_fingerprint"]) {
