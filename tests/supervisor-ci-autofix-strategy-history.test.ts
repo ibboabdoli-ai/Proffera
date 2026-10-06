@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 // @ts-expect-error Standalone .mjs follows the repository control-plane convention.
 import { createMemory, memoryIdentity, mergeObservation } from "../scripts/supervisor-failure-memory.mjs";
 // @ts-expect-error Standalone .mjs follows the repository control-plane convention.
-import { CI_AUTOFIX_EXECUTION_CONTRACT, CI_AUTOFIX_EXECUTION_PROMPT, ciAutofixMemoryState, ciAutofixObservation, ciAutofixRecoveryBody, ciAutofixStartBody, ciAutofixStrategyDescriptor, ciAutofixTerminalBody, decideCiAutofixStrategyHistory, parseCiAutofixStarts, parseCiAutofixTerminals, prepareCiAutofixOutcome, prepareCiAutofixTerminal, prepareCiAutofixTerminalBackfill, proveCiAutofixIndeterminateRecovery, proveCiAutofixModelNotLaunched, proveCiAutofixPrelaunchRecovery, unresolvedCiAutofixStarts } from "../scripts/supervisor-ci-autofix-strategy-memory.mjs";
+import { CI_AUTOFIX_EXECUTION_CONTRACT, CI_AUTOFIX_EXECUTION_PROMPT, ciAutofixMemoryState, ciAutofixObservation, ciAutofixRecoveryBody, ciAutofixStartBody, ciAutofixStrategyDescriptor, ciAutofixTerminalBody, decideCiAutofixStrategyHistory, parseCiAutofixStarts, parseCiAutofixTerminals, prepareCiAutofixOutcome, prepareCiAutofixTerminal, prepareCiAutofixTerminalBackfill, prepareCiAutofixTerminalFromStart, proveCiAutofixIndeterminateRecovery, proveCiAutofixModelNotLaunched, proveCiAutofixPrelaunchRecovery, unresolvedCiAutofixStarts } from "../scripts/supervisor-ci-autofix-strategy-memory.mjs";
 
 const repository = "ibboabdoli-ai/Proffera";
 const pr = 934;
@@ -291,9 +291,48 @@ describe("CI Autofix durable admission and outcomes", () => {
       comments: [trustedComment(startBody, 10), trustedComment(terminalBody, 11)],
     });
     expect(state.terminals[0].strategy_fingerprint).toBe(historical.strategy_fingerprint);
+    const backfill = prepareCiAutofixTerminalBackfill({
+      repository, pr_number: pr, comments: [trustedComment(startBody, 10), trustedComment(terminalBody, 11)],
+    });
+    expect(backfill).toMatchObject({unchanged: true, backfilled: 0, skipped_historical_strategy: 1});
+    expect(JSON.parse(backfill.body.split("\n")[2]).records).toEqual([]);
     expect(decideCiAutofixStrategyHistory({
       pr_number: pr, head, failures, records: state.records, starts: state.starts, terminals: state.terminals,
     })).toMatchObject({decision: "ALLOW_MATERIAL_REENTRY", prior_attempts: 1, unresolved_attempts: 0});
+  });
+
+  it("synthesizes recovered terminals with the historical start strategy instead of the current contract", () => {
+    const current = ciAutofixStrategyDescriptor({pr_number: pr, head, failures});
+    const historical = ciAutofixStrategyDescriptor(
+      {pr_number: pr, head, failures},
+      {
+        ...CI_AUTOFIX_EXECUTION_CONTRACT,
+        prompt_version: "ci_autofix_v0",
+        prompt: CI_AUTOFIX_EXECUTION_PROMPT + "\nHistorical bounded strategy.",
+      },
+    );
+    const historicalStartBody = ciAutofixStartBody({
+      repository, pr_number: pr, head, failures,
+      source_run_id: 40, source_run_attempt: 1, run_id: 50, run_attempt: 1,
+    }).replace(current.strategy_fingerprint, historical.strategy_fingerprint);
+    const historicalStart = parseCiAutofixStarts(
+      [trustedComment(historicalStartBody, 10)], {repository, pr_number: pr},
+    )[0];
+
+    const prepared = prepareCiAutofixTerminalFromStart({
+      repository, pr_number: pr, start: historicalStart, failures,
+      outcome: "unknown", observed_at: "2026-10-05T18:01:00Z", comments: [],
+    });
+    expect(prepared.terminal).toMatchObject({
+      strategy_fingerprint: historical.strategy_fingerprint,
+      evidence_fingerprint: historicalStart.evidence_fingerprint,
+      failure_digest: historicalStart.failure_digest,
+      outcome: "unknown",
+    });
+    const parsed = parseCiAutofixTerminals(
+      [trustedComment(prepared.body, 11)], {repository, pr_number: pr},
+    );
+    expect(parsed[0].strategy_fingerprint).toBe(historical.strategy_fingerprint);
   });
 
   it("keeps terminal attempts resolved after bounded Failure Memory history is pruned", () => {
@@ -476,6 +515,8 @@ describe("CI Autofix workflow accounting boundary", () => {
     const admit = workflow.slice(admitStart, admitEnd);
     expect(admit).toContain("indeterminate-proof");
     expect(admit).toContain('--arg outcome "unknown"');
+    expect(admit).toContain("prepare-terminal-from-start");
+    expect(admit).not.toContain("test \"$(jq -r '.terminal.strategy_fingerprint'");
     expect(admit).toContain("apply_terminal_backfill");
     expect(admit.indexOf("indeterminate-proof")).toBeLessThan(admit.lastIndexOf("apply_terminal_backfill"));
   });
