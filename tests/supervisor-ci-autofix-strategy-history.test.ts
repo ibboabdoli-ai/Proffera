@@ -282,6 +282,31 @@ describe("CI Autofix durable admission and outcomes", () => {
       ...trustedComment(body), user: {login: "ibboabdoli-ai", type: "User"},
     }], {repository, pr_number: pr})).toEqual([]);
   });
+
+  it("ignores reserved marker records quoted inside unrelated bot comments", () => {
+    const startBody = ciAutofixStartBody({
+      repository, pr_number: pr, head, failures,
+      source_run_id: 40, source_run_attempt: 1, run_id: 50, run_attempt: 1,
+    });
+    const recoveryBody = ciAutofixRecoveryBody({
+      repository, pr_number: pr, start: start(), recovered_by_run_id: 51, recovered_by_run_attempt: 1,
+    });
+    const terminalBody = ciAutofixTerminalBody({
+      repository, pr_number: pr, head, failures,
+      source_run_id: 40, source_run_attempt: 1, run_id: 50, run_attempt: 1,
+      outcome: "failed", observed_at: "2026-10-05T18:00:00Z",
+    });
+    const embedded = [
+      trustedComment("CI Autofix report:\n" + startBody, 20),
+      trustedComment("CI Autofix report:\n" + recoveryBody, 21),
+      trustedComment("CI Autofix report:\n" + terminalBody, 22),
+    ];
+    expect(parseCiAutofixStarts(embedded, {repository, pr_number: pr})).toEqual([]);
+    expect(parseCiAutofixTerminals(embedded, {repository, pr_number: pr})).toEqual([]);
+    expect(ciAutofixMemoryState({repository, pr_number: pr, comments: embedded})).toMatchObject({
+      starts: [], recoveries: [], terminals: [],
+    });
+  });
 });
 
 describe("CI Autofix workflow accounting boundary", () => {
