@@ -246,7 +246,8 @@ describe("CI Autofix durable admission and outcomes", () => {
     });
     const memory = JSON.parse(restored.body.split("\n")[2]);
     expect(memory.records[0].outcome).toBe("failed");
-    expect(memory.records[0].observations[0].observed_at).toBe("2026-10-05T18:00:00.000Z");
+    expect(memory.records[0].observations[0].first_seen).toBe("2026-10-05T18:00:00.000Z");
+    expect(memory.records[0].observations[0].last_seen).toBe("2026-10-05T18:00:00.000Z");
   });
 
   it("persists a started attempt idempotently and preserves the first terminal outcome", () => {
@@ -320,7 +321,8 @@ describe("CI Autofix workflow accounting boundary", () => {
     const recordStart = workflow.indexOf("  record:\n");
     const record = workflow.slice(recordStart);
     expect(record).toContain("prepare-terminal");
-    expect(record.indexOf("prepare-terminal")).toBeLessThan(record.indexOf("prepare-outcome"));
+    expect(record.indexOf('terminal_plan="$(node scripts/supervisor-ci-autofix-strategy-memory.mjs prepare-terminal'))
+      .toBeLessThan(record.indexOf('prepare_plan "$comments_a" "$plan_a"'));
     const classifyStart = record.indexOf('outcome=failed');
     const classifyEnd = record.indexOf('echo "CI_AUTOFIX_OUTCOME=', classifyStart);
     const classify = record.slice(classifyStart, classifyEnd);
