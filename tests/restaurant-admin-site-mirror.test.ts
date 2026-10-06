@@ -88,6 +88,17 @@ describe("Doni admin mirrors the public demo", () => {
     expect(editor).toContain("Bildnamn från filnamn har städats");
   });
 
+  it("allows publishing visible dishes without a confirmed price", () => {
+    const db = readFileSync("src/lib/restaurant-site-db.ts", "utf8");
+    const publicDemo = readFileSync(
+      "src/app/demo/donis-trattoria2/demo-interactions.tsx",
+      "utf8",
+    );
+
+    expect(db).not.toContain("Alla synliga rätter behöver ett pris före publicering.");
+    expect(publicDemo).toContain("dish.priceOre === null");
+  });
+
   it("keeps menu description fields editable without inventing dish copy", () => {
     const editor = readFileSync(
       "src/app/dashboard/restaurang/restaurant-editor.tsx",
