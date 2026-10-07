@@ -34,6 +34,23 @@ function normalizeRepositoryPaths(value, field) {
   return normalized;
 }
 
+function pullRequestFilePaths(value) {
+  if (!Array.isArray(value)) throw new Error("pull_request_files must be an array");
+  if (value.length === 0) throw new Error("pull_request_files must not be empty");
+  if (value.length > 3000) throw new Error("pull_request_files has too many entries");
+  const paths = [];
+  for (const item of value) {
+    if (!item || typeof item !== "object" || Array.isArray(item)) {
+      throw new Error("pull_request_files contains a malformed entry");
+    }
+    paths.push(assertSafePath(item.filename, "pull_request_files[].filename"));
+    if (item.previous_filename !== undefined && item.previous_filename !== null) {
+      paths.push(assertSafePath(item.previous_filename, "pull_request_files[].previous_filename"));
+    }
+  }
+  return [...new Set(paths)];
+}
+
 function policyFileMatch(path, policyScope) {
   const kind = policyScope?.kind;
   const value = policyScope?.value;
@@ -94,11 +111,31 @@ export function evaluateProtectedRepositoryPaths(pathsInput) {
   }
 }
 
+export function evaluateProtectedPullRequestFiles(filesInput) {
+  try {
+    const paths = pullRequestFilePaths(filesInput);
+    return {...evaluateProtectedRepositoryPaths(paths), paths};
+  } catch (error) {
+    return {
+      ok: false,
+      allowed: false,
+      code: "repository_path_policy_invalid",
+      reason: error instanceof Error ? error.message : "Pull request file authorization evaluation failed",
+      matches: [],
+      paths: [],
+    };
+  }
+}
+
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   try {
-    if (process.argv[2] !== "evaluate-paths") throw new Error("authorization_policy:mode");
+    const mode = process.argv[2];
     const input = JSON.parse(readFileSync(0, "utf8"));
-    const decision = evaluateProtectedRepositoryPaths(input?.paths);
+    const decision = mode === "evaluate-paths"
+      ? evaluateProtectedRepositoryPaths(input?.paths)
+      : mode === "evaluate-pull-files"
+        ? evaluateProtectedPullRequestFiles(input?.files)
+        : (() => { throw new Error("authorization_policy:mode"); })();
     process.stdout.write(JSON.stringify(decision) + "\n");
     if (!decision.ok) process.exitCode = 1;
   } catch (error) {

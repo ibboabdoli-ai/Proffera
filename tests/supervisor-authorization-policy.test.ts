@@ -24,6 +24,18 @@ function evaluatePaths(paths: string[]) {
   return JSON.parse(result.stdout);
 }
 
+function evaluatePullFiles(files: Array<{filename: string; previous_filename?: string}>) {
+  const result = spawnSync(process.execPath, [
+    join(process.cwd(), "scripts", "supervisor-authorization-policy.mjs"),
+    "evaluate-pull-files",
+  ], {
+    encoding: "utf8",
+    input: JSON.stringify({files}),
+  });
+  expect(result.status, result.stderr).toBe(0);
+  return JSON.parse(result.stdout);
+}
+
 describe("canonical Supervisor authorization ownership", () => {
   it.each([
     "src/lib/auth.ts",
@@ -41,6 +53,48 @@ describe("canonical Supervisor authorization ownership", () => {
   it("keeps ordinary application files outside the human-authorization boundary", () => {
     expect(evaluatePaths(["src/components/example.tsx"]))
       .toMatchObject({ok: true, allowed: true, matches: []});
+  });
+
+  it("treats both rename endpoints as authorization evidence", () => {
+    const protectedRename = evaluatePullFiles([{
+      filename: "src/lib/renamed-auth.ts",
+      previous_filename: "src/lib/auth.ts",
+    }]);
+    expect(protectedRename).toMatchObject({
+      ok: true,
+      allowed: false,
+      code: "repository_paths_require_human",
+      paths: ["src/lib/renamed-auth.ts", "src/lib/auth.ts"],
+    });
+    expect(protectedRename.matches.some((match: {path: string}) => match.path === "src/lib/auth.ts")).toBe(true);
+
+    const ordinaryRename = evaluatePullFiles([{
+      filename: "src/components/renamed.tsx",
+      previous_filename: "src/components/example.tsx",
+    }]);
+    expect(ordinaryRename).toMatchObject({
+      ok: true,
+      allowed: true,
+      matches: [],
+      paths: ["src/components/renamed.tsx", "src/components/example.tsx"],
+    });
+  });
+
+  it("fails closed on malformed or empty pull-request file evidence", () => {
+    const empty = spawnSync(process.execPath, [
+      join(process.cwd(), "scripts", "supervisor-authorization-policy.mjs"),
+      "evaluate-pull-files",
+    ], {
+      encoding: "utf8",
+      input: JSON.stringify({files: []}),
+    });
+    expect(empty.status).toBe(1);
+    expect(JSON.parse(empty.stdout)).toMatchObject({
+      ok: false,
+      allowed: false,
+      code: "repository_path_policy_invalid",
+      paths: [],
+    });
   });
 
   it("rejects a CI Autofix candidate touching auth even when auth was already changed by the PR", () => {
@@ -185,16 +239,22 @@ describe("canonical Supervisor authorization ownership", () => {
     }
   });
 
-  it("materializes and protects the canonical policy in both isolated CI Autofix jobs", () => {
+  it("materializes the canonical policy and passes complete pull-request file evidence into qualification", () => {
     const workflow = readFileSync(new URL("../.github/workflows/proffera-ci-autofix.yml", import.meta.url), "utf8");
     expect(workflow).toContain("    scripts/supervisor-*.mjs");
     expect(workflow).toContain("for policy_file in supervisor-authorization-policy.mjs supervisor-worker-handoff.mjs; do");
-    expect(workflow).toContain('node "$trusted_policy_dir/supervisor-authorization-policy.mjs" evaluate-paths');
+    expect(workflow).toContain('repos/$REPOSITORY/pulls/$pr_number/files?per_page=100');
+    expect(workflow).toContain('node "$trusted_policy_dir/supervisor-authorization-policy.mjs" evaluate-pull-files');
+    expect(workflow).toContain('expected_changed_files="$(jq -r \'.changed_files // empty\' <<< "$pr_json")"');
+    expect(workflow).toContain('if [ "$fetched_changed_files" -ne "$expected_changed_files" ]; then');
+    expect(workflow).toContain('if [ "$fetched_changed_files" -eq 0 ]; then');
+    expect(workflow).toContain('changed_files="$(jq -r \'.paths[]\' <<< "$authorization")"');
     expect(workflow.match(/contents\/scripts\/supervisor-authorization-policy\.mjs\?ref=\$GITHUB_WORKFLOW_SHA/g))
       .toHaveLength(2);
     const candidate = readFileSync(new URL("../scripts/supervisor-ci-autofix-candidate.mjs", import.meta.url), "utf8");
-    expect(candidate).toContain('from "./supervisor-authorization-policy.mjs"');
-    expect(candidate).toContain("evaluateProtectedRepositoryPaths([path])");
+    expect(candidate).toContain('fileURLToPath(new URL("./supervisor-authorization-policy.mjs", import.meta.url))');
+    expect(candidate).toContain('[helper, "evaluate-paths"]');
+    expect(candidate).toContain("enforceHumanAuthorization(paths)");
     const worker = readFileSync(new URL("../scripts/supervisor-worker-handoff.mjs", import.meta.url), "utf8");
     expect(worker).toContain("PLANNER_HUMAN_AUTH_OWNERSHIP");
     expect(workflow.match(/contents\/scripts\/supervisor-worker-handoff\.mjs\?ref=\$GITHUB_WORKFLOW_SHA/g))

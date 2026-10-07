@@ -2,8 +2,7 @@ import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
 import { lstatSync, readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
-import { pathToFileURL } from "node:url";
-import { evaluateProtectedRepositoryPaths } from "./supervisor-authorization-policy.mjs";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 // Run only from the immutable workflow revision in a fresh job. Candidate jobs
 // transfer patch bytes, never their Git metadata, configuration or commit objects.
@@ -30,6 +29,23 @@ function fileBytes(path, maximum) {
   const stat = lstatSync(path);
   if (!stat.isFile() || stat.size === 0 || stat.size > maximum) fail("artifact_bound");
   return readFileSync(path);
+}
+
+function enforceHumanAuthorization(paths) {
+  const helper = fileURLToPath(new URL("./supervisor-authorization-policy.mjs", import.meta.url));
+  let decision;
+  try {
+    const output = execFileSync(process.execPath, [helper, "evaluate-paths"], {
+      input: JSON.stringify({paths}),
+      encoding: "utf8",
+      maxBuffer: 1024 * 1024,
+      timeout: 60000,
+    });
+    decision = JSON.parse(output);
+  } catch {
+    fail("human_authorization_policy");
+  }
+  if (!decision?.ok || !decision?.allowed) fail("human_authorization_path");
 }
 
 export function prepareCiAutofixCandidate(input, {cwd = process.cwd(), worktree = false} = {}) {
@@ -76,11 +92,10 @@ export function prepareCiAutofixCandidate(input, {cwd = process.cwd(), worktree 
     if (!path || /[\x00-\x1f\x7f\\]/.test(path) || path.startsWith("/")
       || path.split("/").some((part) => !part || part === "." || part === ".." || part.toLowerCase() === ".git")) fail("path");
     if (blocked.some((pattern) => pattern.test(path))) fail("blocked_path");
-    const authorization = evaluateProtectedRepositoryPaths([path]);
-    if (!authorization.ok || !authorization.allowed) fail("human_authorization_path");
     if (!allowed.has(path) && !path.startsWith("tests/")) fail("scope_expansion");
     paths.push(path);
   }
+  enforceHumanAuthorization(paths);
   git(cwd, ["diff", "--cached", "--check", expected.head]);
   return {tree: text(["write-tree"]), changed_paths: paths};
 }
