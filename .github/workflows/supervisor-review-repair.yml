@@ -875,10 +875,8 @@ jobs:
             exit 0
           fi
 
-          body_file="$RUNNER_TEMP/review-repair-memory-body.txt"
-          jq -r '.body' "$plan_b" > "$body_file"
           payload="$RUNNER_TEMP/review-repair-memory-payload.json"
-          jq -n --rawfile body "$body_file" '{body:$body}' > "$payload"
+          jq '{body:.body}' "$plan_b" > "$payload"
           comment_id="$(jq -r '.comment_id // empty' "$plan_b")"
           if [ -z "$comment_id" ]; then
             created="$(gh api --method POST "repos/${REPOSITORY}/issues/548/comments" --input "$payload")"
