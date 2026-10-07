@@ -12,8 +12,7 @@ env:
     .github/*
     AGENTS.md
     WORKER_BOOTSTRAP.md
-    scripts/supervisor-ci-autofix-candidate.mjs
-    scripts/supervisor-ci-autofix-strategy-memory.mjs
+    scripts/supervisor-*.mjs
     .env*
     vercel.json
     next.config.*
@@ -55,6 +54,11 @@ jobs:
       source_run_id: ${{ steps.qualify.outputs.source_run_id }}
       source_run_attempt: ${{ steps.qualify.outputs.source_run_attempt }}
     steps:
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 22
+
       - name: Qualify current-head failure for one bounded Codex attempt
         id: qualify
         env:
@@ -191,6 +195,23 @@ jobs:
           fi
 
           changed_files="$(gh pr diff "$pr_number" --repo "$REPOSITORY" --name-only)"
+          trusted_policy_dir="$RUNNER_TEMP/ci-autofix-authorization-policy"
+          mkdir -p "$trusted_policy_dir"
+          [[ "$GITHUB_WORKFLOW_SHA" =~ ^[a-f0-9]{40}$ ]]
+          for policy_file in supervisor-authorization-policy.mjs supervisor-worker-handoff.mjs; do
+            policy_json="$(gh api "repos/$REPOSITORY/contents/scripts/$policy_file?ref=$GITHUB_WORKFLOW_SHA")"
+            policy_blob="$(jq -r '.sha // ""' <<< "$policy_json")"
+            [[ "$policy_blob" =~ ^[a-f0-9]{40}$ ]]
+            jq -r '.content' <<< "$policy_json" | tr -d '\n' | base64 --decode > "$trusted_policy_dir/$policy_file"
+            test "$(git hash-object "$trusted_policy_dir/$policy_file")" = "$policy_blob"
+          done
+          changed_files_json="$(printf '%s\n' "$changed_files" | jq -R -s 'split("\n") | map(select(length > 0))')"
+          authorization="$(jq -n --argjson paths "$changed_files_json" '{paths:$paths}' \
+            | node "$trusted_policy_dir/supervisor-authorization-policy.mjs" evaluate-paths)"
+          if [ "$(jq -r '.ok == true and .allowed == true' <<< "$authorization")" != "true" ]; then
+            echo "PR #$pr_number changes a repository authorization-owned path; autofix is disabled."
+            exit 0
+          fi
           while IFS= read -r file; do
             [ -z "$file" ] && continue
             if is_blocked_path "$file"; then
@@ -675,6 +696,16 @@ jobs:
           [[ "$expected_blob" =~ ^[a-f0-9]{40}$ ]]
           jq -r '.content' <<< "$helper_json" | tr -d '\n' | base64 --decode > "$trusted_dir/candidate.mjs"
           test "$(git hash-object "$trusted_dir/candidate.mjs")" = "$expected_blob"
+          policy_json="$(gh api "repos/$REPOSITORY/contents/scripts/supervisor-authorization-policy.mjs?ref=$GITHUB_WORKFLOW_SHA")"
+          expected_policy_blob="$(jq -r '.sha' <<< "$policy_json")"
+          [[ "$expected_policy_blob" =~ ^[a-f0-9]{40}$ ]]
+          jq -r '.content' <<< "$policy_json" | tr -d '\n' | base64 --decode > "$trusted_dir/supervisor-authorization-policy.mjs"
+          test "$(git hash-object "$trusted_dir/supervisor-authorization-policy.mjs")" = "$expected_policy_blob"
+          worker_json="$(gh api "repos/$REPOSITORY/contents/scripts/supervisor-worker-handoff.mjs?ref=$GITHUB_WORKFLOW_SHA")"
+          expected_worker_blob="$(jq -r '.sha' <<< "$worker_json")"
+          [[ "$expected_worker_blob" =~ ^[a-f0-9]{40}$ ]]
+          jq -r '.content' <<< "$worker_json" | tr -d '\n' | base64 --decode > "$trusted_dir/supervisor-worker-handoff.mjs"
+          test "$(git hash-object "$trusted_dir/supervisor-worker-handoff.mjs")" = "$expected_worker_blob"
 
       - name: Reconstruct and validate complete candidate scope
         id: candidate
@@ -774,6 +805,16 @@ jobs:
           [[ "$expected_blob" =~ ^[a-f0-9]{40}$ ]]
           jq -r '.content' <<< "$helper_json" | tr -d '\n' | base64 --decode > "$trusted_dir/candidate.mjs"
           test "$(git hash-object "$trusted_dir/candidate.mjs")" = "$expected_blob"
+          policy_json="$(gh api "repos/$REPOSITORY/contents/scripts/supervisor-authorization-policy.mjs?ref=$GITHUB_WORKFLOW_SHA")"
+          expected_policy_blob="$(jq -r '.sha' <<< "$policy_json")"
+          [[ "$expected_policy_blob" =~ ^[a-f0-9]{40}$ ]]
+          jq -r '.content' <<< "$policy_json" | tr -d '\n' | base64 --decode > "$trusted_dir/supervisor-authorization-policy.mjs"
+          test "$(git hash-object "$trusted_dir/supervisor-authorization-policy.mjs")" = "$expected_policy_blob"
+          worker_json="$(gh api "repos/$REPOSITORY/contents/scripts/supervisor-worker-handoff.mjs?ref=$GITHUB_WORKFLOW_SHA")"
+          expected_worker_blob="$(jq -r '.sha' <<< "$worker_json")"
+          [[ "$expected_worker_blob" =~ ^[a-f0-9]{40}$ ]]
+          jq -r '.content' <<< "$worker_json" | tr -d '\n' | base64 --decode > "$trusted_dir/supervisor-worker-handoff.mjs"
+          test "$(git hash-object "$trusted_dir/supervisor-worker-handoff.mjs")" = "$expected_worker_blob"
 
       - name: Independently reconstruct and validate publication scope
         shell: bash

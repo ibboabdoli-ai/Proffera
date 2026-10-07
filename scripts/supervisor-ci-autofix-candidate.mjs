@@ -3,6 +3,7 @@ import { execFileSync } from "node:child_process";
 import { lstatSync, readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
+import { evaluateProtectedRepositoryPaths } from "./supervisor-authorization-policy.mjs";
 
 // Run only from the immutable workflow revision in a fresh job. Candidate jobs
 // transfer patch bytes, never their Git metadata, configuration or commit objects.
@@ -75,6 +76,8 @@ export function prepareCiAutofixCandidate(input, {cwd = process.cwd(), worktree 
     if (!path || /[\x00-\x1f\x7f\\]/.test(path) || path.startsWith("/")
       || path.split("/").some((part) => !part || part === "." || part === ".." || part.toLowerCase() === ".git")) fail("path");
     if (blocked.some((pattern) => pattern.test(path))) fail("blocked_path");
+    const authorization = evaluateProtectedRepositoryPaths([path]);
+    if (!authorization.ok || !authorization.allowed) fail("human_authorization_path");
     if (!allowed.has(path) && !path.startsWith("tests/")) fail("scope_expansion");
     paths.push(path);
   }
