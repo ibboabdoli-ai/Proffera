@@ -62,10 +62,37 @@ function writeBody(root: string, text: string) {
   return path;
 }
 
+function inspectFixture(args: { cwd: string; baseSha: string; prBody: string }) {
+  return inspectCandidate({...args, liveMainResolver: () => args.baseSha});
+}
+
 function cli(repo: string, args: string[]) {
+  const baseIndex = args.indexOf("--base");
+  const base = baseIndex >= 0 ? args[baseIndex + 1] : "";
+  const shimPath = join(dirname(repo), "preflight-gh-shim.cjs");
+  writeFileSync(shimPath, [
+    'const childProcess = require("node:child_process");',
+    'const { syncBuiltinESMExports } = require("node:module");',
+    'const originalSpawnSync = childProcess.spawnSync;',
+    'childProcess.spawnSync = function(command, commandArgs, options) {',
+    '  if (command === "gh" && Array.isArray(commandArgs) && commandArgs[0] === "api" && process.env.PREFLIGHT_TEST_MAIN_SHA) {',
+    '    return { status: 0, signal: null, stdout: process.env.PREFLIGHT_TEST_MAIN_SHA + "\\n", stderr: "" };',
+    '  }',
+    '  return originalSpawnSync.call(this, command, commandArgs, options);',
+    '};',
+    'syncBuiltinESMExports();',
+    '',
+  ].join("\n"));
+  const existingNodeOptions = process.env.NODE_OPTIONS?.trim();
+  const requireShim = `--require=${shimPath.replaceAll("\\", "/")}`;
   return spawnSync(process.execPath, [preflight, ...args], {
     cwd: repo,
     encoding: "utf8",
+    env: {
+      ...process.env,
+      PREFLIGHT_TEST_MAIN_SHA: base,
+      NODE_OPTIONS: existingNodeOptions ? `${existingNodeOptions} ${requireShim}` : requireShim,
+    },
   });
 }
 
@@ -126,7 +153,7 @@ describe("canonical Supervisor pre-publication gate", () => {
     git(repo, ["commit", "-qm", "candidate"]);
     const prBody = body(base);
 
-    const candidate = inspectCandidate({ cwd: repo, baseSha: base, prBody });
+    const candidate = inspectFixture({ cwd: repo, baseSha: base, prBody });
     expect(candidate).toMatchObject({
       repository: "ibboabdoli-ai/Proffera",
       branch: "work/proffera-preflight-test",
@@ -155,7 +182,7 @@ describe("canonical Supervisor pre-publication gate", () => {
     write(join(wrong.repo, "docs", "note.md"), "candidate\n");
     git(wrong.repo, ["add", "."]);
     git(wrong.repo, ["commit", "-qm", "candidate"]);
-    expect(() => inspectCandidate({ cwd: wrong.repo, baseSha: wrong.base, prBody: body(wrong.base) }))
+    expect(() => inspectFixture({ cwd: wrong.repo, baseSha: wrong.base, prBody: body(wrong.base) }))
       .toThrow(/supervisor_preflight:branch/);
 
     const dirty = fixture();
@@ -163,7 +190,7 @@ describe("canonical Supervisor pre-publication gate", () => {
     git(dirty.repo, ["add", "."]);
     git(dirty.repo, ["commit", "-qm", "candidate"]);
     write(join(dirty.repo, "untracked.txt"), "dirty\n");
-    expect(() => inspectCandidate({ cwd: dirty.repo, baseSha: dirty.base, prBody: body(dirty.base) }))
+    expect(() => inspectFixture({ cwd: dirty.repo, baseSha: dirty.base, prBody: body(dirty.base) }))
       .toThrow(/supervisor_preflight:dirty/);
   });
 
@@ -177,7 +204,7 @@ describe("canonical Supervisor pre-publication gate", () => {
     git(repo, ["mv", "src/lib/auth.ts", "src/lib/renamed-auth.ts"]);
     git(repo, ["commit", "-qm", "rename protected file"]);
 
-    const candidate = inspectCandidate({ cwd: repo, baseSha: base, prBody: body(base) });
+    const candidate = inspectFixture({ cwd: repo, baseSha: base, prBody: body(base) });
     expect(candidate.diff.paths).toEqual(["src/lib/auth.ts", "src/lib/renamed-auth.ts"]);
     expect(candidate.diff.files.map((entry: {status: string; path: string}) => [entry.status, entry.path])).toEqual([
       ["D", "src/lib/auth.ts"],
@@ -197,7 +224,7 @@ describe("canonical Supervisor pre-publication gate", () => {
     git(repo, ["add", "."]);
     git(repo, ["commit", "-qm", "replace file"]);
 
-    const candidate = inspectCandidate({ cwd: repo, baseSha: base, prBody: body(base) });
+    const candidate = inspectFixture({ cwd: repo, baseSha: base, prBody: body(base) });
     expect(candidate.diff.files.map((entry: {status: string; path: string}) => [entry.status, entry.path])).toEqual([
       ["A", "src/new.ts"],
       ["D", "src/old.ts"],
@@ -228,7 +255,7 @@ describe("canonical Supervisor pre-publication gate", () => {
     git(repo, ["add", "."]);
     git(repo, ["commit", "-qm", "candidate"]);
     const prBody = body(base);
-    const candidate = inspectCandidate({ cwd: repo, baseSha: base, prBody });
+    const candidate = inspectFixture({ cwd: repo, baseSha: base, prBody });
     const bodyPath = writeBody(root, prBody);
     const { validationPath, reviewPath } = writeEvidence(root, candidate);
 
@@ -255,7 +282,7 @@ describe("canonical Supervisor pre-publication gate", () => {
     git(repo, ["add", "."]);
     git(repo, ["commit", "-qm", "candidate one"]);
     const prBody = body(base);
-    const first = inspectCandidate({ cwd: repo, baseSha: base, prBody });
+    const first = inspectFixture({ cwd: repo, baseSha: base, prBody });
     const evidence = writeEvidence(root, first);
     const bodyPath = writeBody(root, prBody);
 
@@ -280,7 +307,7 @@ describe("canonical Supervisor pre-publication gate", () => {
     git(repo, ["add", "."]);
     git(repo, ["commit", "-qm", "control plane"]);
     const prBody = body(base);
-    const candidate = inspectCandidate({ cwd: repo, baseSha: base, prBody });
+    const candidate = inspectFixture({ cwd: repo, baseSha: base, prBody });
     const bodyPath = writeBody(root, prBody);
     const identity = candidateIdentity(candidate);
     const review = {
@@ -355,7 +382,7 @@ describe("canonical Supervisor pre-publication gate", () => {
     git(reviewFixture.repo, ["add", "."]);
     git(reviewFixture.repo, ["commit", "-qm", "candidate"]);
     const prBody = body(reviewFixture.base);
-    const candidate = inspectCandidate({ cwd: reviewFixture.repo, baseSha: reviewFixture.base, prBody });
+    const candidate = inspectFixture({ cwd: reviewFixture.repo, baseSha: reviewFixture.base, prBody });
     const bodyPath = writeBody(reviewFixture.root, prBody);
     const evidence = writeEvidence(reviewFixture.root, candidate, {
       findings: [{ id: "P1", verified: true, resolved: false }],
@@ -375,7 +402,7 @@ describe("canonical Supervisor pre-publication gate", () => {
     git(validationFixture.repo, ["add", "."]);
     git(validationFixture.repo, ["commit", "-qm", "control plane"]);
     const sensitiveBody = body(validationFixture.base);
-    const sensitive = inspectCandidate({
+    const sensitive = inspectFixture({
       cwd: validationFixture.repo,
       baseSha: validationFixture.base,
       prBody: sensitiveBody,

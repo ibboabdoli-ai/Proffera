@@ -2,8 +2,6 @@ import { readFileSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 import { PLANNER_HUMAN_AUTH_OWNERSHIP } from "./supervisor-worker-handoff.mjs";
 
-const PATH_RE = /^[A-Za-z0-9._/-]+$/;
-
 function assertPlainString(value, field, maxLength) {
   if (typeof value !== "string") throw new Error(`${field} must be a string`);
   const trimmed = value.trim();
@@ -15,12 +13,11 @@ function assertPlainString(value, field, maxLength) {
 
 function assertSafePath(value, field) {
   const path = assertPlainString(value, field, 240);
-  if (!PATH_RE.test(path)) throw new Error(`${field} contains unsupported path syntax`);
-  if (path.startsWith("/") || path.includes("//") || path.endsWith("/")) {
-    throw new Error(`${field} is not a repository file`);
+  if (path.includes("\\") || path.startsWith("/") || path.includes("//") || path.endsWith("/")) {
+    throw new Error(`${field} is not a safe repository file`);
   }
-  if (path.split("/").some((part) => part === "." || part === ".." || part === "")) {
-    throw new Error(`${field} contains path traversal or an empty segment`);
+  if (path.split("/").some((part) => part === "." || part === ".." || part === "" || part.toLowerCase() === ".git")) {
+    throw new Error(`${field} contains path traversal or an unsafe segment`);
   }
   return path;
 }

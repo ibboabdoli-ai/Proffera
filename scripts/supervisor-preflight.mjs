@@ -41,6 +41,23 @@ function gitText(cwd, args) {
   return String(runGit(cwd, args).stdout).trim();
 }
 
+function resolveLiveMainSha(repository) {
+  const result = spawnSync("gh", [
+    "api",
+    `repos/${repository}/git/ref/heads/main`,
+    "--jq",
+    ".object.sha",
+  ], {
+    encoding: "utf8",
+    maxBuffer: 1024 * 1024,
+    windowsHide: true,
+  });
+  if (result.status !== 0) {
+    fail("base", `unable to resolve live main from GitHub: ${String(result.stderr ?? "").trim() || "gh api failed"}`);
+  }
+  return assertSha(String(result.stdout ?? "").trim(), "live_main_sha");
+}
+
 function nulList(bytes) {
   const buffer = Buffer.isBuffer(bytes) ? bytes : Buffer.from(bytes);
   const text = buffer.toString("utf8");
@@ -299,6 +316,7 @@ export function inspectCandidate({
   repository = DEFAULT_REPOSITORY,
   baseSha,
   prBody,
+  liveMainResolver = resolveLiveMainSha,
 }) {
   if (process.versions.node.split(".")[0] !== "22") {
     fail("runtime", `Node 22.x is required; running ${process.version}`);
@@ -319,6 +337,10 @@ export function inspectCandidate({
   if (dirty.length !== 0) fail("dirty", "candidate must be fully committed and the worktree/index must be clean");
 
   const base = assertSha(baseSha, "base_sha");
+  const liveMain = assertSha(liveMainResolver(repository), "live_main_sha");
+  if (base !== liveMain) {
+    fail("base", "base SHA " + base + " is stale or not current main " + liveMain);
+  }
   const head = assertSha(gitText(cwd, ["rev-parse", "HEAD"]), "head_sha");
   const tree = assertSha(gitText(cwd, ["rev-parse", "HEAD^{tree}"]), "tree_sha");
 
