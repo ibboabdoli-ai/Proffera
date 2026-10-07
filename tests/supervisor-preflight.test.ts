@@ -210,6 +210,7 @@ describe("canonical Supervisor pre-publication gate", () => {
       ["D", "src/lib/auth.ts"],
       ["A", "src/lib/renamed-auth.ts"],
     ]);
+    expect(candidate.required_review_focuses).toEqual(["adversarial", "security"]);
   });
 
   it("accounts for additions and deletions and rejects unsupported file modes", () => {

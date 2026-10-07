@@ -197,9 +197,35 @@ function requiredValidationChecks(plan, paths) {
   return [...checks].sort();
 }
 
-function requiredReviewFocuses(plan) {
+function evaluateReviewAuthorization(paths) {
+  const policyPath = fileURLToPath(new URL("./supervisor-authorization-policy.mjs", import.meta.url));
+  const result = spawnSync(process.execPath, [policyPath, "evaluate-paths"], {
+    encoding: "utf8",
+    input: JSON.stringify({ paths }),
+    maxBuffer: 1024 * 1024,
+    windowsHide: true,
+  });
+  if (result.status !== 0) {
+    fail("review", `authorization policy could not classify review sensitivity: ${String(result.stderr ?? "").trim() || "policy evaluation failed"}`);
+  }
+  let authorization;
+  try {
+    authorization = JSON.parse(String(result.stdout ?? ""));
+  } catch {
+    fail("review", "authorization policy returned malformed review-sensitivity evidence");
+  }
+  if (!authorization?.ok || typeof authorization.allowed !== "boolean") {
+    fail("review", `authorization policy could not classify review sensitivity: ${String(authorization?.reason ?? "invalid decision")}`);
+  }
+  return authorization;
+}
+
+function requiredReviewFocuses(plan, paths) {
   const focuses = ["adversarial"];
-  if (plan.fullCiStillRequired || plan.classification === "restricted-full") focuses.push("security");
+  const authorization = evaluateReviewAuthorization(paths);
+  if (plan.fullCiStillRequired || plan.classification === "restricted-full" || authorization.allowed === false) {
+    focuses.push("security");
+  }
   return focuses;
 }
 
@@ -360,7 +386,7 @@ export function inspectCandidate({
   const metadata = validatePrMetadata(body, { baseSha: base, changedPaths: paths });
   const plan = classifyCiScope(paths);
   const requiredChecks = requiredValidationChecks(plan, paths);
-  const requiredFocuses = requiredReviewFocuses(plan);
+  const requiredFocuses = requiredReviewFocuses(plan, paths);
 
   return {
     repository,
