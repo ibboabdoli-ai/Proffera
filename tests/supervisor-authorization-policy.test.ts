@@ -36,6 +36,18 @@ function evaluatePullFiles(files: Array<{filename: string; previous_filename?: s
   return JSON.parse(result.stdout);
 }
 
+function qualifyPullFiles(expectedChangedFiles: number | string, files: Array<{filename: string; previous_filename?: string}>) {
+  const result = spawnSync(process.execPath, [
+    join(process.cwd(), "scripts", "supervisor-authorization-policy.mjs"),
+    "qualify-pull-files",
+  ], {
+    encoding: "utf8",
+    input: JSON.stringify({expected_changed_files: expectedChangedFiles, files}),
+  });
+  expect(result.status, result.stderr).toBe(0);
+  return JSON.parse(result.stdout);
+}
+
 describe("canonical Supervisor authorization ownership", () => {
   it.each([
     "src/lib/auth.ts",
@@ -239,16 +251,58 @@ describe("canonical Supervisor authorization ownership", () => {
     }
   });
 
-  it("materializes the canonical policy and passes complete pull-request file evidence into qualification", () => {
+  it("executes the real qualification decision for protected, ordinary, empty, and incomplete pull-request evidence", () => {
+    const protectedDecision = qualifyPullFiles(1, [{filename: "src/lib/auth.ts"}]);
+    expect(protectedDecision).toMatchObject({
+      ok: true,
+      eligible: false,
+      allowed: false,
+      code: "repository_paths_require_human",
+      paths: ["src/lib/auth.ts"],
+    });
+
+    const protectedRename = qualifyPullFiles(1, [{
+      filename: "src/lib/renamed-auth.ts",
+      previous_filename: "src/lib/auth.ts",
+    }]);
+    expect(protectedRename).toMatchObject({
+      ok: true,
+      eligible: false,
+      allowed: false,
+      code: "repository_paths_require_human",
+      paths: ["src/lib/renamed-auth.ts", "src/lib/auth.ts"],
+    });
+
+    const ordinaryDecision = qualifyPullFiles("1", [{filename: "src/components/example.tsx"}]);
+    expect(ordinaryDecision).toMatchObject({
+      ok: true,
+      eligible: true,
+      allowed: true,
+      code: "repository_paths_authorized",
+      paths: ["src/components/example.tsx"],
+    });
+
+    expect(qualifyPullFiles(0, [])).toMatchObject({
+      ok: true,
+      eligible: false,
+      code: "pull_request_has_no_changed_files",
+      paths: [],
+    });
+    expect(qualifyPullFiles(2, [{filename: "src/components/example.tsx"}])).toMatchObject({
+      ok: true,
+      eligible: false,
+      code: "pull_request_file_evidence_incomplete",
+      paths: [],
+    });
+
     const workflow = readFileSync(new URL("../.github/workflows/proffera-ci-autofix.yml", import.meta.url), "utf8");
     expect(workflow).toContain("    scripts/supervisor-*.mjs");
     expect(workflow).toContain("for policy_file in supervisor-authorization-policy.mjs supervisor-worker-handoff.mjs; do");
     expect(workflow).toContain('repos/$REPOSITORY/pulls/$pr_number/files?per_page=100');
-    expect(workflow).toContain('node "$trusted_policy_dir/supervisor-authorization-policy.mjs" evaluate-pull-files');
+    expect(workflow).toContain('node "$trusted_policy_dir/supervisor-authorization-policy.mjs" qualify-pull-files');
+    expect(workflow).toContain('.ok == true and .eligible == true');
     expect(workflow).toContain('expected_changed_files="$(jq -r \'.changed_files // empty\' <<< "$pr_json")"');
-    expect(workflow).toContain('if [ "$fetched_changed_files" -ne "$expected_changed_files" ]; then');
-    expect(workflow).toContain('if [ "$fetched_changed_files" -eq 0 ]; then');
-    expect(workflow).toContain('changed_files="$(jq -r \'.paths[]\' <<< "$authorization")"');
+    expect(workflow).toContain('changed_files="$(jq -r \'.paths[]\' <<< "$qualification")"');
     expect(workflow.match(/contents\/scripts\/supervisor-authorization-policy\.mjs\?ref=\$GITHUB_WORKFLOW_SHA/g))
       .toHaveLength(2);
     const candidate = readFileSync(new URL("../scripts/supervisor-ci-autofix-candidate.mjs", import.meta.url), "utf8");

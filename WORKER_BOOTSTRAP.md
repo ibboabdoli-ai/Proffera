@@ -46,6 +46,22 @@ SonarQube credentials must never be committed or logged. The repository-side int
 - Keep one graph path / purpose per branch.
 - Identify the task using a GitHub issue number when one exists; otherwise use `user-request`.
 
+## Pre-publication handoff
+
+Before every implementation or repair push, freeze the committed candidate and run the canonical local publication gate under Node 22:
+
+```text
+node scripts/supervisor-preflight.mjs snapshot --base <current-main-sha> --pr-body <exact-pr-body-file>
+```
+
+Run the scope-selected local validation and an independent candidate-bound adversarial review against that exact snapshot, record their candidate-bound evidence, then require:
+
+```text
+node scripts/supervisor-preflight.mjs verify --base <current-main-sha> --pr-body <exact-pr-body-file> --validation <validation-evidence.json> --review <review-evidence.json>
+```
+
+The gate must be rerun before **every push**, including Draft repair pushes. Any code, base, branch, tree, metadata, scope or authorization change invalidates stale evidence. Do not publish with missing required validation, an earlier-candidate review, incomplete path accounting, or an unresolved verified defect. The only validation IDs that may be marked `hosted-required` are `unit` and `e2e`, after a real local attempt demonstrates a Linux/container capability gap; include the attempted command, reason and `hosted_evidence_required=true`. Lint, typecheck, build, targeted regressions, YAML/workflow semantics and discovery-worker validation must pass locally when selected. A Draft carrying hosted-required evidence cannot advance until the hosted lanes pass on the exact head. The preflight receipt is not merge/deploy authority and never substitutes for hosted CI or exact-head final review.
+
 ## Pull request handoff
 
 Every non-Dependabot PR must include these exact machine-readable lines:

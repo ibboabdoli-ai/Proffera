@@ -84,6 +84,20 @@ Valid findings are fixed **before** the primary push whenever practical, and the
 
 For **Class 3/4 work**, or work that would match the repository's sensitive/large AI-review routing, one local CodeRabbit CLI review may be used as an additional pre-push adversarial pass **after** targeted validation and the internal Red Team, provided the CLI is already installed and authenticated. Use `cr review --agent --base main`, verify every finding against the current graph and repository invariants, fix only verified critical/major issues, rerun affected checks, and allow at most two CLI passes for the same bounded task. This local CLI pass is development feedback only; it never replaces or satisfies the required final current-head PR review gate. If the CLI is unavailable or unauthenticated, do not install software, add credentials, or expand the task just to enable it.
 
+### Canonical pre-publication gate
+
+Every implementation or repair publication must pass the repository-owned `scripts/supervisor-preflight.mjs` gate **before every push**. Draft status is not an exception.
+
+1. Finish and commit the complete local candidate; the index, tracked worktree and intended untracked state must be clean.
+2. Freeze candidate identity as repository + branch + current live base SHA + local head SHA + tree SHA + exact PR-body SHA-256 digest.
+3. Inspect the complete `base...head` diff. Path accounting must include additions, modifications, deletions, file modes, and both endpoints of renames; rename detection must not be allowed to hide a protected source path.
+4. Run the validation profile selected by the existing CI scope planner under the repository runtime contract (`Node 22.x`), plus targeted behavioral checks and workflow/YAML checks when applicable. Record the actual commands and passing results against the frozen candidate.
+5. Complete an independent candidate-bound adversarial review. Sensitive/control-plane work must include an explicit security focus. Verify every finding; no verified unresolved candidate defect may remain.
+6. Run `supervisor-preflight ... verify` against the exact PR body, validation evidence and independent-review evidence. A missing or unavailable required check is not passed. Only the full `unit` and browser `e2e` lanes may be recorded as `hosted-required`, and only after an actual local attempt shows that the selected check depends on Linux/container capability unavailable in the current isolated workspace; record the attempted command, the bounded reason, and `hosted_evidence_required=true`. Deterministic checks such as lint, typecheck, build, YAML/workflow semantics, targeted regressions and discovery-worker validation may never use this deferral. A Draft with hosted-required evidence may be published for hosted proof, but it must not advance until those hosted lanes pass on the exact head.
+7. Immediately before publication, re-read live `main`, graph ownership and action authority. If code, base, metadata, scope, authorization, tree or head changed, the affected evidence is stale; repeat validation/review and preflight before pushing.
+
+`supervisor-preflight` is a local fail-closed publication boundary, not merge/deploy authority and not a replacement for hosted CI or exact-head final review. Its receipt is audit evidence only; it does not prove reviewer competence or create a second authorization store.
+
 ### One-primary-push discipline
 
 Development churn should stay local or on the isolated worker branch until the Builder and Verifier agree the change is ready for CI.

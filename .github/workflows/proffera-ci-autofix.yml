@@ -197,16 +197,6 @@ jobs:
           changed_file_records="$(gh api --paginate "repos/$REPOSITORY/pulls/$pr_number/files?per_page=100" --jq '.[]' | jq -s '.')"
           jq -e 'type == "array" and length <= 3000' >/dev/null <<< "$changed_file_records"
           expected_changed_files="$(jq -r '.changed_files // empty' <<< "$pr_json")"
-          [[ "$expected_changed_files" =~ ^[0-9]+$ ]]
-          fetched_changed_files="$(jq 'length' <<< "$changed_file_records")"
-          if [ "$fetched_changed_files" -ne "$expected_changed_files" ]; then
-            echo "PR #$pr_number changed-file evidence is incomplete; expected $expected_changed_files, fetched $fetched_changed_files."
-            exit 0
-          fi
-          if [ "$fetched_changed_files" -eq 0 ]; then
-            echo "PR #$pr_number has no changed files; skipping autofix."
-            exit 0
-          fi
           trusted_policy_dir="$RUNNER_TEMP/ci-autofix-authorization-policy"
           mkdir -p "$trusted_policy_dir"
           [[ "$GITHUB_WORKFLOW_SHA" =~ ^[a-f0-9]{40}$ ]]
@@ -217,13 +207,14 @@ jobs:
             jq -r '.content' <<< "$policy_json" | tr -d '\n' | base64 --decode > "$trusted_policy_dir/$policy_file"
             test "$(git hash-object "$trusted_policy_dir/$policy_file")" = "$policy_blob"
           done
-          authorization="$(jq -n --argjson files "$changed_file_records" '{files:$files}' \
-            | node "$trusted_policy_dir/supervisor-authorization-policy.mjs" evaluate-pull-files)"
-          if [ "$(jq -r '.ok == true and .allowed == true' <<< "$authorization")" != "true" ]; then
-            echo "PR #$pr_number changes a repository authorization-owned path; autofix is disabled."
+          qualification="$(jq -n --arg expected_changed_files "$expected_changed_files" --argjson files "$changed_file_records" \
+            '{expected_changed_files:$expected_changed_files,files:$files}' \
+            | node "$trusted_policy_dir/supervisor-authorization-policy.mjs" qualify-pull-files)"
+          if [ "$(jq -r '.ok == true and .eligible == true' <<< "$qualification")" != "true" ]; then
+            echo "PR #$pr_number is not eligible for autofix: $(jq -r '.code + ": " + .reason' <<< "$qualification")"
             exit 0
           fi
-          changed_files="$(jq -r '.paths[]' <<< "$authorization")"
+          changed_files="$(jq -r '.paths[]' <<< "$qualification")"
           while IFS= read -r file; do
             [ -z "$file" ] && continue
             if is_blocked_path "$file"; then

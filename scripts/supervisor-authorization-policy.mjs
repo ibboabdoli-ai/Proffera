@@ -127,6 +127,56 @@ export function evaluateProtectedPullRequestFiles(filesInput) {
   }
 }
 
+export function qualifyPullRequestFiles(expectedChangedFilesInput, filesInput) {
+  try {
+    if (!(Number.isSafeInteger(expectedChangedFilesInput)
+      || typeof expectedChangedFilesInput === "string" && /^\d+$/.test(expectedChangedFilesInput))) {
+      throw new Error("expected_changed_files must be an integer between 0 and 3000");
+    }
+    const expectedChangedFiles = Number(expectedChangedFilesInput);
+    if (expectedChangedFiles < 0 || expectedChangedFiles > 3000) {
+      throw new Error("expected_changed_files must be an integer between 0 and 3000");
+    }
+    if (!Array.isArray(filesInput)) throw new Error("pull_request_files must be an array");
+    if (filesInput.length !== expectedChangedFiles) {
+      return {
+        ok: true,
+        eligible: false,
+        code: "pull_request_file_evidence_incomplete",
+        reason: `expected ${expectedChangedFiles} changed files but received ${filesInput.length}`,
+        paths: [],
+        matches: [],
+      };
+    }
+    if (expectedChangedFiles === 0) {
+      return {
+        ok: true,
+        eligible: false,
+        code: "pull_request_has_no_changed_files",
+        reason: "pull request has no changed files",
+        paths: [],
+        matches: [],
+      };
+    }
+    const authorization = evaluateProtectedPullRequestFiles(filesInput);
+    if (!authorization.ok) return {...authorization, eligible: false};
+    return {
+      ...authorization,
+      eligible: authorization.allowed === true,
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      eligible: false,
+      allowed: false,
+      code: "repository_path_policy_invalid",
+      reason: error instanceof Error ? error.message : "Pull request qualification failed",
+      matches: [],
+      paths: [],
+    };
+  }
+}
+
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   try {
     const mode = process.argv[2];
@@ -135,7 +185,9 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
       ? evaluateProtectedRepositoryPaths(input?.paths)
       : mode === "evaluate-pull-files"
         ? evaluateProtectedPullRequestFiles(input?.files)
-        : (() => { throw new Error("authorization_policy:mode"); })();
+        : mode === "qualify-pull-files"
+          ? qualifyPullRequestFiles(input?.expected_changed_files, input?.files)
+          : (() => { throw new Error("authorization_policy:mode"); })();
     process.stdout.write(JSON.stringify(decision) + "\n");
     if (!decision.ok) process.exitCode = 1;
   } catch (error) {
