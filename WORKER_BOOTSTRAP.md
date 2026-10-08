@@ -62,6 +62,8 @@ node scripts/supervisor-preflight.mjs verify --base <current-main-sha> --pr-body
 
 The gate must be rerun before **every push**, including Draft repair pushes. Any code, base, branch, tree, metadata, scope or authorization change invalidates stale evidence. Do not publish with missing required validation, an earlier-candidate review, incomplete path accounting, or an unresolved verified defect. The only validation IDs that may be marked `hosted-required` are `unit` and `e2e`, after a real local attempt demonstrates a Linux/container capability gap; include the attempted command, reason and `hosted_evidence_required=true`. Lint, typecheck, build, targeted regressions, YAML/workflow semantics and discovery-worker validation must pass locally when selected. A Draft carrying hosted-required evidence cannot advance until the hosted lanes pass on the exact head. The preflight receipt is not merge/deploy authority and never substitutes for hosted CI or exact-head final review.
 
+Preflight JSON is a consistency record, not authenticated execution or reviewer provenance. The current `verify` command fails closed with `evidence_provenance_unverified` even for consistent caller-supplied claims; no authenticated local adapter is available. Do not convert that result into a successful publication receipt or bypass the existing CI/review and owner-authorization gates.
+
 ## Pull request handoff
 
 Every non-Dependabot PR must include these exact machine-readable lines:

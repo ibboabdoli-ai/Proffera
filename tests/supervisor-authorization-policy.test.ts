@@ -49,6 +49,53 @@ function qualifyPullFiles(expectedChangedFiles: number | string, files: Array<{f
 }
 
 describe("canonical Supervisor authorization ownership", () => {
+  const ordinaryPage = Array.from({length: 100}, (_, i) => ({filename: `src/components/item-${i}.tsx`, status: "modified"}));
+  it.each([
+    {name: "ordinary", files: [{filename: "src/components/example.tsx"}], expected: 1, eligible: true},
+    {name: "empty", files: [], expected: 0, eligible: false},
+    {name: "missing page", files: ordinaryPage, expected: 101, eligible: false},
+    {name: "protected second page", files: [...ordinaryPage, {filename: "src/lib/auth.ts"}], expected: 101, eligible: false},
+    {name: "rename source", files: [{filename: "src/components/example.tsx", previous_filename: "src/lib/auth.ts", status: "renamed"}], expected: 1, eligible: false},
+    {name: "rename destination", files: [{filename: "src/lib/auth.ts", previous_filename: "src/components/example.tsx", status: "renamed"}], expected: 1, eligible: false},
+    {name: "Supervisor helper", files: [{filename: "scripts/supervisor-failure-memory.mjs"}], expected: 1, eligible: false},
+  ])("executes workflow qualification for $name with the real policy", (fixture) => {
+    const workflow = readFileSync(new URL("../.github/workflows/proffera-ci-autofix.yml", import.meta.url), "utf8").replaceAll("\r\n", "\n");
+    const fragment = workflow.slice(workflow.indexOf('          changed_file_records_file='), workflow.indexOf('          jobs_file='))
+      .replace(/^          /gm, "");
+    const blockedFunction = workflow.slice(workflow.indexOf("          is_blocked_path() {"), workflow.indexOf('          [[ "$RUN_ID"'))
+      .replace(/^          /gm, "");
+    const patterns = workflow.match(/  BLOCKED_PATH_PATTERNS: \|\r?\n([\s\S]*?)\r?\n\r?\n/)![1].replace(/^    /gm, "");
+    const root = mkdtempSync(join(tmpdir(), "proffera-qualification-"));
+    try {
+      for (const name of ["supervisor-authorization-policy.mjs", "supervisor-worker-handoff.mjs"]) {
+        const sourcePath = join(process.cwd(), "scripts", name);
+        const content = readFileSync(sourcePath);
+        const sha = git(process.cwd(), ["hash-object", sourcePath]);
+        writeFileSync(join(root, `${name}.json`), JSON.stringify({sha, content: content.toString("base64")}));
+      }
+      // Only GitHub transport is simulated; jq, shell branching, blob binding
+      // and the actual policy CLI all execute unchanged from the workflow.
+      writeFileSync(join(root, "files.json"), fixture.files.map((file) => JSON.stringify(file)).join("\n"));
+      const script = [
+        "set -euo pipefail",
+        // Native Windows jq otherwise inserts CRLF into the Linux workflow's
+        // base64 stream; use its binary-output mode for equivalent bytes.
+        process.platform === "win32" ? 'jq() { command jq --binary "$@"; }' : "",
+        'gh() { if [ "$2" = "--paginate" ]; then cat "$RUNNER_TEMP/files.json"; else local name="${2##*/}"; name="${name%%\\?*}"; cat "$RUNNER_TEMP/$name.json"; fi; }',
+        blockedFunction, fragment, 'echo QUALIFICATION_PROCEEDED',
+      ].join("\n");
+      const result = spawnSync("bash", [], {
+        encoding: "utf8", input: script,
+        env: {...process.env, RUNNER_TEMP: root.replaceAll("\\", "/"), REPOSITORY: "ibboabdoli-ai/Proffera", pr_number: "941",
+          pr_json: JSON.stringify({changed_files: fixture.expected}), GITHUB_WORKFLOW_SHA: "a".repeat(40), BLOCKED_PATH_PATTERNS: patterns},
+      });
+      expect(result.status, result.stderr || String(result.error)).toBe(0);
+      expect(result.stdout.includes("QUALIFICATION_PROCEEDED"), result.stdout).toBe(fixture.eligible);
+    } finally {
+      rmSync(root, {recursive: true, force: true});
+    }
+  });
+
   it.each([
     "src/lib/auth.ts",
     "src/lib/auth-secret.ts",
@@ -107,6 +154,28 @@ describe("canonical Supervisor authorization ownership", () => {
       code: "repository_path_policy_invalid",
       paths: [],
     });
+  });
+
+  it("accounts for all pages and both rename directions before qualification", () => {
+    const firstPage = Array.from({length: 100}, (_, index) => ({filename: `src/components/item-${index}.tsx`}));
+    expect(qualifyPullFiles(101, firstPage)).toMatchObject({eligible: false, code: "pull_request_file_evidence_incomplete"});
+    expect(qualifyPullFiles(101, [...firstPage, {filename: "src/lib/auth.ts"}]))
+      .toMatchObject({ok: true, eligible: false, code: "repository_paths_require_human"});
+    expect(qualifyPullFiles(1, [{filename: "src/lib/auth.ts", previous_filename: "src/components/example.tsx"}]))
+      .toMatchObject({ok: true, eligible: false});
+    expect(qualifyPullFiles(101, [...firstPage, {filename: "src/components/last.tsx"}]))
+      .toMatchObject({ok: true, eligible: true});
+  });
+
+  it.each([
+    [{filename: "src/components/example.tsx"}, {filename: "src/components/example.tsx"}],
+    [{filename: "src/components/example.tsx", status: "renamed"}],
+  ])("rejects incomplete evidence that has the expected row count: %j", (...files) => {
+    const result = spawnSync(process.execPath, [
+      join(process.cwd(), "scripts", "supervisor-authorization-policy.mjs"), "qualify-pull-files",
+    ], {encoding: "utf8", input: JSON.stringify({expected_changed_files: files.length, files})});
+    expect(result.status).toBe(1);
+    expect(JSON.parse(result.stdout)).toMatchObject({ok: false, eligible: false});
   });
 
   it("rejects a CI Autofix candidate touching auth even when auth was already changed by the PR", () => {

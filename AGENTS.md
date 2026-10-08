@@ -98,6 +98,8 @@ Every implementation or repair publication must pass the repository-owned `scrip
 
 `supervisor-preflight` is a local fail-closed publication boundary, not merge/deploy authority and not a replacement for hosted CI or exact-head final review. Its receipt is audit evidence only; it does not prove reviewer competence or create a second authorization store.
 
+Caller-supplied preflight JSON does not prove execution or independent review. Until an authenticated local provenance adapter exists, `verify` reports `evidence_provenance_unverified` and a nonzero exit even when its consistency checks pass. Publication remains blocked; no invented reviewer identity, digest or command can satisfy this boundary.
+
 ### One-primary-push discipline
 
 Development churn should stay local or on the isolated worker branch until the Builder and Verifier agree the change is ready for CI.

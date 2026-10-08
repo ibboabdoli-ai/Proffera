@@ -110,7 +110,7 @@ function candidateIdentity(candidate: ReturnType<typeof inspectCandidate>) {
 function writeEvidence(root: string, candidate: ReturnType<typeof inspectCandidate>, options: {
   validationIds?: string[];
   outcome?: string;
-  findings?: Array<{ id: string; verified: boolean; resolved: boolean }>;
+  findings?: Array<Record<string, unknown>>;
   candidateOverride?: Record<string, unknown>;
 } = {}) {
   const identity = { ...candidateIdentity(candidate), ...(options.candidateOverride ?? {}) };
@@ -194,6 +194,33 @@ describe("canonical Supervisor pre-publication gate", () => {
       .toThrow(/supervisor_preflight:dirty/);
   });
 
+  it("rejects origins whose actual hostname is not github.com", () => {
+    const { repo, base } = fixture();
+    write(join(repo, "docs", "note.md"), "candidate\n");
+    git(repo, ["add", "."]);
+    git(repo, ["commit", "-qm", "candidate"]);
+
+    for (const remote of [
+      "https://example.invalid/github.com/ibboabdoli-ai/Proffera.git",
+      "https://notgithub.com/ibboabdoli-ai/Proffera.git",
+      "ssh://git@example.invalid/ibboabdoli-ai/Proffera.git",
+    ]) {
+      git(repo, ["remote", "set-url", "origin", remote]);
+      expect(() => inspectFixture({ cwd: repo, baseSha: base, prBody: body(base) }))
+        .toThrow(/supervisor_preflight:repository/);
+    }
+
+    for (const remote of [
+      "https://github.com/ibboabdoli-ai/Proffera.git",
+      "git@github.com:ibboabdoli-ai/Proffera.git",
+      "ssh://git@github.com/ibboabdoli-ai/Proffera.git",
+    ]) {
+      git(repo, ["remote", "set-url", "origin", remote]);
+      expect(inspectFixture({ cwd: repo, baseSha: base, prBody: body(base) }).repository)
+        .toBe("ibboabdoli-ai/Proffera");
+    }
+  });
+
   it("accounts for both rename endpoints by disabling rename detection", () => {
     const { repo, base } = fixture({
       baseFiles: {
@@ -250,7 +277,7 @@ describe("canonical Supervisor pre-publication gate", () => {
     )).toThrow(/does not match base/);
   });
 
-  it("verifies validation and independent review evidence bound to the exact candidate", () => {
+  it("rejects fabricated execution and reviewer claims even when bound to the exact candidate", () => {
     const { root, repo, base } = fixture();
     write(join(repo, "docs", "note.md"), "candidate\n");
     git(repo, ["add", "."]);
@@ -267,10 +294,15 @@ describe("canonical Supervisor pre-publication gate", () => {
       "--validation", validationPath,
       "--review", reviewPath,
     ]);
-    expect(result.status, result.stderr).toBe(0);
+    expect(result.status, result.stderr).toBe(1);
     const receipt = JSON.parse(result.stdout);
     expect(receipt).toMatchObject({
-      ok: true,
+      ok: false,
+      code: "evidence_provenance_unverified",
+      evidence_consistent: true,
+      publication_ready: false,
+      execution_verified: false,
+      independent_review_verified: false,
       candidate: candidateIdentity(candidate),
       validation: { result_count: 1 },
       review: { reviewer: "codex-local-independent", finding_count: 0 },
@@ -350,7 +382,10 @@ describe("canonical Supervisor pre-publication gate", () => {
       "--validation", validationPath,
       "--review", reviewPath,
     ]);
-    expect(accepted.status, accepted.stderr).toBe(0);
+    expect(accepted.status, accepted.stderr).toBe(1);
+    expect(JSON.parse(accepted.stdout)).toMatchObject({
+      ok: false, evidence_consistent: true, publication_ready: false,
+    });
     expect(JSON.parse(accepted.stdout).validation.hosted_required).toEqual(["e2e", "unit"]);
 
     const typecheck = results.find((result: {id: string}) => result.id === "typecheck");
@@ -397,6 +432,25 @@ describe("canonical Supervisor pre-publication gate", () => {
     ]);
     expect(blocked.status).toBe(1);
     expect(blocked.stderr).toContain("verified finding remains unresolved");
+
+    for (const malformedFinding of [
+      { id: "P1", verified: "true", resolved: false },
+      { id: "P1", resolved: false },
+      { id: "P1", verified: false },
+    ]) {
+      const malformed = writeEvidence(reviewFixture.root, candidate, {
+        findings: [malformedFinding],
+      });
+      const rejected = cli(reviewFixture.repo, [
+        "verify",
+        "--base", reviewFixture.base,
+        "--pr-body", bodyPath,
+        "--validation", malformed.validationPath,
+        "--review", malformed.reviewPath,
+      ]);
+      expect(rejected.status).toBe(1);
+      expect(rejected.stderr).toContain("review finding verification state is malformed");
+    }
 
     const validationFixture = fixture({ baseFiles: { "AGENTS.md": "base\n" } });
     write(join(validationFixture.repo, "AGENTS.md"), "changed\n");

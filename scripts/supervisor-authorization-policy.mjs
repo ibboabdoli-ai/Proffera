@@ -36,11 +36,18 @@ function pullRequestFilePaths(value) {
   if (value.length === 0) throw new Error("pull_request_files must not be empty");
   if (value.length > 3000) throw new Error("pull_request_files has too many entries");
   const paths = [];
+  const filenames = new Set();
   for (const item of value) {
     if (!item || typeof item !== "object" || Array.isArray(item)) {
       throw new Error("pull_request_files contains a malformed entry");
     }
-    paths.push(assertSafePath(item.filename, "pull_request_files[].filename"));
+    const filename = assertSafePath(item.filename, "pull_request_files[].filename");
+    if (filenames.has(filename)) throw new Error("pull_request_files contains duplicate filenames");
+    filenames.add(filename);
+    paths.push(filename);
+    if (item.status === "renamed" && !item.previous_filename) {
+      throw new Error("renamed pull_request_files entry lacks previous_filename");
+    }
     if (item.previous_filename !== undefined && item.previous_filename !== null) {
       paths.push(assertSafePath(item.previous_filename, "pull_request_files[].previous_filename"));
     }

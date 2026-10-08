@@ -91,7 +91,26 @@ function assertRepositoryPath(path) {
 
 function repositoryFromRemote(remote) {
   const value = String(remote ?? "").trim().replace(/\\/g, "/");
-  const match = value.match(/github\.com(?::|\/)([^/]+)\/([^/]+?)(?:\.git)?$/i);
+  const scp = value.match(/^git@github\.com:([^/]+)\/([^/]+?)(?:\.git)?$/i);
+  if (scp) return `${scp[1]}/${scp[2]}`;
+
+  let parsed;
+  try {
+    parsed = new URL(value);
+  } catch {
+    fail("repository", `unsupported origin URL: ${value}`);
+  }
+  if (!["https:", "ssh:"].includes(parsed.protocol)
+    || parsed.hostname.toLowerCase() !== "github.com"
+    || parsed.search
+    || parsed.hash) {
+    fail("repository", `unsupported origin URL: ${value}`);
+  }
+  if (parsed.protocol === "ssh:" && parsed.username !== "git") {
+    fail("repository", `unsupported origin URL: ${value}`);
+  }
+  const path = parsed.pathname.replace(/^\/+|\/+$/g, "");
+  const match = path.match(/^([^/]+)\/([^/]+?)(?:\.git)?$/);
   if (!match) fail("repository", `unsupported origin URL: ${value}`);
   return `${match[1]}/${match[2]}`;
 }
@@ -318,7 +337,10 @@ function validateReviewEvidence(evidence, candidate, requiredFocuses) {
   if (!Array.isArray(evidence.findings)) fail("review", "review findings must be an array");
   for (const finding of evidence.findings) {
     if (!finding || typeof finding !== "object" || Array.isArray(finding)) fail("review", "review finding is malformed");
-    if (finding.verified === true && finding.resolved !== true) {
+    if (typeof finding.verified !== "boolean" || typeof finding.resolved !== "boolean") {
+      fail("review", `review finding verification state is malformed: ${String(finding.id ?? "unknown")}`);
+    }
+    if (finding.verified && !finding.resolved) {
       fail("review", `verified finding remains unresolved: ${String(finding.id ?? "unknown")}`);
     }
   }
@@ -439,8 +461,18 @@ function main() {
     candidate.required_review_focuses,
   );
 
+  // These files are caller-supplied claims. Matching SHAs, command strings,
+  // reviewer names and digests establish consistency, never execution or
+  // independence. No authenticated local evidence adapter exists here yet.
+  // Keep the publication boundary closed; the existing hosted CI/review gates
+  // remain authoritative and must not be replaced by this receipt.
   process.stdout.write(JSON.stringify({
-    ok: true,
+    ok: false,
+    code: "evidence_provenance_unverified",
+    evidence_consistent: true,
+    publication_ready: false,
+    execution_verified: false,
+    independent_review_verified: false,
     candidate: candidateIdentity(candidate),
     metadata: candidate.metadata,
     diff: candidate.diff,
@@ -448,6 +480,8 @@ function main() {
     validation,
     review,
   }, null, 2) + "\n");
+  process.stderr.write("supervisor_preflight:evidence_provenance_unverified: caller-supplied JSON cannot prove validation execution or independent review; NOT SAFE TO PUSH\n");
+  process.exitCode = 1;
 }
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === resolve(process.argv[1])) {
