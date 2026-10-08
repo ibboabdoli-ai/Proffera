@@ -13,7 +13,12 @@ const roots: string[] = [];
 afterEach(() => { for (const root of roots.splice(0)) rmSync(root, {recursive: true, force: true}); });
 const run = (job: string, name: string) => workflow.jobs[job].steps.find((step: {name: string}) => step.name === name).run;
 const git = (cwd: string, ...args: string[]) => {
-  const result = spawnSync("git", args, {cwd, encoding: "utf8"});
+  // Fixture Git is isolated from Windows system autocrlf, matching the
+  // Linux runner that creates and applies the immutable patch in production.
+  const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith("GIT_")));
+  const result = spawnSync("git", ["-c", "core.autocrlf=false", ...args], {
+    cwd, encoding: "utf8", env: {...env, GIT_CONFIG_NOSYSTEM: "1", GIT_CONFIG_GLOBAL: "/dev/null"},
+  });
   expect(result.status, result.stderr).toBe(0);
   return result.stdout.trim();
 };
@@ -39,7 +44,10 @@ function fixture(originalControlPath?: string) {
   const model = clone("model"); const validation = clone("validation"); const publication = clone("publication");
   const capture = () => {
     const result = spawnSync("bash", ["-c", run("autofix", "Capture bounded repair candidate")], {cwd: model, encoding: "utf8", env: {
-      ...process.env, RUNNER_TEMP: root, GITHUB_OUTPUT: join(root, "output"), REPOSITORY: "ibboabdoli-ai/Proffera", PR_NUMBER: "934",
+      // GNU sha256sum escapes Windows backslashes in printed filenames and prefixes
+      // the digest with a backslash. Model the Linux runner path in Git Bash so
+      // the fixture supplies the same canonical 64-character digest as CI.
+      ...process.env, RUNNER_TEMP: root.replaceAll("\\", "/"), GITHUB_OUTPUT: join(root, "output"), REPOSITORY: "ibboabdoli-ai/Proffera", PR_NUMBER: "934",
       EXPECTED_HEAD: head, BASE_SHA: base, ADMITTED_RUN_ID: "50", ADMITTED_RUN_ATTEMPT: "1", SOURCE_RUN_ID: "40", SOURCE_RUN_ATTEMPT: "2",
     }});
     expect(result.status, result.stderr).toBe(0);
