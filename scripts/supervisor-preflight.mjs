@@ -348,6 +348,90 @@ function validateReviewEvidence(evidence, candidate, requiredFocuses) {
   return { reviewer, finding_count: evidence.findings.length, digest: sha256(JSON.stringify(evidence)) };
 }
 
+// Selected checks run in this process, not from caller-authored PASS claims.
+// This is local execution observation, never independent-review authentication.
+const WORKFLOW_YAML_CHECK = (
+  'const fs=require("node:fs"); const path=require("node:path"); const yaml=require("js-yaml");'
+  + 'const dir=".github/workflows";const files=fs.readdirSync(dir).filter(name=>/\\.ya?ml$/.test(name)).sort();'
+  + 'if(!files.length)throw new Error("No workflows found");'
+  + 'for(const file of files)yaml.load(fs.readFileSync(path.join(dir,file),"utf8"));'
+  + 'process.stdout.write("Parsed "+files.length+" workflow files\\n");'
+);
+
+function commandForCheck(id, cwd) {
+  const node = process.execPath;
+  const vitest = ["node_modules/vitest/vitest.mjs", "run", "--maxWorkers=2", "--reporter=dot"];
+  switch (id) {
+    case "lint": return {command: node, args: ["node_modules/eslint/bin/eslint.js", "."], cwd, timeout: 240000};
+    case "typecheck": return {command: node, args: ["node_modules/typescript/bin/tsc", "--noEmit"], cwd, timeout: 240000};
+    case "build": return {command: node, args: ["node_modules/next/dist/bin/next", "build"], cwd, timeout: 600000};
+    case "unit": return {command: node, args: [...vitest], cwd, timeout: 1200000};
+    case "targeted": return {command: node, args: [...vitest,
+      "tests/supervisor-preflight.test.ts", "tests/supervisor-authorization-policy.test.ts",
+      "tests/ci-scope-plan.test.ts", "tests/github-workflow-yaml.test.ts"], cwd, timeout: 300000};
+    case "workflow-semantics": return {command: node, args: [...vitest,
+      "tests/github-workflow-yaml.test.ts", "tests/supervisor-authorization-policy.test.ts",
+      "tests/supervisor-ci-autofix-candidate.test.ts", "tests/supervisor-worker-handoff.test.ts"],
+      cwd, timeout: 600000};
+    case "yaml": return {command: node, args: ["-e", WORKFLOW_YAML_CHECK], cwd, timeout: 120000};
+    case "discovery-worker": return {command: "python", args: ["tests/test_company_directory_discovery_worker.py"],
+      cwd, timeout: 300000};
+    case "e2e": return {command: node, args: ["node_modules/playwright/cli.js", "test", "--workers=1"],
+      cwd: resolve(cwd, "e2e"), timeout: 1200000};
+    default: fail("validation", "unsupported executable validation check: " + id);
+  }
+}
+
+// A caller cannot submit commands, executable arguments or test success values.
+// Execute each selected fixed command, stop after failure and recheck the frozen tree.
+export function executeLocalValidation(candidate, cwd, ids, {runner = spawnSync, revalidate} = {}) {
+  if (process.versions.node.split(".")[0] !== "22") fail("runtime", "Node 22.x is required");
+  if (!Array.isArray(ids) || ids.length === 0 || new Set(ids).size !== ids.length) {
+    fail("validation", "provide one or more unique check IDs");
+  }
+  for (const id of ids) {
+    if (!candidate.required_validation_checks.includes(id)) {
+      fail("validation", "check " + id + " was not selected by the authoritative CI scope planner");
+    }
+  }
+  const results = [];
+  for (const id of ids) {
+    const spec = commandForCheck(id, cwd);
+    const result = runner(spec.command, spec.args, {
+      cwd: spec.cwd, encoding: "utf8", windowsHide: true, timeout: spec.timeout,
+      maxBuffer: 4 * 1024 * 1024,
+    });
+    results.push({
+      id, command: [spec.command, ...spec.args].join(" "), exit_code: result.status,
+      signal: result.signal ?? null,
+      status: result.status === 0 && !result.error ? "passed" : "failed",
+      error: result.error ? String(result.error.message ?? result.error).slice(0, 1000) : null,
+      stderr_sha256: sha256(String(result.stderr ?? "")),
+      stderr_bytes: Buffer.byteLength(String(result.stderr ?? ""), "utf8"),
+    });
+    if (result.status !== 0 || result.error) break; // fail fast
+  }
+  if (revalidate) {
+    const after = revalidate();
+    if (JSON.stringify(candidateIdentity(after)) !== JSON.stringify(candidateIdentity(candidate))) {
+      fail("stale_evidence", "candidate identity changed during validation");
+    }
+  }
+  return {
+    ok: results.length === ids.length && results.every((result) => result.status === "passed"),
+    code: "local_execution_observed_not_independent_review",
+    candidate: candidateIdentity(candidate),
+    results,
+    executed_count: results.length,
+    required_checks: candidate.required_validation_checks,
+    missing_checks: candidate.required_validation_checks.filter((id) =>
+      !results.some((result) => result.id === id && result.status === "passed")),
+    execution_observed: true,
+    independent_review_verified: false,
+    publication_ready: false,
+  };
+}
+
 function parseArgs(argv) {
   const args = { mode: argv[2] ?? "" };
   for (let index = 3; index < argv.length; index += 2) {
@@ -432,7 +516,7 @@ export function inspectCandidate({
 
 function main() {
   const args = parseArgs(process.argv);
-  if (!["snapshot", "verify"].includes(args.mode)) fail("args", "mode must be snapshot or verify");
+  if (!["snapshot", "verify", "run-checks"].includes(args.mode)) fail("args", "mode must be snapshot, verify or run-checks");
   if (!args.base || !args.pr_body) fail("args", "--base and --pr-body are required");
 
   const cwd = resolve(args.cwd ?? process.cwd());
@@ -446,6 +530,22 @@ function main() {
 
   if (args.mode === "snapshot") {
     process.stdout.write(JSON.stringify({ ok: true, candidate }, null, 2) + "\n");
+    return;
+  }
+
+  if (args.mode === "run-checks") {
+    if (typeof args.checks !== "string" || !args.checks.trim()) {
+      fail("args", "run-checks requires --checks <comma-separated selected IDs>");
+    }
+    const ids = args.checks.split(",").map((id) => id.trim());
+    const receipt = executeLocalValidation(candidate, cwd, ids, {
+      revalidate: () => inspectCandidate({
+        cwd, repository: args.repository ?? DEFAULT_REPOSITORY,
+        baseSha: args.base, prBody,
+      }),
+    });
+    process.stdout.write(JSON.stringify(receipt, null, 2) + "\n");
+    if (!receipt.ok) process.exitCode = 1;
     return;
   }
 

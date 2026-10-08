@@ -98,6 +98,8 @@ Every implementation or repair publication must pass the repository-owned `scrip
 
 `supervisor-preflight` is a local fail-closed publication boundary, not merge/deploy authority and not a replacement for hosted CI or exact-head final review. Its receipt is audit evidence only; it does not prove reviewer competence or create a second authorization store.
 
+For an honest, fixed-command local execution observation, use `supervisor-preflight.mjs run-checks --base <current-main-sha> --pr-body <exact-pr-body-file> --checks <comma-separated selected check IDs>`. The command runs only its repository-owned check allowlist under Node 22, stops on the first failure, rechecks the clean candidate identity and reports only bounded exit/status metadata (no captured test log text). It is deliberately partial: a subset may pass while other required lanes remain missing, and even all local checks do not authenticate an independent reviewer or grant publication authority. The canonical `verify` gate remains fail-closed until authenticated independent provenance exists.
+
 Caller-supplied preflight JSON does not prove execution or independent review. Until an authenticated local provenance adapter exists, `verify` reports `evidence_provenance_unverified` and a nonzero exit even when its consistency checks pass. Publication remains blocked; no invented reviewer identity, digest or command can satisfy this boundary.
 
 ### One-primary-push discipline

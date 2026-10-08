@@ -309,6 +309,59 @@ describe("canonical Supervisor pre-publication gate", () => {
     });
   });
 
+  it("runs an allowlisted real local check and never confuses it with publication approval", () => {
+    const { root, repo, base } = fixture({ baseFiles: { "AGENTS.md": "base\n" } });
+    write(join(repo, "AGENTS.md"), "candidate\n");
+    write(join(repo, "node_modules", "typescript", "bin", "tsc"),
+      'process.stdout.write("fixture-check-executed\\n");\n');
+    git(repo, ["add", "."]);
+    git(repo, ["commit", "-qm", "candidate with a local test runner"]);
+    const prBody = body(base);
+    const bodyPath = writeBody(root, prBody);
+    const candidate = inspectFixture({ cwd: repo, baseSha: base, prBody });
+    expect(candidate.required_validation_checks).toContain("typecheck");
+
+    const passed = cli(repo, [
+      "run-checks", "--base", base, "--pr-body", bodyPath, "--checks", "typecheck",
+    ]);
+    expect(passed.status, passed.stderr).toBe(0);
+    const receipt = JSON.parse(passed.stdout);
+    expect(receipt).toMatchObject({
+      ok: true, code: "local_execution_observed_not_independent_review",
+      execution_observed: true, independent_review_verified: false, publication_ready: false,
+      executed_count: 1, results: [{ id: "typecheck", status: "passed", exit_code: 0 }],
+    });
+    expect(receipt.results[0].command).toContain("node_modules/typescript/bin/tsc");
+    expect(receipt.missing_checks.length).toBeGreaterThan(0);
+
+    // A caller cannot provide an arbitrary executable check or duplicate ID.
+    const forged = cli(repo, [
+      "run-checks", "--base", base, "--pr-body", bodyPath,
+      "--checks", "typecheck,arbitrary-command",
+    ]);
+    expect(forged.status).toBe(1);
+    expect(forged.stderr).toContain("was not selected");
+    const duplicate = cli(repo, [
+      "run-checks", "--base", base, "--pr-body", bodyPath,
+      "--checks", "typecheck,typecheck",
+    ]);
+    expect(duplicate.status).toBe(1);
+    expect(duplicate.stderr).toContain("unique check IDs");
+
+    write(join(repo, "node_modules", "typescript", "bin", "tsc"),
+      'process.stderr.write("deliberate failed check\\n");process.exit(7);\n');
+    git(repo, ["add", "."]);
+    git(repo, ["commit", "-qm", "failed validation fixture"]);
+    const failed = cli(repo, [
+      "run-checks", "--base", base, "--pr-body", bodyPath, "--checks", "typecheck",
+    ]);
+    expect(failed.status).toBe(1);
+    expect(JSON.parse(failed.stdout)).toMatchObject({
+      ok: false, publication_ready: false, executed_count: 1,
+      results: [{ id: "typecheck", status: "failed", exit_code: 7 }],
+    });
+  });
+
   it("invalidates prior validation and review evidence after the candidate changes", () => {
     const { root, repo, base } = fixture();
     write(join(repo, "docs", "note.md"), "candidate one\n");
