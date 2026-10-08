@@ -5,6 +5,7 @@ import process from "node:process";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { classifyCiScope } from "./ci-scope-plan.mjs";
+import { authenticateProvenance, readIssuerManifest } from "./supervisor-provenance.mjs";
 
 const DEFAULT_REPOSITORY = "ibboabdoli-ai/Proffera";
 const SHA_RE = /^[a-f0-9]{40}$/;
@@ -369,8 +370,9 @@ function commandForCheck(id, cwd) {
     case "build": return {command: node, args: ["node_modules/next/dist/bin/next", "build"], cwd, timeout: 600000};
     case "unit": return {command: node, args: [...vitest], cwd, timeout: 1200000};
     case "targeted": return {command: node, args: [...vitest,
-      "tests/supervisor-preflight.test.ts", "tests/supervisor-authorization-policy.test.ts",
-      "tests/ci-scope-plan.test.ts", "tests/github-workflow-yaml.test.ts"], cwd, timeout: 300000};
+      "tests/supervisor-preflight.test.ts", "tests/supervisor-provenance.test.ts",
+      "tests/supervisor-authorization-policy.test.ts", "tests/ci-scope-plan.test.ts",
+      "tests/github-workflow-yaml.test.ts"], cwd, timeout: 300000};
     case "workflow-semantics": return {command: node, args: [...vitest,
       "tests/github-workflow-yaml.test.ts", "tests/supervisor-authorization-policy.test.ts",
       "tests/supervisor-ci-autofix-candidate.test.ts", "tests/supervisor-worker-handoff.test.ts"],
@@ -609,7 +611,7 @@ export function inspectCandidate({
   };
 }
 
-function main() {
+async function main() {
   const args = parseArgs(process.argv);
   if (!["snapshot", "verify", "run-checks", "hosted-review-status"].includes(args.mode)) fail("args", "unsupported preflight mode");
   if (!args.base || !args.pr_body) fail("args", "--base and --pr-body are required");
@@ -671,13 +673,64 @@ function main() {
   }
 
   if (!args.validation || !args.review) fail("args", "verify requires --validation and --review evidence files");
+  const validationFile = readJsonFile(resolve(args.validation), "validation evidence");
+  const reviewFile = readJsonFile(resolve(args.review), "review evidence");
+
+  // Signed receipts from two disjoint issuers are the ONLY possible trust
+  // upgrade. Their keys must already exist on protected main at this precise
+  // baseline, and MUST be unavailable to the Builder. No such root currently
+  // exists: until an authorized controller provisions it, this path fails closed.
+  const validationSigned = validationFile.kind === "proffera-signed-provenance";
+  const reviewSigned = reviewFile.kind === "proffera-signed-provenance";
+  if (validationSigned || reviewSigned) {
+    if (!validationSigned || !reviewSigned) {
+      fail("evidence_provenance_unverified", "both independent signed receipts required");
+    }
+    const manifest = await readIssuerManifest({
+      repository: candidate.repository,
+      baseSha: candidate.base_sha,
+    });
+    const proof = authenticateProvenance({
+      manifest, validationReceipt: validationFile, reviewReceipt: reviewFile,
+      candidate: candidateIdentity(candidate),
+    });
+    const validation = validateValidationEvidence(
+      proof.validation, candidate, candidate.required_validation_checks,
+    );
+    const review = validateReviewEvidence(
+      proof.review, candidate, candidate.required_review_focuses,
+    );
+    // Binding cannot survive a change during authenticated remote reads.
+    const finalCandidate = inspectCandidate({
+      cwd, repository: args.repository ?? DEFAULT_REPOSITORY,
+      baseSha: args.base, prBody: readFileSync(resolve(args.pr_body), "utf8"),
+    });
+    if (JSON.stringify(candidateIdentity(candidate)) !== JSON.stringify(candidateIdentity(finalCandidate))) {
+      fail("stale_evidence", "candidate changed during authenticated preflight");
+    }
+    process.stdout.write(JSON.stringify({
+      ok: true, code: "authenticated_prepublication_evidence",
+      publication_ready: true, merge_ready: false,
+      execution_verified: true, independent_review_verified: true,
+      candidate: candidateIdentity(candidate),
+      trusted_issuers: {
+        validation: proof.validation_issuer, review: proof.review_issuer,
+        authority: proof.trust_root,
+      },
+      validation, review,
+      hosted_evidence_required: validation.hosted_required.length > 0,
+      explanation: "Provenance verified; owner approval, live-state admission, hosted CI and exact-head PR review remain separate requirements.",
+    }, null, 2) + "\n");
+    return;
+  }
+
   const validation = validateValidationEvidence(
-    readJsonFile(resolve(args.validation), "validation evidence"),
+    validationFile,
     candidate,
     candidate.required_validation_checks,
   );
   const review = validateReviewEvidence(
-    readJsonFile(resolve(args.review), "review evidence"),
+    reviewFile,
     candidate,
     candidate.required_review_focuses,
   );
@@ -706,10 +759,8 @@ function main() {
 }
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === resolve(process.argv[1])) {
-  try {
-    main();
-  } catch (error) {
+  void main().catch((error) => {
     process.stderr.write((error instanceof Error ? error.message : String(error)) + "\n");
     process.exitCode = 1;
-  }
+  });
 }
