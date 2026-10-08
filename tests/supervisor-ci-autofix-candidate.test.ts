@@ -15,7 +15,10 @@ const run = (job: string, name: string) => workflow.jobs[job].steps.find((step: 
 const git = (cwd: string, ...args: string[]) => {
   // Fixture Git is isolated from Windows system autocrlf, matching the
   // Linux runner that creates and applies the immutable patch in production.
-  const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith("GIT_")));
+  const env = {...process.env};
+  for (const key of Object.keys(env)) {
+    if (key.startsWith("GIT_")) delete env[key];
+  }
   const result = spawnSync("git", ["-c", "core.autocrlf=false", ...args], {
     cwd, encoding: "utf8", env: {...env, GIT_CONFIG_NOSYSTEM: "1", GIT_CONFIG_GLOBAL: "/dev/null"},
   });
