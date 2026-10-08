@@ -104,7 +104,7 @@ CI Autofix publication is explicitly fail-closed before its credentialed publish
 
 An optional read-only diagnostic, `node scripts/supervisor-preflight.mjs hosted-review-status --base <live-main-sha> --pr-body <exact-pr-body-file> --pr <number>`, queries authenticated paginated GitHub PR reviews and binds CodeRabbit decisions to the frozen candidate's exact HEAD. It always exits nonzero, explicitly reports historical/remote-head mismatch and never treats hosted review as independent local pre-push proof, never changes `publication_ready`, and never bypasses `verify`.
 
-Caller-supplied preflight JSON does not prove execution or independent review. The staged Ed25519 verifier accepts only two distinct candidate-bound receipts whose public keys were provisioned on protected main. See docs/SUPERVISOR_PROVENANCE.md. The protected main key manifest and separate external issuers are not yet provisioned, so no real signed receipt can pass. Unsigned evidence still fails closed. The local Builder cannot declare its own keys or its own code trusted. The CI Autofix credential-free publication blocker is retained until a protected controller enforces authenticated receipts.
+Caller-supplied preflight JSON does not prove execution or independent review. Until an authenticated local provenance adapter exists, `verify` reports `evidence_provenance_unverified` and a nonzero exit even when its consistency checks pass. Publication remains blocked; no invented reviewer identity, digest or command can satisfy this boundary.
 
 ### One-primary-push discipline
 

@@ -64,7 +64,7 @@ The gate must be rerun before **every push**, including Draft repair pushes. Any
 
 To directly observe a fixed, selected local validation check on the frozen candidate, run `node scripts/supervisor-preflight.mjs run-checks --base <current-main-sha> --pr-body <exact-pr-body-file> --checks <selected-comma-separated-IDs>`. This executes repository-owned commands and reports their real exit codes and remaining checks; it does not accept arbitrary caller commands, mark the independent review verified, or authorize publication. Do not substitute partial `run-checks` success for the canonical `verify` gate.
 
-The CI Autofix publishing workflow retains its credential-free hard stop before the token-bearing publish step. Although a signed-provenance verifier is staged locally, a protected-main public-key manifest, two external signing issuers and a trusted enforcement controller must be configured first. See docs/SUPERVISOR_PROVENANCE.md. Self-signed evidence and Builder-controlled signing keys cannot satisfy this gate.
+The CI Autofix publishing workflow has a credential-free hard stop before its token-bearing publish step until an authenticated Supervisor preflight provenance issuer/verifier is implemented. This is intentionally unavailable for auto-publication and must not be bypassed with caller-authored JSON.
 
 A read-only `hosted-review-status` mode in the same script checks paginated GitHub CodeRabbit review identity and exact commit against the frozen candidate, without granting push authority or replacing independent local review. When the local candidate is ahead of the PR's remote head, the diagnostic reports that mismatch and review remains pending.
 
