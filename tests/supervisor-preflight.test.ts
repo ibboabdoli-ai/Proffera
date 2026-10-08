@@ -4,7 +4,7 @@ import { dirname, join } from "node:path";
 import { spawnSync } from "node:child_process";
 import { afterEach, describe, expect, it } from "vitest";
 // @ts-expect-error Repository scripts are plain ESM and intentionally have no TypeScript declaration file.
-import { inspectCandidate, validatePrMetadata } from "../scripts/supervisor-preflight.mjs";
+import { inspectCandidate, validatePrMetadata, evaluateGithubReviewSnapshot } from "../scripts/supervisor-preflight.mjs";
 
 const roots: string[] = [];
 const preflight = join(process.cwd(), "scripts", "supervisor-preflight.mjs");
@@ -360,6 +360,63 @@ describe("canonical Supervisor pre-publication gate", () => {
       ok: false, publication_ready: false, executed_count: 1,
       results: [{ id: "typecheck", status: "failed", exit_code: 7 }],
     });
+  });
+
+  it("does not mistake a past CodeRabbit review for independent local pre-push proof", () => {
+    const { repo, base } = fixture();
+    write(join(repo, "docs", "note.md"), "candidate\n");
+    git(repo, ["add", "."]);
+    git(repo, ["commit", "-qm", "candidate"]);
+    const candidate = inspectFixture({ cwd: repo, baseSha: base, prBody: body(base) });
+    const pr = {
+      number: 941, state: "open", merged: false, body: body(base),
+      user: { login: "ibboabdoli-ai" },
+      head: { sha: candidate.head_sha, ref: candidate.branch,
+        repo: { full_name: "ibboabdoli-ai/Proffera" } },
+      base: { ref: "main" },
+    };
+    const review = (id: number, state: string, sha = candidate.head_sha) => ({
+      id, state, commit_id: sha, user: { login: "coderabbitai[bot]" },
+      submitted_at: "2026-10-08T10:" + String(id).padStart(2, "0") + ":00Z",
+    });
+    const blocked = evaluateGithubReviewSnapshot(candidate, pr,
+      [[review(1, "CHANGES_REQUESTED"), review(2, "COMMENTED")]], 941);
+    expect(blocked).toMatchObject({
+      ok: false, retrieval_ok: true,
+      remote_head_matches_candidate: true,
+      coderabbit_changes_requested_unresolved: true,
+      coderabbit_approved_exact_head: false,
+      local_independent_review_verified: false, publication_ready: false,
+    });
+    const allowedToObserve = evaluateGithubReviewSnapshot(candidate, pr,
+      [[review(1, "CHANGES_REQUESTED"), review(2, "COMMENTED"), review(3, "APPROVED")]], 941);
+    expect(allowedToObserve).toMatchObject({
+      coderabbit_approved_exact_head: true,
+      coderabbit_changes_requested_unresolved: false,
+      local_independent_review_verified: false, publication_ready: false,
+    });
+    const stale = evaluateGithubReviewSnapshot(candidate,
+      { ...pr, head: { ...pr.head, sha: "a".repeat(40) } },
+      [[review(1, "APPROVED")]], 941);
+    expect(stale).toMatchObject({
+      code: "local_candidate_not_on_remote_pr",
+      remote_head_matches_candidate: false,
+      coderabbit_approved_exact_head: false, publication_ready: false,
+    });
+    const wrongAuthor = evaluateGithubReviewSnapshot(candidate, pr,
+      [[{ ...review(1, "APPROVED"), user: { login: "random-reviewer" } }]], 941);
+    expect(wrongAuthor.coderabbit_approved_exact_head).toBe(false);
+    const noReviews = evaluateGithubReviewSnapshot(candidate, pr, [[]], 941);
+    expect(noReviews.coderabbit_changes_requested_unresolved).toBe(false);
+    expect(noReviews.coderabbit_approved_exact_head).toBe(false);
+    expect(() => evaluateGithubReviewSnapshot(candidate, { ...pr,
+      user: { login: "malicious" },
+    }, [], 941)).toThrow(/PR identity/);
+    expect(() => evaluateGithubReviewSnapshot(candidate, { ...pr,
+      body: body(base) + " tampered",
+    }, [], 941)).toThrow(/body digest/);
+    expect(() => evaluateGithubReviewSnapshot(candidate, pr,
+      [[{ ...review(1, "APPROVED"), commit_id: "bogus" }]], 941)).toThrow(/malformed/);
   });
 
   it("invalidates prior validation and review evidence after the candidate changes", () => {

@@ -432,6 +432,83 @@ export function executeLocalValidation(candidate, cwd, ids, {runner = spawnSync,
   };
 }
 
+// Read-only authenticated GitHub diagnostic. Hosted reviews do not authenticate
+// independent pre-push review of unpublished local commits.
+export function evaluateGithubReviewSnapshot(candidate, pr, pages, requestedNumber) {
+  if (!pr || typeof pr !== "object" || Array.isArray(pr)
+    || pr.number !== requestedNumber
+    || pr.head?.repo?.full_name !== candidate.repository
+    || pr.head?.ref !== candidate.branch
+    || pr.base?.ref !== "main"
+    || pr.user?.login !== candidate.repository.split("/")[0]) {
+    fail("github_review", "live PR identity does not match repository, owner, branch or base");
+  }
+  if (pr.state !== "open" || pr.merged === true) {
+    fail("github_review", "PR is closed or merged");
+  }
+  if (typeof pr.body !== "string" || sha256(pr.body) !== candidate.pr_body_sha256) {
+    fail("github_review", "live PR body digest does not match the candidate");
+  }
+  if (!Array.isArray(pages) || pages.length > 30
+    || pages.some((page) => !Array.isArray(page))) {
+    fail("github_review", "incomplete or malformed review pagination");
+  }
+  const reviews = pages.flat();
+  if (reviews.length > 3000 || reviews.some((review) => !review
+    || !Number.isSafeInteger(review.id)
+    || typeof review.commit_id !== "string" || !SHA_RE.test(review.commit_id)
+    || typeof review.user?.login !== "string"
+    || typeof review.state !== "string"
+    || !Number.isFinite(Date.parse(review.submitted_at ?? "")))) {
+    fail("github_review", "malformed or excessive review evidence");
+  }
+  const remoteHead = assertSha(pr.head?.sha, "remote_pr_head_sha");
+  const matched = remoteHead === candidate.head_sha;
+  const coderabbit = reviews.filter((review) =>
+    review.user.login === "coderabbitai[bot]"
+      && review.commit_id === candidate.head_sha
+      && ["APPROVED", "CHANGES_REQUESTED", "COMMENTED"].includes(review.state))
+    .sort((a, b) => Date.parse(a.submitted_at) - Date.parse(b.submitted_at) || a.id - b.id);
+  const changes = coderabbit.findLastIndex((review) => review.state === "CHANGES_REQUESTED");
+  const approved = coderabbit.findLastIndex((review) => review.state === "APPROVED");
+  const eligible = matched && approved >= 0 && approved > changes;
+  return {
+    // A status probe can succeed at retrieval without proving a publishable candidate.
+    // Nonzero status is intentional: never let a caller treat this as a security gate.
+    ok: false,
+    retrieval_ok: true,
+    code: matched ? "hosted_review_read_only" : "local_candidate_not_on_remote_pr",
+    candidate: candidateIdentity(candidate),
+    pr_number: requestedNumber,
+    remote_pr_head_sha: remoteHead,
+    remote_head_matches_candidate: matched,
+    coderabbit_exact_head_reviews: coderabbit.map((review) => ({
+      review_id: review.id, state: review.state, submitted_at: review.submitted_at,
+    })),
+    coderabbit_approved_exact_head: eligible,
+    coderabbit_changes_requested_unresolved: matched && changes >= 0 && approved <= changes,
+    hosted_review_usable_for_current_head: eligible,
+    local_independent_review_verified: false,
+    publication_ready: false,
+    explanation: "Read-only hosted-review diagnostics cannot attest local independent review or authorize a push.",
+  };
+}
+
+function githubReadJson(cwd, endpoint, paginated = false) {
+  const flags = paginated ? ["--paginate", "--slurp"] : [];
+  const result = spawnSync("gh", ["api", ...flags, endpoint], {
+    cwd, encoding: "utf8", windowsHide: true, timeout: 30000, maxBuffer: 16 * 1024 * 1024,
+  });
+  if (result.status !== 0 || result.error) {
+    fail("github_review", "authenticated GitHub API read failed");
+  }
+  try {
+    return JSON.parse(result.stdout);
+  } catch {
+    fail("github_review", "GitHub returned invalid JSON");
+  }
+}
+
 function parseArgs(argv) {
   const args = { mode: argv[2] ?? "" };
   for (let index = 3; index < argv.length; index += 2) {
@@ -516,7 +593,7 @@ export function inspectCandidate({
 
 function main() {
   const args = parseArgs(process.argv);
-  if (!["snapshot", "verify", "run-checks"].includes(args.mode)) fail("args", "mode must be snapshot, verify or run-checks");
+  if (!["snapshot", "verify", "run-checks", "hosted-review-status"].includes(args.mode)) fail("args", "unsupported preflight mode");
   if (!args.base || !args.pr_body) fail("args", "--base and --pr-body are required");
 
   const cwd = resolve(args.cwd ?? process.cwd());
@@ -530,6 +607,28 @@ function main() {
 
   if (args.mode === "snapshot") {
     process.stdout.write(JSON.stringify({ ok: true, candidate }, null, 2) + "\n");
+    return;
+  }
+
+  if (args.mode === "hosted-review-status") {
+    if (!/^[1-9][0-9]*$/.test(args.pr ?? "")) {
+      fail("args", "hosted-review-status requires --pr <positive integer>");
+    }
+    const number = Number(args.pr);
+    if (!Number.isSafeInteger(number)) fail("args", "PR number out of range");
+    const endpoint = "repos/" + candidate.repository + "/pulls/" + number;
+    const before = githubReadJson(cwd, endpoint);
+    const pages = githubReadJson(cwd, endpoint + "/reviews?per_page=100", true);
+    const pr = githubReadJson(cwd, endpoint);
+    // Do not trust review evidence spanning a concurrent PR head/base/body change.
+    if (before.head?.sha !== pr.head?.sha || before.base?.sha !== pr.base?.sha
+      || before.head?.ref !== pr.head?.ref || before.body !== pr.body
+      || before.state !== pr.state || before.draft !== pr.draft) {
+      fail("github_review", "PR changed during hosted review reads");
+    }
+    const receipt = evaluateGithubReviewSnapshot(candidate, pr, pages, number);
+    process.stdout.write(JSON.stringify(receipt, null, 2) + "\n");
+    process.exitCode = 1; // diagnostic can never pass the pre-push gate
     return;
   }
 

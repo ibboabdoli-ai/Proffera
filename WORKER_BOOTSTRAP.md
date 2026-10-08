@@ -64,6 +64,8 @@ The gate must be rerun before **every push**, including Draft repair pushes. Any
 
 To directly observe a fixed, selected local validation check on the frozen candidate, run `node scripts/supervisor-preflight.mjs run-checks --base <current-main-sha> --pr-body <exact-pr-body-file> --checks <selected-comma-separated-IDs>`. This executes repository-owned commands and reports their real exit codes and remaining checks; it does not accept arbitrary caller commands, mark the independent review verified, or authorize publication. Do not substitute partial `run-checks` success for the canonical `verify` gate.
 
+A read-only `hosted-review-status` mode in the same script checks paginated GitHub CodeRabbit review identity and exact commit against the frozen candidate, without granting push authority or replacing independent local review. When the local candidate is ahead of the PR's remote head, the diagnostic reports that mismatch and review remains pending.
+
 Preflight JSON is a consistency record, not authenticated execution or reviewer provenance. The current `verify` command fails closed with `evidence_provenance_unverified` even for consistent caller-supplied claims; no authenticated local adapter is available. Do not convert that result into a successful publication receipt or bypass the existing CI/review and owner-authorization gates.
 
 ## Pull request handoff
