@@ -846,6 +846,16 @@ jobs:
             commit-tree "$VALIDATED_TREE" -p "$EXPECTED_HEAD" -m "[codex-autofix] Fix CI blocker for PR #$PR_NUMBER")"
           echo "new_head=$new_head" >> "$GITHUB_OUTPUT"
 
+      # Mandatory preflight has no authenticated reviewer/execution provenance
+      # issuer yet. Fail BEFORE the following credentialed publication step.
+      # Do not weaken this guard; replace it only with verified trusted evidence.
+      - name: Require authenticated Supervisor provenance before autofix publication
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "::error::CI Autofix publication blocked: authenticated preflight validation and independent review provenance are not implemented."
+          exit 1
+
       - name: Publish validated repair
         id: publish
         if: steps.commit.outputs.new_head != ''

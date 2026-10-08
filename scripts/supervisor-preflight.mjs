@@ -44,6 +44,7 @@ function gitText(cwd, args) {
 function resolveLiveMainSha(repository) {
   const result = spawnSync("gh", [
     "api",
+    "--hostname", "github.com",
     `repos/${repository}/git/ref/heads/main`,
     "--jq",
     ".object.sha",
@@ -51,8 +52,9 @@ function resolveLiveMainSha(repository) {
     encoding: "utf8",
     maxBuffer: 1024 * 1024,
     windowsHide: true,
+    env: {...process.env, GH_HOST: "github.com"},
   });
-  if (result.status !== 0) {
+  if (result.status !== 0 || result.error) {
     fail("base", `unable to resolve live main from GitHub: ${String(result.stderr ?? "").trim() || "gh api failed"}`);
   }
   return assertSha(String(result.stdout ?? "").trim(), "live_main_sha");
@@ -440,6 +442,7 @@ export function evaluateGithubReviewSnapshot(candidate, pr, pages, requestedNumb
     || pr.head?.repo?.full_name !== candidate.repository
     || pr.head?.ref !== candidate.branch
     || pr.base?.ref !== "main"
+    || pr.base?.sha !== candidate.base_sha
     || pr.user?.login !== candidate.repository.split("/")[0]) {
     fail("github_review", "live PR identity does not match repository, owner, branch or base");
   }
@@ -467,11 +470,14 @@ export function evaluateGithubReviewSnapshot(candidate, pr, pages, requestedNumb
   const coderabbit = reviews.filter((review) =>
     review.user.login === "coderabbitai[bot]"
       && review.commit_id === candidate.head_sha
-      && ["APPROVED", "CHANGES_REQUESTED", "COMMENTED"].includes(review.state))
+      && ["APPROVED", "CHANGES_REQUESTED", "COMMENTED", "DISMISSED"].includes(review.state))
     .sort((a, b) => Date.parse(a.submitted_at) - Date.parse(b.submitted_at) || a.id - b.id);
-  const changes = coderabbit.findLastIndex((review) => review.state === "CHANGES_REQUESTED");
+  // A dismissed review loses its original decision in the current snapshot.
+  // Never revive an earlier approval when a later review was dismissed.
+  const blocked = coderabbit.findLastIndex((review) =>
+    review.state === "CHANGES_REQUESTED" || review.state === "DISMISSED");
   const approved = coderabbit.findLastIndex((review) => review.state === "APPROVED");
-  const eligible = matched && approved >= 0 && approved > changes;
+  const eligible = matched && approved >= 0 && approved > blocked;
   return {
     // A status probe can succeed at retrieval without proving a publishable candidate.
     // Nonzero status is intentional: never let a caller treat this as a security gate.
@@ -486,7 +492,9 @@ export function evaluateGithubReviewSnapshot(candidate, pr, pages, requestedNumb
       review_id: review.id, state: review.state, submitted_at: review.submitted_at,
     })),
     coderabbit_approved_exact_head: eligible,
-    coderabbit_changes_requested_unresolved: matched && changes >= 0 && approved <= changes,
+    coderabbit_changes_requested_unresolved: matched && blocked >= 0 && approved <= blocked,
+    coderabbit_dismissal_requires_fresh_approval: matched && coderabbit.some((review) =>
+      review.state === "DISMISSED") && !eligible,
     hosted_review_usable_for_current_head: eligible,
     local_independent_review_verified: false,
     publication_ready: false,
@@ -494,10 +502,20 @@ export function evaluateGithubReviewSnapshot(candidate, pr, pages, requestedNumb
   };
 }
 
+export function assertStableHostedReviewReads(beforePr, afterPr, firstPages, lastPages) {
+  if (beforePr.head?.sha !== afterPr.head?.sha || beforePr.base?.sha !== afterPr.base?.sha
+    || beforePr.head?.ref !== afterPr.head?.ref || beforePr.body !== afterPr.body
+    || beforePr.state !== afterPr.state || beforePr.draft !== afterPr.draft
+    || JSON.stringify(firstPages) !== JSON.stringify(lastPages)) {
+    fail("github_review", "PR or CodeRabbit review inventory changed during authenticated reads");
+  }
+}
+
 function githubReadJson(cwd, endpoint, paginated = false) {
   const flags = paginated ? ["--paginate", "--slurp"] : [];
-  const result = spawnSync("gh", ["api", ...flags, endpoint], {
+  const result = spawnSync("gh", ["api", "--hostname", "github.com", ...flags, endpoint], {
     cwd, encoding: "utf8", windowsHide: true, timeout: 30000, maxBuffer: 16 * 1024 * 1024,
+    env: {...process.env, GH_HOST: "github.com"},
   });
   if (result.status !== 0 || result.error) {
     fail("github_review", "authenticated GitHub API read failed");
@@ -618,15 +636,19 @@ function main() {
     if (!Number.isSafeInteger(number)) fail("args", "PR number out of range");
     const endpoint = "repos/" + candidate.repository + "/pulls/" + number;
     const before = githubReadJson(cwd, endpoint);
-    const pages = githubReadJson(cwd, endpoint + "/reviews?per_page=100", true);
+    const firstReviews = githubReadJson(cwd, endpoint + "/reviews?per_page=100", true);
     const pr = githubReadJson(cwd, endpoint);
-    // Do not trust review evidence spanning a concurrent PR head/base/body change.
-    if (before.head?.sha !== pr.head?.sha || before.base?.sha !== pr.base?.sha
-      || before.head?.ref !== pr.head?.ref || before.body !== pr.body
-      || before.state !== pr.state || before.draft !== pr.draft) {
-      fail("github_review", "PR changed during hosted review reads");
+    const lastReviews = githubReadJson(cwd, endpoint + "/reviews?per_page=100", true);
+    assertStableHostedReviewReads(before, pr, firstReviews, lastReviews);
+    // Git and PR-body files can change during the remote reads.
+    const current = inspectCandidate({
+      cwd, repository: args.repository ?? DEFAULT_REPOSITORY,
+      baseSha: args.base, prBody: readFileSync(resolve(args.pr_body), "utf8"),
+    });
+    if (JSON.stringify(candidateIdentity(candidate)) !== JSON.stringify(candidateIdentity(current))) {
+      fail("stale_evidence", "candidate changed during hosted review reads");
     }
-    const receipt = evaluateGithubReviewSnapshot(candidate, pr, pages, number);
+    const receipt = evaluateGithubReviewSnapshot(candidate, pr, lastReviews, number);
     process.stdout.write(JSON.stringify(receipt, null, 2) + "\n");
     process.exitCode = 1; // diagnostic can never pass the pre-push gate
     return;

@@ -1,10 +1,10 @@
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { spawnSync } from "node:child_process";
 import { afterEach, describe, expect, it } from "vitest";
 // @ts-expect-error Repository scripts are plain ESM and intentionally have no TypeScript declaration file.
-import { inspectCandidate, validatePrMetadata, evaluateGithubReviewSnapshot } from "../scripts/supervisor-preflight.mjs";
+import { inspectCandidate, validatePrMetadata, evaluateGithubReviewSnapshot, assertStableHostedReviewReads } from "../scripts/supervisor-preflight.mjs";
 
 const roots: string[] = [];
 const preflight = join(process.cwd(), "scripts", "supervisor-preflight.mjs");
@@ -76,6 +76,9 @@ function cli(repo: string, args: string[]) {
     'const originalSpawnSync = childProcess.spawnSync;',
     'childProcess.spawnSync = function(command, commandArgs, options) {',
     '  if (command === "gh" && Array.isArray(commandArgs) && commandArgs[0] === "api" && process.env.PREFLIGHT_TEST_MAIN_SHA) {',
+    '    if (commandArgs[commandArgs.indexOf("--hostname") + 1] !== "github.com" || options.env?.GH_HOST !== "github.com") {',
+    '      return { status: 1, signal: null, stdout: "", stderr: "GitHub authority was not pinned" };',
+    '    }',
     '    return { status: 0, signal: null, stdout: process.env.PREFLIGHT_TEST_MAIN_SHA + "\\n", stderr: "" };',
     '  }',
     '  return originalSpawnSync.call(this, command, commandArgs, options);',
@@ -90,6 +93,7 @@ function cli(repo: string, args: string[]) {
     encoding: "utf8",
     env: {
       ...process.env,
+      GH_HOST: "attacker-mirror.invalid",
       PREFLIGHT_TEST_MAIN_SHA: base,
       NODE_OPTIONS: existingNodeOptions ? `${existingNodeOptions} ${requireShim}` : requireShim,
     },
@@ -373,7 +377,7 @@ describe("canonical Supervisor pre-publication gate", () => {
       user: { login: "ibboabdoli-ai" },
       head: { sha: candidate.head_sha, ref: candidate.branch,
         repo: { full_name: "ibboabdoli-ai/Proffera" } },
-      base: { ref: "main" },
+      base: { ref: "main", sha: base },
     };
     const review = (id: number, state: string, sha = candidate.head_sha) => ({
       id, state, commit_id: sha, user: { login: "coderabbitai[bot]" },
@@ -403,6 +407,37 @@ describe("canonical Supervisor pre-publication gate", () => {
       remote_head_matches_candidate: false,
       coderabbit_approved_exact_head: false, publication_ready: false,
     });
+    // A dismissed later CodeRabbit review is ambiguous: never revive an old approval.
+    const dismissed = evaluateGithubReviewSnapshot(candidate, pr,
+      [[review(1, "APPROVED"), review(2, "DISMISSED")]], 941);
+    expect(dismissed).toMatchObject({
+      coderabbit_approved_exact_head: false,
+      coderabbit_changes_requested_unresolved: true,
+      coderabbit_dismissal_requires_fresh_approval: true,
+      publication_ready: false,
+    });
+    const dismissedAfterChanges = evaluateGithubReviewSnapshot(candidate, pr,
+      [[review(1, "APPROVED"), review(2, "CHANGES_REQUESTED"), review(3, "DISMISSED")]], 941);
+    expect(dismissedAfterChanges.coderabbit_approved_exact_head).toBe(false);
+    const renewedApproval = evaluateGithubReviewSnapshot(candidate, pr,
+      [[review(1, "APPROVED"), review(2, "CHANGES_REQUESTED"),
+        review(3, "DISMISSED"), review(4, "APPROVED")]], 941);
+    expect(renewedApproval).toMatchObject({
+      coderabbit_approved_exact_head: true,
+      coderabbit_changes_requested_unresolved: false,
+      publication_ready: false,
+    });
+    expect(() => evaluateGithubReviewSnapshot(candidate,
+      { ...pr, base: { ref: "main", sha: "f".repeat(40) } },
+      [[review(1, "APPROVED")]], 941)).toThrow(/PR identity/);
+    assertStableHostedReviewReads(pr, { ...pr }, [[review(1, "COMMENTED")]],
+      [[review(1, "COMMENTED")]]);
+    expect(() => assertStableHostedReviewReads(pr, { ...pr },
+      [[review(1, "APPROVED")]], [[review(1, "APPROVED"), review(2, "CHANGES_REQUESTED")]]
+    )).toThrow(/inventory changed/);
+    expect(() => assertStableHostedReviewReads(pr, {
+      ...pr, base: { ref: "main", sha: "f".repeat(40) },
+    }, [[]], [[]])).toThrow(/inventory changed/);
     const wrongAuthor = evaluateGithubReviewSnapshot(candidate, pr,
       [[{ ...review(1, "APPROVED"), user: { login: "random-reviewer" } }]], 941);
     expect(wrongAuthor.coderabbit_approved_exact_head).toBe(false);
@@ -417,6 +452,34 @@ describe("canonical Supervisor pre-publication gate", () => {
     }, [], 941)).toThrow(/body digest/);
     expect(() => evaluateGithubReviewSnapshot(candidate, pr,
       [[{ ...review(1, "APPROVED"), commit_id: "bogus" }]], 941)).toThrow(/malformed/);
+  });
+
+  it("blocks CI Autofix publication without trusted pre-push provenance before credentials", () => {
+    const workflow = readFileSync(join(process.cwd(), ".github", "workflows", "proffera-ci-autofix.yml"), "utf8");
+    const publishIndex = workflow.indexOf("\n  publish:\n");
+    expect(publishIndex).toBeGreaterThan(0);
+    const remaining = workflow.slice(publishIndex + 1);
+    const nextJob = remaining.search(/\n  [a-z][a-z0-9_-]*:\s*\n/);
+    const publication = nextJob >= 0
+      ? workflow.slice(publishIndex, publishIndex + 1 + nextJob)
+      : workflow.slice(publishIndex);
+    // The publication boundary must fail while no authenticated external reviewer exists.
+    const gateName = "Require authenticated Supervisor provenance before autofix publication";
+    const pushName = "Publish validated repair";
+    const gateIndex = publication.indexOf(gateName);
+    const pushIndex = publication.indexOf(pushName);
+    expect(gateIndex).toBeGreaterThan(0);
+    expect(pushIndex).toBeGreaterThan(gateIndex);
+    const between = publication.slice(gateIndex, pushIndex);
+    expect(between).not.toContain("PUSH_TOKEN");
+    const code = between.match(/run: \|\r?\n((?:          .*\r?\n)+)/);
+    expect(code).not.toBeNull();
+    const script = code![1].split(/\r?\n/).map((line) => line.replace(/^          /, "")).join("\n");
+    const executed = spawnSync("bash", ["-c", script], { encoding: "utf8" });
+    expect(executed.status, executed.stderr).toBe(1);
+    expect(executed.stdout).toContain("CI Autofix publication blocked");
+    expect(publication.slice(0, pushIndex)).not.toMatch(/\bgit\s+.*\bpush\b/);
+    expect(publication.slice(pushIndex)).toContain("PUSH_TOKEN:");
   });
 
   it("invalidates prior validation and review evidence after the candidate changes", () => {
