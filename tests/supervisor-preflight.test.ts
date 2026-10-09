@@ -366,6 +366,63 @@ describe("canonical Supervisor pre-publication gate", () => {
     });
   });
 
+  it("fails closed if run-checks mutates the PR body during validation", () => {
+    const { root, repo, base } = fixture({ baseFiles: { "AGENTS.md": "base\n" } });
+    write(join(repo, "AGENTS.md"), "candidate\n");
+    const bodyPath = writeBody(root, body(base));
+    write(join(repo, "node_modules", "typescript", "bin", "tsc"),
+      'require("node:fs").appendFileSync(' + JSON.stringify(bodyPath)
+      + ', ' + JSON.stringify("\nChanged during validation\n") + ');\n');
+    git(repo, ["add", "."]);
+    git(repo, ["commit", "-qm", "candidate with changing PR metadata"]);
+    const result = cli(repo, [
+      "run-checks", "--base", base, "--pr-body", bodyPath, "--checks", "typecheck",
+    ]);
+    expect(result.status).toBe(1);
+    expect(result.stderr, `stdout=${result.stdout}; stderr=${result.stderr}`).toContain("supervisor_preflight:stale_evidence");
+  });
+
+  it("fails closed when HEAD moves after capture but before its tree is resolved", () => {
+    const { repo, base } = fixture();
+    write(join(repo, "docs", "note.md"), "candidate one\n");
+    git(repo, ["add", "."]);
+    git(repo, ["commit", "-qm", "candidate one"]);
+    const prBody = body(base);
+    let advanced = false;
+    expect(() => inspectCandidate({
+      cwd: repo, baseSha: base, prBody, liveMainResolver: () => base,
+      afterHeadCapture: () => {
+        advanced = true;
+        write(join(repo, "docs", "note.md"), "candidate two\n");
+        git(repo, ["add", "."]);
+        git(repo, ["commit", "-qm", "candidate two"]);
+      },
+    })).toThrow(/supervisor_preflight:stale_evidence/);
+    expect(advanced).toBe(true);
+  });
+
+  it("fails closed if Git status or branch changes before candidate return", () => {
+    const dirty = fixture();
+    write(join(dirty.repo, "docs", "note.md"), "candidate\n");
+    git(dirty.repo, ["add", "."]);
+    git(dirty.repo, ["commit", "-qm", "candidate"]);
+    expect(() => inspectCandidate({
+      cwd: dirty.repo, baseSha: dirty.base, prBody: body(dirty.base),
+      liveMainResolver: () => dirty.base,
+      afterHeadCapture: () => write(join(dirty.repo, "untracked.txt"), "race\n"),
+    })).toThrow(/supervisor_preflight:stale_evidence/);
+
+    const switched = fixture();
+    write(join(switched.repo, "docs", "note.md"), "candidate\n");
+    git(switched.repo, ["add", "."]);
+    git(switched.repo, ["commit", "-qm", "candidate"]);
+    expect(() => inspectCandidate({
+      cwd: switched.repo, baseSha: switched.base, prBody: body(switched.base),
+      liveMainResolver: () => switched.base,
+      afterHeadCapture: () => git(switched.repo, ["checkout", "-qb", "work/proffera-raced"]),
+    })).toThrow(/supervisor_preflight:stale_evidence/);
+  });
+
   it("does not mistake a past CodeRabbit review for independent local pre-push proof", () => {
     const { repo, base } = fixture();
     write(join(repo, "docs", "note.md"), "candidate\n");

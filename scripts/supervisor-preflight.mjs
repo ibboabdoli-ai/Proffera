@@ -544,6 +544,7 @@ export function inspectCandidate({
   baseSha,
   prBody,
   liveMainResolver = resolveLiveMainSha,
+  afterHeadCapture,
 }) {
   if (process.versions.node.split(".")[0] !== "22") {
     fail("runtime", `Node 22.x is required; running ${process.version}`);
@@ -569,7 +570,8 @@ export function inspectCandidate({
     fail("base", "base SHA " + base + " is stale or not current main " + liveMain);
   }
   const head = assertSha(gitText(cwd, ["rev-parse", "HEAD"]), "head_sha");
-  const tree = assertSha(gitText(cwd, ["rev-parse", "HEAD^{tree}"]), "tree_sha");
+  afterHeadCapture?.();
+  const tree = assertSha(gitText(cwd, ["rev-parse", `${head}^{tree}`]), "tree_sha");
 
   const baseObject = gitText(cwd, ["rev-parse", `${base}^{commit}`]).toLowerCase();
   if (baseObject !== base) fail("identity", "base SHA does not resolve to the expected commit");
@@ -588,6 +590,14 @@ export function inspectCandidate({
   const plan = classifyCiScope(paths);
   const requiredChecks = requiredValidationChecks(plan, paths);
   const requiredFocuses = requiredReviewFocuses(plan, paths);
+
+  // Reject any concurrent ref, branch or worktree change before reporting this candidate.
+  const currentBranch = gitText(cwd, ["branch", "--show-current"]);
+  const currentHead = gitText(cwd, ["rev-parse", "HEAD"]);
+  const currentStatus = runGit(cwd, ["status", "--porcelain=v1", "-z", "--untracked-files=all"], { binary: true }).stdout;
+  if (currentBranch !== branch || currentHead !== head || currentStatus.length !== 0) {
+    fail("stale_evidence", "branch, HEAD or Git status changed during candidate inspection");
+  }
 
   return {
     repository,
@@ -662,7 +672,7 @@ function main() {
     const receipt = executeLocalValidation(candidate, cwd, ids, {
       revalidate: () => inspectCandidate({
         cwd, repository: args.repository ?? DEFAULT_REPOSITORY,
-        baseSha: args.base, prBody,
+        baseSha: args.base, prBody: readFileSync(resolve(args.pr_body), "utf8"),
       }),
     });
     process.stdout.write(JSON.stringify(receipt, null, 2) + "\n");
