@@ -486,6 +486,23 @@ describe("canonical Supervisor pre-publication gate", () => {
     }
   });
 
+  it("runs both worker-handoff and CI Autofix candidate suites for mapped Supervisor changes", () => {
+    const { repo, base } = fixture();
+    write(join(repo, "scripts", "supervisor-worker-handoff.mjs"), "export const value = 1;\\n");
+    write(join(repo, "scripts", "supervisor-ci-autofix-candidate.mjs"), "export const value = 2;\\n");
+    git(repo, ["add", "."]);
+    git(repo, ["commit", "-qm", "change both mapped Supervisor helpers"]);
+    const candidate = inspectFixture({ cwd: repo, baseSha: base, prBody: body(base) });
+    const observed = executeLocalValidation(candidate, repo, ["targeted"], {
+      runner: (_command: string, args: string[]) => {
+        expect(args).toContain("tests/supervisor-worker-handoff.test.ts");
+        expect(args).toContain("tests/supervisor-ci-autofix-candidate.test.ts");
+        return { status: 0, signal: null, stdout: "", stderr: "" };
+      },
+    });
+    expect(observed.ok).toBe(true);
+  });
+
   it("does not mistake a past CodeRabbit review for independent local pre-push proof", () => {
     const { repo, base } = fixture();
     write(join(repo, "docs", "note.md"), "candidate\n");

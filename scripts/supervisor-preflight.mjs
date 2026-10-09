@@ -390,7 +390,21 @@ function additionalTargetedSuites(candidate) {
   if (unmapped.length) {
     fail("validation", "no mapped targeted tests for candidate paths: " + unmapped.join(", "));
   }
-  return candidate.diff.paths.includes(bookingWorkflow) ? bookingSuites : [];
+  const suites = new Set(candidate.diff.paths.includes(bookingWorkflow) ? bookingSuites : []);
+  const workerPaths = new Set([
+    "scripts/supervisor-worker-handoff.mjs",
+    "tests/supervisor-worker-handoff.test.ts",
+  ]);
+  const autofixPaths = new Set([
+    ".github/workflows/proffera-ci-autofix.yml",
+    "scripts/supervisor-ci-autofix-candidate.mjs",
+    "tests/supervisor-ci-autofix-candidate.test.ts",
+  ]);
+  for (const path of candidate.diff.paths) {
+    if (workerPaths.has(path)) suites.add("tests/supervisor-worker-handoff.test.ts");
+    if (autofixPaths.has(path)) suites.add("tests/supervisor-ci-autofix-candidate.test.ts");
+  }
+  return [...suites].sort();
 }
 
 function commandForCheck(id, cwd, candidate) {
