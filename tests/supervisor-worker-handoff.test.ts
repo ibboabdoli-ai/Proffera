@@ -5433,7 +5433,11 @@ esac
     expect(cleanup).toContain("Checkout exact cleanup baseline");
     expect(reconcile).toContain('actions/runs/${RUN_ID}/artifacts?per_page=100');
     expect(reconcile).toContain('actions/artifacts/${artifact_id}/zip');
-    expect(reconcile).toContain('test "$archive_entries" = "proffera-publication-artifact.json"');
+    expect(reconcile).toContain('archive_layout=owner');
+    expect(reconcile).toContain('archive_layout=legacy');
+    expect(reconcile).toContain('test "$(git rev-parse FETCH_HEAD)" = "$head_sha"');
+    expect(reconcile).toContain('test "$(git rev-parse \'FETCH_HEAD^{tree}\')" = "$target_tree_sha"');
+    expect(reconcile).toContain('git bundle verify "$owner_bundle"');
     expect(reconcile).toContain('actual_recovery_digest="$(sha256sum "$recovery_artifact"');
     expect(reconcile).toContain('node "$helper" validate-publication');
     expect(reconcile).toContain('--arg expected_target_head "$head_sha"');

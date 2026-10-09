@@ -2693,14 +2693,68 @@ jobs:
                 rm -f "$archive" "$recovery_artifact"
                 gh api "repos/${REPOSITORY}/actions/artifacts/${artifact_id}/zip" > "$archive"
                 test -s "$archive"
-                archive_entries="$(unzip -Z1 "$archive")"
-                test "$archive_entries" = "proffera-publication-artifact.json"
+                # Exactly one historical recovery JSON, or the four-file
+                # owner-push artifact. Sorting admits any ZIP entry order but
+                # never duplicates, path traversal, or unexpected members.
+                archive_entries="$(unzip -Z1 "$archive" | LC_ALL=C sort)"
+                legacy_entries="proffera-publication-artifact.json"
+                owner_entries="$(printf '%s\n' \
+                  proffera-publication-artifact.json \
+                  proffera-owner-handoff.bundle \
+                  proffera-owner-handoff.bundle.sha256 \
+                  proffera-owner-handoff.json | LC_ALL=C sort)"
+                archive_layout=""
+                if [ "$archive_entries" = "$owner_entries" ]; then
+                  archive_layout=owner
+                elif [ "$archive_entries" = "$legacy_entries" ]; then
+                  archive_layout=legacy
+                else
+                  echo "Refused: recovery archive has an unexpected or ambiguous file inventory." >&2
+                  exit 1
+                fi
                 unzip -p "$archive" proffera-publication-artifact.json > "$recovery_artifact"
                 test -s "$recovery_artifact"
                 jq -e . "$recovery_artifact" >/dev/null
 
                 actual_recovery_digest="$(sha256sum "$recovery_artifact" | cut -d' ' -f1)"
                 test "$actual_recovery_digest" = "$recovery_digest"
+                if [ "$archive_layout" = "owner" ]; then
+                  owner_dir="$(mktemp -d "$RUNNER_TEMP/proffera-owner-recovery-XXXXXX")"
+                  for name in proffera-owner-handoff.bundle proffera-owner-handoff.bundle.sha256 proffera-owner-handoff.json; do
+                    unzip -p "$archive" "$name" > "$owner_dir/$name"
+                    test -s "$owner_dir/$name"
+                  done
+                  owner_bundle="$owner_dir/proffera-owner-handoff.bundle"
+                  owner_sha="$owner_dir/proffera-owner-handoff.bundle.sha256"
+                  owner_manifest="$owner_dir/proffera-owner-handoff.json"
+                  bundle_sha="$(sha256sum "$owner_bundle" | cut -d' ' -f1)"
+                  test "$(cat "$owner_sha")" = "$bundle_sha  proffera-owner-handoff.bundle"
+                  (cd "$owner_dir" && sha256sum --check --status proffera-owner-handoff.bundle.sha256)
+                  jq -e --arg repo "$REPOSITORY" --arg branch "$BRANCH" \
+                    --arg task "$TASK_ID" --arg base "$BASE_SHA" \
+                    --arg head "$head_sha" --arg tree "$target_tree_sha" \
+                    --arg recovery "$recovery_digest" --arg bundle "$bundle_sha" \
+                    --argjson run "$RUN_ID" '
+                      type == "object"
+                      and ((keys | sort) == ([
+                        "state","published","repository","branch","task_id",
+                        "base_sha","parent_sha","head_sha","tree_sha",
+                        "bundle_sha256","recovery_sha256","run_id","run_attempt"
+                      ] | sort))
+                      and .state == "OWNER_PUSH_REQUIRED" and .published == false
+                      and .repository == $repo and .branch == $branch and .task_id == $task
+                      and .base_sha == $base and .parent_sha == $base
+                      and .head_sha == $head and .tree_sha == $tree
+                      and .recovery_sha256 == $recovery and .bundle_sha256 == $bundle
+                      and .run_id == $run and (.run_attempt | type == "number" and . > 0 and . == floor)
+                    ' "$owner_manifest" >/dev/null
+                  git bundle verify "$owner_bundle" >/dev/null
+                  test "$(git bundle list-heads "$owner_bundle")" = "$head_sha HEAD"
+                  git -c core.hooksPath=/dev/null fetch --no-tags "$owner_bundle" HEAD >/dev/null
+                  test "$(git rev-parse FETCH_HEAD)" = "$head_sha"
+                  test "$(git rev-parse 'FETCH_HEAD^{tree}')" = "$target_tree_sha"
+                  test "$(git rev-parse 'FETCH_HEAD^')" = "$BASE_SHA"
+                fi
                 live_source="$(gh api "repos/${REPOSITORY}/git/ref/heads/main" --jq '.object.sha')"
                 test "$live_source" = "$BASE_SHA"
                 recovery_validation="$(jq -n --argjson packet "$packet" --arg current_source_head "$live_source" --arg expected_target_head "$head_sha" --arg expected_target_tree_sha "$target_tree_sha" --arg expected_run_id "$RUN_ID" --slurpfile artifact "$recovery_artifact" '{packet:$packet,current_source_head:$current_source_head,expected_target_head:$expected_target_head,expected_target_tree_sha:$expected_target_tree_sha,expected_run_id:$expected_run_id,artifact:$artifact[0]}' | node "$helper" validate-publication)"
