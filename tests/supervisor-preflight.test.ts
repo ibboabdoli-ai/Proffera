@@ -4,7 +4,7 @@ import { dirname, join } from "node:path";
 import { spawnSync } from "node:child_process";
 import { afterEach, describe, expect, it } from "vitest";
 // @ts-expect-error Repository scripts are plain ESM and intentionally have no TypeScript declaration file.
-import { inspectCandidate, validatePrMetadata, evaluateGithubReviewSnapshot, assertStableHostedReviewReads } from "../scripts/supervisor-preflight.mjs";
+import { inspectCandidate, executeLocalValidation, validatePrMetadata, evaluateGithubReviewSnapshot, assertStableHostedReviewReads } from "../scripts/supervisor-preflight.mjs";
 
 const roots: string[] = [];
 const preflight = join(process.cwd(), "scripts", "supervisor-preflight.mjs");
@@ -421,6 +421,69 @@ describe("canonical Supervisor pre-publication gate", () => {
       liveMainResolver: () => switched.base,
       afterHeadCapture: () => git(switched.repo, ["checkout", "-qb", "work/proffera-raced"]),
     })).toThrow(/supervisor_preflight:stale_evidence/);
+  });
+
+  it("rejects malformed changed YAML outside workflows and excludes deleted YAML", () => {
+    const { repo, base } = fixture({
+      baseFiles: {
+        ".github/workflows/valid.yml": "name: valid\\n",
+        ".github/dependabot.yml": "version: 2\\n",
+      },
+    });
+    write(join(repo, ".github", "dependabot.yml"), "version: [\\n");
+    git(repo, ["add", "."]);
+    git(repo, ["commit", "-qm", "malformed dependabot YAML"]);
+    const prBody = body(base);
+    const candidate = inspectFixture({ cwd: repo, baseSha: base, prBody });
+    const realYamlRunner = (command: string, args: string[], options: Record<string, unknown>) =>
+      spawnSync(command, args, {
+        ...options, env: { ...process.env, NODE_PATH: join(process.cwd(), "node_modules") },
+      });
+    const invalid = executeLocalValidation(candidate, repo, ["yaml"], {
+      runner: realYamlRunner,
+      revalidate: () => inspectFixture({ cwd: repo, baseSha: base, prBody }),
+    });
+    expect(invalid.ok).toBe(false);
+    expect(invalid.results).toMatchObject([{ id: "yaml", status: "failed" }]);
+
+    git(repo, ["rm", ".github/dependabot.yml"]);
+    git(repo, ["commit", "-qm", "remove invalid YAML"]);
+    const afterDeletion = inspectFixture({ cwd: repo, baseSha: base, prBody });
+    const deleted = executeLocalValidation(afterDeletion, repo, ["yaml"], {
+      runner: realYamlRunner,
+      revalidate: () => inspectFixture({ cwd: repo, baseSha: base, prBody }),
+    });
+    expect(deleted.ok).toBe(true);
+  });
+
+  it("fails closed rather than reporting targeted coverage for an unmapped code path", () => {
+    const { repo, base } = fixture();
+    write(join(repo, "src", "features", "unmapped.ts"), "export const example = 1;\\n");
+    git(repo, ["add", "."]);
+    git(repo, ["commit", "-qm", "unmapped feature"]);
+    const candidate = inspectFixture({ cwd: repo, baseSha: base, prBody: body(base) });
+    expect(() => executeLocalValidation(candidate, repo, ["targeted"], {
+      runner: () => ({ status: 0, signal: null, stderr: "", stdout: "" }),
+    })).toThrow(/supervisor_preflight:validation: no mapped targeted tests/);
+  });
+
+  it("includes the booking-reminders behavioral suite for affected workflow candidates", () => {
+    const { repo, base } = fixture({
+      baseFiles: { ".github/workflows/booking-reminders.yml": "name: existing\\n" },
+    });
+    write(join(repo, ".github", "workflows", "booking-reminders.yml"), "name: revised\\n");
+    git(repo, ["add", "."]);
+    git(repo, ["commit", "-qm", "booking reminder workflow"]);
+    const candidate = inspectFixture({ cwd: repo, baseSha: base, prBody: body(base) });
+    for (const id of ["targeted", "workflow-semantics"]) {
+      const result = executeLocalValidation(candidate, repo, [id], {
+        runner: (_command: string, args: string[]) => {
+          expect(args).toContain("tests/company-directory-revalidation-scheduling.test.ts");
+          return { status: 0, signal: null, stdout: "", stderr: "" };
+        },
+      });
+      expect(result.ok).toBe(true);
+    }
   });
 
   it("does not mistake a past CodeRabbit review for independent local pre-push proof", () => {

@@ -354,13 +354,46 @@ function validateReviewEvidence(evidence, candidate, requiredFocuses) {
 // This is local execution observation, never independent-review authentication.
 const WORKFLOW_YAML_CHECK = (
   'const fs=require("node:fs"); const path=require("node:path"); const yaml=require("js-yaml");'
-  + 'const dir=".github/workflows";const files=fs.readdirSync(dir).filter(name=>/\\.ya?ml$/.test(name)).sort();'
-  + 'if(!files.length)throw new Error("No workflows found");'
-  + 'for(const file of files)yaml.load(fs.readFileSync(path.join(dir,file),"utf8"));'
-  + 'process.stdout.write("Parsed "+files.length+" workflow files\\n");'
+  + 'const dir=".github/workflows";const workflows=fs.readdirSync(dir).filter(name=>/\\.ya?ml$/.test(name)).map(name=>path.join(dir,name));'
+  + 'if(!workflows.length)throw new Error("No workflows found");'
+  + 'const files=[...new Set([...workflows,...process.argv.slice(1)])].sort();'
+  + 'for(const file of files)yaml.load(fs.readFileSync(file,"utf8"));'
+  + 'process.stdout.write("Parsed "+files.length+" YAML files\\n");'
 );
 
-function commandForCheck(id, cwd) {
+// Unknown behavior-changing paths cannot borrow unrelated fixed-suite PASS evidence.
+function additionalTargetedSuites(candidate) {
+  const bookingWorkflow = ".github/workflows/booking-reminders.yml";
+  const bookingSuites = [
+    "tests/company-directory-revalidation-scheduling.test.ts",
+    "tests/operations-scheduler-route.test.ts",
+    "tests/neon-cost-reset-scheduler-contract.test.ts",
+  ];
+  const mappedSuitePaths = new Set([
+    ".github/workflows/proffera-ci-autofix.yml",
+    "AGENTS.md", "WORKER_BOOTSTRAP.md", "README.md",
+    "scripts/ci-scope-plan.mjs", "tests/ci-scope-plan.test.ts",
+    "tests/github-workflow-yaml.test.ts",
+    "scripts/supervisor-authorization-policy.mjs",
+    "scripts/supervisor-ci-autofix-candidate.mjs",
+    "scripts/supervisor-preflight.mjs",
+    "scripts/supervisor-worker-handoff.mjs",
+    "tests/supervisor-authorization-policy.test.ts",
+    "tests/supervisor-ci-autofix-candidate.test.ts",
+    "tests/supervisor-preflight.test.ts",
+    "tests/supervisor-worker-handoff.test.ts",
+  ]);
+  const unmapped = candidate.diff.paths.filter((path) =>
+    path !== bookingWorkflow
+    && !mappedSuitePaths.has(path)
+    && !path.startsWith("docs/"));
+  if (unmapped.length) {
+    fail("validation", "no mapped targeted tests for candidate paths: " + unmapped.join(", "));
+  }
+  return candidate.diff.paths.includes(bookingWorkflow) ? bookingSuites : [];
+}
+
+function commandForCheck(id, cwd, candidate) {
   const node = process.execPath;
   const vitest = ["node_modules/vitest/vitest.mjs", "run", "--maxWorkers=2", "--reporter=dot"];
   switch (id) {
@@ -370,12 +403,17 @@ function commandForCheck(id, cwd) {
     case "unit": return {command: node, args: [...vitest], cwd, timeout: 1200000};
     case "targeted": return {command: node, args: [...vitest,
       "tests/supervisor-preflight.test.ts", "tests/supervisor-authorization-policy.test.ts",
-      "tests/ci-scope-plan.test.ts", "tests/github-workflow-yaml.test.ts"], cwd, timeout: 300000};
+      "tests/ci-scope-plan.test.ts", "tests/github-workflow-yaml.test.ts",
+      ...additionalTargetedSuites(candidate)], cwd, timeout: 300000};
     case "workflow-semantics": return {command: node, args: [...vitest,
       "tests/github-workflow-yaml.test.ts", "tests/supervisor-authorization-policy.test.ts",
-      "tests/supervisor-ci-autofix-candidate.test.ts", "tests/supervisor-worker-handoff.test.ts"],
+      "tests/supervisor-ci-autofix-candidate.test.ts", "tests/supervisor-worker-handoff.test.ts",
+      ...additionalTargetedSuites(candidate)],
       cwd, timeout: 600000};
-    case "yaml": return {command: node, args: ["-e", WORKFLOW_YAML_CHECK], cwd, timeout: 120000};
+    case "yaml": return {command: node, args: ["-e", WORKFLOW_YAML_CHECK,
+      ...candidate.diff.files.filter((record) => record.new_mode !== "000000"
+        && /\.ya?ml$/i.test(record.path)).map((record) => record.path)],
+      cwd, timeout: 120000};
     case "discovery-worker": return {command: "python", args: ["tests/test_company_directory_discovery_worker.py"],
       cwd, timeout: 300000};
     case "e2e": return {command: node, args: ["node_modules/playwright/cli.js", "test", "--workers=1"],
@@ -398,7 +436,7 @@ export function executeLocalValidation(candidate, cwd, ids, {runner = spawnSync,
   }
   const results = [];
   for (const id of ids) {
-    const spec = commandForCheck(id, cwd);
+    const spec = commandForCheck(id, cwd, candidate);
     const result = runner(spec.command, spec.args, {
       cwd: spec.cwd, encoding: "utf8", windowsHide: true, timeout: spec.timeout,
       maxBuffer: 4 * 1024 * 1024,
