@@ -7,7 +7,7 @@ import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
 
 const require = createRequire(import.meta.url);
-const yaml = require("js-yaml") as { load(source: string): any };
+const yaml = require("js-yaml") as { load(source: string): { jobs: Record<string, unknown> } };
 const root = resolve(process.cwd());
 
 function run(cwd: string, ...args: string[]) {
