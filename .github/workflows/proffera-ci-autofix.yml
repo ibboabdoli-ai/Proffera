@@ -325,6 +325,11 @@ jobs:
           comments_file="$RUNNER_TEMP/proffera-ci-autofix-comments.json"
           gh api --paginate "repos/$REPOSITORY/issues/548/comments?per_page=100" --jq '.[]' | jq -s '.' > "$comments_file"
           jq -e 'type == "array"' "$comments_file" >/dev/null
+          pending_gate="$(node scripts/supervisor-owner-push-pending.mjs gate)"
+          if [ "$(jq -r '.allow' <<< "$pending_gate")" != "true" ]; then
+            echo "Authenticated unresolved owner-push handoff blocks CI Autofix admission."
+            exit 0
+          fi
 
           backfill_terminal_memory() {
             local comments_path="$1"
@@ -760,6 +765,8 @@ jobs:
     outputs:
       published: ${{ steps.handoff.outputs.published }}
       new_head: ${{ steps.commit.outputs.new_head }}
+      artifact_id: ${{ steps.owner_artifact.outputs.artifact-id }}
+      base_sha: ${{ steps.handoff.outputs.base_sha }}
     steps:
       - name: Require original admitted workflow attempt
         shell: bash
@@ -866,9 +873,11 @@ jobs:
           (cd "$RUNNER_TEMP" && sha256sum "proffera-ci-autofix-owner-handoff.bundle" > "proffera-ci-autofix-owner-handoff.bundle.sha256")
           jq -n --arg repo "$REPOSITORY" --argjson pr "$PR_NUMBER"             --arg branch "${{ needs.prepare.outputs.head_ref }}" --arg base "$(jq -r '.base.sha' <<< "$pr")"             --arg parent "$EXPECTED_HEAD" --arg head "$NEW_HEAD" --arg tree "$VALIDATED_TREE"             --argjson run "$GITHUB_RUN_ID" --argjson attempt "$GITHUB_RUN_ATTEMPT"             '{state:"OWNER_PUSH_REQUIRED",published:false,repository:$repo,pr_number:$pr,branch:$branch,base_sha:$base,parent_sha:$parent,head_sha:$head,tree_sha:$tree,run_id:$run,run_attempt:$attempt}'             > "$RUNNER_TEMP/proffera-ci-autofix-owner-handoff.json"
           echo "Owner-push required for $NEW_HEAD. No code was published." >> "$GITHUB_STEP_SUMMARY"
+          echo "base_sha=$(jq -r '.base.sha' <<< "$pr")" >> "$GITHUB_OUTPUT"
           echo "ready=yes" >> "$GITHUB_OUTPUT"
 
       - name: Upload CI Autofix owner handoff
+        id: owner_artifact
         if: steps.handoff.outputs.ready == 'yes'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
@@ -906,7 +915,37 @@ jobs:
         with:
           node-version: 22
 
+      - name: Authenticate uploaded CI Autofix owner handoff
+        id: pending
+        env:
+          GH_TOKEN: ${{ github.token }}
+          LANE: ci_autofix
+          PR_NUMBER: ${{ needs.prepare.outputs.pr_number }}
+          HEAD_REF: ${{ needs.prepare.outputs.head_ref }}
+          PARENT_SHA: ${{ needs.admit.outputs.head_sha }}
+          BASE_SHA: ${{ needs.publish.outputs.base_sha }}
+          NEW_HEAD: ${{ needs.publish.outputs.new_head }}
+          NEW_TREE: ${{ needs.validate.outputs.tree }}
+          ARTIFACT_ID: ${{ needs.publish.outputs.artifact_id }}
+          MODEL_RESULT: ${{ needs.autofix.result }}
+          CHANGED: ${{ needs.autofix.outputs.changed }}
+          VALIDATE_RESULT: ${{ needs.validate.result }}
+          PUBLISH_RESULT: ${{ needs.publish.result }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "pending=no" >> "$GITHUB_OUTPUT"
+          if [ "$MODEL_RESULT" != "success" ] || [ "$CHANGED" != "yes" ] \
+            || [ "$VALIDATE_RESULT" != "success" ] || [ "$PUBLISH_RESULT" != "success" ]; then
+            exit 0
+          fi
+          proof="$(node scripts/supervisor-owner-push-pending.mjs record)"
+          test "$(jq -r '.pending' <<< "$proof")" = true
+          echo "pending=yes" >> "$GITHUB_OUTPUT"
+          echo "Authenticated OWNER_PUSH_PENDING recorded. No publication or terminal repair outcome." >> "$GITHUB_STEP_SUMMARY"
+
       - name: Classify the started CI Autofix model attempt
+        if: steps.pending.outputs.pending != 'yes'
         id: classify
         env:
           GH_TOKEN: ${{ github.token }}

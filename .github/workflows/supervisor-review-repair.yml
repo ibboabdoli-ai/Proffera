@@ -216,6 +216,11 @@ jobs:
           set -euo pipefail
           echo "repair=no" >> "$GITHUB_OUTPUT"
           echo "attempt_started=no" >> "$GITHUB_OUTPUT"
+          pending_gate="$(node scripts/supervisor-owner-push-pending.mjs gate)"
+          if [ "$(jq -r '.allow' <<< "$pending_gate")" != "true" ]; then
+            echo "Authenticated unresolved owner-push handoff blocks automatic repair."
+            exit 0
+          fi
           if [ "$FINDING_COUNT" -eq 0 ]; then
             echo "No settled current-head material review finding; no model attempt is admitted."
             exit 0
@@ -224,7 +229,6 @@ jobs:
           comments_file="$RUNNER_TEMP/proffera-review-repair-comments.json"
           gh api --paginate "repos/${REPOSITORY}/issues/548/comments?per_page=100" --jq '.[]' | jq -s '.' > "$comments_file"
           jq -e 'type == "array"' "$comments_file" >/dev/null
-
           input_file="$RUNNER_TEMP/proffera-review-repair-admit.json"
           build_admit_input() {
             jq -n               --arg repository "$REPOSITORY"               --arg pr_number "$PR_NUMBER"               --arg head "$HEAD_SHA"               --slurpfile finding_ids "$RUNNER_TEMP/proffera-review-repair-evidence/finding_ids.json"               --slurpfile comments "$comments_file"               '{repository:$repository,pr_number:($pr_number|tonumber),head:$head,finding_ids:$finding_ids[0],comments:$comments[0]}'               > "$input_file"
@@ -532,6 +536,11 @@ jobs:
 
   publish:
     name: Stage Review Repair owner-push handoff (no publication)
+    outputs:
+      artifact_id: ${{ steps.owner_artifact.outputs.artifact-id }}
+      new_head: ${{ steps.handoff.outputs.new_head }}
+      tree: ${{ steps.handoff.outputs.tree }}
+      base_sha: ${{ steps.handoff.outputs.base_sha }}
     needs: [repair, validate]
     if: needs.repair.outputs.changed == 'yes' && needs.validate.result == 'success'
     runs-on: ubuntu-latest
@@ -719,9 +728,13 @@ jobs:
           (cd "$RUNNER_TEMP" && sha256sum "proffera-review-repair-owner-handoff.bundle" > "proffera-review-repair-owner-handoff.bundle.sha256")
           jq -n --arg repository "$REPOSITORY" --argjson pr "$PR_NUMBER"             --arg branch "$HEAD_REF" --arg base "$(jq -r '.base.sha' <<< "$pr")"             --arg parent "$EXPECTED_HEAD" --arg head "$head" --arg tree "$tree"             --arg findings "$FINDINGS_SHA" --argjson run "$GITHUB_RUN_ID" --argjson attempt "$GITHUB_RUN_ATTEMPT"             '{state:"OWNER_PUSH_REQUIRED",published:false,repository:$repository,pr_number:$pr,branch:$branch,base_sha:$base,parent_sha:$parent,head_sha:$head,tree_sha:$tree,finding_set_sha256:$findings,run_id:$run,run_attempt:$attempt}'             > "$RUNNER_TEMP/proffera-review-repair-owner-handoff.json"
           echo "Owner approval required for repair $head / tree $tree. No push performed." >> "$GITHUB_STEP_SUMMARY"
+          echo "new_head=$head" >> "$GITHUB_OUTPUT"
+          echo "tree=$tree" >> "$GITHUB_OUTPUT"
+          echo "base_sha=$(jq -r '.base.sha' <<< "$pr")" >> "$GITHUB_OUTPUT"
           echo "ready=yes" >> "$GITHUB_OUTPUT"
 
       - name: Upload Review Repair owner handoff
+        id: owner_artifact
         if: steps.handoff.outputs.ready == 'yes'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
@@ -767,7 +780,38 @@ jobs:
           name: supervisor-review-evidence-${{ needs.admit.outputs.admitted_run_id }}-${{ needs.admit.outputs.admitted_run_attempt }}-${{ needs.admit.outputs.head_sha }}
           path: ${{ runner.temp }}/proffera-review-repair-evidence
 
+      - name: Authenticate uploaded owner-push handoff
+        id: pending
+        env:
+          GH_TOKEN: ${{ github.token }}
+          LANE: review_repair
+          PR_NUMBER: ${{ inputs.pr_number }}
+          HEAD_REF: ${{ needs.admit.outputs.head_ref }}
+          PARENT_SHA: ${{ needs.admit.outputs.head_sha }}
+          BASE_SHA: ${{ needs.publish.outputs.base_sha }}
+          NEW_HEAD: ${{ needs.publish.outputs.new_head }}
+          NEW_TREE: ${{ needs.publish.outputs.tree }}
+          FINDINGS_SHA: ${{ needs.admit.outputs.finding_set_sha256 }}
+          ARTIFACT_ID: ${{ needs.publish.outputs.artifact_id }}
+          REPAIR_RESULT: ${{ needs.repair.result }}
+          CHANGED: ${{ needs.repair.outputs.changed }}
+          VALIDATE_RESULT: ${{ needs.validate.result }}
+          PUBLISH_RESULT: ${{ needs.publish.result }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "pending=no" >> "$GITHUB_OUTPUT"
+          if [ "$REPAIR_RESULT" != "success" ] || [ "$CHANGED" != "yes" ] \
+            || [ "$VALIDATE_RESULT" != "success" ] || [ "$PUBLISH_RESULT" != "success" ]; then
+            exit 0
+          fi
+          proof="$(node scripts/supervisor-owner-push-pending.mjs record)"
+          test "$(jq -r '.pending' <<< "$proof")" = true
+          echo "pending=yes" >> "$GITHUB_OUTPUT"
+          echo "Authenticated OWNER_PUSH_PENDING recorded. No publication or terminal repair outcome." >> "$GITHUB_STEP_SUMMARY"
+
       - name: Classify the started model attempt
+        if: steps.pending.outputs.pending != 'yes'
         id: classify
         env:
           GH_TOKEN: ${{ github.token }}

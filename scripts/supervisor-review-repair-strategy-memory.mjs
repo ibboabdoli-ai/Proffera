@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { pathToFileURL } from "node:url";
+import { readPending } from "./supervisor-owner-push-pending.mjs";
 import {
   fingerprintEvidence,
   fingerprintStrategy,
@@ -413,7 +414,7 @@ function recordAttemptKeys(records) {
   return keys;
 }
 
-export function decideReviewRepairStrategyHistory({pr_number, head, finding_ids, records, starts}) {
+export function decideReviewRepairStrategyHistory({pr_number, head, finding_ids, records, starts, pending = []}) {
   const descriptor = reviewRepairStrategyDescriptor({pr_number, head, finding_ids});
   if (!Array.isArray(records) || !Array.isArray(starts)) fail("history");
   const allRecordKeys = recordAttemptKeys(records);
@@ -424,7 +425,9 @@ export function decideReviewRepairStrategyHistory({pr_number, head, finding_ids,
     sha(start.head, "start_head");
     return `${start.run_id}:${start.run_attempt}`;
   }));
-  const allAttempts = new Set([...allRecordKeys, ...allStartKeys]);
+  const pendingKeys = new Set(pending.filter(item => item.lane === 'review_repair')
+    .map(item => item.run_id + ':' + item.run_attempt));
+  const allAttempts = new Set([...allRecordKeys, ...allStartKeys, ...pendingKeys]);
 
   const matchingRecords = records.filter((record) => record?.action_id === "review_repair_attempt"
     && record?.evidence_fingerprint === descriptor.evidence_fingerprint
@@ -432,7 +435,15 @@ export function decideReviewRepairStrategyHistory({pr_number, head, finding_ids,
   // Admission is PR-scoped: while any model attempt lacks a durable outcome,
   // a changed head/finding burst must not start a concurrent model execution.
   // Proven pre-launch orphans are removed from starts before this decision.
-  const unresolved = starts.filter((start) => !allRecordKeys.has(`${start.run_id}:${start.run_attempt}`));
+  const unresolved = starts.filter((start) => !allRecordKeys.has(`${start.run_id}:${start.run_attempt}`)
+    && !pendingKeys.has(`${start.run_id}:${start.run_attempt}`));
+  if (pending.some(item => !item.resolution)) return {
+    decision:'SUPPRESS_UNRESOLVED_ATTEMPT',
+    reason:'An authenticated owner-push handoff is unresolved on this PR.',
+    attempts:allAttempts.size,unresolved_attempts:unresolved.length,...descriptor};
+  if (pending.some(item => item.lane === 'review_repair' && item.parent_sha === descriptor.head)) return {
+    decision:'SUPPRESS_REPEAT',reason:'This HEAD already consumed a Review Repair handoff attempt.',
+    attempts:allAttempts.size,unresolved_attempts:unresolved.length,...descriptor};
 
   if (matchingRecords.length > 0) {
     return {
@@ -520,11 +531,12 @@ export function reviewRepairMemoryState({repository: repo, pr_number, comments})
     {repository: EXPECTED_REPOSITORY, pr_number: prNumber},
     snapshot.memory.records,
   );
+  const pending = readPending(comments,prNumber);
+  const recorded = recordAttemptKeys(snapshot.memory.records);
+  if (pending.some(item => recorded.has(item.run_id + ':' + item.run_attempt))) fail('pending_terminal_conflict');
   return {
-    snapshot,
-    records: snapshot.memory.records,
-    starts: active.starts,
-    recoveries: active.recoveries,
+    snapshot,records:snapshot.memory.records,starts:active.starts,
+    recoveries:active.recoveries,pending,
   };
 }
 
@@ -534,7 +546,10 @@ export function unresolvedReviewRepairStarts(input) {
   // Recovery is PR-scoped, not current-evidence-scoped. A pre-model orphan from
   // an older head/finding burst must not keep consuming the bounded model budget
   // after review evidence changes.
-  return state.starts.filter((start) => !recorded.has(`${start.run_id}:${start.run_attempt}`));
+  const pendingKeys = new Set(state.pending.filter(item => item.lane === 'review_repair')
+    .map(item => item.run_id + ':' + item.run_attempt));
+  return state.starts.filter((start) => !recorded.has(`${start.run_id}:${start.run_attempt}`)
+    && !pendingKeys.has(`${start.run_id}:${start.run_attempt}`));
 }
 
 export function prepareReviewRepairOutcome(input) {
@@ -615,6 +630,7 @@ async function main(args) {
       finding_ids: parsed.finding_ids,
       records: state.records,
       starts: state.starts,
+      pending: state.pending,
     })) + "\n");
     return;
   }

@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { pathToFileURL } from "node:url";
+import { readPending } from "./supervisor-owner-push-pending.mjs";
 import { stripVTControlCharacters } from "node:util";
 import {
   fingerprintEvidence,
@@ -514,7 +515,8 @@ export function prepareCiAutofixTerminal(input) {
 export function proveCiAutofixModelNotLaunched(input) {
   const jobs = input?.jobs;
   if (!Array.isArray(jobs) || jobs.length > 1000) fail("recovery_jobs");
-  const downstream = jobs.filter((job) => ["Validate CI Autofix candidate", "Publish CI Autofix candidate"].includes(job?.name));
+  const downstream = jobs.filter((job) => ["Validate CI Autofix candidate", "Publish CI Autofix candidate",
+    "Stage CI Autofix owner-push handoff (no publication)"].includes(job?.name));
   if (new Set(downstream.map((job) => job.name)).size !== downstream.length) fail("autofix_jobs_binding");
   const downstreamRan = downstream.some((job) => job.status !== "completed" || job.conclusion !== "skipped"
     || job.steps?.some((step) => step.status !== "completed" || step.conclusion !== "skipped"));
@@ -528,7 +530,8 @@ export function proveCiAutofixModelNotLaunched(input) {
   if (!Array.isArray(job.steps)) return {recoverable: false, reason: "job_steps_unavailable"};
   const modelSteps = job.steps.filter((step) => step?.name === "Run one bounded Codex repair attempt");
   const postModel = job.steps.filter((step) => ["Capture bounded repair candidate", "Validate bounded repair without repository token",
-    "Push validated repair and report", "Publish validated repair", "Verify and report published repair"].includes(step?.name));
+    "Push validated repair and report", "Publish validated repair", "Verify and report published repair",
+    "Stage CI Autofix commit for owner push", "Upload CI Autofix owner handoff"].includes(step?.name));
   const postModelRan = downstreamRan || postModel.some((step) => step?.conclusion !== "skipped");
   if (modelSteps.length > 1 || postModelRan && (modelSteps.length === 0 || modelSteps[0]?.conclusion === "skipped")) {
     return {recoverable: false, reason: "model_evidence_contradictory"};
@@ -554,7 +557,14 @@ export function proveCiAutofixModelNotLaunched(input) {
 // evidence may strengthen unknown. This helper also serves historical recovery.
 export function classifyCiAutofixOutcome(input) {
   const launch = proveCiAutofixModelNotLaunched(input);
-  if (input?.published === "yes") return {persist: true, outcome: "succeeded"};
+  const staged = input.jobs.filter(item => item.name === "Stage CI Autofix owner-push handoff (no publication)");
+  if (staged.length > 1) fail("current_handoff_job_collision");
+  if (staged.length === 1 && staged[0].status === "completed" && staged[0].conclusion === "success") {
+    const uploads=(staged[0].steps||[]).filter(step=>step.name === "Upload CI Autofix owner handoff");
+    if (uploads.length !== 1 || uploads[0].status !== "completed"
+      || uploads[0].conclusion !== "success") fail("unverified_handoff_upload");
+    return {persist:false,reason:"authenticated_pending_record_required"};
+  }
   if (launch.recoverable) return {persist: false, reason: launch.reason};
   if (launch.reason !== "model_step_may_have_launched") fail(launch.reason);
   const job = input.jobs.find((item) => item.name === "Bounded Codex CI autofix");
@@ -563,8 +573,13 @@ export function classifyCiAutofixOutcome(input) {
   const publication = input.jobs.find((item) => item.name === "Publish CI Autofix candidate");
   const publishedSteps = publication?.steps?.filter((step) => step.name === "Publish validated repair") ?? [];
   if (publishedSteps.length > 1) fail("publication_steps_binding");
+  // Preserve historical positive step-level push proof, including cases
+  // where verification/reporting failed after the Git push itself succeeded.
+  // Current owner-handoff staging never uses these legacy publication steps.
   if (completed("Publish validated repair", "success")
-    || publishedSteps[0]?.status === "completed" && publishedSteps[0]?.conclusion === "success") return {persist: true, outcome: "succeeded"};
+    || (publishedSteps.length === 1 && publishedSteps[0].status === "completed"
+      && publishedSteps[0].conclusion === "success"))
+    return {persist:true,outcome:"succeeded"};
   if (input?.changed === "no" && completed("Run one bounded Codex repair attempt", "success")
     && (completed("Capture bounded repair candidate", "success")
       || completed("Validate bounded repair without repository token", "success"))) return {persist: true, outcome: "no_change"};
@@ -629,6 +644,7 @@ export function proveCiAutofixIndeterminateRecovery(input) {
   const observedAt = String(run.updated_at ?? "");
   if (!/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d{3})?Z$/.test(observedAt)) fail("indeterminate_observed_at");
   const result = classifyCiAutofixOutcome({jobs});
+  if (!result.persist) return {recoverable:false,reason:result.reason};
   return {recoverable: true, reason: "model_outcome_" + result.outcome,
     outcome: result.outcome, observed_at: observedAt};
 }
@@ -776,12 +792,14 @@ function activeCiAutofixStarts(comments, scope, records, terminals) {
   return {starts: starts.filter((start) => !recovered.has(`${start.run_id}:${start.run_attempt}`)), recoveries};
 }
 
-export function decideCiAutofixStrategyHistory({pr_number, head, failures: failureSet, records, starts, terminals = []}) {
+export function decideCiAutofixStrategyHistory({pr_number, head, failures: failureSet, records, starts, terminals = [], pending = []}) {
   const descriptor = ciAutofixStrategyDescriptor({pr_number, head, failures: failureSet});
   if (!Array.isArray(records) || !Array.isArray(starts) || !Array.isArray(terminals)) fail("history");
   const recordKeys = recordAttemptKeys(records);
   const terminalKeys = new Set(terminals.map((terminal) => `${terminal.run_id}:${terminal.run_attempt}`));
-  const durableAttemptKeys = new Set([...recordKeys, ...terminalKeys]);
+  const pendingKeys = new Set(pending.filter(item => item.lane === "ci_autofix")
+    .map(item => item.run_id + ":" + item.run_attempt));
+  const durableAttemptKeys = new Set([...recordKeys, ...terminalKeys, ...pendingKeys]);
   const laneRecords = records.filter((record) => record?.action_id === "ci_autofix_attempt");
   const matchingRecords = laneRecords.filter((record) =>
     record?.evidence_fingerprint === descriptor.evidence_fingerprint
@@ -790,6 +808,12 @@ export function decideCiAutofixStrategyHistory({pr_number, head, failures: failu
     terminal?.evidence_fingerprint === descriptor.evidence_fingerprint
     && terminal?.strategy_fingerprint === descriptor.strategy_fingerprint);
   const unresolved = starts.filter((start) => !durableAttemptKeys.has(`${start.run_id}:${start.run_attempt}`));
+  if (pending.some(item=>!item.resolution)) return {
+    decision:"SUPPRESS_UNRESOLVED_ATTEMPT",reason:"An authenticated owner-push handoff is unresolved.",
+    prior_attempts:durableAttemptKeys.size,unresolved_attempts:unresolved.length,...descriptor};
+  if (pending.some(item=>item.lane==="ci_autofix"&&item.parent_sha===descriptor.head))
+    return {decision:"SUPPRESS_REPEAT",reason:"This HEAD already consumed a CI Autofix handoff attempt.",
+      prior_attempts:durableAttemptKeys.size,unresolved_attempts:unresolved.length,...descriptor};
   if (matchingRecords.length > 0 || matchingTerminals.length > 0) {
     return {decision: "SUPPRESS_REPEAT",
       reason: "The same exact-head CI failure evidence and autofix strategy already has a durable model-attempt outcome.",
@@ -847,15 +871,23 @@ export function ciAutofixMemoryState({repository: repo, pr_number, comments}) {
   const terminals = parseCiAutofixTerminals(comments, {repository: EXPECTED_REPOSITORY, pr_number: prNumber});
   const active = activeCiAutofixStarts(
     comments, {repository: EXPECTED_REPOSITORY, pr_number: prNumber}, snapshot.memory.records, terminals);
-  return {snapshot, records: snapshot.memory.records, starts: active.starts, recoveries: active.recoveries, terminals};
+  const pending=readPending(comments,prNumber);
+  const existing=new Set([...recordAttemptKeys(snapshot.memory.records),
+    ...terminals.map(item=>item.run_id+":"+item.run_attempt)]);
+  if(pending.some(item=>existing.has(item.run_id+":"+item.run_attempt)))fail("pending_terminal_conflict");
+  return {snapshot, records:snapshot.memory.records, starts:active.starts,
+    recoveries:active.recoveries,terminals,pending};
 }
 
 export function unresolvedCiAutofixStarts(input) {
   const state = ciAutofixMemoryState(input);
   const recorded = recordAttemptKeys(state.records);
   const terminalKeys = new Set(state.terminals.map((terminal) => `${terminal.run_id}:${terminal.run_attempt}`));
+  const pendingKeys=new Set(state.pending.filter(item=>item.lane==='ci_autofix')
+    .map(item=>item.run_id+":"+item.run_attempt));
   return state.starts.filter((start) => !recorded.has(`${start.run_id}:${start.run_attempt}`)
-    && !terminalKeys.has(`${start.run_id}:${start.run_attempt}`));
+    && !terminalKeys.has(`${start.run_id}:${start.run_attempt}`)
+    && !pendingKeys.has(`${start.run_id}:${start.run_attempt}`));
 }
 
 export function ciAutofixAdmittedFailures(input) {
@@ -1008,6 +1040,7 @@ async function main(args) {
     return void process.stdout.write(JSON.stringify(decideCiAutofixStrategyHistory({
       pr_number: parsed.pr_number, head: parsed.head, failures: parsed.failures,
       records: state.records, starts: state.starts, terminals: state.terminals,
+      pending: state.pending,
     })) + "\n");
   }
   if (mode === "prepare-outcome") {

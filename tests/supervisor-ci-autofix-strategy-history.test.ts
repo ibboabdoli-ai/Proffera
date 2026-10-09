@@ -848,8 +848,9 @@ describe("CI Autofix truthful terminal outcomes", () => {
     const noChange = jobs("success", [step(modelName, "success"), step("Validate bounded repair without repository token", "success")]);
     expect(classifyCiAutofixOutcome({jobs: noChange, changed: "no"})).toEqual({persist: true, outcome: "no_change"});
     expect(classifyCiAutofixOutcome({jobs: noChange})).toEqual({persist: true, outcome: "unknown"});
+    // A caller-supplied published=yes flag is not authenticated push evidence.
     expect(classifyCiAutofixOutcome({jobs: jobs("cancelled", [step(modelName, "success")]), published: "yes"}))
-      .toEqual({persist: true, outcome: "succeeded"});
+      .toEqual({persist: true, outcome: "unknown"});
     expect(classifyCiAutofixOutcome({jobs: jobs("failure", [step(modelName, "success"), step("Publish validated repair", "success"),
       step("Verify and report published repair", "failure")])})).toEqual({persist: true, outcome: "succeeded"});
   });
