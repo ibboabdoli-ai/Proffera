@@ -150,6 +150,17 @@ afterEach(() => {
 });
 
 describe("canonical Supervisor pre-publication gate", () => {
+  it("keeps Next generated build outputs from invalidating candidate cleanliness", () => {
+    const root = process.cwd();
+    const ignored = spawnSync("git", ["check-ignore", "--quiet", ".next/build/cache"], {cwd: root, encoding: "utf8"});
+    expect(ignored.status, ignored.stderr).toBe(0);
+    const config = JSON.parse(readFileSync(join(root, "tsconfig.json"), "utf8"));
+    expect(config.include).toContain(".next/dev/types/**/*.ts");
+    const nextEnv = readFileSync(join(root, "next-env.d.ts"), "utf8");
+    expect(nextEnv).toContain('import "./.next/types/routes.d.ts";');
+    expect(nextEnv).toContain('import "./.next/types/root-params.d.ts";');
+  });
+
   it("accepts a clean committed candidate and reports its immutable identity", () => {
     const { root, repo, base } = fixture();
     write(join(repo, "docs", "note.md"), "candidate\n");
