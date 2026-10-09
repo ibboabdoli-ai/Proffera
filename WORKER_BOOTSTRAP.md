@@ -46,29 +46,19 @@ SonarQube credentials must never be committed or logged. The repository-side int
 - Keep one graph path / purpose per branch.
 - Identify the task using a GitHub issue number when one exists; otherwise use `user-request`.
 
-## Pre-publication handoff
+## Owner-push candidate handoff
 
-Before every implementation or repair push, freeze the committed candidate and run the canonical local publication gate under Node 22:
+Freeze a clean committed candidate on the existing branch. Verify its complete path/mode scope against live `main` and the exact PR body under Node 22:
 
-```text
-node scripts/supervisor-preflight.mjs snapshot --base <current-main-sha> --pr-body <exact-pr-body-file>
-```
+`node scripts/supervisor-preflight.mjs owner-handoff --base <current-main-sha> --pr-body <exact-pr-body-file>`
 
-Run the scope-selected local validation and an independent candidate-bound adversarial review against that exact snapshot, record their candidate-bound evidence, then require:
+This is a local identity/scope observation, **not independent review or push approval**. `owner_push_authorized`, `publication_ready` and `merge_authorized` must remain false. Run selected local checks through the existing `run-checks` allowlist and report actually incomplete tests. Head/tree, branch, PR body or base changes invalidate local evidence.
 
-```text
-node scripts/supervisor-preflight.mjs verify --base <current-main-sha> --pr-body <exact-pr-body-file> --validation <validation-evidence.json> --review <review-evidence.json>
-```
+Worker Handoff, Review Repair and CI Autofix must stop at durable `OWNER_PUSH_REQUIRED` bundle/manifest artifacts instead of pushing. The owner independently verifies the manifest, bundle digest, exact commit/tree, parent, live PR branch and authorization before a separate non-force fast-forward push. A staged repair is never reported as published. Preserve the Worker `RECOVERABLE` reservation state and exact Task Packet.
 
-The gate must be rerun before **every push**, including Draft repair pushes. Any code, base, branch, tree, metadata, scope or authorization change invalidates stale evidence. Do not publish with missing required validation, an earlier-candidate review, incomplete path accounting, or an unresolved verified defect. The only validation IDs that may be marked `hosted-required` are `unit` and `e2e`, after a real local attempt demonstrates a Linux/container capability gap; include the attempted command, reason and `hosted_evidence_required=true`. Lint, typecheck, build, targeted regressions, YAML/workflow semantics and discovery-worker validation must pass locally when selected. A Draft carrying hosted-required evidence cannot advance until the hosted lanes pass on the exact head. The preflight receipt is not merge/deploy authority and never substitutes for hosted CI or exact-head final review.
+After push, Linux GitHub Actions and fresh exact-HEAD CodeRabbit `APPROVED` review provide authenticated evidence; Codex is supplemental only. Owner manually checks run IDs/attempts, actual workflow identity, review IDs and all P0/P1/P2 findings before separately authorizing an exact-HEAD merge. Missing, stale, spoofed, skipped, neutral, timed-out or incomplete evidence blocks. Vercel branch exclusions remain unchanged.
 
-To directly observe a fixed, selected local validation check on the frozen candidate, run `node scripts/supervisor-preflight.mjs run-checks --base <current-main-sha> --pr-body <exact-pr-body-file> --checks <selected-comma-separated-IDs>`. This executes repository-owned commands and reports their real exit codes and remaining checks; it does not accept arbitrary caller commands, mark the independent review verified, or authorize publication. Do not substitute partial `run-checks` success for the canonical `verify` gate.
-
-The CI Autofix publishing workflow has a credential-free hard stop before its token-bearing publish step until an authenticated Supervisor preflight provenance issuer/verifier is implemented. This is intentionally unavailable for auto-publication and must not be bypassed with caller-authored JSON.
-
-A read-only `hosted-review-status` mode in the same script checks paginated GitHub CodeRabbit review identity and exact commit against the frozen candidate, without granting push authority or replacing independent local review. When the local candidate is ahead of the PR's remote head, the diagnostic reports that mismatch and review remains pending.
-
-Preflight JSON is a consistency record, not authenticated execution or reviewer provenance. The current `verify` command fails closed with `evidence_provenance_unverified` even for consistent caller-supplied claims; no authenticated local adapter is available. Do not convert that result into a successful publication receipt or bypass the existing CI/review and owner-authorization gates.
+The existing `verify` command deliberately fails closed with `evidence_provenance_unverified` on caller-supplied JSON. `hosted-review-status` is read-only and non-authorizing; neither replaces owner approval nor creates an enforceable same-named Actions check.
 
 ## Pull request handoff
 

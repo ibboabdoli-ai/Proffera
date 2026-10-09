@@ -515,30 +515,17 @@ describe("canonical Supervisor pre-publication gate", () => {
     expect(observed.ok).toBe(true);
   });
 
-  it("fails closed before both Supervisor publication credential boundaries", () => {
-    const cases = [
-      ["supervisor-worker-handoff.yml", "Require authenticated Supervisor provenance before Worker publication",
-        "Publish branch normally or persist validated recovery artifact"],
-      ["supervisor-review-repair.yml", "Require authenticated Supervisor provenance before Review Repair publication",
-        "Publish one same-branch repair commit"],
-    ];
-    for (const [filename, gateName, publisherName] of cases) {
-      const source = readFileSync(join(process.cwd(), ".github", "workflows", filename), "utf8").replaceAll("\r\n", "\n");
-      const gateIndex = source.indexOf("      - name: " + gateName + "\n");
-      expect(gateIndex, filename).toBeGreaterThan(0);
-      const publishIndex = source.indexOf("      - name: " + publisherName + "\n", gateIndex);
-      expect(publishIndex, filename).toBeGreaterThan(gateIndex);
-      const block = source.slice(gateIndex, publishIndex);
-      expect(block).not.toContain("PUSH_TOKEN");
-      const marker = "        run: |\n";
-      const scriptStart = block.indexOf(marker);
-      expect(scriptStart, filename).toBeGreaterThan(0);
-      const script = block.slice(scriptStart + marker.length).split("\n")
-        .filter((line) => line.trim() !== "")
-        .map((line) => line.replace(/^          /, "")).join("\n");
-      const actual = spawnSync("bash", ["-c", script], {encoding: "utf8"});
-      expect(actual.status, actual.stderr).toBe(1);
-      expect(actual.stderr).toContain("publication blocked");
+  it("stages Worker and Review Repair only as owner-push artifacts, never automatic publication", () => {
+    for (const filename of ["supervisor-worker-handoff.yml", "supervisor-review-repair.yml"]) {
+      const workflow = readFileSync(join(process.cwd(), ".github", "workflows", filename), "utf8");
+      const pub = workflow.slice(workflow.indexOf("\n  publish:\n"), workflow.indexOf("\n  record:\n") > 0
+        ? workflow.indexOf("\n  record:\n") : workflow.length);
+      expect(pub, filename).toContain("git bundle create");
+      expect(pub, filename).toContain("git bundle verify");
+      expect(pub, filename).toContain("upload-artifact@");
+      expect(pub, filename).not.toMatch(/\bgit\s+push\b/);
+      expect(pub, filename).not.toContain("PUSH_TOKEN:");
+      expect(pub, filename).not.toContain("PROFFERA_AUTOFIX_PUSH_TOKEN");
     }
   });
 
@@ -636,32 +623,16 @@ describe("canonical Supervisor pre-publication gate", () => {
       [[{ ...review(1, "APPROVED"), commit_id: "bogus" }]], 941)).toThrow(/malformed/);
   });
 
-  it("blocks CI Autofix publication without trusted pre-push provenance before credentials", () => {
+  it("stages CI Autofix without token-bearing publication or fabricated success", () => {
     const workflow = readFileSync(join(process.cwd(), ".github", "workflows", "proffera-ci-autofix.yml"), "utf8");
-    const publishIndex = workflow.indexOf("\n  publish:\n");
-    expect(publishIndex).toBeGreaterThan(0);
-    const remaining = workflow.slice(publishIndex + 1);
-    const nextJob = remaining.search(/\n  [a-z][a-z0-9_-]*:\s*\n/);
-    const publication = nextJob >= 0
-      ? workflow.slice(publishIndex, publishIndex + 1 + nextJob)
-      : workflow.slice(publishIndex);
-    // The publication boundary must fail while no authenticated external reviewer exists.
-    const gateName = "Require authenticated Supervisor provenance before autofix publication";
-    const pushName = "Publish validated repair";
-    const gateIndex = publication.indexOf(gateName);
-    const pushIndex = publication.indexOf(pushName);
-    expect(gateIndex).toBeGreaterThan(0);
-    expect(pushIndex).toBeGreaterThan(gateIndex);
-    const between = publication.slice(gateIndex, pushIndex);
-    expect(between).not.toContain("PUSH_TOKEN");
-    const code = between.match(/run: \|\r?\n((?:          .*\r?\n)+)/);
-    expect(code).not.toBeNull();
-    const script = code![1].split(/\r?\n/).map((line) => line.replace(/^          /, "")).join("\n");
-    const executed = spawnSync("bash", ["-c", script], { encoding: "utf8" });
-    expect(executed.status, executed.stderr).toBe(1);
-    expect(executed.stdout).toContain("CI Autofix publication blocked");
-    expect(publication.slice(0, pushIndex)).not.toMatch(/\bgit\s+.*\bpush\b/);
-    expect(publication.slice(pushIndex)).toContain("PUSH_TOKEN:");
+    const pub = workflow.slice(workflow.indexOf("\n  publish:\n"), workflow.indexOf("\n  record:\n"));
+    expect(pub).toContain("Stage CI Autofix commit for owner push");
+    expect(pub).toContain("git bundle create");
+    expect(pub).toContain("Upload CI Autofix owner handoff");
+    expect(pub).toContain("published=no");
+    expect(pub).not.toMatch(/\bgit\s+push\b/);
+    expect(pub).not.toContain("PUSH_TOKEN:");
+    expect(pub).not.toContain("PROFFERA_AUTOFIX_PUSH_TOKEN");
   });
 
   it("invalidates prior validation and review evidence after the candidate changes", () => {
@@ -834,5 +805,42 @@ describe("canonical Supervisor pre-publication gate", () => {
     ]);
     expect(missing.status).toBe(1);
     expect(missing.stderr).toContain("required validation evidence is missing");
+  });
+});
+
+
+describe("owner-authorized PR-push handoff", () => {
+  it("reports a checked candidate without fabricating independent review, push or merge authority", () => {
+    const f = fixture();
+    write(join(f.repo, "docs", "change.md"), "local candidate\n");
+    git(f.repo, ["add", "."]);
+    git(f.repo, ["commit", "-qm", "candidate"]);
+    const prBody = writeBody(f.root, body(f.base));
+    const result = cli(f.repo, ["owner-handoff", "--base", f.base, "--pr-body", prBody]);
+    expect(result.status, result.stderr).toBe(0);
+    const receipt = JSON.parse(result.stdout);
+    expect(receipt.phase).toBe("pre_push_local_candidate");
+    expect(receipt.local_identity_checked).toBe(true);
+    expect(receipt.candidate.head_sha).toBe(git(f.repo, ["rev-parse", "HEAD"]).stdout.trim());
+    expect(receipt).toMatchObject({
+      validation_execution_verified: false, independent_review_verified: false,
+      owner_push_authorized: false, publication_ready: false, merge_authorized: false,
+    });
+    expect(receipt.required_validation_checks.length).toBeGreaterThan(0);
+  });
+
+  it("refuses a dirty or stale local handoff instead of authorizing a push", () => {
+    const f = fixture();
+    write(join(f.repo, "docs", "change.md"), "local candidate\n");
+    git(f.repo, ["add", "."]);
+    git(f.repo, ["commit", "-qm", "candidate"]);
+    const prBody = writeBody(f.root, body(f.base));
+    write(join(f.repo, "docs", "change.md"), "unsaved edits\n");
+    const dirty = cli(f.repo, ["owner-handoff", "--base", f.base, "--pr-body", prBody]);
+    expect(dirty.status).toBe(1);
+    expect(dirty.stderr).toContain("candidate must be fully committed");
+    git(f.repo, ["checkout", "--", "docs/change.md"]);
+    const stale = cli(f.repo, ["owner-handoff", "--base", "0".repeat(40), "--pr-body", prBody]);
+    expect(stale.status).toBe(1);
   });
 });

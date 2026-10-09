@@ -50,7 +50,6 @@ jobs:
       head_sha: ${{ steps.qualify.outputs.head_sha }}
       base_sha: ${{ steps.qualify.outputs.base_sha }}
       api_available: ${{ steps.qualify.outputs.api_available }}
-      push_available: ${{ steps.qualify.outputs.push_available }}
       source_run_id: ${{ steps.qualify.outputs.source_run_id }}
       source_run_attempt: ${{ steps.qualify.outputs.source_run_attempt }}
     steps:
@@ -69,7 +68,6 @@ jobs:
           RUN_HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
           EVENT_PR_NUMBER: ${{ github.event.workflow_run.pull_requests[0].number }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          AUTOFIX_PUSH_TOKEN: ${{ secrets.PROFFERA_AUTOFIX_PUSH_TOKEN }}
           STANDING_AUTH_PATH: .github/proffera-standing-merge-authorization.json
           HUMAN_APPROVER: ibboabdoli-ai
         shell: bash
@@ -78,20 +76,17 @@ jobs:
 
           safe=no
           api_available=no
-          push_available=no
           pr_number=""
           head_ref=""
           head_sha=""
           base_sha=""
 
           [ -n "$OPENAI_API_KEY" ] && api_available=yes
-          [ -n "$AUTOFIX_PUSH_TOKEN" ] && push_available=yes
 
           finish() {
             {
               echo "safe=$safe"
               echo "api_available=$api_available"
-              echo "push_available=$push_available"
               echo "source_run_id=$RUN_ID"
               echo "source_run_attempt=$RUN_ATTEMPT"
               echo "pr_number=$pr_number"
@@ -239,9 +234,9 @@ jobs:
           echo "PR #$pr_number head $head_sha qualifies for one bounded autofix attempt."
 
   report_missing:
-    name: Report unavailable CI autofix credentials
+    name: Report unavailable CI Autofix model credential
     needs: prepare
-    if: needs.prepare.outputs.safe == 'yes' && (needs.prepare.outputs.api_available != 'yes' || needs.prepare.outputs.push_available != 'yes')
+    if: needs.prepare.outputs.safe == 'yes' && needs.prepare.outputs.api_available != 'yes'
     runs-on: ubuntu-latest
     permissions:
       pull-requests: write
@@ -252,17 +247,12 @@ jobs:
           REPOSITORY: ${{ github.repository }}
           PR_NUMBER: ${{ needs.prepare.outputs.pr_number }}
           API_AVAILABLE: ${{ needs.prepare.outputs.api_available }}
-          PUSH_AVAILABLE: ${{ needs.prepare.outputs.push_available }}
         shell: bash
         run: |
           set -euo pipefail
           marker='<!-- proffera-ci-autofix -->'
           missing=""
           [ "$API_AVAILABLE" != "yes" ] && missing="OPENAI_API_KEY"
-          if [ "$PUSH_AVAILABLE" != "yes" ]; then
-            [ -n "$missing" ] && missing="$missing and "
-            missing="${missing}PROFFERA_AUTOFIX_PUSH_TOKEN"
-          fi
           body="$(printf '%s\n%s\n' "$marker" "Instant CI autofix is configured for this authorized PR, but ${missing} is not available to GitHub Actions. No code was changed and merge gates remain fail-closed.")"
           comments="$(gh api --paginate "repos/$REPOSITORY/issues/$PR_NUMBER/comments?per_page=100" --jq '.[]' | jq -s '.')"
           comment_id="$(jq -r --arg marker "$marker" '[.[] | select(.user.login == "github-actions[bot]" and ((.body // "") | contains($marker)))] | last | .id // empty' <<< "$comments")"
@@ -275,7 +265,7 @@ jobs:
   admit:
     name: Admit one bounded CI autofix strategy
     needs: prepare
-    if: needs.prepare.outputs.safe == 'yes' && needs.prepare.outputs.api_available == 'yes' && needs.prepare.outputs.push_available == 'yes'
+    if: needs.prepare.outputs.safe == 'yes' && needs.prepare.outputs.api_available == 'yes'
     concurrency:
       group: proffera-final-gate-memory-${{ fromJSON(needs.prepare.outputs.pr_number) }}
       cancel-in-progress: false
@@ -508,7 +498,7 @@ jobs:
       final_message: ${{ steps.codex.outputs.final-message }}
     steps:
       - name: Checkout exact failed head
-        if: needs.prepare.outputs.api_available == 'yes' && needs.prepare.outputs.push_available == 'yes'
+        if: needs.prepare.outputs.api_available == 'yes'
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           ref: ${{ needs.admit.outputs.head_sha }}
@@ -516,18 +506,18 @@ jobs:
           persist-credentials: false
 
       - name: Setup Node
-        if: needs.prepare.outputs.api_available == 'yes' && needs.prepare.outputs.push_available == 'yes'
+        if: needs.prepare.outputs.api_available == 'yes'
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
           node-version: 22
           cache: npm
 
       - name: Install dependencies before sandboxed repair
-        if: needs.prepare.outputs.api_available == 'yes' && needs.prepare.outputs.push_available == 'yes'
+        if: needs.prepare.outputs.api_available == 'yes'
         run: npm ci --no-audit --no-fund
 
       - name: Capture failed CI logs as untrusted input
-        if: needs.prepare.outputs.api_available == 'yes' && needs.prepare.outputs.push_available == 'yes'
+        if: needs.prepare.outputs.api_available == 'yes'
         env:
           GH_TOKEN: ${{ github.token }}
           REPOSITORY: ${{ github.repository }}
@@ -544,7 +534,7 @@ jobs:
           } > .codex-ci-failure.log
 
       - name: Revalidate exact failed head before model
-        if: needs.prepare.outputs.api_available == 'yes' && needs.prepare.outputs.push_available == 'yes'
+        if: needs.prepare.outputs.api_available == 'yes'
         env:
           GH_TOKEN: ${{ github.token }}
           REPOSITORY: ${{ github.repository }}
@@ -573,7 +563,7 @@ jobs:
           }
 
       - name: Run one bounded Codex repair attempt
-        if: needs.prepare.outputs.api_available == 'yes' && needs.prepare.outputs.push_available == 'yes'
+        if: needs.prepare.outputs.api_available == 'yes'
         id: codex
         uses: openai/codex-action@86365089eb2b84e0a8fb0717b304f8bdcb13b20e
         with:
@@ -592,7 +582,7 @@ jobs:
             You may run targeted lint, typecheck, Vitest or other already-installed local checks. Do not commit, push, merge, deploy, access Production, or use network-based package installation. If the failure cannot be safely fixed inside these limits, leave the checkout unchanged and explain the blocker in your final message.
 
       - name: Capture bounded repair candidate
-        if: needs.prepare.outputs.api_available == 'yes' && needs.prepare.outputs.push_available == 'yes'
+        if: needs.prepare.outputs.api_available == 'yes'
         id: candidate
         env:
           REPOSITORY: ${{ github.repository }}
@@ -747,7 +737,7 @@ jobs:
           test "$(git write-tree)" = "$VALIDATED_TREE"
 
   publish:
-    name: Publish CI Autofix candidate
+    name: Stage CI Autofix owner-push handoff (no publication)
     needs: [prepare, admit, autofix, validate]
     if: needs.autofix.outputs.changed == 'yes' && needs.validate.result == 'success'
     runs-on: ubuntu-latest
@@ -755,7 +745,7 @@ jobs:
     permissions:
       actions: read
       contents: read
-      pull-requests: write
+      pull-requests: read
     env:
       REPOSITORY: ${{ github.repository }}
       PR_NUMBER: ${{ needs.prepare.outputs.pr_number }}
@@ -768,7 +758,7 @@ jobs:
       EXPECTED_PATCH_SHA256: ${{ needs.autofix.outputs.patch_sha256 }}
       VALIDATED_TREE: ${{ needs.validate.outputs.tree }}
     outputs:
-      published: ${{ steps.publish.outputs.published }}
+      published: ${{ steps.handoff.outputs.published }}
       new_head: ${{ steps.commit.outputs.new_head }}
     steps:
       - name: Require original admitted workflow attempt
@@ -846,117 +836,49 @@ jobs:
             commit-tree "$VALIDATED_TREE" -p "$EXPECTED_HEAD" -m "[codex-autofix] Fix CI blocker for PR #$PR_NUMBER")"
           echo "new_head=$new_head" >> "$GITHUB_OUTPUT"
 
-      # Mandatory preflight has no authenticated reviewer/execution provenance
-      # issuer yet. Fail BEFORE the following credentialed publication step.
-      # Do not weaken this guard; replace it only with verified trusted evidence.
-      - name: Require authenticated Supervisor provenance before autofix publication
+      # No token-bearing publication. A separate exact-HEAD owner push is
+      # the only authorized way to move the PR branch.
+      - name: Stage CI Autofix commit for owner push
+        id: handoff
         shell: bash
-        run: |
-          set -euo pipefail
-          echo "::error::CI Autofix publication blocked: authenticated preflight validation and independent review provenance are not implemented."
-          exit 1
-
-      - name: Publish validated repair
-        id: publish
-        if: steps.commit.outputs.new_head != ''
         env:
           GH_TOKEN: ${{ github.token }}
-          PUSH_TOKEN: ${{ secrets.PROFFERA_AUTOFIX_PUSH_TOKEN }}
-          GIT_CONFIG_NOSYSTEM: "1"
-          GIT_CONFIG_GLOBAL: /dev/null
-          GIT_NO_REPLACE_OBJECTS: "1"
-          GIT_TERMINAL_PROMPT: "0"
-          REPOSITORY: ${{ github.repository }}
-          PR_NUMBER: ${{ needs.prepare.outputs.pr_number }}
-          HEAD_REF: ${{ needs.prepare.outputs.head_ref }}
-          EXPECTED_HEAD: ${{ needs.prepare.outputs.head_sha }}
-          ADMITTED_RUN_ID: ${{ needs.admit.outputs.admitted_run_id }}
-          ADMITTED_RUN_ATTEMPT: ${{ needs.admit.outputs.admitted_run_attempt }}
-          SOURCE_RUN_ID: ${{ needs.admit.outputs.source_run_id }}
-          SOURCE_RUN_ATTEMPT: ${{ needs.admit.outputs.source_run_attempt }}
           NEW_HEAD: ${{ steps.commit.outputs.new_head }}
-        shell: bash
         run: |
           set -euo pipefail
           echo "published=no" >> "$GITHUB_OUTPUT"
-
-          test "$GITHUB_RUN_ID" = "$ADMITTED_RUN_ID"
-          test "$GITHUB_RUN_ATTEMPT" = "$ADMITTED_RUN_ATTEMPT"
-          source_run="$(gh api "repos/$REPOSITORY/actions/runs/$SOURCE_RUN_ID")"
-          jq -e --arg head "$EXPECTED_HEAD" --arg run "$SOURCE_RUN_ID" --arg attempt "$SOURCE_RUN_ATTEMPT" \
-            '.id == ($run|tonumber) and .run_attempt == ($attempt|tonumber) and .head_sha == $head and .status == "completed" and .conclusion == "failure"' \
-            >/dev/null <<< "$source_run"
-          [[ "$HEAD_REF" == work/proffera-* ]]
           test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
-          test "$(git rev-parse "$NEW_HEAD^{tree}")" = "$VALIDATED_TREE"
           test "$(git show -s --format=%P "$NEW_HEAD")" = "$EXPECTED_HEAD"
-          current_pr="$(gh api "repos/$REPOSITORY/pulls/$PR_NUMBER")"
-          if [ "$(jq -r '.head.sha' <<< "$current_pr")" != "$EXPECTED_HEAD" ] \
-            || [ "$(jq -r '.head.ref' <<< "$current_pr")" != "$HEAD_REF" ]; then
-            echo "PR head or branch moved during autofix; discarding stale repair."
-            exit 1
-          fi
-          if [ -z "$PUSH_TOKEN" ]; then
-            echo "Refused: dedicated autofix push token is unavailable." >&2
-            exit 1
-          fi
+          test "$(git rev-parse "${NEW_HEAD}^{tree}")" = "$VALIDATED_TREE"
+          test "$(git write-tree)" = "$VALIDATED_TREE"
+          pr="$(gh api "repos/${REPOSITORY}/pulls/${PR_NUMBER}")"
+          test "$(jq -r '.head.sha' <<< "$pr")" = "$EXPECTED_HEAD"
+          test "$(jq -r '.head.ref' <<< "$pr")" = "${{ needs.prepare.outputs.head_ref }}"
+          test "$(jq -r '.base.ref' <<< "$pr")" = main
+          test "$(jq -r '.head.repo.full_name' <<< "$pr")" = "$REPOSITORY"
+          test "$(jq -r '.user.login' <<< "$pr")" = "${REPOSITORY%%/*}"
+          # Only the detached ephemeral checkout is moved; no remote ref.
+          git update-ref HEAD "$NEW_HEAD" "$EXPECTED_HEAD"
+          test -z "$(git status --porcelain)"
+          bundle="$RUNNER_TEMP/proffera-ci-autofix-owner-handoff.bundle"
+          git bundle create "$bundle" HEAD "^${EXPECTED_HEAD}"
+          git bundle verify "$bundle"
+          (cd "$RUNNER_TEMP" && sha256sum "proffera-ci-autofix-owner-handoff.bundle" > "proffera-ci-autofix-owner-handoff.bundle.sha256")
+          jq -n --arg repo "$REPOSITORY" --argjson pr "$PR_NUMBER"             --arg branch "${{ needs.prepare.outputs.head_ref }}" --arg base "$(jq -r '.base.sha' <<< "$pr")"             --arg parent "$EXPECTED_HEAD" --arg head "$NEW_HEAD" --arg tree "$VALIDATED_TREE"             --argjson run "$GITHUB_RUN_ID" --argjson attempt "$GITHUB_RUN_ATTEMPT"             '{state:"OWNER_PUSH_REQUIRED",published:false,repository:$repo,pr_number:$pr,branch:$branch,base_sha:$base,parent_sha:$parent,head_sha:$head,tree_sha:$tree,run_id:$run,run_attempt:$attempt}'             > "$RUNNER_TEMP/proffera-ci-autofix-owner-handoff.json"
+          echo "Owner-push required for $NEW_HEAD. No code was published." >> "$GITHUB_STEP_SUMMARY"
+          echo "ready=yes" >> "$GITHUB_OUTPUT"
 
-          # Check the receive-pack advertised ref, then rely on its atomic old-OID
-          # compare. An API read plus an ordinary fast-forward check alone accepts
-          # a branch rewind/deletion race. Never allow force or a candidate hook.
-          publish_hooks="$(mktemp -d "$RUNNER_TEMP/ci-autofix-publish-hooks.XXXXXX")"
-          trap 'rm -rf "$publish_hooks"' EXIT
-          cat > "$publish_hooks/pre-push" <<'HOOK'
-          #!/usr/bin/env bash
-          set -euo pipefail
-          count=0
-          while read -r local_ref local_oid remote_ref remote_oid; do
-            test "$local_oid" = "$NEW_HEAD"
-            test "$remote_ref" = "refs/heads/$HEAD_REF"
-            test "$remote_oid" = "$EXPECTED_HEAD"
-            count=$((count + 1))
-          done
-          test "$count" -eq 1
-          HOOK
-          chmod 700 "$publish_hooks/pre-push"
-          git -c core.hooksPath="$publish_hooks" push "https://x-access-token:${PUSH_TOKEN}@github.com/${REPOSITORY}.git" "$NEW_HEAD:refs/heads/${HEAD_REF}"
-
-          echo "published=yes" >> "$GITHUB_OUTPUT"
-
-      - name: Verify and report published repair
-        if: steps.publish.outputs.published == 'yes'
-        env:
-          GH_TOKEN: ${{ github.token }}
-          REPOSITORY: ${{ github.repository }}
-          PR_NUMBER: ${{ needs.prepare.outputs.pr_number }}
-          NEW_HEAD: ${{ steps.commit.outputs.new_head }}
-          CODEX_MESSAGE: ${{ needs.autofix.outputs.final_message }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          for attempt in $(seq 1 10); do
-            remote_head="$(gh api "repos/$REPOSITORY/pulls/$PR_NUMBER" --jq '.head.sha')"
-            [ "$remote_head" = "$NEW_HEAD" ] && break
-            sleep 2
-          done
-          remote_head="$(gh api "repos/$REPOSITORY/pulls/$PR_NUMBER" --jq '.head.sha')"
-          if [ "$remote_head" != "$NEW_HEAD" ]; then
-            echo "Refused: pushed repair was not observed as the PR head." >&2
-            exit 1
-          fi
-
-          marker='<!-- proffera-ci-autofix -->'
-          body="$(printf '%s\n%s\n\n%s\n' \
-            "$marker" \
-            "Bounded Codex CI autofix pushed \`${NEW_HEAD}\` after local lint, typecheck, tests, discovery-worker validation, build and whitespace checks. The dedicated push credential will emit a normal PR synchronize event so CI runs on the new head. A second automatic repair loop is intentionally blocked if this generated head still fails." \
-            "Codex summary: ${CODEX_MESSAGE}")"
-          comments="$(gh api --paginate "repos/$REPOSITORY/issues/$PR_NUMBER/comments?per_page=100" --jq '.[]' | jq -s '.')"
-          comment_id="$(jq -r --arg marker "$marker" '[.[] | select(.user.login == "github-actions[bot]" and ((.body // "") | contains($marker)))] | last | .id // empty' <<< "$comments")"
-          if [ -n "$comment_id" ]; then
-            gh api --method PATCH "repos/$REPOSITORY/issues/comments/$comment_id" -f body="$body" >/dev/null
-          else
-            gh api --method POST "repos/$REPOSITORY/issues/$PR_NUMBER/comments" -f body="$body" >/dev/null
-          fi
+      - name: Upload CI Autofix owner handoff
+        if: steps.handoff.outputs.ready == 'yes'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: ci-autofix-owner-handoff-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/proffera-ci-autofix-owner-handoff.bundle
+            ${{ runner.temp }}/proffera-ci-autofix-owner-handoff.bundle.sha256
+            ${{ runner.temp }}/proffera-ci-autofix-owner-handoff.json
+          if-no-files-found: error
+          retention-days: 7
 
   record:
     name: Record durable CI Autofix attempt outcome

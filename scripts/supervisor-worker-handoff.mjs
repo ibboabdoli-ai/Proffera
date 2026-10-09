@@ -560,8 +560,11 @@ export function evaluateDispatchContext(context) {
     }
   }
 
-  if (context?.secrets?.openai !== true || context?.secrets?.push !== true) {
-    return blocked("existing authenticated Codex/push dispatch capability is unavailable", packet, "dispatch_auth_unavailable");
+  // The Worker may prepare an owner-push artifact, never publish it. Keep
+  // model authentication mandatory; a push credential is intentionally not
+  // needed or admitted as part of the Worker dispatch boundary.
+  if (context?.secrets?.openai !== true) {
+    return blocked("existing authenticated Codex dispatch capability is unavailable", packet, "dispatch_auth_unavailable");
   }
 
   const liveMainSha = String(context.live_main_sha ?? "").toLowerCase();

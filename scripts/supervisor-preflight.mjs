@@ -682,7 +682,7 @@ export function inspectCandidate({
 
 function main() {
   const args = parseArgs(process.argv);
-  if (!["snapshot", "verify", "run-checks", "hosted-review-status"].includes(args.mode)) fail("args", "unsupported preflight mode");
+  if (!["snapshot", "owner-handoff", "verify", "run-checks", "hosted-review-status"].includes(args.mode)) fail("args", "unsupported preflight mode");
   if (!args.base || !args.pr_body) fail("args", "--base and --pr-body are required");
 
   const cwd = resolve(args.cwd ?? process.cwd());
@@ -696,6 +696,25 @@ function main() {
 
   if (args.mode === "snapshot") {
     process.stdout.write(JSON.stringify({ ok: true, candidate }, null, 2) + "\n");
+    return;
+  }
+
+  if (args.mode === "owner-handoff") {
+    // Local identity/scope only; independent post-push evidence is not available.
+    process.stdout.write(JSON.stringify({
+      ok: true,
+      phase: "pre_push_local_candidate",
+      candidate: candidateIdentity(candidate),
+      required_validation_checks: candidate.required_validation_checks,
+      required_review_focuses: candidate.required_review_focuses,
+      local_identity_checked: true,
+      validation_execution_verified: false,
+      independent_review_verified: false,
+      owner_push_authorized: false,
+      publication_ready: false,
+      merge_authorized: false,
+      next_boundary: "owner_exact_candidate_push_then_authenticated_hosted_ci_and_review",
+    }, null, 2) + "\n");
     return;
   }
 

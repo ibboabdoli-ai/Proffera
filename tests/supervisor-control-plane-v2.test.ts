@@ -675,7 +675,7 @@ describe("Supervisor control-plane v2", () => {
     const plannerDispatchSecrets = planner.slice(plannerDispatchBoundary);
     expect(plannerDispatchSecrets).toContain("issues: write");
     expect(plannerDispatchSecrets).toContain("OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}");
-    expect(plannerDispatchSecrets).toContain("PROFFERA_AUTOFIX_PUSH_TOKEN: ${{ secrets.PROFFERA_AUTOFIX_PUSH_TOKEN }}");
+    expect(plannerDispatchSecrets).not.toContain("PROFFERA_AUTOFIX_PUSH_TOKEN");
     expect(planner).not.toContain('POST "repos/${REPOSITORY}/issues/548/comments"');
     const plannerValidationStart = planner.indexOf("Validate planner output against live state");
     const plannerDispatchStart = planner.indexOf("\n  dispatch:", plannerValidationStart);
@@ -921,9 +921,9 @@ describe("Supervisor control-plane v2", () => {
     expect(publish).toContain("Materialize trusted publication helper in isolated job");
     expect(publish).toContain("actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0");
     expect(publish).toContain("validate-changes");
-    expect(publish).toContain("PROFFERA_AUTOFIX_PUSH_TOKEN");
+    expect(publish).not.toContain("PROFFERA_AUTOFIX_PUSH_TOKEN");
     expect(publish).not.toContain("npm test");
-    expect(publish.indexOf("validate-changes")).toBeLessThan(publish.indexOf("PROFFERA_AUTOFIX_PUSH_TOKEN"));
+    expect(publish).toContain("git bundle create");
   });
   it("isolates Review Repair admission, model execution, validation, publication, and durable accounting", () => {
     const repair = source(".github/workflows/supervisor-review-repair.yml");
@@ -1007,17 +1007,12 @@ describe("Supervisor control-plane v2", () => {
     expect(trustedPublishJob).toContain("EXPECTED_FINDING_SET_SHA256");
     expect(trustedPublishJob).toContain("Current-head review finding burst changed after model execution");
     expect(trustedPublishJob).toContain("validate-changes");
-    expect(trustedPublishJob).toContain("PROFFERA_AUTOFIX_PUSH_TOKEN");
-    expect(trustedPublishJob.indexOf("Revalidate settled current-head finding burst before publication"))
-      .toBeLessThan(trustedPublishJob.indexOf("PROFFERA_AUTOFIX_PUSH_TOKEN"));
-    expect(trustedPublishJob).toContain("Current-head review finding burst changed at the push boundary");
-    expect(trustedPublishJob).toContain("push_guard_head=");
-    const repairCommitIndex = trustedPublishJob.indexOf('git commit -m "[review-repair] batch current-head verified findings"');
-    const pushBoundaryGuardIndex = trustedPublishJob.indexOf("push_boundary_findings=");
-    const repairPushIndex = trustedPublishJob.indexOf('git push origin "HEAD:refs/heads/${HEAD_REF}"');
-    expect(repairCommitIndex).toBeGreaterThanOrEqual(0);
-    expect(pushBoundaryGuardIndex).toBeGreaterThan(repairCommitIndex);
-    expect(repairPushIndex).toBeGreaterThan(pushBoundaryGuardIndex);
+    expect(trustedPublishJob).not.toContain("PROFFERA_AUTOFIX_PUSH_TOKEN");
+    expect(trustedPublishJob).toContain("Revalidate and commit bounded repair for owner handoff");
+    expect(trustedPublishJob).toContain("EXPECTED_FINDING_SET_SHA256");
+    expect(trustedPublishJob).toContain("git bundle create");
+    expect(trustedPublishJob).toContain("Upload Review Repair owner handoff");
+    expect(trustedPublishJob).not.toMatch(/\bgit\s+push\b/);
 
     expect(recordJob).toContain("if: always() && needs.admit.outputs.attempt_started == 'yes'");
     expect(recordJob).toContain("issues: write");

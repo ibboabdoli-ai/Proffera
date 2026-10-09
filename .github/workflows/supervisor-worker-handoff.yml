@@ -26,8 +26,6 @@ on:
     secrets:
       OPENAI_API_KEY:
         required: true
-      PROFFERA_AUTOFIX_PUSH_TOKEN:
-        required: true
   workflow_dispatch:
     inputs:
       comment_id:
@@ -533,7 +531,6 @@ jobs:
           PLANNER_WORKFLOW_REF: ${{ inputs.planner_workflow_ref }}
           RUN_ID: ${{ github.run_id }}
           OPENAI_AVAILABLE: ${{ secrets.OPENAI_API_KEY != '' }}
-          PUSH_AVAILABLE: ${{ secrets.PROFFERA_AUTOFIX_PUSH_TOKEN != '' }}
         shell: bash
         run: |
           set -euo pipefail
@@ -1687,70 +1684,46 @@ jobs:
           gh api --method PATCH "repos/${REPOSITORY}/issues/comments/${RESERVATION_COMMENT_ID}" -f body="$new_body" >/dev/null
           echo "Finalized reserved Worker snapshot ${task_id}@${head_sha} before publication."
 
-      - name: Require authenticated Supervisor provenance before Worker publication
-        shell: bash
-        run: |
-          set -euo pipefail
-          echo "::error::Worker publication blocked: authenticated pre-push validation and independent review provenance are unavailable." >&2
-          exit 1
-
-      - name: Publish branch normally or persist validated recovery artifact
+      # No automated publication: reuse existing RECOVERABLE reservation and
+      # immutable GitHub artifact, pending separate exact-owner push authority.
+      - name: Prepare immutable Worker owner-push handoff
         id: publish
         env:
           GH_TOKEN: ${{ github.token }}
           REPOSITORY: ${{ github.repository }}
-          BRANCH: ${{ needs.preflight.outputs.branch }}
-          TASK_ID: ${{ needs.preflight.outputs.task_id }}
-          TASK_TITLE: ${{ needs.preflight.outputs.task_title }}
           BASE_SHA: ${{ needs.preflight.outputs.base_sha }}
           PACKET_B64: ${{ needs.preflight.outputs.packet_b64 }}
           RUN_ID: ${{ github.run_id }}
-          DISPATCH_PUSH_TOKEN: ${{ secrets.PROFFERA_AUTOFIX_PUSH_TOKEN }}
         shell: bash
         run: |
           set -euo pipefail
           helper="$RUNNER_TEMP/proffera-trusted-publish/supervisor-worker-handoff.mjs"
-          artifact="$RUNNER_TEMP/proffera-publication-artifact.json"
-          pr_body_file="$RUNNER_TEMP/proffera-worker-pr-body.md"
           packet="$(printf '%s' "$PACKET_B64" | base64 --decode)"
-          test -s "$pr_body_file"
-          live_source="$(gh api "repos/${REPOSITORY}/git/ref/heads/main" --jq '.object.sha')"
-          test "$live_source" = "$BASE_SHA"
-
-          pushed=false
-          if [ -n "${DISPATCH_PUSH_TOKEN:-}" ]; then
-            git config --local credential.helper '!f() { echo username=x-access-token; echo "password=$DISPATCH_PUSH_TOKEN"; }; f'
-            git remote set-url origin "https://github.com/${REPOSITORY}.git"
-            if GIT_TERMINAL_PROMPT=0 git push --force-with-lease="refs/heads/${BRANCH}:" origin "HEAD:refs/heads/${BRANCH}"; then pushed=true; fi
-            git config --local --unset credential.helper || true
-          fi
-          if [ "$pushed" = "true" ]; then
-            set +e
-            GH_TOKEN="$DISPATCH_PUSH_TOKEN" gh pr create --repo "$REPOSITORY" --base main --head "$BRANCH" --title "$TASK_TITLE" --body-file "$pr_body_file" >/dev/null
-            create_status=$?
-            set -e
-            pr_number="$(GH_TOKEN="$DISPATCH_PUSH_TOKEN" gh pr view "$BRANCH" --repo "$REPOSITORY" --json number --jq '.number' 2>/dev/null || true)"
-            if [ -z "$pr_number" ]; then
-              echo "Refused: branch publication succeeded but no Worker PR can be proven (gh pr create status=${create_status}); forcing recovery." >&2
-              exit 1
-            fi
-            echo "pr_number=$pr_number" >> "$GITHUB_OUTPUT"
-          else
-            # Build and validate deterministic publication artifact only after normal publication fails.
-            target_head="$(git rev-parse HEAD)"
-            target_tree_sha="$(git rev-parse HEAD^{tree})"
-            jq -n --argjson packet "$packet" --arg source_head "$BASE_SHA" --arg target_head "$target_head" --arg run_id "$RUN_ID" \
-              '{packet:$packet,source_head:$source_head,target_head:$target_head,run_id:$run_id}' \
-              | node "$helper" build-publication > "$artifact"
-            live_source="$(gh api "repos/${REPOSITORY}/git/ref/heads/main" --jq '.object.sha')"
-            validation="$(jq -n --argjson packet "$packet" --arg current_source_head "$live_source" --arg expected_target_head "$target_head" --arg expected_target_tree_sha "$target_tree_sha" --arg expected_run_id "$RUN_ID" --slurpfile artifact "$artifact" '{packet:$packet,current_source_head:$current_source_head,expected_target_head:$expected_target_head,expected_target_tree_sha:$expected_target_tree_sha,expected_run_id:$expected_run_id,artifact:$artifact[0]}' | node "$helper" validate-publication)"
-            test "$(jq -r '.ok' <<< "$validation")" = "true"
-            test -s "$artifact"
-            digest="$(sha256sum "$artifact" | cut -d' ' -f1)"
-            echo "recovery_artifact=yes" >> "$GITHUB_OUTPUT"
-            echo "recovery_digest=$digest" >> "$GITHUB_OUTPUT"
-          fi
-          echo "head_sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          pr_body_file="$RUNNER_TEMP/proffera-worker-pr-body.md"
+          artifact="$RUNNER_TEMP/proffera-publication-artifact.json"
+          bundle="$RUNNER_TEMP/proffera-owner-handoff.bundle"
+          test -s "$helper" -a -s "$pr_body_file"
+          test "$(git rev-parse HEAD^)" = "$BASE_SHA"
+          test "$(gh api "repos/${REPOSITORY}/git/ref/heads/main" --jq '.object.sha')" = "$BASE_SHA"
+          target_head="$(git rev-parse HEAD)"
+          target_tree_sha="$(git rev-parse HEAD^{tree})"
+          jq -n --argjson packet "$packet" --arg source_head "$BASE_SHA" --arg target_head "$target_head" --arg run_id "$RUN_ID"             '{packet:$packet,source_head:$source_head,target_head:$target_head,run_id:$run_id}'             | node "$helper" build-publication > "$artifact"
+          validation="$(jq -n --argjson packet "$packet" --arg current_source_head "$BASE_SHA" --arg expected_target_head "$target_head" --arg expected_target_tree_sha "$target_tree_sha" --arg expected_run_id "$RUN_ID" --slurpfile artifact "$artifact"             '{packet:$packet,current_source_head:$current_source_head,expected_target_head:$expected_target_head,expected_target_tree_sha:$expected_target_tree_sha,expected_run_id:$expected_run_id,artifact:$artifact[0]}'             | node "$helper" validate-publication)"
+          test "$(jq -r '.ok' <<< "$validation")" = true
+          git bundle create "$bundle" HEAD "^${BASE_SHA}"
+          git bundle verify "$bundle"
+          (cd "$RUNNER_TEMP" && sha256sum "proffera-owner-handoff.bundle" > "proffera-owner-handoff.bundle.sha256")
+          test -s "$bundle" -a -s "$artifact"
+          digest="$(sha256sum "$artifact" | cut -d' ' -f1)"
+          bundle_digest="$(sha256sum "$bundle" | cut -d' ' -f1)"
+          owner_branch="$(jq -r '.branch' <<< "$packet")"
+          owner_task="$(jq -r '.task_id' <<< "$packet")"
+          jq -n --arg repo "$REPOSITORY" --arg branch "$owner_branch" --arg task "$owner_task" --arg base "$BASE_SHA" --arg head "$target_head" --arg tree "$target_tree_sha" --arg bundle_digest "$bundle_digest" --arg recovery_digest "$digest" --argjson run "$RUN_ID" --argjson attempt "$GITHUB_RUN_ATTEMPT" '{state:"OWNER_PUSH_REQUIRED",published:false,repository:$repo,branch:$branch,task_id:$task,base_sha:$base,parent_sha:$base,head_sha:$head,tree_sha:$tree,bundle_sha256:$bundle_digest,recovery_sha256:$recovery_digest,run_id:$run,run_attempt:$attempt}' > "$RUNNER_TEMP/proffera-owner-handoff.json"
+          test -s "$RUNNER_TEMP/proffera-owner-handoff.json"
+          echo "recovery_artifact=yes" >> "$GITHUB_OUTPUT"
+          echo "recovery_digest=$digest" >> "$GITHUB_OUTPUT"
+          echo "head_sha=$target_head" >> "$GITHUB_OUTPUT"
+          echo "Owner authorization required for PR-branch push; $target_head / tree $target_tree_sha NOT published." >> "$GITHUB_STEP_SUMMARY"
 
       - name: Mark reservation published
         if: steps.publish.outputs.pr_number != ''
@@ -1820,7 +1793,11 @@ jobs:
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: proffera-publication-recovery-${{ needs.preflight.outputs.task_id }}-${{ steps.publish.outputs.recovery_digest }}
-          path: ${{ runner.temp }}/proffera-publication-artifact.json
+          path: |
+            ${{ runner.temp }}/proffera-publication-artifact.json
+            ${{ runner.temp }}/proffera-owner-handoff.bundle
+            ${{ runner.temp }}/proffera-owner-handoff.bundle.sha256
+            ${{ runner.temp }}/proffera-owner-handoff.json
           if-no-files-found: error
           retention-days: 7
           compression-level: 9

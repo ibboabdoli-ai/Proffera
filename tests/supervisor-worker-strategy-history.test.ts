@@ -625,7 +625,7 @@ describe("Worker workflow B4.1 wiring", () => {
 
   it("records non-success early and delays succeeded until publication is recoverable", () => {
     const early = workflow.indexOf("Persist non-success Worker strategy outcome before publication decision");
-    const publish = workflow.indexOf("Publish branch normally or persist validated recovery artifact");
+    const publish = workflow.indexOf("Prepare immutable Worker owner-push handoff");
     const recoverable = workflow.indexOf("Mark reservation recoverable after durable artifact upload");
     const success = workflow.indexOf("Persist successful Worker strategy outcome after recoverable publication");
     expect(early).toBeGreaterThan(workflow.indexOf("  publish:"));
