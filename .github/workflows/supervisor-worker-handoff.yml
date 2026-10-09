@@ -1687,6 +1687,13 @@ jobs:
           gh api --method PATCH "repos/${REPOSITORY}/issues/comments/${RESERVATION_COMMENT_ID}" -f body="$new_body" >/dev/null
           echo "Finalized reserved Worker snapshot ${task_id}@${head_sha} before publication."
 
+      - name: Require authenticated Supervisor provenance before Worker publication
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "::error::Worker publication blocked: authenticated pre-push validation and independent review provenance are unavailable." >&2
+          exit 1
+
       - name: Publish branch normally or persist validated recovery artifact
         id: publish
         env:

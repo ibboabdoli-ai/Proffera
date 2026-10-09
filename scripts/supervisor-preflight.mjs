@@ -371,6 +371,8 @@ function additionalTargetedSuites(candidate) {
   ];
   const mappedSuitePaths = new Set([
     ".github/workflows/proffera-ci-autofix.yml",
+    ".github/workflows/supervisor-worker-handoff.yml",
+    ".github/workflows/supervisor-review-repair.yml",
     // Verified Next generated-output contract is covered by supervisor-preflight tests.
     ".gitignore", "next-env.d.ts", "tsconfig.json",
     "AGENTS.md", "WORKER_BOOTSTRAP.md", "README.md",
@@ -403,7 +405,12 @@ function additionalTargetedSuites(candidate) {
     "tests/supervisor-ci-autofix-candidate.test.ts",
   ]);
   for (const path of candidate.diff.paths) {
-    if (workerPaths.has(path)) suites.add("tests/supervisor-worker-handoff.test.ts");
+    if (workerPaths.has(path) || path === ".github/workflows/supervisor-worker-handoff.yml") {
+      suites.add("tests/supervisor-worker-handoff.test.ts");
+    }
+    if (path === ".github/workflows/supervisor-review-repair.yml") {
+      suites.add("tests/supervisor-control-plane-v2.test.ts");
+    }
     if (autofixPaths.has(path)) suites.add("tests/supervisor-ci-autofix-candidate.test.ts");
   }
   return [...suites].sort();
@@ -516,7 +523,7 @@ export function evaluateGithubReviewSnapshot(candidate, pr, pages, requestedNumb
     || typeof review.commit_id !== "string" || !SHA_RE.test(review.commit_id)
     || typeof review.user?.login !== "string"
     || typeof review.state !== "string"
-    || !Number.isFinite(Date.parse(review.submitted_at ?? "")))) {
+    || (review.state !== "PENDING" && !Number.isFinite(Date.parse(review.submitted_at ?? ""))))) {
     fail("github_review", "malformed or excessive review evidence");
   }
   const remoteHead = assertSha(pr.head?.sha, "remote_pr_head_sha");

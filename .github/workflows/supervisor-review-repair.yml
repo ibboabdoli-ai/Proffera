@@ -676,6 +676,13 @@ jobs:
           test "$(jq -r '.ok == true' <<< "$validation")" = "true"
           git diff --check HEAD
 
+      - name: Require authenticated Supervisor provenance before Review Repair publication
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "::error::Review Repair publication blocked: authenticated pre-push validation and independent review provenance are unavailable." >&2
+          exit 1
+
       - name: Publish one same-branch repair commit
         env:
           GH_TOKEN: ${{ github.token }}

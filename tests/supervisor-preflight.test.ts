@@ -150,15 +150,16 @@ afterEach(() => {
 });
 
 describe("canonical Supervisor pre-publication gate", () => {
-  it("keeps Next generated build outputs from invalidating candidate cleanliness", () => {
+  it("keeps Next build and dev generated outputs outside candidate Git identity", () => {
     const root = process.cwd();
-    const ignored = spawnSync("git", ["check-ignore", "--quiet", ".next/build/cache"], {cwd: root, encoding: "utf8"});
-    expect(ignored.status, ignored.stderr).toBe(0);
+    for (const generated of [".next/build/cache", "next-env.d.ts"]) {
+      const ignored = spawnSync("git", ["check-ignore", "--quiet", generated], {cwd: root, encoding: "utf8"});
+      expect(ignored.status, ignored.stderr).toBe(0);
+    }
+    const tracked = spawnSync("git", ["ls-files", "--error-unmatch", "next-env.d.ts"], {cwd: root, encoding: "utf8"});
+    expect(tracked.status).not.toBe(0);
     const config = JSON.parse(readFileSync(join(root, "tsconfig.json"), "utf8"));
     expect(config.include).toContain(".next/dev/types/**/*.ts");
-    const nextEnv = readFileSync(join(root, "next-env.d.ts"), "utf8");
-    expect(nextEnv).toContain('import "./.next/types/routes.d.ts";');
-    expect(nextEnv).toContain('import "./.next/types/root-params.d.ts";');
   });
 
   it("accepts a clean committed candidate and reports its immutable identity", () => {
@@ -514,6 +515,33 @@ describe("canonical Supervisor pre-publication gate", () => {
     expect(observed.ok).toBe(true);
   });
 
+  it("fails closed before both Supervisor publication credential boundaries", () => {
+    const cases = [
+      ["supervisor-worker-handoff.yml", "Require authenticated Supervisor provenance before Worker publication",
+        "Publish branch normally or persist validated recovery artifact"],
+      ["supervisor-review-repair.yml", "Require authenticated Supervisor provenance before Review Repair publication",
+        "Publish one same-branch repair commit"],
+    ];
+    for (const [filename, gateName, publisherName] of cases) {
+      const source = readFileSync(join(process.cwd(), ".github", "workflows", filename), "utf8").replaceAll("\r\n", "\n");
+      const gateIndex = source.indexOf("      - name: " + gateName + "\n");
+      expect(gateIndex, filename).toBeGreaterThan(0);
+      const publishIndex = source.indexOf("      - name: " + publisherName + "\n", gateIndex);
+      expect(publishIndex, filename).toBeGreaterThan(gateIndex);
+      const block = source.slice(gateIndex, publishIndex);
+      expect(block).not.toContain("PUSH_TOKEN");
+      const marker = "        run: |\n";
+      const scriptStart = block.indexOf(marker);
+      expect(scriptStart, filename).toBeGreaterThan(0);
+      const script = block.slice(scriptStart + marker.length).split("\n")
+        .filter((line) => line.trim() !== "")
+        .map((line) => line.replace(/^          /, "")).join("\n");
+      const actual = spawnSync("bash", ["-c", script], {encoding: "utf8"});
+      expect(actual.status, actual.stderr).toBe(1);
+      expect(actual.stderr).toContain("publication blocked");
+    }
+  });
+
   it("does not mistake a past CodeRabbit review for independent local pre-push proof", () => {
     const { repo, base } = fixture();
     write(join(repo, "docs", "note.md"), "candidate\n");
@@ -546,6 +574,12 @@ describe("canonical Supervisor pre-publication gate", () => {
       coderabbit_approved_exact_head: true,
       coderabbit_changes_requested_unresolved: false,
       local_independent_review_verified: false, publication_ready: false,
+    });
+    // A legitimate unsubmitted draft has no submitted_at; it cannot veto an exact-head review.
+    const withPending = evaluateGithubReviewSnapshot(candidate, pr,
+      [[{ ...review(7, "PENDING"), submitted_at: null, user: {login: "other-reviewer"} }, review(8, "APPROVED")]], 941);
+    expect(withPending).toMatchObject({
+      coderabbit_approved_exact_head: true, publication_ready: false,
     });
     const stale = evaluateGithubReviewSnapshot(candidate,
       { ...pr, head: { ...pr.head, sha: "a".repeat(40) } },
