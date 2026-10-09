@@ -371,6 +371,8 @@ function additionalTargetedSuites(candidate) {
   ];
   const mappedSuitePaths = new Set([
     ".github/workflows/proffera-ci-autofix.yml",
+    // Verified Next generated-output contract is covered by supervisor-preflight tests.
+    ".gitignore", "next-env.d.ts", "tsconfig.json",
     "AGENTS.md", "WORKER_BOOTSTRAP.md", "README.md",
     "scripts/ci-scope-plan.mjs", "tests/ci-scope-plan.test.ts",
     "tests/github-workflow-yaml.test.ts",
