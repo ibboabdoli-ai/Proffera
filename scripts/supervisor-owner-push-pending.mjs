@@ -156,7 +156,15 @@ export function verifyHandoffManifest(p,v){
  if(p.lane==="review_repair")check(v.finding_set_sha256===p.finding_digest,"finding_digest");
  return true;
 }
-function verifyArtifact(p,auth,artifactId){
+// Exact branch-tip binding is mandatory at record time. In the resolution gate,
+// allow the owner to resolve a historically authenticated bundle after the branch
+// advances; resolution() still checks current ancestry and publication evidence.
+export function verifyHandoffBranch(remote, parent, proposed, ownerResolution=false){
+ check([remote,parent,proposed].every(v=>hex(v,40))&&typeof ownerResolution==="boolean","remote_parent_evidence");
+ check(ownerResolution||[parent,proposed].includes(remote),"remote_parent");
+ return true;
+}
+function verifyArtifact(p,auth,artifactId,{ownerResolution=false}={}){
  const lane=LANES[p.lane],name=lane.prefix+p.run_id+"-"+p.run_attempt;
  const list=api("repos/"+REPO+"/actions/runs/"+p.run_id+"/artifacts?per_page=100").artifacts;
  const a=verifyArtifactMetadata(list,artifactId,name,p.run_id);
@@ -178,7 +186,8 @@ function verifyArtifact(p,auth,artifactId){
   verifyHandoffManifest(p,v);
   const path=join(dir,"candidate.bundle");writeFileSync(path,bundle);
   cmd("git",["fetch","--no-tags","origin","refs/heads/"+p.branch]);
-  check([p.parent_sha,p.head_sha].includes(cmd("git",["rev-parse","FETCH_HEAD"]).trim()),"remote_parent");
+  verifyHandoffBranch(cmd("git",["rev-parse","FETCH_HEAD"]).trim(),
+   p.parent_sha,p.head_sha,ownerResolution);
   cmd("git",["bundle","verify",path]);
   check(cmd("git",["bundle","list-heads",path]).trim()===p.head_sha+" HEAD","bundle_ref");
   cmd("git",["fetch","--no-tags",path,"HEAD"]);
@@ -323,7 +332,7 @@ function gate(env){
    }
   }
   // For retained artifacts, verify bytes, Git ancestry, and all bound digests.
-  const verified=verifyArtifact(p,auth,p.artifact_id);
+  const verified=verifyArtifact(p,auth,p.artifact_id,{ownerResolution:ownerAction});
   check(["artifact_digest","bundle_digest","manifest_digest","workflow_id",
     "publish_job_id","model_job_id","validation_job_id"].every(k=>p[k]===verified[k]),"pending_authentication");
   resolution(p,comments);

@@ -3,7 +3,7 @@ import {createHash} from "node:crypto";
 import {readFileSync} from "node:fs";
 import {createRequire} from "node:module";
 // @ts-expect-error Trusted control-plane .mjs helper.
-import {readPending,admission,verifyArtifactMetadata,verifyHandoffManifest,resolveDecision,mayResolveExpiredArtifact} from "../scripts/supervisor-owner-push-pending.mjs";
+import {readPending,admission,verifyArtifactMetadata,verifyHandoffManifest,resolveDecision,mayResolveExpiredArtifact,verifyHandoffBranch} from "../scripts/supervisor-owner-push-pending.mjs";
 // @ts-expect-error Trusted control-plane .mjs helper.
 import {decideReviewRepairStrategyHistory} from "../scripts/supervisor-review-repair-strategy-memory.mjs";
 // @ts-expect-error Trusted control-plane .mjs helper.
@@ -116,8 +116,8 @@ describe("CI Autofix current-versus-historical accounting",()=>{
   expect(classifyCiAutofixOutcome({jobs:current(),published:"yes",changed:"yes"}))
    .toEqual({persist:false,reason:"authenticated_pending_record_required"});
  });
- it("persists an unknown attempt when owner-push pending recording fails",()=>{
-   expect(classifyCiAutofixOutcome({jobs:current(),published:"no",changed:"yes",pending_result:"failure"}))
+ it.each(["failure","cancelled","skipped"] as const)("persists unknown when pending record is %s",pending_result=>{
+   expect(classifyCiAutofixOutcome({jobs:current(),published:"no",changed:"yes",pending_result}))
     .toEqual({persist:true,outcome:"unknown"});
   });
   it("fails closed if upload evidence is absent",()=>{
@@ -173,6 +173,15 @@ describe("authenticated artifact, current-state and cancellation policy",()=>{
    {...m,pr_number:942},{...m,state:"PUBLISHED"},{...m,published:true},
    {...m,finding_set_sha256:"1".repeat(64)},{...m,unexpected:"extra"},
   ])expect(()=>verifyHandoffManifest(p,bad)).toThrow();
+ });
+ it("binds remote branch to exact parent/commit except on authenticated owner resolution",()=>{
+  const parent="a".repeat(40),proposed="b".repeat(40),advanced="c".repeat(40);
+  expect(verifyHandoffBranch(parent,parent,proposed)).toBe(true);
+  expect(verifyHandoffBranch(proposed,parent,proposed)).toBe(true);
+  expect(()=>verifyHandoffBranch(advanced,parent,proposed)).toThrow("remote_parent");
+  expect(verifyHandoffBranch(advanced,parent,proposed,true)).toBe(true);
+  expect(()=>verifyHandoffBranch("invalid",parent,proposed,true)).toThrow("remote_parent_evidence");
+  expect(()=>verifyHandoffBranch(advanced,parent,proposed,"true" as unknown as boolean)).toThrow("remote_parent_evidence");
  });
  it("confirms owner push on verified branch or main ancestry",()=>{
   const head="c".repeat(40),base={kind:"approve",branch:head,proposed:head,
