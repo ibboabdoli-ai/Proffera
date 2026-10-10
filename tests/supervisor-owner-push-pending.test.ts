@@ -225,11 +225,13 @@ describe("authenticated artifact, current-state and cancellation policy",()=>{
 });
 
 describe("production gate with a retained artifact and an advanced branch",()=>{
- it.each([true,false])("authenticated cancellation; parent fetch available=%s",async parentAvailable=>{
+ it.each(["valid","missing-parent","tampered-bundle"] as const)(
+  "authenticated cancellation with retained artifact: %s",async scenario=>{
+  const parentAvailable=scenario!=="missing-parent",tampered=scenario==="tampered-bundle";
   const actual=await vi.importActual<typeof import("node:child_process")>("node:child_process");
   const pending=fixture(),advanced="9".repeat(40),base=pending.value;
   const laneFile="proffera-review-repair-owner-handoff";
-  const bundle=Buffer.from("bounded retained bundle bytes");
+  const bundle=Buffer.from(tampered?"retained bundle with mismatched HEAD":"bounded retained bundle bytes");
   const zip=Buffer.from("retained artifact zip bytes");
   const digest=(x:Buffer)=>createHash("sha256").update(x).digest("hex");
   const manifest=Buffer.from(JSON.stringify({
@@ -313,7 +315,8 @@ describe("production gate with a retained artifact and an advanced branch",()=>{
      return parentFetched?good("commit\n"):bad("missing parent");
     if(args[0]==="bundle"&&args[1]==="verify")
      return parentFetched?good("verified"):bad("missing prerequisite");
-    if(args[0]==="bundle"&&args[1]==="list-heads")return good(p.head_sha+" HEAD\n");
+    if(args[0]==="bundle"&&args[1]==="list-heads")
+     return good((tampered?"8".repeat(40):p.head_sha)+" HEAD\n");
     if(args[0]==="rev-parse"){
      if(args[1]==="FETCH_HEAD")return good(fetchHead+"\n");
      if(args[1]==="FETCH_HEAD^{tree}")return good(p.tree_sha+"\n");
@@ -325,12 +328,14 @@ describe("production gate with a retained artifact and an advanced branch",()=>{
   }) as typeof spawnSync;
   vi.mocked(spawnSync).mockImplementation(fake);
   try{
-   if(parentAvailable){
+   if(scenario==="valid"){
     expect(gate({PR_NUMBER:String(pr)})).toEqual({allow:true,unresolved:0,records:1});
     expect(posts).toBe(1);
     expect(admission(comments,pr)).toMatchObject({allow:true,unresolved:0});
    }else{
-    expect(()=>gate({PR_NUMBER:String(pr)})).toThrow("missing staged parent");
+    expect(()=>gate({PR_NUMBER:String(pr)})).toThrow(
+     scenario==="tampered-bundle"?"bundle_ref":"missing staged parent");
+    expect(parentFetched).toBe(tampered);
     expect(posts).toBe(0);
     expect(admission(comments,pr).allow).toBe(false);
    }
