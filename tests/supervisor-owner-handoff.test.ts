@@ -7,7 +7,7 @@ import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
 
 const require = createRequire(import.meta.url);
-const yaml = require("js-yaml") as { load(source: string): { jobs: Record<string, unknown> } };
+const yaml = require("js-yaml") as { load(source: string): { jobs: Record<string, { steps: Array<{ name?: string; run?: string }> }> } };
 const root = resolve(process.cwd());
 
 function run(cwd: string, ...args: string[]) {
@@ -93,7 +93,7 @@ describe("Worker fallback recovery ZIP inventory", () => {
     const step = doc.jobs.cleanup.steps.find((item: {name?: string}) =>
       item.name === "Reconcile exact stranded reservation after publish setup failure");
     expect(step?.run).toBeTruthy();
-    const source = String(step.run);
+    const source = String(step?.run);
     const start = source.indexOf('archive_entries="$(unzip -Z1 "$archive"');
     const end = source.indexOf('unzip -p "$archive" proffera-publication-artifact.json', start);
     expect(start).toBeGreaterThan(0);
