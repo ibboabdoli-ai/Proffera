@@ -3,7 +3,7 @@ import {createHash} from "node:crypto";
 import {readFileSync} from "node:fs";
 import {createRequire} from "node:module";
 // @ts-expect-error Trusted control-plane .mjs helper.
-import {readPending,admission,verifyArtifactMetadata,verifyHandoffManifest,resolveDecision} from "../scripts/supervisor-owner-push-pending.mjs";
+import {readPending,admission,verifyArtifactMetadata,verifyHandoffManifest,resolveDecision,mayResolveExpiredArtifact} from "../scripts/supervisor-owner-push-pending.mjs";
 // @ts-expect-error Trusted control-plane .mjs helper.
 import {decideReviewRepairStrategyHistory} from "../scripts/supervisor-review-repair-strategy-memory.mjs";
 // @ts-expect-error Trusted control-plane .mjs helper.
@@ -71,7 +71,10 @@ describe("versioned authenticated owner-push ledger",()=>{
  });
  it("rejects spoofed user or issue origin, malformed fields and ambiguous concurrent pending records",()=>{
   const f=fixture(),other=fixture(82,"ci_autofix");
-  expect(()=>admission([{...f.comment,user:{login:"attacker",type:"User"}}],pr)).toThrow("comment_provenance");
+  expect(admission([{...f.comment,user:{login:"attacker",type:"User"}}],pr))
+   .toMatchObject({allow:true,records:[]});
+  expect(admission([f.comment,{...f.comment,user:{login:"attacker",type:"User"},id:999}],pr))
+   .toMatchObject({allow:false,unresolved:1});
   expect(()=>admission([{...f.comment,issue_url:url.replace("548","549")}],pr)).toThrow("comment_provenance");
   expect(()=>admission([bot(make("pending","review_repair:81:1",{...f.value,artifact_id:0}))],pr)).toThrow("pending_payload");
   expect(()=>admission([f.comment,other.comment],pr)).toThrow("multiple_unresolved");
@@ -113,7 +116,11 @@ describe("CI Autofix current-versus-historical accounting",()=>{
   expect(classifyCiAutofixOutcome({jobs:current(),published:"yes",changed:"yes"}))
    .toEqual({persist:false,reason:"authenticated_pending_record_required"});
  });
- it("fails closed if upload evidence is absent",()=>{
+ it("persists an unknown attempt when owner-push pending recording fails",()=>{
+   expect(classifyCiAutofixOutcome({jobs:current(),published:"no",changed:"yes",pending_result:"failure"}))
+    .toEqual({persist:true,outcome:"unknown"});
+  });
+  it("fails closed if upload evidence is absent",()=>{
   const broken=current();broken[1].steps.pop();
   expect(()=>classifyCiAutofixOutcome({jobs:broken,published:"no",changed:"yes"}))
    .toThrow("unverified_handoff_upload");
@@ -167,15 +174,31 @@ describe("authenticated artifact, current-state and cancellation policy",()=>{
    {...m,finding_set_sha256:"1".repeat(64)},{...m,unexpected:"extra"},
   ])expect(()=>verifyHandoffManifest(p,bad)).toThrow();
  });
- it("confirms push only for exact authorized current PR head and not main",()=>{
+ it("confirms owner push on verified branch or main ancestry",()=>{
   const head="c".repeat(40),base={kind:"approve",branch:head,proposed:head,
    onBranch:true,onMain:false,deployments:[],knownCommit:true};
   expect(resolveDecision(base)).toBe("push_confirmed");
-  expect(()=>resolveDecision({...base,branch:"d".repeat(40)})).toThrow("push_proof");
-  expect(()=>resolveDecision({...base,onMain:true})).toThrow("push_proof");
-  expect(()=>resolveDecision({...base,onBranch:false})).toThrow("push_proof");
+  expect(resolveDecision({...base,branch:"d".repeat(40)})).toBe("push_confirmed");
+  expect(resolveDecision({...base,onMain:true})).toBe("push_confirmed");
+  expect(()=>resolveDecision({...base,onBranch:false,onMain:false})).toThrow("push_proof");
  });
- it("permits current non-publication cancellation but never claims historical absence",()=>{
+ it("allows exact owner resolution of expired archives only after retention with trusted metadata",()=>{
+  const p=fixture().value;
+  const after=Date.parse(p.observed_at)+8*24*60*60*1000;
+  const before=Date.parse(p.observed_at)+6*24*60*60*1000;
+  const artifact={id:p.artifact_id,name:"supervisor-review-repair-owner-handoff-81-1",
+   workflow_run:{id:p.run_id},digest:"sha256:"+p.artifact_digest,expired:true};
+  expect(mayResolveExpiredArtifact(p,[],true,after)).toBe(true);
+  expect(mayResolveExpiredArtifact(p,[],true,before)).toBe(false);
+  expect(mayResolveExpiredArtifact(p,[],false,after)).toBe(false);
+  expect(mayResolveExpiredArtifact(p,[artifact],true,after)).toBe(true);
+  expect(()=>mayResolveExpiredArtifact(p,[{...artifact,expired:false}],true,after))
+   .toThrow("expired_artifact_identity");
+  expect(()=>mayResolveExpiredArtifact(p,[{...artifact,digest:"sha256:"+"9".repeat(64)}],true,after))
+   .toThrow("expired_artifact_identity");
+  expect(()=>mayResolveExpiredArtifact(p,[artifact,{...artifact,id:999}],true,after))
+   .toThrow("expired_artifact_collision");
+ }); it("permits current non-publication cancellation but never claims historical absence",()=>{
   const base={kind:"cancel",branch:"b".repeat(40),proposed:"c".repeat(40),
    onBranch:false,onMain:false,deployments:[],knownCommit:false};
   expect(resolveDecision(base)).toBe("cancelled");

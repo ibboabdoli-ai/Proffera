@@ -563,6 +563,9 @@ export function classifyCiAutofixOutcome(input) {
     const uploads=(staged[0].steps||[]).filter(step=>step.name === "Upload CI Autofix owner handoff");
     if (uploads.length !== 1 || uploads[0].status !== "completed"
       || uploads[0].conclusion !== "success") fail("unverified_handoff_upload");
+    // An authenticated upload without its durable pending record must consume the
+    // launched attempt as unknown, never claim publication or permit silent retries.
+    if(input.pending_result==="failure")return {persist:true,outcome:"unknown"};
     return {persist:false,reason:"authenticated_pending_record_required"};
   }
   if (launch.recoverable) return {persist: false, reason: launch.reason};

@@ -811,7 +811,7 @@ jobs:
           echo "Authenticated OWNER_PUSH_PENDING recorded. No publication or terminal repair outcome." >> "$GITHUB_STEP_SUMMARY"
 
       - name: Classify the started model attempt
-        if: steps.pending.outputs.pending != 'yes'
+        if: always() && steps.pending.outputs.pending != 'yes'
         id: classify
         env:
           GH_TOKEN: ${{ github.token }}
@@ -867,7 +867,7 @@ jobs:
           echo "Durable Review Repair attempt outcome: $outcome"
 
       - name: Persist exact attempt outcome in canonical Failure Memory
-        if: steps.classify.outputs.persist == 'yes'
+        if: always() && steps.classify.outputs.persist == 'yes'
         env:
           GH_TOKEN: ${{ github.token }}
           REPOSITORY: ${{ github.repository }}

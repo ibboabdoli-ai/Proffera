@@ -37,6 +37,7 @@ export const HARD_BLOCKED_SCOPES = Object.freeze([
   "scripts/supervisor-ci-autofix-candidate.mjs",
   "scripts/supervisor-authorization-policy.mjs",
   "scripts/supervisor-preflight.mjs",
+  "scripts/supervisor-owner-push-pending.mjs",
   "scripts/supervisor-failure-memory.mjs",
   ".env",
   ".env.",

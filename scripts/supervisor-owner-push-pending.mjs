@@ -59,6 +59,7 @@ export function readPending(comments,pr){
   if(typeof c?.body!=="string"||!c.body.startsWith("<!-- proffera-owner-push-"))continue;
   if(c.body.startsWith("<!-- proffera-owner-push-approve:")||
      c.body.startsWith("<!-- proffera-owner-push-cancel:"))continue;
+  if(c.user?.login!=="github-actions[bot]"||c.user?.type!=="Bot")continue;
   check(c.issue_url?.toLowerCase()===ISSUE_URL.toLowerCase()&&c.user?.login==="github-actions[bot]"
    &&c.user?.type==="Bot"&&pos(c.id)&&c.body.length<14000,"comment_provenance");
   if(c.body.startsWith("<!-- proffera-owner-push-pending:")){
@@ -256,7 +257,7 @@ export function resolveDecision(input){
  check(["approve","cancel"].includes(kind)&&hex(branch,40)&&hex(proposed,40)
   &&typeof onBranch==="boolean"&&typeof onMain==="boolean","resolution_evidence");
  if(kind==="approve"){
-  check(onBranch&&branch===proposed&&!onMain,"push_proof");
+  check(onBranch||onMain,"push_proof");
   return "push_confirmed";
  }
  check(!onBranch&&!onMain,"reachable_commit");
@@ -287,11 +288,41 @@ function resolution(p,comments){
   historical_nonpublication_proven:false,observed_at:new Date().toISOString()};
  post(body("resolution",p.pending_digest,value));
 }
+// An owner can close an authenticated pending handoff after the seven-day
+// artifact retention window, but missing/tampered artifacts within retention
+// remain a hard stop. This does not admit an unapproved commit.
+export function mayResolveExpiredArtifact(p,artifacts,ownerAction,nowMs=Date.now()){
+ check(Array.isArray(artifacts)&&artifacts.length<100&&Number.isFinite(nowMs)
+  &&Number.isFinite(Date.parse(p.observed_at))&&Object.hasOwn(LANES,p.lane),"expired_artifact_list");
+ if(!ownerAction||nowMs-Date.parse(p.observed_at)<7*24*60*60*1000)return false;
+ const expected=LANES[p.lane].prefix+p.run_id+"-"+p.run_attempt;
+ const found=artifacts.filter(a=>a.id===p.artifact_id||a.name===expected);
+ if(!found.length)return true; // GitHub removed the expired artifact.
+ check(found.length===1,"expired_artifact_collision");
+ const a=found[0];
+ check(a.id===p.artifact_id&&a.name===expected&&a.expired===true
+  &&a.workflow_run?.id===p.run_id&&a.digest==="sha256:"+p.artifact_digest,"expired_artifact_identity");
+ return true;
+}
 function gate(env){
  const pr=Number(env.PR_NUMBER);check(pos(pr),"gate_pr");
  const comments=issueComments(),rows=readPending(comments,pr);
  for(const p of rows.filter(r=>!r.resolution)){
   const auth=trustedRun(p);
+  const ids={workflow_id:auth.run.workflow_id,publish_job_id:auth.publish.id,
+   model_job_id:auth.model.id,validation_job_id:auth.validate.id};
+  check(Object.entries(ids).every(([k,v])=>p[k]===v),"pending_job_binding");
+  const ownerAction=comments.some(c=>c.issue_url?.toLowerCase()===ISSUE_URL.toLowerCase()
+   &&c.user?.login===OWNER&&c.user?.type==="User"&&
+   ["approve","cancel"].some(kind=>c.body?.trim()===marker(kind,p.pending_digest)));
+  if(ownerAction){
+   const list=api("repos/"+REPO+"/actions/runs/"+p.run_id+"/artifacts?per_page=100").artifacts;
+   if(mayResolveExpiredArtifact(p,list,true)){
+    resolution(p,comments);
+    continue;
+   }
+  }
+  // For retained artifacts, verify bytes, Git ancestry, and all bound digests.
   const verified=verifyArtifact(p,auth,p.artifact_id);
   check(["artifact_digest","bundle_digest","manifest_digest","workflow_id",
     "publish_job_id","model_job_id","validation_job_id"].every(k=>p[k]===verified[k]),"pending_authentication");

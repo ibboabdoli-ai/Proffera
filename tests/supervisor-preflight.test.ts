@@ -515,6 +515,36 @@ describe("canonical Supervisor pre-publication gate", () => {
     expect(observed.ok).toBe(true);
   });
 
+  it("maps all B4 pending, strategy, workflow, and evidence paths to executable suites", () => {
+    const mapped: Record<string,string> = {
+      "scripts/supervisor-owner-push-pending.mjs":"tests/supervisor-owner-push-pending.test.ts",
+      "scripts/supervisor-ci-autofix-strategy-memory.mjs":"tests/supervisor-ci-autofix-strategy-history.test.ts",
+      "scripts/supervisor-review-repair-strategy-memory.mjs":"tests/supervisor-control-plane-v2.test.ts",
+      ".github/workflows/ci.yml":"tests/github-workflow-yaml.test.ts",
+      ".github/workflows/supervisor-planner.yml":"tests/supervisor-control-plane-v2.test.ts",
+      "tests/supervisor-owner-push-pending.test.ts":"tests/supervisor-owner-push-pending.test.ts",
+      "tests/supervisor-owner-handoff.test.ts":"tests/supervisor-owner-handoff.test.ts",
+      "tests/supervisor-ci-autofix-strategy-history.test.ts":"tests/supervisor-ci-autofix-strategy-history.test.ts",
+      "tests/supervisor-control-plane-v2.test.ts":"tests/supervisor-control-plane-v2.test.ts",
+      "tests/supervisor-worker-strategy-history.test.ts":"tests/supervisor-worker-strategy-history.test.ts",
+    };
+    const {repo,base}=fixture();
+    for (const path of Object.keys(mapped)) {
+      write(join(repo,...path.split("/")), "export const candidate = 1;\n");
+    }
+    git(repo, ["add", "."]);
+    git(repo, ["commit", "-qm", "B4 mapped candidates"]);
+    const candidate=inspectFixture({cwd:repo,baseSha:base,prBody:body(base)});
+    for(const id of ["targeted","workflow-semantics"]){
+      const result=executeLocalValidation(candidate,repo,[id],{
+        runner: (_command:string,args:string[]) => {
+          for(const suite of new Set(Object.values(mapped)))expect(args).toContain(suite);
+          return {status:0,signal:null,stdout:"",stderr:""};
+        },
+      });
+      expect(result.ok).toBe(true);
+    }
+  });
   it("stages Worker and Review Repair only as owner-push artifacts, never automatic publication", () => {
     for (const filename of ["supervisor-worker-handoff.yml", "supervisor-review-repair.yml"]) {
       const workflow = readFileSync(join(process.cwd(), ".github", "workflows", filename), "utf8");

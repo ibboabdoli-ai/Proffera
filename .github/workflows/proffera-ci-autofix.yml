@@ -851,6 +851,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           NEW_HEAD: ${{ steps.commit.outputs.new_head }}
+          HEAD_REF: ${{ needs.prepare.outputs.head_ref }}
         run: |
           set -euo pipefail
           echo "published=no" >> "$GITHUB_OUTPUT"
@@ -860,18 +861,20 @@ jobs:
           test "$(git write-tree)" = "$VALIDATED_TREE"
           pr="$(gh api "repos/${REPOSITORY}/pulls/${PR_NUMBER}")"
           test "$(jq -r '.head.sha' <<< "$pr")" = "$EXPECTED_HEAD"
-          test "$(jq -r '.head.ref' <<< "$pr")" = "${{ needs.prepare.outputs.head_ref }}"
+          test "$(jq -r '.head.ref' <<< "$pr")" = "$HEAD_REF"
           test "$(jq -r '.base.ref' <<< "$pr")" = main
           test "$(jq -r '.head.repo.full_name' <<< "$pr")" = "$REPOSITORY"
           test "$(jq -r '.user.login' <<< "$pr")" = "${REPOSITORY%%/*}"
           # Only the detached ephemeral checkout is moved; no remote ref.
           git update-ref HEAD "$NEW_HEAD" "$EXPECTED_HEAD"
-          test -z "$(git status --porcelain)"
+          git diff --cached --quiet "$NEW_HEAD"
+          git diff --quiet "$EXPECTED_HEAD"
+          test -z "$(git ls-files --others --exclude-standard)"
           bundle="$RUNNER_TEMP/proffera-ci-autofix-owner-handoff.bundle"
           git bundle create "$bundle" HEAD "^${EXPECTED_HEAD}"
           git bundle verify "$bundle"
           (cd "$RUNNER_TEMP" && sha256sum "proffera-ci-autofix-owner-handoff.bundle" > "proffera-ci-autofix-owner-handoff.bundle.sha256")
-          jq -n --arg repo "$REPOSITORY" --argjson pr "$PR_NUMBER"             --arg branch "${{ needs.prepare.outputs.head_ref }}" --arg base "$(jq -r '.base.sha' <<< "$pr")"             --arg parent "$EXPECTED_HEAD" --arg head "$NEW_HEAD" --arg tree "$VALIDATED_TREE"             --argjson run "$GITHUB_RUN_ID" --argjson attempt "$GITHUB_RUN_ATTEMPT"             '{state:"OWNER_PUSH_REQUIRED",published:false,repository:$repo,pr_number:$pr,branch:$branch,base_sha:$base,parent_sha:$parent,head_sha:$head,tree_sha:$tree,run_id:$run,run_attempt:$attempt}'             > "$RUNNER_TEMP/proffera-ci-autofix-owner-handoff.json"
+          jq -n --arg repo "$REPOSITORY" --argjson pr "$PR_NUMBER"             --arg branch "$HEAD_REF" --arg base "$(jq -r '.base.sha' <<< "$pr")"             --arg parent "$EXPECTED_HEAD" --arg head "$NEW_HEAD" --arg tree "$VALIDATED_TREE"             --argjson run "$GITHUB_RUN_ID" --argjson attempt "$GITHUB_RUN_ATTEMPT"             '{state:"OWNER_PUSH_REQUIRED",published:false,repository:$repo,pr_number:$pr,branch:$branch,base_sha:$base,parent_sha:$parent,head_sha:$head,tree_sha:$tree,run_id:$run,run_attempt:$attempt}'             > "$RUNNER_TEMP/proffera-ci-autofix-owner-handoff.json"
           echo "Owner-push required for $NEW_HEAD. No code was published." >> "$GITHUB_STEP_SUMMARY"
           echo "base_sha=$(jq -r '.base.sha' <<< "$pr")" >> "$GITHUB_OUTPUT"
           echo "ready=yes" >> "$GITHUB_OUTPUT"
@@ -945,7 +948,7 @@ jobs:
           echo "Authenticated OWNER_PUSH_PENDING recorded. No publication or terminal repair outcome." >> "$GITHUB_STEP_SUMMARY"
 
       - name: Classify the started CI Autofix model attempt
-        if: steps.pending.outputs.pending != 'yes'
+        if: always() && steps.pending.outputs.pending != 'yes'
         id: classify
         env:
           GH_TOKEN: ${{ github.token }}
@@ -954,6 +957,7 @@ jobs:
           ADMITTED_RUN_ATTEMPT: ${{ needs.admit.outputs.admitted_run_attempt }}
           CHANGED: ${{ needs.autofix.outputs.changed }}
           PUBLISHED: ${{ needs.publish.outputs.published }}
+          PENDING_RESULT: ${{ steps.pending.outcome }}
         shell: bash
         run: |
           set -euo pipefail
@@ -961,7 +965,8 @@ jobs:
           gh api --paginate "repos/$REPOSITORY/actions/runs/$ADMITTED_RUN_ID/attempts/$ADMITTED_RUN_ATTEMPT/jobs?per_page=100" --jq '.jobs[]' | jq -s '.' > "$jobs_file"
           jq -e 'type == "array" and length <= 1000' "$jobs_file" >/dev/null
           classification="$(jq -n --arg published "$PUBLISHED" --arg changed "$CHANGED" \
-            --slurpfile jobs "$jobs_file" '{published:$published,changed:$changed,jobs:$jobs[0]}' \
+            --arg pending_result "$PENDING_RESULT" \
+            --slurpfile jobs "$jobs_file" '{published:$published,changed:$changed,pending_result:$pending_result,jobs:$jobs[0]}' \
             | node scripts/supervisor-ci-autofix-strategy-memory.mjs classify-outcome)"
           if [ "$(jq -r '.persist' <<< "$classification")" != "true" ]; then
             echo "persist=no" >> "$GITHUB_OUTPUT"
@@ -975,7 +980,7 @@ jobs:
           echo "Durable CI Autofix attempt outcome: $outcome"
 
       - name: Persist exact CI Autofix outcome in canonical Failure Memory
-        if: steps.classify.outputs.persist == 'yes'
+        if: always() && steps.classify.outputs.persist == 'yes'
         env:
           GH_TOKEN: ${{ github.token }}
           REPOSITORY: ${{ github.repository }}

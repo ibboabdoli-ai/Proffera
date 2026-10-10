@@ -382,6 +382,16 @@ function additionalTargetedSuites(candidate) {
     "scripts/supervisor-ci-autofix-candidate.mjs",
     "scripts/supervisor-preflight.mjs",
     "scripts/supervisor-worker-handoff.mjs",
+    "scripts/supervisor-owner-push-pending.mjs",
+    "scripts/supervisor-ci-autofix-strategy-memory.mjs",
+    "scripts/supervisor-review-repair-strategy-memory.mjs",
+    ".github/workflows/ci.yml",
+    ".github/workflows/supervisor-planner.yml",
+    "tests/supervisor-owner-push-pending.test.ts",
+    "tests/supervisor-owner-handoff.test.ts",
+    "tests/supervisor-ci-autofix-strategy-history.test.ts",
+    "tests/supervisor-control-plane-v2.test.ts",
+    "tests/supervisor-worker-strategy-history.test.ts",
     "tests/supervisor-authorization-policy.test.ts",
     "tests/supervisor-ci-autofix-candidate.test.ts",
     "tests/supervisor-preflight.test.ts",
@@ -404,7 +414,21 @@ function additionalTargetedSuites(candidate) {
     "scripts/supervisor-ci-autofix-candidate.mjs",
     "tests/supervisor-ci-autofix-candidate.test.ts",
   ]);
+  // Exact behavior-changing paths map to executable tests, not a generic PASS assertion.
+  const pathSuites = new Map([
+    [".github/workflows/ci.yml", "tests/github-workflow-yaml.test.ts"],
+    [".github/workflows/supervisor-planner.yml", "tests/supervisor-control-plane-v2.test.ts"],
+    ["scripts/supervisor-owner-push-pending.mjs", "tests/supervisor-owner-push-pending.test.ts"],
+    ["scripts/supervisor-ci-autofix-strategy-memory.mjs", "tests/supervisor-ci-autofix-strategy-history.test.ts"],
+    ["scripts/supervisor-review-repair-strategy-memory.mjs", "tests/supervisor-control-plane-v2.test.ts"],
+    ["tests/supervisor-owner-push-pending.test.ts", "tests/supervisor-owner-push-pending.test.ts"],
+    ["tests/supervisor-owner-handoff.test.ts", "tests/supervisor-owner-handoff.test.ts"],
+    ["tests/supervisor-ci-autofix-strategy-history.test.ts", "tests/supervisor-ci-autofix-strategy-history.test.ts"],
+    ["tests/supervisor-control-plane-v2.test.ts", "tests/supervisor-control-plane-v2.test.ts"],
+    ["tests/supervisor-worker-strategy-history.test.ts", "tests/supervisor-worker-strategy-history.test.ts"],
+  ]);
   for (const path of candidate.diff.paths) {
+    if (pathSuites.has(path)) suites.add(pathSuites.get(path));
     if (workerPaths.has(path) || path === ".github/workflows/supervisor-worker-handoff.yml") {
       suites.add("tests/supervisor-worker-handoff.test.ts");
     }
