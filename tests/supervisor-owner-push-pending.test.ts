@@ -1,9 +1,14 @@
-import {describe,it,expect} from "vitest";
+import {describe,it,expect,vi} from "vitest";
+import {spawnSync} from "node:child_process";
+vi.mock("node:child_process",async(importOriginal)=>{
+ const original=await importOriginal<typeof import("node:child_process")>();
+ return {...original,spawnSync:vi.fn(original.spawnSync)};
+});
 import {createHash} from "node:crypto";
 import {readFileSync} from "node:fs";
 import {createRequire} from "node:module";
 // @ts-expect-error Trusted control-plane .mjs helper.
-import {readPending,admission,verifyArtifactMetadata,verifyHandoffManifest,resolveDecision,mayResolveExpiredArtifact,verifyHandoffBranch} from "../scripts/supervisor-owner-push-pending.mjs";
+import {readPending,admission,verifyArtifactMetadata,verifyHandoffManifest,resolveDecision,mayResolveExpiredArtifact,verifyHandoffBranch,gate} from "../scripts/supervisor-owner-push-pending.mjs";
 // @ts-expect-error Trusted control-plane .mjs helper.
 import {decideReviewRepairStrategyHistory} from "../scripts/supervisor-review-repair-strategy-memory.mjs";
 // @ts-expect-error Trusted control-plane .mjs helper.
@@ -216,5 +221,119 @@ describe("authenticated artifact, current-state and cancellation policy",()=>{
   expect(()=>resolveDecision({...base,deployments:[{id:9}]})).toThrow("deployment_evidence");
   expect(()=>resolveDecision({...base,knownCommit:true})).toThrow("historical_publication_ambiguous");
   expect(()=>resolveDecision({...base,knownCommit:null})).toThrow("historical_publication_ambiguous");
+ });
+});
+
+describe("production gate with a retained artifact and an advanced branch",()=>{
+ it.each([true,false])("authenticated cancellation; parent fetch available=%s",async parentAvailable=>{
+  const actual=await vi.importActual<typeof import("node:child_process")>("node:child_process");
+  const pending=fixture(),advanced="9".repeat(40),base=pending.value;
+  const laneFile="proffera-review-repair-owner-handoff";
+  const bundle=Buffer.from("bounded retained bundle bytes");
+  const zip=Buffer.from("retained artifact zip bytes");
+  const digest=(x:Buffer)=>createHash("sha256").update(x).digest("hex");
+  const manifest=Buffer.from(JSON.stringify({
+   state:"OWNER_PUSH_REQUIRED",published:false,repository:repo,pr_number:pr,branch:base.branch,
+   base_sha:base.base_sha,parent_sha:base.parent_sha,head_sha:base.head_sha,
+   tree_sha:base.tree_sha,run_id:base.run_id,run_attempt:base.run_attempt,
+   finding_set_sha256:base.finding_digest,
+  }));
+  const p={...base,artifact_digest:digest(zip),bundle_digest:digest(bundle),
+   manifest_digest:digest(manifest),observed_at:new Date().toISOString()};
+  const text=make("pending","review_repair:81:1",p),key=digest(Buffer.from(text));
+  const comments:ReturnType<typeof bot>[]=[bot(text),owner("<!-- proffera-owner-push-cancel:v1:"+key+" -->")];
+  const steps=(...names:string[])=>names.map(name=>({name,status:"completed",conclusion:"success"}));
+  const job=(name:string,id:number,names:string[])=>({name,id,status:"completed",
+   conclusion:"success",steps:steps(...names)});
+  const jobs=[
+   job("Batch current-head review findings",302,["Run one batched exact-head repair"]),
+   job("Validate repair without model or push credentials",303,[]),
+   job("Stage Review Repair owner-push handoff (no publication)",301,
+    ["Revalidate and commit bounded repair for owner handoff","Upload Review Repair owner handoff"]),
+  ];
+  const run={id:81,run_attempt:1,path:".github/workflows/supervisor-review-repair.yml",
+   name:"Supervisor review repair",event:"workflow_dispatch",head_branch:"main",workflow_id:201};
+  const artifact={id:401,name:"supervisor-review-repair-owner-handoff-81-1",
+   workflow_run:{id:81},expired:false,digest:"sha256:"+digest(zip)};
+  const good=(stdout:string|Buffer)=>({status:0,stdout,stderr:"",error:undefined});
+  const bad=(msg:string)=>({status:1,stdout:"",stderr:msg,error:undefined});
+  let fetchHead="",parentFetched=false,posts=0;
+  const fake=((bin:string,args:string[])=>{
+   if(bin==="gh"&&args[0]==="api"){
+    if(args[1]==="--paginate"&&args[2]==="--slurp"){
+     if(args[3].includes("/issues/548/comments"))return good(JSON.stringify([comments]));
+     if(args[3].includes("/jobs?"))return good(JSON.stringify([{jobs}]));
+    }
+    if(args[1]==="--method"&&args.includes("POST")){
+     const submitted=args.find(s=>s.startsWith("body="));
+     if(!submitted)throw Error("missing posted resolution");
+     comments.push(bot(submitted.slice(5),333));posts++;
+     return good(JSON.stringify({id:333}));
+    }
+    const endpoint=args[1];
+    if(endpoint==="repos/"+repo+"/actions/runs/81/attempts/1")return good(JSON.stringify(run));
+    if(endpoint==="repos/"+repo+"/actions/runs/81/artifacts?per_page=100")
+     return good(JSON.stringify({artifacts:[artifact]}));
+    if(endpoint==="repos/"+repo+"/actions/artifacts/401/zip")return good(zip);
+    if(endpoint==="repos/"+repo+"/pulls/"+pr)return good(JSON.stringify({
+     state:"open",merged:false,base:{ref:"main"},head:{ref:p.branch,sha:advanced,
+      repo:{full_name:repo}},user:{login:"ibboabdoli-ai"},
+    }));
+    if(endpoint==="repos/"+repo+"/git/ref/heads/"+p.branch)
+     return good(JSON.stringify({object:{sha:advanced}}));
+    if(endpoint==="repos/"+repo+"/git/ref/heads/main")
+     return good(JSON.stringify({object:{sha:p.base_sha}}));
+    if(endpoint==="repos/"+repo+"/deployments?sha="+p.head_sha+"&per_page=100")
+     return good("[]");
+    if(endpoint==="repos/"+repo+"/commits/"+p.head_sha)return bad("404 Not Found");
+   }
+   if(bin==="unzip"){
+    if(args[0]==="-Z1")return good([laneFile+".bundle",laneFile+".bundle.sha256",
+     laneFile+".json"].join("\n")+"\n");
+    if(args[0]==="-p"){
+     const name=args[2];
+     if(name.endsWith(".bundle.sha256"))
+      return good(Buffer.from(p.bundle_digest+"  "+laneFile+".bundle\n"));
+     if(name.endsWith(".bundle"))return good(bundle);
+     if(name.endsWith(".json"))return good(manifest);
+    }
+   }
+   if(bin==="git"){
+    if(args[0]==="fetch"){
+     const ref=args.at(-1);
+     if(ref==="refs/heads/"+p.branch){fetchHead=advanced;return good("");}
+     if(ref==="refs/heads/main"){fetchHead=p.base_sha;return good("");}
+     if(ref===p.parent_sha){
+      if(!parentAvailable)return bad("missing staged parent on origin");
+      parentFetched=true;fetchHead=p.parent_sha;return good("");
+     }
+     if(ref==="HEAD"){fetchHead=p.head_sha;return good("");}
+    }
+    if(args[0]==="cat-file"&&args[1]==="-t"&&args[2]===p.parent_sha)
+     return parentFetched?good("commit\n"):bad("missing parent");
+    if(args[0]==="bundle"&&args[1]==="verify")
+     return parentFetched?good("verified"):bad("missing prerequisite");
+    if(args[0]==="bundle"&&args[1]==="list-heads")return good(p.head_sha+" HEAD\n");
+    if(args[0]==="rev-parse"){
+     if(args[1]==="FETCH_HEAD")return good(fetchHead+"\n");
+     if(args[1]==="FETCH_HEAD^{tree}")return good(p.tree_sha+"\n");
+     if(args[1]==="FETCH_HEAD^")return good(p.parent_sha+"\n");
+    }
+    if(args[0]==="rev-list")return good(args[1]+"\n");
+   }
+   throw Error("unexpected mock command: "+bin+" "+args.join(" "));
+  }) as typeof spawnSync;
+  vi.mocked(spawnSync).mockImplementation(fake);
+  try{
+   if(parentAvailable){
+    expect(gate({PR_NUMBER:String(pr)})).toEqual({allow:true,unresolved:0,records:1});
+    expect(posts).toBe(1);
+    expect(admission(comments,pr)).toMatchObject({allow:true,unresolved:0});
+   }else{
+    expect(()=>gate({PR_NUMBER:String(pr)})).toThrow("missing staged parent");
+    expect(posts).toBe(0);
+    expect(admission(comments,pr).allow).toBe(false);
+   }
+  }finally{vi.mocked(spawnSync).mockImplementation(actual.spawnSync);}
  });
 });

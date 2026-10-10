@@ -188,6 +188,10 @@ function verifyArtifact(p,auth,artifactId,{ownerResolution=false}={}){
   cmd("git",["fetch","--no-tags","origin","refs/heads/"+p.branch]);
   verifyHandoffBranch(cmd("git",["rev-parse","FETCH_HEAD"]).trim(),
    p.parent_sha,p.head_sha,ownerResolution);
+  // A retained bundle can omit its parent; fetch the authenticated prerequisite
+  // explicitly even if the live branch has moved away from the staged parent.
+  cmd("git",["fetch","--no-tags","origin",p.parent_sha]);
+  check(cmd("git",["cat-file","-t",p.parent_sha]).trim()==="commit","bundle_parent");
   cmd("git",["bundle","verify",path]);
   check(cmd("git",["bundle","list-heads",path]).trim()===p.head_sha+" HEAD","bundle_ref");
   cmd("git",["fetch","--no-tags",path,"HEAD"]);
@@ -313,7 +317,7 @@ export function mayResolveExpiredArtifact(p,artifacts,ownerAction,nowMs=Date.now
   &&a.workflow_run?.id===p.run_id&&a.digest==="sha256:"+p.artifact_digest,"expired_artifact_identity");
  return true;
 }
-function gate(env){
+export function gate(env){
  const pr=Number(env.PR_NUMBER);check(pos(pr),"gate_pr");
  const comments=issueComments(),rows=readPending(comments,pr);
  for(const p of rows.filter(r=>!r.resolution)){
