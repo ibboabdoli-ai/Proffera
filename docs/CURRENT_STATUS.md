@@ -1,6 +1,6 @@
 # Proffera Current Status
 
-Last updated: 2026-09-27
+Last updated: 2026-10-08
 
 This is the canonical factual status document for Proffera. For worker rules, live task state, current `main` SHA, roadmap order, and the stable V1 completion evidence requirements, also read `AGENTS.md`, `WORKER_BOOTSTRAP.md`, GitHub issue #548, GitHub issue #276, `docs/README.md`, and `docs/V1_LAUNCH_EVIDENCE_CONTRACT.json`.
 
@@ -78,6 +78,14 @@ Current merge-safety rules include:
 A repository-owned release rollback runbook and read-only dry-run validator now require an exact known-good Vercel deployment/SHA, explicit database-impact classification, and exact-SHA post-rollback health verification. The standard path never performs a database down-migration automatically; destructive or unknown database impact is blocked pending a separate approved recovery plan.
 
 Production release health is bound to the exact merged `main` commit rather than to a generic scheduled probe. GitHub-token merges do not reliably generate downstream `push` workflow runs, so gated automerge emits a `repository_dispatch` event only after a successful merge and includes the resolved merge commit SHA. The Production health workflow rejects a dispatch whose SHA is missing, malformed or no longer equals the default-branch head, waits for the matching Vercel deployment, and requires that deployed SHA plus schema health to pass. The trusted PR-base gate accepts successful exact-base health evidence from either a normal `push` run or this repository-dispatch handoff; scheduled health remains supplemental rather than proof for a specific PR base.
+
+The local pre-publication gate also has an opt-in `run-checks` mode: it executes a scope-selected subset of fixed repository-owned commands under Node 22 and rechecks the candidate's immutable identity. This observes actual check exits rather than accepting caller-supplied command/status text, but it cannot prove independent reviewer provenance. Its receipts explicitly report incomplete lanes and `publication_ready: false`; the separate canonical `verify` remains fail-closed until an authenticated independent review path is established.
+
+Automated CI Autofix publication is deliberately blocked in a credential-free fail-closed step until authenticated Supervisor execution and independent-review provenance exists. The repair workflow may prepare and validate candidates but must not receive its push token or publish without that boundary. This temporary availability cost is required by the canonical every-push preflight contract.
+
+The separate read-only `hosted-review-status` probe queries authenticated GitHub PR metadata and paginated CodeRabbit reviews, binds reviews to the exact local candidate head, and reports stale/mismatched hosted reviews without granting local pre-push attestation or changing the fail-closed `verify` decision. GitHub review of a previous remote head is never sufficient for a new unpublished local commit.
+
+A canonical local pre-publication boundary lives in `scripts/supervisor-preflight.mjs`. It checks the clean committed candidate, repository, branch, live base, head, tree, exact PR-body digest, complete path/mode accounting, and consistency of scope-selected Node 22 validation and review claims. Caller-supplied JSON cannot authenticate command execution or reviewer independence: even consistent claims produce `ok: false`, `evidence_consistent: true`, `publication_ready: false` and exit status 1 with `evidence_provenance_unverified`. No authenticated local provenance adapter is currently available, so publication remains blocked; inventing reviewer names, digests, command strings or hosted-required reasons cannot open it. This receipt never replaces the existing hosted CI, exact-head final review, owner authorization or deployment proof. Candidate changes invalidate earlier evidence.
 
 A dedicated `Worker supervisor sync` GitHub Actions workflow records `work/proffera-*` PR lifecycle events to issue #548 when PRs are opened/reopened, marked ready for review, or closed/merged. This gives the Supervisor a durable automatic event trail independent of private chat memory.
 

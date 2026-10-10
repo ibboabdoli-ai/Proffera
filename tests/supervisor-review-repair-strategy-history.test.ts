@@ -813,7 +813,7 @@ describe("Review Repair pre-model start recovery", () => {
     expect(classify).toContain("Run one batched exact-head repair");
     expect(classify).toContain('echo "persist=no" >> "$GITHUB_OUTPUT"');
     expect(workflowStep("record", "Persist exact attempt outcome in canonical Failure Memory").if)
-      .toBe("steps.classify.outputs.persist == 'yes'");
+      .toBe("always() && steps.classify.outputs.persist == 'yes'");
   });
 
   it("recovers only after exact historical Actions proof and re-reads memory before admission", () => {

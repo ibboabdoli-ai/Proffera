@@ -216,6 +216,11 @@ jobs:
           set -euo pipefail
           echo "repair=no" >> "$GITHUB_OUTPUT"
           echo "attempt_started=no" >> "$GITHUB_OUTPUT"
+          pending_gate="$(node scripts/supervisor-owner-push-pending.mjs gate)"
+          if [ "$(jq -r '.allow' <<< "$pending_gate")" != "true" ]; then
+            echo "Authenticated unresolved owner-push handoff blocks automatic repair."
+            exit 0
+          fi
           if [ "$FINDING_COUNT" -eq 0 ]; then
             echo "No settled current-head material review finding; no model attempt is admitted."
             exit 0
@@ -224,7 +229,6 @@ jobs:
           comments_file="$RUNNER_TEMP/proffera-review-repair-comments.json"
           gh api --paginate "repos/${REPOSITORY}/issues/548/comments?per_page=100" --jq '.[]' | jq -s '.' > "$comments_file"
           jq -e 'type == "array"' "$comments_file" >/dev/null
-
           input_file="$RUNNER_TEMP/proffera-review-repair-admit.json"
           build_admit_input() {
             jq -n               --arg repository "$REPOSITORY"               --arg pr_number "$PR_NUMBER"               --arg head "$HEAD_SHA"               --slurpfile finding_ids "$RUNNER_TEMP/proffera-review-repair-evidence/finding_ids.json"               --slurpfile comments "$comments_file"               '{repository:$repository,pr_number:($pr_number|tonumber),head:$head,finding_ids:$finding_ids[0],comments:$comments[0]}'               > "$input_file"
@@ -531,7 +535,12 @@ jobs:
           git diff --check HEAD
 
   publish:
-    name: Publish verified repair from isolated trusted job
+    name: Stage Review Repair owner-push handoff (no publication)
+    outputs:
+      artifact_id: ${{ steps.owner_artifact.outputs.artifact-id }}
+      new_head: ${{ steps.handoff.outputs.new_head }}
+      tree: ${{ steps.handoff.outputs.tree }}
+      base_sha: ${{ steps.handoff.outputs.base_sha }}
     needs: [repair, validate]
     if: needs.repair.outputs.changed == 'yes' && needs.validate.result == 'success'
     runs-on: ubuntu-latest
@@ -676,62 +685,66 @@ jobs:
           test "$(jq -r '.ok == true' <<< "$validation")" = "true"
           git diff --check HEAD
 
-      - name: Publish one same-branch repair commit
+      - name: Revalidate and commit bounded repair for owner handoff
+        id: handoff
         env:
           GH_TOKEN: ${{ github.token }}
           REPOSITORY: ${{ github.repository }}
           PR_NUMBER: ${{ inputs.pr_number }}
           EXPECTED_HEAD: ${{ needs.repair.outputs.head_sha }}
           HEAD_REF: ${{ needs.repair.outputs.head_ref }}
-          EXPECTED_FINDING_SET_SHA256: ${{ needs.repair.outputs.finding_set_sha256 }}
-          PUSH_TOKEN: ${{ secrets.PROFFERA_AUTOFIX_PUSH_TOKEN }}
+          FINDINGS_SHA: ${{ needs.repair.outputs.finding_set_sha256 }}
         shell: bash
         run: |
           set -euo pipefail
-          live_head="$(gh api "repos/${REPOSITORY}/pulls/${PR_NUMBER}" --jq '.head.sha')"
-          test "$live_head" = "$EXPECTED_HEAD"
-          test -n "${PUSH_TOKEN:-}"
+          test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
+          pr="$(gh api "repos/${REPOSITORY}/pulls/${PR_NUMBER}")"
+          test "$(jq -r '.head.sha' <<< "$pr")" = "$EXPECTED_HEAD"
+          test "$(jq -r '.head.ref' <<< "$pr")" = "$HEAD_REF"
+          test "$(jq -r '.head.repo.full_name' <<< "$pr")" = "$REPOSITORY"
+          test "$(jq -r '.base.ref' <<< "$pr")" = main
+          test "$(jq -r '.user.login' <<< "$pr")" = "${REPOSITORY%%/*}"
+          tmp="$(mktemp -d)"
+          bots='select(.user.login == "coderabbitai[bot]" or .user.login == "chatgpt-codex-connector[bot]")'
+          gh api --paginate "repos/${REPOSITORY}/pulls/${PR_NUMBER}/reviews?per_page=100" --jq '.[]' | jq -s "[.[] | ${bots}]" > "$tmp/reviews.json"
+          gh api --paginate "repos/${REPOSITORY}/pulls/${PR_NUMBER}/comments?per_page=100" --jq '.[]' | jq -s "[.[] | ${bots}]" > "$tmp/inline.json"
+          jq -e 'type == "array" and length <= 1000' "$tmp/reviews.json" >/dev/null
+          jq -e 'type == "array" and length <= 1000' "$tmp/inline.json" >/dev/null
+          jq -n --arg head "$EXPECTED_HEAD" --slurpfile reviews "$tmp/reviews.json" --slurpfile inline "$tmp/inline.json"             '[($reviews[0][] | select(.commit_id == $head and .state == "CHANGES_REQUESTED") | "review:" + (.id | tostring)),($inline[0][] | select(.original_commit_id == $head) | "inline:" + (.id | tostring))] | unique | sort' > "$tmp/finding_ids.json"
+          test "$(sha256sum "$tmp/finding_ids.json" | cut -d' ' -f1)" = "$FINDINGS_SHA"
+          test "$(gh api "repos/${REPOSITORY}/pulls/${PR_NUMBER}" --jq '.head.sha')" = "$EXPECTED_HEAD"
+          git diff --check HEAD
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add --all
-          git commit -m "[review-repair] batch current-head verified findings"
-          # Close the last stale-evidence window at the actual publication boundary.
-          # A reviewer may post another finding after the earlier validation guard while
-          # the candidate patch is being applied or scope-validated.
-          push_guard_head="$(gh api "repos/${REPOSITORY}/pulls/${PR_NUMBER}" --jq '.head.sha')"
-          test "$push_guard_head" = "$EXPECTED_HEAD" || {
-            echo "PR head changed immediately before Review Repair publication; refusing stale push." >&2
-            exit 1
-          }
-          review_temp="$(mktemp -d)"
-          bots='select(.user.login == "coderabbitai[bot]" or .user.login == "chatgpt-codex-connector[bot]")'
-          gh api --paginate "repos/${REPOSITORY}/pulls/${PR_NUMBER}/reviews?per_page=100" --jq '.[]' | jq -s "[.[] | ${bots}]" > "$review_temp/reviews.json"
-          gh api --paginate "repos/${REPOSITORY}/pulls/${PR_NUMBER}/comments?per_page=100" --jq '.[]' | jq -s "[.[] | ${bots}]" > "$review_temp/inline.json"
-          jq -e 'type == "array" and length <= 1000' "$review_temp/reviews.json" >/dev/null
-          jq -e 'type == "array" and length <= 1000' "$review_temp/inline.json" >/dev/null
-          jq -n --arg head "$EXPECTED_HEAD" --slurpfile reviews "$review_temp/reviews.json" --slurpfile inline "$review_temp/inline.json" '
-            [
-              ($reviews[0][]
-                | select(.commit_id == $head and .state == "CHANGES_REQUESTED")
-                | "review:" + (.id | tostring)),
-              ($inline[0][]
-                | select(.original_commit_id == $head)
-                | "inline:" + (.id | tostring))
-            ] | unique | sort
-          ' > "$review_temp/finding_ids.json"
-          push_boundary_findings="$(sha256sum "$review_temp/finding_ids.json" | cut -d' ' -f1)"
-          rm -rf "$review_temp"
-          test "$push_boundary_findings" = "$EXPECTED_FINDING_SET_SHA256" || {
-            echo "Current-head review finding burst changed at the push boundary; refusing stale repair publication." >&2
-            exit 1
-          }
-          cleanup() { git config --local --unset credential.helper || true; }
-          trap cleanup EXIT
-          git config --local credential.helper '!f() { echo username=x-access-token; echo "password=$PUSH_TOKEN"; }; f'
-          git remote set-url origin "https://github.com/${REPOSITORY}.git"
-          GIT_TERMINAL_PROMPT=0 git push origin "HEAD:refs/heads/${HEAD_REF}"
-          cleanup
-          trap - EXIT
+          git -c core.hooksPath=/dev/null commit -m "[review-repair] batch current-head verified findings"
+          head="$(git rev-parse HEAD)"
+          tree="$(git rev-parse HEAD^{tree})"
+          test "$(git show -s --format=%P HEAD)" = "$EXPECTED_HEAD"
+          test -z "$(git status --porcelain)"
+          bundle="$RUNNER_TEMP/proffera-review-repair-owner-handoff.bundle"
+          git bundle create "$bundle" HEAD "^${EXPECTED_HEAD}"
+          git bundle verify "$bundle"
+          (cd "$RUNNER_TEMP" && sha256sum "proffera-review-repair-owner-handoff.bundle" > "proffera-review-repair-owner-handoff.bundle.sha256")
+          jq -n --arg repository "$REPOSITORY" --argjson pr "$PR_NUMBER"             --arg branch "$HEAD_REF" --arg base "$(jq -r '.base.sha' <<< "$pr")"             --arg parent "$EXPECTED_HEAD" --arg head "$head" --arg tree "$tree"             --arg findings "$FINDINGS_SHA" --argjson run "$GITHUB_RUN_ID" --argjson attempt "$GITHUB_RUN_ATTEMPT"             '{state:"OWNER_PUSH_REQUIRED",published:false,repository:$repository,pr_number:$pr,branch:$branch,base_sha:$base,parent_sha:$parent,head_sha:$head,tree_sha:$tree,finding_set_sha256:$findings,run_id:$run,run_attempt:$attempt}'             > "$RUNNER_TEMP/proffera-review-repair-owner-handoff.json"
+          echo "Owner approval required for repair $head / tree $tree. No push performed." >> "$GITHUB_STEP_SUMMARY"
+          echo "new_head=$head" >> "$GITHUB_OUTPUT"
+          echo "tree=$tree" >> "$GITHUB_OUTPUT"
+          echo "base_sha=$(jq -r '.base.sha' <<< "$pr")" >> "$GITHUB_OUTPUT"
+          echo "ready=yes" >> "$GITHUB_OUTPUT"
+
+      - name: Upload Review Repair owner handoff
+        id: owner_artifact
+        if: steps.handoff.outputs.ready == 'yes'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: supervisor-review-repair-owner-handoff-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/proffera-review-repair-owner-handoff.bundle
+            ${{ runner.temp }}/proffera-review-repair-owner-handoff.bundle.sha256
+            ${{ runner.temp }}/proffera-review-repair-owner-handoff.json
+          if-no-files-found: error
+          retention-days: 7
 
   record:
     name: Record durable Review Repair attempt outcome
@@ -767,7 +780,38 @@ jobs:
           name: supervisor-review-evidence-${{ needs.admit.outputs.admitted_run_id }}-${{ needs.admit.outputs.admitted_run_attempt }}-${{ needs.admit.outputs.head_sha }}
           path: ${{ runner.temp }}/proffera-review-repair-evidence
 
+      - name: Authenticate uploaded owner-push handoff
+        id: pending
+        env:
+          GH_TOKEN: ${{ github.token }}
+          LANE: review_repair
+          PR_NUMBER: ${{ inputs.pr_number }}
+          HEAD_REF: ${{ needs.admit.outputs.head_ref }}
+          PARENT_SHA: ${{ needs.admit.outputs.head_sha }}
+          BASE_SHA: ${{ needs.publish.outputs.base_sha }}
+          NEW_HEAD: ${{ needs.publish.outputs.new_head }}
+          NEW_TREE: ${{ needs.publish.outputs.tree }}
+          FINDINGS_SHA: ${{ needs.admit.outputs.finding_set_sha256 }}
+          ARTIFACT_ID: ${{ needs.publish.outputs.artifact_id }}
+          REPAIR_RESULT: ${{ needs.repair.result }}
+          CHANGED: ${{ needs.repair.outputs.changed }}
+          VALIDATE_RESULT: ${{ needs.validate.result }}
+          PUBLISH_RESULT: ${{ needs.publish.result }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "pending=no" >> "$GITHUB_OUTPUT"
+          if [ "$REPAIR_RESULT" != "success" ] || [ "$CHANGED" != "yes" ] \
+            || [ "$VALIDATE_RESULT" != "success" ] || [ "$PUBLISH_RESULT" != "success" ]; then
+            exit 0
+          fi
+          proof="$(node scripts/supervisor-owner-push-pending.mjs record)"
+          test "$(jq -r '.pending' <<< "$proof")" = true
+          echo "pending=yes" >> "$GITHUB_OUTPUT"
+          echo "Authenticated OWNER_PUSH_PENDING recorded. No publication or terminal repair outcome." >> "$GITHUB_STEP_SUMMARY"
+
       - name: Classify the started model attempt
+        if: always() && steps.pending.outputs.pending != 'yes'
         id: classify
         env:
           GH_TOKEN: ${{ github.token }}
@@ -811,7 +855,10 @@ jobs:
           elif [ "$CHANGED" != "yes" ]; then
             outcome=no_change
           elif [ "$VALIDATE_RESULT" = "success" ] && [ "$PUBLISH_RESULT" = "success" ]; then
-            outcome=succeeded
+            # No remote publication happened. Existing terminal history cannot
+            # mark a staged candidate as succeeded; preserve fail-closed outcome.
+            outcome=failed
+            echo "Review Repair awaits separately authorized owner push." >> "$GITHUB_STEP_SUMMARY"
           else
             outcome=failed
           fi
@@ -820,7 +867,7 @@ jobs:
           echo "Durable Review Repair attempt outcome: $outcome"
 
       - name: Persist exact attempt outcome in canonical Failure Memory
-        if: steps.classify.outputs.persist == 'yes'
+        if: always() && steps.classify.outputs.persist == 'yes'
         env:
           GH_TOKEN: ${{ github.token }}
           REPOSITORY: ${{ github.repository }}

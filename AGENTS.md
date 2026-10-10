@@ -84,6 +84,22 @@ Valid findings are fixed **before** the primary push whenever practical, and the
 
 For **Class 3/4 work**, or work that would match the repository's sensitive/large AI-review routing, one local CodeRabbit CLI review may be used as an additional pre-push adversarial pass **after** targeted validation and the internal Red Team, provided the CLI is already installed and authenticated. Use `cr review --agent --base main`, verify every finding against the current graph and repository invariants, fix only verified critical/major issues, rerun affected checks, and allow at most two CLI passes for the same bounded task. This local CLI pass is development feedback only; it never replaces or satisfies the required final current-head PR review gate. If the CLI is unavailable or unauthenticated, do not install software, add credentials, or expand the task just to enable it.
 
+### Owner-authorized PR-push handoff and authenticated post-push gate
+
+The local candidate identity and scope must be checked before each separately owner-authorized PR-branch push. No automated Worker, Review Repair or CI Autofix workflow may push, open another PR, merge or deploy. Draft status does not waive identity, path/mode or owner-authorization checks.
+
+1. Finish the bounded implementation on the existing branch; freeze a clean Git HEAD/tree and exact PR-body digest against current `main`.
+2. Inspect added, modified, deleted and mode-changed files, including both endpoints of renames, using `scripts/supervisor-preflight.mjs`.
+3. Run bounded local tests under Node 22. Record real results and disclose any host limitations; do not label incomplete checks PASS.
+4. Use `node scripts/supervisor-preflight.mjs owner-handoff --base <current-main-sha> --pr-body <exact-pr-body-file>`. Its `ok` only confirms local identity/scope; `publication_ready`, `owner_push_authorized` and `independent_review_verified` remain false.
+5. Owner separately authorizes the exact commit SHA/tree, existing PR/branch and a non-force fast-forward push. Re-read live remote ref, base, scope and authority immediately beforehand; revalidate after candidate changes.
+6. After the push, trusted Linux GitHub CI and CodeRabbit review the exact published HEAD. Verify actual GitHub run/job IDs, workflow path, run attempt, review IDs and all P0/P1/P2 dispositions. Missing, stale, skipped, neutral, forged or incomplete evidence fails closed.
+7. Owner separately authorizes exact-HEAD merge only after inspecting authenticated evidence and existing required checks. Keep `ibbo-approved` owner-comment safeguards and sensitive-path automerge exclusions. Production deployment is never authorized by the handoff.
+
+Three workflows (`supervisor-worker-handoff.yml`, `supervisor-review-repair.yml`, `proffera-ci-autofix.yml`) stage bounded immutable Git bundles plus manifest artifacts only. They must not use a push token. `OWNER_PUSH_REQUIRED` is not `PUBLISHED` or successful repair publication. Preserve Worker `RECOVERABLE` reservation semantics; do not fabricate strategy success.
+
+`supervisor-preflight.mjs snapshot` and `owner-handoff` are identity observations, not attestations. `run-checks` reports only executed checks. `verify` continues to reject caller-supplied JSON as `evidence_provenance_unverified`; `hosted-review-status` remains a read-only diagnostic. For the first pilot the Supervisor approved manual owner verification, not a same-named GitHub Actions check as unspoofable authority.
+
 ### One-primary-push discipline
 
 Development churn should stay local or on the isolated worker branch until the Builder and Verifier agree the change is ready for CI.

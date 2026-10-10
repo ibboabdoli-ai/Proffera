@@ -379,6 +379,14 @@ jobs:
         if: needs.ci_scope.outputs.unit == 'true'
         run: npm ci --no-audit --no-fund
 
+      - name: Preload official PostgreSQL test image from public ECR
+        if: needs.ci_scope.outputs.unit == 'true'
+        run: |
+          set -euo pipefail
+          docker pull public.ecr.aws/docker/library/postgres:16-alpine
+          docker tag public.ecr.aws/docker/library/postgres:16-alpine postgres:16-alpine
+          docker image inspect postgres:16-alpine --format '{{.Id}}'
+
       - name: Test
         if: needs.ci_scope.outputs.unit == 'true'
         run: npm test

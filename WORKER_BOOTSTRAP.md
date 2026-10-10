@@ -46,6 +46,20 @@ SonarQube credentials must never be committed or logged. The repository-side int
 - Keep one graph path / purpose per branch.
 - Identify the task using a GitHub issue number when one exists; otherwise use `user-request`.
 
+## Owner-push candidate handoff
+
+Freeze a clean committed candidate on the existing branch. Verify its complete path/mode scope against live `main` and the exact PR body under Node 22:
+
+`node scripts/supervisor-preflight.mjs owner-handoff --base <current-main-sha> --pr-body <exact-pr-body-file>`
+
+This is a local identity/scope observation, **not independent review or push approval**. `owner_push_authorized`, `publication_ready` and `merge_authorized` must remain false. Run selected local checks through the existing `run-checks` allowlist and report actually incomplete tests. Head/tree, branch, PR body or base changes invalidate local evidence.
+
+Worker Handoff, Review Repair and CI Autofix must stop at durable `OWNER_PUSH_REQUIRED` bundle/manifest artifacts instead of pushing. The owner independently verifies the manifest, bundle digest, exact commit/tree, parent, live PR branch and authorization before a separate non-force fast-forward push. A staged repair is never reported as published. Preserve the Worker `RECOVERABLE` reservation state and exact Task Packet.
+
+After push, Linux GitHub Actions and fresh exact-HEAD CodeRabbit `APPROVED` review provide authenticated evidence; Codex is supplemental only. Owner manually checks run IDs/attempts, actual workflow identity, review IDs and all P0/P1/P2 findings before separately authorizing an exact-HEAD merge. Missing, stale, spoofed, skipped, neutral, timed-out or incomplete evidence blocks. Vercel branch exclusions remain unchanged.
+
+The existing `verify` command deliberately fails closed with `evidence_provenance_unverified` on caller-supplied JSON. `hosted-review-status` is read-only and non-authorizing; neither replaces owner approval nor creates an enforceable same-named Actions check.
+
 ## Pull request handoff
 
 Every non-Dependabot PR must include these exact machine-readable lines:
