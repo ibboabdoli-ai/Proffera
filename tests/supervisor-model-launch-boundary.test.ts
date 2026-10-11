@@ -93,6 +93,39 @@ describe("PR-scoped pending ledger at model launch",()=>{
     expect(String(launches[0].if||"")).not.toContain("failure()");
   });
 
+  it("keeps an authenticated staged-but-unrecorded handoff from being terminalized in either lane",()=>{
+    const plans=[
+      {file:".github/workflows/proffera-ci-autofix.yml",pending:"Authenticate uploaded CI Autofix owner handoff"},
+      {file:".github/workflows/supervisor-review-repair.yml",pending:"Authenticate uploaded owner-push handoff"},
+    ];
+    for(const plan of plans){
+      const jobs=item(item(load(readFileSync(plan.file,"utf8"))).jobs);
+      const record=item(jobs.record);
+      const steps=record.steps as Step[];
+      const pending=steps.find(s=>s.name===plan.pending);
+      const classify=steps.find(s=>s.name==="Classify the started model attempt"
+        || s.name==="Classify the started CI Autofix model attempt");
+      const persist=steps.find(s=>s.name?.startsWith("Persist exact"));
+      expect(pending?.id).toBe("pending");
+      expect(classify?.id).toBe("classify");
+      expect(String(classify?.if)).toContain("steps.pending.outputs.pending != 'yes'");
+      expect(String(persist?.if)).toContain("steps.classify.outputs.persist == 'yes'");
+      const script=classify?.run||"";
+      expect(script).toContain('echo "persist=no" >> "$GITHUB_OUTPUT"');
+      expect(script).toContain("exit 1");
+      expect(script).toContain("Staged owner handoff was not durably recorded");
+      if(plan.file.includes("ci-autofix")){
+        expect(script).toContain('staged_handoff_pending_unrecorded');
+        expect(script).toContain("node scripts/supervisor-ci-autofix-strategy-memory.mjs classify-outcome");
+      }else{
+        expect(script).toContain('[ "$REPAIR_RESULT" = "success" ] && [ "$CHANGED" = "yes" ]');
+        expect(script).toContain('[ "$VALIDATE_RESULT" = "success" ] && [ "$PUBLISH_RESULT" = "success" ]');
+        expect(script.indexOf('Staged owner handoff was not durably recorded')).toBeLessThan(
+          script.indexOf('if [ "$REPAIR_RESULT" = "skipped" ]'));
+      }
+    }
+  });
+
   it("keeps the single PR mutex on the trusted admission and recording jobs",()=>{
     for(const cfg of cases){
       const jobs=item(item(load(readFileSync(cfg.file,"utf8"))).jobs);

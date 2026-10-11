@@ -212,7 +212,7 @@ describe("CI Autofix durable admission and outcomes", () => {
   });
 
   it.each(["failure", "cancelled", "success"] as const)(
-    "durably accounts for a staged/uploaded orphan with missing pending record: %s", (conclusion) => {
+    "retains the unresolved reservation for a staged/uploaded orphan without pending: %s", (conclusion) => {
       const admit = {name: "Admit one bounded CI autofix strategy", status: "completed", conclusion: "success"};
       const launched = {name: "Bounded Codex CI autofix", status: "completed", conclusion: "success",
         steps: [{name: "Run one bounded Codex repair attempt", status: "completed", conclusion: "success"}]};
@@ -231,10 +231,11 @@ describe("CI Autofix durable admission and outcomes", () => {
         },
       };
       expect(classifyCiAutofixOutcome({jobs})).toEqual({
-        persist: false, reason: "authenticated_pending_record_required",
+        persist: false, reason: "staged_handoff_pending_unrecorded",
       });
-      const expected = {recoverable: true, reason: "model_outcome_unknown", outcome: "unknown",
-        observed_at: "2026-10-05T18:01:00Z"};
+      // Historical recovery must not manufacture an unknown terminal here:
+      // it would suppress the original start and release cross-lane ownership.
+      const expected = {recoverable: false, reason: "staged_handoff_pending_unrecorded"};
       expect(proveCiAutofixIndeterminateRecovery(input)).toEqual(expected);
       expect(proveCiAutofixIndeterminateRecovery(input)).toEqual(expected);
       expect(proveCiAutofixIndeterminateRecovery({...input, run: {...input.run, status: "in_progress"}}))
@@ -906,6 +907,21 @@ describe("CI Autofix truthful terminal outcomes", () => {
     expect(classifyCiAutofixOutcome({jobs: [...model, {...publication, steps: [step("Publish validated repair", "cancelled")]}]}))
       .toEqual({persist: true, outcome: "unknown"});
     expect(() => classifyCiAutofixOutcome({jobs: [...model, publication, publication]})).toThrow("autofix_jobs_binding");
+  });
+
+  it("holds a staged owner-push handoff when pending recording fails or is skipped", () => {
+    const launched = jobs("success", [step(modelName, "success")]);
+    const staged = {name: "Stage CI Autofix owner-push handoff (no publication)",
+      status: "completed", conclusion: "success", steps: [step("Upload CI Autofix owner handoff", "success")]};
+    for (const pending_result of ["failure", "cancelled", "skipped", "success", undefined]) {
+      expect(classifyCiAutofixOutcome({jobs: [...launched, staged], pending_result}))
+        .toEqual({persist: false, reason: "staged_handoff_pending_unrecorded"});
+    }
+    // An absent or failed upload does not prove a staged owner handoff.
+    expect(()=>classifyCiAutofixOutcome({jobs: [...launched, {...staged,steps: [step("Upload CI Autofix owner handoff", "failed")]}],
+      pending_result:"failure"})).toThrow("unverified_handoff_upload");
+    expect(classifyCiAutofixOutcome({jobs: launched, pending_result: "failure"}))
+      .toEqual({persist: true, outcome: "unknown"});
   });
 
   it("recognizes current no-change capture and rejects contradictory downstream execution before model launch", () => {

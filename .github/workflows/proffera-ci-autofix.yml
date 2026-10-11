@@ -1018,6 +1018,11 @@ jobs:
             --arg pending_result "$PENDING_RESULT" \
             --slurpfile jobs "$jobs_file" '{published:$published,changed:$changed,pending_result:$pending_result,jobs:$jobs[0]}' \
             | node scripts/supervisor-ci-autofix-strategy-memory.mjs classify-outcome)"
+          if [ "$(jq -r '.reason // empty' <<< "$classification")" = "staged_handoff_pending_unrecorded" ]; then
+            echo "persist=no" >> "$GITHUB_OUTPUT"
+            echo "Staged owner handoff was not durably recorded; retain the exact unresolved start and block cross-lane re-entry." >&2
+            exit 1
+          fi
           if [ "$(jq -r '.persist' <<< "$classification")" != "true" ]; then
             echo "persist=no" >> "$GITHUB_OUTPUT"
             echo "Authenticated pre-model exit; start can be retired without charging model history."

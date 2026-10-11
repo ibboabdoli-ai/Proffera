@@ -1,6 +1,8 @@
 import {describe,expect,it} from "vitest";
 // @ts-expect-error Canonical control-plane helper is an untyped .mjs module.
 import {exclusiveReservationDecision} from "../scripts/supervisor-b4-exclusive-reservation.mjs";
+// @ts-expect-error Canonical CI Autofix strategy helper is an untyped .mjs module.
+import {classifyCiAutofixOutcome} from "../scripts/supervisor-ci-autofix-strategy-memory.mjs";
 
 const repository="ibboabdoli-ai/Proffera";
 const pr=941, head="a".repeat(40), otherHead="c".repeat(40);
@@ -66,6 +68,23 @@ describe("B4 cross-workflow durable model reservation",()=>{
       expect(check(other,"admit",[source]).allow).toBe(false);
       expect(check(other,"admit",[source,recovery],202).allow).toBe(true);
     });
+  it("a proven staged CI handoff with a failed pending write cannot release the other lane",()=>{
+    const completed=(name:string)=>({name,status:"completed",conclusion:"success"});
+    const plan=classifyCiAutofixOutcome({pending_result:"failure",jobs:[
+      {name:"Bounded Codex CI autofix",status:"completed",conclusion:"success",
+        steps:[completed("Run one bounded Codex repair attempt")]},
+      {name:"Stage CI Autofix owner-push handoff (no publication)",
+        status:"completed",conclusion:"success",steps:[completed("Upload CI Autofix owner handoff")]},
+    ]});
+    expect(plan).toEqual({persist:false,reason:"staged_handoff_pending_unrecorded"});
+    // The workflow's output gate persists a terminal only for persist=true.
+    // No terminal or pending marker exists here, so the authenticated start
+    // must remain unresolved and continue to block both phases cross-lane.
+    const owned=[start("ci_autofix",101)];
+    expect(check("review_repair","admit",owned,202)).toMatchObject({allow:false,
+      reason:"other_or_missing_active_reservation"});
+    expect(check("review_repair","model",[...owned,start("review_repair",202)],202).allow).toBe(false);
+  });
   it("never treats missing, stale or wrong-run ownership as model permission",()=>{
     const active=[start("review_repair",101)];
     expect(check("review_repair","model",[]).allow).toBe(false);

@@ -563,10 +563,12 @@ export function classifyCiAutofixOutcome(input) {
     const uploads=(staged[0].steps||[]).filter(step=>step.name === "Upload CI Autofix owner handoff");
     if (uploads.length !== 1 || uploads[0].status !== "completed"
       || uploads[0].conclusion !== "success") fail("unverified_handoff_upload");
-    // An authenticated upload without its durable pending record must consume the
-    // launched attempt as unknown, never claim publication or permit silent retries.
-    if(["failure","cancelled","skipped"].includes(input.pending_result))return {persist:true,outcome:"unknown"};
-    return {persist:false,reason:"authenticated_pending_record_required"};
+    // A successfully staged but unrecorded handoff must retain its original
+    // authenticated start reservation. A generic unknown terminal would retire
+    // that start and allow the sibling lane to start before owner reconciliation.
+    // No terminal or Failure Memory observation is safe until the pending handoff
+    // is durably reconstructed (or explicit authenticated recovery closes it).
+    return {persist:false,reason:"staged_handoff_pending_unrecorded"};
   }
   if (launch.recoverable) return {persist: false, reason: launch.reason};
   if (launch.reason !== "model_step_may_have_launched") fail(launch.reason);

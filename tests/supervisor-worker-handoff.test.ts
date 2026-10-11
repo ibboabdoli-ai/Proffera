@@ -6411,6 +6411,15 @@ process.stdout.write(JSON.stringify({
     expect(run("validate-changes", { packet: packet(), changed_files: ["scripts/supervisor-authorization-policy.mjs"] }).code).toBe("hard_blocked_change");
     expect(run("validate-changes", { packet: packet(), changed_files: ["scripts/supervisor-preflight.mjs"] }).code).toBe("hard_blocked_change");
     expect(run("validate-changes", { packet: packet(), changed_files: ["scripts/supervisor-owner-push-pending.mjs"] }).code).toBe("hard_blocked_change");
+    const reservationHelper = "scripts/supervisor-b4-exclusive-reservation.mjs";
+    expect(run("validate-changes", { packet: packet(), changed_files: [reservationHelper] }).code).toBe("hard_blocked_change");
+    const attemptedPacket = packet({allowed_paths: [reservationHelper]});
+    const rejectedPacket = spawnSync(process.execPath, [helper, "validate-changes"], {
+      input: JSON.stringify({packet: attemptedPacket, changed_files: [reservationHelper]}),
+      encoding: "utf8",
+    });
+    expect(rejectedPacket.status).toBe(1);
+    expect(rejectedPacket.stderr).toContain("allowed_paths cannot include hard-blocked scope");
     expect(run("validate-changes", { packet: packet(), changed_files: ["scripts/supervisor-failure-memory.mjs"] }).code).toBe("hard_blocked_change");
     const plannerWorkflow = source(".github/workflows/supervisor-planner.yml");
     expect(plannerWorkflow).toContain("scripts/supervisor-worker-strategy-memory.mjs");

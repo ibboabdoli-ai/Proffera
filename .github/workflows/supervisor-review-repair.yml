@@ -872,6 +872,15 @@ jobs:
         run: |
           set -euo pipefail
           echo "persist=yes" >> "$GITHUB_OUTPUT"
+          if [ "$REPAIR_RESULT" = "success" ] && [ "$CHANGED" = "yes" ] \
+            && [ "$VALIDATE_RESULT" = "success" ] && [ "$PUBLISH_RESULT" = "success" ]; then
+            # A completed upload followed by a failed pending-ledger write is
+            # not a terminal model outcome. Keep the exact start unresolved
+            # until owner-push pending is authenticated and reconstructed.
+            echo "persist=no" >> "$GITHUB_OUTPUT"
+            echo "Staged owner handoff was not durably recorded; retain the unresolved start and block cross-lane re-entry." >&2
+            exit 1
+          fi
           if [ "$REPAIR_RESULT" = "skipped" ]; then
             echo "persist=no" >> "$GITHUB_OUTPUT"
             echo "Review Repair model job was skipped; no model attempt outcome will be charged."
