@@ -5,6 +5,18 @@ import { join } from "node:path";
 import { spawnSync } from "node:child_process";
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
+function policyDecision(mode:"evaluate-paths"|"qualify-pull-files",input:Record<string,unknown>) {
+  const result=spawnSync(process.execPath,[
+    join(process.cwd(),"scripts","supervisor-authorization-policy.mjs"),mode
+  ],{encoding:"utf8",input:JSON.stringify(input),maxBuffer:16*1024*1024});
+  expect(result.error).toBeUndefined();
+  const value=JSON.parse(result.stdout);
+  expect(result.status).toBe(value.ok?0:1);
+  return value;
+}
+const evaluateProtectedRepositoryPaths=(paths:string[])=>policyDecision("evaluate-paths",{paths});
+const qualifyPullRequestFiles=(expected_changed_files:number,files:Array<{filename:string;previous_filename?:string;status?:string}>)=>
+  policyDecision("qualify-pull-files",{expected_changed_files,files});
 
 function git(cwd: string, args: string[]) {
   const result = spawnSync("git", args, {cwd, encoding: "utf8"});
@@ -153,6 +165,45 @@ describe("canonical Supervisor authorization ownership", () => {
       allowed: false,
       code: "repository_path_policy_invalid",
       paths: [],
+    });
+  });
+
+  it("qualifies up to 3000 complete PR file records with 6000 distinct safe rename endpoints", () => {
+    const paths = Array.from({length: 6001}, (_, i) => `src/components/boundary-${i}.tsx`);
+    for(const count of [500,501,3000,6000]) {
+      expect(evaluateProtectedRepositoryPaths(paths.slice(0,count))).toMatchObject({
+        ok:true,allowed:true,code:"repository_paths_authorized"
+      });
+    }
+    expect(evaluateProtectedRepositoryPaths(paths)).toMatchObject({
+      ok:false,allowed:false,code:"repository_path_policy_invalid"
+    });
+    const renames=Array.from({length:3000},(_,i)=>({
+      filename:`src/components/new-${i}.tsx`,
+      previous_filename:`src/components/old-${i}.tsx`,
+      status:"renamed"
+    }));
+    const result=qualifyPullRequestFiles(3000,renames);
+    expect(result).toMatchObject({ok:true,eligible:true,code:"repository_paths_authorized"});
+    expect(result.paths).toHaveLength(6000);
+    const protectedSource=renames.map(x=>({...x}));
+    protectedSource[2999].previous_filename="src/lib/auth.ts";
+    const blocked=qualifyPullRequestFiles(3000,protectedSource);
+    expect(blocked).toMatchObject({ok:true,eligible:false,code:"repository_paths_require_human"});
+    expect(blocked.matches.some((m:{path:string})=>m.path==="src/lib/auth.ts")).toBe(true);
+    const oversized=Array.from({length:3001},(_,i)=>({filename:`src/components/huge-${i}.tsx`}));
+    expect(qualifyPullRequestFiles(3001,oversized)).toMatchObject({
+      ok:false,eligible:false,code:"repository_path_policy_invalid"
+    });
+    expect(qualifyPullRequestFiles(3000,oversized)).toMatchObject({
+      ok:true,eligible:false,code:"pull_request_file_evidence_incomplete"
+    });
+    expect(qualifyPullRequestFiles(2,[{filename:"src/components/same.tsx"},
+      {filename:"src/components/same.tsx"}])).toMatchObject({
+      ok:false,eligible:false,code:"repository_path_policy_invalid"
+    });
+    expect(qualifyPullRequestFiles(1,[{filename:"../unsafe.tsx"}])).toMatchObject({
+      ok:false,eligible:false,code:"repository_path_policy_invalid"
     });
   });
 

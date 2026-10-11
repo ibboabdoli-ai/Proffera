@@ -25,7 +25,8 @@ function assertSafePath(value, field) {
 function normalizeRepositoryPaths(value, field) {
   if (!Array.isArray(value)) throw new Error(`${field} must be an array`);
   if (value.length === 0) throw new Error(`${field} must not be empty`);
-  if (value.length > 500) throw new Error(`${field} has too many entries`);
+  // Up to 3000 PR files; renames contribute both old and new paths.
+  if (value.length > 6000) throw new Error(`${field} has too many entries`);
   const normalized = value.map((item) => assertSafePath(item, `${field}[]`));
   if (new Set(normalized).size !== normalized.length) throw new Error(`${field} contains duplicates`);
   return normalized;

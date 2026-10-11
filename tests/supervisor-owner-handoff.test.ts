@@ -116,7 +116,7 @@ describe("Worker fallback recovery ZIP inventory", () => {
       for (let i = 0; i < trials.length; i++) {
         const trial = trials[i];
         const archive = join(work, "artifact-" + i + ".zip");
-        const fixture = spawnSync("python", ["-c",
+        const fixture = spawnSync("python3", ["-c",
           "import json,sys,zipfile; names=json.loads(sys.argv[2]); z=zipfile.ZipFile(sys.argv[1],'w'); [z.writestr(n,'fixture') for n in names]; z.close()",
           archive, JSON.stringify(trial.names)], {encoding:"utf8",timeout:10000});
         expect(fixture.status, fixture.stderr).toBe(0);
@@ -146,7 +146,7 @@ describe("Worker owner archive integrity and ancestry", () => {
     const zip = (folder: string, target: string) => {
       const names = ["proffera-publication-artifact.json", "proffera-owner-handoff.bundle",
         "proffera-owner-handoff.bundle.sha256", "proffera-owner-handoff.json"];
-      const result = spawnSync("python", ["-c",
+      const result = spawnSync("python3", ["-c",
         "import sys,zipfile,os; p=sys.argv[1]; z=zipfile.ZipFile(sys.argv[2],'w'); [z.write(os.path.join(p,n),n) for n in sys.argv[3:]]; z.close()",
         folder, target, ...names], {encoding:"utf8",timeout:10000});
       expect(result.status, result.stderr).toBe(0);
