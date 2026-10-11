@@ -119,11 +119,11 @@ describe("CI Autofix current-versus-historical accounting",()=>{
  ];
  it("never classifies a successful staged current attempt as publication",()=>{
   expect(classifyCiAutofixOutcome({jobs:current(),published:"yes",changed:"yes"}))
-   .toEqual({persist:false,reason:"authenticated_pending_record_required"});
+   .toEqual({persist:false,reason:"staged_handoff_pending_unrecorded"});
  });
- it.each(["failure","cancelled","skipped"] as const)("persists unknown when pending record is %s",pending_result=>{
+ it.each(["failure","cancelled","skipped"] as const)("retains staged reservation when pending record is %s",pending_result=>{
    expect(classifyCiAutofixOutcome({jobs:current(),published:"no",changed:"yes",pending_result}))
-    .toEqual({persist:true,outcome:"unknown"});
+    .toEqual({persist:false,reason:"staged_handoff_pending_unrecorded"});
   });
   it("fails closed if upload evidence is absent",()=>{
   const broken=current();broken[1].steps.pop();

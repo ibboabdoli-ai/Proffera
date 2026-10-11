@@ -559,24 +559,47 @@ export function classifyCiAutofixOutcome(input) {
   const launch = proveCiAutofixModelNotLaunched(input);
   const staged = input.jobs.filter(item => item.name === "Stage CI Autofix owner-push handoff (no publication)");
   if (staged.length > 1) fail("current_handoff_job_collision");
+  // A model that durably produced no changed candidate cannot have reached
+  // the staging upload. Preserve this ordinary terminal outcome on job-list
+  // omissions rather than indefinitely reserving every no-change attempt.
+  const modelJob=input.jobs.find(item=>item.name==="Bounded Codex CI autofix");
+  const provenNoChange=input?.changed==="no"
+    && modelJob?.steps?.some(step=>step.name==="Run one bounded Codex repair attempt"
+      && step.status==="completed"&&step.conclusion==="success")
+    && modelJob.steps.some(step=>["Capture bounded repair candidate",
+      "Validate bounded repair without repository token"].includes(step.name)
+      && step.status==="completed"&&step.conclusion==="success");
+  const historicPublicationJob=input.jobs.find(item=>item.name==="Publish CI Autofix candidate");
+  const historicPublication=Boolean(modelJob?.steps?.some(step=>step.name==="Publish validated repair"
+    && step.status==="completed"&&step.conclusion==="success")
+    || historicPublicationJob?.steps?.some(step=>step.name==="Publish validated repair"
+      && step.status==="completed"&&step.conclusion==="success"));
+  // Incomplete stage job inventory cannot prove that no artifact was uploaded.
+  // Keep the start unresolved after a launched model unless a proven
+  // no-change or historically authenticated publication already settles it.
+  if (staged.length===0 && !launch.recoverable && !provenNoChange && !historicPublication)
+    return {persist:false,reason:"staged_handoff_evidence_incomplete"};
   if (staged.length === 1) {
     const job=staged[0];
-    if (job.status !== "completed" || !Array.isArray(job.steps)) fail("unverified_handoff_job");
-    const uploads=job.steps.filter(step=>step.name === "Upload CI Autofix owner handoff");
-    if (uploads.length > 1) fail("unverified_handoff_upload");
-    // A successful authenticated upload is durable evidence even when the
-    // staging job subsequently fails or is cancelled. Job-level success is
-    // never a prerequisite for retaining the cross-lane reservation.
-    const uploaded=uploads.length === 1 && uploads[0].status === "completed"
-      && uploads[0].conclusion === "success";
-    if (job.conclusion === "success" && !uploaded) fail("unverified_handoff_upload");
-    if (uploaded) {
-      // A successfully staged but unrecorded handoff must retain its original
-      // authenticated start reservation. A generic unknown terminal would retire
-      // that start and allow the sibling lane to start before owner reconciliation.
-      // No terminal or Failure Memory observation is safe until the pending handoff
-      // is durably reconstructed (or explicit authenticated recovery closes it).
-      return {persist:false,reason:"staged_handoff_pending_unrecorded"};
+    if (job.status !== "completed") fail("unverified_handoff_job");
+    if (job.conclusion==="skipped") {
+      if (job.steps !== undefined
+        && (!Array.isArray(job.steps) || job.steps.some(step=>step.status!=="completed"
+          || step.conclusion!=="skipped"))) fail("unverified_handoff_job");
+    } else {
+      if (!Array.isArray(job.steps)) fail("unverified_handoff_job");
+      const uploads=job.steps.filter(step=>step.name==="Upload CI Autofix owner handoff");
+      if (uploads.length>1) fail("unverified_handoff_upload");
+      const upload=uploads[0];
+      // Success proves an artifact; cancelled/absent steps do not prove absence.
+      // Both conditions retain the exclusive PR reservation for human recovery.
+      if (upload?.status==="completed" && upload.conclusion==="success")
+        return {persist:false,reason:"staged_handoff_pending_unrecorded"};
+      if (job.conclusion==="success") fail("unverified_handoff_upload");
+      if (!upload || upload.conclusion==="cancelled")
+        return {persist:false,reason:"staged_handoff_evidence_incomplete"};
+      if (upload.status!=="completed" || !["failure","skipped"].includes(upload.conclusion))
+        fail("unverified_handoff_upload");
     }
   }
   if (launch.recoverable) return {persist: false, reason: launch.reason};

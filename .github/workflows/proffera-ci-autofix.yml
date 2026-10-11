@@ -1011,6 +1011,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          # Fail closed if the API fetch or classifier fails before an outcome.
+          echo "persist=no" >> "$GITHUB_OUTPUT"
           jobs_file="$RUNNER_TEMP/ci-autofix-current-attempt-jobs.json"
           gh api --paginate "repos/$REPOSITORY/actions/runs/$ADMITTED_RUN_ID/attempts/$ADMITTED_RUN_ATTEMPT/jobs?per_page=100" --jq '.jobs[]' | jq -s '.' > "$jobs_file"
           jq -e 'type == "array" and length <= 1000' "$jobs_file" >/dev/null
@@ -1018,7 +1020,8 @@ jobs:
             --arg pending_result "$PENDING_RESULT" \
             --slurpfile jobs "$jobs_file" '{published:$published,changed:$changed,pending_result:$pending_result,jobs:$jobs[0]}' \
             | node scripts/supervisor-ci-autofix-strategy-memory.mjs classify-outcome)"
-          if [ "$(jq -r '.reason // empty' <<< "$classification")" = "staged_handoff_pending_unrecorded" ]; then
+          if [ "$(jq -r '.reason // empty' <<< "$classification")" = "staged_handoff_pending_unrecorded" ] \
+            || [ "$(jq -r '.reason // empty' <<< "$classification")" = "staged_handoff_evidence_incomplete" ]; then
             echo "persist=no" >> "$GITHUB_OUTPUT"
             echo "Staged owner handoff was not durably recorded; retain the exact unresolved start and block cross-lane re-entry." >&2
             exit 1

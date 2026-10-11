@@ -116,12 +116,16 @@ describe("PR-scoped pending ledger at model launch",()=>{
       expect(script).toContain("Staged owner handoff was not durably recorded");
       if(plan.file.includes("ci-autofix")){
         expect(script).toContain('staged_handoff_pending_unrecorded');
+        expect(script).toContain('staged_handoff_evidence_incomplete');
+        expect(script.indexOf('echo "persist=no" >> "$GITHUB_OUTPUT"')).toBeLessThan(
+          script.indexOf('gh api --paginate'));
         expect(script).toContain("node scripts/supervisor-ci-autofix-strategy-memory.mjs classify-outcome");
       }else{
         expect(script).toContain('[ "$REPAIR_RESULT" = "success" ] && [ "$CHANGED" = "yes" ]');
         expect(script).toContain('[ "$VALIDATE_RESULT" = "success" ] && [ "$PUBLISH_RESULT" = "success" ]');
         expect(script).toContain('upload_proof="$(jq');
         expect(script).toContain('supervisor-review-repair-strategy-memory.mjs upload-proof');
+        expect(script).toContain('(.uploaded == true) or (.uncertain == true)');
         expect(script).toContain('test "$ADMITTED_RUN_ID" = "$GITHUB_RUN_ID"');
         expect(script).toContain('attempts/${ADMITTED_RUN_ATTEMPT}/jobs?per_page=100');
         expect(script.indexOf('upload_proof="$(jq')).toBeLessThan(

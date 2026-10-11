@@ -110,6 +110,32 @@ describe("B4 cross-workflow durable model reservation",()=>{
         expect(check(second,"model",[...original,start(second,202)],202).allow).toBe(false);
       }
     });
+  it.each(["cancelled_upload","missing_stage"] as const)(
+    "both lanes block sibling admission when handoff evidence is %s",reason=>{
+      const completed=(name:string,conclusion="success")=>({name,status:"completed",conclusion});
+      const ciModel={name:"Bounded Codex CI autofix",status:"completed",conclusion:"success",
+        steps:[completed("Run one bounded Codex repair attempt")]};
+      const ciJobs=reason==="missing_stage"?[ciModel]:[ciModel,{
+        name:"Stage CI Autofix owner-push handoff (no publication)",
+        status:"completed",conclusion:"cancelled",
+        steps:[completed("Upload CI Autofix owner handoff","cancelled")]
+      }];
+      expect(classifyCiAutofixOutcome({jobs:ciJobs,pending_result:"failure"}))
+        .toEqual({persist:false,reason:"staged_handoff_evidence_incomplete"});
+      const reviewJobs=reason==="missing_stage"?[]:[{
+        name:"Stage Review Repair owner-push handoff (no publication)",
+        status:"completed",conclusion:"cancelled",
+        steps:[completed("Upload Review Repair owner handoff","cancelled")]
+      }];
+      expect(reviewRepairStagedUploadEvidence({jobs:reviewJobs}))
+        .toEqual({uploaded:false,uncertain:true});
+      for(const [first,second] of [["ci_autofix","review_repair"],
+        ["review_repair","ci_autofix"]] as const){
+        const live=[start(first,101)];
+        expect(check(second,"admit",live,202).allow).toBe(false);
+        expect(check(second,"model",[...live,start(second,202)],202).allow).toBe(false);
+      }
+    });
   it("never treats missing, stale or wrong-run ownership as model permission",()=>{
     const active=[start("review_repair",101)];
     expect(check("review_repair","model",[]).allow).toBe(false);

@@ -526,15 +526,35 @@ export function reviewRepairStagedUploadEvidence(input) {
   if (!Array.isArray(jobs) || jobs.length > 1000) fail("upload_jobs");
   const staged=jobs.filter(job=>job?.name==="Stage Review Repair owner-push handoff (no publication)");
   if (staged.length > 1) fail("upload_job_collision");
-  if (staged.length === 0) return {uploaded:false};
+  if (staged.length === 0) {
+    // A proven unchanged candidate cannot reach publication. Otherwise
+    // missing jobs might only mean that the GitHub job inventory was partial.
+    if (input?.changed==="no" && input?.repair_result==="success")
+      return {uploaded:false};
+    return {uploaded:false,uncertain:true};
+  }
   const stage=staged[0];
-  if (stage.status!=="completed" || !Array.isArray(stage.steps)) fail("upload_job_evidence");
+  if (stage.status!=="completed") fail("upload_job_evidence");
+  if (stage.conclusion==="skipped") {
+    if (stage.steps !== undefined
+      && (!Array.isArray(stage.steps) || stage.steps.some(step=>step?.status!=="completed"
+        || step.conclusion!=="skipped"))) fail("upload_job_evidence");
+    return {uploaded:false};
+  }
+  if (!Array.isArray(stage.steps)) fail("upload_job_evidence");
   const uploads=stage.steps.filter(step=>step?.name==="Upload Review Repair owner handoff");
   if (uploads.length > 1) fail("upload_step_collision");
-  const uploaded=uploads.length === 1 && uploads[0].status==="completed"
-    && uploads[0].conclusion==="success";
-  if (stage.conclusion==="success" && !uploaded) fail("unverified_handoff_upload");
-  return {uploaded};
+  const upload=uploads[0];
+  if (upload?.status==="completed" && upload.conclusion==="success")
+    return {uploaded:true};
+  if (stage.conclusion==="success") fail("unverified_handoff_upload");
+  // A cancelled or absent upload step is not a verified absence of an
+  // artifact: finalization may have happened immediately before cancellation.
+  if (!upload || upload.conclusion==="cancelled")
+    return {uploaded:false,uncertain:true};
+  if (upload.status!=="completed" || !["failure","skipped"].includes(upload.conclusion))
+    fail("upload_step_evidence");
+  return {uploaded:false};
 }
 
 export function reviewRepairMemoryState({repository: repo, pr_number, comments}) {

@@ -184,7 +184,7 @@ describe("CI Autofix durable admission and outcomes", () => {
     }]})).toEqual({recoverable: false, reason: "model_step_may_have_launched"});
   });
 
-  it("turns a terminal post-model orphan into outcome unknown without claiming success or failure", () => {
+  it("keeps a post-model orphan unresolved unless staging was proven skipped", () => {
     const input = {
       repository, pr_number: pr, start: start(),
       run: {
@@ -200,6 +200,12 @@ describe("CI Autofix durable admission and outcomes", () => {
       ],
     };
     expect(proveCiAutofixIndeterminateRecovery(input)).toEqual({
+      recoverable: false, reason: "staged_handoff_evidence_incomplete",
+    });
+    expect(proveCiAutofixIndeterminateRecovery({...input,jobs:[...input.jobs,
+      {name:"Stage CI Autofix owner-push handoff (no publication)",
+        status:"completed",conclusion:"skipped",steps:[]}
+    ]})).toEqual({
       recoverable: true, reason: "model_outcome_unknown", outcome: "unknown", observed_at: "2026-10-05T18:01:00Z",
     });
     expect(proveCiAutofixIndeterminateRecovery({
@@ -265,6 +271,50 @@ describe("CI Autofix durable admission and outcomes", () => {
       .toEqual({persist:true,outcome:"unknown"});
     expect(()=>classifyCiAutofixOutcome({jobs:[model,{...staged,conclusion:"success"}]}))
       .toThrow("unverified_handoff_upload");
+  });
+
+  it("holds partial stage inventory and cancelled upload steps instead of retiring an active start",()=>{
+    const completed=(name:string,conclusion="success")=>({name,status:"completed",conclusion});
+    const launched={name:"Bounded Codex CI autofix",status:"completed",conclusion:"success",
+      steps:[completed("Run one bounded Codex repair attempt")]};
+    const stage=(conclusion:string,steps:unknown[])=>({
+      name:"Stage CI Autofix owner-push handoff (no publication)",
+      status:"completed",conclusion,steps
+    });
+    const cases=[
+      {name:"missing_job",jobs:[launched]},
+      {name:"cancelled_step",jobs:[launched,stage("cancelled",
+        [completed("Upload CI Autofix owner handoff","cancelled")])]},
+      {name:"missing_step",jobs:[launched,stage("failure",[])]},
+    ];
+    for(const item of cases){
+      expect(classifyCiAutofixOutcome({jobs:item.jobs,pending_result:"failure"}),item.name)
+        .toEqual({persist:false,reason:"staged_handoff_evidence_incomplete"});
+      const orphan={
+        repository,pr_number:pr,start:start(),
+        run:{id:50,run_attempt:1,head_sha:"f".repeat(40),head_branch:"main",
+          event:"workflow_run",path:".github/workflows/proffera-ci-autofix.yml",
+          name:"Proffera CI autofix",status:"completed",conclusion:"failure",
+          updated_at:"2026-10-05T18:01:00Z"},
+        jobs:[{name:"Admit one bounded CI autofix strategy",status:"completed",conclusion:"success"},...item.jobs],
+      };
+      expect(proveCiAutofixIndeterminateRecovery(orphan),item.name)
+        .toEqual({recoverable:false,reason:"staged_handoff_evidence_incomplete"});
+    }
+  });
+  it("preserves proven no-change, skipped upload and legacy positive publication outcomes",()=>{
+    const step=(name:string,conclusion="success")=>({name,status:"completed",conclusion});
+    const noChange={name:"Bounded Codex CI autofix",status:"completed",conclusion:"success",steps:[
+      step("Run one bounded Codex repair attempt"),step("Capture bounded repair candidate")]};
+    expect(classifyCiAutofixOutcome({jobs:[noChange],changed:"no"}))
+      .toEqual({persist:true,outcome:"no_change"});
+    const skippedStage={name:"Stage CI Autofix owner-push handoff (no publication)",
+      status:"completed",conclusion:"skipped"};
+    expect(classifyCiAutofixOutcome({jobs:[noChange,skippedStage],changed:"no"}))
+      .toEqual({persist:true,outcome:"no_change"});
+    const historical={...noChange,steps:[...noChange.steps,step("Publish validated repair")]};
+    expect(classifyCiAutofixOutcome({jobs:[historical]}))
+      .toEqual({persist:true,outcome:"succeeded"});
   });
 
   it("keeps unknown historical evidence suppressed while allowing materially changed evidence", () => {
@@ -940,7 +990,11 @@ describe("CI Autofix truthful terminal outcomes", () => {
     expect(()=>classifyCiAutofixOutcome({jobs: [...launched, {...staged,steps: [step("Upload CI Autofix owner handoff", "failed")]}],
       pending_result:"failure"})).toThrow("unverified_handoff_upload");
     expect(classifyCiAutofixOutcome({jobs: launched, pending_result: "failure"}))
-      .toEqual({persist: true, outcome: "unknown"});
+      .toEqual({persist: false, reason: "staged_handoff_evidence_incomplete"});
+    expect(classifyCiAutofixOutcome({jobs:[...launched,{
+      ...staged,conclusion:"failure",steps:[step("Upload CI Autofix owner handoff","failure")]
+    }],pending_result:"failure"}))
+      .toEqual({persist:true,outcome:"unknown"});
   });
 
   it("recognizes current no-change capture and rejects contradictory downstream execution before model launch", () => {

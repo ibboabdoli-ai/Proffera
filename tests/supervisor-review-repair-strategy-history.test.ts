@@ -880,8 +880,32 @@ describe("Review Repair authenticated owner-handoff upload evidence", () => {
       expect(reviewRepairStagedUploadEvidence({jobs:[staged(result,"failure")]}))
         .toEqual({uploaded:false});
     }
-    expect(reviewRepairStagedUploadEvidence({jobs:[]})).toEqual({uploaded:false});
+    // An absent staging job is incomplete GitHub inventory, not a proof of no upload.
+    expect(reviewRepairStagedUploadEvidence({jobs:[]})).toEqual({uploaded:false,uncertain:true});
+    expect(reviewRepairStagedUploadEvidence({jobs:[],changed:"no",repair_result:"success"}))
+      .toEqual({uploaded:false});
   });
+  it.each(["failure","cancelled"] as const)(
+    "holds incomplete stage jobs and %s upload steps instead of concluding no handoff",conclusion=>{
+      expect(reviewRepairStagedUploadEvidence({jobs:[]})).toEqual({uploaded:false,uncertain:true});
+      expect(reviewRepairStagedUploadEvidence({jobs:[staged(conclusion,"cancelled")]}))
+        .toEqual({uploaded:false,uncertain:true});
+      expect(reviewRepairStagedUploadEvidence({jobs:[{...staged(conclusion),steps:[]}]}))
+        .toEqual({uploaded:false,uncertain:true});
+      // Ordinary no-change and a truly skipped staging job cannot have uploaded.
+      expect(reviewRepairStagedUploadEvidence({jobs:[],changed:"no",repair_result:"success"}))
+        .toEqual({uploaded:false});
+      expect(reviewRepairStagedUploadEvidence({jobs:[{
+        name:"Stage Review Repair owner-push handoff (no publication)",
+        status:"completed",conclusion:"skipped"
+      }]})).toEqual({uploaded:false});
+      const cli=spawnSync(process.execPath,[
+        fileURLToPath(new URL("../scripts/supervisor-review-repair-strategy-memory.mjs",import.meta.url)),
+        "upload-proof"
+      ],{input:JSON.stringify({jobs:[staged(conclusion,"cancelled")]}),encoding:"utf8"});
+      expect(cli.status,cli.stderr).toBe(0);
+      expect(JSON.parse(cli.stdout)).toEqual({uploaded:false,uncertain:true});
+    });
   it("rejects ambiguous duplicate jobs/steps and a job falsely reporting upload success",()=>{
     expect(()=>reviewRepairStagedUploadEvidence({jobs:[staged("failure"),staged("failure")]}))
       .toThrow("upload_job_collision");

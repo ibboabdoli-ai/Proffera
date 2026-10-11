@@ -887,8 +887,8 @@ jobs:
           # Classify from the authenticated exact-run job/step inventory, not
           # the overall stage job status. A successful upload remains staged
           # even when later steps fail or the runner is cancelled.
-          upload_proof="$(jq -n --slurpfile jobs "$jobs_file" '{jobs:$jobs[0]}' | node scripts/supervisor-review-repair-strategy-memory.mjs upload-proof)"
-          if [ "$(jq -r '.uploaded' <<< "$upload_proof")" = "true" ]; then
+          upload_proof="$(jq -n --arg changed "$CHANGED" --arg repair_result "$REPAIR_RESULT" --slurpfile jobs "$jobs_file" '{jobs:$jobs[0],changed:$changed,repair_result:$repair_result}' | node scripts/supervisor-review-repair-strategy-memory.mjs upload-proof)"
+          if [ "$(jq -r '(.uploaded == true) or (.uncertain == true)' <<< "$upload_proof")" = "true" ]; then
             echo "Staged owner handoff was not durably recorded; retain the unresolved start and block cross-lane re-entry." >&2
             exit 1
           fi
