@@ -308,11 +308,14 @@ describe("cancelled owner-push handoff is never an automatic model-launch permit
 });
 
 describe("production gate with a retained artifact and an advanced branch",()=>{
- it.each(["valid","publication-after-gate","publication-after-head-check","missing-parent","tampered-bundle","race-before-post","race-after-post","branch-moved","ambiguous-publication"] as const)(
+ it.each(["valid","publication-after-gate","publication-after-head-check","missing-parent","tampered-bundle","race-before-post","race-after-post","branch-moved","ambiguous-publication","merged-expired-approved","merged-retained-approved","merged-expired-cancelled"] as const)(
   "authenticated cancellation with retained artifact: %s",async scenario=>{
   const parentAvailable=scenario!=="missing-parent",tampered=scenario==="tampered-bundle";
   const actual=await vi.importActual<typeof import("node:child_process")>("node:child_process");
   const pending=fixture(),advanced="9".repeat(40),base=pending.value;
+  const merged=scenario.startsWith("merged-");
+  const expired=scenario.startsWith("merged-expired-");
+  const approved=scenario.endsWith("-approved");
   const laneFile="proffera-review-repair-owner-handoff";
   const bundle=Buffer.from(tampered?"retained bundle with mismatched HEAD":"bounded retained bundle bytes");
   const zip=Buffer.from("retained artifact zip bytes");
@@ -324,9 +327,9 @@ describe("production gate with a retained artifact and an advanced branch",()=>{
    finding_set_sha256:base.finding_digest,
   }));
   const p={...base,artifact_digest:digest(zip),bundle_digest:digest(bundle),
-   manifest_digest:digest(manifest),observed_at:new Date().toISOString()};
+   manifest_digest:digest(manifest),observed_at:expired?"2026-09-01T19:00:00.000Z":new Date().toISOString()};
   const text=make("pending","review_repair:81:1",p),key=digest(Buffer.from(text));
-  const comments:ReturnType<typeof bot>[]=[bot(text),owner("<!-- proffera-owner-push-cancel:v1:"+key+" -->")];
+  const comments:ReturnType<typeof bot>[]=[bot(text),owner("<!-- proffera-owner-push-"+(approved?"approve":"cancel")+":v1:"+key+" -->")];
   const steps=(...names:string[])=>names.map(name=>({name,status:"completed",conclusion:"success"}));
   const job=(name:string,id:number,names:string[])=>({name,id,status:"completed",
    conclusion:"success",steps:steps(...names)});
@@ -339,7 +342,7 @@ describe("production gate with a retained artifact and an advanced branch",()=>{
   const run={id:81,run_attempt:1,path:".github/workflows/supervisor-review-repair.yml",
    name:"Supervisor review repair",event:"workflow_dispatch",head_branch:"main",workflow_id:201};
   const artifact={id:401,name:"supervisor-review-repair-owner-handoff-81-1",
-   workflow_run:{id:81},expired:false,digest:"sha256:"+digest(zip)};
+   workflow_run:{id:81},expired,digest:"sha256:"+digest(zip)};
   const good=(stdout:string|Buffer)=>({status:0,stdout,stderr:"",error:undefined});
   const bad=(msg:string)=>({status:1,stdout:"",stderr:msg,error:undefined});
   let fetchHead="",parentFetched=false,posts=0,revLists=0,afterGatePublication=false;
@@ -361,11 +364,12 @@ describe("production gate with a retained artifact and an advanced branch",()=>{
      return good(JSON.stringify({artifacts:[artifact]}));
     if(endpoint==="repos/"+repo+"/actions/artifacts/401/zip")return good(zip);
     if(endpoint==="repos/"+repo+"/pulls/"+pr)return good(JSON.stringify({
-     state:"open",merged:false,base:{ref:"main"},head:{ref:p.branch,sha:(scenario==="branch-moved"&&revLists>=2)?"7".repeat(40):advanced,
+     state:merged?"closed":"open",merged,base:{ref:"main"},head:{ref:p.branch,sha:(scenario==="branch-moved"&&revLists>=2)?"7".repeat(40):advanced,
       repo:{full_name:repo}},user:{login:"ibboabdoli-ai"},
     }));
     if(endpoint==="repos/"+repo+"/git/ref/heads/"+p.branch)
-     return good(JSON.stringify({object:{sha:(scenario==="branch-moved"&&revLists>=2)?"7".repeat(40):advanced}}));
+     return merged?bad("gh: Not Found (HTTP 404)"):
+       good(JSON.stringify({object:{sha:(scenario==="branch-moved"&&revLists>=2)?"7".repeat(40):advanced}}));
     if(endpoint==="repos/"+repo+"/git/ref/heads/main")
      return good(JSON.stringify({object:{sha:p.base_sha}}));
     if(endpoint==="repos/"+repo+"/deployments?sha="+p.head_sha+"&per_page=100")
@@ -388,7 +392,9 @@ describe("production gate with a retained artifact and an advanced branch",()=>{
    if(bin==="git"){
     if(args[0]==="fetch"){
      const ref=args.at(-1);
-     if(ref==="refs/heads/"+p.branch){fetchHead=(scenario==="branch-moved"&&revLists>=2)?"7".repeat(40):advanced;return good("");}
+     if(ref==="refs/heads/"+p.branch){
+      if(merged)return bad("merged PR branch was deleted");
+      fetchHead=(scenario==="branch-moved"&&revLists>=2)?"7".repeat(40):advanced;return good("");}
      if(ref==="refs/heads/main"){fetchHead=p.base_sha;return good("");}
      if(ref===p.parent_sha){
       if(!parentAvailable)return bad("missing staged parent on origin");
@@ -409,7 +415,7 @@ describe("production gate with a retained artifact and an advanced branch",()=>{
     }
     if(args[0]==="rev-list"){
       revLists++;
-      const published=afterGatePublication||(scenario==="race-before-post"&&revLists>2)
+      const published=merged||afterGatePublication||(scenario==="race-before-post"&&revLists>2)
         ||(scenario==="race-after-post"&&posts>0);
       return good(args[1]+"\n"+(published?p.head_sha+"\n":""));
      }
@@ -418,7 +424,16 @@ describe("production gate with a retained artifact and an advanced branch",()=>{
   }) as typeof spawnSync;
   vi.mocked(spawnSync).mockImplementation(fake);
   try{
-   if(scenario==="valid"||scenario==="publication-after-gate"||scenario==="publication-after-head-check"){
+   if(merged){
+    if(approved){
+     expect(gate({PR_NUMBER:String(pr)})).toEqual({allow:false,unresolved:0,records:1});
+     expect(posts).toBe(1);
+     expect(admission(comments,pr).allow).toBe(true); // historic proof is not model authority
+    }else{
+     expect(()=>gate({PR_NUMBER:String(pr)})).toThrow("reachable_commit");
+     expect(posts).toBe(0);
+    }
+   }else if(scenario==="valid"||scenario==="publication-after-gate"||scenario==="publication-after-head-check"){
     const first=gate({PR_NUMBER:String(pr)});
     expect(first).toEqual({allow:false,unresolved:0,records:1});
     if(scenario==="valid")expect(gate({PR_NUMBER:String(pr)})).toEqual(first);

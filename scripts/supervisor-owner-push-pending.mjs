@@ -112,13 +112,21 @@ export function admission(comments,pr){
   records:records.map(({body,...r})=>r),
   unresolved:records.filter(r=>!r.resolution).length};
 }
-function readPR(p){
+function readPR(p,{historicalResolution=false}={}){
  const pr=api("repos/"+REPO+"/pulls/"+p.pr_number);
- check(pr.state==="open"&&pr.merged!==true&&pr.base.ref==="main"
-  &&pr.head.ref===p.branch&&pr.head.repo.full_name===REPO&&pr.user.login===OWNER,"pr_identity");
- const branch=api("repos/"+REPO+"/git/ref/heads/"+p.branch).object.sha;
+ const mergedHistory=historicalResolution&&pr.state==="closed"&&pr.merged===true;
+ check((pr.state==="open"&&pr.merged!==true||mergedHistory)
+  &&pr.base?.ref==="main"&&pr.head?.ref===p.branch
+  &&pr.head?.repo?.full_name===REPO&&pr.user?.login===OWNER
+  &&hex(pr.head.sha,40),"pr_identity");
+ // A merged PR may have no live branch. Its authenticated PR head is historical
+ // evidence only; publication must be independently proven from main ancestry.
+ const branch=mergedHistory?pr.head.sha:
+  api("repos/"+REPO+"/git/ref/heads/"+p.branch).object.sha;
  const main=api("repos/"+REPO+"/git/ref/heads/main").object.sha;
- check(pr.head.sha===branch&&hex(main,40),"live_refs");return {pr,branch,main};
+ check(hex(branch,40)&&hex(main,40)
+  &&(mergedHistory||pr.head.sha===branch),"live_refs");
+ return {pr,branch,main,mergedHistory};
 }
 function trustedRun(p){
  const lane=LANES[p.lane];
@@ -188,9 +196,12 @@ function verifyArtifact(p,auth,artifactId,{ownerResolution=false}={}){
   check(checksum===bundleDigest+"  "+base+".bundle\n","bundle_checksum");
   verifyHandoffManifest(p,v);
   const path=join(dir,"candidate.bundle");writeFileSync(path,bundle);
-  cmd("git",["fetch","--no-tags","origin","refs/heads/"+p.branch]);
-  verifyHandoffBranch(cmd("git",["rev-parse","FETCH_HEAD"]).trim(),
-   p.parent_sha,p.head_sha,ownerResolution);
+  const resolutionState=ownerResolution?readPR(p,{historicalResolution:true}):null;
+  if(!resolutionState?.mergedHistory){
+   cmd("git",["fetch","--no-tags","origin","refs/heads/"+p.branch]);
+   verifyHandoffBranch(cmd("git",["rev-parse","FETCH_HEAD"]).trim(),
+    p.parent_sha,p.head_sha,ownerResolution);
+  }
   // A retained bundle can omit its parent; fetch the authenticated prerequisite
   // explicitly even if the live branch has moved away from the staged parent.
   cmd("git",["fetch","--no-tags","origin",p.parent_sha]);
@@ -266,12 +277,17 @@ function record(env){
  return {pending:true};
 }
 function ancestry(p,live){
- cmd("git",["fetch","--no-tags","origin","refs/heads/"+p.branch]);
- const branch=cmd("git",["rev-parse","FETCH_HEAD"]).trim();check(branch===live.branch,"branch_race");
+ let branch=null;
+ if(!live.mergedHistory){
+  cmd("git",["fetch","--no-tags","origin","refs/heads/"+p.branch]);
+  branch=cmd("git",["rev-parse","FETCH_HEAD"]).trim();
+  check(branch===live.branch,"branch_race");
+ }
  cmd("git",["fetch","--no-tags","origin","refs/heads/main"]);
  const main=cmd("git",["rev-parse","FETCH_HEAD"]).trim();check(main===live.main,"main_race");
  const includes=ref=>cmd("git",["rev-list",ref]).split(/\r?\n/).includes(p.head_sha);
- return {branch:includes(branch),main:includes(main)};
+ // Never use a deleted merged-PR branch as a live publication witness.
+ return {branch:branch===null?false:includes(branch),main:includes(main)};
 }
 export function resolveDecision(input){
  const {kind,branch,proposed,onBranch,onMain,deployments,knownCommit}=input;
@@ -334,7 +350,7 @@ function resolution(p,comments){
  const approve=owner("approve"),cancel=owner("cancel");
  check(approve.length<=1&&cancel.length<=1&&!(approve.length&&cancel.length),"owner_conflict");
  if(!approve.length&&!cancel.length)return;
- const live=readPR(p),graph=ancestry(p,live);
+ const live=readPR(p,{historicalResolution:true}),graph=ancestry(p,live);
  const kind=approve.length?"approve":"cancel";
  const deployments=kind==="cancel"?
   api("repos/"+REPO+"/deployments?sha="+p.head_sha+"&per_page=100"):[];
@@ -401,7 +417,13 @@ export function gate(env){
   assertCancellationUnpublished(p);
  }
  const result=admission(finalComments,pr);
- return {allow:result.allow,unresolved:result.unresolved,records:result.records.length};
+ // Historical merged-PR owner reconciliation never grants model admission.
+ // The owner may prove a past publication even if the PR branch was deleted.
+ const livePr=api("repos/"+REPO+"/pulls/"+pr);
+ check(livePr?.base?.ref==="main"&&livePr?.head?.repo?.full_name===REPO
+  &&livePr?.user?.login===OWNER,"gate_pr_identity");
+ const open=livePr.state==="open"&&livePr.merged!==true;
+ return {allow:open&&result.allow,unresolved:result.unresolved,records:result.records.length};
 }
 async function main(){
  const mode=process.argv[2];

@@ -211,6 +211,9 @@ jobs:
           PR_NUMBER: ${{ inputs.pr_number }}
           HEAD_SHA: ${{ steps.preflight.outputs.head_sha }}
           FINDING_COUNT: ${{ steps.settle.outputs.finding_count }}
+          LANE: review_repair
+          EXPECTED_HEAD: ${{ steps.preflight.outputs.head_sha }}
+          EXPECTED_REF: ${{ steps.preflight.outputs.head_ref }}
         shell: bash
         run: |
           set -euo pipefail
@@ -298,6 +301,14 @@ jobs:
               exit 1
               ;;
           esac
+
+          # Keep a single authenticated PR reservation across BOTH repair lanes.
+          # This check executes under the shared Failure Memory mutex.
+          exclusive="$(node scripts/supervisor-b4-exclusive-reservation.mjs admit)"
+          if [ "$(jq -r '.allow' <<< "$exclusive")" != "true" ]; then
+            echo "Another authenticated B4 model attempt has not reached a durable outcome."
+            exit 0
+          fi
 
           start_input="$RUNNER_TEMP/proffera-review-repair-start.json"
           jq -n             --arg repository "$REPOSITORY"             --arg pr_number "$PR_NUMBER"             --arg head "$HEAD_SHA"             --arg run_id "$GITHUB_RUN_ID"             --arg run_attempt "$GITHUB_RUN_ATTEMPT"             --slurpfile finding_ids "$RUNNER_TEMP/proffera-review-repair-evidence/finding_ids.json"             '{repository:$repository,pr_number:($pr_number|tonumber),head:$head,finding_ids:$finding_ids[0],run_id:($run_id|tonumber),run_attempt:($run_attempt|tonumber)}'             > "$start_input"
@@ -420,6 +431,9 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ inputs.pr_number }}
+          LANE: review_repair
+          EXPECTED_HEAD: ${{ needs.admit.outputs.head_sha }}
+          EXPECTED_REF: ${{ needs.admit.outputs.head_ref }}
         shell: bash
         run: |
           set -euo pipefail
@@ -430,6 +444,10 @@ jobs:
           test -z "$(git -C .proffera-trusted-model-gate status --porcelain=v1 --untracked-files=all)"
           pending_gate="$(node .proffera-trusted-model-gate/scripts/supervisor-owner-push-pending.mjs gate)"
           jq -e '.allow == true and .unresolved == 0' <<< "$pending_gate" >/dev/null
+          # The model holds this PR's reservation until authenticated recording.
+          # Re-read both lanes' starts, not only pending owner-push artifacts.
+          exclusive="$(node .proffera-trusted-model-gate/scripts/supervisor-b4-exclusive-reservation.mjs model)"
+          jq -e '.allow == true and (.ci_unresolved + .review_unresolved) == 1' <<< "$exclusive" >/dev/null
 
       - name: Run one batched exact-head repair
         uses: openai/codex-action@86365089eb2b84e0a8fb0717b304f8bdcb13b20e

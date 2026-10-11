@@ -383,11 +383,14 @@ function additionalTargetedSuites(candidate) {
     "scripts/supervisor-preflight.mjs",
     "scripts/supervisor-worker-handoff.mjs",
     "scripts/supervisor-owner-push-pending.mjs",
+    "scripts/supervisor-b4-exclusive-reservation.mjs",
     "scripts/supervisor-ci-autofix-strategy-memory.mjs",
     "scripts/supervisor-review-repair-strategy-memory.mjs",
     ".github/workflows/ci.yml",
     ".github/workflows/supervisor-planner.yml",
     "tests/supervisor-owner-push-pending.test.ts",
+    "tests/supervisor-model-launch-boundary.test.ts",
+    "tests/supervisor-b4-exclusive-reservation.test.ts",
     "tests/supervisor-owner-handoff.test.ts",
     "tests/supervisor-ci-autofix-strategy-history.test.ts",
     "tests/supervisor-review-repair-strategy-history.test.ts",
@@ -424,6 +427,9 @@ function additionalTargetedSuites(candidate) {
     ["scripts/supervisor-review-repair-strategy-memory.mjs", "tests/supervisor-review-repair-strategy-history.test.ts"],
     ["tests/supervisor-review-repair-strategy-history.test.ts", "tests/supervisor-review-repair-strategy-history.test.ts"],
     ["tests/supervisor-owner-push-pending.test.ts", "tests/supervisor-owner-push-pending.test.ts"],
+    ["tests/supervisor-model-launch-boundary.test.ts", "tests/supervisor-model-launch-boundary.test.ts"],
+    ["scripts/supervisor-b4-exclusive-reservation.mjs", "tests/supervisor-b4-exclusive-reservation.test.ts"],
+    ["tests/supervisor-b4-exclusive-reservation.test.ts", "tests/supervisor-b4-exclusive-reservation.test.ts"],
     ["tests/supervisor-owner-handoff.test.ts", "tests/supervisor-owner-handoff.test.ts"],
     ["tests/supervisor-ci-autofix-strategy-history.test.ts", "tests/supervisor-ci-autofix-strategy-history.test.ts"],
     ["tests/supervisor-control-plane-v2.test.ts", "tests/supervisor-control-plane-v2.test.ts"],
@@ -439,6 +445,11 @@ function additionalTargetedSuites(candidate) {
       suites.add("tests/supervisor-control-plane-v2.test.ts");
     }
     if (autofixPaths.has(path)) suites.add("tests/supervisor-ci-autofix-candidate.test.ts");
+    if (path === ".github/workflows/proffera-ci-autofix.yml"
+      || path === ".github/workflows/supervisor-review-repair.yml") {
+      suites.add("tests/supervisor-model-launch-boundary.test.ts");
+      suites.add("tests/supervisor-b4-exclusive-reservation.test.ts");
+    }
   }
   return [...suites].sort();
 }

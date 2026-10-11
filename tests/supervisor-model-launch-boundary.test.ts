@@ -76,6 +76,15 @@ describe("PR-scoped pending ledger at model launch",()=>{
     expect(script).toContain("node .proffera-trusted-model-gate/scripts/supervisor-owner-push-pending.mjs gate");
     expect(script).not.toContain("$(node scripts/supervisor-owner-push-pending.mjs gate)");
     expect(script).toContain("jq -e '.allow == true and .unresolved == 0'");
+    expect(script).toContain("node .proffera-trusted-model-gate/scripts/supervisor-b4-exclusive-reservation.mjs model");
+    expect(script).toContain("(.ci_unresolved + .review_unresolved) == 1");
+    expect(item(gate.env).LANE).toBe(cfg.modelJob==="autofix"?"ci_autofix":"review_repair");
+    expect(item(gate.env).EXPECTED_HEAD).toBeDefined();
+    expect(item(gate.env).EXPECTED_REF).toBeDefined();
+    const admission=(admit.steps as Step[]).map(step=>step.run||"").join("\n");
+    expect(admission).toContain("node scripts/supervisor-b4-exclusive-reservation.mjs admit");
+    expect(admission.indexOf("node scripts/supervisor-b4-exclusive-reservation.mjs admit"))
+      .toBeLessThan(admission.indexOf('start_body="$(node scripts/supervisor-'));
     expect(steps.slice(0,launchIndex).filter(x=>x.name===cfg.gateStep)).toHaveLength(1);
 
     // A skipped gate must also skip the model (the ordinary GitHub success() guard).

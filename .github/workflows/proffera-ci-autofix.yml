@@ -306,6 +306,9 @@ jobs:
           HEAD_SHA: ${{ needs.prepare.outputs.head_sha }}
           SOURCE_RUN_ID: ${{ needs.prepare.outputs.source_run_id }}
           SOURCE_RUN_ATTEMPT: ${{ needs.prepare.outputs.source_run_attempt }}
+          LANE: ci_autofix
+          EXPECTED_HEAD: ${{ needs.prepare.outputs.head_sha }}
+          EXPECTED_REF: ${{ needs.prepare.outputs.head_ref }}
         shell: bash
         run: |
           set -euo pipefail
@@ -470,6 +473,14 @@ jobs:
               ;;
           esac
 
+          # Cross-lane durable starts reserve the PR through staging/recording.
+          # Admission holds the shared Failure Memory mutex until start is posted.
+          exclusive="$(node scripts/supervisor-b4-exclusive-reservation.mjs admit)"
+          if [ "$(jq -r '.allow' <<< "$exclusive")" != "true" ]; then
+            echo "An authenticated unfinished model attempt in either B4 lane owns this PR."
+            exit 0
+          fi
+
           start_input="$RUNNER_TEMP/proffera-ci-autofix-start.json"
           jq -n --arg repository "$REPOSITORY" --arg pr_number "$PR_NUMBER" --arg head "$HEAD_SHA" \
             --arg source_run_id "$SOURCE_RUN_ID" --arg source_run_attempt "$SOURCE_RUN_ATTEMPT" \
@@ -588,6 +599,9 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ needs.prepare.outputs.pr_number }}
+          LANE: ci_autofix
+          EXPECTED_HEAD: ${{ needs.admit.outputs.head_sha }}
+          EXPECTED_REF: ${{ needs.prepare.outputs.head_ref }}
         shell: bash
         run: |
           set -euo pipefail
@@ -598,6 +612,10 @@ jobs:
           test -z "$(git -C .proffera-trusted-model-gate status --porcelain=v1 --untracked-files=all)"
           pending_gate="$(node .proffera-trusted-model-gate/scripts/supervisor-owner-push-pending.mjs gate)"
           jq -e '.allow == true and .unresolved == 0' <<< "$pending_gate" >/dev/null
+          # The model holds this PR's reservation until authenticated recording.
+          # Re-read both lanes' starts, not only pending owner-push artifacts.
+          exclusive="$(node .proffera-trusted-model-gate/scripts/supervisor-b4-exclusive-reservation.mjs model)"
+          jq -e '.allow == true and (.ci_unresolved + .review_unresolved) == 1' <<< "$exclusive" >/dev/null
 
       - name: Run one bounded Codex repair attempt
         if: needs.prepare.outputs.api_available == 'yes'

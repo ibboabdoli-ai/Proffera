@@ -524,6 +524,9 @@ describe("canonical Supervisor pre-publication gate", () => {
       ".github/workflows/ci.yml":"tests/github-workflow-yaml.test.ts",
       ".github/workflows/supervisor-planner.yml":"tests/supervisor-control-plane-v2.test.ts",
       "tests/supervisor-owner-push-pending.test.ts":"tests/supervisor-owner-push-pending.test.ts",
+      "tests/supervisor-model-launch-boundary.test.ts":"tests/supervisor-model-launch-boundary.test.ts",
+      "scripts/supervisor-b4-exclusive-reservation.mjs":"tests/supervisor-b4-exclusive-reservation.test.ts",
+      "tests/supervisor-b4-exclusive-reservation.test.ts":"tests/supervisor-b4-exclusive-reservation.test.ts",
       "tests/supervisor-owner-handoff.test.ts":"tests/supervisor-owner-handoff.test.ts",
       "tests/supervisor-ci-autofix-strategy-history.test.ts":"tests/supervisor-ci-autofix-strategy-history.test.ts",
       "tests/supervisor-control-plane-v2.test.ts":"tests/supervisor-control-plane-v2.test.ts",
@@ -546,6 +549,30 @@ describe("canonical Supervisor pre-publication gate", () => {
       expect(result.ok).toBe(true);
     }
   });
+  it.each([
+    "tests/supervisor-model-launch-boundary.test.ts",
+    ".github/workflows/proffera-ci-autofix.yml",
+    ".github/workflows/supervisor-review-repair.yml",
+  ])("selects the model-launch boundary suite for %s", (changedPath) => {
+    const {repo,base}=fixture();
+    write(join(repo,...changedPath.split("/")), "export const candidate = 1;\n");
+    git(repo,["add","."]);
+    git(repo,["commit","-qm","model boundary candidate"]);
+    const candidate=inspectFixture({cwd:repo,baseSha:base,prBody:body(base)});
+    expect(candidate.required_validation_checks).toContain("targeted");
+    const selected=["targeted","workflow-semantics"].filter(id=>candidate.required_validation_checks.includes(id));
+    if(changedPath.startsWith(".github/workflows/"))expect(selected).toContain("workflow-semantics");
+    for(const id of selected){
+      const result=executeLocalValidation(candidate,repo,[id],{
+        runner:(_command:string,args:string[])=>{
+          expect(args).toContain("tests/supervisor-model-launch-boundary.test.ts");
+          return {status:0,signal:null,stdout:"",stderr:""};
+        },
+      });
+      expect(result.ok).toBe(true);
+    }
+  });
+
   it("selects both Review Repair behavioral history and control-plane suites for the strategy source", () => {
     const {repo,base}=fixture();
     write(join(repo,"scripts","supervisor-review-repair-strategy-memory.mjs"),"export const candidate = 1;\n");
