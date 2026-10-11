@@ -105,7 +105,10 @@ export function readPending(comments,pr){
 }
 export function admission(comments,pr){
  const records=readPending(comments,pr);
- return {allow:records.every(r=>!!r.resolution),
+ // A cancellation is not an admission token. Owner-push and model launch have
+ // no shared atomic lock, so a cancelled candidate cannot be used to re-enable
+ // either automatic model lane, even after an earlier nonpublication check.
+ return {allow:records.every(r=>r.resolution?.decision==="push_confirmed"),
   records:records.map(({body,...r})=>r),
   unresolved:records.filter(r=>!r.resolution).length};
 }
@@ -287,14 +290,28 @@ export function resolveDecision(input){
 // retained publication evidence at each admission, not just when posting it.
 // A later conflicting push makes the gate fail closed, even with a persisted
 // authenticated cancellation marker.
+// GitHub returns a precise 422 for an unknown commit SHA on some endpoints.
+// Accept only the exact CLI response bound to the requested commit.
+// All transport errors and other HTTP failures remain fail-closed.
+export function commitLookupKnown(result,sha){
+  check(hex(sha,40)&&result&&!result.error,"publication_lookup_ambiguous");
+  if(result.status===0)return true;
+  check(Number.isInteger(result.status)&&result.status!==0&&typeof result.stderr==="string"
+    &&result.stdout==="",
+    "publication_lookup_ambiguous");
+  const error=result.stderr.trim();
+  const missing404=error==="gh: Not Found (HTTP 404)"||error==="404 Not Found";
+  const missing422=error==="gh: No commit found for SHA: "+sha+" (HTTP 422)";
+  check(missing404||missing422,"publication_lookup_ambiguous");
+  return false;
+}
 function assertCancellationUnpublished(p){
   const live=readPR(p),graph=ancestry(p,live);
   const deployments=api("repos/"+REPO+"/deployments?sha="+p.head_sha+"&per_page=100");
   const prior=spawnSync("gh",["api","repos/"+REPO+"/commits/"+p.head_sha],{encoding:"utf8"});
-  check(prior.status===0||(prior.status!==0&&/404|Not Found/i.test(prior.stderr)),
-   "publication_lookup_ambiguous");
+  const knownCommit=commitLookupKnown(prior,p.head_sha);
   check(resolveDecision({kind:"cancel",branch:live.branch,proposed:p.head_sha,
-   onBranch:graph.branch,onMain:graph.main,deployments,knownCommit:prior.status===0})==="cancelled",
+    onBranch:graph.branch,onMain:graph.main,deployments,knownCommit})==="cancelled",
    "cancel_confirmation");
   return live;
 }
@@ -311,10 +328,9 @@ function resolution(p,comments){
  const deployments=kind==="cancel"?
   api("repos/"+REPO+"/deployments?sha="+p.head_sha+"&per_page=100"):[];
  const prior=kind==="cancel"?spawnSync("gh",["api","repos/"+REPO+"/commits/"+p.head_sha],{encoding:"utf8"}):null;
- if(prior)check(prior.status===0||(prior.status!==0&&/404|Not Found/i.test(prior.stderr)),
-  "publication_lookup_ambiguous");
+ const knownCommit=prior?commitLookupKnown(prior,p.head_sha):false;
  const decision=resolveDecision({kind,branch:live.branch,proposed:p.head_sha,
-  onBranch:graph.branch,onMain:graph.main,deployments,knownCommit:prior?.status===0});
+  onBranch:graph.branch,onMain:graph.main,deployments,knownCommit});
  const proof=approve[0]||cancel[0];
  const value={pending_digest:p.pending_digest,decision,owner_comment_id:proof.id,
   observed_branch_sha:live.branch,observed_main_sha:live.main,
@@ -366,7 +382,8 @@ export function gate(env){
   resolution(p,comments);
  }
  // A cancellation is not irrevocable proof of nonpublication. Repeat live
- // checks even for previously persisted owner decisions before any admission.
+  // checks even for previously persisted owner decisions. Even successful reads
+  // do not grant automatic admission once cancellation exists.
  const finalComments=issueComments();
  const finalRows=readPending(finalComments,pr);
  for(const p of finalRows.filter(r=>r.resolution?.decision==="cancelled")){

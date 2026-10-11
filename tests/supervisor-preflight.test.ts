@@ -566,6 +566,27 @@ describe("canonical Supervisor pre-publication gate", () => {
     expect(executeLocalValidation(workflowCandidate,repo,["workflow-semantics"],{runner}).ok).toBe(true);
   });
 
+
+  it("uses the hosted Linux python3 executable for discovery-worker without skipping failures",()=>{
+    const f=fixture({baseFiles:{"AGENTS.md":"base\\n"}});
+    write(join(f.repo,"AGENTS.md"),"changed\\n");
+    git(f.repo,["add","."]);git(f.repo,["commit","-qm","change required supervisor control"]);
+    const candidate=inspectFixture({cwd:f.repo,baseSha:f.base,prBody:body(f.base)});
+    expect(candidate.required_validation_checks).toContain("discovery-worker");
+    const result=executeLocalValidation(candidate,f.repo,["discovery-worker"],{
+      runner:(command:string,args:string[])=>{
+        expect(command).toBe("python3");
+        expect(args).toEqual(["tests/test_company_directory_discovery_worker.py"]);
+        return {status:0,signal:null,stdout:"",stderr:""};
+      }
+    });
+    expect(result.ok).toBe(true);
+    const failure=executeLocalValidation(candidate,f.repo,["discovery-worker"],{
+      runner:()=>({status:null,signal:null,stdout:"",stderr:"",error:new Error("ENOENT")})
+    });
+    expect(failure.ok).toBe(false);
+  });
+
   it("stages Worker and Review Repair only as owner-push artifacts, never automatic publication", () => {
     for (const filename of ["supervisor-worker-handoff.yml", "supervisor-review-repair.yml"]) {
       const workflow = readFileSync(join(process.cwd(), ".github", "workflows", filename), "utf8");

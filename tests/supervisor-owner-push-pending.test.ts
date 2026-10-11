@@ -8,7 +8,7 @@ import {createHash} from "node:crypto";
 import {readFileSync} from "node:fs";
 import {createRequire} from "node:module";
 // @ts-expect-error Trusted control-plane .mjs helper.
-import {readPending,admission,verifyArtifactMetadata,verifyHandoffManifest,resolveDecision,mayResolveExpiredArtifact,verifyHandoffBranch,gate} from "../scripts/supervisor-owner-push-pending.mjs";
+import {readPending,admission,verifyArtifactMetadata,verifyHandoffManifest,resolveDecision,mayResolveExpiredArtifact,verifyHandoffBranch,gate,commitLookupKnown} from "../scripts/supervisor-owner-push-pending.mjs";
 // @ts-expect-error Trusted control-plane .mjs helper.
 import {decideReviewRepairStrategyHistory} from "../scripts/supervisor-review-repair-strategy-memory.mjs";
 // @ts-expect-error Trusted control-plane .mjs helper.
@@ -88,11 +88,11 @@ describe("versioned authenticated owner-push ledger",()=>{
  it.each(["cancelled","push_confirmed"] as const)(
   "requires the exact owner action and append-only resolution for %s",decision=>{
    const f=fixture(),proof=resolution(f,decision);
-   expect(admission([f.comment,proof.command,proof.result],pr)).toMatchObject({allow:true,unresolved:0});
+   expect(admission([f.comment,proof.command,proof.result],pr)).toMatchObject({allow:decision==="push_confirmed",unresolved:0});
    const staleOwner={...proof.command,id:987};
    expect(()=>readPending([f.comment,staleOwner,proof.result],pr)).toThrow("resolution_owner_provenance");
    expect(()=>readPending([f.comment,proof.result],pr)).toThrow("resolution_owner_provenance");
-   expect(admission([f.comment,proof.command,proof.result,proof.result],pr).allow).toBe(true);
+   expect(admission([f.comment,proof.command,proof.result,proof.result],pr).allow).toBe(decision==="push_confirmed");
   });
  it("preserves consumed-attempt count after cancellation and prevents same-head repeat",()=>{
   const f=fixture(),proof=resolution(f,"cancelled");
@@ -224,8 +224,59 @@ describe("authenticated artifact, current-state and cancellation policy",()=>{
  });
 });
 
+
+describe("cancelled owner-push handoff is never an automatic model-launch permit",()=>{
+  it.each(["review_repair","ci_autofix"] as const)(
+   "refuses the workflow admission even after a valid cancellation for %s",lane=>{
+    const pending=fixture(101,lane),cancelled=resolution(pending,"cancelled");
+    let modelCalls=0;
+    const decision=admission([pending.comment,cancelled.command,cancelled.result],pr);
+    if(decision.allow)modelCalls++;
+    expect(decision).toMatchObject({allow:false,unresolved:0});
+    expect(modelCalls).toBe(0);
+    expect(decision.records[0].resolution?.decision).toBe("cancelled");
+    expect(admission([pending.comment,cancelled.command,cancelled.result],pr+1).allow).toBe(true);
+  });
+  it("keeps cancelled history closed after duplicate events and allows owner-confirmed publication",()=>{
+    const pending=fixture(),cancelled=resolution(pending,"cancelled"),approved=fixture(121);
+    const proof=resolution(approved,"push_confirmed");
+    expect(admission([pending.comment,cancelled.command,cancelled.result,cancelled.result],pr).allow).toBe(false);
+    expect(admission([approved.comment,proof.command,proof.result],pr).allow).toBe(true);
+  });
+  it("recognizes only request-bound absent-commit errors",()=>{
+    const sha="c".repeat(40),other="d".repeat(40);
+    const fail=(stderr:string,status=1)=>({status,stderr,stdout:"",error:undefined});
+    expect(commitLookupKnown(fail("gh: Not Found (HTTP 404)"),sha)).toBe(false);
+    expect(commitLookupKnown(fail("gh: No commit found for SHA: "+sha+" (HTTP 422)"),sha)).toBe(false);
+    for(const stderr of [
+      "gh: No commit found for SHA: "+other+" (HTTP 422)","gh: Validation Failed (HTTP 422)",
+      "gh: No commit found for SHA: "+sha+" (HTTP 403)","gh: Unauthorized (HTTP 401)",
+      "gh: Forbidden (HTTP 403)","gh: rate limited (HTTP 429)",
+      "gh: Internal Server Error (HTTP 500)","gh: Service Unavailable (HTTP 503)",
+      "connection reset","gh: Not Found (HTTP 404)\ngh: some other error"
+    ])expect(()=>commitLookupKnown(fail(stderr),sha)).toThrow("publication_lookup_ambiguous");
+    expect(()=>commitLookupKnown(fail("gh: Not Found (HTTP 404)",1),other)).not.toThrow();
+    expect(()=>commitLookupKnown({status:1,stderr:"gh: Not Found (HTTP 404)",stdout:"garbage"},sha)).toThrow("publication_lookup_ambiguous");
+    expect(()=>commitLookupKnown({status:null,stderr:"gh: Not Found (HTTP 404)",error:new Error("network")},sha))
+      .toThrow("publication_lookup_ambiguous");
+    expect(commitLookupKnown({status:0,stderr:"",stdout:"{}",error:undefined},sha)).toBe(true);
+  });
+  it("checks the workflow model boundaries in both independent lanes",()=>{
+    for(const [name,modelLine] of [
+      [".github/workflows/supervisor-review-repair.yml","- name: Run one batched exact-head repair"],
+      [".github/workflows/proffera-ci-autofix.yml","- name: Run one bounded Codex repair attempt"]
+    ]){
+      const source=readFileSync(name,"utf8");
+      const gateLine="node scripts/supervisor-owner-push-pending.mjs gate";
+      expect(source.indexOf(gateLine)).toBeGreaterThan(-1);
+      expect(source.indexOf(modelLine)).toBeGreaterThan(source.indexOf(gateLine));
+      expect(source).toContain("'.allow'");
+    }
+  });
+});
+
 describe("production gate with a retained artifact and an advanced branch",()=>{
- it.each(["valid","missing-parent","tampered-bundle","race-before-post","race-after-post","branch-moved","ambiguous-publication"] as const)(
+ it.each(["valid","publication-after-gate","publication-after-head-check","missing-parent","tampered-bundle","race-before-post","race-after-post","branch-moved","ambiguous-publication"] as const)(
   "authenticated cancellation with retained artifact: %s",async scenario=>{
   const parentAvailable=scenario!=="missing-parent",tampered=scenario==="tampered-bundle";
   const actual=await vi.importActual<typeof import("node:child_process")>("node:child_process");
@@ -259,7 +310,7 @@ describe("production gate with a retained artifact and an advanced branch",()=>{
    workflow_run:{id:81},expired:false,digest:"sha256:"+digest(zip)};
   const good=(stdout:string|Buffer)=>({status:0,stdout,stderr:"",error:undefined});
   const bad=(msg:string)=>({status:1,stdout:"",stderr:msg,error:undefined});
-  let fetchHead="",parentFetched=false,posts=0,revLists=0;
+  let fetchHead="",parentFetched=false,posts=0,revLists=0,afterGatePublication=false;
   const fake=((bin:string,args:string[])=>{
    if(bin==="gh"&&args[0]==="api"){
     if(args[1]==="--paginate"&&args[2]==="--slurp"){
@@ -288,7 +339,8 @@ describe("production gate with a retained artifact and an advanced branch",()=>{
     if(endpoint==="repos/"+repo+"/deployments?sha="+p.head_sha+"&per_page=100")
      return good("[]");
     if(endpoint==="repos/"+repo+"/commits/"+p.head_sha)
-      return scenario==="ambiguous-publication"?bad("503 Service Unavailable"):bad("404 Not Found");
+      return scenario==="ambiguous-publication"?bad("503 Service Unavailable"):
+        scenario==="valid"?bad("gh: No commit found for SHA: "+p.head_sha+" (HTTP 422)"):bad("gh: Not Found (HTTP 404)");
    }
    if(bin==="unzip"){
     if(args[0]==="-Z1")return good([laneFile+".bundle",laneFile+".bundle.sha256",
@@ -325,7 +377,7 @@ describe("production gate with a retained artifact and an advanced branch",()=>{
     }
     if(args[0]==="rev-list"){
       revLists++;
-      const published=(scenario==="race-before-post"&&revLists>2)
+      const published=afterGatePublication||(scenario==="race-before-post"&&revLists>2)
         ||(scenario==="race-after-post"&&posts>0);
       return good(args[1]+"\n"+(published?p.head_sha+"\n":""));
      }
@@ -334,11 +386,20 @@ describe("production gate with a retained artifact and an advanced branch",()=>{
   }) as typeof spawnSync;
   vi.mocked(spawnSync).mockImplementation(fake);
   try{
-   if(scenario==="valid"){
-    expect(gate({PR_NUMBER:String(pr)})).toEqual({allow:true,unresolved:0,records:1});
-     expect(gate({PR_NUMBER:String(pr)})).toEqual({allow:true,unresolved:0,records:1});
+   if(scenario==="valid"||scenario==="publication-after-gate"||scenario==="publication-after-head-check"){
+    const first=gate({PR_NUMBER:String(pr)});
+    expect(first).toEqual({allow:false,unresolved:0,records:1});
+    if(scenario==="valid")expect(gate({PR_NUMBER:String(pr)})).toEqual(first);
+    else {
+      // Simulate owner publication after gate and after the workflow head read.
+      expect(advanced).toBe("9".repeat(40));
+      afterGatePublication=true;
+      let modelSideEffects=0; if(first.allow)modelSideEffects++;
+      expect(modelSideEffects).toBe(0);
+      expect(()=>gate({PR_NUMBER:String(pr)})).toThrow("reachable_commit");
+    }
     expect(posts).toBe(1);
-    expect(admission(comments,pr)).toMatchObject({allow:true,unresolved:0});
+    expect(admission(comments,pr)).toMatchObject({allow:false,unresolved:0});
    }else{
     expect(()=>gate({PR_NUMBER:String(pr)})).toThrow(
      scenario==="tampered-bundle"?"bundle_ref":
@@ -348,7 +409,7 @@ describe("production gate with a retained artifact and an advanced branch",()=>{
     expect(parentFetched).toBe(scenario!=="missing-parent");
     expect(posts).toBe(scenario==="race-after-post"?1:0);
     if(scenario==="race-after-post"){
-      expect(admission(comments,pr).allow).toBe(true); // ledger is not live admission
+      expect(admission(comments,pr).allow).toBe(false); // cancellation is never a model-launch permit
       expect(()=>gate({PR_NUMBER:String(pr)})).toThrow("reachable_commit");
       expect(posts).toBe(1);
      }else expect(admission(comments,pr).allow).toBe(false);

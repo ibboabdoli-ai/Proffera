@@ -464,7 +464,7 @@ function commandForCheck(id, cwd, candidate) {
       ...candidate.diff.files.filter((record) => record.new_mode !== "000000"
         && /\.ya?ml$/i.test(record.path)).map((record) => record.path)],
       cwd, timeout: 120000};
-    case "discovery-worker": return {command: "python", args: ["tests/test_company_directory_discovery_worker.py"],
+    case "discovery-worker": return {command: "python3", args: ["tests/test_company_directory_discovery_worker.py"],
       cwd, timeout: 300000};
     case "e2e": return {command: node, args: ["node_modules/playwright/cli.js", "test", "--workers=1"],
       cwd: resolve(cwd, "e2e"), timeout: 1200000};
