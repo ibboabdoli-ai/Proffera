@@ -491,11 +491,19 @@ jobs:
     name: Bounded Codex CI autofix
     needs: [prepare, admit]
     if: needs.admit.outputs.autofix == 'yes'
+    concurrency:
+      # Serialize the entire model job with PR-scoped pending-ledger writers.
+      # The final gate below executes while this same mutex is held.
+      group: proffera-final-gate-memory-${{ fromJSON(needs.prepare.outputs.pr_number) }}
+      cancel-in-progress: false
+      queue: max
     runs-on: ubuntu-latest
+    timeout-minutes: 60
     permissions:
       contents: read
       pull-requests: read
       actions: read
+      issues: read
     outputs:
       changed: ${{ steps.candidate.outputs.changed }}
       patch_sha256: ${{ steps.candidate.outputs.patch_sha256 }}
@@ -566,6 +574,30 @@ jobs:
             echo "PR head changed before CI Autofix model execution; refusing stale model attempt." >&2
             exit 1
           }
+
+      - name: Checkout immutable workflow-revision owner-push gate
+        if: needs.prepare.outputs.api_available == 'yes'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.workflow_sha }}
+          path: .proffera-trusted-model-gate
+          persist-credentials: false
+
+      - name: Revalidate owner-push ledger at CI Autofix model boundary
+        if: needs.prepare.outputs.api_available == 'yes'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ needs.prepare.outputs.pr_number }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Run the gate from the immutable workflow revision, never the PR checkout.
+          # The per-PR mutex covers this check and the following model action.
+          trap 'rm -rf .proffera-trusted-model-gate' EXIT
+          test "$(git -C .proffera-trusted-model-gate rev-parse HEAD)" = "$GITHUB_WORKFLOW_SHA"
+          test -z "$(git -C .proffera-trusted-model-gate status --porcelain=v1 --untracked-files=all)"
+          pending_gate="$(node .proffera-trusted-model-gate/scripts/supervisor-owner-push-pending.mjs gate)"
+          jq -e '.allow == true and .unresolved == 0' <<< "$pending_gate" >/dev/null
 
       - name: Run one bounded Codex repair attempt
         if: needs.prepare.outputs.api_available == 'yes'

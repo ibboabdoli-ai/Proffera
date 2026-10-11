@@ -801,9 +801,13 @@ describe("Review Repair pre-model start recovery", () => {
   it("revalidates head and finding set immediately before the model and does not charge a skipped model", () => {
     const repairSteps = rerunWorkflow.jobs.repair.steps.map((step) => step.name);
     const guardIndex = repairSteps.indexOf("Revalidate exact-head review evidence before model");
+    const trustedIndex = repairSteps.indexOf("Checkout immutable workflow-revision owner-push gate");
+    const ledgerIndex = repairSteps.indexOf("Revalidate owner-push ledger at Review Repair model boundary");
     const modelIndex = repairSteps.indexOf("Run one batched exact-head repair");
     expect(guardIndex).toBeGreaterThanOrEqual(0);
-    expect(modelIndex).toBe(guardIndex + 1);
+    expect(trustedIndex).toBe(guardIndex + 1);
+    expect(ledgerIndex).toBe(trustedIndex + 1);
+    expect(modelIndex).toBe(ledgerIndex + 1);
     const guard = workflowStep("repair", "Revalidate exact-head review evidence before model").run!;
     expect(guard).toContain("PR head changed before Review Repair model execution");
     expect(guard).toContain("Current-head review finding burst changed before model execution");

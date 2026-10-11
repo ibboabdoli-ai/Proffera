@@ -314,6 +314,12 @@ jobs:
     name: Batch current-head review findings
     needs: admit
     if: needs.admit.outputs.repair == 'yes'
+    concurrency:
+      # Prevent pending-ledger writers from mutating admission during model execution.
+      # Model admission is checked again below while this mutex is held.
+      group: proffera-final-gate-memory-${{ fromJSON(inputs.pr_number) }}
+      cancel-in-progress: false
+      queue: max
     runs-on: ubuntu-latest
     timeout-minutes: 35
     permissions:
@@ -402,6 +408,28 @@ jobs:
             echo "Current-head review finding burst changed before model execution; refusing stale model attempt." >&2
             exit 1
           }
+
+      - name: Checkout immutable workflow-revision owner-push gate
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.workflow_sha }}
+          path: .proffera-trusted-model-gate
+          persist-credentials: false
+
+      - name: Revalidate owner-push ledger at Review Repair model boundary
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ inputs.pr_number }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Never trust the repair PR checkout to authorize launching the model.
+          # The per-PR mutex protects against concurrent pending-ledger writers.
+          trap 'rm -rf .proffera-trusted-model-gate' EXIT
+          test "$(git -C .proffera-trusted-model-gate rev-parse HEAD)" = "$GITHUB_WORKFLOW_SHA"
+          test -z "$(git -C .proffera-trusted-model-gate status --porcelain=v1 --untracked-files=all)"
+          pending_gate="$(node .proffera-trusted-model-gate/scripts/supervisor-owner-push-pending.mjs gate)"
+          jq -e '.allow == true and .unresolved == 0' <<< "$pending_gate" >/dev/null
 
       - name: Run one batched exact-head repair
         uses: openai/codex-action@86365089eb2b84e0a8fb0717b304f8bdcb13b20e

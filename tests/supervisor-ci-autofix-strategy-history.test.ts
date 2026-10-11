@@ -552,12 +552,18 @@ describe("CI Autofix workflow accounting boundary", () => {
 
   it("keeps the model job outside issue-write authority and revalidates the exact head immediately before model execution", () => {
     const autofix = job("autofix");
-    expect(autofix.permissions ?? {}).not.toHaveProperty("issues");
+    // Ledger admission needs read-only issue access, never issue-write authority.
+    expect(autofix.permissions?.issues).toBe("read");
+    expect(autofix.permissions?.issues).not.toBe("write");
     const names = (autofix.steps ?? []).map((candidate) => candidate.name);
     const revalidate = names.indexOf("Revalidate exact failed head before model");
+    const trusted = names.indexOf("Checkout immutable workflow-revision owner-push gate");
+    const ledger = names.indexOf("Revalidate owner-push ledger at CI Autofix model boundary");
     const model = names.indexOf("Run one bounded Codex repair attempt");
     expect(revalidate).toBeGreaterThanOrEqual(0);
-    expect(model).toBe(revalidate + 1);
+    expect(trusted).toBe(revalidate + 1);
+    expect(ledger).toBe(trusted + 1);
+    expect(model).toBe(ledger + 1);
   });
 
   it("uses exact source-run attempt evidence and classifies terminal outcomes only in the record job", () => {
