@@ -248,6 +248,27 @@ describe("cancelled owner-push handoff is never an automatic model-launch permit
     const fail=(stderr:string,status=1)=>({status,stderr,stdout:"",error:undefined});
     expect(commitLookupKnown(fail("gh: Not Found (HTTP 404)"),sha)).toBe(false);
     expect(commitLookupKnown(fail("gh: No commit found for SHA: "+sha+" (HTTP 422)"),sha)).toBe(false);
+    const githubError=(message:string,status:string)=>JSON.stringify({
+      message,documentation_url:"https://docs.github.com/rest/commits/commits#get-a-commit",status
+    });
+    const observed422={
+      status:1,stderr:"gh: No commit found for SHA: "+sha+" (HTTP 422)\n",
+      stdout:githubError("No commit found for SHA: "+sha,"422"),error:undefined
+    };
+    expect(commitLookupKnown(observed422,sha)).toBe(false);
+    expect(commitLookupKnown({...observed422,stderr:"gh: Not Found (HTTP 404)\n",
+      stdout:githubError("Not Found","404")},sha)).toBe(false);
+    for(const stdout of [
+      githubError("No commit found for SHA: "+other,"422"),
+      githubError("No commit found for SHA: "+sha,"404"),
+      githubError("Validation Failed","422"),
+      "  ",
+      '{"message":"No commit found for SHA:',
+      '[]',
+      '{"message":"No commit found for SHA: '+sha+'","status":"422"}',
+      githubError("No commit found for SHA: "+sha,"422")+"extra"
+    ])expect(()=>commitLookupKnown({...observed422,stdout},sha))
+      .toThrow("publication_lookup_ambiguous");
     for(const stderr of [
       "gh: No commit found for SHA: "+other+" (HTTP 422)","gh: Validation Failed (HTTP 422)",
       "gh: No commit found for SHA: "+sha+" (HTTP 403)","gh: Unauthorized (HTTP 401)",

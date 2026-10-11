@@ -296,13 +296,24 @@ export function resolveDecision(input){
 export function commitLookupKnown(result,sha){
   check(hex(sha,40)&&result&&!result.error,"publication_lookup_ambiguous");
   if(result.status===0)return true;
-  check(Number.isInteger(result.status)&&result.status!==0&&typeof result.stderr==="string"
-    &&result.stdout==="",
+  check(result.status===1&&result.signal==null
+    &&typeof result.stderr==="string"&&typeof result.stdout==="string",
     "publication_lookup_ambiguous");
   const error=result.stderr.trim();
   const missing404=error==="gh: Not Found (HTTP 404)"||error==="404 Not Found";
   const missing422=error==="gh: No commit found for SHA: "+sha+" (HTTP 422)";
   check(missing404||missing422,"publication_lookup_ambiguous");
+  // gh api writes structured API error bodies to stdout even on HTTP failures.
+  // An error body must independently agree with the exact requested SHA/status.
+  if(result.stdout!==""){
+   let response;
+   try{response=JSON.parse(result.stdout);}catch{throw new Error("pending:publication_lookup_ambiguous");}
+   check(shape(response,["message","documentation_url","status"])
+    &&response.message===(missing422?"No commit found for SHA: "+sha:"Not Found")
+    &&response.status===(missing422?"422":"404")
+    &&response.documentation_url==="https://docs.github.com/rest/commits/commits#get-a-commit",
+    "publication_lookup_ambiguous");
+  }
   return false;
 }
 function assertCancellationUnpublished(p){
