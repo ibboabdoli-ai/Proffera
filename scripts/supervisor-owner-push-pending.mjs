@@ -246,6 +246,11 @@ function record(env){
  const finalLive=readPR(p);
  check(finalLive.branch===p.parent_sha&&finalLive.pr.base.sha===p.base_sha,"record_revalidation");
  const history=admission(comments,p.pr_number);
+ // Record mode is another admission surface after the workflow gate.
+ // Historical cancellation cannot authorize work after contrary publication.
+ for(const prior of history.records.filter(r=>r.resolution?.decision==="cancelled")){
+  assertCancellationUnpublished(prior);
+ }
  const existing=history.records.find(r=>r.lane===p.lane&&r.run_id===p.run_id&&r.run_attempt===p.run_attempt);
  check(history.records.every(r=>!!r.resolution||r===existing),"prior_pending");
  if(existing){
@@ -278,6 +283,21 @@ export function resolveDecision(input){
  check(knownCommit===false,"historical_publication_ambiguous");
  return "cancelled";
 }
+// A cancellation comment is not an atomic ref lock. Check live ancestry and
+// retained publication evidence at each admission, not just when posting it.
+// A later conflicting push makes the gate fail closed, even with a persisted
+// authenticated cancellation marker.
+function assertCancellationUnpublished(p){
+  const live=readPR(p),graph=ancestry(p,live);
+  const deployments=api("repos/"+REPO+"/deployments?sha="+p.head_sha+"&per_page=100");
+  const prior=spawnSync("gh",["api","repos/"+REPO+"/commits/"+p.head_sha],{encoding:"utf8"});
+  check(prior.status===0||(prior.status!==0&&/404|Not Found/i.test(prior.stderr)),
+   "publication_lookup_ambiguous");
+  check(resolveDecision({kind:"cancel",branch:live.branch,proposed:p.head_sha,
+   onBranch:graph.branch,onMain:graph.main,deployments,knownCommit:prior.status===0})==="cancelled",
+   "cancel_confirmation");
+  return live;
+}
 function resolution(p,comments){
  if(p.resolution)return;
  const owner=kind=>comments.filter(c=>c.issue_url?.toLowerCase()===ISSUE_URL.toLowerCase()
@@ -299,6 +319,10 @@ function resolution(p,comments){
  const value={pending_digest:p.pending_digest,decision,owner_comment_id:proof.id,
   observed_branch_sha:live.branch,observed_main_sha:live.main,
   historical_nonpublication_proven:false,observed_at:new Date().toISOString()};
+ if(kind==="cancel"){
+  const finalLive=assertCancellationUnpublished(p);
+  check(finalLive.branch===live.branch&&finalLive.main===live.main,"cancel_state_changed");
+ }
  post(body("resolution",p.pending_digest,value));
 }
 // An owner can close an authenticated pending handoff after the seven-day
@@ -341,7 +365,14 @@ export function gate(env){
     "publish_job_id","model_job_id","validation_job_id"].every(k=>p[k]===verified[k]),"pending_authentication");
   resolution(p,comments);
  }
- const result=admission(issueComments(),pr);
+ // A cancellation is not irrevocable proof of nonpublication. Repeat live
+ // checks even for previously persisted owner decisions before any admission.
+ const finalComments=issueComments();
+ const finalRows=readPending(finalComments,pr);
+ for(const p of finalRows.filter(r=>r.resolution?.decision==="cancelled")){
+  assertCancellationUnpublished(p);
+ }
+ const result=admission(finalComments,pr);
  return {allow:result.allow,unresolved:result.unresolved,records:result.records.length};
 }
 async function main(){

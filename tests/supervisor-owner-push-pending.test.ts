@@ -225,7 +225,7 @@ describe("authenticated artifact, current-state and cancellation policy",()=>{
 });
 
 describe("production gate with a retained artifact and an advanced branch",()=>{
- it.each(["valid","missing-parent","tampered-bundle"] as const)(
+ it.each(["valid","missing-parent","tampered-bundle","race-before-post","race-after-post","branch-moved","ambiguous-publication"] as const)(
   "authenticated cancellation with retained artifact: %s",async scenario=>{
   const parentAvailable=scenario!=="missing-parent",tampered=scenario==="tampered-bundle";
   const actual=await vi.importActual<typeof import("node:child_process")>("node:child_process");
@@ -259,7 +259,7 @@ describe("production gate with a retained artifact and an advanced branch",()=>{
    workflow_run:{id:81},expired:false,digest:"sha256:"+digest(zip)};
   const good=(stdout:string|Buffer)=>({status:0,stdout,stderr:"",error:undefined});
   const bad=(msg:string)=>({status:1,stdout:"",stderr:msg,error:undefined});
-  let fetchHead="",parentFetched=false,posts=0;
+  let fetchHead="",parentFetched=false,posts=0,revLists=0;
   const fake=((bin:string,args:string[])=>{
    if(bin==="gh"&&args[0]==="api"){
     if(args[1]==="--paginate"&&args[2]==="--slurp"){
@@ -278,16 +278,17 @@ describe("production gate with a retained artifact and an advanced branch",()=>{
      return good(JSON.stringify({artifacts:[artifact]}));
     if(endpoint==="repos/"+repo+"/actions/artifacts/401/zip")return good(zip);
     if(endpoint==="repos/"+repo+"/pulls/"+pr)return good(JSON.stringify({
-     state:"open",merged:false,base:{ref:"main"},head:{ref:p.branch,sha:advanced,
+     state:"open",merged:false,base:{ref:"main"},head:{ref:p.branch,sha:(scenario==="branch-moved"&&revLists>=2)?"7".repeat(40):advanced,
       repo:{full_name:repo}},user:{login:"ibboabdoli-ai"},
     }));
     if(endpoint==="repos/"+repo+"/git/ref/heads/"+p.branch)
-     return good(JSON.stringify({object:{sha:advanced}}));
+     return good(JSON.stringify({object:{sha:(scenario==="branch-moved"&&revLists>=2)?"7".repeat(40):advanced}}));
     if(endpoint==="repos/"+repo+"/git/ref/heads/main")
      return good(JSON.stringify({object:{sha:p.base_sha}}));
     if(endpoint==="repos/"+repo+"/deployments?sha="+p.head_sha+"&per_page=100")
      return good("[]");
-    if(endpoint==="repos/"+repo+"/commits/"+p.head_sha)return bad("404 Not Found");
+    if(endpoint==="repos/"+repo+"/commits/"+p.head_sha)
+      return scenario==="ambiguous-publication"?bad("503 Service Unavailable"):bad("404 Not Found");
    }
    if(bin==="unzip"){
     if(args[0]==="-Z1")return good([laneFile+".bundle",laneFile+".bundle.sha256",
@@ -303,7 +304,7 @@ describe("production gate with a retained artifact and an advanced branch",()=>{
    if(bin==="git"){
     if(args[0]==="fetch"){
      const ref=args.at(-1);
-     if(ref==="refs/heads/"+p.branch){fetchHead=advanced;return good("");}
+     if(ref==="refs/heads/"+p.branch){fetchHead=(scenario==="branch-moved"&&revLists>=2)?"7".repeat(40):advanced;return good("");}
      if(ref==="refs/heads/main"){fetchHead=p.base_sha;return good("");}
      if(ref===p.parent_sha){
       if(!parentAvailable)return bad("missing staged parent on origin");
@@ -322,7 +323,12 @@ describe("production gate with a retained artifact and an advanced branch",()=>{
      if(args[1]==="FETCH_HEAD^{tree}")return good(p.tree_sha+"\n");
      if(args[1]==="FETCH_HEAD^")return good(p.parent_sha+"\n");
     }
-    if(args[0]==="rev-list")return good(args[1]+"\n");
+    if(args[0]==="rev-list"){
+      revLists++;
+      const published=(scenario==="race-before-post"&&revLists>2)
+        ||(scenario==="race-after-post"&&posts>0);
+      return good(args[1]+"\n"+(published?p.head_sha+"\n":""));
+     }
    }
    throw Error("unexpected mock command: "+bin+" "+args.join(" "));
   }) as typeof spawnSync;
@@ -330,14 +336,22 @@ describe("production gate with a retained artifact and an advanced branch",()=>{
   try{
    if(scenario==="valid"){
     expect(gate({PR_NUMBER:String(pr)})).toEqual({allow:true,unresolved:0,records:1});
+     expect(gate({PR_NUMBER:String(pr)})).toEqual({allow:true,unresolved:0,records:1});
     expect(posts).toBe(1);
     expect(admission(comments,pr)).toMatchObject({allow:true,unresolved:0});
    }else{
     expect(()=>gate({PR_NUMBER:String(pr)})).toThrow(
-     scenario==="tampered-bundle"?"bundle_ref":"missing staged parent");
-    expect(parentFetched).toBe(tampered);
-    expect(posts).toBe(0);
-    expect(admission(comments,pr).allow).toBe(false);
+     scenario==="tampered-bundle"?"bundle_ref":
+      scenario==="missing-parent"?"missing staged parent":
+      scenario==="branch-moved"?"cancel_state_changed":
+      scenario==="ambiguous-publication"?"publication_lookup_ambiguous":"reachable_commit");
+    expect(parentFetched).toBe(scenario!=="missing-parent");
+    expect(posts).toBe(scenario==="race-after-post"?1:0);
+    if(scenario==="race-after-post"){
+      expect(admission(comments,pr).allow).toBe(true); // ledger is not live admission
+      expect(()=>gate({PR_NUMBER:String(pr)})).toThrow("reachable_commit");
+      expect(posts).toBe(1);
+     }else expect(admission(comments,pr).allow).toBe(false);
    }
   }finally{vi.mocked(spawnSync).mockImplementation(actual.spawnSync);}
  });

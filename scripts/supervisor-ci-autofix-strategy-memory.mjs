@@ -646,7 +646,9 @@ export function proveCiAutofixIndeterminateRecovery(input) {
   }
   const observedAt = String(run.updated_at ?? "");
   if (!/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d{3})?Z$/.test(observedAt)) fail("indeterminate_observed_at");
-  const result = classifyCiAutofixOutcome({jobs});
+  // Only unresolved starts (already filtered against authenticated pending records)
+  // enter this terminal-run recovery path. Do not mistake a staged upload for publication.
+  const result = classifyCiAutofixOutcome({jobs, pending_result: "skipped"});
   if (!result.persist) return {recoverable:false,reason:result.reason};
   return {recoverable: true, reason: "model_outcome_" + result.outcome,
     outcome: result.outcome, observed_at: observedAt};

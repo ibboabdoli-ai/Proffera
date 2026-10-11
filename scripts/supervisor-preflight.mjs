@@ -390,6 +390,7 @@ function additionalTargetedSuites(candidate) {
     "tests/supervisor-owner-push-pending.test.ts",
     "tests/supervisor-owner-handoff.test.ts",
     "tests/supervisor-ci-autofix-strategy-history.test.ts",
+    "tests/supervisor-review-repair-strategy-history.test.ts",
     "tests/supervisor-control-plane-v2.test.ts",
     "tests/supervisor-worker-strategy-history.test.ts",
     "tests/supervisor-authorization-policy.test.ts",
@@ -420,7 +421,8 @@ function additionalTargetedSuites(candidate) {
     [".github/workflows/supervisor-planner.yml", "tests/supervisor-control-plane-v2.test.ts"],
     ["scripts/supervisor-owner-push-pending.mjs", "tests/supervisor-owner-push-pending.test.ts"],
     ["scripts/supervisor-ci-autofix-strategy-memory.mjs", "tests/supervisor-ci-autofix-strategy-history.test.ts"],
-    ["scripts/supervisor-review-repair-strategy-memory.mjs", "tests/supervisor-control-plane-v2.test.ts"],
+    ["scripts/supervisor-review-repair-strategy-memory.mjs", "tests/supervisor-review-repair-strategy-history.test.ts"],
+    ["tests/supervisor-review-repair-strategy-history.test.ts", "tests/supervisor-review-repair-strategy-history.test.ts"],
     ["tests/supervisor-owner-push-pending.test.ts", "tests/supervisor-owner-push-pending.test.ts"],
     ["tests/supervisor-owner-handoff.test.ts", "tests/supervisor-owner-handoff.test.ts"],
     ["tests/supervisor-ci-autofix-strategy-history.test.ts", "tests/supervisor-ci-autofix-strategy-history.test.ts"],
@@ -432,7 +434,8 @@ function additionalTargetedSuites(candidate) {
     if (workerPaths.has(path) || path === ".github/workflows/supervisor-worker-handoff.yml") {
       suites.add("tests/supervisor-worker-handoff.test.ts");
     }
-    if (path === ".github/workflows/supervisor-review-repair.yml") {
+    if (path === ".github/workflows/supervisor-review-repair.yml"
+      || path === "scripts/supervisor-review-repair-strategy-memory.mjs") {
       suites.add("tests/supervisor-control-plane-v2.test.ts");
     }
     if (autofixPaths.has(path)) suites.add("tests/supervisor-ci-autofix-candidate.test.ts");

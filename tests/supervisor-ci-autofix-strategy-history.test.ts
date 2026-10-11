@@ -211,6 +211,42 @@ describe("CI Autofix durable admission and outcomes", () => {
     })).toEqual({recoverable: false, reason: "model_not_launched"});
   });
 
+  it.each(["failure", "cancelled", "success"] as const)(
+    "durably accounts for a staged/uploaded orphan with missing pending record: %s", (conclusion) => {
+      const admit = {name: "Admit one bounded CI autofix strategy", status: "completed", conclusion: "success"};
+      const launched = {name: "Bounded Codex CI autofix", status: "completed", conclusion: "success",
+        steps: [{name: "Run one bounded Codex repair attempt", status: "completed", conclusion: "success"}]};
+      const staged = {name: "Stage CI Autofix owner-push handoff (no publication)",
+        status: "completed", conclusion: "success",
+        steps: [{name: "Upload CI Autofix owner handoff", status: "completed", conclusion: "success"}]};
+      const jobs = [admit, launched, staged,
+        {name: "Record CI Autofix owner-push pending", status: "completed", conclusion, steps: []}];
+      const input = {
+        repository, pr_number: pr, start: start(), jobs,
+        run: {
+          id: 50, run_attempt: 1, head_sha: "f".repeat(40), head_branch: "main",
+          event: "workflow_run", path: ".github/workflows/proffera-ci-autofix.yml",
+          name: "Proffera CI autofix", status: "completed", conclusion,
+          updated_at: "2026-10-05T18:01:00Z",
+        },
+      };
+      expect(classifyCiAutofixOutcome({jobs})).toEqual({
+        persist: false, reason: "authenticated_pending_record_required",
+      });
+      const expected = {recoverable: true, reason: "model_outcome_unknown", outcome: "unknown",
+        observed_at: "2026-10-05T18:01:00Z"};
+      expect(proveCiAutofixIndeterminateRecovery(input)).toEqual(expected);
+      expect(proveCiAutofixIndeterminateRecovery(input)).toEqual(expected);
+      expect(proveCiAutofixIndeterminateRecovery({...input, run: {...input.run, status: "in_progress"}}))
+        .toMatchObject({recoverable: false, reason: "run_not_terminal"});
+      expect(() => proveCiAutofixIndeterminateRecovery({...input,
+        run: {...input.run, run_attempt: 2}})).toThrow("indeterminate_run_binding");
+      expect(proveCiAutofixIndeterminateRecovery({...input, jobs: [admit,
+        {...launched, steps: [{name: "Run one bounded Codex repair attempt", status: "completed", conclusion: "skipped"}]},
+        {...staged, conclusion: "skipped"}]})).toMatchObject({recoverable: false});
+    },
+  );
+
   it("keeps unknown historical evidence suppressed while allowing materially changed evidence", () => {
     const terminalBody = ciAutofixTerminalBody({
       repository, pr_number: pr, head, failures,

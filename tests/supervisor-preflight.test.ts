@@ -519,7 +519,8 @@ describe("canonical Supervisor pre-publication gate", () => {
     const mapped: Record<string,string> = {
       "scripts/supervisor-owner-push-pending.mjs":"tests/supervisor-owner-push-pending.test.ts",
       "scripts/supervisor-ci-autofix-strategy-memory.mjs":"tests/supervisor-ci-autofix-strategy-history.test.ts",
-      "scripts/supervisor-review-repair-strategy-memory.mjs":"tests/supervisor-control-plane-v2.test.ts",
+      "scripts/supervisor-review-repair-strategy-memory.mjs":"tests/supervisor-review-repair-strategy-history.test.ts",
+      "tests/supervisor-review-repair-strategy-history.test.ts":"tests/supervisor-review-repair-strategy-history.test.ts",
       ".github/workflows/ci.yml":"tests/github-workflow-yaml.test.ts",
       ".github/workflows/supervisor-planner.yml":"tests/supervisor-control-plane-v2.test.ts",
       "tests/supervisor-owner-push-pending.test.ts":"tests/supervisor-owner-push-pending.test.ts",
@@ -545,6 +546,26 @@ describe("canonical Supervisor pre-publication gate", () => {
       expect(result.ok).toBe(true);
     }
   });
+  it("selects both Review Repair behavioral history and control-plane suites for the strategy source", () => {
+    const {repo,base}=fixture();
+    write(join(repo,"scripts","supervisor-review-repair-strategy-memory.mjs"),"export const candidate = 1;\n");
+    git(repo,["add","."]);
+    git(repo,["commit","-qm","review strategy candidate"]);
+    const sourceCandidate=inspectFixture({cwd:repo,baseSha:base,prBody:body(base)});
+    const runner=(_command:string,args:string[]) => {
+      expect(args).toContain("tests/supervisor-review-repair-strategy-history.test.ts");
+      expect(args).toContain("tests/supervisor-control-plane-v2.test.ts");
+      return {status:0,signal:null,stdout:"",stderr:""};
+    };
+    expect(executeLocalValidation(sourceCandidate,repo,["targeted"],{runner}).ok).toBe(true);
+    // The workflow itself additionally selects the workflow-semantics scope.
+    write(join(repo,".github","workflows","supervisor-review-repair.yml"),"name: Review Repair\n");
+    git(repo,["add","."]);
+    git(repo,["commit","-qm","workflow-semantics candidate"]);
+    const workflowCandidate=inspectFixture({cwd:repo,baseSha:base,prBody:body(base)});
+    expect(executeLocalValidation(workflowCandidate,repo,["workflow-semantics"],{runner}).ok).toBe(true);
+  });
+
   it("stages Worker and Review Repair only as owner-push artifacts, never automatic publication", () => {
     for (const filename of ["supervisor-worker-handoff.yml", "supervisor-review-repair.yml"]) {
       const workflow = readFileSync(join(process.cwd(), ".github", "workflows", filename), "utf8");
