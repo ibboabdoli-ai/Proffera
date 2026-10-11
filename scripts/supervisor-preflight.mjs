@@ -390,6 +390,7 @@ function additionalTargetedSuites(candidate) {
     ".github/workflows/supervisor-planner.yml",
     "tests/supervisor-owner-push-pending.test.ts",
     "tests/supervisor-model-launch-boundary.test.ts",
+    "tests/supervisor-failure-memory-queue.test.ts",
     "tests/supervisor-b4-exclusive-reservation.test.ts",
     "tests/supervisor-owner-handoff.test.ts",
     "tests/supervisor-ci-autofix-strategy-history.test.ts",
@@ -428,6 +429,7 @@ function additionalTargetedSuites(candidate) {
     ["tests/supervisor-review-repair-strategy-history.test.ts", "tests/supervisor-review-repair-strategy-history.test.ts"],
     ["tests/supervisor-owner-push-pending.test.ts", "tests/supervisor-owner-push-pending.test.ts"],
     ["tests/supervisor-model-launch-boundary.test.ts", "tests/supervisor-model-launch-boundary.test.ts"],
+    ["tests/supervisor-failure-memory-queue.test.ts", "tests/supervisor-failure-memory-queue.test.ts"],
     ["scripts/supervisor-b4-exclusive-reservation.mjs", "tests/supervisor-b4-exclusive-reservation.test.ts"],
     ["tests/supervisor-b4-exclusive-reservation.test.ts", "tests/supervisor-b4-exclusive-reservation.test.ts"],
     ["tests/supervisor-owner-handoff.test.ts", "tests/supervisor-owner-handoff.test.ts"],
@@ -448,6 +450,7 @@ function additionalTargetedSuites(candidate) {
     if (path === ".github/workflows/proffera-ci-autofix.yml"
       || path === ".github/workflows/supervisor-review-repair.yml") {
       suites.add("tests/supervisor-model-launch-boundary.test.ts");
+      suites.add("tests/supervisor-failure-memory-queue.test.ts");
       suites.add("tests/supervisor-b4-exclusive-reservation.test.ts");
     }
   }
