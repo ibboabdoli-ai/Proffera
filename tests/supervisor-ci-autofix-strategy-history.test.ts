@@ -245,8 +245,27 @@ describe("CI Autofix durable admission and outcomes", () => {
       expect(proveCiAutofixIndeterminateRecovery({...input, jobs: [admit,
         {...launched, steps: [{name: "Run one bounded Codex repair attempt", status: "completed", conclusion: "skipped"}]},
         {...staged, conclusion: "skipped"}]})).toMatchObject({recoverable: false});
+      for (const stageConclusion of ["failure", "cancelled"] as const) {
+        const postUploadFailureJobs = [admit, launched, {...staged, conclusion: stageConclusion}, jobs[3]];
+        expect(classifyCiAutofixOutcome({jobs: postUploadFailureJobs, pending_result: stageConclusion}))
+          .toEqual({persist: false, reason: "staged_handoff_pending_unrecorded"});
+        expect(proveCiAutofixIndeterminateRecovery({...input, jobs: postUploadFailureJobs}))
+          .toEqual(expected);
+      }
     },
   );
+
+  it("does not mistake a failed staging upload for authenticated owner-handoff evidence", () => {
+    const completed=(name:string,conclusion="success")=>({name,status:"completed",conclusion});
+    const model={name:"Bounded Codex CI autofix",status:"completed",conclusion:"success",
+      steps:[completed("Run one bounded Codex repair attempt")]};
+    const staged={name:"Stage CI Autofix owner-push handoff (no publication)",
+      status:"completed",conclusion:"failure",steps:[completed("Upload CI Autofix owner handoff","failure")]};
+    expect(classifyCiAutofixOutcome({jobs:[model,staged],pending_result:"failure"}))
+      .toEqual({persist:true,outcome:"unknown"});
+    expect(()=>classifyCiAutofixOutcome({jobs:[model,{...staged,conclusion:"success"}]}))
+      .toThrow("unverified_handoff_upload");
+  });
 
   it("keeps unknown historical evidence suppressed while allowing materially changed evidence", () => {
     const terminalBody = ciAutofixTerminalBody({

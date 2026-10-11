@@ -3,6 +3,8 @@ import {describe,expect,it} from "vitest";
 import {exclusiveReservationDecision} from "../scripts/supervisor-b4-exclusive-reservation.mjs";
 // @ts-expect-error Canonical CI Autofix strategy helper is an untyped .mjs module.
 import {classifyCiAutofixOutcome} from "../scripts/supervisor-ci-autofix-strategy-memory.mjs";
+// @ts-expect-error Canonical Review Repair strategy helper is an untyped .mjs module.
+import {reviewRepairStagedUploadEvidence} from "../scripts/supervisor-review-repair-strategy-memory.mjs";
 
 const repository="ibboabdoli-ai/Proffera";
 const pr=941, head="a".repeat(40), otherHead="c".repeat(40);
@@ -85,6 +87,29 @@ describe("B4 cross-workflow durable model reservation",()=>{
       reason:"other_or_missing_active_reservation"});
     expect(check("review_repair","model",[...owned,start("review_repair",202)],202).allow).toBe(false);
   });
+  it.each(["failure","cancelled"] as const)(
+    "both lanes retain exact reservation when the %s staging job had already uploaded",conclusion=>{
+      const success=(name:string)=>({name,status:"completed",conclusion:"success"});
+      const ciJobs=[{name:"Bounded Codex CI autofix",status:"completed",conclusion:"success",
+        steps:[success("Run one bounded Codex repair attempt")]},
+      {name:"Stage CI Autofix owner-push handoff (no publication)",status:"completed",conclusion,
+        steps:[success("Upload CI Autofix owner handoff")]}];
+      const ci=classifyCiAutofixOutcome({jobs:ciJobs,pending_result:conclusion});
+      expect(ci).toEqual({persist:false,reason:"staged_handoff_pending_unrecorded"});
+      const review=reviewRepairStagedUploadEvidence({jobs:[{
+        name:"Stage Review Repair owner-push handoff (no publication)",
+        status:"completed",conclusion,steps:[success("Upload Review Repair owner handoff")]
+      }]});
+      expect(review).toEqual({uploaded:true});
+      // CI's actual classifier and Review Repair's actual workflow proof helper
+      // must not authorize a terminal/memory write. With only the authenticated
+      // original start retained, the opposite lane cannot admit or launch.
+      for(const [first,second] of [["ci_autofix","review_repair"],["review_repair","ci_autofix"]] as const){
+        const original=[start(first,101)];
+        expect(check(second,"admit",original,202).allow).toBe(false);
+        expect(check(second,"model",[...original,start(second,202)],202).allow).toBe(false);
+      }
+    });
   it("never treats missing, stale or wrong-run ownership as model permission",()=>{
     const active=[start("review_repair",101)];
     expect(check("review_repair","model",[]).allow).toBe(false);

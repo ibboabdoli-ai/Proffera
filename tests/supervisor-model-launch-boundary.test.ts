@@ -120,8 +120,16 @@ describe("PR-scoped pending ledger at model launch",()=>{
       }else{
         expect(script).toContain('[ "$REPAIR_RESULT" = "success" ] && [ "$CHANGED" = "yes" ]');
         expect(script).toContain('[ "$VALIDATE_RESULT" = "success" ] && [ "$PUBLISH_RESULT" = "success" ]');
+        expect(script).toContain('upload_proof="$(jq');
+        expect(script).toContain('supervisor-review-repair-strategy-memory.mjs upload-proof');
+        expect(script).toContain('test "$ADMITTED_RUN_ID" = "$GITHUB_RUN_ID"');
+        expect(script).toContain('attempts/${ADMITTED_RUN_ATTEMPT}/jobs?per_page=100');
+        expect(script.indexOf('upload_proof="$(jq')).toBeLessThan(
+          script.indexOf('Staged owner handoff was not durably recorded'));
         expect(script.indexOf('Staged owner handoff was not durably recorded')).toBeLessThan(
-          script.indexOf('if [ "$REPAIR_RESULT" = "skipped" ]'));
+          script.indexOf('outcome=failed'));
+        expect(script.indexOf('echo "persist=yes" >> "$GITHUB_OUTPUT"')).toBeGreaterThan(
+          script.indexOf('upload_proof="$(jq'));
       }
     }
   });

@@ -2,10 +2,11 @@ import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { spawnSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
 // @ts-expect-error Standalone .mjs follows the repository control-plane convention.
 import { createMemory, memoryIdentity, mergeObservation, serializeMemory } from "../scripts/supervisor-failure-memory.mjs";
 // @ts-expect-error Standalone .mjs follows the repository control-plane convention.
-import { MAX_AUTOMATIC_REVIEW_REPAIR_ATTEMPTS, REVIEW_REPAIR_EXECUTION_CONTRACT, REVIEW_REPAIR_EXECUTION_PROMPT, decideReviewRepairStrategyHistory, parseReviewRepairRecoveries, parseReviewRepairStarts, prepareReviewRepairOutcome, proveReviewRepairPrelaunchRecovery, reviewRepairMemoryState, reviewRepairObservation, reviewRepairRecoveryBody, reviewRepairStartBody, reviewRepairStrategyDescriptor, unresolvedReviewRepairStarts } from "../scripts/supervisor-review-repair-strategy-memory.mjs";
+import { MAX_AUTOMATIC_REVIEW_REPAIR_ATTEMPTS, REVIEW_REPAIR_EXECUTION_CONTRACT, REVIEW_REPAIR_EXECUTION_PROMPT, decideReviewRepairStrategyHistory, parseReviewRepairRecoveries, parseReviewRepairStarts, prepareReviewRepairOutcome, proveReviewRepairPrelaunchRecovery, reviewRepairMemoryState, reviewRepairObservation, reviewRepairRecoveryBody, reviewRepairStagedUploadEvidence, reviewRepairStartBody, reviewRepairStrategyDescriptor, unresolvedReviewRepairStarts } from "../scripts/supervisor-review-repair-strategy-memory.mjs";
 
 const repository = "ibboabdoli-ai/Proffera";
 const pr = 923;
@@ -852,6 +853,43 @@ describe("Review Repair pre-model start recovery", () => {
     expect(admission).toContain("Could not prove historical Review Repair job state; leaving start unresolved.");
     expect(admission).toContain("Historical start remains fail-closed:");
     expect(admission).not.toContain("actions/runs/${old_run_id}/rerun");
+  });
+});
+
+describe("Review Repair authenticated owner-handoff upload evidence", () => {
+  const modelStep={name:"Run one batched exact-head repair",status:"completed",conclusion:"success"};
+  const staged=(jobConclusion:string,uploadConclusion="success")=>({
+    name:"Stage Review Repair owner-push handoff (no publication)",
+    status:"completed",conclusion:jobConclusion,
+    steps:[{name:"Upload Review Repair owner handoff",status:"completed",conclusion:uploadConclusion}],
+  });
+  it.each(["success","failure","cancelled"] as const)(
+    "retains staged upload with %s job conclusion after the upload succeeded",conclusion=>{
+      const jobs=[{name:"Batch current-head review findings",status:"completed",conclusion:"success",steps:[modelStep]},
+        staged(conclusion)];
+      expect(reviewRepairStagedUploadEvidence({jobs})).toEqual({uploaded:true});
+      const cli=spawnSync(process.execPath,[
+        fileURLToPath(new URL("../scripts/supervisor-review-repair-strategy-memory.mjs",import.meta.url)),
+        "upload-proof"
+      ],{input:JSON.stringify({jobs}),encoding:"utf8"});
+      expect(cli.status,cli.stderr).toBe(0);
+      expect(JSON.parse(cli.stdout)).toEqual({uploaded:true});
+    });
+  it("keeps harmless failed or cancelled uploads distinct from an authenticated upload",()=>{
+    for (const result of ["failure","cancelled"]) {
+      expect(reviewRepairStagedUploadEvidence({jobs:[staged(result,"failure")]}))
+        .toEqual({uploaded:false});
+    }
+    expect(reviewRepairStagedUploadEvidence({jobs:[]})).toEqual({uploaded:false});
+  });
+  it("rejects ambiguous duplicate jobs/steps and a job falsely reporting upload success",()=>{
+    expect(()=>reviewRepairStagedUploadEvidence({jobs:[staged("failure"),staged("failure")]}))
+      .toThrow("upload_job_collision");
+    expect(()=>reviewRepairStagedUploadEvidence({jobs:[{
+      ...staged("failure"),steps:[staged("failure").steps[0],staged("failure").steps[0]]
+    }]})).toThrow("upload_step_collision");
+    expect(()=>reviewRepairStagedUploadEvidence({jobs:[staged("success","failed")]}))
+      .toThrow("unverified_handoff_upload");
   });
 });
 

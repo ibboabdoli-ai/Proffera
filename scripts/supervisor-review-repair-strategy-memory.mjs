@@ -518,6 +518,25 @@ export function reviewRepairObservation(input) {
   };
 }
 
+// Authenticated, exact-run GitHub job evidence determines whether an uploaded
+// owner-push artifact already exists, independently of the enclosing job result.
+// A successful upload cannot be retired by a later job failure/cancellation.
+export function reviewRepairStagedUploadEvidence(input) {
+  const jobs=input?.jobs;
+  if (!Array.isArray(jobs) || jobs.length > 1000) fail("upload_jobs");
+  const staged=jobs.filter(job=>job?.name==="Stage Review Repair owner-push handoff (no publication)");
+  if (staged.length > 1) fail("upload_job_collision");
+  if (staged.length === 0) return {uploaded:false};
+  const stage=staged[0];
+  if (stage.status!=="completed" || !Array.isArray(stage.steps)) fail("upload_job_evidence");
+  const uploads=stage.steps.filter(step=>step?.name==="Upload Review Repair owner handoff");
+  if (uploads.length > 1) fail("upload_step_collision");
+  const uploaded=uploads.length === 1 && uploads[0].status==="completed"
+    && uploads[0].conclusion==="success";
+  if (stage.conclusion==="success" && !uploaded) fail("unverified_handoff_upload");
+  return {uploaded};
+}
+
 export function reviewRepairMemoryState({repository: repo, pr_number, comments}) {
   repository(repo);
   const prNumber = positiveInteger(pr_number, "pr_number");
@@ -632,6 +651,10 @@ async function main(args) {
       starts: state.starts,
       pending: state.pending,
     })) + "\n");
+    return;
+  }
+  if (mode === "upload-proof") {
+    process.stdout.write(JSON.stringify(reviewRepairStagedUploadEvidence(parsed)) + "\n");
     return;
   }
   if (mode === "prepare-outcome") {

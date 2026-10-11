@@ -559,16 +559,25 @@ export function classifyCiAutofixOutcome(input) {
   const launch = proveCiAutofixModelNotLaunched(input);
   const staged = input.jobs.filter(item => item.name === "Stage CI Autofix owner-push handoff (no publication)");
   if (staged.length > 1) fail("current_handoff_job_collision");
-  if (staged.length === 1 && staged[0].status === "completed" && staged[0].conclusion === "success") {
-    const uploads=(staged[0].steps||[]).filter(step=>step.name === "Upload CI Autofix owner handoff");
-    if (uploads.length !== 1 || uploads[0].status !== "completed"
-      || uploads[0].conclusion !== "success") fail("unverified_handoff_upload");
-    // A successfully staged but unrecorded handoff must retain its original
-    // authenticated start reservation. A generic unknown terminal would retire
-    // that start and allow the sibling lane to start before owner reconciliation.
-    // No terminal or Failure Memory observation is safe until the pending handoff
-    // is durably reconstructed (or explicit authenticated recovery closes it).
-    return {persist:false,reason:"staged_handoff_pending_unrecorded"};
+  if (staged.length === 1) {
+    const job=staged[0];
+    if (job.status !== "completed" || !Array.isArray(job.steps)) fail("unverified_handoff_job");
+    const uploads=job.steps.filter(step=>step.name === "Upload CI Autofix owner handoff");
+    if (uploads.length > 1) fail("unverified_handoff_upload");
+    // A successful authenticated upload is durable evidence even when the
+    // staging job subsequently fails or is cancelled. Job-level success is
+    // never a prerequisite for retaining the cross-lane reservation.
+    const uploaded=uploads.length === 1 && uploads[0].status === "completed"
+      && uploads[0].conclusion === "success";
+    if (job.conclusion === "success" && !uploaded) fail("unverified_handoff_upload");
+    if (uploaded) {
+      // A successfully staged but unrecorded handoff must retain its original
+      // authenticated start reservation. A generic unknown terminal would retire
+      // that start and allow the sibling lane to start before owner reconciliation.
+      // No terminal or Failure Memory observation is safe until the pending handoff
+      // is durably reconstructed (or explicit authenticated recovery closes it).
+      return {persist:false,reason:"staged_handoff_pending_unrecorded"};
+    }
   }
   if (launch.recoverable) return {persist: false, reason: launch.reason};
   if (launch.reason !== "model_step_may_have_launched") fail(launch.reason);

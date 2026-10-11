@@ -871,7 +871,27 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          echo "persist=yes" >> "$GITHUB_OUTPUT"
+          # An interrupted classification must never leave a persist=yes output
+          # that permits the terminal writer to retire an unresolved start.
+          echo "persist=no" >> "$GITHUB_OUTPUT"
+          if [ "$REPAIR_RESULT" = "skipped" ]; then
+            echo "Review Repair model job was skipped; no model attempt outcome will be charged."
+            exit 0
+          fi
+          [[ "$ADMITTED_RUN_ID" =~ ^[1-9][0-9]*$ ]]
+          [[ "$ADMITTED_RUN_ATTEMPT" =~ ^[1-9][0-9]*$ ]]
+          test "$ADMITTED_RUN_ID" = "$GITHUB_RUN_ID"
+          jobs_file="$RUNNER_TEMP/review-repair-current-attempt-jobs.json"
+          gh api --paginate "repos/${REPOSITORY}/actions/runs/${ADMITTED_RUN_ID}/attempts/${ADMITTED_RUN_ATTEMPT}/jobs?per_page=100" --jq '.jobs[]' | jq -s '.' > "$jobs_file"
+          jq -e 'type == "array" and length <= 1000' "$jobs_file" >/dev/null
+          # Classify from the authenticated exact-run job/step inventory, not
+          # the overall stage job status. A successful upload remains staged
+          # even when later steps fail or the runner is cancelled.
+          upload_proof="$(jq -n --slurpfile jobs "$jobs_file" '{jobs:$jobs[0]}' | node scripts/supervisor-review-repair-strategy-memory.mjs upload-proof)"
+          if [ "$(jq -r '.uploaded' <<< "$upload_proof")" = "true" ]; then
+            echo "Staged owner handoff was not durably recorded; retain the unresolved start and block cross-lane re-entry." >&2
+            exit 1
+          fi
           if [ "$REPAIR_RESULT" = "success" ] && [ "$CHANGED" = "yes" ] \
             && [ "$VALIDATE_RESULT" = "success" ] && [ "$PUBLISH_RESULT" = "success" ]; then
             # A completed upload followed by a failed pending-ledger write is
@@ -881,15 +901,7 @@ jobs:
             echo "Staged owner handoff was not durably recorded; retain the unresolved start and block cross-lane re-entry." >&2
             exit 1
           fi
-          if [ "$REPAIR_RESULT" = "skipped" ]; then
-            echo "persist=no" >> "$GITHUB_OUTPUT"
-            echo "Review Repair model job was skipped; no model attempt outcome will be charged."
-            exit 0
-          fi
           if [ "$REPAIR_RESULT" != "success" ]; then
-            jobs_file="$RUNNER_TEMP/review-repair-current-attempt-jobs.json"
-            gh api --paginate "repos/${REPOSITORY}/actions/runs/${ADMITTED_RUN_ID}/attempts/${ADMITTED_RUN_ATTEMPT}/jobs?per_page=100" --jq '.jobs[]' | jq -s '.' > "$jobs_file"
-            jq -e 'type == "array"' "$jobs_file" >/dev/null
             repair_count="$(jq '[.[] | select(.name == "Batch current-head review findings")] | length' "$jobs_file")"
             test "$repair_count" = "1"
             model_steps="$(jq '[.[] | select(.name == "Batch current-head review findings") | .steps[]? | select(.name == "Run one batched exact-head repair")]' "$jobs_file")"
@@ -917,6 +929,7 @@ jobs:
           else
             outcome=failed
           fi
+          echo "persist=yes" >> "$GITHUB_OUTPUT"
           echo "REVIEW_REPAIR_OUTCOME=$outcome" >> "$GITHUB_ENV"
           echo "REVIEW_REPAIR_OBSERVED_AT=$(date -u +'%Y-%m-%dT%H:%M:%SZ')" >> "$GITHUB_ENV"
           echo "Durable Review Repair attempt outcome: $outcome"
