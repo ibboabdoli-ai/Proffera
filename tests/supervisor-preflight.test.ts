@@ -66,7 +66,7 @@ function inspectFixture(args: { cwd: string; baseSha: string; prBody: string }) 
   return inspectCandidate({...args, liveMainResolver: () => args.baseSha});
 }
 
-function cli(repo: string, args: string[]) {
+function cli(repo: string, args: string[], liveMain?: string) {
   const baseIndex = args.indexOf("--base");
   const base = baseIndex >= 0 ? args[baseIndex + 1] : "";
   const shimPath = join(dirname(repo), "preflight-gh-shim.cjs");
@@ -94,7 +94,7 @@ function cli(repo: string, args: string[]) {
     env: {
       ...process.env,
       GH_HOST: "attacker-mirror.invalid",
-      PREFLIGHT_TEST_MAIN_SHA: base,
+      PREFLIGHT_TEST_MAIN_SHA: liveMain ?? base,
       NODE_OPTIONS: existingNodeOptions ? `${existingNodeOptions} ${requireShim}` : requireShim,
     },
   });
@@ -939,7 +939,9 @@ describe("owner-authorized PR-push handoff", () => {
     expect(dirty.status).toBe(1);
     expect(dirty.stderr).toContain("candidate must be fully committed");
     git(f.repo, ["checkout", "--", "docs/change.md"]);
-    const stale = cli(f.repo, ["owner-handoff", "--base", "0".repeat(40), "--pr-body", prBody]);
+    const stale = cli(f.repo, ["owner-handoff", "--base", f.base, "--pr-body", prBody], "f".repeat(40));
     expect(stale.status).toBe(1);
+    expect(stale.stderr).toContain("supervisor_preflight:base");
+    expect(stale.stderr).toContain("is stale or not current main");
   });
 });

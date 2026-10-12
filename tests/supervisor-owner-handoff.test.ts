@@ -7,7 +7,13 @@ import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
 
 const require = createRequire(import.meta.url);
-const yaml = require("js-yaml") as { load(source: string): { jobs: Record<string, { steps: Array<{ name?: string; run?: string }> }> } };
+type WorkflowJob = {
+  permissions?: Record<string, string>;
+  steps: Array<{name?: string; run?: string}>;
+};
+const yaml = require("js-yaml") as { load(source: string): {
+  jobs: Record<string, WorkflowJob>;
+} };
 const root = resolve(process.cwd());
 
 function run(cwd: string, ...args: string[]) {
@@ -37,6 +43,21 @@ describe("owner-authorized publication handoff contracts", () => {
     expect(raw).not.toContain("gh pr merge");
     expect(raw).not.toContain("PROFFERA_AUTOFIX_PUSH_TOKEN");
     expect(raw).not.toContain("PUSH_TOKEN:");
+    expect(publish.permissions?.contents).not.toBe("write");
+    for (const [jobName, job] of Object.entries(doc.jobs)) {
+      // Issue-write is needed by trusted state/ledger writers; only repository
+      // contents write would grant a branch-mutation capability here.
+      expect(job.permissions?.contents, `${name} ${jobName} must not write repository contents`)
+        .not.toBe("write");
+      for (const step of job.steps ?? []) {
+        const script = String(step.run ?? "");
+        expect(script, `${name} ${jobName} must not push`).not.toMatch(/\bgit\s+push\b/i);
+        expect(script, `${name} ${jobName} must not mutate git refs through GitHub API`)
+          .not.toMatch(/\bgh\s+api\b[^\n]*\/git\/refs\b/i);
+        expect(script, `${name} ${jobName} must not have a push token`)
+          .not.toMatch(/(?:PROFFERA_AUTOFIX_PUSH_TOKEN|PUSH_TOKEN\s*[:=])/);
+      }
+    }
   });
 
   it("a bundled exact-child commit can be transported without moving the source branch", () => {
@@ -80,13 +101,91 @@ describe("Worker fallback recovery ZIP inventory", () => {
       item.name === "Reconcile exact stranded reservation after publish setup failure")?.run);
     const syntax = spawnSync("bash", ["-n"], {input:source, encoding:"utf8", timeout:10000});
     expect(syntax.status, syntax.stderr).toBe(0);
-    expect(source.indexOf('test "$(git rev-parse FETCH_HEAD)" = "$head_sha"'))
-      .toBeGreaterThan(source.indexOf('git bundle verify "$owner_bundle"'));
-    expect(source.indexOf('.recovery={kind:"artifact",digest:$digest,expires_at:$expires}'))
-      .toBeGreaterThan(source.indexOf('test "$(git rev-parse FETCH_HEAD)" = "$head_sha"'));
-    expect(source).toContain('if [ "$archive_entries" = "$owner_entries" ]; then');
-    expect(source).toContain('elif [ "$archive_entries" = "$legacy_entries" ]; then');
-  });
+    // Run the actual recovery shell segment in both authenticated ZIP layouts;
+    // mock only external transport/validation and require Git bundle verification
+    // before FETCH_HEAD can be read. No source-order assertions can substitute.
+    const start = source.indexOf('archive_entries="$(unzip -Z1 "$archive"');
+    const finishMarker = "label=RECOVERABLE";
+    const finish = source.indexOf(finishMarker, start);
+    expect(start).toBeGreaterThan(0);
+    expect(finish).toBeGreaterThan(start);
+    const actualShell = source.slice(start, finish + finishMarker.length);
+    const recovery = "{}\n";
+    const bundle = "fixture-bundle";
+    const digest = (s: string) => createHash("sha256").update(s).digest("hex");
+    const work = mkdtempSync(join(tmpdir(), "proffera-recovery-execution-"));
+    const bashPath = (path: string) => path.replace(/^([A-Za-z]):\\/, (_match, drive: string) =>
+      "/" + drive.toLowerCase() + "/").replaceAll("\\", "/");
+    const mock = [
+      "set -euo pipefail",
+      "unzip() {",
+      '  if [ "$1" = "-Z1" ]; then printf "%s\\n" "$ZIP_NAMES"; return; fi',
+      '  case "$3" in',
+      '    proffera-publication-artifact.json) printf "{}\\n";;',
+      '    proffera-owner-handoff.bundle) printf "fixture-bundle";;',
+      '    proffera-owner-handoff.bundle.sha256) printf "%s  proffera-owner-handoff.bundle\\n" "$BUNDLE_SHA";;',
+      '    proffera-owner-handoff.json) printf "{}\\n";;',
+      '    *) return 1;;',
+      '  esac',
+      "}",
+      "jq() {",
+      '  case "$1" in',
+      '    -e) return 0;;',
+      '    -n) printf \'{"ok":true,"target_head":"%s","target_tree_sha":"%s","run_id":"%s","paths":[]}\\n\' "$head_sha" "$target_tree_sha" "$RUN_ID";;',
+      '    -r) case "$2" in',
+      '      ".ok // false") echo true;;',
+      '      ".target_head // \\\"\\\"") echo "$head_sha";;',
+      '      ".target_tree_sha // \\\"\\\"") echo "$target_tree_sha";;',
+      '      ".run_id // \\\"\\\"") echo "$RUN_ID";;',
+      '      *) return 1;;',
+      '    esac;;',
+      '    -c) if [ "$2" = ".paths | sort" ]; then echo "[]"; else echo \'{"state":"RECOVERABLE","recovery":{"kind":"artifact"}}\'; fi;;',
+      '    *) return 1;;',
+      '  esac',
+      "}",
+      'node() { [ "$2" = "validate-publication" ] && cat; }',
+      'gh() { [ "$1" = "api" ] && printf "%s\\n" "$BASE_SHA"; }',
+      "git() {",
+      '  printf "%s\\n" "$*" >> "$EVENTS"',
+      '  case "$*" in',
+      '    "bundle verify "*) return 0;;',
+      '    "bundle list-heads "*) printf "%s HEAD\\n" "$head_sha";;',
+      '    "-c core.hooksPath=/dev/null fetch "*) grep -q "^bundle verify " "$EVENTS";;',
+      '    "rev-parse FETCH_HEAD") printf "%s\\n" "$head_sha";;',
+      '    "rev-parse FETCH_HEAD^{tree}") printf "%s\\n" "$target_tree_sha";;',
+      '    "rev-parse FETCH_HEAD^") printf "%s\\n" "$BASE_SHA";;',
+      '    *) return 1;;',
+      '  esac',
+      "}",
+    ].join("\n");
+    const four = ["proffera-publication-artifact.json", "proffera-owner-handoff.bundle",
+      "proffera-owner-handoff.bundle.sha256", "proffera-owner-handoff.json"];
+    try {
+      for (const layout of ["owner", "legacy"] as const) {
+        const events = join(work, layout + "-git-calls");
+        writeFileSync(events, "");
+        const result = spawnSync("bash", ["-c", mock + "\n" + actualShell +
+          '\nprintf "LAYOUT=%s LABEL=%s PAYLOAD=%s\\n" "$archive_layout" "$label" "$payload"'], {
+          encoding: "utf8", timeout: 15000,
+          env: {...process.env, EVENTS:bashPath(events), ZIP_NAMES:(layout === "owner" ? four : [four[0]]).join("\n"),
+            BUNDLE_SHA:digest(bundle), RUNNER_TEMP:bashPath(work), archive:"fixture.zip",
+            recovery_artifact:bashPath(join(work, layout + "-recovery.json")),recovery_digest:digest(recovery),
+            REPOSITORY:"ibboabdoli-ai/Proffera",BRANCH:"work/proffera-test",
+            TASK_ID:"SUP-TEST",BASE_SHA:"a".repeat(40),head_sha:"b".repeat(40),
+            target_tree_sha:"c".repeat(40),RUN_ID:"51",packet:"{}",helper:"mock-helper",
+            payload:"{}",reserved_paths:"[]"},
+        });
+        expect(result.status, JSON.stringify(result)).toBe(0);
+        expect(result.stdout).toContain("LAYOUT=" + layout + " LABEL=RECOVERABLE");
+        expect(result.stdout).toContain('"state":"RECOVERABLE"');
+        const calls = readFileSync(events,"utf8");
+        if (layout === "owner") {
+          expect(calls).toContain("bundle verify");
+          expect(calls).toContain("rev-parse FETCH_HEAD");
+        } else expect(calls).toBe("");
+      }
+    } finally { rmSync(work, {recursive:true,force:true}); }
+  }, 20000);
 
   it("accepts only authenticated recovery archive layouts and rejects injected or duplicated entries", () => {
     const doc = yaml.load(readFileSync(join(root, ".github/workflows/supervisor-worker-handoff.yml"), "utf8"));

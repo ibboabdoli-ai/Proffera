@@ -229,25 +229,14 @@ describe("cancelled owner-push handoff is never an automatic model-launch permit
   it.each(["review_repair","ci_autofix"] as const)(
    "refuses the workflow admission even after a valid cancellation for %s",lane=>{
     const pending=fixture(101,lane),cancelled=resolution(pending,"cancelled");
-    let modelCalls=0;
     const decision=admission([pending.comment,cancelled.command,cancelled.result],pr);
-    if(decision.allow)modelCalls++;
     expect(decision).toMatchObject({allow:false,unresolved:0});
-    expect(modelCalls).toBe(0);
     expect(decision.records[0].resolution?.decision).toBe("cancelled");
     expect(admission([pending.comment,cancelled.command,cancelled.result],pr+1).allow).toBe(true);
   });
-  it.each(["review_repair","ci_autofix"] as const)(
-    "rejects a new pending %s handoff written between admission and model launch",lane=>{
-      const previouslyAdmitted=admission([],pr);
-      expect(previouslyAdmitted.allow).toBe(true);
-      const concurrent=fixture(122,lane);
-      const observedAtLaunch=admission([concurrent.comment],pr);
-      expect(observedAtLaunch).toMatchObject({allow:false,unresolved:1});
-      // The prior admission result is intentionally stale: the launch guard must
-      // evaluate the new ledger state rather than reuse it.
-      expect(previouslyAdmitted.allow).toBe(true);
-    });
+  // Model-launch revalidation is tested at the workflow boundary in
+  // supervisor-model-launch-boundary.test.ts; repeating a saved admission
+  // boolean here would pass even if the actual boundary guard were removed.
   it("keeps cancelled history closed after duplicate events and allows owner-confirmed publication",()=>{
     const pending=fixture(),cancelled=resolution(pending,"cancelled"),approved=fixture(121);
     const proof=resolution(approved,"push_confirmed");
