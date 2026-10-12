@@ -192,6 +192,87 @@
     font-weight:700;
   }
 }
+
+/* Maria portfolio v4 — photograph-led slider, touch snap, accessible controls. */
+.maria-portfolio{overflow:hidden;background:#f2ece6}
+.maria-gallery-heading{margin-bottom:23px}
+.maria-gallery-heading p{max-width:390px}
+.maria-gallery-control,.maria-more-head{display:flex;align-items:end;justify-content:space-between;gap:18px}
+.maria-gallery-kicker{font-size:10px;font-weight:700;letter-spacing:2.1px;color:#8c6f60}
+.maria-gallery-actions{display:flex;align-items:center;gap:8px;flex-shrink:0}
+.maria-gallery-counter{font-size:11px;letter-spacing:1.5px;color:#7c685e;min-width:61px;text-align:center}
+.maria-arrow{display:grid;place-items:center;height:43px;width:43px;border:1px solid #d4bfb1;border-radius:50%;background:#fffbf7;color:#483229;font-size:18px;line-height:1;transition:background .2s,transform .2s}
+.maria-arrow:hover{background:#e8d8cc;transform:translateY(-1px)}
+.maria-arrow:focus-visible{outline:3px solid #956d5c;outline-offset:3px}
+.maria-featured-track,.maria-strip-track{display:flex;overflow-x:auto;overflow-y:hidden;scroll-snap-type:x mandatory;scrollbar-width:none;-ms-overflow-style:none;overscroll-behavior-inline:contain;-webkit-overflow-scrolling:touch;max-width:100%;direction:ltr}
+.maria-featured-track::-webkit-scrollbar,.maria-strip-track::-webkit-scrollbar{display:none}
+.maria-featured-track{gap:18px;padding:25px max(24px,calc((100vw - 1280px)/2)) 12px;scroll-padding-inline:max(24px,calc((100vw - 1280px)/2));}
+.maria-featured-slide{direction:ltr;flex:0 0 min(880px,84vw);display:grid;grid-template-columns:minmax(0,1.15fr) minmax(0,.75fr);scroll-snap-align:center;background:#fffaf6;min-width:0;min-height:470px;box-shadow:0 10px 30px rgba(65,38,25,.055)}
+.maria-featured-photo{height:100%;min-height:470px;display:block;position:relative;overflow:hidden;background:#bba79e}
+.maria-featured-photo img{width:100%;height:100%;object-fit:cover;object-position:center 27%;transition:transform .7s}
+.maria-featured-photo:hover img{transform:scale(1.035)}
+.maria-featured-info{display:flex;flex-direction:column;justify-content:center;gap:0;padding:42px 38px;direction:ltr}
+.maria-featured-mark{color:#947362;font-size:10px;font-weight:700;letter-spacing:1.6px;text-transform:uppercase}
+.maria-featured-info h3{margin:24px 0 13px;font:400 clamp(34px,3.8vw,59px)/1.12 var(--serif);letter-spacing:-1.2px;overflow-wrap:anywhere}
+.maria-featured-info p{color:#89776d;font-size:14px;line-height:1.7;margin:0}
+.maria-featured-open{margin-top:42px;padding-bottom:5px;align-self:start;font-size:11px;font-weight:700;letter-spacing:.4px;border-bottom:1px solid #ad9180}
+.maria-gallery-progress{height:2px;background:#ded0c5;position:relative;margin:18px 0 69px}
+.maria-gallery-progress span{position:absolute;left:0;top:0;bottom:0;width:12.5%;background:#906a56;transition:left .3s,width .3s}
+.maria-more-head{margin-bottom:19px}
+.maria-more-head h3{font:400 clamp(29px,3.5vw,47px)/1.15 var(--serif);letter-spacing:-1px;margin:10px 0 0}
+.maria-strip-track{gap:13px;padding:12px max(24px,calc((100vw - 1280px)/2)) 20px;scroll-padding-inline:max(24px,calc((100vw - 1280px)/2));scroll-snap-type:x proximity}
+.maria-strip-card{direction:ltr;position:relative;display:block;flex:0 0 235px;height:305px;scroll-snap-align:start;overflow:hidden;background:#bfa9a0;isolation:isolate}
+.maria-strip-card img{width:100%;height:100%;object-fit:cover;transition:transform .55s}
+.maria-strip-card:hover img{transform:scale(1.06)}
+.maria-strip-card:after{content:"";position:absolute;inset:45% 0 0;background:linear-gradient(transparent,rgba(28,18,14,.74));pointer-events:none;z-index:2}
+.maria-strip-caption{position:absolute;z-index:3;inset-inline:18px;bottom:16px;display:flex;flex-direction:column;gap:3px;color:white;line-height:1.4}
+.maria-strip-caption strong{font:400 22px/1.2 var(--serif)}
+.maria-strip-caption small{font-size:11px;letter-spacing:.6px;color:#f1e4da}
+.maria-gallery-bottom{margin-top:20px}
+[dir="rtl"] .maria-gallery-heading,[dir="rtl"] .maria-gallery-control,[dir="rtl"] .maria-more-head,[dir="rtl"] .maria-gallery-bottom{direction:rtl}
+[dir="rtl"] .maria-featured-info{direction:rtl}
+[dir="rtl"] .maria-featured-open{align-self:start}
+@media(max-width:780px){
+ .maria-featured-track{gap:12px;padding:16px 18px 5px;scroll-padding-inline:18px}
+ .maria-featured-slide{flex-basis:calc(100vw - 45px);grid-template-columns:1fr;min-height:0}
+ .maria-featured-photo{min-height:0;height:390px}
+ .maria-featured-info{padding:25px 24px 27px}
+ .maria-featured-info h3{font-size:36px;margin:12px 0 8px}
+ .maria-featured-open{margin-top:18px}
+ .maria-gallery-progress{margin-bottom:45px}
+ .maria-strip-track{padding-inline:18px;scroll-padding-inline:18px}
+ .maria-strip-card{flex-basis:210px;height:285px}
+}
+@media(max-width:580px){
+ .maria-gallery-heading{margin-bottom:22px}
+ .maria-gallery-control{align-items:center}
+ .maria-gallery-kicker{font-size:9px;letter-spacing:1.25px}
+ .maria-gallery-actions{gap:5px}
+ .maria-gallery-counter{font-size:10px;min-width:50px}
+ .maria-arrow{height:38px;width:38px;font-size:17px}
+ .maria-featured-track{padding-inline:14px;scroll-padding-inline:14px}
+ .maria-featured-slide{flex-basis:calc(100vw - 40px)}
+ .maria-featured-photo{height:clamp(325px,105vw,430px)}
+ .maria-featured-info{padding:20px 22px 23px}
+ .maria-featured-info h3{font-size:34px}
+ .maria-featured-info p{font-size:13px}
+ .maria-more-head h3{font-size:30px}
+ .maria-more-head{align-items:center;gap:7px}
+ .maria-strip-track{padding-inline:14px;scroll-padding-inline:14px}
+ .maria-strip-card{flex-basis:188px;height:250px}
+ .maria-gallery-progress{margin-bottom:39px}
+}
+@media(max-width:365px){
+ .maria-gallery-control{flex-wrap:wrap}
+ .maria-more-head{flex-wrap:wrap}
+ .maria-featured-slide{flex-basis:calc(100vw - 35px)}
+ .maria-strip-card{flex-basis:174px}
+}
+@media(prefers-reduced-motion:reduce){
+ .maria-featured-track,.maria-strip-track{scroll-behavior:auto!important}
+ .maria-featured-photo img,.maria-strip-card img{transition:none!important}
+}
+
 </style>
 </head>
 <body>
@@ -213,12 +294,79 @@
 <article class="service-card"><div class="service-photo image-loading"><img src="https://images.pexels.com/photos/35983912/pexels-photo-35983912.jpeg?auto=compress&cs=tinysrgb&w=1280" alt="Sample bridal beauty photograph (design preview)" loading="lazy"  decoding="async" /></div><div class="service-content"><h3 data-i18n="service3">Custom enquiry</h3><p data-i18n="service3Body">Have a particular look, date or event in mind? Send the details for a personalised response.</p><div class="card-footer"><small data-i18n="service3Small">Tailored to your event</small><a href="#booking" data-service="custom" data-i18n="discover">ENQUIRE ↗</a></div></div></article>
 </div></div></section>
 <section class="editorial" id="about"><div class="shell editorial-grid"><div class="editorial-photo image-loading"><img src="https://lookaside.instagram.com/seo/google_widget/crawler/?media_id=3995490450410297706" data-fallback="https://images.pexels.com/photos/15789321/pexels-photo-15789321.jpeg?auto=compress&cs=tinysrgb&w=1280" loading="lazy" alt="Makeup by Maria — bridal makeup credited to Maria" referrerpolicy="no-referrer"  decoding="async" /><div class="editorial-small image-loading"><img src="https://lookaside.instagram.com/seo/google_widget/crawler/?media_id=3498132916015775982" data-fallback="https://images.pexels.com/photos/35983928/pexels-photo-35983928.jpeg?auto=compress&cs=tinysrgb&w=1280" alt="Makeup by Maria — Jacqueline's bridal makeup" referrerpolicy="no-referrer" loading="lazy"  decoding="async" /></div></div><div><div class="eyebrow" data-i18n="aEyebrow">THE ARTIST BEHIND THE LOOK</div><h2 data-i18n-html="aboutTitle">Meet <em>Maria.</em></h2><p class="about-text" data-i18n="aboutBody">Maria Moussa is a Sweden-based makeup artist specialising in timeless soft glam for weddings and special occasions. Her portfolio celebrates radiant skin, elegant details and individual beauty.</p><p class="about-text" data-i18n="aboutBody2">Explore her work and share your event date to start planning your look.</p><div class="signature">Maria Moussa</div></div></div></section>
-<section class="section gallery" id="work"><div class="shell"><div class="section-heading"><div><div class="eyebrow" data-i18n="gEyebrow">THE ARTISTRY</div><h2 data-i18n-html="galleryTitle">Moments <em>in beauty.</em></h2></div><p data-i18n="galleryIntro">A selection of publicly indexed photos linked to @makeupbymaria998. Tap a photograph to view its original Instagram post.</p></div><div class="gallery-grid">
-<a href="https://www.instagram.com/p/DNMBsf8uQrG/" data-fallback-href="https://www.pexels.com/photo/stunning-bridal-portrait-with-elegant-makeup-29352010/" class="gallery-cell image-loading" target="_blank" rel="noopener noreferrer"><img src="https://lookaside.instagram.com/seo/google_widget/crawler/?media_id=3696336842002247263" data-fallback="https://images.pexels.com/photos/29352010/pexels-photo-29352010.jpeg?auto=compress&cs=tinysrgb&w=1280" alt="Manuella — bridal makeup by Maria Moussa" referrerpolicy="no-referrer" loading="lazy"  decoding="async" /><span class="gallery-label">MANUELLA · MAKEUP BY MARIA</span></a>
-<a href="https://www.instagram.com/p/DCL3VyIOGd9/" data-fallback-href="https://www.pexels.com/photo/young-woman-wearing-a-wedding-dress-and-glamour-makeup-in-a-wedding-dress-store-20369977/" class="gallery-cell image-loading" target="_blank" rel="noopener noreferrer"><img src="https://lookaside.instagram.com/seo/google_widget/crawler/?media_id=3498132916015775982" data-fallback="https://images.pexels.com/photos/20369977/pexels-photo-20369977.jpeg?auto=compress&cs=tinysrgb&w=1280" alt="Jacqueline — makeup by Maria Moussa" referrerpolicy="no-referrer" loading="lazy"  decoding="async" /></a>
-<a href="https://www.instagram.com/p/DaIbEbfAh5V/" data-fallback-href="https://www.pexels.com/photo/elegant-bridal-makeup-session-in-mexico-city-35983912/" class="gallery-cell image-loading" target="_blank" rel="noopener noreferrer"><img src="https://lookaside.instagram.com/seo/google_widget/crawler/?media_id=3929508413641930947" data-fallback="https://images.pexels.com/photos/35983912/pexels-photo-35983912.jpeg?auto=compress&cs=tinysrgb&w=1280" alt="Sham — bridal makeup by Maria Moussa" referrerpolicy="no-referrer" loading="lazy"  decoding="async" /></a>
-<a href="https://www.instagram.com/p/DNu1fe-RP-A/" data-fallback-href="https://www.pexels.com/photo/bridal-wedding-portrait-15789321/" class="gallery-cell image-loading" target="_blank" rel="noopener noreferrer"><img src="https://lookaside.instagram.com/seo/google_widget/crawler/?media_id=3706134782728773872" data-fallback="https://images.pexels.com/photos/15789321/pexels-photo-15789321.jpeg?auto=compress&cs=tinysrgb&w=1280" alt="Bridal makeup created by Maria Moussa" referrerpolicy="no-referrer" loading="lazy"  decoding="async" /><span class="gallery-label">BRIDAL ARTISTRY · MARIA</span></a>
-</div><div class="gallery-bottom"><p data-i18n="galleryFoot">Instagram posts credit @makeupbymaria998 for the makeup. If Instagram images are unavailable, sample photos appear temporarily.</p><a href="https://www.instagram.com/makeupbymaria998/" class="quiet-link" target="_blank" rel="noopener noreferrer" data-i18n="instagram">VIEW INSTAGRAM ↗</a></div></div></section>
+<section class="section gallery maria-portfolio" id="work" aria-labelledby="maria-portfolio-title">
+<div class="shell">
+  <div class="section-heading maria-gallery-heading">
+    <div><div class="eyebrow" data-i18n="gEyebrow">THE ARTISTRY</div>
+    <h2 id="maria-portfolio-title" data-i18n-html="galleryTitle">Moments <em>in beauty.</em></h2></div>
+    <p data-i18n="galleryIntro">A curated selection of Makeup by Maria's bridal looks. Swipe through the portfolio and visit each original Instagram post.</p>
+  </div>
+  <div class="maria-gallery-control">
+    <span class="maria-gallery-kicker" data-gallery-label="featured">FEATURED BRIDAL LOOKS</span>
+    <div class="maria-gallery-actions">
+      <span class="maria-gallery-counter" id="mariaFeaturedCount" aria-live="polite">01 / 08</span>
+      <button type="button" class="maria-arrow" id="mariaFeaturedPrev" aria-label="Previous featured look">←</button>
+      <button type="button" class="maria-arrow" id="mariaFeaturedNext" aria-label="Next featured look">→</button>
+    </div>
+  </div>
+</div>
+<div class="maria-featured-track" id="mariaFeaturedTrack" role="region" aria-roledescription="carousel" aria-label="Featured makeup looks" tabindex="0">
+<article class="maria-featured-slide" role="group" aria-roledescription="slide" aria-label="1 of 8: Manuella">
+<a class="maria-featured-photo image-loading" href="https://www.instagram.com/p/DNMBsf8uQrG/" data-fallback-href="https://www.pexels.com/search/bridal%20makeup/" target="_blank" rel="noopener noreferrer" aria-label="Open Manuella on Instagram"><img src="https://lookaside.instagram.com/seo/google_widget/crawler/?media_id=3696336842002247263" data-fallback="https://images.pexels.com/photos/29352010/pexels-photo-29352010.jpeg?auto=compress&cs=tinysrgb&w=900" loading="lazy" decoding="async" referrerpolicy="no-referrer" alt="Manuella bridal makeup by Maria Moussa"></a>
+<div class="maria-featured-info"><span class="maria-featured-mark">01 / 08 · MAKEUP BY MARIA</span><h3>Manuella</h3><p>Timeless bridal</p><a href="https://www.instagram.com/p/DNMBsf8uQrG/" target="_blank" rel="noopener noreferrer" class="maria-featured-open"><span data-gallery-label="view">View original post</span><span aria-hidden="true"> ↗</span></a></div>
+</article>
+<article class="maria-featured-slide" role="group" aria-roledescription="slide" aria-label="2 of 8: Sham">
+<a class="maria-featured-photo image-loading" href="https://www.instagram.com/p/DaIbEbfAh5V/" data-fallback-href="https://www.pexels.com/search/bridal%20makeup/" target="_blank" rel="noopener noreferrer" aria-label="Open Sham on Instagram"><img src="https://lookaside.instagram.com/seo/google_widget/crawler/?media_id=3929508413641930947" data-fallback="https://images.pexels.com/photos/20369977/pexels-photo-20369977.jpeg?auto=compress&cs=tinysrgb&w=900" loading="lazy" decoding="async" referrerpolicy="no-referrer" alt="Sham bridal look by Makeup by Maria"></a>
+<div class="maria-featured-info"><span class="maria-featured-mark">02 / 08 · MAKEUP BY MARIA</span><h3>Sham</h3><p>Elegant glam</p><a href="https://www.instagram.com/p/DaIbEbfAh5V/" target="_blank" rel="noopener noreferrer" class="maria-featured-open"><span data-gallery-label="view">View original post</span><span aria-hidden="true"> ↗</span></a></div>
+</article>
+<article class="maria-featured-slide" role="group" aria-roledescription="slide" aria-label="3 of 8: Jacqueline">
+<a class="maria-featured-photo image-loading" href="https://www.instagram.com/p/DCL3VyIOGd9/" data-fallback-href="https://www.pexels.com/search/bridal%20makeup/" target="_blank" rel="noopener noreferrer" aria-label="Open Jacqueline on Instagram"><img src="https://lookaside.instagram.com/seo/google_widget/crawler/?media_id=3498132915990697252" data-fallback="https://images.pexels.com/photos/35983912/pexels-photo-35983912.jpeg?auto=compress&cs=tinysrgb&w=900" loading="lazy" decoding="async" referrerpolicy="no-referrer" alt="Jacqueline makeup look by Maria Moussa"></a>
+<div class="maria-featured-info"><span class="maria-featured-mark">03 / 08 · MAKEUP BY MARIA</span><h3>Jacqueline</h3><p>Soft-focus beauty</p><a href="https://www.instagram.com/p/DCL3VyIOGd9/" target="_blank" rel="noopener noreferrer" class="maria-featured-open"><span data-gallery-label="view">View original post</span><span aria-hidden="true"> ↗</span></a></div>
+</article>
+<article class="maria-featured-slide" role="group" aria-roledescription="slide" aria-label="4 of 8: Bridal beauty">
+<a class="maria-featured-photo image-loading" href="https://www.instagram.com/reel/DdcO-vXRAhE/" data-fallback-href="https://www.pexels.com/search/bridal%20makeup/" target="_blank" rel="noopener noreferrer" aria-label="Open Bridal beauty on Instagram"><img src="https://lookaside.instagram.com/seo/google_widget/crawler/?media_id=3989129254058330180" data-fallback="https://images.pexels.com/photos/15789321/pexels-photo-15789321.jpeg?auto=compress&cs=tinysrgb&w=900" loading="lazy" decoding="async" referrerpolicy="no-referrer" alt="Gorgeous bride makeup look by Maria"></a>
+<div class="maria-featured-info"><span class="maria-featured-mark">04 / 08 · MAKEUP BY MARIA</span><h3>Bridal beauty</h3><p>Radiant elegance</p><a href="https://www.instagram.com/reel/DdcO-vXRAhE/" target="_blank" rel="noopener noreferrer" class="maria-featured-open"><span data-gallery-label="view">View original post</span><span aria-hidden="true"> ↗</span></a></div>
+</article>
+<article class="maria-featured-slide" role="group" aria-roledescription="slide" aria-label="5 of 8: Clean bridal">
+<a class="maria-featured-photo image-loading" href="https://www.instagram.com/reel/DM0dCr0NH0w/" data-fallback-href="https://www.pexels.com/search/bridal%20makeup/" target="_blank" rel="noopener noreferrer" aria-label="Open Clean bridal on Instagram"><img src="https://lookaside.instagram.com/seo/google_widget/crawler/?media_id=3689701722557807920" data-fallback="https://images.pexels.com/photos/29352010/pexels-photo-29352010.jpeg?auto=compress&cs=tinysrgb&w=900" loading="lazy" decoding="async" referrerpolicy="no-referrer" alt="Clean bridal makeup by Maria Moussa"></a>
+<div class="maria-featured-info"><span class="maria-featured-mark">05 / 08 · MAKEUP BY MARIA</span><h3>Clean bridal</h3><p>Modern and natural</p><a href="https://www.instagram.com/reel/DM0dCr0NH0w/" target="_blank" rel="noopener noreferrer" class="maria-featured-open"><span data-gallery-label="view">View original post</span><span aria-hidden="true"> ↗</span></a></div>
+</article>
+<article class="maria-featured-slide" role="group" aria-roledescription="slide" aria-label="6 of 8: Dream bridal">
+<a class="maria-featured-photo image-loading" href="https://www.instagram.com/reel/DcUFFq0RuG3/" data-fallback-href="https://www.pexels.com/search/bridal%20makeup/" target="_blank" rel="noopener noreferrer" aria-label="Open Dream bridal on Instagram"><img src="https://lookaside.instagram.com/seo/google_widget/crawler/?media_id=3968819551424405943" data-fallback="https://images.pexels.com/photos/20369977/pexels-photo-20369977.jpeg?auto=compress&cs=tinysrgb&w=900" loading="lazy" decoding="async" referrerpolicy="no-referrer" alt="Romantic bride makeup by Maria Moussa"></a>
+<div class="maria-featured-info"><span class="maria-featured-mark">06 / 08 · MAKEUP BY MARIA</span><h3>Dream bridal</h3><p>Romantic glow</p><a href="https://www.instagram.com/reel/DcUFFq0RuG3/" target="_blank" rel="noopener noreferrer" class="maria-featured-open"><span data-gallery-label="view">View original post</span><span aria-hidden="true"> ↗</span></a></div>
+</article>
+<article class="maria-featured-slide" role="group" aria-roledescription="slide" aria-label="7 of 8: Elivana">
+<a class="maria-featured-photo image-loading" href="https://www.instagram.com/reel/DarwZxZooP4/" data-fallback-href="https://www.pexels.com/search/bridal%20makeup/" target="_blank" rel="noopener noreferrer" aria-label="Open Elivana on Instagram"><img src="https://lookaside.instagram.com/seo/google_widget/crawler/?media_id=3939455176328512504" data-fallback="https://images.pexels.com/photos/35983912/pexels-photo-35983912.jpeg?auto=compress&cs=tinysrgb&w=900" loading="lazy" decoding="async" referrerpolicy="no-referrer" alt="Elivana bridal makeup by Maria Moussa"></a>
+<div class="maria-featured-info"><span class="maria-featured-mark">07 / 08 · MAKEUP BY MARIA</span><h3>Elivana</h3><p>Wedding radiance</p><a href="https://www.instagram.com/reel/DarwZxZooP4/" target="_blank" rel="noopener noreferrer" class="maria-featured-open"><span data-gallery-label="view">View original post</span><span aria-hidden="true"> ↗</span></a></div>
+</article>
+<article class="maria-featured-slide" role="group" aria-roledescription="slide" aria-label="8 of 8: Beautiful bride">
+<a class="maria-featured-photo image-loading" href="https://www.instagram.com/reel/Ddy1WVIK9lq/" data-fallback-href="https://www.pexels.com/search/bridal%20makeup/" target="_blank" rel="noopener noreferrer" aria-label="Open Beautiful bride on Instagram"><img src="https://lookaside.instagram.com/seo/google_widget/crawler/?media_id=3995490450410297706" data-fallback="https://images.pexels.com/photos/15789321/pexels-photo-15789321.jpeg?auto=compress&cs=tinysrgb&w=900" loading="lazy" decoding="async" referrerpolicy="no-referrer" alt="Bridal look created by Maria Moussa"></a>
+<div class="maria-featured-info"><span class="maria-featured-mark">08 / 08 · MAKEUP BY MARIA</span><h3>Beautiful bride</h3><p>Refined glam</p><a href="https://www.instagram.com/reel/Ddy1WVIK9lq/" target="_blank" rel="noopener noreferrer" class="maria-featured-open"><span data-gallery-label="view">View original post</span><span aria-hidden="true"> ↗</span></a></div>
+</article>
+</div>
+<div class="shell"><div class="maria-gallery-progress" aria-hidden="true"><span id="mariaFeaturedProgress"></span></div></div>
+<div class="shell maria-more-head">
+  <div><span class="eyebrow" data-gallery-label="explore">DISCOVER MORE BEAUTY</span><h3 data-gallery-label="more">More beautiful moments</h3></div>
+  <div class="maria-gallery-actions">
+    <span class="maria-gallery-counter" id="mariaStripCount">01 / 10</span>
+    <button type="button" class="maria-arrow" id="mariaStripPrev" aria-label="Previous portfolio photos">←</button>
+    <button type="button" class="maria-arrow" id="mariaStripNext" aria-label="Next portfolio photos">→</button>
+  </div>
+</div>
+<div class="maria-strip-track" id="mariaStripTrack" role="region" aria-roledescription="carousel" aria-label="More makeup portfolio photos" tabindex="0">
+<a class="maria-strip-card image-loading" href="https://www.instagram.com/p/DNu1fe-RP-A/" data-fallback-href="https://www.pexels.com/search/bridal%20makeup/" target="_blank" rel="noopener noreferrer" aria-label="Bridal portrait · view original on Instagram"><img src="https://lookaside.instagram.com/seo/google_widget/crawler/?media_id=3706134782435156734" data-fallback="https://images.pexels.com/photos/29352010/pexels-photo-29352010.jpeg?auto=compress&cs=tinysrgb&w=900" loading="lazy" decoding="async" referrerpolicy="no-referrer" alt="Classic bride makeup by Maria"><span class="maria-strip-caption"><strong>Bridal portrait</strong><small>Classic beauty</small></span></a>
+<a class="maria-strip-card image-loading" href="https://www.instagram.com/reel/C_GRhBJt4Pw/" data-fallback-href="https://www.pexels.com/search/bridal%20makeup/" target="_blank" rel="noopener noreferrer" aria-label="Hanan · view original on Instagram"><img src="https://lookaside.instagram.com/seo/google_widget/crawler/?media_id=3442516000941507568" data-fallback="https://images.pexels.com/photos/20369977/pexels-photo-20369977.jpeg?auto=compress&cs=tinysrgb&w=900" loading="lazy" decoding="async" referrerpolicy="no-referrer" alt="Hanan signature bridal makeup by Maria"><span class="maria-strip-caption"><strong>Hanan</strong><small>Signature glam</small></span></a>
+<a class="maria-strip-card image-loading" href="https://www.instagram.com/p/Cwvjzy8okBN/" data-fallback-href="https://www.pexels.com/search/bridal%20makeup/" target="_blank" rel="noopener noreferrer" aria-label="Livande docka · view original on Instagram"><img src="https://lookaside.instagram.com/seo/google_widget/crawler/?media_id=3912938341551140114" data-fallback="https://images.pexels.com/photos/35983912/pexels-photo-35983912.jpeg?auto=compress&cs=tinysrgb&w=900" loading="lazy" decoding="async" referrerpolicy="no-referrer" alt="Soft glam beauty makeup by Maria"><span class="maria-strip-caption"><strong>Livande docka</strong><small>Soft glam</small></span></a>
+<a class="maria-strip-card image-loading" href="https://www.instagram.com/reel/DGLnLaUO-1B/" data-fallback-href="https://www.pexels.com/search/bridal%20makeup/" target="_blank" rel="noopener noreferrer" aria-label="Bridal glow · view original on Instagram"><img src="https://lookaside.instagram.com/seo/google_widget/crawler/?media_id=3950420164373782079" data-fallback="https://images.pexels.com/photos/15789321/pexels-photo-15789321.jpeg?auto=compress&cs=tinysrgb&w=900" loading="lazy" decoding="async" referrerpolicy="no-referrer" alt="Bridal glow makeup by Maria"><span class="maria-strip-caption"><strong>Bridal glow</strong><small>Luminous finish</small></span></a>
+<a class="maria-strip-card image-loading" href="https://www.instagram.com/p/DaIbEbfAh5V/" data-fallback-href="https://www.pexels.com/search/bridal%20makeup/" target="_blank" rel="noopener noreferrer" aria-label="Sham · Detail · view original on Instagram"><img src="https://lookaside.instagram.com/seo/google_widget/crawler/?media_id=3929508415680514229" data-fallback="https://images.pexels.com/photos/29352010/pexels-photo-29352010.jpeg?auto=compress&cs=tinysrgb&w=900" loading="lazy" decoding="async" referrerpolicy="no-referrer" alt="Second image of Sham bridal makeup"><span class="maria-strip-caption"><strong>Sham · Detail</strong><small>Bridal detail</small></span></a>
+<a class="maria-strip-card image-loading" href="https://www.instagram.com/p/DCL3VyIOGd9/" data-fallback-href="https://www.pexels.com/search/bridal%20makeup/" target="_blank" rel="noopener noreferrer" aria-label="Jacqueline · Detail · view original on Instagram"><img src="https://lookaside.instagram.com/seo/google_widget/crawler/?media_id=3498132916015775982" data-fallback="https://images.pexels.com/photos/20369977/pexels-photo-20369977.jpeg?auto=compress&cs=tinysrgb&w=900" loading="lazy" decoding="async" referrerpolicy="no-referrer" alt="Additional makeup portrait of Jacqueline"><span class="maria-strip-caption"><strong>Jacqueline · Detail</strong><small>Editorial makeup</small></span></a>
+<a class="maria-strip-card image-loading" href="https://www.instagram.com/reel/DdcO-vXRAhE/" data-fallback-href="https://www.pexels.com/search/bridal%20makeup/" target="_blank" rel="noopener noreferrer" aria-label="Bridal · Portrait · view original on Instagram"><img src="https://lookaside.instagram.com/seo/google_widget/crawler/?media_id=3986716552796858226" data-fallback="https://images.pexels.com/photos/35983912/pexels-photo-35983912.jpeg?auto=compress&cs=tinysrgb&w=900" loading="lazy" decoding="async" referrerpolicy="no-referrer" alt="Additional bride makeup portrait by Maria"><span class="maria-strip-caption"><strong>Bridal · Portrait</strong><small>Beautifully modern</small></span></a>
+<a class="maria-strip-card image-loading" href="https://www.instagram.com/p/DNMBsf8uQrG/" data-fallback-href="https://www.pexels.com/search/bridal%20makeup/" target="_blank" rel="noopener noreferrer" aria-label="Manuella · Motion · view original on Instagram"><img src="https://lookaside.instagram.com/seo/google_widget/crawler/?media_id=3966330476763070133" data-fallback="https://images.pexels.com/photos/15789321/pexels-photo-15789321.jpeg?auto=compress&cs=tinysrgb&w=900" loading="lazy" decoding="async" referrerpolicy="no-referrer" alt="Additional scene of Manuella bridal makeup"><span class="maria-strip-caption"><strong>Manuella · Motion</strong><small>Behind the look</small></span></a>
+<a class="maria-strip-card image-loading" href="https://www.instagram.com/p/DNu1fe-RP-A/" data-fallback-href="https://www.pexels.com/search/bridal%20makeup/" target="_blank" rel="noopener noreferrer" aria-label="Bridal · Close-up · view original on Instagram"><img src="https://lookaside.instagram.com/seo/google_widget/crawler/?media_id=3706134782728773872" data-fallback="https://images.pexels.com/photos/29352010/pexels-photo-29352010.jpeg?auto=compress&cs=tinysrgb&w=900" loading="lazy" decoding="async" referrerpolicy="no-referrer" alt="Close-up bridal makeup by Maria"><span class="maria-strip-caption"><strong>Bridal · Close-up</strong><small>Signature look</small></span></a>
+<a class="maria-strip-card image-loading" href="https://www.instagram.com/reel/DGLnLaUO-1B/" data-fallback-href="https://www.pexels.com/search/bridal%20makeup/" target="_blank" rel="noopener noreferrer" aria-label="Beauty · Details · view original on Instagram"><img src="https://lookaside.instagram.com/seo/google_widget/crawler/?media_id=3933888339132392976" data-fallback="https://images.pexels.com/photos/20369977/pexels-photo-20369977.jpeg?auto=compress&cs=tinysrgb&w=900" loading="lazy" decoding="async" referrerpolicy="no-referrer" alt="Makeup finishing detail by Maria"><span class="maria-strip-caption"><strong>Beauty · Details</strong><small>Finishing touches</small></span></a>
+</div>
+<div class="shell gallery-bottom maria-gallery-bottom"><p data-i18n="galleryFoot">Photos come from posts credited to @makeupbymaria998. If Instagram images are unavailable, temporary sample photos may be shown.</p><a href="https://www.instagram.com/makeupbymaria998/" class="quiet-link" target="_blank" rel="noopener noreferrer" data-i18n="instagram">VIEW INSTAGRAM ↗</a></div>
+</section>
 <section class="booking" id="booking">
   <div class="shell booking-layout">
     <div class="booking-copy">
@@ -370,7 +518,7 @@ document.querySelectorAll('[data-package]').forEach(button=>button.addEventListe
 document.getElementById('backYear').addEventListener('click',()=>showBookingStep('year'));
 document.getElementById('backService').addEventListener('click',()=>showBookingStep('service'));
 
-function setLanguage(lang){const x=tr[lang]||tr.sv;document.documentElement.lang=lang;document.documentElement.dir=lang==='ar'?'rtl':'ltr';document.querySelectorAll('[data-i18n]').forEach(el=>{el.textContent=x[el.dataset.i18n]||''});document.querySelectorAll('[data-i18n-html]').forEach(el=>{el.innerHTML=x[el.dataset.i18nHtml]||''});document.querySelectorAll('[data-placeholder]').forEach(el=>{el.placeholder=x[el.dataset.placeholder]||''});document.querySelectorAll('.lang').forEach(el=>{el.classList.toggle('active',el.dataset.lang===lang);el.setAttribute('aria-pressed',String(el.dataset.lang===lang))});updateWeddingLanguage();try{window.localStorage.setItem('maria-demo-lang',lang)}catch(e){} }
+function setLanguage(lang){const x=tr[lang]||tr.sv;document.documentElement.lang=lang;document.documentElement.dir=lang==='ar'?'rtl':'ltr';document.querySelectorAll('[data-i18n]').forEach(el=>{el.textContent=x[el.dataset.i18n]||''});document.querySelectorAll('[data-i18n-html]').forEach(el=>{el.innerHTML=x[el.dataset.i18nHtml]||''});document.querySelectorAll('[data-placeholder]').forEach(el=>{el.placeholder=x[el.dataset.placeholder]||''});document.querySelectorAll('.lang').forEach(el=>{el.classList.toggle('active',el.dataset.lang===lang);el.setAttribute('aria-pressed',String(el.dataset.lang===lang))});updateWeddingLanguage();updateMariaGalleryLanguage(lang);try{window.localStorage.setItem('maria-demo-lang',lang)}catch(e){} }
 document.querySelectorAll('.lang').forEach(b=>b.addEventListener('click',()=>setLanguage(b.dataset.lang)));
 document.querySelectorAll('[data-service]').forEach(link=>link.addEventListener('click',()=>showBookingStep('year')));
 
@@ -403,6 +551,67 @@ document.querySelectorAll('img').forEach(img=>{img.addEventListener('error',()=>
   img.alt+=' — Image unavailable';
 });});
 setLanguage((()=>{try{return ['sv','en','ar'].includes(localStorage.getItem('maria-demo-lang'))?localStorage.getItem('maria-demo-lang'):'sv'}catch(e){return 'sv'}})());
+
+/* Portfolio sliders: accessible navigation, swipe, autoplay when visible, pause on interaction. */
+const mariaGalleryWords={
+ sv:{featured:"UTVALDA BRUDLOOKS",explore:"FLER LOOKS",more:"Fler vackra ögonblick",view:"Se originalinlägget"},
+ en:{featured:"FEATURED BRIDAL LOOKS",explore:"DISCOVER MORE",more:"More beautiful moments",view:"View original post"},
+ ar:{featured:"إطلالات عرائس مختارة",explore:"اكتشفي المزيد",more:"لحظات جمال إضافية",view:"شاهدي المنشور الأصلي"}
+};
+function updateMariaGalleryLanguage(lang){
+ const w=mariaGalleryWords[lang]||mariaGalleryWords.sv;
+ document.querySelectorAll('[data-gallery-label]').forEach(el=>{el.textContent=w[el.dataset.galleryLabel]||""});
+}
+function setupMariaGallery(trackId,prevId,nextId,countId,progressId,interval){
+ const track=document.getElementById(trackId),prev=document.getElementById(prevId),next=document.getElementById(nextId),counter=document.getElementById(countId);
+ if(!track||!prev||!next||!counter)return;
+ const panels=Array.from(track.children);if(!panels.length)return;
+ const progress=progressId?document.getElementById(progressId):null;
+ const reduced=window.matchMedia('(prefers-reduced-motion: reduce)');
+ let active=0,visible=false,paused=false,scrollQueued=false;
+ const paint=()=>{
+  counter.textContent=String(active+1).padStart(2,"0")+" / "+String(panels.length).padStart(2,"0");
+  if(progress){progress.style.left=(active*100/panels.length)+"%";progress.style.width=(100/panels.length)+"%";}
+ };
+ const go=(i)=>{
+  active=(i+panels.length)%panels.length;
+  panels[active].scrollIntoView({block:"nearest",inline:trackId==="mariaFeaturedTrack"?"center":"start",behavior:reduced.matches?"instant":"smooth"});
+  paint();
+ };
+ prev.addEventListener("click",()=>go(active-1));
+ next.addEventListener("click",()=>go(active+1));
+ track.addEventListener("keydown",e=>{
+  if(e.key==="ArrowRight"){e.preventDefault();go(active+1);}
+  if(e.key==="ArrowLeft"){e.preventDefault();go(active-1);}
+ });
+ track.addEventListener("scroll",()=>{
+  if(scrollQueued)return;scrollQueued=true;
+  requestAnimationFrame(()=>{
+   scrollQueued=false;
+   const r=track.getBoundingClientRect(),mid=trackId==="mariaFeaturedTrack"?(r.left+r.right)/2:r.left+24;
+   let nearest=0,dist=Infinity;
+   panels.forEach((slide,i)=>{const b=slide.getBoundingClientRect();const center=trackId==="mariaFeaturedTrack"?(b.left+b.right)/2:b.left;const d=Math.abs(center-mid);if(d<dist){dist=d;nearest=i;}});
+   if(nearest!==active){active=nearest;paint();}
+  });
+ },{passive:true});
+ const hold=()=>{paused=true},release=()=>{paused=false};
+ [track,prev,next].forEach(el=>{
+  el.addEventListener("pointerenter",hold);el.addEventListener("pointerleave",release);
+  el.addEventListener("focusin",hold);el.addEventListener("focusout",release);
+  el.addEventListener("touchstart",hold,{passive:true});el.addEventListener("touchend",release,{passive:true});
+ });
+ if("IntersectionObserver" in window){
+  const obs=new IntersectionObserver(entries=>{visible=entries[0]?.isIntersecting??false;},{threshold:.22});
+  obs.observe(track);
+ }else visible=true;
+ const timer=window.setInterval(()=>{if(visible&&!paused&&!document.hidden&&!reduced.matches)go(active+1)},interval);
+ window.addEventListener("pagehide",()=>clearInterval(timer),{once:true});
+ paint();
+}
+setupMariaGallery("mariaFeaturedTrack","mariaFeaturedPrev","mariaFeaturedNext","mariaFeaturedCount","mariaFeaturedProgress",6500);
+setupMariaGallery("mariaStripTrack","mariaStripPrev","mariaStripNext","mariaStripCount",null,9400);
+updateMariaGalleryLanguage(document.documentElement.lang||"sv");
+
 </script>
 </body>
 </html>
