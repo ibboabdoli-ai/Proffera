@@ -143,6 +143,20 @@
 }
 @media(max-width:370px){.logo{font-size:18px}.logo small{letter-spacing:1.7px}.nav-right{gap:1px}.nav-right .lang{min-width:24px;font-size:9px}.hero h1{font-size:clamp(43px,13vw,54px)}.book-step h3{font-size:29px}}
 
+
+/* Keep the inset portrait positioned: .image-loading otherwise overrides it. */
+.editorial-small.image-loading{position:absolute}
+@media(max-width:780px){
+  .editorial-photo.image-loading{isolation:isolate}
+  .editorial-small.image-loading{
+    position:absolute;right:12px;left:auto;bottom:12px;
+    width:35%;height:39%;border:6px solid var(--dark);
+    z-index:2;overflow:hidden;box-shadow:0 10px 24px rgba(0,0,0,.16)
+  }
+  [dir="rtl"] .editorial-small.image-loading{left:12px;right:auto}
+}
+@media(max-width:370px){.editorial-small.image-loading{width:37%;height:36%;border-width:4px}}
+
 </style>
 </head>
 <body>
