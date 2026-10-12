@@ -16,6 +16,25 @@ const yaml = require("js-yaml") as { load(source: string): {
 } };
 const root = resolve(process.cwd());
 
+// Bash removes unquoted backslash-newline continuations BEFORE parsing
+// commands, including continuations inside a command name or API path.
+const bashLogicalLines = (source: string) => source.replace(/\\\r?\n/g, "");
+function assertNoUnapprovedPublication(workflowName: string, jobName: string,
+  job: WorkflowJob) {
+  // Issue write is permitted for authenticated state/ledger records.
+  expect(job.permissions?.contents, `${workflowName} ${jobName} cannot write contents`)
+    .not.toBe("write");
+  for (const step of job.steps ?? []) {
+    const script = bashLogicalLines(String(step.run ?? ""));
+    expect(script, `${workflowName} ${jobName} must not push`)
+      .not.toMatch(/\bgit[ \t]+push\b/i);
+    expect(script, `${workflowName} ${jobName} must not mutate refs via GitHub API`)
+      .not.toMatch(/\bgh[ \t]+api\b[^\r\n]*\/git\/refs(?:\/|\b)/i);
+    expect(script, `${workflowName} ${jobName} must not use a push token`)
+      .not.toMatch(/(?:PROFFERA_AUTOFIX_PUSH_TOKEN|PUSH_TOKEN\s*[:=])/);
+  }
+}
+
 function run(cwd: string, ...args: string[]) {
   const result = spawnSync("git", args, { cwd, encoding: "utf8", timeout: 15000 });
   expect(result.status, result.stderr).toBe(0);
@@ -45,19 +64,19 @@ describe("owner-authorized publication handoff contracts", () => {
     expect(raw).not.toContain("PUSH_TOKEN:");
     expect(publish.permissions?.contents).not.toBe("write");
     for (const [jobName, job] of Object.entries(doc.jobs)) {
-      // Issue-write is needed by trusted state/ledger writers; only repository
-      // contents write would grant a branch-mutation capability here.
-      expect(job.permissions?.contents, `${name} ${jobName} must not write repository contents`)
-        .not.toBe("write");
-      for (const step of job.steps ?? []) {
-        const script = String(step.run ?? "");
-        expect(script, `${name} ${jobName} must not push`).not.toMatch(/\bgit\s+push\b/i);
-        expect(script, `${name} ${jobName} must not mutate git refs through GitHub API`)
-          .not.toMatch(/\bgh\s+api\b[^\n]*\/git\/refs\b/i);
-        expect(script, `${name} ${jobName} must not have a push token`)
-          .not.toMatch(/(?:PROFFERA_AUTOFIX_PUSH_TOKEN|PUSH_TOKEN\s*[:=])/);
-      }
+      assertNoUnapprovedPublication(name, jobName, job);
     }
+  });
+
+  it.each([
+    "git \\\n push origin HEAD:main",
+    "git pu\\\nsh origin HEAD:main",
+    "gh api \\\n --method PATCH \\\n repos/ibboabdoli-ai/Proffera/git/refs/heads/main",
+    "gh api repos/ibboabdoli-ai/Proffera/git/\\\nrefs/heads/main",
+  ])("rejects valid Bash-continuation publication commands: %s", (command) => {
+    expect(() => assertNoUnapprovedPublication("fixture.yml", "publish", {
+      permissions:{contents:"read"},steps:[{run:command}]
+    })).toThrow();
   });
 
   it("a bundled exact-child commit can be transported without moving the source branch", () => {
@@ -139,7 +158,11 @@ describe("Worker fallback recovery ZIP inventory", () => {
       '      ".run_id // \\\"\\\"") echo "$RUN_ID";;',
       '      *) return 1;;',
       '    esac;;',
-      '    -c) if [ "$2" = ".paths | sort" ]; then echo "[]"; else echo \'{"state":"RECOVERABLE","recovery":{"kind":"artifact"}}\'; fi;;',
+      '    -c) if [ "$2" = ".paths | sort" ]; then echo "[]"; else',
+      '      [ "$2" = "--arg" ] && [ "$3" = "state" ] && [ "$4" = "RECOVERABLE" ] || return 1',
+      '      [[ "$*" == *\'.state=$state | .recovery={kind:"artifact",digest:$digest,expires_at:$expires}\'* ]] || return 1',
+      '      printf \'{"state":"%s","recovery":{"kind":"artifact"}}\\n\' "$4";',
+      '    fi;;',
       '    *) return 1;;',
       '  esac',
       "}",
@@ -150,10 +173,18 @@ describe("Worker fallback recovery ZIP inventory", () => {
       '  case "$*" in',
       '    "bundle verify "*) return 0;;',
       '    "bundle list-heads "*) printf "%s HEAD\\n" "$head_sha";;',
-      '    "-c core.hooksPath=/dev/null fetch "*) grep -q "^bundle verify " "$EVENTS";;',
-      '    "rev-parse FETCH_HEAD") printf "%s\\n" "$head_sha";;',
-      '    "rev-parse FETCH_HEAD^{tree}") printf "%s\\n" "$target_tree_sha";;',
-      '    "rev-parse FETCH_HEAD^") printf "%s\\n" "$BASE_SHA";;',
+      '    "-c core.hooksPath=/dev/null fetch "*)',
+      '       grep -q "^bundle verify " "$EVENTS" || return 1',
+      '       printf "%s\\n" "$head_sha" > "$FETCHED_HEAD";;',
+      '    "rev-parse FETCH_HEAD")',
+      '       test -s "$FETCHED_HEAD" || return 1',
+      '       cat "$FETCHED_HEAD";;',
+      '    "rev-parse FETCH_HEAD^{tree}")',
+      '       test "$(cat "$FETCHED_HEAD")" = "$head_sha" || return 1',
+      '       printf "%s\\n" "$target_tree_sha";;',
+      '    "rev-parse FETCH_HEAD^")',
+      '       test "$(cat "$FETCHED_HEAD")" = "$head_sha" || return 1',
+      '       printf "%s\\n" "$BASE_SHA";;',
       '    *) return 1;;',
       '  esac',
       "}",
@@ -164,10 +195,11 @@ describe("Worker fallback recovery ZIP inventory", () => {
       for (const layout of ["owner", "legacy"] as const) {
         const events = join(work, layout + "-git-calls");
         writeFileSync(events, "");
+        const fetchedHead = join(work, layout + "-fetched-head");
         const result = spawnSync("bash", ["-c", mock + "\n" + actualShell +
           '\nprintf "LAYOUT=%s LABEL=%s PAYLOAD=%s\\n" "$archive_layout" "$label" "$payload"'], {
           encoding: "utf8", timeout: 15000,
-          env: {...process.env, EVENTS:bashPath(events), ZIP_NAMES:(layout === "owner" ? four : [four[0]]).join("\n"),
+          env: {...process.env, EVENTS:bashPath(events), FETCHED_HEAD:bashPath(fetchedHead), ZIP_NAMES:(layout === "owner" ? four : [four[0]]).join("\n"),
             BUNDLE_SHA:digest(bundle), RUNNER_TEMP:bashPath(work), archive:"fixture.zip",
             recovery_artifact:bashPath(join(work, layout + "-recovery.json")),recovery_digest:digest(recovery),
             REPOSITORY:"ibboabdoli-ai/Proffera",BRANCH:"work/proffera-test",
@@ -180,12 +212,66 @@ describe("Worker fallback recovery ZIP inventory", () => {
         expect(result.stdout).toContain('"state":"RECOVERABLE"');
         const calls = readFileSync(events,"utf8");
         if (layout === "owner") {
-          expect(calls).toContain("bundle verify");
-          expect(calls).toContain("rev-parse FETCH_HEAD");
+          const history = calls.trim().split(/\r?\n/);
+          expect(history).toHaveLength(6);
+          expect(history[0]).toMatch(/^bundle verify /);
+          expect(history[1]).toMatch(/^bundle list-heads /);
+          expect(history[2]).toContain("-c core.hooksPath=/dev/null fetch ");
+          expect(history.slice(3)).toEqual([
+            "rev-parse FETCH_HEAD", "rev-parse FETCH_HEAD^{tree}", "rev-parse FETCH_HEAD^",
+          ]);
+          expect(readFileSync(fetchedHead,"utf8").trim()).toBe("b".repeat(40));
         } else expect(calls).toBe("");
       }
+
+      // Mutation probes: these must be rejected by the same behavioral oracle
+      // used above. In particular, a fake jq result or detached FETCH_HEAD
+      // would otherwise allow all four broken variants to pass.
+      const mutations = [
+        {name:"missing-fetch",
+          original: String.raw`git -c core.hooksPath=/dev/null fetch --no-tags "$owner_bundle" HEAD >/dev/null`,
+          broken:":"},
+        {name:"missing-tree",
+          original: String.raw`test "$(git rev-parse 'FETCH_HEAD^{tree}')" = "$target_tree_sha"`,
+          broken:":"},
+        {name:"missing-parent",
+          original: String.raw`test "$(git rev-parse 'FETCH_HEAD^')" = "$BASE_SHA"`,
+          broken:":"},
+        {name:"released-state",original:'.state=$state | .recovery={kind:"artifact",digest:$digest,expires_at:$expires}',
+          broken:'.state="RELEASED" | .recovery={kind:"artifact",digest:$digest,expires_at:$expires}'},
+      ];
+      for (const mutation of mutations) {
+        expect(actualShell).toContain(mutation.original);
+        const changed = actualShell.replace(mutation.original, mutation.broken);
+        const events = join(work, mutation.name + "-git-calls");
+        const fetchedHead = join(work, mutation.name + "-fetched-head");
+        writeFileSync(events, "");
+        const result = spawnSync("bash", ["-c", mock + "\n" + changed +
+          '\nprintf "LAYOUT=%s LABEL=%s PAYLOAD=%s\\n" "$archive_layout" "$label" "$payload"'], {
+          encoding:"utf8",timeout:15000,
+          env:{...process.env, EVENTS:bashPath(events), FETCHED_HEAD:bashPath(fetchedHead),
+            ZIP_NAMES:four.join("\n"), BUNDLE_SHA:digest(bundle), RUNNER_TEMP:bashPath(work),
+            archive:"fixture.zip", recovery_artifact:bashPath(join(work, mutation.name + "-recovery.json")),
+            recovery_digest:digest(recovery), REPOSITORY:"ibboabdoli-ai/Proffera",
+            BRANCH:"work/proffera-test",TASK_ID:"SUP-TEST",BASE_SHA:"a".repeat(40),
+            head_sha:"b".repeat(40),target_tree_sha:"c".repeat(40),RUN_ID:"51",
+            packet:"{}",helper:"mock-helper",payload:"{}",reserved_paths:"[]"},
+        });
+        const history = readFileSync(events,"utf8").trim().split(/\r?\n/);
+        const safe = result.status === 0 &&
+          result.stdout.includes("LAYOUT=owner LABEL=RECOVERABLE") &&
+          result.stdout.includes('"state":"RECOVERABLE"') &&
+          history.length === 6 &&
+          history[0].startsWith("bundle verify ") &&
+          history[1].startsWith("bundle list-heads ") &&
+          history[2].startsWith("-c core.hooksPath=/dev/null fetch ") &&
+          JSON.stringify(history.slice(3)) === JSON.stringify([
+            "rev-parse FETCH_HEAD","rev-parse FETCH_HEAD^{tree}","rev-parse FETCH_HEAD^",
+          ]);
+        expect(safe, mutation.name + " must be rejected").toBe(false);
+      }
     } finally { rmSync(work, {recursive:true,force:true}); }
-  }, 20000);
+  }, 30000);
 
   it("accepts only authenticated recovery archive layouts and rejects injected or duplicated entries", () => {
     const doc = yaml.load(readFileSync(join(root, ".github/workflows/supervisor-worker-handoff.yml"), "utf8"));
