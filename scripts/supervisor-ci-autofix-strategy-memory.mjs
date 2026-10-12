@@ -557,6 +557,10 @@ export function proveCiAutofixModelNotLaunched(input) {
 // evidence may strengthen unknown. This helper also serves historical recovery.
 export function classifyCiAutofixOutcome(input) {
   const launch = proveCiAutofixModelNotLaunched(input);
+  // Incomplete staging inventory cannot mask contradictory model evidence.
+  // Only an authenticated model-may-have-launched path can be held as ambiguous.
+  if (!launch.recoverable && launch.reason !== "model_step_may_have_launched")
+    fail(launch.reason);
   const staged = input.jobs.filter(item => item.name === "Stage CI Autofix owner-push handoff (no publication)");
   if (staged.length > 1) fail("current_handoff_job_collision");
   // A model that durably produced no changed candidate cannot have reached

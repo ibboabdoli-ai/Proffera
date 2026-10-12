@@ -934,6 +934,12 @@ describe("CI Autofix truthful terminal outcomes", () => {
   const jobs = (conclusion: string, steps: Array<ReturnType<typeof step>>) => [{
     name: "Bounded Codex CI autofix", status: "completed", conclusion, steps,
   }];
+  // An authentic completed Actions job inventory includes jobs skipped by
+  // needs/if, even after the model job itself failed or was cancelled.
+  const withSkippedStage = (inventory: ReturnType<typeof jobs>) => [...inventory, {
+    name: "Stage CI Autofix owner-push handoff (no publication)",
+    status: "completed", conclusion: "skipped", steps: [],
+  }];
   it.each(["failure", "cancelled", "timed_out", "startup_failure"])("retires an authenticated %s before model execution without a model charge", (conclusion) => {
     expect(classifyCiAutofixOutcome({jobs: jobs(conclusion, [])})).toMatchObject({persist: false});
     expect(classifyCiAutofixOutcome({jobs: jobs(conclusion, [step(modelName, "skipped")])})).toMatchObject({persist: false});
@@ -949,19 +955,19 @@ describe("CI Autofix truthful terminal outcomes", () => {
     ]) expect(() => classifyCiAutofixOutcome({jobs: ambiguous})).toThrow();
   });
   it.each(["failure", "cancelled", "timed_out"])("records post-model %s as unknown without a proven result", (conclusion) => {
-    expect(classifyCiAutofixOutcome({jobs: jobs(conclusion, [step(modelName, "success")])}))
+    expect(classifyCiAutofixOutcome({jobs: withSkippedStage(jobs(conclusion, [step(modelName, "success")]))}))
       .toEqual({persist: true, outcome: "unknown"});
-    expect(classifyCiAutofixOutcome({jobs: jobs(conclusion, [step(modelName, "cancelled")])}))
+    expect(classifyCiAutofixOutcome({jobs: withSkippedStage(jobs(conclusion, [step(modelName, "cancelled")]))}))
       .toEqual({persist: true, outcome: "unknown"});
   });
   it("does not treat an action failure as a proven model result and accepts only proven no-change/publication", () => {
-    expect(classifyCiAutofixOutcome({jobs: jobs("failure", [step(modelName, "failure")])}))
+    expect(classifyCiAutofixOutcome({jobs: withSkippedStage(jobs("failure", [step(modelName, "failure")]))}))
       .toEqual({persist: true, outcome: "unknown"});
     const noChange = jobs("success", [step(modelName, "success"), step("Validate bounded repair without repository token", "success")]);
     expect(classifyCiAutofixOutcome({jobs: noChange, changed: "no"})).toEqual({persist: true, outcome: "no_change"});
-    expect(classifyCiAutofixOutcome({jobs: noChange})).toEqual({persist: true, outcome: "unknown"});
+    expect(classifyCiAutofixOutcome({jobs: withSkippedStage(noChange)})).toEqual({persist: true, outcome: "unknown"});
     // A caller-supplied published=yes flag is not authenticated push evidence.
-    expect(classifyCiAutofixOutcome({jobs: jobs("cancelled", [step(modelName, "success")]), published: "yes"}))
+    expect(classifyCiAutofixOutcome({jobs: withSkippedStage(jobs("cancelled", [step(modelName, "success")])), published: "yes"}))
       .toEqual({persist: true, outcome: "unknown"});
     expect(classifyCiAutofixOutcome({jobs: jobs("failure", [step(modelName, "success"), step("Publish validated repair", "success"),
       step("Verify and report published repair", "failure")])})).toEqual({persist: true, outcome: "succeeded"});
@@ -973,11 +979,39 @@ describe("CI Autofix truthful terminal outcomes", () => {
       step("Publish validated repair", "success"), step("Verify and report published repair", "failure"),
     ]};
     expect(classifyCiAutofixOutcome({jobs: [...model, publication]})).toEqual({persist: true, outcome: "succeeded"});
-    expect(classifyCiAutofixOutcome({jobs: [...model, {...publication, steps: [step("Publish validated repair", "cancelled")]}]}))
+    expect(classifyCiAutofixOutcome({jobs: withSkippedStage([...model, {...publication, steps: [step("Publish validated repair", "cancelled")]}])}))
       .toEqual({persist: true, outcome: "unknown"});
     expect(() => classifyCiAutofixOutcome({jobs: [...model, publication, publication]})).toThrow("autofix_jobs_binding");
   });
 
+  it("distinguishes exact-run Actions skipped staging from an incomplete job inventory",()=>{
+    const apiReply={
+      total_count: 3,
+      jobs:[
+        {id:1101,run_id:50,run_attempt:2,
+          name:"Admit one bounded CI autofix strategy",status:"completed",conclusion:"success",steps:[]},
+        {id:1102,run_id:50,run_attempt:2,
+          name:"Bounded Codex CI autofix",status:"completed",conclusion:"failure",
+          steps:[{number:1,name:"Run one bounded Codex repair attempt",
+            status:"completed",conclusion:"failure"}]},
+        {id:1103,run_id:50,run_attempt:2,
+          name:"Stage CI Autofix owner-push handoff (no publication)",
+          status:"completed",conclusion:"skipped"},
+      ],
+    };
+    expect(apiReply.jobs.length).toBe(apiReply.total_count);
+    expect(classifyCiAutofixOutcome({jobs:apiReply.jobs}))
+      .toEqual({persist:true,outcome:"unknown"});
+    // The same job-list response truncated at two entries cannot prove the
+    // staging job was skipped; an unknown terminal must not release B4.
+    expect(classifyCiAutofixOutcome({jobs:apiReply.jobs.slice(0,2)}))
+      .toEqual({persist:false,reason:"staged_handoff_evidence_incomplete"});
+    const contrary={...apiReply.jobs[2],conclusion:"cancelled",
+      steps:[{number:1,name:"Upload CI Autofix owner handoff",
+        status:"completed",conclusion:"success"}]};
+    expect(classifyCiAutofixOutcome({jobs:[...apiReply.jobs.slice(0,2),contrary]}))
+      .toEqual({persist:false,reason:"staged_handoff_pending_unrecorded"});
+  });
   it("holds a staged owner-push handoff when pending recording fails or is skipped", () => {
     const launched = jobs("success", [step(modelName, "success")]);
     const staged = {name: "Stage CI Autofix owner-push handoff (no publication)",

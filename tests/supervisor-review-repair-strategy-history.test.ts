@@ -358,6 +358,44 @@ describe("Review Repair attempt admission", () => {
     })).toMatchObject({decision: "ALLOW", attempts: 0});
   });
 
+  it("rejects staged downstream execution on historical pre-model recovery, including partial inventories",()=>{
+    const makeProof=(jobs:unknown[])=>proveReviewRepairPrelaunchRecovery({
+      repository,pr_number:pr,start:start({run_id:55}),
+      run:{id:55,run_attempt:1,head_sha:dispatchHead,head_branch:"main",
+        status:"completed",conclusion:"cancelled",event:"workflow_dispatch",
+        name:"Supervisor review repair",path:".github/workflows/supervisor-review-repair.yml"},
+      jobs
+    });
+    const admit={name:"Settle review burst and admit one bounded attempt",
+      status:"completed",conclusion:"success"};
+    const repaired={name:"Batch current-head review findings",
+      status:"completed",conclusion:"skipped",steps:[]};
+    const skippedModel={...repaired,conclusion:"failure",
+      steps:[{name:"Run one batched exact-head repair",status:"completed",conclusion:"skipped"}]};
+    const staged={name:"Stage Review Repair owner-push handoff (no publication)",
+      status:"completed",conclusion:"cancelled",
+      steps:[{name:"Upload Review Repair owner handoff",status:"completed",conclusion:"success"}]};
+    const validated={name:"Validate repair without model or push credentials",
+      status:"completed",conclusion:"success",steps:[]};
+    for(const repair of [null,repaired,skippedModel]){
+      for(const downstream of [staged,validated]){
+        const jobs=[admit,...(repair?[repair]:[]),downstream];
+        expect(makeProof(jobs)).toEqual({recoverable:false,reason:"model_evidence_contradictory"});
+      }
+    }
+    const contradictorySkipped={...repaired,steps:[{name:"Run one batched exact-head repair",
+      status:"completed",conclusion:"success"}]};
+    expect(makeProof([admit,contradictorySkipped]))
+      .toEqual({recoverable:false,reason:"repair_job_may_have_launched"});
+    expect(()=>makeProof([admit,repaired,repaired])).toThrow("recovery_jobs_binding");
+    expect(()=>makeProof([admit,repaired,staged,staged])).toThrow("recovery_jobs_binding");
+    const stageSkipped={...staged,conclusion:"skipped",steps:[]};
+    expect(makeProof([admit,repaired,stageSkipped]))
+      .toEqual({recoverable:true,reason:"model_step_skipped"});
+    expect(makeProof([admit,stageSkipped]))
+      .toEqual({recoverable:true,reason:"repair_job_absent"});
+  });
+
   it("keeps an older different-evidence start in budget when its repair may have launched", () => {
     const oldHead = "b".repeat(40);
     const oldFindings = ["inline:11"];

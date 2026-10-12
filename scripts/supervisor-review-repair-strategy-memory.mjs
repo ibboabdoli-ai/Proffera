@@ -214,12 +214,29 @@ export function proveReviewRepairPrelaunchRecovery(input) {
   const admitJobs = jobs.filter((job) => job?.name === "Settle review burst and admit one bounded attempt");
   if (admitJobs.length !== 1 || admitJobs[0]?.status !== "completed") fail("recovery_jobs_binding");
   const repairJobs = jobs.filter((job) => job?.name === "Batch current-head review findings");
+  if (repairJobs.length > 1) fail("recovery_jobs_binding");
+  // A downstream job that ran cannot coexist with a proven absent/skipped
+  // model invocation. Refuse to retire the authenticated reservation when
+  // GitHub's historical job inventory is partial or contradictory.
+  const downstreamJobs = jobs.filter((job) => [
+    "Validate repair without model or push credentials",
+    "Stage Review Repair owner-push handoff (no publication)",
+  ].includes(job?.name));
+  if (new Set(downstreamJobs.map((job) => job.name)).size !== downstreamJobs.length)
+    fail("recovery_jobs_binding");
+  const downstreamRan = downstreamJobs.some((job) =>
+    job.status !== "completed" || job.conclusion !== "skipped"
+    || job.steps?.some((step) => step.status !== "completed" || step.conclusion !== "skipped"));
   if (repairJobs.length === 0) {
+    if (downstreamRan) return {recoverable:false,reason:"model_evidence_contradictory"};
     if (run.conclusion === "success") return {recoverable: false, reason: "run_succeeded"};
     return {recoverable: true, reason: "repair_job_absent"};
   }
   const modelDefinitelySkipped = repairJobs.every((job) => {
-    if (job?.status === "completed" && job?.conclusion === "skipped") return true;
+    if (job?.status === "completed" && job?.conclusion === "skipped") {
+      return job.steps === undefined || (Array.isArray(job.steps)
+        && job.steps.every((step) => step?.status === "completed" && step.conclusion === "skipped"));
+    }
     const modelSteps = Array.isArray(job?.steps)
       ? job.steps.filter((step) => step?.name === "Run one batched exact-head repair")
       : [];
@@ -228,6 +245,7 @@ export function proveReviewRepairPrelaunchRecovery(input) {
       && modelSteps[0]?.conclusion === "skipped";
   });
   if (modelDefinitelySkipped) {
+    if (downstreamRan) return {recoverable:false,reason:"model_evidence_contradictory"};
     return {recoverable: true, reason: "model_step_skipped"};
   }
   if (run.conclusion === "success") {
