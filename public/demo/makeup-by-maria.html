@@ -157,12 +157,47 @@
 }
 @media(max-width:370px){.editorial-small.image-loading{width:37%;height:36%;border-width:4px}}
 
+
+/* Touch-safe navigation: do not let a fixed booking CTA cover page content. */
+.nav-left .mobile-book-link{display:none}
+@media(max-width:780px){
+  .floating-link{display:none!important}
+}
+@media(max-width:580px){
+  .nav-left{
+    display:grid;
+    grid-template-columns:repeat(4,minmax(0,1fr));
+    align-items:stretch;
+    gap:5px;
+  }
+  .nav-left a{
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    text-align:center;
+    min-width:0;
+    min-height:38px;
+    padding:6px 2px;
+    line-height:1.2;
+    font-size:10px;
+    letter-spacing:.1px;
+    white-space:normal;
+    overflow-wrap:break-word;
+  }
+  .nav-left .mobile-book-link{
+    display:flex;
+    background:#352722;
+    color:#fff;
+    padding:6px 4px;
+    font-weight:700;
+  }
+}
 </style>
 </head>
 <body>
 <div class="top-note"><strong data-i18n="topNote">DESIGN PREVIEW · SAMPLE PHOTOGRAPHY · NO LIVE BOOKINGS</strong></div>
 <header class="header"><div class="header-inner">
-<nav class="nav-left"><a href="#services" data-i18n="navServices">Services</a><a href="#work" data-i18n="navPortfolio">Portfolio</a><a href="#about" data-i18n="navAbout">About</a></nav>
+<nav class="nav-left"><a href="#services" data-i18n="navServices">Services</a><a href="#work" data-i18n="navPortfolio">Portfolio</a><a href="#about" data-i18n="navAbout">About</a><a class="mobile-book-link" href="#booking" data-i18n="navBook">Book now</a></nav>
 <a class="logo" href="#home" aria-label="Makeup by Maria">Maria Moussa<small>MAKEUP ARTISTRY</small></a>
 <div class="nav-right"><button class="lang active" data-lang="sv" aria-label="Svenska">SV</button><button class="lang" data-lang="en" aria-label="English">EN</button><button class="lang" data-lang="ar" aria-label="العربية">AR</button><a class="book-link" href="#booking" data-i18n="navBook">Book an appointment</a></div>
 </div></header>
