@@ -550,8 +550,6 @@ document.querySelectorAll('img').forEach(img=>{img.addEventListener('error',()=>
   img.classList.add('fail');
   img.alt+=' — Image unavailable';
 });});
-setLanguage((()=>{try{return ['sv','en','ar'].includes(localStorage.getItem('maria-demo-lang'))?localStorage.getItem('maria-demo-lang'):'sv'}catch(e){return 'sv'}})());
-
 /* Portfolio sliders: accessible navigation, swipe, autoplay when visible, pause on interaction. */
 const mariaGalleryWords={
  sv:{featured:"UTVALDA BRUDLOOKS",explore:"FLER LOOKS",more:"Fler vackra ögonblick",view:"Se originalinlägget"},
@@ -611,6 +609,7 @@ function setupMariaGallery(trackId,prevId,nextId,countId,progressId,interval){
 setupMariaGallery("mariaFeaturedTrack","mariaFeaturedPrev","mariaFeaturedNext","mariaFeaturedCount","mariaFeaturedProgress",6500);
 setupMariaGallery("mariaStripTrack","mariaStripPrev","mariaStripNext","mariaStripCount",null,9400);
 updateMariaGalleryLanguage(document.documentElement.lang||"sv");
+setLanguage((()=>{try{return ['sv','en','ar'].includes(localStorage.getItem('maria-demo-lang'))?localStorage.getItem('maria-demo-lang'):'sv'}catch(e){return 'sv'}})());
 
 </script>
 </body>
