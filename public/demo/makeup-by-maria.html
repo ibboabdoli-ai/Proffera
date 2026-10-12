@@ -75,6 +75,74 @@
 }
 @media(max-width:370px){.nav-right{gap:7px}.book-link{padding:9px 7px;font-size:8px}.hero h1{font-size:54px}.service-photo{height:310px}}
 @media(prefers-reduced-motion:reduce){*,*::before,*::after{scroll-behavior:auto!important;animation-duration:.01ms!important;transition-duration:.01ms!important}}
+
+/* Responsive booking wizard and touch-first layout. */
+[hidden]{display:none!important}
+.booking-progress{display:flex;align-items:center;gap:12px;margin:0 0 30px}
+.booking-progress span{display:grid;place-items:center;width:32px;height:32px;border:1px solid #d6c3b6;border-radius:50%;font-size:12px;color:#8c7468}
+.booking-progress span.current{background:#3b2923;border-color:#3b2923;color:#fff}
+.book-step h3{font-family:var(--serif);font-size:clamp(29px,3.1vw,40px);font-weight:500;line-height:1.12;margin:0 0 9px}
+.step-intro{color:#806d61;font-size:14px;line-height:1.7;margin-bottom:25px}
+.year-options{display:grid;gap:12px}
+.year-choice{width:100%;border:1px solid #d8c4b7;background:#fffaf6;min-height:84px;padding:15px 19px;display:flex;justify-content:space-between;align-items:center;gap:14px;text-align:start;color:#3b2923;transition:border-color .15s,background .15s}
+.year-choice strong{font-family:var(--serif);font-size:31px;font-weight:500}
+.year-choice span{font-size:13px}
+.year-choice:hover,.year-choice:focus-visible,.package-choice:hover,.package-choice:focus-visible{outline:2px solid #9b7765;outline-offset:2px;background:#fff}
+.booking-back{background:none;border:0;padding:6px 0;margin:0 0 25px;color:#795b4e;font-weight:600;font-size:13px;text-align:start}
+.package-options{display:grid;gap:13px}
+.package-choice{display:grid;gap:12px;width:100%;border:1px solid #d8c4b7;background:#fffbf8;color:#3b2923;text-align:start;padding:22px;line-height:1.65}
+.package-title{font-family:var(--serif);font-size:25px;line-height:1.2}
+.package-body{font-size:13px;color:#675950;line-height:1.8}
+.package-price{font-family:var(--serif);font-size:28px;font-weight:500}
+.package-action{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#8d6d5e}
+.chosen-summary{background:#eee2d8;border-inline-start:3px solid #997361;padding:12px 14px;font-size:13px;margin:18px 0 20px}
+.form-message{overflow-wrap:anywhere}
+@media(max-width:780px){
+  .hero{flex-direction:column}
+  .hero-copy{padding:43px 27px 36px}
+  .hero h1{font-size:clamp(50px,11vw,76px);letter-spacing:-2px;margin:18px 0}
+  .hero-art{height:55vh;min-height:320px;max-height:530px}
+  .editorial-photo{margin-inline-end:25px;margin-right:0}
+  .booking-layout{grid-template-columns:minmax(0,1fr)}
+  .booking-copy h2{font-size:clamp(42px,9vw,58px)}
+}
+@media(max-width:580px){
+  html,body{max-width:100%;overflow-x:clip}
+  .header{height:auto}
+  .header-inner{width:calc(100% - 32px);display:grid;grid-template-columns:minmax(0,1fr) auto;gap:11px 9px;padding:13px 0}
+  .logo{grid-row:1;grid-column:1;text-align:start;width:auto;min-width:0;white-space:nowrap;font-size:21px;letter-spacing:-.9px}
+  .logo small{font-size:7px;letter-spacing:2.2px}
+  .nav-right{grid-row:1;grid-column:2;width:auto;justify-content:flex-end;border:0;gap:4px;padding:0;min-width:0}
+  .nav-right .lang{min-width:26px;padding:8px 2px;font-size:10px}
+  .nav-right .book-link{display:none}
+  .nav-left{display:flex;grid-row:2;grid-column:1/-1;align-items:center;justify-content:space-between;gap:8px;border-top:1px solid var(--border);padding-top:10px}
+  .nav-left a{font-size:10px;letter-spacing:.7px}
+  .hero{flex-direction:column}
+  .hero-copy{padding:33px 22px 30px}
+  .hero h1{font-size:clamp(46px,12vw,64px);line-height:1.05;letter-spacing:-1.3px;overflow-wrap:break-word}
+  .hero-actions{gap:18px;margin-top:25px}
+  .hero-art{height:53vh;min-height:300px;max-height:460px}
+  .section-heading h2{font-size:clamp(38px,10vw,51px);letter-spacing:-1.2px;overflow-wrap:break-word}
+  .section{padding:60px 0}
+  .editorial h2{font-size:clamp(42px,11vw,59px);letter-spacing:-1px}
+  .editorial-small{right:-6%;width:34%;border-width:6px}
+  .gallery-grid{grid-template-columns:minmax(0,1fr) minmax(0,1fr);grid-template-rows:175px 170px 175px;gap:8px}
+  .booking-panel{min-width:0;padding:22px 18px}
+  .panel-top{flex-wrap:wrap;align-items:flex-start;gap:8px 14px}
+  .panel-top strong{font-size:25px}
+  .booking-copy h2{font-size:clamp(39px,10vw,51px);letter-spacing:-1px}
+  .formgrid{grid-template-columns:minmax(0,1fr);gap:14px}
+  .field.full{grid-column:1}
+  .field input,.field select,.field textarea{min-width:0;font-size:16px}
+  .package-choice{padding:18px}
+  .package-title{font-size:24px}
+  .year-choice{min-height:75px}
+  .year-choice strong{font-size:28px}
+  .floating-link{inset-inline-end:12px;bottom:12px;padding:11px 13px;font-size:10px}
+  [dir="rtl"] .hero h1,[dir="rtl"] .booking-copy h2,[dir="rtl"] .section-heading h2{letter-spacing:0}
+}
+@media(max-width:370px){.logo{font-size:18px}.logo small{letter-spacing:1.7px}.nav-right{gap:1px}.nav-right .lang{min-width:24px;font-size:9px}.hero h1{font-size:clamp(43px,13vw,54px)}.book-step h3{font-size:29px}}
+
 </style>
 </head>
 <body>
@@ -102,7 +170,69 @@
 <a href="https://www.pexels.com/photo/elegant-bridal-makeup-session-in-mexico-city-35983912/" class="gallery-cell image-loading" target="_blank" rel="noopener noreferrer"><img src="https://images.pexels.com/photos/35983912/pexels-photo-35983912.jpeg?auto=compress&cs=tinysrgb&w=1280" alt="Sample bridal beauty photograph (design preview)" loading="lazy"  decoding="async" /></a>
 <a href="https://www.pexels.com/photo/bridal-wedding-portrait-15789321/" class="gallery-cell image-loading" target="_blank" rel="noopener noreferrer"><img src="https://images.pexels.com/photos/15789321/pexels-photo-15789321.jpeg?auto=compress&cs=tinysrgb&w=1280" alt="Sample bridal beauty photograph (design preview)" loading="lazy"  decoding="async" /><span class="gallery-label">SOFT GLAM · SAMPLE</span></a>
 </div><div class="gallery-bottom"><p data-i18n="galleryFoot">Design preview with licensed sample photos from Pexels. These do not represent Maria’s portfolio and will be replaced after approval.</p><a href="https://www.instagram.com/makeupbymaria998/" class="quiet-link" target="_blank" rel="noopener noreferrer" data-i18n="instagram">VIEW INSTAGRAM ↗</a></div></div></section>
-<section class="booking" id="booking"><div class="shell booking-layout"><div class="booking-copy"><div class="eyebrow" data-i18n="bEyebrow">YOUR BEAUTY MOMENT BEGINS HERE</div><h2 data-i18n-html="bookingTitle">Let's create <em>something beautiful.</em></h2><p data-i18n="bookingCopy">Share your service and preferred date. In the final website, appointments, availability and notifications will be managed through Proffera.</p><div class="booking-steps"><div class="step"><i>01</i><span data-i18n="step1">Select a makeup service</span></div><div class="step"><i>02</i><span data-i18n="step2">Tell us about the date and location</span></div><div class="step"><i>03</i><span data-i18n="step3">Receive a booking confirmation</span></div></div></div><div class="booking-panel"><div class="panel-top"><strong data-i18n="formTitle">Booking enquiry</strong><span class="demo-tag" data-i18n="demoOnly">DEMO ONLY</span></div><form id="bookingForm"><div class="formgrid"><div class="field full"><label for="service" data-i18n="fieldService">SERVICE</label><select id="service" required><option value="" data-i18n="selectService">Choose a service</option><option value="bridal" data-i18n="service1">Bridal makeup</option><option value="event" data-i18n="service2">Occasion glam</option><option value="custom" data-i18n="service3">Custom enquiry</option></select></div><div class="field"><label for="eventdate" data-i18n="fieldDate">PREFERRED DATE</label><input type="date" id="eventdate" required /></div><div class="field"><label for="eventtime" data-i18n="fieldTime">PREFERRED TIME</label><select id="eventtime" required><option value="" data-i18n="selectTime">Select preference</option><option value="morning" data-i18n="timeMorning">Morning</option><option value="afternoon" data-i18n="timeAfternoon">Afternoon</option><option value="evening" data-i18n="timeEvening">Evening</option></select></div><div class="field"><label for="fullname" data-i18n="fieldName">YOUR NAME</label><input id="fullname" required minlength="2" autocomplete="name" data-placeholder="namePlaceholder" placeholder="Full name" /></div><div class="field"><label for="phone" data-i18n="fieldPhone">PHONE NUMBER</label><input id="phone" type="tel" required autocomplete="tel" placeholder="+46" /></div><div class="field full"><label for="email" data-i18n="fieldEmail">EMAIL</label><input id="email" type="email" required autocomplete="email" placeholder="name@example.com" /></div><div class="field full"><label for="location" data-i18n="fieldLocation">EVENT LOCATION / CITY</label><input id="location" data-placeholder="locationPlaceholder" placeholder="e.g. Stockholm" /></div><div class="field full"><label for="notes" data-i18n="fieldNotes">ANYTHING ELSE?</label><textarea id="notes" data-placeholder="notesPlaceholder" placeholder="Tell Maria about your occasion..."></textarea></div></div><p class="booking-footnote" data-i18n="demoDisclaimer">Preview mode: this form does not send personal data, reserve a real time slot or connect to Proffera yet.</p><button class="btn-primary submit" type="submit"><span data-i18n="sendButton">PREVIEW REQUEST</span> <span>↗</span></button><div id="formMessage" class="form-message" role="status"></div></form></div></div></section>
+<section class="booking" id="booking">
+  <div class="shell booking-layout">
+    <div class="booking-copy">
+      <div class="eyebrow" data-i18n="bEyebrow">DIN STUND BÖRJAR HÄR</div>
+      <h2 data-i18n-html="bookingTitle">Låt oss skapa <em>något vackert.</em></h2>
+      <p data-bk="bookingIntro">Välj bröllopsår, brudsmink och önskat datum. Detta är en design-demo, inte en riktig bokning.</p>
+      <div class="booking-steps">
+        <div class="step"><i>01</i><span data-bk="guideYear">Välj bröllopsår</span></div>
+        <div class="step"><i>02</i><span data-bk="guidePackage">Välj brudsmink med eller utan prov</span></div>
+        <div class="step"><i>03</i><span data-bk="guideDate">Välj fredag eller lördag mellan 06:00 och 10:00</span></div>
+      </div>
+    </div>
+    <div class="booking-panel">
+      <div class="panel-top"><strong data-bk="bookingFormTitle">Bröllopsbokning</strong><span class="demo-tag" data-i18n="demoOnly">ENDAST DEMO</span></div>
+      <div class="booking-progress" aria-label="Booking steps"><span data-progress="year" class="current">1</span><span data-progress="service">2</span><span data-progress="details">3</span></div>
+      <div class="book-step" id="bookYear" data-step="year">
+        <h3 data-bk="yearTitle">Välj bröllopsår</h3><p class="step-intro" data-bk="yearPrompt">Vilket år gifter du dig?</p>
+        <div class="year-options">
+          <button type="button" class="year-choice" data-year="2026"><strong>2026</strong><span data-bk="book">Boka</span><span aria-hidden="true">↗</span></button>
+          <button type="button" class="year-choice" data-year="2027"><strong>2027</strong><span data-bk="book">Boka</span><span aria-hidden="true">↗</span></button>
+          <button type="button" class="year-choice" data-year="2028"><strong>2028</strong><span data-bk="book">Boka</span><span aria-hidden="true">↗</span></button>
+        </div>
+      </div>
+      <div class="book-step" id="bookService" data-step="service" hidden>
+        <button type="button" class="booking-back" id="backYear" data-bk="backYear">← Byt år</button>
+        <h3><span data-bk="serviceTitle">Välj tjänst</span> — <span id="chosenYear">2026</span></h3>
+        <p class="step-intro" data-bk="serviceIntro">Så här kan du boka din brudsmink</p>
+        <div class="package-options">
+          <button class="package-choice" type="button" data-package="trial">
+            <span class="package-title" data-bk="trialTitle">Brudsmink med prov</span>
+            <span class="package-body" data-bk="trialDesc">En professionell och hållbar makeup som utförs på bröllopsdagen, inklusive en provsminkning cirka 1–3 månader innan bröllopet. Hembesök ingår.</span>
+            <strong class="package-price" id="trialPrice">6 800 kr</strong><span class="package-action" data-bk="selectPackage">Välj tjänst ↗</span>
+          </button>
+          <button class="package-choice" type="button" data-package="without">
+            <span class="package-title" data-bk="withoutTitle">Brudsmink utan prov</span>
+            <span class="package-body" data-bk="withoutDesc">En professionell och hållbar makeup som utförs direkt på bröllopsdagen. Hembesök ingår.</span>
+            <strong class="package-price" id="withoutPrice">5 800 kr</strong><span class="package-action" data-bk="selectPackage">Välj tjänst ↗</span>
+          </button>
+        </div>
+      </div>
+      <div class="book-step" id="bookDetails" data-step="details" hidden>
+        <button type="button" class="booking-back" id="backService" data-bk="backService">← Byt tjänst</button>
+        <h3 data-bk="dateTitle">Välj datum och tid</h3>
+        <p class="step-intro" data-bk="datePrompt">Endast fredagar och lördagar kl. 06:00–10:00.</p>
+        <div id="chosenServiceSummary" class="chosen-summary" role="status"></div>
+        <form id="bookingForm">
+          <div class="formgrid">
+            <div class="field full"><label for="eventdate" data-bk="dateLabel">Bröllopsdatum — fredag eller lördag</label><select id="eventdate" required></select></div>
+            <div class="field full"><label for="eventtime" data-bk="timeLabel">Önskad tid</label><select id="eventtime" required></select></div>
+            <div class="field full"><label for="fullname" data-i18n="fieldName">NAMN</label><input id="fullname" required minlength="2" autocomplete="name" data-placeholder="namePlaceholder" placeholder="För- och efternamn" /></div>
+            <div class="field"><label for="phone" data-i18n="fieldPhone">TELEFONNUMMER</label><input id="phone" type="tel" required autocomplete="tel" placeholder="+46" /></div>
+            <div class="field"><label for="email" data-i18n="fieldEmail">E-POST</label><input id="email" type="email" required autocomplete="email" placeholder="name@example.com" /></div>
+            <div class="field full"><label for="location" data-i18n="fieldLocation">PLATS / STAD</label><input id="location" data-placeholder="locationPlaceholder" placeholder="t.ex. Stockholm" /></div>
+            <div class="field full"><label for="notes" data-i18n="fieldNotes">ÖVRIG INFORMATION</label><textarea id="notes" data-placeholder="notesPlaceholder" placeholder="Berätta om ditt bröllop..."></textarea></div>
+          </div>
+          <p class="booking-footnote" data-bk="availabilityNote">Datum och tider är önskemål, inte bekräftade lediga tider. Demot skickar inga uppgifter eller bokningar.</p>
+          <button class="btn-primary submit" type="submit"><span data-bk="previewRequest">Förhandsvisa förfrågan</span> <span aria-hidden="true">↗</span></button>
+          <div id="formMessage" class="form-message" role="status" aria-live="polite"></div>
+        </form>
+      </div>
+    </div>
+  </div>
+</section>
 </main>
 <footer class="footer"><div class="shell"><div class="footer-grid"><div><div class="footer-logo">Maria Moussa</div><p data-i18n="footerDesc">Timeless makeup artistry for weddings and unforgettable celebrations in Sweden.</p></div><div><h4 data-i18n="footerExplore">EXPLORE</h4><a href="#services" data-i18n="navServices">Services</a><a href="#work" data-i18n="navPortfolio">Portfolio</a><a href="#booking" data-i18n="navBook">Book an appointment</a></div><div><h4 data-i18n="footerFollow">CONNECT</h4><a href="https://www.instagram.com/makeupbymaria998/" target="_blank" rel="noopener noreferrer">Instagram ↗</a><a href="#booking" data-i18n="footerContact">Booking enquiry</a><p data-i18n="footerRegion">Sweden</p></div></div><div class="footer-bottom"><span>© 2026 MAKEUP BY MARIA · CONCEPT DEMO</span><span data-i18n="footerTechnology">BOOKING PLATFORM: PROFFERA (PLANNED INTEGRATION)</span></div></div></footer>
 <a class="floating-link" href="#booking" data-i18n="navBook">Book an appointment</a>
@@ -111,11 +241,104 @@ const tr={
 sv:{topNote:'DESIGNFÖRSLAG · DEMOSIDA FÖR MAKEUP BY MARIA',navServices:'Tjänster',navPortfolio:'Portfolio',navAbout:'Om Maria',navBook:'Boka tid',eyebrow:'SVERIGE · BRUDMAKEUP',heroTitle:'Skönhet som <em>känns som du.</em>',heroBody:'Tidlös, mjuk glam för brudar och speciella tillfällen. Makeup som lyfter fram din naturliga skönhet.',ctaBook:'FÖRFRÅGAN OM TID',ctaWork:'SE PORTFOLION',seal:'BRIDAL<br>BEAUTY<br>✦',heroCaption:'EXEMPELBILDER · DESIGNFÖRSLAG',ribbonA:'TIDLÖS SKÖNHET',ribbonB:'BRUDMAKEUP',ribbonC:'SÄRSKILDA TILLFÄLLEN',sEyebrow:'FÖR DITT SPECIELLA ÖGONBLICK',servicesTitle:'Makeup med <em>känsla.</em>',servicesLead:'Från elegant brudmakeup till festmakeup. Exakta paket och priser behöver bekräftas med Maria.',service1:'Brudmakeup',service1Body:'En tidlös och strålande look för din stora dag – vacker både på plats och på bild.',priceOnRequest:'Pris på förfrågan',discover:'FÖRFRÅGAN ↗',service2:'Festmakeup',service2Body:'Elegant soft glam för fest, förlovning och andra speciella tillfällen.',service3:'Personlig förfrågan',service3Body:'Har du en särskild look eller ett speciellt event i åtanke? Beskriv dina önskemål.',service3Small:'Anpassas efter ditt event',aEyebrow:'PERSONEN BAKOM MAKEUPEN',aboutTitle:'Möt <em>Maria.</em>',aboutBody:'Maria Moussa är makeupartist i Sverige med fokus på tidlös soft glam för bröllop och speciella tillfällen. Hennes arbeten lyfter fram strålande hud och personliga detaljer.',aboutBody2:'Upptäck tidigare arbeten och skicka en förfrågan om ditt datum.',gEyebrow:'PORTFOLIO',galleryTitle:'Vackra <em>ögonblick.</em>',galleryIntro:'Exempelbilder som visar designen. Maria kan ersätta alla bilder med sina egna arbeten senare.',galleryFoot:'Designförslag med exempelbilder från Pexels, inte Marias egna arbeten. Dessa byts ut efter godkännande.',instagram:'SE INSTAGRAM ↗',bEyebrow:'DIN STUND BÖRJAR HÄR',bookingTitle:'Låt oss skapa <em>något vackert.</em>',bookingCopy:'Välj tjänst och önskat datum. I den färdiga webbplatsen kommer bokningar, lediga tider och aviseringar att hanteras via Proffera.',step1:'Välj tjänst',step2:'Ange datum och plats',step3:'Få en bokningsbekräftelse',formTitle:'Bokningsförfrågan',demoOnly:'ENDAST DEMO',fieldService:'TJÄNST',selectService:'Välj en tjänst',fieldDate:'ÖNSKAT DATUM',fieldTime:'ÖNSKAD TID',selectTime:'Välj ungefärlig tid',timeMorning:'Förmiddag',timeAfternoon:'Eftermiddag',timeEvening:'Kväll',fieldName:'NAMN',namePlaceholder:'För- och efternamn',fieldPhone:'TELEFONNUMMER',fieldEmail:'E-POST',fieldLocation:'PLATS / STAD',locationPlaceholder:'t.ex. Stockholm',fieldNotes:'ÖVRIG INFORMATION',notesPlaceholder:'Berätta om ditt event...',demoDisclaimer:'Demoläge: formuläret skickar inga uppgifter, bokar inte en riktig tid och är ännu inte anslutet till Proffera.',sendButton:'FÖRHANDSVISA FÖRFRÅGAN',success:'Demoförfrågan skapad lokalt! Ingen riktig bokning har gjorts.',footerDesc:'Tidlös makeup för bröllop och speciella tillfällen i Sverige.',footerExplore:'UTFORSKA',footerFollow:'KONTAKT',footerContact:'Bokningsförfrågan',footerRegion:'Sverige',footerTechnology:'BOKNING: PROFFERA (PLANERAD INTEGRATION)'},
 en:{topNote:'DESIGN PREVIEW · SAMPLE PHOTOGRAPHY · NO LIVE BOOKINGS',navServices:'Services',navPortfolio:'Portfolio',navAbout:'About',navBook:'Book now',eyebrow:'SWEDEN · BRIDAL MAKEUP ARTIST',heroTitle:'Beauty that <em>feels like you.</em>',heroBody:'Timeless soft glam for brides and unforgettable moments. Thoughtfully crafted makeup that enhances your natural beauty.',ctaBook:'ENQUIRE ABOUT A DATE',ctaWork:'EXPLORE THE WORK',seal:'BRIDAL<br>BEAUTY<br>✦',heroCaption:'SAMPLE PHOTOGRAPHY · DESIGN PREVIEW',ribbonA:'TIMELESS BEAUTY',ribbonB:'BRIDAL ARTISTRY',ribbonC:'SPECIAL OCCASIONS',sEyebrow:'TAILORED FOR YOUR MOMENT',servicesTitle:'Makeup, <em>reimagined.</em>',servicesLead:'From elegant bridal looks to occasion glam. Exact packages and prices will be confirmed with Maria.',service1:'Bridal makeup',service1Body:'A timeless, luminous look created for your wedding day — beautiful in person and in photographs.',priceOnRequest:'Price on request',discover:'ENQUIRE ↗',service2:'Occasion glam',service2Body:'Soft glamour for celebrations, engagements and special occasions.',service3:'Custom enquiry',service3Body:'Have a particular look or event in mind? Share your details for a personal response.',service3Small:'Tailored to your event',aEyebrow:'THE ARTIST BEHIND THE LOOK',aboutTitle:'Meet <em>Maria.</em>',aboutBody:'Maria Moussa is a Sweden-based makeup artist specialising in timeless soft glam for weddings and special occasions. Her work celebrates radiant skin, elegant details and individual beauty.',aboutBody2:'Explore her work and share your event date to start planning your look.',gEyebrow:'THE ARTISTRY',galleryTitle:'Moments <em>in beauty.</em>',galleryIntro:'Sample bridal photographs to show the design. Maria can replace every image with her own work later.',galleryFoot:'Sample photography from Pexels is shown for layout preview, not as examples of Maria’s actual work.',instagram:'VIEW INSTAGRAM ↗',bEyebrow:'YOUR BEAUTY MOMENT BEGINS HERE',bookingTitle:"Let's create <em>something beautiful.</em>",bookingCopy:'Share your service and preferred date. On the finished website, bookings, availability and notifications will be managed via Proffera.',step1:'Choose a makeup service',step2:'Tell us about date and location',step3:'Receive booking confirmation',formTitle:'Booking enquiry',demoOnly:'DEMO ONLY',fieldService:'SERVICE',selectService:'Choose a service',fieldDate:'PREFERRED DATE',fieldTime:'PREFERRED TIME',selectTime:'Select time preference',timeMorning:'Morning',timeAfternoon:'Afternoon',timeEvening:'Evening',fieldName:'YOUR NAME',namePlaceholder:'Full name',fieldPhone:'PHONE NUMBER',fieldEmail:'EMAIL',fieldLocation:'EVENT LOCATION / CITY',locationPlaceholder:'e.g. Stockholm',fieldNotes:'ANYTHING ELSE?',notesPlaceholder:'Tell Maria about your event...',demoDisclaimer:'Demo mode: this form does not send personal data, reserve a real time slot or connect to Proffera yet.',sendButton:'PREVIEW REQUEST',success:'Demo request created locally! No real booking has been made.',footerDesc:'Timeless makeup artistry for weddings and unforgettable celebrations in Sweden.',footerExplore:'EXPLORE',footerFollow:'CONNECT',footerContact:'Booking enquiry',footerRegion:'Sweden',footerTechnology:'BOOKING PLATFORM: PROFFERA (PLANNED INTEGRATION)'},
 ar:{topNote:'معاينة تصميم · صور تجريبية · الحجز غير مفعل',navServices:'الخدمات',navPortfolio:'أعمالي',navAbout:'عن ماريا',navBook:'احجزي موعداً',eyebrow:'السويد · خبيرة مكياج عرائس',heroTitle:'جمال يعبّر <em>عنكِ.</em>',heroBody:'مكياج ناعم وأنيق للعرائس والمناسبات الخاصة، يبرز جمالك الطبيعي بطريقة خالدة.',ctaBook:'استفسري عن موعد',ctaWork:'شاهدي الأعمال',seal:'جمال<br>العرائس<br>✦',heroCaption:'صور تجريبية · معاينة التصميم',ribbonA:'جمال لا يزول',ribbonB:'مكياج عرائس',ribbonC:'مناسبات خاصة',sEyebrow:'لأجمل لحظاتك',servicesTitle:'مكياج <em>بلمسة خاصة.</em>',servicesLead:'من إطلالات العروس إلى مكياج المناسبات. تفاصيل الباقات والأسعار تحتاج إلى تأكيد من ماريا.',service1:'مكياج العروس',service1Body:'إطلالة مشرقة وراقية ليوم زفافك، جميلة في الواقع وفي الصور.',priceOnRequest:'السعر عند الطلب',discover:'استفسري ↗',service2:'مكياج المناسبات',service2Body:'مكياج ناعم وأنيق للحفلات والخطوبة والمناسبات الخاصة.',service3:'استفسار خاص',service3Body:'هل لديكِ إطلالة أو مناسبة معينة؟ أرسلي التفاصيل للحصول على رد شخصي.',service3Small:'بحسب مناسبتك',aEyebrow:'تعرفي على خبيرة التجميل',aboutTitle:'تعرّفي إلى <em>ماريا.</em>',aboutBody:'ماريا موسى خبيرة مكياج مقيمة في السويد، متخصصة في المكياج الناعم والأنيق للعرائس والمناسبات الخاصة، وتركّز على إبراز الجمال الطبيعي.',aboutBody2:'تصفحي أعمالها وأرسلي تفاصيل مناسبتك للبدء بالتخطيط لإطلالتك.',gEyebrow:'معرض الأعمال',galleryTitle:'لحظات <em>من الجمال.</em>',galleryIntro:'صور نموذجية لعرض التصميم. يمكن لماريا استبدال جميع الصور بأعمالها الخاصة لاحقاً.',galleryFoot:'هذه صور تجريبية من Pexels لعرض التصميم، وليست من أعمال ماريا الفعلية.',instagram:'شاهدي إنستغرام ↗',bEyebrow:'إطلالتك تبدأ من هنا',bookingTitle:'لنصنع <em>إطلالة جميلة.</em>',bookingCopy:'اختاري الخدمة والتاريخ المناسب. في الموقع النهائي ستُدار الحجوزات والمواعيد والإشعارات من خلال Proffera.',step1:'اختاري الخدمة',step2:'حددي التاريخ والمكان',step3:'احصلي على تأكيد الحجز',formTitle:'طلب حجز',demoOnly:'نسخة تجريبية',fieldService:'الخدمة',selectService:'اختاري الخدمة',fieldDate:'التاريخ المفضل',fieldTime:'الوقت المفضل',selectTime:'اختاري الوقت التقريبي',timeMorning:'صباحاً',timeAfternoon:'بعد الظهر',timeEvening:'مساءً',fieldName:'الاسم',namePlaceholder:'الاسم الكامل',fieldPhone:'رقم الهاتف',fieldEmail:'البريد الإلكتروني',fieldLocation:'مكان المناسبة / المدينة',locationPlaceholder:'مثلاً ستوكهولم',fieldNotes:'تفاصيل إضافية',notesPlaceholder:'أخبرينا عن مناسبتك...',demoDisclaimer:'للعرض فقط: النموذج لا يرسل البيانات ولا يحجز موعداً حقيقياً ولم يتم ربطه بـ Proffera بعد.',sendButton:'معاينة الطلب',success:'تمت معاينة الطلب محلياً! لم يتم إجراء حجز فعلي.',footerDesc:'مكياج أنيق للعرائس والمناسبات الخاصة في السويد.',footerExplore:'استكشفي',footerFollow:'تواصلي',footerContact:'طلب حجز',footerRegion:'السويد',footerTechnology:'الحجوزات: PROFFERA (ربط مخطط له)'}};
-function setLanguage(lang){const x=tr[lang]||tr.sv;document.documentElement.lang=lang;document.documentElement.dir=lang==='ar'?'rtl':'ltr';document.querySelectorAll('[data-i18n]').forEach(el=>{el.textContent=x[el.dataset.i18n]||''});document.querySelectorAll('[data-i18n-html]').forEach(el=>{el.innerHTML=x[el.dataset.i18nHtml]||''});document.querySelectorAll('[data-placeholder]').forEach(el=>{el.placeholder=x[el.dataset.placeholder]||''});document.querySelectorAll('.lang').forEach(el=>{el.classList.toggle('active',el.dataset.lang===lang);el.setAttribute('aria-pressed',String(el.dataset.lang===lang))});document.getElementById('formMessage').style.display='none';try{window.localStorage.setItem('maria-demo-lang',lang)}catch(e){} }
+
+const weddingCopy={
+sv:{bookingIntro:'Välj bröllopsår, brudsmink och önskat datum. Vi visar ett designförslag, inte en riktig bokning.',guideYear:'Välj bröllopsår',guidePackage:'Välj brudsmink med eller utan prov',guideDate:'Välj fredag eller lördag mellan 06:00 och 10:00',bookingFormTitle:'Bröllopsbokning',yearTitle:'Välj bröllopsår',yearPrompt:'Vilket år gifter du dig?',book:'Boka',backYear:'← Byt år',serviceTitle:'Välj tjänst',serviceIntro:'Så här kan du boka din brudsmink',trialTitle:'Brudsmink med prov',trialDesc:'En professionell och hållbar makeup som utförs på bröllopsdagen, inklusive en provsminkning cirka 1–3 månader innan bröllopet. Hembesök ingår.',withoutTitle:'Brudsmink utan prov',withoutDesc:'En professionell och hållbar makeup som utförs direkt på bröllopsdagen. Hembesök ingår.',selectPackage:'Välj tjänst ↗',pricePending:'Pris bekräftas av Maria',backService:'← Byt tjänst',dateTitle:'Välj datum och tid',datePrompt:'Endast fredagar och lördagar kl. 06:00–10:00.',dateLabel:'Bröllopsdatum — fredag eller lördag',timeLabel:'Önskad tid',dateEmpty:'Välj ett datum',timeEmpty:'Välj en tid',noDates:'Inga fler fredagar eller lördagar under det valda året.',availabilityNote:'Valbara tider är önskemål, inte bekräftade lediga tider. Demot skickar inga uppgifter eller bokningar.',previewRequest:'Förhandsvisa förfrågan',success:'Förhandsvisning: {service}, {date} kl. {time}. Ingen riktig bokning har gjorts.',homeVisit:'Hembesök ingår'},
+en:{bookingIntro:'Choose your wedding year, bridal package and preferred date. This is a design preview, not a real booking.',guideYear:'Choose your wedding year',guidePackage:'Select bridal makeup with or without a trial',guideDate:'Choose Friday or Saturday between 06:00 and 10:00',bookingFormTitle:'Wedding booking',yearTitle:'Choose wedding year',yearPrompt:'What year are you getting married?',book:'Book',backYear:'← Change year',serviceTitle:'Choose a service',serviceIntro:'Choose your bridal makeup package',trialTitle:'Bridal makeup with trial',trialDesc:'Professional, long-lasting makeup on your wedding day, including a trial approximately 1–3 months before the wedding. Travel to your location included.',withoutTitle:'Bridal makeup without trial',withoutDesc:'Professional, long-lasting makeup applied on your wedding day. Travel to your location included.',selectPackage:'Choose package ↗',pricePending:'Price to be confirmed by Maria',backService:'← Change package',dateTitle:'Choose date and time',datePrompt:'Only Fridays and Saturdays from 06:00 to 10:00.',dateLabel:'Wedding date — Friday or Saturday',timeLabel:'Preferred time',dateEmpty:'Choose a date',timeEmpty:'Choose a time',noDates:'No remaining Fridays or Saturdays in the selected year.',availabilityNote:'Shown times are requests, not confirmed availability. This demo does not send details or make real bookings.',previewRequest:'Preview enquiry',success:'Preview: {service}, {date} at {time}. No real booking has been made.',homeVisit:'Travel to your location included'},
+ar:{bookingIntro:'اختاري سنة الزفاف وباقة المكياج والتاريخ المفضل. هذه معاينة للتصميم وليست حجزاً حقيقياً.',guideYear:'اختاري سنة الزفاف',guidePackage:'اختاري مكياج العروس مع التجربة أو بدونها',guideDate:'اختاري الجمعة أو السبت بين 06:00 و10:00',bookingFormTitle:'حجز مكياج العروس',yearTitle:'اختاري سنة الزفاف',yearPrompt:'في أي سنة ستتزوجين؟',book:'احجزي',backYear:'→ تغيير السنة',serviceTitle:'اختاري الخدمة',serviceIntro:'اختاري باقة مكياج العروس',trialTitle:'مكياج العروس مع تجربة',trialDesc:'مكياج احترافي يدوم طوال يوم الزفاف، يشمل تجربة قبل الزفاف بحوالي شهر إلى ثلاثة أشهر، مع زيارة إلى الموقع.',withoutTitle:'مكياج العروس بدون تجربة',withoutDesc:'مكياج احترافي وثابت يُنفذ في يوم الزفاف مباشرة، مع زيارة إلى الموقع.',selectPackage:'اختاري الباقة ↗',pricePending:'السعر تؤكده ماريا',backService:'→ تغيير الباقة',dateTitle:'اختاري التاريخ والوقت',datePrompt:'فقط الجمعة والسبت من 06:00 إلى 10:00.',dateLabel:'تاريخ الزفاف — الجمعة أو السبت',timeLabel:'الوقت المفضل',dateEmpty:'اختاري التاريخ',timeEmpty:'اختاري الوقت',noDates:'لا توجد أيام جمعة أو سبت متبقية في السنة المختارة.',availabilityNote:'الأوقات المعروضة ليست تأكيداً للتوفر. هذه نسخة تجريبية لا ترسل البيانات ولا تسجل حجوزات.',previewRequest:'معاينة الطلب',success:'معاينة: {service}، {date} الساعة {time}. لم يتم إجراء حجز حقيقي.',homeVisit:'الزيارة إلى الموقع مشمولة'}
+};
+let weddingYear=null;
+let weddingPackage=null;
+let currentBookingStep='year';
+function bookingLang(){const lang=document.documentElement.lang;return weddingCopy[lang]||weddingCopy.sv}
+function updateWeddingLanguage(){
+  const t=bookingLang();
+  document.querySelectorAll('[data-bk]').forEach(el=>{el.textContent=t[el.dataset.bk]||''});
+  if(weddingYear){
+    document.getElementById('chosenYear').textContent=String(weddingYear);
+    document.getElementById('trialPrice').textContent=weddingYear===2026?'6 800 kr':t.pricePending;
+    document.getElementById('withoutPrice').textContent=weddingYear===2026?'5 800 kr':t.pricePending;
+  }
+  if(weddingPackage)updateServiceSummary();
+  if(weddingYear)populateWeekendDates();
+  const msg=document.getElementById('formMessage');msg.style.display='none';
+}
+function showBookingStep(step){
+  currentBookingStep=step;
+  for(const name of ['year','service','details'])document.querySelector('[data-step="'+name+'"]').hidden=name!==step;
+  for(const [index,name] of ['year','service','details'].entries()){
+    const el=document.querySelector('[data-progress="'+name+'"]');
+    el.classList.toggle('current',name===step);
+    el.setAttribute('aria-current',name===step?'step':'false');
+  }
+}
+function chooseWeddingYear(value){
+  const year=Number(value);
+  if(![2026,2027,2028].includes(year))return;
+  weddingYear=year;weddingPackage=null;
+  document.getElementById('chosenYear').textContent=String(year);
+  updateWeddingLanguage();showBookingStep('service');
+}
+function updateServiceSummary(){
+  const t=bookingLang();
+  const label=weddingPackage==='trial'?t.trialTitle:t.withoutTitle;
+  const price=weddingYear===2026?(weddingPackage==='trial'?'6 800 kr':'5 800 kr'):t.pricePending;
+  document.getElementById('chosenServiceSummary').textContent=String(weddingYear)+' · '+label+' · '+price;
+}
+function chooseWeddingPackage(kind){
+  if(!weddingYear || !['trial','without'].includes(kind))return;
+  weddingPackage=kind;updateServiceSummary();populateWeekendDates();showBookingStep('details');
+}
+function stockholmToday(){
+  // Compare dates in the service provider's local calendar rather than UTC.
+  return new Intl.DateTimeFormat('sv-SE',{timeZone:'Europe/Stockholm',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());
+}
+function populateWeekendDates(){
+  if(!weddingYear)return;
+  const t=bookingLang();const locale=document.documentElement.lang==='ar'?'ar-EG':document.documentElement.lang==='en'?'en-GB':'sv-SE';
+  const select=document.getElementById('eventdate');const previous=select.value;
+  select.replaceChildren(new Option(t.dateEmpty,''));
+  const today=stockholmToday();const formatter=new Intl.DateTimeFormat(locale,{weekday:'long',day:'numeric',month:'long',year:'numeric',timeZone:'UTC'});
+  for(let d=new Date(Date.UTC(weddingYear,0,1));d.getUTCFullYear()===weddingYear;d.setUTCDate(d.getUTCDate()+1)){
+    if(d.getUTCDay()!==5&&d.getUTCDay()!==6)continue;
+    const iso=d.toISOString().slice(0,10);
+    if(iso<today)continue;
+    select.add(new Option(formatter.format(d),iso));
+  }
+  if(previous&&Array.from(select.options).some(o=>o.value===previous))select.value=previous;
+  if(select.options.length===1){select.options[0].text=t.noDates;select.disabled=true;}else select.disabled=false;
+  const time=document.getElementById('eventtime');const prevTime=time.value;
+  time.replaceChildren(new Option(t.timeEmpty,''));
+  // These are selectable preferences only; no real availability is asserted.
+  for(let minutes=6*60;minutes<=10*60;minutes+=30){
+    const label=String(Math.floor(minutes/60)).padStart(2,'0')+':'+String(minutes%60).padStart(2,'0');
+    time.add(new Option(label,label));
+  }
+  if(prevTime)time.value=prevTime;
+}
+document.querySelectorAll('[data-year]').forEach(button=>button.addEventListener('click',()=>chooseWeddingYear(button.dataset.year)));
+document.querySelectorAll('[data-package]').forEach(button=>button.addEventListener('click',()=>chooseWeddingPackage(button.dataset.package)));
+document.getElementById('backYear').addEventListener('click',()=>showBookingStep('year'));
+document.getElementById('backService').addEventListener('click',()=>showBookingStep('service'));
+
+function setLanguage(lang){const x=tr[lang]||tr.sv;document.documentElement.lang=lang;document.documentElement.dir=lang==='ar'?'rtl':'ltr';document.querySelectorAll('[data-i18n]').forEach(el=>{el.textContent=x[el.dataset.i18n]||''});document.querySelectorAll('[data-i18n-html]').forEach(el=>{el.innerHTML=x[el.dataset.i18nHtml]||''});document.querySelectorAll('[data-placeholder]').forEach(el=>{el.placeholder=x[el.dataset.placeholder]||''});document.querySelectorAll('.lang').forEach(el=>{el.classList.toggle('active',el.dataset.lang===lang);el.setAttribute('aria-pressed',String(el.dataset.lang===lang))});updateWeddingLanguage();try{window.localStorage.setItem('maria-demo-lang',lang)}catch(e){} }
 document.querySelectorAll('.lang').forEach(b=>b.addEventListener('click',()=>setLanguage(b.dataset.lang)));
-document.querySelectorAll('[data-service]').forEach(link=>link.addEventListener('click',()=>document.getElementById('service').value=link.dataset.service));
-document.getElementById('eventdate').min=new Date().toISOString().slice(0,10);
-document.getElementById('bookingForm').addEventListener('submit',e=>{e.preventDefault();const lang=document.documentElement.lang;const result=document.getElementById('formMessage');result.textContent=tr[lang].success;result.style.display='block';result.scrollIntoView({behavior:'smooth',block:'nearest'});});
+document.querySelectorAll('[data-service]').forEach(link=>link.addEventListener('click',()=>showBookingStep('year')));
+
+document.getElementById('bookingForm').addEventListener('submit',e=>{
+  e.preventDefault();
+  const date=document.getElementById('eventdate').value;
+  const time=document.getElementById('eventtime').value;
+  const day=date?new Date(date+'T12:00:00Z').getUTCDay():null;
+  const validDay=day===5||day===6;
+  const validYear=Boolean(weddingYear)&&date.startsWith(String(weddingYear));
+  const validTime=/^(06|07|08|09):(?:00|30)$|^10:00$/.test(time);
+  if(!weddingPackage||!validDay||!validYear||!validTime||date<stockholmToday())return;
+  const t=bookingLang();const label=weddingPackage==='trial'?t.trialTitle:t.withoutTitle;
+  const result=document.getElementById('formMessage');
+  result.textContent=t.success.replace('{service}',label).replace('{date}',date).replace('{time}',time);
+  result.style.display='block';result.scrollIntoView({behavior:'smooth',block:'nearest'});
+});
 document.querySelectorAll('img').forEach(img=>{img.addEventListener('error',()=>{img.classList.add('fail');img.alt+=' — Photo could not load from Instagram CDN';});});
 setLanguage((()=>{try{return ['sv','en','ar'].includes(localStorage.getItem('maria-demo-lang'))?localStorage.getItem('maria-demo-lang'):'sv'}catch(e){return 'sv'}})());
 </script>
