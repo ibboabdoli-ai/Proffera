@@ -25,11 +25,18 @@ function assertNoUnapprovedPublication(workflowName: string, jobName: string,
   expect(job.permissions?.contents, `${workflowName} ${jobName} cannot write contents`)
     .not.toBe("write");
   for (const step of job.steps ?? []) {
-    const script = bashLogicalLines(String(step.run ?? ""));
+    // Conservative shell-word scan: adjacent quoted/escaped fragments are
+    // concatenated by Bash (e.g. g''it, gi"t" and g\\it all invoke git).
+    const script = bashLogicalLines(String(step.run ?? ""))
+      .replace(/\\(?=[A-Za-z])/g, "")
+      .replace(/["']/g, "");
+    // Fail closed for Git global options (e.g. `git -c key=value push`).
+    // Keep the search within one Bash logical command line; a literal `.git`
+    // path must not be mistaken for the Git executable.
     expect(script, `${workflowName} ${jobName} must not push`)
-      .not.toMatch(/\bgit[ \t]+push\b/i);
+      .not.toMatch(/(?<![\w./-])git\b[^\r\n;|&]*?\bpush\b/i);
     expect(script, `${workflowName} ${jobName} must not mutate refs via GitHub API`)
-      .not.toMatch(/\bgh[ \t]+api\b[^\r\n]*\/git\/refs(?:\/|\b)/i);
+      .not.toMatch(/(?<![\w./-])gh\b[^\r\n;|&]*?\bapi\b[^\r\n;|&]*?\/git\/["']*refs["']*(?:\/|\b)/i);
     expect(script, `${workflowName} ${jobName} must not use a push token`)
       .not.toMatch(/(?:PROFFERA_AUTOFIX_PUSH_TOKEN|PUSH_TOKEN\s*[:=])/);
   }
@@ -77,6 +84,49 @@ describe("owner-authorized publication handoff contracts", () => {
     expect(() => assertNoUnapprovedPublication("fixture.yml", "publish", {
       permissions:{contents:"read"},steps:[{run:command}]
     })).toThrow();
+  });
+
+  it.each([
+    "git -c core.hooksPath=/dev/null push origin HEAD:main",
+    "git -C . push origin HEAD:main",
+    "git --git-dir=.git push origin HEAD:main",
+    "git --no-pager push origin HEAD:main",
+    "git -c core.hooksPath=/dev/null \\\n push origin HEAD:main",
+  ])("rejects Git push with global options: %s", (command) => {
+    expect(() => assertNoUnapprovedPublication("fixture.yml", "publish", {
+      permissions:{contents:"read"},steps:[{run:command}]
+    })).toThrow();
+  });
+
+  it.each([
+    `gh api --method PATCH "repos/ibboabdoli-ai/Proffera/git/"'refs/heads/main'`,
+    `gh api --method PATCH repos/ibboabdoli-ai/Proffera/git/"refs"/heads/main`,
+    "gh api --method PATCH repos/ibboabdoli-ai/Proffera/git/ref\\\ns/heads/main",
+  ])("rejects valid Bash-concatenated GitHub ref writes: %s", (command) => {
+    expect(() => assertNoUnapprovedPublication("fixture.yml", "publish", {
+      permissions:{contents:"read"},steps:[{run:command}]
+    })).toThrow();
+  });
+
+  it.each([
+    "g''it push origin HEAD:main",
+    "git pus''h origin HEAD:main",
+    'gi"t" push origin HEAD:main',
+    "g\\it push origin HEAD:main",
+    "gh a''pi --method PATCH repos/ibboabdoli-ai/Proffera/git/refs/heads/main",
+    "gh api --method PATCH repos/ibboabdoli-ai/Proffera/git/re''fs/heads/main",
+    'gh api --method PATCH repos/ibboabdoli-ai/Proffera/g"it"/refs/heads/main',
+  ])("rejects valid shell-quoted publication commands: %s", (command) => {
+    expect(() => assertNoUnapprovedPublication("fixture.yml", "publish", {
+      permissions:{contents:"read"},steps:[{run:command}]
+    })).toThrow();
+  });
+
+  it("allows read-only Git commands and literal .git text", () => {
+    expect(() => assertNoUnapprovedPublication("fixture.yml", "publish", {
+      permissions:{contents:"read"},
+      steps:[{run:"git status --porcelain\necho '.git push is documentation, not a command'"}]
+    })).not.toThrow();
   });
 
   it("a bundled exact-child commit can be transported without moving the source branch", () => {
