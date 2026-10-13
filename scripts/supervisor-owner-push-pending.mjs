@@ -402,8 +402,10 @@ export function gate(env){
     continue;
    }
   }
-  // For retained artifacts, verify bytes, Git ancestry, and all bound digests.
-  const verified=verifyArtifact(p,auth,p.artifact_id,{ownerResolution:ownerAction});
+  // Without an owner decision, the handoff stays unresolved and admission stays denied.
+  // Only re-authenticate artifact bytes when resolving an actual owner decision.
+  if(!ownerAction)continue;
+  const verified=verifyArtifact(p,auth,p.artifact_id,{ownerResolution:true});
   check(["artifact_digest","bundle_digest","manifest_digest","workflow_id",
     "publish_job_id","model_job_id","validation_job_id"].every(k=>p[k]===verified[k]),"pending_authentication");
   resolution(p,comments);

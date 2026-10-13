@@ -296,14 +296,34 @@ describe("cancelled owner-push handoff is never an automatic model-launch permit
   });
 });
 
+describe("trusted Git history at owner-push admission",()=>{
+ it("checks out complete history without credentials in both admission workflows",()=>{
+  type Step={name?:string;uses?:string;run?:string;with?:Record<string,unknown>};
+  type Workflow={jobs:Record<string,{steps?:Step[]}>};
+  const yamlLoad=createRequire(import.meta.url)("js-yaml").load as (s:string)=>Workflow;
+  const gateLine="node scripts/supervisor-owner-push-pending.mjs gate";
+  for(const path of [".github/workflows/supervisor-review-repair.yml",
+                     ".github/workflows/proffera-ci-autofix.yml"]){
+   const workflow=yamlLoad(readFileSync(path,"utf8"));
+   const jobs=Object.values(workflow.jobs).filter(j=>j.steps?.some(s=>s.run?.includes(gateLine)));
+   expect(jobs,path+": exactly one gate job").toHaveLength(1);
+   const steps=jobs[0].steps||[],gateIndex=steps.findIndex(s=>s.run?.includes(gateLine));
+   const checkouts=steps.slice(0,gateIndex).filter(s=>s.uses?.startsWith("actions/checkout@"));
+   expect(checkouts,path+": checkout before gate").toHaveLength(1);
+   expect(checkouts[0].with?.["fetch-depth"]).toBe(0);
+   expect(checkouts[0].with?.["persist-credentials"]).toBe(false);
+  }
+ });
+});
+
 describe("production gate with a retained artifact and an advanced branch",()=>{
- it.each(["valid","publication-after-gate","publication-after-head-check","missing-parent","tampered-bundle","race-before-post","race-after-post","branch-moved","ambiguous-publication","merged-expired-approved","merged-retained-approved","merged-expired-cancelled"] as const)(
+ it.each(["valid","publication-after-gate","publication-after-head-check","missing-parent","tampered-bundle","race-before-post","race-after-post","branch-moved","ambiguous-publication","merged-expired-approved","merged-retained-approved","merged-expired-cancelled","unresolved-no-owner"] as const)(
   "authenticated cancellation with retained artifact: %s",async scenario=>{
   const parentAvailable=scenario!=="missing-parent",tampered=scenario==="tampered-bundle";
   const actual=await vi.importActual<typeof import("node:child_process")>("node:child_process");
   const pending=fixture(),advanced="9".repeat(40),base=pending.value;
   const merged=scenario.startsWith("merged-");
-  const expired=scenario.startsWith("merged-expired-");
+  const expired=scenario.startsWith("merged-expired-")||scenario==="unresolved-no-owner";
   const approved=scenario.endsWith("-approved");
   const laneFile="proffera-review-repair-owner-handoff";
   const bundle=Buffer.from(tampered?"retained bundle with mismatched HEAD":"bounded retained bundle bytes");
@@ -318,7 +338,7 @@ describe("production gate with a retained artifact and an advanced branch",()=>{
   const p={...base,artifact_digest:digest(zip),bundle_digest:digest(bundle),
    manifest_digest:digest(manifest),observed_at:expired?"2026-09-01T19:00:00.000Z":new Date().toISOString()};
   const text=make("pending","review_repair:81:1",p),key=digest(Buffer.from(text));
-  const comments:ReturnType<typeof bot>[]=[bot(text),owner("<!-- proffera-owner-push-"+(approved?"approve":"cancel")+":v1:"+key+" -->")];
+  const comments:ReturnType<typeof bot>[]=[bot(text),...(scenario==="unresolved-no-owner"?[]:[owner("<!-- proffera-owner-push-"+(approved?"approve":"cancel")+":v1:"+key+" -->")])];
   const steps=(...names:string[])=>names.map(name=>({name,status:"completed",conclusion:"success"}));
   const job=(name:string,id:number,names:string[])=>({name,id,status:"completed",
    conclusion:"success",steps:steps(...names)});
@@ -334,7 +354,7 @@ describe("production gate with a retained artifact and an advanced branch",()=>{
    workflow_run:{id:81},expired,digest:"sha256:"+digest(zip)};
   const good=(stdout:string|Buffer)=>({status:0,stdout,stderr:"",error:undefined});
   const bad=(msg:string)=>({status:1,stdout:"",stderr:msg,error:undefined});
-  let fetchHead="",parentFetched=false,posts=0,revLists=0,afterGatePublication=false;
+  let fetchHead="",parentFetched=false,posts=0,revLists=0,afterGatePublication=false,artifactRequests=0;
   const fake=((bin:string,args:string[])=>{
    if(bin==="gh"&&args[0]==="api"){
     if(args[1]==="--paginate"&&args[2]==="--slurp"){
@@ -349,9 +369,9 @@ describe("production gate with a retained artifact and an advanced branch",()=>{
     }
     const endpoint=args[1];
     if(endpoint==="repos/"+repo+"/actions/runs/81/attempts/1")return good(JSON.stringify(run));
-    if(endpoint==="repos/"+repo+"/actions/runs/81/artifacts?per_page=100")
-     return good(JSON.stringify({artifacts:[artifact]}));
-    if(endpoint==="repos/"+repo+"/actions/artifacts/401/zip")return good(zip);
+    if(endpoint==="repos/"+repo+"/actions/runs/81/artifacts?per_page=100"){
+     artifactRequests++;return good(JSON.stringify({artifacts:[artifact]}));}
+    if(endpoint==="repos/"+repo+"/actions/artifacts/401/zip"){artifactRequests++;return good(zip);}
     if(endpoint==="repos/"+repo+"/pulls/"+pr)return good(JSON.stringify({
      state:merged?"closed":"open",merged,base:{ref:"main"},head:{ref:p.branch,sha:(scenario==="branch-moved"&&revLists>=2)?"7".repeat(40):advanced,
       repo:{full_name:repo}},user:{login:"ibboabdoli-ai"},
@@ -413,7 +433,13 @@ describe("production gate with a retained artifact and an advanced branch",()=>{
   }) as typeof spawnSync;
   vi.mocked(spawnSync).mockImplementation(fake);
   try{
-   if(merged){
+   if(scenario==="unresolved-no-owner"){
+    // Expired unresolved artifacts are not re-fetched before an owner decision.
+    expect(gate({PR_NUMBER:String(pr)})).toEqual({allow:false,unresolved:1,records:1});
+    expect(artifactRequests).toBe(0);
+    expect(posts).toBe(0);
+    expect(admission(comments,pr)).toMatchObject({allow:false,unresolved:1});
+   }else if(merged){
     if(approved){
      expect(gate({PR_NUMBER:String(pr)})).toEqual({allow:false,unresolved:0,records:1});
      expect(posts).toBe(1);
