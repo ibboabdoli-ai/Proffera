@@ -5685,15 +5685,17 @@ esac
     expect(failure).toContain("No reservation was acquired and no Worker was invoked");
   });
 
-  it("keeps every failure before reservation acquisition retryable", () => {
-    for (const capacityBlocked of [false, true]) {
-      const result = runDispatchFailureState({ capacityBlocked });
-      expect(result.status, result.stderr).toBe(0);
-      expect(result.body).toContain("- State: `TASK_BLOCKED`");
-      expect(result.body).toMatch(/no Worker was invoked/iu);
-      expect(result.body).toContain("same task may be resubmitted");
-    }
+  // Each independent Bash/helper invocation gets the normal per-test budget;
+  // concurrent suites must not accumulate all three process runtimes in one test.
+  it.each([false, true])("keeps failure before reservation acquisition retryable (capacity blocked: %s)", (capacityBlocked) => {
+    const result = runDispatchFailureState({ capacityBlocked });
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.body).toContain("- State: `TASK_BLOCKED`");
+    expect(result.body).toMatch(/no Worker was invoked/iu);
+    expect(result.body).toContain("same task may be resubmitted");
+  });
 
+  it("keeps failure after reservation acquisition Worker-blocked", () => {
     const postReservation = runDispatchFailureState({ reservationCommentId: "101" });
     expect(postReservation.status, postReservation.stderr).toBe(0);
     expect(postReservation.body).toContain("- State: `WORKER_BLOCKED`");
