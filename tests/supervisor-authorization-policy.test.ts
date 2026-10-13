@@ -193,7 +193,7 @@ describe("canonical Supervisor authorization ownership", () => {
     expect(blocked.matches.some((m:{path:string})=>m.path==="src/lib/auth.ts")).toBe(true);
     const oversized=Array.from({length:3001},(_,i)=>({filename:`src/components/huge-${i}.tsx`}));
     expect(qualifyPullRequestFiles(3001,oversized)).toMatchObject({
-      ok:false,eligible:false,code:"repository_path_policy_invalid"
+      ok:true,eligible:false,allowed:false,code:"pull_request_file_evidence_unbounded"
     });
     expect(qualifyPullRequestFiles(3000,oversized)).toMatchObject({
       ok:true,eligible:false,code:"pull_request_file_evidence_incomplete"
@@ -205,6 +205,31 @@ describe("canonical Supervisor authorization ownership", () => {
     expect(qualifyPullRequestFiles(1,[{filename:"../unsafe.tsx"}])).toMatchObject({
       ok:false,eligible:false,code:"repository_path_policy_invalid"
     });
+  });
+
+  it("exits qualification successfully without proceeding when GitHub cannot return all 3001 files", () => {
+    const workflow = readFileSync(new URL("../.github/workflows/proffera-ci-autofix.yml", import.meta.url), "utf8");
+    const start = workflow.indexOf('          qualification="$(jq -n --arg expected_changed_files');
+    const end = workflow.indexOf('          while IFS= read -r file;', start);
+    expect(start).toBeGreaterThan(0);
+    expect(end).toBeGreaterThan(start);
+    const files = mkdtempSync(join(tmpdir(), "proffera-unbounded-pr-files-"));
+    try {
+      const evidence = join(files, "files.json");
+      writeFileSync(evidence, JSON.stringify(Array.from({length: 3000}, (_, i) => ({filename: `src/components/${i}.tsx`}))));
+      const result = spawnSync("bash", ["-c", "set -euo pipefail\n" + workflow.slice(start, end) + '\nprintf "PROCEEDED\n"'], {
+        encoding: "utf8",
+        env: {...process.env, expected_changed_files: "3001", changed_file_records_file: evidence,
+          trusted_policy_dir: join(process.cwd(), "scripts"), pr_number: "941"},
+      });
+      expect(result.status, result.stderr).toBe(0);
+      expect(result.stdout).toContain("pull_request_file_evidence_unbounded");
+      expect(result.stdout).not.toContain("PROCEEDED");
+      for (const invalid of [-1, "-1", "unknown", "9007199254740992"]) {
+        expect(policyDecision("qualify-pull-files", {expected_changed_files: invalid, files: []}))
+          .toMatchObject({ok: false, eligible: false, allowed: false});
+      }
+    } finally { rmSync(files, {recursive: true, force: true}); }
   });
 
   it("accounts for all pages and both rename directions before qualification", () => {

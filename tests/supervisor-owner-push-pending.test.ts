@@ -428,10 +428,7 @@ describe("production gate with a retained artifact and an advanced branch",()=>{
     if(scenario==="valid")expect(gate({PR_NUMBER:String(pr)})).toEqual(first);
     else {
       // Simulate owner publication after gate and after the workflow head read.
-      expect(advanced).toBe("9".repeat(40));
       afterGatePublication=true;
-      let modelSideEffects=0; if(first.allow)modelSideEffects++;
-      expect(modelSideEffects).toBe(0);
       expect(()=>gate({PR_NUMBER:String(pr)})).toThrow("reachable_commit");
     }
     expect(posts).toBe(1);

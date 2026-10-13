@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { readFileSync, mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
+import { existsSync, readFileSync, mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
@@ -706,21 +706,73 @@ describe("CI Autofix workflow accounting boundary", () => {
     expect(model.with).not.toHaveProperty("model");
   });
 
-  it("rejects unattended CI Autofix publication despite a valid candidate", () => {
-    const stage = run("publish", "Stage CI Autofix commit for owner push");
-    const upload = step("publish", "Upload CI Autofix owner handoff");
-    expect(stage).toContain('test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"');
-    expect(stage).toContain('test "$(git show -s --format=%P "$NEW_HEAD")" = "$EXPECTED_HEAD"');
-    expect(stage).toContain('test "$(git rev-parse "${NEW_HEAD}^{tree}")" = "$VALIDATED_TREE"');
-    expect(stage).toContain(".head.sha");
-    expect(stage).toContain(".head.ref");
-    expect(stage).toContain('git bundle create "$bundle" HEAD "^${EXPECTED_HEAD}"');
-    expect(upload.uses).toContain("actions/upload-artifact@");
-    expect(upload.with?.["if-no-files-found"]).toBe("error");
-    expect(stage).not.toContain("git push");
-    expect(stage).not.toContain("gh pr merge");
-    expect(stage).not.toContain("PUSH_TOKEN");
-  });
+  it.each(["valid", "wrong-head", "wrong-parent", "wrong-tree", "remote-head-moved", "wrong-branch"])(
+    "executes real CI Autofix owner staging and bundle guards (%s)", (scenario) => {
+      const root = mkdtempSync(join(tmpdir(), "ci-autofix-owner-staging-"));
+      const repo = join(root, "repo");
+      const artifacts = join(root, "artifacts");
+      mkdirSync(repo); mkdirSync(artifacts);
+      const git = (...args: string[]) => {
+        const result = spawnSync("git", args, {cwd: repo, encoding: "utf8"});
+        expect(result.status, result.stderr).toBe(0);
+        return result.stdout.trim();
+      };
+      try {
+        git("init", "-q");
+        git("config", "user.name", "Fixture");
+        git("config", "user.email", "fixture@example.invalid");
+        writeFileSync(join(repo, "candidate.txt"), "baseline\n");
+        git("add", "."); git("commit", "-qm", "baseline");
+        const parent = git("rev-parse", "HEAD");
+        const baseTree = git("rev-parse", "HEAD^{tree}");
+        writeFileSync(join(repo, "candidate.txt"), "repair\n"); git("add", ".");
+        const tree = git("write-tree");
+        const wrongParent = git("commit-tree", baseTree, "-p", parent, "-m", "unexpected parent");
+        const next = git("commit-tree", tree, "-p", scenario === "wrong-parent" ? wrongParent : parent, "-m", "repair");
+        git("checkout", "--detach", "-q", parent); git("reset", "--hard", "-q", parent); git("read-tree", tree);
+        const branch = "work/proffera-fixture";
+        const prJson = JSON.stringify({head: {sha: scenario === "remote-head-moved" ? wrongParent : parent,
+          ref: branch, repo: {full_name: repository}}, base: {ref: "main", sha: parent}, user: {login: "ibboabdoli-ai"}});
+        const gh = 'gh() { test "$*" = "api repos/' + repository + '/pulls/934" || return 1; printf "%s\\n" "$PR_JSON"; }\n';
+        const result = spawnSync("bash", ["-c", gh + run("publish", "Stage CI Autofix commit for owner push")], {
+          cwd: repo, encoding: "utf8", timeout: 15000,
+          env: {...process.env, EXPECTED_HEAD: scenario === "wrong-head" ? wrongParent : parent,
+            NEW_HEAD: next, VALIDATED_TREE: scenario === "wrong-tree" ? baseTree : tree,
+            HEAD_REF: scenario === "wrong-branch" ? "work/proffera-other" : branch,
+            REPOSITORY: repository, PR_NUMBER: "934", PR_JSON: prJson,
+            RUNNER_TEMP: artifacts, GITHUB_OUTPUT: join(root, "outputs"), GITHUB_STEP_SUMMARY: join(root, "summary"),
+            GITHUB_RUN_ID: "50", GITHUB_RUN_ATTEMPT: "1", GIT_CONFIG_NOSYSTEM: "1", GIT_CONFIG_GLOBAL: "/dev/null"},
+        });
+        const bundle = join(artifacts, "proffera-ci-autofix-owner-handoff.bundle");
+        expect(readFileSync(join(root, "outputs"), "utf8")).toContain("published=no");
+        if (scenario !== "valid") {
+          expect(result.status, result.stdout + result.stderr).not.toBe(0);
+          expect(existsSync(bundle)).toBe(false);
+          expect(git("rev-parse", "HEAD")).toBe(parent);
+        } else {
+          expect(result.status, result.stdout + result.stderr).toBe(0);
+          git("bundle", "verify", bundle);
+          expect(git("bundle", "list-heads", bundle)).toBe(next + " HEAD");
+          const header = readFileSync(bundle).subarray(0, 160).toString();
+          expect(header).toContain("-" + parent + " ");
+          const recipient = join(root, "recipient"); mkdirSync(recipient);
+          const receive = (...args: string[]) => {
+            const r = spawnSync("git", args, {cwd: recipient, encoding: "utf8"});
+            expect(r.status, r.stderr).toBe(0); return r.stdout.trim();
+          };
+          receive("init", "-q"); receive("fetch", "--no-tags", repo, parent);
+          receive("fetch", "--no-tags", bundle, "HEAD");
+          expect(receive("rev-list", parent + "..FETCH_HEAD")).toBe(next);
+          expect(receive("rev-parse", "FETCH_HEAD^{tree}")).toBe(tree);
+          expect(JSON.parse(readFileSync(join(artifacts, "proffera-ci-autofix-owner-handoff.json"), "utf8")))
+            .toMatchObject({state: "OWNER_PUSH_REQUIRED", published: false, parent_sha: parent, head_sha: next, tree_sha: tree});
+        }
+        const upload = step("publish", "Upload CI Autofix owner handoff");
+        expect(upload.uses).toMatch(/^actions\/upload-artifact@[a-f0-9]{40}$/);
+        expect(upload.with?.["if-no-files-found"]).toBe("error");
+      } finally { rmSync(root, {recursive: true, force: true}); }
+    },
+  );
 
   it("rejects selective job reruns with cached admission and superseded source attempts before model execution", () => {
     const dir = mkdtempSync(join(tmpdir(), "ci-autofix-model-boundary-"));

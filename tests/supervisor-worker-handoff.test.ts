@@ -1,4 +1,4 @@
-import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { delimiter, join, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
@@ -5433,11 +5433,6 @@ esac
     expect(cleanup).toContain("Checkout exact cleanup baseline");
     expect(reconcile).toContain('actions/runs/${RUN_ID}/artifacts?per_page=100');
     expect(reconcile).toContain('actions/artifacts/${artifact_id}/zip');
-    expect(reconcile).toContain('archive_layout=owner');
-    expect(reconcile).toContain('archive_layout=legacy');
-    expect(reconcile).toContain('test "$(git rev-parse FETCH_HEAD)" = "$head_sha"');
-    expect(reconcile).toContain('test "$(git rev-parse \'FETCH_HEAD^{tree}\')" = "$target_tree_sha"');
-    expect(reconcile).toContain('git bundle verify "$owner_bundle"');
     expect(reconcile).toContain('actual_recovery_digest="$(sha256sum "$recovery_artifact"');
     expect(reconcile).toContain('node "$helper" validate-publication');
     expect(reconcile).toContain('--arg expected_target_head "$head_sha"');
@@ -5462,6 +5457,67 @@ esac
     expect(finalize).toContain('target_tree_sha="$(git rev-parse HEAD^{tree})"');
     expect(finalize).toContain(".target_tree_sha=$target_tree_sha");
   });
+
+  it.each(["valid", "tampered-manifest", "wrong-parent", "extra-member"])(
+    "executes reconcile owner-layout ZIP validation with real Git and jq (%s)", (scenario) => {
+      const root = mkdtempSync(join(tmpdir(), "proffera-owner-zip-validation-"));
+      const repo = join(root, "repo"); const members = join(root, "members"); const temporary = join(root, "runner");
+      mkdirSync(repo); mkdirSync(members); mkdirSync(temporary);
+      const git = (...args: string[]) => {
+        const r = spawnSync("git", args, {cwd: repo, encoding: "utf8"});
+        expect(r.status, r.stderr).toBe(0); return r.stdout.trim();
+      };
+      const digest = (bytes: string | Buffer) => createHash("sha256").update(bytes).digest("hex");
+      try {
+        git("init", "-q"); git("config", "user.name", "Fixture"); git("config", "user.email", "fixture@example.invalid");
+        writeFileSync(join(repo, "candidate.txt"), "baseline\n"); git("add", "."); git("commit", "-qm", "baseline");
+        const base = git("rev-parse", "HEAD");
+        writeFileSync(join(repo, "candidate.txt"), "repair\n"); git("add", "."); const tree = git("write-tree");
+        const wrongParent = git("commit-tree", tree, "-p", base, "-m", "unexpected parent");
+        const next = git("commit-tree", tree, "-p", scenario === "wrong-parent" ? wrongParent : base, "-m", "repair");
+        git("update-ref", "HEAD", next, base);
+        const bundle = join(members, "proffera-owner-handoff.bundle"); git("bundle", "create", bundle, "HEAD", "^" + base);
+        git("reset", "--hard", "-q", base);
+        const recovery = "{}\n"; const bundleDigest = digest(readFileSync(bundle)); const recoveryDigest = digest(recovery);
+        writeFileSync(join(members, "proffera-publication-artifact.json"), recovery);
+        writeFileSync(join(members, "proffera-owner-handoff.bundle.sha256"), bundleDigest + "  proffera-owner-handoff.bundle\n");
+        writeFileSync(join(members, "proffera-owner-handoff.json"), JSON.stringify({
+          state: "OWNER_PUSH_REQUIRED", published: false, repository: "ibboabdoli-ai/Proffera",
+          branch: "work/proffera-fixture", task_id: "SUP-TEST", base_sha: base, parent_sha: base,
+          head_sha: scenario === "tampered-manifest" ? base : next, tree_sha: tree,
+          bundle_sha256: bundleDigest, recovery_sha256: recoveryDigest, run_id: 51, run_attempt: 1,
+        }));
+        const entries = ["proffera-publication-artifact.json", "proffera-owner-handoff.bundle",
+          "proffera-owner-handoff.bundle.sha256", "proffera-owner-handoff.json"];
+        if (scenario === "extra-member") {writeFileSync(join(members, "unexpected.txt"), "unexpected archive member");entries.push("unexpected.txt");}
+        const archive = join(root, "handoff.zip");
+        const zipped = spawnSync("zip", ["-q", archive, ...entries], {cwd: members, encoding: "utf8"});
+        expect(zipped.status, zipped.stderr).toBe(0);
+        const workflow = source(".github/workflows/supervisor-worker-handoff.yml");
+        const reconcile = workflowRunStep(workflow, "Reconcile exact stranded reservation after publish setup failure");
+        const start = reconcile.indexOf('archive_entries="$(unzip -Z1');
+        const end = reconcile.indexOf('live_source="$(gh api', start);
+        expect(start).toBeGreaterThan(0); expect(end).toBeGreaterThan(start);
+        // Execute the complete local archive boundary; transport and later state mutation are outside this test.
+        const r = spawnSync("bash", ["-c", "set -euo pipefail\n" + reconcile.slice(start, end) + '\nprintf "OWNER_ARCHIVE_VALIDATED\\n"'], {
+          cwd: repo, encoding: "utf8", timeout: 15000,
+          env: {...process.env, RUNNER_TEMP: temporary, archive, recovery_artifact: join(root, "recovery.json"),
+            recovery_digest: recoveryDigest, REPOSITORY: "ibboabdoli-ai/Proffera", BRANCH: "work/proffera-fixture",
+            TASK_ID: "SUP-TEST", BASE_SHA: base, head_sha: next, target_tree_sha: tree, RUN_ID: "51"},
+        });
+        if (scenario === "valid") {
+          expect(r.status, r.stdout + r.stderr).toBe(0);
+          expect(r.stdout).toContain("OWNER_ARCHIVE_VALIDATED");
+          expect(git("rev-parse", "FETCH_HEAD")).toBe(next);
+          expect(git("rev-parse", "FETCH_HEAD^" )).toBe(base);
+        } else {
+          expect(r.status, r.stdout + r.stderr).not.toBe(0);
+          expect(r.stdout).not.toContain("OWNER_ARCHIVE_VALIDATED");
+          if (scenario !== "wrong-parent") expect(existsSync(join(repo, ".git", "FETCH_HEAD"))).toBe(false);
+        }
+      } finally { rmSync(root, {recursive: true, force: true}); }
+    },
+  );
 
   it("defers uploaded failure artifacts to independent trusted cleanup validation", () => {
     const workflow = source(".github/workflows/supervisor-worker-handoff.yml");

@@ -136,13 +136,26 @@ export function qualifyPullRequestFiles(expectedChangedFilesInput, filesInput) {
   try {
     if (!(Number.isSafeInteger(expectedChangedFilesInput)
       || typeof expectedChangedFilesInput === "string" && /^\d+$/.test(expectedChangedFilesInput))) {
-      throw new Error("expected_changed_files must be an integer between 0 and 3000");
+      throw new Error("expected_changed_files must be a non-negative safe integer");
     }
     const expectedChangedFiles = Number(expectedChangedFilesInput);
-    if (expectedChangedFiles < 0 || expectedChangedFiles > 3000) {
-      throw new Error("expected_changed_files must be an integer between 0 and 3000");
+    if (!Number.isSafeInteger(expectedChangedFiles) || expectedChangedFiles < 0) {
+      throw new Error("expected_changed_files must be a non-negative safe integer");
     }
     if (!Array.isArray(filesInput)) throw new Error("pull_request_files must be an array");
+    // GitHub caps PR file evidence at 3000 records. A valid larger PR is
+    // ineligible, not malformed; never authorize its truncated path list.
+    if (expectedChangedFiles > 3000) {
+      return {
+        ok: true,
+        eligible: false,
+        allowed: false,
+        code: "pull_request_file_evidence_unbounded",
+        reason: `cannot establish complete file evidence for ${expectedChangedFiles} changed files`,
+        paths: [],
+        matches: [],
+      };
+    }
     if (filesInput.length !== expectedChangedFiles) {
       return {
         ok: true,
