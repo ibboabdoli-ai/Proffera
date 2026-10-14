@@ -37,6 +37,8 @@ export async function saveMariaScheduleAction(formData: FormData) {
   if (!sql) redirect("/dashboard/maria?error=database");
   try {
     await sql.transaction([
+      // The appointment-time edit must not race an in-flight confirmation.
+      sql`select pg_advisory_xact_lock(hashtextextended(${access.workspaceId}::text, 713))`,
       ...days.map(d=>sql`
         insert into workspace_booking_hours
           (workspace_id,weekday,opens_at,closes_at,is_closed)
