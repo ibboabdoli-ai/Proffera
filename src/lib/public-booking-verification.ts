@@ -156,6 +156,10 @@ export async function beginBookingEmailVerification(input: BeginBookingVerificat
               and w.public_booking_slug='makeup-by-maria' and w.status in ('active','trial')
               and s.id=${input.serviceId}::uuid and s.is_active=true and s.public_status='published'
               and s.duration_minutes between 1 and 1440
+              and ${input.startsAt}::timestamptz >= now()
+                + (s.minimum_notice_minutes * interval '1 minute')
+              and ${input.startsAt}::timestamptz <= now()
+                + (s.maximum_advance_days * interval '1 day')
               and ${input.staffId || null}::uuid is null
               and h.is_closed=false
               and (${input.startsAt}::timestamptz at time zone 'Europe/Stockholm')::time
@@ -372,6 +376,11 @@ export async function verifyPublicBookingCode(id: string, code: string, language
   let customerId: string;
 
   if (String(challenge.public_booking_slug) === "makeup-by-maria") {
+    // A preview booking must never be created if its customer links cannot
+    // be generated on the same isolated Preview deployment.
+    if (process.env.VERCEL_ENV !== "preview" || !process.env.VERCEL_URL) {
+      return { ok: false as const, error: "unavailable" };
+    }
     // Revalidates the code and the latest start window, service duration,
     // publication, buffer and all Maria bookings/holds under the same
     // workspace-scoped transaction lock used when a hold is created.
