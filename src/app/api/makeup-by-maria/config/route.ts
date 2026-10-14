@@ -39,7 +39,8 @@ export async function GET() {
 
     const [services, hours, bookingReadiness] = await Promise.all([
       sql`
-        select public_slug, price_type, price_amount_minor, is_active
+        select public_slug, price_type, price_amount_minor, is_active,
+          public_status, duration_minutes
         from workspace_services
         where workspace_id = ${workspaceId}
           and public_slug ~ '^maria-bridal-(trial|without-trial)-(202[6-9]|203[0-6])$'
@@ -96,6 +97,23 @@ export async function GET() {
       without: defaults.get(2026)?.without ?? undefined,
     };
 
+    // Only explicitly published, active services with a real duration can
+    // offer slots when verified booking is deliberately enabled in Preview.
+    const bookableDurations: Record<string, Record<string, number>> = {};
+    if (bookingReadiness.enabled) {
+      for (const row of services) {
+        if (row.public_status !== "published" || row.is_active !== true) continue;
+        const match = /^maria-bridal-(trial|without-trial)-(202[6-9]|203[0-6])$/.exec(String(row.public_slug));
+        const duration = Number(row.duration_minutes);
+        if (!match || !Number.isSafeInteger(duration) || duration < 1 || duration > 1440) continue;
+        const year = match[2];
+        const kind = match[1] === "trial" ? "trial" : "without";
+        const durationsForYear = bookableDurations[year] ?? {};
+        durationsForYear[kind] = duration;
+        bookableDurations[year] = durationsForYear;
+      }
+    }
+
     const schedule = hours
       .filter((row) => !row.is_closed)
       .map((row) => ({
@@ -114,6 +132,7 @@ export async function GET() {
       connected: true,
       previewOnly: true,
       bookingEnabled: bookingReadiness.enabled,
+      bookableDurations,
       editorPreview: canPreviewDrafts,
       prices2026,
       years,
