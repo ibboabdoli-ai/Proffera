@@ -342,6 +342,7 @@ export async function verifyPublicBookingCode(id: string, code: string, language
     await sql`
       update public_booking_verifications set attempts=attempts+1,updated_at=now()
       where id=${id}::uuid and consumed_at is null and verified_at is null
+        and code_hash=${String(challenge.code_hash)}
         and attempts<max_attempts
     `;
     return { ok: false as const, error: "code" };
