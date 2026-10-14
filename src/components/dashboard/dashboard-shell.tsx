@@ -192,7 +192,7 @@ type NavigationLinksProps = {
   enabledFeatures?: WorkspaceFeatureKey[];
   canManageSettings: boolean;
   restaurantEnabled?: boolean;
-  mariaEnabled?: boolean; mariaEnabled?: boolean;
+  mariaEnabled?: boolean;
   onNavigate?: () => void;
 };
 
@@ -243,7 +243,7 @@ function WorkspaceSwitcher({ workspaceId, workspaceOptions, locale }: { workspac
   return <form action={switchWorkspaceAction} className="mt-6 rounded-2xl border border-white/10 bg-white/[0.06] p-3"><input type="hidden" name="lang" value={locale} /><label className="grid gap-2 text-[10px] font-bold uppercase tracking-[0.16em] text-[#b8cbe2]">{text.switchWorkspace}<select name="workspace_id" defaultValue={workspaceId} className="min-h-11 w-full rounded-xl border border-white/15 bg-[#0d3f83] px-3 text-sm font-semibold normal-case tracking-normal text-white outline-none">{workspaceOptions.map((workspace) => <option key={workspace.id} value={workspace.id}>{workspace.name}</option>)}</select></label><button type="submit" className="mt-2 min-h-11 w-full rounded-xl bg-white px-3 text-sm font-bold text-[#0a2e63]">{text.switchWorkspace}</button></form>;
 }
 
-export function DashboardShell({ children, workspaceName = "Proffera", workspaceId, workspaceOptions = [], moduleAccess, enabledFeatures, canManageSettings = false, restaurantEnabled = false, mariaEnabled = false }: Readonly<{ children: React.ReactNode; workspaceName?: string; workspaceId?: string; workspaceOptions?: WorkspaceOption[]; moduleAccess?: ProfferaModuleAccess[]; enabledFeatures?: WorkspaceFeatureKey[]; canManageSettings?: boolean; restaurantEnabled?: boolean }>) {
+export function DashboardShell({ children, workspaceName = "Proffera", workspaceId, workspaceOptions = [], moduleAccess, enabledFeatures, canManageSettings = false, restaurantEnabled = false, mariaEnabled = false }: Readonly<{ children: React.ReactNode; workspaceName?: string; workspaceId?: string; workspaceOptions?: WorkspaceOption[]; moduleAccess?: ProfferaModuleAccess[]; enabledFeatures?: WorkspaceFeatureKey[]; canManageSettings?: boolean; restaurantEnabled?: boolean; mariaEnabled?: boolean }>) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const searchParamsString = searchParams.toString();
