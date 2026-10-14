@@ -8,7 +8,11 @@ import { canManageWorkspaceSettings, getUserWorkspaceAccess } from "@/lib/worksp
 // matching workspace. No booking submissions or customer details are exposed.
 export const dynamic = "force-dynamic";
 const headers = { "Cache-Control": "private, no-store, max-age=0" };
-const demo = { connected: false, previewOnly: true, prices2026: {}, hours: [] };
+const demo = { connected: false, previewOnly: true, prices2026: {}, years: [
+  { year: 2026, enabled: true, trial: 6800, without: 5800 },
+  { year: 2027, enabled: true, trial: null, without: null },
+  { year: 2028, enabled: true, trial: null, without: null },
+], hours: [] };
 
 export async function GET() {
   const sql = getSql();
@@ -34,17 +38,13 @@ export async function GET() {
 
     const [services, hours] = await Promise.all([
       sql`
-        select public_slug, price_type, price_amount_minor, base_price_sek
+        select public_slug, price_type, price_amount_minor, is_active
         from workspace_services
         where workspace_id = ${workspaceId}
-          and is_active = true
-          and public_slug in (
-            'maria-bridal-trial-2026',
-            'maria-bridal-without-trial-2026'
-          )
+          and public_slug ~ '^maria-bridal-(trial|without-trial)-(202[6-9]|203[0-6])$'
           and (
             public_status = 'published'
-            or (${canPreviewDrafts}::boolean and public_status = 'draft')
+            or (${canPreviewDrafts || process.env.VERCEL_ENV === "preview"}::boolean and public_status = 'draft')
           )
       `,
       sql`
@@ -57,18 +57,42 @@ export async function GET() {
       `,
     ]);
 
-    const prices2026: Record<string, number> = {};
-    for (const service of services) {
-      const key = service.public_slug === "maria-bridal-trial-2026"
-        ? "trial"
-        : service.public_slug === "maria-bridal-without-trial-2026"
-          ? "without"
-          : null;
-      if (!key || service.price_type !== "fixed") continue;
-      const amount = Number(service.price_amount_minor);
-      if (!Number.isSafeInteger(amount) || amount < 0 || amount > 100000000) continue;
-      prices2026[key] = amount / 100;
+    // This endpoint exposes only the approved Maria demo's year/price values,
+    // never customer data. Draft values may be viewed publicly on Preview only.
+    const defaults = new Map<number, {year: number; enabled: boolean; trial: number | null; without: number | null}>([
+      [2026, {year:2026, enabled:true, trial:6800, without:5800}],
+      [2027, {year:2027, enabled:true, trial:null, without:null}],
+      [2028, {year:2028, enabled:true, trial:null, without:null}],
+    ]);
+    const saved = new Map<number, {trial?: {enabled: boolean; value: number | null}; without?: {enabled: boolean; value: number | null}}>();
+    for (const row of services) {
+      const match = /^maria-bridal-(trial|without-trial)-(202[6-9]|203[0-6])$/.exec(String(row.public_slug));
+      if (!match) continue;
+      const year = Number(match[2]);
+      const kind = match[1] === "trial" ? "trial" : "without";
+      const amount = Number(row.price_amount_minor);
+      const value = row.price_type === "fixed"
+        && row.price_amount_minor !== null && Number.isSafeInteger(amount) && amount >= 0 && amount <= 25000000
+        ? amount / 100
+        : null;
+      const item = saved.get(year) ?? {};
+      item[kind] = {enabled: row.is_active === true, value};
+      saved.set(year, item);
     }
+    for (const [year, items] of saved) {
+      const original = defaults.get(year);
+      defaults.set(year, {
+        year,
+        enabled: Boolean(items.trial?.enabled && items.without?.enabled),
+        trial: items.trial ? items.trial.value : (original?.trial ?? null),
+        without: items.without ? items.without.value : (original?.without ?? null),
+      });
+    }
+    const years = [...defaults.values()].sort((a,b)=>a.year-b.year).filter(v=>v.enabled);
+    const prices2026 = {
+      trial: defaults.get(2026)?.trial ?? undefined,
+      without: defaults.get(2026)?.without ?? undefined,
+    };
 
     const schedule = hours
       .filter((row) => !row.is_closed)
@@ -89,6 +113,7 @@ export async function GET() {
       previewOnly: true,
       editorPreview: canPreviewDrafts,
       prices2026,
+      years,
       hours: schedule,
     }, { headers });
   } catch (error) {
