@@ -265,6 +265,23 @@ function renderYears(){
 function isAllowedWeekday(weekday){
  return workspaceConfig.hours===null?[5,6].includes(weekday):workspaceConfig.hours.some(h=>h.weekday===weekday);
 }
+function displayedBookingHours(){
+ const h=workspaceConfig.hours;
+ if(!Array.isArray(h)||h.length===0)return copy().detailsPrompt;
+ const friday=h.find(item=>item.weekday===5);
+ const saturday=h.find(item=>item.weekday===6);
+ if(friday&&saturday&&friday.opensAt===saturday.opensAt&&friday.closesAt===saturday.closesAt){
+  const range=friday.opensAt+"–"+friday.closesAt;
+  if(state.lang==="en")return "Fridays and Saturdays, "+range+".";
+  if(state.lang==="ar")return "الجمعة والسبت من "+range+".";
+  return "Endast fredagar och lördagar kl. "+range+".";
+ }
+ const entries=[friday,saturday].filter(Boolean).map(h=>h.weekday===5
+  ?state.lang==="en"?"Friday "+h.opensAt+"–"+h.closesAt:state.lang==="ar"?"الجمعة "+h.opensAt+"–"+h.closesAt:"Fredag "+h.opensAt+"–"+h.closesAt
+  :state.lang==="en"?"Saturday "+h.opensAt+"–"+h.closesAt:state.lang==="ar"?"السبت "+h.opensAt+"–"+h.closesAt:"Lördag "+h.opensAt+"–"+h.closesAt);
+ if(!entries.length)return state.lang==="en"?"No booking times available.":state.lang==="ar"?"لا توجد مواعيد متاحة.":"Inga bokningstider finns tillgängliga.";
+ return entries.join(state.lang==="ar"?"، ":state.lang==="en"?" · ":" · ")+".";
+}
 const $=id=>document.getElementById(id);
 function copy(){return dict[state.lang]||dict.sv}
 function translate(){
@@ -278,7 +295,15 @@ function translate(){
   const info=liveBookingCopy[state.lang]||liveBookingCopy.sv;
   document.querySelector('[data-i="safety"]').textContent=info.safety;
   document.querySelector('[data-i="submit"]').textContent=info.submit;
+  const testNotice={
+   sv:"Testmiljö – endast provbokningar, inga riktiga kundbokningar.",
+   en:"Test environment – test bookings only, no real customer bookings.",
+   ar:"بيئة اختبار – حجوزات تجريبية فقط، وليست حجوزات حقيقية."
+  };
+  document.querySelector('[data-i="notice"]').textContent=testNotice[state.lang]||testNotice.sv;
+  document.querySelector(".first-design").hidden=true;
  }
+ document.querySelector('[data-i="detailsPrompt"]').textContent=displayedBookingHours();
  $("trialPrice").textContent=displayYearPrice("trial");
  $("withoutPrice").textContent=displayYearPrice("without");
  showBookingComplete();
