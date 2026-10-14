@@ -403,7 +403,7 @@ export async function verifyPublicBookingCode(id: string, code: string, language
       limit 1
     `;
     if (conflict[0]) return { ok: false as const, error: "conflict" };
-  
+
     const customerLockKey = `${String(challenge.workspace_id)}:${String(challenge.customer_email).toLowerCase()}`;
     const appendExistingCustomerNote = String(challenge.public_booking_slug) === "primeview" && Boolean(bookingNote);
     const [, booked] = await sql.transaction([
