@@ -194,6 +194,7 @@ const liveBookingCopy={
 };
 let workspaceConfig={
  bookingEnabled:false,
+ bookableDurations:{},
  years:[
   {year:2026,enabled:true,trial:6800,without:5800},
   {year:2027,enabled:true,trial:null,without:null},
@@ -297,7 +298,11 @@ function buildTimes(){
  if(!interval)return;
  const toMinutes=t=>Number(t.slice(0,2))*60+Number(t.slice(3,5));
  const start=toMinutes(interval.opensAt),end=toMinutes(interval.closesAt);
+ const duration=workspaceConfig.bookingEnabled
+  ?workspaceConfig.bookableDurations[String(state.year)]?.[state.kind]??Infinity
+  :0;
  for(let n=start;n<=end&&n<=1439;n+=30){
+  if(n+duration>end)continue;
   const value=String(Math.floor(n/60)).padStart(2,"0")+":"+String(n%60).padStart(2,"0");
   s.add(new Option(value,value));
  }
@@ -354,6 +359,18 @@ async function loadMariaWorkspace(){
   const config=await response.json();
   if(!config||config.connected!==true)return;
   workspaceConfig.bookingEnabled=config.bookingEnabled===true;
+  if(workspaceConfig.bookingEnabled&&config.bookableDurations&&typeof config.bookableDurations==="object"){
+   const accepted={};
+   for(const [year,packages] of Object.entries(config.bookableDurations)){
+    if(!/^(202[6-9]|203[0-6])$/.test(year)||!packages||typeof packages!=="object")continue;
+    accepted[year]={};
+    for(const kind of ["trial","without"]){
+     const duration=packages[kind];
+     if(Number.isSafeInteger(duration)&&duration>=1&&duration<=1440)accepted[year][kind]=duration;
+    }
+   }
+   workspaceConfig.bookableDurations=accepted;
+  }
   if(Array.isArray(config.years)){
    const parsed=config.years
     .filter(y=>y&&Number.isInteger(y.year)&&y.year>=2026&&y.year<=2036&&y.enabled===true
