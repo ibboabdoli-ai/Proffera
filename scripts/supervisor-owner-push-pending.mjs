@@ -209,10 +209,11 @@ function verifyArtifact(p,auth,artifactId,{ownerResolution=false}={}){
   verifyHandoffManifest(p,v);
   const path=join(dir,"candidate.bundle");writeFileSync(path,bundle);
   const resolutionState=ownerResolution?readPR(p,{historicalResolution:true}):null;
+  let observedBranchSha=null;
   if(!resolutionState?.mergedHistory){
    authenticatedGitFetch("refs/heads/"+p.branch);
-   verifyHandoffBranch(cmd("git",["rev-parse","FETCH_HEAD"]).trim(),
-    p.parent_sha,p.head_sha,ownerResolution);
+   observedBranchSha=cmd("git",["rev-parse","FETCH_HEAD"]).trim();
+   verifyHandoffBranch(observedBranchSha,p.parent_sha,p.head_sha,ownerResolution);
   }
   // A retained bundle can omit its parent; fetch the authenticated prerequisite
   // explicitly even if the live branch has moved away from the staged parent.
@@ -226,7 +227,8 @@ function verifyArtifact(p,auth,artifactId,{ownerResolution=false}={}){
    &&cmd("git",["rev-parse","FETCH_HEAD^"]).trim()===p.parent_sha,"bundle_ancestry");
   return {artifact_id:artifactId,artifact_digest:sha256(zip),bundle_digest:bundleDigest,
     manifest_digest:sha256(manifestBytes),workflow_id:auth.run.workflow_id,
-    publish_job_id:auth.publish.id,model_job_id:auth.model.id,validation_job_id:auth.validate.id};
+    publish_job_id:auth.publish.id,model_job_id:auth.model.id,validation_job_id:auth.validate.id,
+    observedBranchSha};
  }finally{rmSync(dir,{recursive:true,force:true});}
 }
 function post(bodyText){
@@ -251,7 +253,7 @@ export function record(env){
  const live=readPR(p);
  check([p.parent_sha,p.head_sha].includes(live.branch)&&live.pr.base.sha===p.base_sha,"stale_parent");
  const auth=trustedRun(p);
- const att=verifyArtifact(p,auth,Number(env.ARTIFACT_ID));
+ const {observedBranchSha,...att}=verifyArtifact(p,auth,Number(env.ARTIFACT_ID));
  const value={version:1,...p,...att,observed_at:new Date().toISOString()};
  const key=p.lane+":"+p.run_id+":"+p.run_attempt;
  const proposed=body("pending",key,value);
@@ -276,7 +278,9 @@ export function record(env){
  check(!comments.some(c=>c.user?.login==="github-actions[bot]"&&
   c.issue_url?.toLowerCase()===ISSUE_URL.toLowerCase()&&c.body?.startsWith(ciMarker)),"prior_ci_terminal");
  const finalLive=readPR(p);
- check(verifyRecordBranch(live.branch,finalLive.branch,p.parent_sha,p.head_sha)
+ check(verifyRecordBranch(live.branch,observedBranchSha,p.parent_sha,p.head_sha)
+   &&verifyRecordBranch(observedBranchSha,finalLive.branch,p.parent_sha,p.head_sha)
+   &&verifyRecordBranch(live.branch,finalLive.branch,p.parent_sha,p.head_sha)
    &&finalLive.pr.base.sha===p.base_sha,"record_revalidation");
  const history=admission(comments,p.pr_number);
  // Record mode is another admission surface after the workflow gate.

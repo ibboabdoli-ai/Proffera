@@ -400,7 +400,7 @@ describe("trusted Git history at owner-push admission",()=>{
 });
 
 describe("executed owner-push pending recorder after exact owner publication",()=>{
- it.each(["parent","already-published","published-during-auth","unrelated-head","rewound-after-auth"] as const)(
+ it.each(["parent","already-published","published-during-auth","unrelated-head","rewound-after-auth","rewound-after-fetched-tip"] as const)(
   "records authenticated handoff without relaxing owner gate: %s",async scenario=>{
    const actual=await vi.importActual<typeof import("node:child_process")>("node:child_process");
    const p=fixture().value;
@@ -489,7 +489,10 @@ describe("executed owner-push pending recorder after exact owner publication",()
         "credential.helper=!gh auth git-credential","fetch","--no-tags",
         "https://github.com/ibboabdoli-ai/Proffera.git"]);
       }
-      if(ref==="refs/heads/"+p.branch){fetchHead=firstHead;return good("");}
+      if(ref==="refs/heads/"+p.branch){
+       fetchHead=scenario==="rewound-after-fetched-tip"?p.head_sha:firstHead;
+       return good("");
+      }
       if(ref===p.parent_sha){parentFetched=true;fetchHead=p.parent_sha;return good("");}
       if(ref==="HEAD"){fetchHead=p.head_sha;return good("");}
      }
@@ -509,7 +512,7 @@ describe("executed owner-push pending recorder after exact owner publication",()
     BASE_SHA:p.base_sha,PARENT_SHA:p.parent_sha,NEW_HEAD:p.head_sha,NEW_TREE:p.tree_sha,
     FINDINGS_SHA:p.finding_digest,ARTIFACT_ID:"401",GITHUB_RUN_ID:"81",GITHUB_RUN_ATTEMPT:"1"};
    try{
-    if(scenario==="unrelated-head"||scenario==="rewound-after-auth"){
+    if(scenario==="unrelated-head"||scenario==="rewound-after-auth"||scenario==="rewound-after-fetched-tip"){
      expect(()=>record(env)).toThrow(scenario==="unrelated-head"?"stale_parent":"record_ref");
      expect(posts).toBe(0);
     }else{
