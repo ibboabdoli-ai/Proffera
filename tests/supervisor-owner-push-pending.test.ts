@@ -138,6 +138,23 @@ describe("CI Autofix current-versus-historical accounting",()=>{
   expect(classifyCiAutofixOutcome({jobs,published:"no",changed:"yes"}))
    .toEqual({persist:true,outcome:"succeeded"});
  });
+ it("grants both authenticated owner-push recorder jobs PR read without write escalation",()=>{
+  type Step={run?:string};
+  type Job={permissions?:Record<string,string>;steps?:Step[]};
+  type Workflow={jobs:Record<string,Job>};
+  const yamlLoad=createRequire(import.meta.url)("js-yaml").load as (source:string)=>Workflow;
+  for(const name of ["supervisor-review-repair.yml","proffera-ci-autofix.yml"]){
+   const workflow=yamlLoad(readFileSync(root+"/.github/workflows/"+name,"utf8"));
+   const record=workflow.jobs.record;
+   expect(record,name+": record job exists").toBeDefined();
+   expect(record.steps?.some(s=>s.run?.includes("node scripts/supervisor-owner-push-pending.mjs record")),
+    name+": authenticated pending recorder runs").toBe(true);
+   expect(record.permissions?.["pull-requests"],name+": recorder can GET /pulls/{pr}").toBe("read");
+   expect(record.permissions?.contents,name+": no source publication grant").toBe("read");
+   expect(record.permissions?.issues,name+": append-only ledger writer").toBe("write");
+   expect(record.permissions?.actions,name+": read CI artifact provenance").toBe("read");
+  }
+ });
  it("keeps current workflow wiring under existing admission and record mutex",()=>{
   const y=createRequire(import.meta.url)("js-yaml");
   for(const name of ["supervisor-review-repair.yml","proffera-ci-autofix.yml"]){
