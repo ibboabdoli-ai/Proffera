@@ -78,6 +78,12 @@ export async function POST(request: Request) {
     || Date.now() - startedAt > 86_400_000
   ) return failure("invalid", 400);
 
+  // Preview test booking is intentionally restricted to one approved inbox.
+  // Without an explicit allowlist, fail closed even if a Preview instance
+  // accidentally sets the general Maria booking feature flag.
+  const previewTestEmail = process.env.PROFFERA_MARIA_PREVIEW_TEST_EMAIL?.trim().toLowerCase();
+  if (!previewTestEmail || email !== previewTestEmail) return failure("unavailable", 403);
+
   const localStart = parseLocalDateTime(`${date}T${time}`);
   if (!localStart || localStart.year !== year) return failure("time", 400);
   const weekday = new Date(Date.UTC(localStart.year, localStart.month - 1, localStart.day)).getUTCDay();
