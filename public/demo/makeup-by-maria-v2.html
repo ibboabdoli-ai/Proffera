@@ -186,7 +186,14 @@ changeService:"→ تغيير الخدمة",detailsTitle:"الموعد ومعل�
 const state={lang:"sv",year:null,kind:null,step:"year"};
 // Fallback is the customer-approved demo. Authenticated workspace managers
 // may preview their unpublished prices from Proffera without enabling booking.
+const formStartedAt=Date.now();
+const liveBookingCopy={
+ sv:{safety:"Bokningen skickas först efter att du har verifierat din e-postadress. Datum och tid måste vara tillgängliga.",submit:"FORTSÄTT TILL E-POSTVERIFIERING ↗",sending:"Kontrollerar bokning och skickar verifieringskod...",error:"Bokningen kunde inte påbörjas. Kontrollera valt datum och försök igen."},
+ en:{safety:"Your booking is created only after email verification. The selected date and time must be available.",submit:"CONTINUE TO EMAIL VERIFICATION ↗",sending:"Checking availability and sending a verification code...",error:"We could not begin your booking. Check your selected date and try again."},
+ ar:{safety:"يتم إنشاء الحجز بعد تأكيد البريد الإلكتروني فقط، ويجب أن يكون الموعد متاحاً. التحقق عبر البريد الإلكتروني باللغة الإنجليزية حالياً.",submit:"المتابعة لتأكيد البريد الإلكتروني ↗",sending:"جارٍ التحقق من الموعد وإرسال رمز التأكيد...",error:"تعذر بدء الحجز. يرجى مراجعة الموعد والمحاولة مجدداً."}
+};
 let workspaceConfig={
+ bookingEnabled:false,
  years:[
   {year:2026,enabled:true,trial:6800,without:5800},
   {year:2027,enabled:true,trial:null,without:null},
@@ -236,6 +243,11 @@ function translate(){
  document.querySelectorAll("[data-i]").forEach(el=>{const value=c[el.dataset.i];if(value!=null)el.textContent=value});
  document.querySelectorAll("[data-h]").forEach(el=>{const value=c[el.dataset.h];if(value!=null)el.innerHTML=value});
  document.querySelectorAll("[data-lang]").forEach(b=>b.setAttribute("aria-pressed",String(b.dataset.lang===state.lang)));
+ if(workspaceConfig.bookingEnabled){
+  const info=liveBookingCopy[state.lang]||liveBookingCopy.sv;
+  document.querySelector('[data-i="safety"]').textContent=info.safety;
+  document.querySelector('[data-i="submit"]').textContent=info.submit;
+ }
  $("trialPrice").textContent=displayYearPrice("trial");
  $("withoutPrice").textContent=displayYearPrice("without");
  renderYears();
@@ -295,15 +307,44 @@ document.querySelectorAll("[data-package]").forEach(b=>b.addEventListener("click
 document.querySelectorAll("[data-lang]").forEach(b=>b.addEventListener("click",()=>{state.lang=b.dataset.lang;translate()}));
 $("backYear").addEventListener("click",()=>showStep("year"));
 $("backService").addEventListener("click",()=>showStep("service"));
-$("bookingForm").addEventListener("submit",e=>{
+$("bookingForm").addEventListener("submit",async e=>{
  e.preventDefault();
  if(!$("bookingForm").reportValidity())return;
  const date=$("weddingDate").value,time=$("weddingTime").value;
  const weekday=new Date(date+"T12:00:00Z").getUTCDay();
  if(!state.kind||!state.year||!date||!isAllowedWeekday(weekday)||!time||!date.startsWith(String(state.year))||date<stockholmDate()||![...$("weddingTime").options].some(o=>o.value===time))return;
  const c=copy(),service=state.kind==="trial"?c.trialTitle:c.withoutTitle;
- $("message").textContent=c.success.replace("{service}",service).replace("{date}",date).replace("{time}",time);
- $("message").style.display="block";
+ const message=$("message");message.style.display="block";
+ if(!workspaceConfig.bookingEnabled){
+  message.textContent=c.success.replace("{service}",service).replace("{date}",date).replace("{time}",time);
+  return;
+ }
+ const button=$("bookingForm").querySelector('button[type="submit"]');
+ if(button.disabled)return;
+ button.disabled=true;
+ message.textContent=(liveBookingCopy[state.lang]||liveBookingCopy.sv).sending;
+ try{
+  const response=await fetch("/api/makeup-by-maria/booking",{
+   method:"POST",headers:{"Content-Type":"application/json"},credentials:"same-origin",cache:"no-store",
+   body:JSON.stringify({
+    year:state.year,kind:state.kind,date,time,lang:state.lang,
+    name:$("customerName").value,email:$("customerEmail").value,
+    phone:$("customerPhone").value,city:$("customerCity").value,
+    notes:$("customerNotes").value,startedAt:formStartedAt
+   })
+  });
+  const data=await response.json();
+  if(response.ok&&data.ok&&typeof data.verificationUrl==="string"
+      &&data.verificationUrl.startsWith("/boka/verifiera/")
+      &&!data.verificationUrl.startsWith("//")
+      &&data.verificationUrl.length<120){
+   window.location.assign(data.verificationUrl);
+   return;
+  }
+  message.textContent=(liveBookingCopy[state.lang]||liveBookingCopy.sv).error;
+ }catch(_error){
+  message.textContent=(liveBookingCopy[state.lang]||liveBookingCopy.sv).error;
+ }finally{button.disabled=false;}
 });
 $("weddingDate").addEventListener("change",buildTimes);
 async function loadMariaWorkspace(){
@@ -312,6 +353,7 @@ async function loadMariaWorkspace(){
   if(!response.ok)return;
   const config=await response.json();
   if(!config||config.connected!==true)return;
+  workspaceConfig.bookingEnabled=config.bookingEnabled===true;
   if(Array.isArray(config.years)){
    const parsed=config.years
     .filter(y=>y&&Number.isInteger(y.year)&&y.year>=2026&&y.year<=2036&&y.enabled===true
