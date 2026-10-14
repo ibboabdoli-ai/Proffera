@@ -2,10 +2,12 @@ import { NextResponse } from "next/server";
 
 import { getSql } from "@/lib/db/server";
 import { getMariaPreviewBookingReadiness } from "@/lib/maria-preview-booking";
+import { getMariaAvailability } from "@/lib/maria-booking-availability";
 import { allowPublicSubmission } from "@/lib/public-form-protection";
 import {
   parseLocalDateTime,
   resolveBookingTimeZone,
+  timeToMinutes,
   validatePublicBookingPolicy,
 } from "@/lib/public-booking-policy";
 import { beginBookingEmailVerification } from "@/lib/public-booking-verification";
@@ -116,14 +118,23 @@ export async function POST(request: Request) {
       minimumNoticeMinutes: Number(service.minimum_notice_minutes) || 0,
       maximumAdvanceDays: Number(service.maximum_advance_days) || 365,
     },
+    // Maria's second clock marks the LAST permitted start, not closing time.
+    // The dedicated availability check below enforces that start boundary;
+    // regular policy still validates service duration, notice and timezone.
     bookingHour: hour
-      ? { opensAt: String(hour.opens_at), closesAt: String(hour.closes_at), isClosed: Boolean(hour.is_closed) }
+      ? { opensAt: String(hour.opens_at), closesAt: "23:59", isClosed: Boolean(hour.is_closed) }
       : null,
     timeZone,
   });
   if (validation.error || !validation.start || !validation.end) {
     return failure(validation.error ?? "time", 409);
   }
+  const startMinute = timeToMinutes(time);
+  const permittedFirstStart = timeToMinutes(hour?.opens_at);
+  const permittedLastStart = timeToMinutes(hour?.closes_at);
+  if (Boolean(hour?.is_closed) || startMinute === null || permittedFirstStart === null
+    || permittedLastStart === null || startMinute < permittedFirstStart
+    || startMinute > permittedLastStart) return failure("hours", 409);
 
   const allowed = await allowPublicSubmission({
     scope: "maria_preview_booking_verification",
@@ -136,21 +147,15 @@ export async function POST(request: Request) {
 
   const start = validation.start.toISOString();
   const end = validation.end.toISOString();
-  const conflict = await sql`
-    select id from bookings
-      where workspace_id = ${readiness.workspaceId}
-        and status not in ('cancelled', 'no_show')
-        and starts_at < ${end}::timestamptz
-        and ends_at > ${start}::timestamptz
-    union all
-    select id from public_booking_verifications
-      where workspace_id = ${readiness.workspaceId}::uuid
-        and consumed_at is null and expires_at > now()
-        and starts_at < ${end}::timestamptz
-        and ends_at > ${start}::timestamptz
-    limit 1
-  `;
-  if (conflict[0]) return failure("conflict", 409);
+  // Re-evaluate all active Maria bookings and unexpired verification holds.
+  // This protects earlier *and* later offered start times from overlap.
+  const availability = await getMariaAvailability({
+    workspaceId: readiness.workspaceId,
+    year, kind, date, timeZone: "Europe/Stockholm",
+  });
+  if (!availability.ok || !availability.slots.includes(time)) {
+    return failure(availability.ok ? "conflict" : availability.error, 409);
+  }
 
   try {
     const result = await beginBookingEmailVerification({
