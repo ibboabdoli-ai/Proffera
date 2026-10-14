@@ -184,6 +184,16 @@ changeYear:"→ تغيير السنة",serviceTitle:"اختاري الخدمة",
 changeService:"→ تغيير الخدمة",detailsTitle:"الموعد ومعلومات التواصل",detailsPrompt:"أيام الجمعة والسبت فقط، من 06:00 إلى 10:00.",dateLabel:"تاريخ الزفاف – الجمعة أو السبت",timeLabel:"الوقت المطلوب",nameLabel:"الاسم",emailLabel:"البريد الإلكتروني",phoneLabel:"رقم الهاتف",cityLabel:"المدينة",notesLabel:"معلومات إضافية",dateEmpty:"اختاري التاريخ",timeEmpty:"اختاري الوقت",noDates:"لا توجد أيام جمعة أو سبت متبقية خلال هذه السنة.",safety:"التواريخ والأوقات هي طلبات فقط وليست مواعيد مؤكدة. هذه نسخة تجريبية ولا تُرسل أو تُحفظ البيانات.",submit:"معاينة طلب الحجز ↗",success:"معاينة: {service}، {date} الساعة {time}. لم يتم إجراء حجز حقيقي.",footCopy:"لكل عروس قصتها الخاصة. شاهدي أعمال ماريا واختاري إطلالة تناسب يومكِ الكبير.",instagram:"شاهدي الأعمال على إنستغرام ↗",footer:"معاينة التصميم · ستوكهولم، السويد",currency:"كرونة"}
 };
 const state={lang:"sv",year:null,kind:null,step:"year"};
+// Fallback is the customer-approved demo. Authenticated workspace managers
+// may preview their unpublished prices from Proffera without enabling booking.
+let workspaceConfig={prices2026:{trial:6800,without:5800},hours:null};
+function display2026Price(kind){
+ const amount=workspaceConfig.prices2026[kind];
+ return Number.isFinite(amount)?new Intl.NumberFormat("sv-SE",{maximumFractionDigits:0}).format(amount)+" kr":copy().requestPrice;
+}
+function isAllowedWeekday(weekday){
+ return workspaceConfig.hours===null?[5,6].includes(weekday):workspaceConfig.hours.some(h=>h.weekday===weekday);
+}
 const $=id=>document.getElementById(id);
 function copy(){return dict[state.lang]||dict.sv}
 function translate(){
@@ -193,8 +203,8 @@ function translate(){
  document.querySelectorAll("[data-i]").forEach(el=>{const value=c[el.dataset.i];if(value!=null)el.textContent=value});
  document.querySelectorAll("[data-h]").forEach(el=>{const value=c[el.dataset.h];if(value!=null)el.innerHTML=value});
  document.querySelectorAll("[data-lang]").forEach(b=>b.setAttribute("aria-pressed",String(b.dataset.lang===state.lang)));
- $("trialPrice").textContent=state.year===2026?"6 800 kr":c.requestPrice;
- $("withoutPrice").textContent=state.year===2026?"5 800 kr":c.requestPrice;
+ $("trialPrice").textContent=state.year===2026?display2026Price("trial"):c.requestPrice;
+ $("withoutPrice").textContent=state.year===2026?display2026Price("without"):c.requestPrice;
  if(state.kind)renderSummary();
  if(state.year)buildDates();
  buildTimes();
@@ -209,7 +219,7 @@ function selectYear(year){state.year=year;state.kind=null;$("selectedYear").text
 function choosePackage(kind){state.kind=kind;translate();showStep("details");$("message").style.display="none";$("message").textContent=""}
 function renderSummary(){
  const c=copy();const label=state.kind==="trial"?c.trialTitle:c.withoutTitle;
- const price=state.year===2026?(state.kind==="trial"?"6 800 kr":"5 800 kr"):c.requestPrice;
+ const price=state.year===2026?display2026Price(state.kind):c.requestPrice;
  $("summary").textContent=state.year+" · "+label+" · "+price;
 }
 function stockholmDate(){
@@ -225,7 +235,7 @@ function buildDates(){
  for(let day=1;day<=366;day++){
   const dt=new Date(Date.UTC(state.year,0,day,12));
   if(dt.getUTCFullYear()!==state.year)break;
-  const weekday=dt.getUTCDay();if(weekday!==5&&weekday!==6)continue;
+  const weekday=dt.getUTCDay();if(!isAllowedWeekday(weekday))continue;
   const iso=dt.toISOString().slice(0,10);if(iso<today)continue;
   const fmt=new Intl.DateTimeFormat(state.lang==="ar"?"ar-SE":state.lang==="en"?"en-GB":"sv-SE",{weekday:"long",day:"numeric",month:"long",year:"numeric",timeZone:"UTC"});
   sel.add(new Option(fmt.format(dt),iso));n++;
@@ -235,7 +245,16 @@ function buildDates(){
 }
 function buildTimes(){
  const s=$("weddingTime"),old=s.value;s.innerHTML="";s.add(new Option(copy().timeEmpty,""));
- for(let h=6;h<=10;h++)for(const m of (h===10?[0]:[0,30])){const value=String(h).padStart(2,"0")+":"+String(m).padStart(2,"0");s.add(new Option(value,value))}
+ const chosen=$("weddingDate").value;
+ const day=chosen?new Date(chosen+"T12:00:00Z").getUTCDay():5;
+ const interval=workspaceConfig.hours===null?{opensAt:"06:00",closesAt:"10:00"}:workspaceConfig.hours.find(h=>h.weekday===day);
+ if(!interval)return;
+ const toMinutes=t=>Number(t.slice(0,2))*60+Number(t.slice(3,5));
+ const start=toMinutes(interval.opensAt),end=toMinutes(interval.closesAt);
+ for(let n=start;n<=end&&n<=1439;n+=30){
+  const value=String(Math.floor(n/60)).padStart(2,"0")+":"+String(n%60).padStart(2,"0");
+  s.add(new Option(value,value));
+ }
  if(old&&[...s.options].some(o=>o.value===old))s.value=old;
 }
 document.querySelectorAll("[data-year]").forEach(b=>b.addEventListener("click",()=>selectYear(+b.dataset.year)));
@@ -248,11 +267,32 @@ $("bookingForm").addEventListener("submit",e=>{
  if(!$("bookingForm").reportValidity())return;
  const date=$("weddingDate").value,time=$("weddingTime").value;
  const weekday=new Date(date+"T12:00:00Z").getUTCDay();
- if(!state.kind||!state.year||!date||![5,6].includes(weekday)||!time||time<"06:00"||time>"10:00"||!date.startsWith(String(state.year))||date<stockholmDate())return;
+ if(!state.kind||!state.year||!date||!isAllowedWeekday(weekday)||!time||!date.startsWith(String(state.year))||date<stockholmDate()||![...$("weddingTime").options].some(o=>o.value===time))return;
  const c=copy(),service=state.kind==="trial"?c.trialTitle:c.withoutTitle;
  $("message").textContent=c.success.replace("{service}",service).replace("{date}",date).replace("{time}",time);
  $("message").style.display="block";
 });
-translate();showStep("year");
+$("weddingDate").addEventListener("change",buildTimes);
+async function loadMariaWorkspace(){
+ try{
+  const response=await fetch("/api/makeup-by-maria/config",{credentials:"same-origin",cache:"no-store"});
+  if(!response.ok)return;
+  const config=await response.json();
+  if(!config||config.connected!==true)return;
+  if(config.prices2026&&typeof config.prices2026==="object"){
+   for(const key of ["trial","without"]){
+    const v=config.prices2026[key];
+    if(Number.isSafeInteger(v)&&v>=0&&v<1000000)workspaceConfig.prices2026[key]=v;
+   }
+  }
+  if(Array.isArray(config.hours)){
+   workspaceConfig.hours=config.hours
+    .filter(h=>h&&[5,6].includes(h.weekday)&&/^\\d{2}:\\d{2}$/.test(h.opensAt)&&/^\\d{2}:\\d{2}$/.test(h.closesAt)&&h.opensAt<h.closesAt)
+    .map(h=>({weekday:h.weekday,opensAt:h.opensAt,closesAt:h.closesAt}));
+  }
+  translate();
+ }catch(_error){/* Stay with the customer-approved static preview if offline. */}
+}
+translate();showStep("year");void loadMariaWorkspace();
 </script>
 </body></html>
