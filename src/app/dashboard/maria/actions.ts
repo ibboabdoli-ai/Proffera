@@ -77,8 +77,10 @@ export async function saveMariaYearAction(formData: FormData) {
         base_price_sek=excluded.base_price_sek,
         is_active=excluded.is_active,
         public_slug=excluded.public_slug,
-        public_status='draft',
-        conversion_mode='quote',
+        -- Keep an already published service published when editing its price.
+        -- New services remain drafts until intentionally published.
+        public_status=workspace_services.public_status,
+        conversion_mode=workspace_services.conversion_mode,
         updated_at=now()
       where workspace_services.workspace_id=${access.workspaceId}
         and workspace_services.public_slug = ${slug}
