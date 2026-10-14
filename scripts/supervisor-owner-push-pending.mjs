@@ -34,6 +34,18 @@ function cmd(bin,args,opts={}){
  return r.stdout;
 }
 const api=path=>JSON.parse(cmd("gh",["api",path]));
+const TRUSTED_REMOTE="https://github.com/"+REPO+".git";
+// Never persist checkout credentials, put GH_TOKEN into a Git URL, or alter git
+// config on disk. The per-process helper authenticates read-only fetches via gh.
+export function authenticatedGitFetch(ref){
+ check(ref==="refs/heads/main"||/^refs\/heads\/work\/proffera-[a-zA-Z0-9._-]+$/.test(ref)
+  ||hex(ref,40),"git_ref");
+ check(typeof process.env.GH_TOKEN==="string"&&process.env.GH_TOKEN.length>0
+  &&!/[^\x21-\x7e]/.test(process.env.GH_TOKEN),"git_auth");
+ return cmd("git",["-c","credential.helper=","-c","credential.helper=!gh auth git-credential",
+  "fetch","--no-tags",TRUSTED_REMOTE,ref],
+  {env:{...process.env,GIT_TERMINAL_PROMPT:"0"}});
+}
 const paged=(path,key=null)=>{
  const pages=JSON.parse(cmd("gh",["api","--paginate","--slurp",path]));
  check(Array.isArray(pages)&&pages.length<=100,"api_pages");
@@ -198,13 +210,13 @@ function verifyArtifact(p,auth,artifactId,{ownerResolution=false}={}){
   const path=join(dir,"candidate.bundle");writeFileSync(path,bundle);
   const resolutionState=ownerResolution?readPR(p,{historicalResolution:true}):null;
   if(!resolutionState?.mergedHistory){
-   cmd("git",["fetch","--no-tags","origin","refs/heads/"+p.branch]);
+   authenticatedGitFetch("refs/heads/"+p.branch);
    verifyHandoffBranch(cmd("git",["rev-parse","FETCH_HEAD"]).trim(),
     p.parent_sha,p.head_sha,ownerResolution);
   }
   // A retained bundle can omit its parent; fetch the authenticated prerequisite
   // explicitly even if the live branch has moved away from the staged parent.
-  cmd("git",["fetch","--no-tags","origin",p.parent_sha]);
+  authenticatedGitFetch(p.parent_sha);
   check(cmd("git",["cat-file","-t",p.parent_sha]).trim()==="commit","bundle_parent");
   cmd("git",["bundle","verify",path]);
   check(cmd("git",["bundle","list-heads",path]).trim()===p.head_sha+" HEAD","bundle_ref");
@@ -221,7 +233,13 @@ function post(bodyText){
  const result=cmd("gh",["api","--method","POST","repos/"+REPO+"/issues/"+ISSUE+"/comments",
   "-f","body="+bodyText]);const out=JSON.parse(result);check(pos(out.id),"comment_write");return out;
 }
-function record(env){
+export function verifyRecordBranch(initial,final,parent,proposed){
+ check([initial,final,parent,proposed].every(v=>hex(v,40))&&parent!==proposed,"record_ref_evidence");
+ check([parent,proposed].includes(initial)&&[parent,proposed].includes(final)
+  &&!(initial===proposed&&final===parent),"record_ref");
+ return true;
+}
+export function record(env){
  const p={lane:env.LANE,repository:REPO,pr_number:Number(env.PR_NUMBER),
   branch:env.HEAD_REF,base_sha:env.BASE_SHA,parent_sha:env.PARENT_SHA,
   head_sha:env.NEW_HEAD,tree_sha:env.NEW_TREE,
@@ -231,7 +249,7 @@ function record(env){
   &&["base_sha","parent_sha","head_sha","tree_sha"].every(k=>hex(p[k],40))
   &&(p.finding_digest===null||hex(p.finding_digest,64)),"record_input");
  const live=readPR(p);
- check(live.branch===p.parent_sha&&live.pr.base.sha===p.base_sha,"stale_parent");
+ check([p.parent_sha,p.head_sha].includes(live.branch)&&live.pr.base.sha===p.base_sha,"stale_parent");
  const auth=trustedRun(p);
  const att=verifyArtifact(p,auth,Number(env.ARTIFACT_ID));
  const value={version:1,...p,...att,observed_at:new Date().toISOString()};
@@ -258,7 +276,8 @@ function record(env){
  check(!comments.some(c=>c.user?.login==="github-actions[bot]"&&
   c.issue_url?.toLowerCase()===ISSUE_URL.toLowerCase()&&c.body?.startsWith(ciMarker)),"prior_ci_terminal");
  const finalLive=readPR(p);
- check(finalLive.branch===p.parent_sha&&finalLive.pr.base.sha===p.base_sha,"record_revalidation");
+ check(verifyRecordBranch(live.branch,finalLive.branch,p.parent_sha,p.head_sha)
+   &&finalLive.pr.base.sha===p.base_sha,"record_revalidation");
  const history=admission(comments,p.pr_number);
  // Record mode is another admission surface after the workflow gate.
  // Historical cancellation cannot authorize work after contrary publication.
@@ -279,11 +298,11 @@ function record(env){
 function ancestry(p,live){
  let branch=null;
  if(!live.mergedHistory){
-  cmd("git",["fetch","--no-tags","origin","refs/heads/"+p.branch]);
+  authenticatedGitFetch("refs/heads/"+p.branch);
   branch=cmd("git",["rev-parse","FETCH_HEAD"]).trim();
   check(branch===live.branch,"branch_race");
  }
- cmd("git",["fetch","--no-tags","origin","refs/heads/main"]);
+ authenticatedGitFetch("refs/heads/main");
  const main=cmd("git",["rev-parse","FETCH_HEAD"]).trim();check(main===live.main,"main_race");
  const includes=ref=>cmd("git",["rev-list",ref]).split(/\r?\n/).includes(p.head_sha);
  // Never use a deleted merged-PR branch as a live publication witness.

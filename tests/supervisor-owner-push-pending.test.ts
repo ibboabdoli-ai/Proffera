@@ -8,7 +8,7 @@ import {createHash} from "node:crypto";
 import {readFileSync} from "node:fs";
 import {createRequire} from "node:module";
 // @ts-expect-error Trusted control-plane .mjs helper.
-import {readPending,admission,verifyArtifactMetadata,verifyHandoffManifest,resolveDecision,mayResolveExpiredArtifact,verifyHandoffBranch,gate,commitLookupKnown} from "../scripts/supervisor-owner-push-pending.mjs";
+import {readPending,admission,verifyArtifactMetadata,verifyHandoffManifest,resolveDecision,mayResolveExpiredArtifact,verifyHandoffBranch,gate,commitLookupKnown,authenticatedGitFetch,verifyRecordBranch,record} from "../scripts/supervisor-owner-push-pending.mjs";
 // @ts-expect-error Trusted control-plane .mjs helper.
 import {decideReviewRepairStrategyHistory} from "../scripts/supervisor-review-repair-strategy-memory.mjs";
 // @ts-expect-error Trusted control-plane .mjs helper.
@@ -337,6 +337,48 @@ describe("cancelled owner-push handoff is never an automatic model-launch permit
   });
 });
 
+describe("authenticated Git fetch and published-before-record handoff",()=>{
+ it("uses GH_TOKEN only through an ephemeral GitHub CLI credential helper, never as a URL or stored credential",async()=>{
+  const actual=await vi.importActual<typeof import("node:child_process")>("node:child_process");
+  const fakeToken="redacted-test-token-not-a-secret";
+  const commands:{bin:string;args:string[];env?:NodeJS.ProcessEnv}[]=[];
+  vi.stubEnv("GH_TOKEN",fakeToken);
+  vi.mocked(spawnSync).mockImplementation(((bin:string,args:string[],options?:{env?:NodeJS.ProcessEnv})=>{
+   commands.push({bin,args,env:options?.env});
+   return {status:0,stdout:"",stderr:"",error:undefined};
+  }) as typeof spawnSync);
+  try{
+   for(const ref of ["refs/heads/main","refs/heads/work/proffera-b4-repair-safety","b".repeat(40)]){
+    expect(authenticatedGitFetch(ref)).toBe("");
+   }
+   expect(commands).toHaveLength(3);
+   for(const {bin,args,env} of commands){
+    expect(bin).toBe("git");
+    expect(args).toEqual(["-c","credential.helper=","-c","credential.helper=!gh auth git-credential",
+     "fetch","--no-tags","https://github.com/ibboabdoli-ai/Proffera.git",expect.any(String)]);
+    expect(args.join(" ")).not.toContain(fakeToken);
+    expect(env?.GH_TOKEN).toBe(fakeToken);
+    expect(env?.GIT_TERMINAL_PROMPT).toBe("0");
+   }
+   expect(()=>authenticatedGitFetch("refs/heads/evil")).toThrow("git_ref");
+   expect(()=>authenticatedGitFetch("https://attacker.invalid/")).toThrow("git_ref");
+   expect(commands).toHaveLength(3);
+   vi.stubEnv("GH_TOKEN","");
+   expect(()=>authenticatedGitFetch("refs/heads/main")).toThrow("git_auth");
+   expect(commands).toHaveLength(3);
+  }finally{vi.mocked(spawnSync).mockImplementation(actual.spawnSync);vi.unstubAllEnvs();}
+ });
+ it("permits exact artifact head published before record, never unrelated or backward ref movement",()=>{
+  const parent="b".repeat(40),candidate="c".repeat(40),other="d".repeat(40);
+  for(const [initial,final] of [[parent,parent],[parent,candidate],[candidate,candidate]]){
+   expect(verifyRecordBranch(initial,final,parent,candidate)).toBe(true);
+  }
+  for(const [initial,final] of [[candidate,parent],[parent,other],[other,candidate],[other,other]]){
+   expect(()=>verifyRecordBranch(initial,final,parent,candidate)).toThrow("record_ref");
+  }
+  expect(()=>verifyRecordBranch("malformed",candidate,parent,candidate)).toThrow("record_ref");
+ });
+});
 describe("trusted Git history at owner-push admission",()=>{
  it("checks out complete history without credentials in both admission workflows",()=>{
   type Step={name?:string;uses?:string;run?:string;with?:Record<string,unknown>};
@@ -357,6 +399,132 @@ describe("trusted Git history at owner-push admission",()=>{
  });
 });
 
+describe("executed owner-push pending recorder after exact owner publication",()=>{
+ it.each(["parent","already-published","published-during-auth","unrelated-head","rewound-after-auth"] as const)(
+  "records authenticated handoff without relaxing owner gate: %s",async scenario=>{
+   const actual=await vi.importActual<typeof import("node:child_process")>("node:child_process");
+   const p=fixture().value;
+   const candidateBundle=Buffer.from("authenticated candidate bundle for record");
+   const zip=Buffer.from("authenticated immutable zip");
+   const lane="proffera-review-repair-owner-handoff";
+   const digest=(v:Buffer)=>createHash("sha256").update(v).digest("hex");
+   const manifest=Buffer.from(JSON.stringify({
+    state:"OWNER_PUSH_REQUIRED",published:false,repository:repo,pr_number:pr,branch:p.branch,
+    base_sha:p.base_sha,parent_sha:p.parent_sha,head_sha:p.head_sha,tree_sha:p.tree_sha,
+    run_id:p.run_id,run_attempt:p.run_attempt,finding_set_sha256:p.finding_digest,
+   }));
+   const jobs=[
+    {id:302,name:"Batch current-head review findings",status:"completed",conclusion:"success",
+     steps:[{name:"Run one batched exact-head repair",status:"completed",conclusion:"success"}]},
+    {id:303,name:"Validate repair without model or push credentials",status:"completed",conclusion:"success",steps:[]},
+    {id:301,name:"Stage Review Repair owner-push handoff (no publication)",
+     status:"completed",conclusion:"success",steps:[
+      {name:"Revalidate and commit bounded repair for owner handoff",status:"completed",conclusion:"success"},
+      {name:"Upload Review Repair owner handoff",status:"completed",conclusion:"success"},
+     ]},
+   ];
+   const run={id:81,run_attempt:1,path:".github/workflows/supervisor-review-repair.yml",
+    name:"Supervisor review repair",event:"workflow_dispatch",head_branch:"main",workflow_id:201};
+   const marker="<!-- proffera-review-repair-start:v1:941:81:1 -->";
+   const start=bot(marker+"\n"+bt+"json\n"+canon({
+    head:p.parent_sha,pr_number:pr,run_id:81,run_attempt:1,
+   })+"\n"+bt,130);
+   const comments=[start];
+   const published=()=>scenario==="already-published"||scenario==="published-during-auth";
+   const firstHead=scenario==="already-published"||scenario==="rewound-after-auth"?p.head_sha:
+    scenario==="unrelated-head"?"9".repeat(40):p.parent_sha;
+   let reads=0,posts=0,fetchHead="",parentFetched=false,fetches=0;
+   vi.stubEnv("GH_TOKEN","test-only-token-do-not-use");
+   const good=(stdout:string|Buffer)=>({status:0,stdout,stderr:"",error:undefined});
+   const fail=(stderr:string)=>({status:1,stdout:"",stderr,error:undefined});
+   vi.mocked(spawnSync).mockImplementation(((bin:string,args:string[],opts?:{env?:NodeJS.ProcessEnv})=>{
+    if(bin==="gh"&&args[0]==="api"){
+     if(args[1]==="--paginate"&&args[2]==="--slurp"){
+      if(args[3].includes("/issues/548/comments"))return good(JSON.stringify([comments]));
+      if(args[3].includes("/jobs?"))return good(JSON.stringify([{jobs}]));
+     }
+     if(args[1]==="--method"&&args.includes("POST")){
+      const body=args.find(s=>s.startsWith("body="));
+      if(!body)throw Error("missing record body");
+      comments.push(bot(body.slice(5),300+ ++posts));
+      return good(JSON.stringify({id:300+posts}));
+     }
+     const endpoint=args[1];
+     if(endpoint==="repos/"+repo+"/pulls/"+pr){
+      const current=reads++===0?firstHead:
+       scenario==="rewound-after-auth"?p.parent_sha:published()?p.head_sha:p.parent_sha;
+      return good(JSON.stringify({state:"open",merged:false,base:{ref:"main",sha:p.base_sha},
+       head:{ref:p.branch,sha:current,repo:{full_name:repo}},user:{login:"ibboabdoli-ai"}}));
+     }
+     if(endpoint==="repos/"+repo+"/git/ref/heads/"+p.branch){
+      const current=reads<=1?firstHead:
+       scenario==="rewound-after-auth"?p.parent_sha:published()?p.head_sha:p.parent_sha;
+      return good(JSON.stringify({object:{sha:current}}));
+     }
+     if(endpoint==="repos/"+repo+"/git/ref/heads/main")
+      return good(JSON.stringify({object:{sha:p.base_sha}}));
+     if(endpoint==="repos/"+repo+"/actions/runs/81/attempts/1")
+      return good(JSON.stringify(run));
+     if(endpoint==="repos/"+repo+"/actions/runs/81/artifacts?per_page=100")
+      return good(JSON.stringify({artifacts:[{id:401,name:"supervisor-review-repair-owner-handoff-81-1",expired:false,
+       workflow_run:{id:81},digest:"sha256:"+digest(zip)}]}));
+     if(endpoint==="repos/"+repo+"/actions/artifacts/401/zip")return good(zip);
+    }
+    if(bin==="unzip"){
+     if(args[0]==="-Z1")return good([lane+".bundle",lane+".bundle.sha256",lane+".json"].join("\n")+"\n");
+     if(args[0]==="-p"){
+      if(args[2].endsWith(".bundle.sha256"))
+       return good(Buffer.from(digest(candidateBundle)+"  "+lane+".bundle\n"));
+      if(args[2].endsWith(".bundle"))return good(candidateBundle);
+      if(args[2].endsWith(".json"))return good(manifest);
+     }
+    }
+    if(bin==="git"){
+     if(args.includes("fetch")){
+      const ref=args.at(-1);
+      if(args[0]==="-c"){
+       fetches++;
+       expect(opts?.env?.GH_TOKEN).toBe("test-only-token-do-not-use");
+       expect(args.slice(0,7)).toEqual(["-c","credential.helper=","-c",
+        "credential.helper=!gh auth git-credential","fetch","--no-tags",
+        "https://github.com/ibboabdoli-ai/Proffera.git"]);
+      }
+      if(ref==="refs/heads/"+p.branch){fetchHead=firstHead;return good("");}
+      if(ref===p.parent_sha){parentFetched=true;fetchHead=p.parent_sha;return good("");}
+      if(ref==="HEAD"){fetchHead=p.head_sha;return good("");}
+     }
+     if(args[0]==="cat-file"&&args[2]===p.parent_sha)
+      return parentFetched?good("commit\n"):fail("unfetched parent");
+     if(args[0]==="bundle"&&args[1]==="verify")return parentFetched?good("verified"):fail("no parent");
+     if(args[0]==="bundle"&&args[1]==="list-heads")return good(p.head_sha+" HEAD\n");
+     if(args[0]==="rev-parse"){
+      if(args[1]==="FETCH_HEAD")return good(fetchHead+"\n");
+      if(args[1]==="FETCH_HEAD^{tree}")return good(p.tree_sha+"\n");
+      if(args[1]==="FETCH_HEAD^")return good(p.parent_sha+"\n");
+     }
+    }
+    throw Error("unexpected mock command "+bin+" "+args.join(" "));
+   }) as typeof spawnSync);
+   const env={LANE:"review_repair",PR_NUMBER:String(pr),HEAD_REF:p.branch,
+    BASE_SHA:p.base_sha,PARENT_SHA:p.parent_sha,NEW_HEAD:p.head_sha,NEW_TREE:p.tree_sha,
+    FINDINGS_SHA:p.finding_digest,ARTIFACT_ID:"401",GITHUB_RUN_ID:"81",GITHUB_RUN_ATTEMPT:"1"};
+   try{
+    if(scenario==="unrelated-head"||scenario==="rewound-after-auth"){
+     expect(()=>record(env)).toThrow(scenario==="unrelated-head"?"stale_parent":"record_ref");
+     expect(posts).toBe(0);
+    }else{
+     expect(record(env)).toEqual({pending:true});
+     expect(posts).toBe(1);
+     expect(fetches).toBe(2);
+     const ledger=readPending(comments,pr);
+     expect(ledger).toHaveLength(1);
+     expect(ledger[0].head_sha).toBe(p.head_sha);
+     expect(ledger[0].resolution).toBeUndefined();
+     expect(admission(comments,pr)).toMatchObject({allow:false,unresolved:1});
+    }
+   }finally{vi.mocked(spawnSync).mockImplementation(actual.spawnSync);vi.unstubAllEnvs();}
+  });
+});
 describe("production gate with a retained artifact and an advanced branch",()=>{
  it.each(["valid","publication-after-gate","publication-after-head-check","missing-parent","tampered-bundle","race-before-post","race-after-post","branch-moved","ambiguous-publication","merged-expired-approved","merged-retained-approved","merged-expired-cancelled","unresolved-no-owner"] as const)(
   "authenticated cancellation with retained artifact: %s",async scenario=>{
@@ -440,7 +608,7 @@ describe("production gate with a retained artifact and an advanced branch",()=>{
     }
    }
    if(bin==="git"){
-    if(args[0]==="fetch"){
+    if(args.includes("fetch")){
      const ref=args.at(-1);
      if(ref==="refs/heads/"+p.branch){
       if(merged)return bad("merged PR branch was deleted");
@@ -472,7 +640,8 @@ describe("production gate with a retained artifact and an advanced branch",()=>{
    }
    throw Error("unexpected mock command: "+bin+" "+args.join(" "));
   }) as typeof spawnSync;
-  vi.mocked(spawnSync).mockImplementation(fake);
+  vi.stubEnv("GH_TOKEN","fixture-gh-token-no-secrets");
+   vi.mocked(spawnSync).mockImplementation(fake);
   try{
    if(scenario==="unresolved-no-owner"){
     // Expired unresolved artifacts are not re-fetched before an owner decision.
@@ -514,6 +683,6 @@ describe("production gate with a retained artifact and an advanced branch",()=>{
       expect(posts).toBe(1);
      }else expect(admission(comments,pr).allow).toBe(false);
    }
-  }finally{vi.mocked(spawnSync).mockImplementation(actual.spawnSync);}
+  }finally{vi.mocked(spawnSync).mockImplementation(actual.spawnSync);vi.unstubAllEnvs();}
  });
 });
