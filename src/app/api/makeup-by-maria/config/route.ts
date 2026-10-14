@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { getSql } from "@/lib/db/server";
+import { getMariaPreviewBookingReadiness } from "@/lib/maria-preview-booking";
 import { canManageWorkspaceSettings, getUserWorkspaceAccess } from "@/lib/workspace-access";
 
 // Read-only, scoped to this one customer's approved preview.
@@ -8,7 +9,7 @@ import { canManageWorkspaceSettings, getUserWorkspaceAccess } from "@/lib/worksp
 // matching workspace. No booking submissions or customer details are exposed.
 export const dynamic = "force-dynamic";
 const headers = { "Cache-Control": "private, no-store, max-age=0" };
-const demo = { connected: false, previewOnly: true, prices2026: {}, years: [
+const demo = { connected: false, previewOnly: true, bookingEnabled: false, prices2026: {}, years: [
   { year: 2026, enabled: true, trial: 6800, without: 5800 },
   { year: 2027, enabled: true, trial: null, without: null },
   { year: 2028, enabled: true, trial: null, without: null },
@@ -36,7 +37,7 @@ export async function GET() {
       && access.workspaceId === workspaceId
       && canManageWorkspaceSettings(access);
 
-    const [services, hours] = await Promise.all([
+    const [services, hours, bookingReadiness] = await Promise.all([
       sql`
         select public_slug, price_type, price_amount_minor, is_active
         from workspace_services
@@ -55,6 +56,7 @@ export async function GET() {
           and weekday in (5, 6)
         order by weekday
       `,
+      getMariaPreviewBookingReadiness(),
     ]);
 
     // This endpoint exposes only the approved Maria demo's year/price values,
@@ -111,6 +113,7 @@ export async function GET() {
     return NextResponse.json({
       connected: true,
       previewOnly: true,
+      bookingEnabled: bookingReadiness.enabled,
       editorPreview: canPreviewDrafts,
       prices2026,
       years,
