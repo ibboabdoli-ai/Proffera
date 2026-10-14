@@ -290,20 +290,44 @@ function buildDates(){
  if(prior&&[...sel.options].some(o=>o.value===prior))sel.value=prior;
  if(!n)sel.options[0].textContent=c.noDates;
 }
-function buildTimes(){
- const s=$("weddingTime"),old=s.value;s.innerHTML="";s.add(new Option(copy().timeEmpty,""));
+let availabilitySequence=0;
+async function buildTimes(){
+ const seq=++availabilitySequence;
+ const s=$("weddingTime"),old=s.value;s.replaceChildren();
+ s.add(new Option(copy().timeEmpty,""));
  const chosen=$("weddingDate").value;
- const day=chosen?new Date(chosen+"T12:00:00Z").getUTCDay():5;
+ if(!chosen||!state.year||!state.kind)return;
+ const day=new Date(chosen+"T12:00:00Z").getUTCDay();
  const interval=workspaceConfig.hours===null?{opensAt:"06:00",closesAt:"10:00"}:workspaceConfig.hours.find(h=>h.weekday===day);
  if(!interval)return;
+ if(workspaceConfig.bookingEnabled){
+  const waiting={sv:"Kontrollerar lediga tider...",en:"Checking available times...",ar:"جارٍ التحقق من الأوقات المتاحة..."};
+  const empty={sv:"Inga lediga tider",en:"No available times",ar:"لا توجد أوقات متاحة"};
+  s.options[0].textContent=waiting[state.lang]||waiting.sv;
+  const year=state.year,kind=state.kind;
+  try{
+   const params=new URLSearchParams({year:String(year),kind,date:chosen});
+   const response=await fetch("/api/makeup-by-maria/availability?"+params.toString(),{
+    credentials:"same-origin",cache:"no-store"
+   });
+   const data=response.ok?await response.json():null;
+   if(seq!==availabilitySequence||$("weddingDate").value!==chosen
+       ||state.kind!==kind||state.year!==year)return;
+   s.options[0].textContent=empty[state.lang]||empty.sv;
+   if(!data||data.ok!==true||!Array.isArray(data.times))return;
+   for(const value of data.times){
+    if(typeof value==="string"&&/^\\d{2}:\\d{2}$/.test(value))s.add(new Option(value,value));
+   }
+  }catch(_error){
+   if(seq===availabilitySequence)s.options[0].textContent=empty[state.lang]||empty.sv;
+  }
+  if(old&&[...s.options].some(o=>o.value===old))s.value=old;
+  return;
+ }
  const toMinutes=t=>Number(t.slice(0,2))*60+Number(t.slice(3,5));
- const start=toMinutes(interval.opensAt),end=toMinutes(interval.closesAt);
- const duration=workspaceConfig.bookingEnabled
-  ?workspaceConfig.bookableDurations[String(state.year)]?.[state.kind]??Infinity
-  :0;
- for(let n=start;n<=end&&n<=1439;n+=30){
-  if(n+duration>end)continue;
-  const value=String(Math.floor(n/60)).padStart(2,"0")+":"+String(n%60).padStart(2,"0");
+ const start=toMinutes(interval.opensAt),last=toMinutes(interval.closesAt);
+ for(let minute=start;minute<=last&&minute<1440;minute+=30){
+  const value=String(Math.floor(minute/60)).padStart(2,"0")+":"+String(minute%60).padStart(2,"0");
   s.add(new Option(value,value));
  }
  if(old&&[...s.options].some(o=>o.value===old))s.value=old;
