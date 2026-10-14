@@ -66,6 +66,10 @@ function formText(formData: FormData, key: string, maxLength = 1200) { return St
 async function requestPublicBooking(formData: FormData) {
   "use server";
   const slug = String(formData.get("slug") ?? "").trim();
+  // Maria's one-operator bookings must ONLY pass through her workspace-
+  // locked Preview endpoint. The generic booking action has different
+  // concurrency semantics and must not bypass that protection.
+  if (slug === "makeup-by-maria") redirect("/boka/makeup-by-maria?error=unavailable");
   let lang: WorkspaceLanguage = formData.get("lang") === "en" ? "en" : "sv";
   const name = formText(formData, "name", 160);
   const email = formText(formData, "email", 320);
