@@ -316,7 +316,7 @@ async function buildTimes(){
    s.options[0].textContent=empty[state.lang]||empty.sv;
    if(!data||data.ok!==true||!Array.isArray(data.times))return;
    for(const value of data.times){
-    if(typeof value==="string"&&/^\\d{2}:\\d{2}$/.test(value))s.add(new Option(value,value));
+    if(typeof value==="string"&&/^\d{2}:\d{2}$/.test(value))s.add(new Option(value,value));
    }
   }catch(_error){
    if(seq===availabilitySequence)s.options[0].textContent=empty[state.lang]||empty.sv;
