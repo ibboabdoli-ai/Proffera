@@ -9,6 +9,7 @@ import { sendBookingOwnerSms, sendBookingVerificationSms } from "@/features/sms/
 import { createCustomerCalendarToken } from "@/lib/customer-calendar";
 import { getSql } from "@/lib/db/server";
 import { finalizeMariaVerifiedBooking } from "@/lib/maria-verified-booking";
+import { getMariaPreviewBookingReadiness } from "@/lib/maria-preview-booking";
 import type { WorkspaceTimeZone } from "@/lib/workspace-market";
 
 const EXPIRY_MINUTES = 10;
@@ -252,6 +253,53 @@ export async function resendPublicBookingCode(id: string, language: "sv" | "en" 
   const customerEmail = String(challenge.customer_email);
   const customerPhone = challenge.customer_phone ? String(challenge.customer_phone) : "";
   const useSms = String(challenge.public_booking_slug) === "primeview" && Boolean(customerPhone);
+  if (String(challenge.public_booking_slug) === "makeup-by-maria") {
+    const readiness = await getMariaPreviewBookingReadiness();
+    if (!readiness.enabled || readiness.workspaceId !== String(challenge.workspace_id)) {
+      return { ok: false as const, error: "invalid" };
+    }
+
+    const expectedHash = hashCode(id, code);
+    const expiresAt = new Date(Date.now() + EXPIRY_MINUTES * 60_000).toISOString();
+    // Use the same workspace-wide lock as hold creation and consumption.
+    // This prevents a concurrent verification from consuming a code while
+    // this request is resetting it and prevents duplicate resend races.
+    const [, changed] = await sql.transaction([
+      sql`select pg_advisory_xact_lock(hashtextextended(${readiness.workspaceId}::text, 713))`,
+      sql`
+        update public_booking_verifications
+        set code_hash = ${expectedHash},
+          expires_at = ${expiresAt}::timestamptz,
+          attempts = 0, updated_at = now()
+        where id = ${id}::uuid
+          and workspace_id = ${readiness.workspaceId}::uuid
+          and public_booking_slug = 'makeup-by-maria'
+          and consumed_at is null and verified_at is null
+          and created_at >= now() - interval '1 hour'
+          and updated_at <= now() - interval '30 seconds'
+        returning id
+      `,
+    ]);
+    if (!changed?.[0]) return { ok: false as const, error: "wait" };
+
+    const delivered = await sendBookingVerificationEmail({
+      customerName, customerEmail, companyName, code,
+      expiresMinutes: EXPIRY_MINUTES, language,
+    });
+    if (!delivered.ok) {
+      // The new code was not delivered. Release this unusable hold so it
+      // cannot continue blocking a different customer for ten minutes.
+      await sql`
+        delete from public_booking_verifications
+        where id = ${id}::uuid and workspace_id = ${readiness.workspaceId}::uuid
+          and code_hash = ${expectedHash}
+          and consumed_at is null and verified_at is null
+      `;
+      return { ok: false as const, error: "email" };
+    }
+    return { ok: true as const, delivery: "email" as const };
+  }
+
 
   const [emailSent, smsSent] = await Promise.all([
     sendBookingVerificationEmail({ customerName, customerEmail, companyName, code, expiresMinutes: EXPIRY_MINUTES, language }),
@@ -291,7 +339,11 @@ export async function verifyPublicBookingCode(id: string, code: string, language
   if (Number(challenge.attempts) >= Number(challenge.max_attempts)) return { ok: false as const, error: "attempts" };
 
   if (hashCode(id, code) !== String(challenge.code_hash)) {
-    await sql`update public_booking_verifications set attempts = attempts + 1, updated_at = now() where id = ${id}::uuid`;
+    await sql`
+      update public_booking_verifications set attempts=attempts+1,updated_at=now()
+      where id=${id}::uuid and consumed_at is null and verified_at is null
+        and attempts<max_attempts
+    `;
     return { ok: false as const, error: "code" };
   }
 
