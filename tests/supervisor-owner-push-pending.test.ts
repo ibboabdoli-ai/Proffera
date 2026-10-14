@@ -155,6 +155,30 @@ describe("CI Autofix current-versus-historical accounting",()=>{
    expect(record.permissions?.actions,name+": read CI artifact provenance").toBe("read");
   }
  });
+ it("grants only deployment read access to every pending-ledger gateway and recorder",()=>{
+  type Step={run?:string};
+  type Job={permissions?:Record<string,string>;steps?:Step[]};
+  type Workflow={jobs:Record<string,Job>};
+  const yamlLoad=createRequire(import.meta.url)("js-yaml").load as (source:string)=>Workflow;
+  const targets=[
+   {name:"supervisor-review-repair.yml",jobNames:["admit","repair","record"]},
+   {name:"proffera-ci-autofix.yml",jobNames:["admit","autofix","record"]},
+  ];
+  for(const {name,jobNames} of targets){
+   const workflow=yamlLoad(readFileSync(root+"/.github/workflows/"+name,"utf8"));
+   const callers=Object.entries(workflow.jobs)
+    .filter(([,job])=>job.steps?.some(step=>
+     /supervisor-owner-push-pending\.mjs (gate|record)/.test(step.run||"")))
+    .map(([jobName])=>jobName).sort();
+   expect(callers,name+": all live pending-ledger callers are covered").toEqual([...jobNames].sort());
+   for(const jobName of jobNames){
+    const permissions=workflow.jobs[jobName].permissions;
+    expect(permissions?.deployments,name+":"+jobName+" may read deployments but not mutate").toBe("read");
+    expect(permissions?.contents,name+":"+jobName+" retains read-only source").toBe("read");
+    expect(permissions?.["pull-requests"],name+":"+jobName+" retains PR read").toBe("read");
+   }
+  }
+ });
  it("keeps current workflow wiring under existing admission and record mutex",()=>{
   const y=createRequire(import.meta.url)("js-yaml");
   for(const name of ["supervisor-review-repair.yml","proffera-ci-autofix.yml"]){

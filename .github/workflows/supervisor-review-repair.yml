@@ -31,6 +31,7 @@ jobs:
       contents: read
       issues: write
       pull-requests: read
+      deployments: read
     outputs:
       repair: ${{ steps.admit.outputs.repair }}
       attempt_started: ${{ steps.admit.outputs.attempt_started }}
@@ -339,6 +340,7 @@ jobs:
       contents: read
       issues: read
       pull-requests: read
+      deployments: read
     outputs:
       changed: ${{ steps.diff.outputs.changed }}
       run_id: ${{ needs.admit.outputs.admitted_run_id }}
@@ -809,6 +811,7 @@ jobs:
       contents: read
       issues: write
       pull-requests: read
+      deployments: read
     steps:
       - name: Checkout trusted Review Repair strategy helper
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7

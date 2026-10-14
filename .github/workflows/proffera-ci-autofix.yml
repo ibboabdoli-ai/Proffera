@@ -277,6 +277,7 @@ jobs:
       contents: read
       issues: write
       pull-requests: read
+      deployments: read
     outputs:
       autofix: ${{ steps.admit.outputs.autofix }}
       attempt_started: ${{ steps.admit.outputs.attempt_started }}
@@ -514,6 +515,7 @@ jobs:
     permissions:
       contents: read
       pull-requests: read
+      deployments: read
       actions: read
       issues: read
     outputs:
@@ -958,6 +960,7 @@ jobs:
       contents: read
       issues: write
       pull-requests: read
+      deployments: read
     steps:
       - name: Checkout trusted CI Autofix strategy helper
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
