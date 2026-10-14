@@ -8,6 +8,7 @@ import { sendUnifiedBookingConfirmationEmail } from "@/features/email/unified-bo
 import { sendBookingOwnerSms, sendBookingVerificationSms } from "@/features/sms/booking-sms";
 import { createCustomerCalendarToken } from "@/lib/customer-calendar";
 import { getSql } from "@/lib/db/server";
+import { finalizeMariaVerifiedBooking } from "@/lib/maria-verified-booking";
 import type { WorkspaceTimeZone } from "@/lib/workspace-market";
 
 const EXPIRY_MINUTES = 10;
@@ -314,78 +315,105 @@ export async function verifyPublicBookingCode(id: string, code: string, language
   const bookingDetails = challenge.booking_details ? String(challenge.booking_details) : "";
   const bookingNote = buildBookingNote(address, postcode, bookingDetails);
 
-  const conflict = await sql`
-    select id from bookings
-    where workspace_id = ${String(challenge.workspace_id)}
-      and status not in ('cancelled', 'no_show')
-      and (${staffId}::uuid is null or staff_id = ${staffId}::uuid or staff_id is null)
-      and starts_at < ${endsAt}::timestamptz
-      and ends_at > ${startsAt}::timestamptz
-    limit 1
-  `;
-  if (conflict[0]) return { ok: false as const, error: "conflict" };
+  let bookingId: string;
+  let customerId: string;
 
-  const customerLockKey = `${String(challenge.workspace_id)}:${String(challenge.customer_email).toLowerCase()}`;
-  const appendExistingCustomerNote = String(challenge.public_booking_slug) === "primeview" && Boolean(bookingNote);
-  const [, booked] = await sql.transaction([
-    sql`select pg_advisory_xact_lock(hashtextextended(${customerLockKey}::text, 0))`,
-    sql`
-      with existing_customer as (
-        select id from customers
-        where workspace_id = ${String(challenge.workspace_id)} and lower(email) = lower(${String(challenge.customer_email)})
-        order by created_at asc nulls last, id asc limit 1
-      ), inserted_customer as (
-        insert into customers (workspace_id, name, email, phone, city, status, source, notes)
-        select ${String(challenge.workspace_id)}, ${String(challenge.customer_name)}, ${String(challenge.customer_email)}, ${challenge.customer_phone ? String(challenge.customer_phone) : null}, ${challenge.city ? String(challenge.city) : null}, 'prospect', 'public_booking', ${bookingNote || null}
-        where not exists (select 1 from existing_customer)
-        returning id
-      ), updated_existing_customer as (
-        update customers
-        set notes = case
-          when coalesce(trim(notes), '') = '' then ${bookingNote || null}
-          when position(${bookingNote} in coalesce(notes, '')) > 0 then notes
-          else rtrim(notes) || E'\n\n' || ${bookingNote}
-        end
-        where ${appendExistingCustomerNote} = true
-          and id in (select id from existing_customer)
-        returning id
-      ), selected_customer as (
-        select id from existing_customer
-        union all
-        select id from inserted_customer
-        union all
-        select id from updated_existing_customer
-        limit 1
-      ), booking as (
-        insert into bookings (workspace_id, customer_id, staff_id, service_id, title, service, city, status, starts_at, ends_at, source, notes)
-        select ${String(challenge.workspace_id)}, id, ${staffId}::uuid, ${serviceId}::uuid, ${String(challenge.service_name)}, ${String(challenge.service_name)}, ${challenge.city ? String(challenge.city) : null}, 'requested', ${startsAt}::timestamptz, ${endsAt}::timestamptz, 'public_booking', ${bookingNote || null}
-        from selected_customer limit 1 returning id, customer_id
-      ), created_event as (
-        insert into customer_events (workspace_id, customer_id, booking_id, event_type, title, description, metadata)
-        select
-          ${String(challenge.workspace_id)},
-          booking.customer_id,
-          booking.id,
-          'booking',
-          'Booking created',
-          'Booking request created after customer email verification.',
-          jsonb_build_object('source', 'public_booking', 'service', ${String(challenge.service_name)}::text)
-        from booking
-        returning id
-      )
-      update public_booking_verifications set verified_at = now(), consumed_at = now(), updated_at = now()
-      where id = ${id}::uuid
-      returning (select id from booking) as booking_id, (select customer_id from booking) as customer_id
-    `,
-  ]);
-  const bookingId = String(booked?.[0]?.booking_id ?? "");
-  const customerId = String(booked?.[0]?.customer_id ?? "");
-  if (!bookingId || !customerId) return { ok: false as const, error: "save" };
+  if (String(challenge.public_booking_slug) === "makeup-by-maria") {
+    // Revalidates the code and the latest start window, service duration,
+    // publication, buffer and all Maria bookings/holds under the same
+    // workspace-scoped transaction lock used when a hold is created.
+    const confirmed = await finalizeMariaVerifiedBooking({
+      verificationId: id,
+      expectedCodeHash: hashCode(id, code),
+      bookingNote,
+    });
+    if (!confirmed.ok) return { ok: false as const, error: confirmed.error };
+    bookingId = confirmed.bookingId;
+    customerId = confirmed.customerId;
+  } else {
+    const conflict = await sql`
+      select id from bookings
+      where workspace_id = ${String(challenge.workspace_id)}
+        and status not in ('cancelled', 'no_show')
+        and (${staffId}::uuid is null or staff_id = ${staffId}::uuid or staff_id is null)
+        and starts_at < ${endsAt}::timestamptz
+        and ends_at > ${startsAt}::timestamptz
+      limit 1
+    `;
+    if (conflict[0]) return { ok: false as const, error: "conflict" };
+  
+    const customerLockKey = `${String(challenge.workspace_id)}:${String(challenge.customer_email).toLowerCase()}`;
+    const appendExistingCustomerNote = String(challenge.public_booking_slug) === "primeview" && Boolean(bookingNote);
+    const [, booked] = await sql.transaction([
+      sql`select pg_advisory_xact_lock(hashtextextended(${customerLockKey}::text, 0))`,
+      sql`
+        with existing_customer as (
+          select id from customers
+          where workspace_id = ${String(challenge.workspace_id)} and lower(email) = lower(${String(challenge.customer_email)})
+          order by created_at asc nulls last, id asc limit 1
+        ), inserted_customer as (
+          insert into customers (workspace_id, name, email, phone, city, status, source, notes)
+          select ${String(challenge.workspace_id)}, ${String(challenge.customer_name)}, ${String(challenge.customer_email)}, ${challenge.customer_phone ? String(challenge.customer_phone) : null}, ${challenge.city ? String(challenge.city) : null}, 'prospect', 'public_booking', ${bookingNote || null}
+          where not exists (select 1 from existing_customer)
+          returning id
+        ), updated_existing_customer as (
+          update customers
+          set notes = case
+            when coalesce(trim(notes), '') = '' then ${bookingNote || null}
+            when position(${bookingNote} in coalesce(notes, '')) > 0 then notes
+            else rtrim(notes) || E'\n\n' || ${bookingNote}
+          end
+          where ${appendExistingCustomerNote} = true
+            and id in (select id from existing_customer)
+          returning id
+        ), selected_customer as (
+          select id from existing_customer
+          union all
+          select id from inserted_customer
+          union all
+          select id from updated_existing_customer
+          limit 1
+        ), booking as (
+          insert into bookings (workspace_id, customer_id, staff_id, service_id, title, service, city, status, starts_at, ends_at, source, notes)
+          select ${String(challenge.workspace_id)}, id, ${staffId}::uuid, ${serviceId}::uuid, ${String(challenge.service_name)}, ${String(challenge.service_name)}, ${challenge.city ? String(challenge.city) : null}, 'requested', ${startsAt}::timestamptz, ${endsAt}::timestamptz, 'public_booking', ${bookingNote || null}
+          from selected_customer limit 1 returning id, customer_id
+        ), created_event as (
+          insert into customer_events (workspace_id, customer_id, booking_id, event_type, title, description, metadata)
+          select
+            ${String(challenge.workspace_id)},
+            booking.customer_id,
+            booking.id,
+            'booking',
+            'Booking created',
+            'Booking request created after customer email verification.',
+            jsonb_build_object('source', 'public_booking', 'service', ${String(challenge.service_name)}::text)
+          from booking
+          returning id
+        )
+        update public_booking_verifications set verified_at = now(), consumed_at = now(), updated_at = now()
+        where id = ${id}::uuid
+        returning (select id from booking) as booking_id, (select customer_id from booking) as customer_id
+      `,
+    ]);
+    const createdBookingId = String(booked?.[0]?.booking_id ?? "");
+    const createdCustomerId = String(booked?.[0]?.customer_id ?? "");
+    if (!createdBookingId || !createdCustomerId) return { ok: false as const, error: "save" };
+    bookingId = createdBookingId;
+    customerId = createdCustomerId;
+  }
 
   const timeZone = String(challenge.time_zone) as WorkspaceTimeZone;
   const confirmationLanguage: "sv" | "en" = language ?? (String(challenge.public_booking_slug) === "primeview" ? "en" : "sv");
   const portalToken = createCustomerCalendarToken({ workspaceId: String(challenge.workspace_id), customerId, expiresInSeconds: portalTokenLifetimeSeconds(endsAt) });
-  const appUrl = (process.env.NEXT_PUBLIC_APP_URL ?? process.env.APP_URL ?? "https://www.proffera.se").replace(/\/$/, "");
+  // Never direct Preview-only Maria customers to Production portal links.
+  const mariaPreview = String(challenge.public_booking_slug) === "makeup-by-maria"
+    && process.env.VERCEL_ENV === "preview";
+  const appUrl = mariaPreview
+    ? process.env.VERCEL_URL
+      ? `https://${process.env.VERCEL_URL}`
+      : ""
+    : (process.env.NEXT_PUBLIC_APP_URL ?? process.env.APP_URL ?? "https://www.proffera.se").replace(/\/$/, "");
+  if (!appUrl) return { ok: false as const, error: "unavailable" };
   const encodedToken = encodeURIComponent(portalToken);
   const encodedBookingId = encodeURIComponent(bookingId);
   const portalPath = `/mina-bokningar/${encodedToken}`;
