@@ -6,6 +6,7 @@ import { getDashboardWorkspaceServices } from "@/lib/workspace-services-db";
 import { getDashboardWorkspaceBookingHours } from "@/lib/workspace-booking-hours-db";
 import { canManageWorkspaceSettings, getUserWorkspaceAccess } from "@/lib/workspace-access";
 import { saveMariaYearAction } from "./actions";
+import { saveMariaScheduleAction } from "./schedule-actions";
 
 export const dynamic = "force-dynamic";
 const expectedSlug = "makeup-by-maria";
@@ -53,6 +54,12 @@ export default async function MariaSiteDashboardPage({ searchParams }: { searchP
     return !trial && !without ? year <= 2028 : Boolean(trial?.isActive && without?.isActive);
   };
 
+  const savedDuration = packages.find(item=>item?.durationMinutes != null)?.durationMinutes ?? 180;
+  const savedBuffer = packages.find(item=>item)?.bufferAfterMinutes ?? 0;
+  const editHours = [5,6].map(day=>{
+    const h = weekendHours.find(hour=>hour.weekday===day);
+    return {day,first:h?.opensAt?.slice(0,5)??"06:00",last:h?.closesAt?.slice(0,5)??"10:00",closed:h?.isClosed??false};
+  });
   const formatPrice = (price: number | null) =>
     price === null ? "Ej angivet" : `${new Intl.NumberFormat("sv-SE").format(price)} kr`;
 
@@ -86,7 +93,9 @@ export default async function MariaSiteDashboardPage({ searchParams }: { searchP
           Avmarkera ett år för att dölja det i förhandsvisningen. Inga riktiga bokningar aktiveras.
         </p>
         {q.updated ? (
-          <p role="status" className="mt-4 rounded-lg bg-[#ecf7f0] px-4 py-3 text-sm font-semibold text-[#256947]">År {q.updated} har sparats.</p>
+          <p role="status" className="mt-4 rounded-lg bg-[#ecf7f0] px-4 py-3 text-sm font-semibold text-[#256947]">
+            {q.updated === "schedule" ? "Bokningstider och behandlingstid har sparats." : `År ${q.updated} har sparats.`}
+          </p>
         ) : null}
         {q.error ? (
           <p role="alert" className="mt-4 rounded-lg bg-[#fff0ee] px-4 py-3 text-sm font-semibold text-[#9d3333]">
@@ -141,6 +150,57 @@ export default async function MariaSiteDashboardPage({ searchParams }: { searchP
             </button>
           </form>
         ) : null}
+      </section>
+
+      <section className="rounded-2xl border border-[#e8d9dc] bg-white p-6 sm:p-8">
+        <h2 className="font-serif text-2xl text-[#352a2c]">Starttider och bokningslängd</h2>
+        <p className="mt-2 text-sm leading-6 text-[#705f65]">
+          Tiderna anger när en ny brudsminkning får <strong>starta</strong>, inte när arbetet måste sluta.
+          En bokning upptar hela behandlingstiden samt eventuell paus efteråt. Upptagna tider
+          blockeras i båda riktningarna. Samma inställningar används för båda paketen och samtliga år.
+        </p>
+        <form action={saveMariaScheduleAction} className="mt-6 space-y-5">
+          <div className="grid gap-4 sm:grid-cols-2">
+            <label className="grid gap-2 text-sm font-semibold text-[#634853]">
+              Behandlingstid (minuter)
+              <input name="duration_minutes" type="number" min={30} max={720} step={30}
+                defaultValue={savedDuration}
+                className="min-h-11 w-full rounded-lg border border-[#d8c4cb] px-3 text-[#352a2c]" required />
+            </label>
+            <label className="grid gap-2 text-sm font-semibold text-[#634853]">
+              Paus efter bokning (minuter)
+              <select name="buffer_after_minutes" defaultValue={String(savedBuffer)}
+                className="min-h-11 w-full rounded-lg border border-[#d8c4cb] px-3 text-[#352a2c]">
+                {[0,15,30,45,60,75,90,105,120].map(n=><option key={n} value={n}>{n} min</option>)}
+              </select>
+            </label>
+          </div>
+          <div className="grid gap-4 sm:grid-cols-2">
+            {editHours.map(h=>(
+              <fieldset key={h.day} className="space-y-3 rounded-xl border border-[#e8d9dc] p-4">
+                <legend className="px-2 font-semibold text-[#51313e]">{h.day===5?"Fredag":"Lördag"}</legend>
+                <label className="inline-flex items-center gap-2 text-sm">
+                  <input name={`day_${h.day}_closed`} type="checkbox" defaultChecked={h.closed}
+                    className="h-4 w-4 accent-[#845363]"/> Stängt
+                </label>
+                <label className="grid gap-1.5 text-xs font-semibold text-[#634853]">
+                  Tidigaste start
+                  <input type="time" name={`day_${h.day}_first`} step={1800} defaultValue={h.first} required
+                    className="min-h-11 rounded-lg border border-[#d8c4cb] px-3 text-sm"/>
+                </label>
+                <label className="grid gap-1.5 text-xs font-semibold text-[#634853]">
+                  Senaste start
+                  <input type="time" name={`day_${h.day}_last`} step={1800} defaultValue={h.last} required
+                    className="min-h-11 rounded-lg border border-[#d8c4cb] px-3 text-sm"/>
+                </label>
+              </fieldset>
+            ))}
+          </div>
+          <p className="text-xs text-[#705f65]">Starttider visas i steg om 30 minuter. Exempel: 06:00–09:00 bokat → tidigast 09:00 kan bokas igen.</p>
+          <button type="submit" className="min-h-11 rounded-lg bg-[#845363] px-5 text-sm font-bold text-white hover:bg-[#6d3e4e]">
+            Spara bokningstider
+          </button>
+        </form>
       </section>
 
       <section className="grid gap-4 sm:grid-cols-2">
