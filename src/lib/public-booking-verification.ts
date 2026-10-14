@@ -127,20 +127,88 @@ export async function beginBookingEmailVerification(input: BeginBookingVerificat
   `;
   if (!serviceRows[0]) return { ok: false as const, error: "service" };
 
-  const rows = await sql`
-    insert into public_booking_verifications (
-      workspace_id, public_booking_slug, customer_name, customer_email, customer_phone,
-      service_id, service_name, staff_id, city, address, postcode, booking_details,
-      starts_at, ends_at, code_hash, expires_at
-    ) values (
-      ${input.workspaceId}::uuid, ${input.slug}, ${input.customerName}, ${input.customerEmail.toLowerCase()},
-      ${input.customerPhone || null}, ${input.serviceId}::uuid, ${input.serviceName}, ${input.staffId || null}::uuid, ${input.city || null},
-      ${input.address || null}, ${input.postcode || null}, ${input.bookingDetails || null},
-      ${input.startsAt}::timestamptz, ${input.endsAt}::timestamptz, '', ${expiresAt}::timestamptz
-    ) returning id
-  `;
+  // Maria is a single-person operation. Serialize all new holds for this
+  // workspace, regardless of customer email, and check overlap INSIDE
+  // the same transaction as the insert. A prior public UI check is not enough.
+  const rows = input.slug === "makeup-by-maria"
+    ? (await sql.transaction([
+        sql`select pg_advisory_xact_lock(hashtextextended(${input.workspaceId}::text, 713))`,
+        sql`
+          insert into public_booking_verifications (
+            workspace_id, public_booking_slug, customer_name, customer_email, customer_phone,
+            service_id, service_name, staff_id, city, address, postcode, booking_details,
+            starts_at, ends_at, code_hash, expires_at
+          )
+          select ${input.workspaceId}::uuid, ${input.slug}, ${input.customerName},
+            ${input.customerEmail.toLowerCase()}, ${input.customerPhone || null},
+            ${input.serviceId}::uuid, ${input.serviceName}, ${input.staffId || null}::uuid,
+            ${input.city || null}, ${input.address || null}, ${input.postcode || null},
+            ${input.bookingDetails || null}, ${input.startsAt}::timestamptz,
+            ${input.endsAt}::timestamptz, '', ${expiresAt}::timestamptz
+          where exists (
+            select 1 from workspaces w
+            join workspace_services s on s.workspace_id=w.id::text
+            join workspace_booking_hours h on h.workspace_id=w.id::text
+              and h.weekday=extract(dow from ${input.startsAt}::timestamptz at time zone 'Europe/Stockholm')::int
+            where w.id=${input.workspaceId}::uuid and w.slug='makeup-by-maria'
+              and w.public_booking_slug='makeup-by-maria' and w.status in ('active','trial')
+              and s.id=${input.serviceId}::uuid and s.is_active=true and s.public_status='published'
+              and s.duration_minutes between 1 and 1440
+              and ${input.staffId || null}::uuid is null
+              and h.is_closed=false
+              and (${input.startsAt}::timestamptz at time zone 'Europe/Stockholm')::time
+                  between h.opens_at and h.closes_at
+              and ${input.endsAt}::timestamptz = ${input.startsAt}::timestamptz
+                  + (s.duration_minutes * interval '1 minute')
+          )
+          and not exists (
+            select 1 from bookings b
+            left join workspace_services bs on bs.id=b.service_id
+              and bs.workspace_id=b.workspace_id
+            where b.workspace_id=${input.workspaceId}
+              and b.status not in ('cancelled','no_show')
+              and b.starts_at - (coalesce(bs.buffer_before_minutes,0) * interval '1 minute')
+                  < ${input.endsAt}::timestamptz
+                    + (select coalesce(buffer_after_minutes,0) * interval '1 minute'
+                       from workspace_services where id=${input.serviceId}::uuid)
+              and b.ends_at + (coalesce(bs.buffer_after_minutes,0) * interval '1 minute')
+                  > ${input.startsAt}::timestamptz
+                    - (select coalesce(buffer_before_minutes,0) * interval '1 minute'
+                       from workspace_services where id=${input.serviceId}::uuid)
+          )
+          and not exists (
+            select 1 from public_booking_verifications v
+            left join workspace_services vs on vs.id=v.service_id and vs.workspace_id=v.workspace_id::text
+            where v.workspace_id=${input.workspaceId}::uuid
+              and v.consumed_at is null and v.expires_at>now()
+              and v.starts_at - (coalesce(vs.buffer_before_minutes,0) * interval '1 minute')
+                  < ${input.endsAt}::timestamptz
+                    + (select coalesce(buffer_after_minutes,0) * interval '1 minute'
+                       from workspace_services where id=${input.serviceId}::uuid)
+              and v.ends_at + (coalesce(vs.buffer_after_minutes,0) * interval '1 minute')
+                  > ${input.startsAt}::timestamptz
+                    - (select coalesce(buffer_before_minutes,0) * interval '1 minute'
+                       from workspace_services where id=${input.serviceId}::uuid)
+          )
+          returning id
+        `,
+      ]))[1]
+    : await sql`
+      insert into public_booking_verifications (
+        workspace_id, public_booking_slug, customer_name, customer_email, customer_phone,
+        service_id, service_name, staff_id, city, address, postcode, booking_details,
+        starts_at, ends_at, code_hash, expires_at
+      ) values (
+        ${input.workspaceId}::uuid, ${input.slug}, ${input.customerName},
+        ${input.customerEmail.toLowerCase()}, ${input.customerPhone || null},
+        ${input.serviceId}::uuid, ${input.serviceName}, ${input.staffId || null}::uuid,
+        ${input.city || null}, ${input.address || null}, ${input.postcode || null},
+        ${input.bookingDetails || null}, ${input.startsAt}::timestamptz,
+        ${input.endsAt}::timestamptz, '', ${expiresAt}::timestamptz
+      ) returning id
+    `;
   const id = String(rows[0]?.id ?? "");
-  if (!id) return { ok: false as const, error: "database" };
+  if (!id) return { ok: false as const, error: input.slug === "makeup-by-maria" ? "conflict" : "database" };
   await sql`update public_booking_verifications set code_hash = ${hashCode(id, code)} where id = ${id}::uuid`;
 
   const [emailSent, smsSent] = await Promise.all([
