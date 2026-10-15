@@ -4,6 +4,7 @@ import { CalendarDays, ExternalLink, Settings2, ShieldCheck } from "lucide-react
 
 import { getDashboardWorkspaceServices } from "@/lib/workspace-services-db";
 import { getDashboardWorkspaceBookingHours } from "@/lib/workspace-booking-hours-db";
+import { getMariaPreviewBookingReadiness } from "@/lib/maria-preview-booking";
 import { canManageWorkspaceSettings, getUserWorkspaceAccess } from "@/lib/workspace-access";
 import { saveMariaYearAction } from "./actions";
 import { saveMariaScheduleAction } from "./schedule-actions";
@@ -21,9 +22,10 @@ export default async function MariaSiteDashboardPage({ searchParams }: { searchP
     redirect("/dashboard");
   }
 
-  const [services, bookingHours] = await Promise.all([
+  const [services, bookingHours, bookingReadiness] = await Promise.all([
     getDashboardWorkspaceServices(),
     getDashboardWorkspaceBookingHours(),
+    getMariaPreviewBookingReadiness(),
   ]);
   const packages = expectedKeys.map((slug) =>
     services.find((service) => service.publicSlug === slug) ?? null,
@@ -71,7 +73,9 @@ export default async function MariaSiteDashboardPage({ searchParams }: { searchP
         <p className="mt-3 max-w-2xl text-sm leading-7 text-[#705f65]">
           Design 02 är kundens val. Tjänsterna och tiderna nedan hämtas från
           arbetsytan. Enbart behöriga administratörer kan förhandsvisa
-          tjänsteutkast. Den publika bokningen är inte aktiverad.
+          tjänsteutkast. {bookingReadiness.enabled
+            ? "Endast isolerade QA-bokningar är aktiverade i denna Preview."
+            : "Den publika bokningen är inte aktiverad."}
         </p>
         <div className="mt-5 flex flex-wrap gap-3">
           <Link href="/demo/makeup-by-maria-v2.html" target="_blank" rel="noopener noreferrer"
@@ -241,7 +245,9 @@ export default async function MariaSiteDashboardPage({ searchParams }: { searchP
         <div>
           <strong>Endast intern förhandsvisning.</strong>
           <p className="mt-1 leading-6">
-            Designen skickar inte bokningar eller kunduppgifter. Priser för 2027/2028,
+            {bookingReadiness.enabled
+              ? "Endast bokningar till den godkända QA-testadressen tillåts i denna Preview."
+              : "Designen skickar inte bokningar eller kunduppgifter."} Priser för 2027/2028,
             tjänsternas längd och Marias framtida ägaråtkomst behöver bekräftas innan lansering.
             Domän och riktiga kundnotiser är inte aktiverade.
           </p>

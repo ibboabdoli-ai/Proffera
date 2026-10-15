@@ -10,6 +10,8 @@ type AvailabilityRequest = {
   year: number;
   kind: "trial" | "without";
   timeZone: "Europe/Stockholm";
+  // Only authenticated self-service can exclude its own existing booking.
+  excludeBookingId?: string;
 };
 
 export type MariaAvailabilityResult =
@@ -23,6 +25,9 @@ export async function getMariaAvailability(input: AvailabilityRequest): Promise<
   }
   const weekday = new Date(Date.UTC(parsed.year, parsed.month - 1, parsed.day)).getUTCDay();
   if (weekday !== 5 && weekday !== 6) return { ok: false, error: "hours" };
+  if (input.excludeBookingId && !/^[0-9a-f-]{36}$/i.test(input.excludeBookingId)) {
+    return { ok: false, error: "invalid" };
+  }
   const sql = getSql();
   if (!sql) return { ok: false, error: "database" };
   const slug = `maria-bridal-${input.kind === "trial" ? "trial" : "without-trial"}-${input.year}`;
@@ -60,6 +65,7 @@ export async function getMariaAvailability(input: AvailabilityRequest): Promise<
           on s.id = b.service_id and s.workspace_id = b.workspace_id
         where b.workspace_id = ${input.workspaceId}
           and b.status not in ('cancelled','no_show')
+          and (${input.excludeBookingId ?? null}::uuid is null or b.id <> ${input.excludeBookingId ?? null}::uuid)
           and b.starts_at < ${after}::timestamptz
           and b.ends_at > ${before}::timestamptz
         union all

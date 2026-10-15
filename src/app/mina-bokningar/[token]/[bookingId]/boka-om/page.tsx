@@ -81,19 +81,40 @@ export default async function ReschedulePage({ params, searchParams }: PageProps
   const booking = await getRescheduleBooking(token, bookingId);
   if (!booking) notFound();
 
-  const days = getUpcomingRescheduleDays(booking.timeZone, 7);
+  const isMaria = presentation?.publicBookingSlug === "makeup-by-maria";
+  const days = isMaria ? [] : getUpcomingRescheduleDays(booking.timeZone, 7);
   const slotEntries = await Promise.all(
     days.map(async (day) => [day.date, await getAvailableRescheduleSlots(token, bookingId, day.date)] as const),
   );
   const slotsByDate = new Map(slotEntries);
-  const firstAvailableDate = days.find((day) => (slotsByDate.get(day.date)?.length ?? 0) > 0)?.date;
+  // Bridal appointments may be months away: show an explicit date selector
+  // rather than requesting 730 separate day availability queries.
+  const mariaHorizon = isMaria ? getUpcomingRescheduleDays(booking.timeZone, 731) : [];
+  const earliestMariaDate = mariaHorizon[0]?.date;
+  const latestMariaDate = mariaHorizon[mariaHorizon.length - 1]?.date;
+  const originalLocalParts = new Intl.DateTimeFormat("en-GB", {
+    timeZone: booking.timeZone, year: "numeric", month: "2-digit", day: "2-digit",
+  }).formatToParts(new Date(booking.startsAt));
+  const localPart = (type: string) => originalLocalParts.find((part) => part.type === type)?.value ?? "";
+  const originalDate = `${localPart("year")}-${localPart("month")}-${localPart("day")}`;
   const queryDate = first(query?.date);
-  const requestedDate = queryDate && (slotsByDate.get(queryDate)?.length ?? 0) > 0
+  const selectedMariaDate = queryDate && /^\d{4}-\d{2}-\d{2}$/.test(queryDate)
+    && earliestMariaDate && latestMariaDate && queryDate >= earliestMariaDate && queryDate <= latestMariaDate
     ? queryDate
-    : firstAvailableDate ?? days[0]?.date;
-  const slots = requestedDate ? slotsByDate.get(requestedDate) ?? [] : [];
+    : originalDate >= (earliestMariaDate ?? "") && originalDate <= (latestMariaDate ?? "")
+      ? originalDate : earliestMariaDate;
+  const firstAvailableDate = days.find((day) => (slotsByDate.get(day.date)?.length ?? 0) > 0)?.date;
+  const requestedDate = isMaria ? selectedMariaDate : queryDate && (slotsByDate.get(queryDate)?.length ?? 0) > 0
+    ? queryDate : firstAvailableDate ?? days[0]?.date;
+  const slots = isMaria
+    ? requestedDate ? await getAvailableRescheduleSlots(token, bookingId, requestedDate) : []
+    : requestedDate ? slotsByDate.get(requestedDate) ?? [] : [];
   const selectedDay = days.find((day) => day.date === requestedDate);
-  const selectedDayLabel = selectedDay ? (formatDay(selectedDay.date, booking.timeZone, isEnglish, false) ?? selectedDay.label) : undefined;
+  const selectedDayLabel = isMaria && requestedDate
+    ? new Intl.DateTimeFormat(isEnglish ? "en-GB" : "sv-SE", {
+        timeZone: "UTC", weekday: "long", day: "numeric", month: "long", year: "numeric",
+      }).format(new Date(`${requestedDate}T12:00:00Z`))
+    : selectedDay ? (formatDay(selectedDay.date, booking.timeZone, isEnglish, false) ?? selectedDay.label) : undefined;
 
   async function reschedule(formData: FormData) {
     "use server";
@@ -145,7 +166,19 @@ export default async function ReschedulePage({ params, searchParams }: PageProps
           {errorKey ? <p role="alert" className={styles.noticeError}>{errors[errorKey] ?? (isEnglish ? "The appointment could not be changed." : "Tiden kunde inte ändras.")}</p> : null}
 
           <h2 className={styles.subheading}>{isEnglish ? "Choose a day" : "Välj dag"}</h2>
-          <div className={styles.dayGrid}>
+          {isMaria ? (
+            <form method="get" className="mt-3 flex flex-wrap items-end gap-3">
+              <input type="hidden" name="lang" value={language} />
+              <label className="flex flex-col gap-2 text-sm">
+                {isEnglish ? "Wedding appointment date" : "Datum för brudsminkning"}
+                <input type="date" name="date" required min={earliestMariaDate} max={latestMariaDate}
+                  defaultValue={requestedDate} className="min-h-11 rounded-lg border px-3" />
+              </label>
+              <button type="submit" className="min-h-11 rounded-lg border px-4 font-semibold">
+                {isEnglish ? "Show available times" : "Visa lediga tider"}
+              </button>
+            </form>
+          ) : <div className={styles.dayGrid}>
             {days.map((day) => {
               const active = day.date === requestedDate;
               const availableCount = slotsByDate.get(day.date)?.length ?? 0;
@@ -169,7 +202,7 @@ export default async function ReschedulePage({ params, searchParams }: PageProps
                 </Link>
               );
             })}
-          </div>
+          </div>}
 
           <div className="mt-5">
             <div className={styles.timeHeader}>
@@ -183,7 +216,9 @@ export default async function ReschedulePage({ params, searchParams }: PageProps
             {slots.length > 0 ? (
               <RescheduleSlotPicker action={reschedule} slots={slots} selectedDayLabel={selectedDayLabel} language={language} />
             ) : (
-              <p className={styles.empty}>{isEnglish ? "No available times during the next seven days. Contact the company if you need help finding another time." : "Inga lediga tider under de kommande sju dagarna. Kontakta företaget om du behöver hjälp med en ny tid."}</p>
+              <p className={styles.empty}>{isMaria
+                ? isEnglish ? "No available starts on this date. Choose another Friday or Saturday." : "Inga lediga starttider detta datum. Välj en annan fredag eller lördag."
+                : isEnglish ? "No available times during the next seven days. Contact the company if you need help finding another time." : "Inga lediga tider under de kommande sju dagarna. Kontakta företaget om du behöver hjälp med en ny tid."}</p>
             )}
           </div>
         </section>
