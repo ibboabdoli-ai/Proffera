@@ -515,6 +515,33 @@ describe("canonical Supervisor pre-publication gate", () => {
     expect(observed.ok).toBe(true);
   });
 
+  it("gives slow targeted Worker suites enough time while still failing closed on timeout", () => {
+    const { repo, base } = fixture();
+    write(join(repo, "scripts", "supervisor-worker-handoff.mjs"), "export const value = 1;\n");
+    git(repo, ["add", "."]);
+    git(repo, ["commit", "-qm", "change Supervisor Worker helper"]);
+    const candidate = inspectFixture({ cwd: repo, baseSha: base, prBody: body(base) });
+    expect(candidate.required_validation_checks).toContain("targeted");
+
+    const passed = executeLocalValidation(candidate, repo, ["targeted"], {
+      runner: (_command: string, args: string[], options: { timeout: number }) => {
+        expect(args).toContain("tests/supervisor-worker-handoff.test.ts");
+        expect(options.timeout).toBeGreaterThanOrEqual(600000);
+        return { status: 0, signal: null, stdout: "", stderr: "" };
+      },
+    });
+    expect(passed.ok).toBe(true);
+
+    const timedOut = executeLocalValidation(candidate, repo, ["targeted"], {
+      runner: () => ({
+        status: 143, signal: null, error: new Error("ETIMEDOUT"), stdout: "", stderr: "",
+      }),
+    });
+    expect(timedOut.ok).toBe(false);
+    expect(timedOut.results[0]?.status).toBe("failed");
+    expect(timedOut.missing_checks).toContain("targeted");
+  });
+
   it("maps all B4 pending, strategy, workflow, and evidence paths to executable suites", () => {
     const mapped: Record<string,string> = {
       "scripts/supervisor-owner-push-pending.mjs":"tests/supervisor-owner-push-pending.test.ts",

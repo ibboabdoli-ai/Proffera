@@ -468,7 +468,7 @@ function commandForCheck(id, cwd, candidate) {
     case "targeted": return {command: node, args: [...vitest,
       "tests/supervisor-preflight.test.ts", "tests/supervisor-authorization-policy.test.ts",
       "tests/ci-scope-plan.test.ts", "tests/github-workflow-yaml.test.ts",
-      ...additionalTargetedSuites(candidate)], cwd, timeout: 300000};
+      ...additionalTargetedSuites(candidate)], cwd, timeout: 600000};
     case "workflow-semantics": return {command: node, args: [...vitest,
       "tests/github-workflow-yaml.test.ts", "tests/supervisor-authorization-policy.test.ts",
       "tests/supervisor-ci-autofix-candidate.test.ts", "tests/supervisor-worker-handoff.test.ts",
