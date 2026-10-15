@@ -5459,7 +5459,7 @@ esac
     expect(finalize).toContain(".target_tree_sha=$target_tree_sha");
   });
 
-  it.each(["valid", "tampered-manifest", "wrong-parent", "extra-member"])(
+  it.each(["valid", "tampered-manifest", "wrong-parent", "extra-member", "tampered-body", "missing-body", "wrong-body-digest"])(
     "executes reconcile owner-layout ZIP validation with real Git and jq (%s)", (scenario) => {
       const root = mkdtempSync(join(tmpdir(), "proffera-owner-zip-validation-"));
       const repo = join(root, "repo"); const members = join(root, "members"); const temporary = join(root, "runner");
@@ -5480,16 +5480,23 @@ esac
         const bundle = join(members, "proffera-owner-handoff.bundle"); git("bundle", "create", bundle, "HEAD", "^" + base);
         git("reset", "--hard", "-q", base);
         const recovery = "{}\n"; const bundleDigest = digest(readFileSync(bundle)); const recoveryDigest = digest(recovery);
+        const prBody = "## Exact Worker PR body\n\nThis text is frozen for owner publication.\n";
+        const bodyDigest = digest(prBody);
         writeFileSync(join(members, "proffera-publication-artifact.json"), recovery);
+        if (scenario !== "missing-body") writeFileSync(join(members, "proffera-worker-pr-body.md"),
+          scenario === "tampered-body" ? prBody + "untrusted mutation\n" : prBody);
         writeFileSync(join(members, "proffera-owner-handoff.bundle.sha256"), bundleDigest + "  proffera-owner-handoff.bundle\n");
         writeFileSync(join(members, "proffera-owner-handoff.json"), JSON.stringify({
           state: "OWNER_PUSH_REQUIRED", published: false, repository: "ibboabdoli-ai/Proffera",
           branch: "work/proffera-fixture", task_id: "SUP-TEST", base_sha: base, parent_sha: base,
           head_sha: scenario === "tampered-manifest" ? base : next, tree_sha: tree,
-          bundle_sha256: bundleDigest, recovery_sha256: recoveryDigest, run_id: 51, run_attempt: 1,
+          bundle_sha256: bundleDigest, recovery_sha256: recoveryDigest,
+          pr_body_sha256: scenario === "wrong-body-digest" ? "0".repeat(64) : bodyDigest,
+          run_id: 51, run_attempt: 1,
         }));
         const entries = ["proffera-publication-artifact.json", "proffera-owner-handoff.bundle",
           "proffera-owner-handoff.bundle.sha256", "proffera-owner-handoff.json"];
+        if (scenario !== "missing-body") entries.push("proffera-worker-pr-body.md");
         if (scenario === "extra-member") {writeFileSync(join(members, "unexpected.txt"), "unexpected archive member");entries.push("unexpected.txt");}
         const archive = join(root, "handoff.zip");
         const zipped = spawnSync("zip", ["-q", archive, ...entries], {cwd: members, encoding: "utf8"});
@@ -5519,6 +5526,36 @@ esac
       } finally { rmSync(root, {recursive: true, force: true}); }
     },
   );
+
+  it("never persists Worker succeeded before a verified published PR", () => {
+    const workflow = source(".github/workflows/supervisor-worker-handoff.yml");
+    const stepName = "Persist successful Worker strategy outcome only after authenticated publication";
+    const index = workflow.indexOf("- name: " + stepName);
+    expect(index).toBeGreaterThanOrEqual(0);
+    const next = workflow.indexOf("        env:", index);
+    const gate = workflow.slice(index, next);
+    expect(gate).toContain("steps.publish.outputs.pr_number != ''");
+    expect(gate).not.toContain("recovery_artifact");
+
+    const script = workflowRunStep(workflow, stepName);
+    const start = script.indexOf('if [ "$state" != "PUBLISHED" ]; then');
+    const end = script.indexOf('test "$(jq -r', start);
+    expect(start).toBeGreaterThanOrEqual(0);
+    expect(end).toBeGreaterThan(start);
+    const guard = script.slice(start, end);
+    const run = (state: string) => spawnSync("bash", ["-c",
+      "set -euo pipefail\nstate=" + state + "\n" + guard + "\nprintf 'CONTINUED\n'"], {encoding: "utf8"});
+    for (const state of ["RESERVED", "RECOVERABLE", "RELEASED"]) {
+      const result = run(state);
+      expect(result.status, result.stderr).not.toBe(0);
+      expect(result.stdout).not.toContain("CONTINUED");
+    }
+    const published = run("PUBLISHED");
+    expect(published.status, published.stderr).toBe(0);
+    expect(published.stdout).toContain("CONTINUED");
+    expect(script).toContain("pr_number:($pr_number|tonumber)");
+    expect(script).not.toContain("pr_number:(if $pr_number");
+  });
 
   it("defers uploaded failure artifacts to independent trusted cleanup validation", () => {
     const workflow = source(".github/workflows/supervisor-worker-handoff.yml");

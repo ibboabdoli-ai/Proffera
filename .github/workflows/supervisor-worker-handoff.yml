@@ -1713,12 +1713,14 @@ jobs:
           git bundle create "$bundle" HEAD "^${BASE_SHA}"
           git bundle verify "$bundle"
           (cd "$RUNNER_TEMP" && sha256sum "proffera-owner-handoff.bundle" > "proffera-owner-handoff.bundle.sha256")
-          test -s "$bundle" -a -s "$artifact"
+          test -s "$bundle" -a -s "$artifact" -a -s "$pr_body_file"
           digest="$(sha256sum "$artifact" | cut -d' ' -f1)"
           bundle_digest="$(sha256sum "$bundle" | cut -d' ' -f1)"
+          pr_body_digest="$(sha256sum "$pr_body_file" | cut -d' ' -f1)"
+          [[ "$pr_body_digest" =~ ^[0-9a-f]{64}$ ]]
           owner_branch="$(jq -r '.branch' <<< "$packet")"
           owner_task="$(jq -r '.task_id' <<< "$packet")"
-          jq -n --arg repo "$REPOSITORY" --arg branch "$owner_branch" --arg task "$owner_task" --arg base "$BASE_SHA" --arg head "$target_head" --arg tree "$target_tree_sha" --arg bundle_digest "$bundle_digest" --arg recovery_digest "$digest" --argjson run "$RUN_ID" --argjson attempt "$GITHUB_RUN_ATTEMPT" '{state:"OWNER_PUSH_REQUIRED",published:false,repository:$repo,branch:$branch,task_id:$task,base_sha:$base,parent_sha:$base,head_sha:$head,tree_sha:$tree,bundle_sha256:$bundle_digest,recovery_sha256:$recovery_digest,run_id:$run,run_attempt:$attempt}' > "$RUNNER_TEMP/proffera-owner-handoff.json"
+          jq -n --arg repo "$REPOSITORY" --arg branch "$owner_branch" --arg task "$owner_task" --arg base "$BASE_SHA" --arg head "$target_head" --arg tree "$target_tree_sha" --arg bundle_digest "$bundle_digest" --arg recovery_digest "$digest" --arg pr_body_sha256 "$pr_body_digest" --argjson run "$RUN_ID" --argjson attempt "$GITHUB_RUN_ATTEMPT" '{state:"OWNER_PUSH_REQUIRED",published:false,repository:$repo,branch:$branch,task_id:$task,base_sha:$base,parent_sha:$base,head_sha:$head,tree_sha:$tree,bundle_sha256:$bundle_digest,recovery_sha256:$recovery_digest,pr_body_sha256:$pr_body_sha256,run_id:$run,run_attempt:$attempt}' > "$RUNNER_TEMP/proffera-owner-handoff.json"
           test -s "$RUNNER_TEMP/proffera-owner-handoff.json"
           echo "recovery_artifact=yes" >> "$GITHUB_OUTPUT"
           echo "recovery_digest=$digest" >> "$GITHUB_OUTPUT"
@@ -1798,6 +1800,7 @@ jobs:
             ${{ runner.temp }}/proffera-owner-handoff.bundle
             ${{ runner.temp }}/proffera-owner-handoff.bundle.sha256
             ${{ runner.temp }}/proffera-owner-handoff.json
+            ${{ runner.temp }}/proffera-worker-pr-body.md
           if-no-files-found: error
           retention-days: 7
           compression-level: 9
@@ -1821,7 +1824,7 @@ jobs:
           helper="$RUNNER_TEMP/proffera-trusted-publish/supervisor-worker-handoff.mjs"
           manifest="$RUNNER_TEMP/proffera-trusted-publish/supervisor-worker-handoff.sha256"
           artifact="$RUNNER_TEMP/proffera-publication-artifact.json"
-          test -f "$helper" -a -f "$manifest" -a -s "$artifact"
+          test -f "$helper" -a -f "$manifest" -a -s "$artifact" -a -s "$RUNNER_TEMP/proffera-worker-pr-body.md" -a -s "$RUNNER_TEMP/proffera-owner-handoff.json"
           sha256sum --check --status "$manifest"
           comment="$(gh api "repos/${REPOSITORY}/issues/comments/${RESERVATION_COMMENT_ID}")"
           body="$(jq -r '.body // ""' <<< "$comment")"
@@ -1838,6 +1841,9 @@ jobs:
           reserved_paths="$(jq -c '.changed_files // [] | sort' <<< "$payload")"
           test "$(jq 'length' <<< "$reserved_paths")" -gt 0
           test "$(sha256sum "$artifact" | cut -d' ' -f1)" = "$RECOVERY_DIGEST"
+          body_digest="$(sha256sum "$RUNNER_TEMP/proffera-worker-pr-body.md" | cut -d' ' -f1)"
+          [[ "$body_digest" =~ ^[0-9a-f]{64}$ ]]
+          test "$(jq -r '.pr_body_sha256 // ""' "$RUNNER_TEMP/proffera-owner-handoff.json")" = "$body_digest"
           test "$(jq -r '.target_head // ""' "$artifact")" = "$HEAD_SHA"
           test "$(jq -r '.target_tree_sha // ""' "$artifact")" = "$target_tree_sha"
           packet="$(printf '%s' "$PACKET_B64" | base64 --decode)"
@@ -1858,8 +1864,8 @@ jobs:
           )"
           gh api --method PATCH "repos/${REPOSITORY}/issues/comments/${RESERVATION_COMMENT_ID}" -f body="$new_body" >/dev/null
 
-      - name: Persist successful Worker strategy outcome after recoverable publication
-        if: needs.dispatch.outputs.attempt_started == 'yes' && needs.dispatch.outputs.attempt_outcome == 'succeeded' && (steps.publish.outputs.pr_number != '' || steps.publish.outputs.recovery_artifact == 'yes')
+      - name: Persist successful Worker strategy outcome only after authenticated publication
+        if: needs.dispatch.outputs.attempt_started == 'yes' && needs.dispatch.outputs.attempt_outcome == 'succeeded' && steps.publish.outputs.pr_number != ''
         env:
           GH_TOKEN: ${{ github.token }}
           REPOSITORY: ${{ github.repository }}
@@ -1869,8 +1875,6 @@ jobs:
           RUN_ATTEMPT: ${{ github.run_attempt }}
           PR_NUMBER: ${{ steps.publish.outputs.pr_number }}
           HEAD_SHA: ${{ steps.publish.outputs.head_sha }}
-          RECOVERY_ARTIFACT: ${{ steps.publish.outputs.recovery_artifact }}
-          RECOVERY_DIGEST: ${{ steps.publish.outputs.recovery_digest }}
         shell: bash
         run: |
           set -euo pipefail
@@ -1897,25 +1901,20 @@ jobs:
           test "$(jq -r '.run_id // ""' <<< "$payload")" = "$RUN_ID"
           test "$(jq -r '.head_sha // ""' <<< "$payload")" = "$HEAD_SHA"
           state="$(jq -r '.state // ""' <<< "$payload")"
-          success_pr_number=""
+          test -n "$PR_NUMBER"
 
-          if [ "$state" = "PUBLISHED" ]; then
-            test -n "$PR_NUMBER"
-            success_pr_number="$PR_NUMBER"
-            test "$(jq -r '.pr_number // empty' <<< "$payload")" = "$PR_NUMBER"
-            pr="$(gh api "repos/${REPOSITORY}/pulls/${PR_NUMBER}")"
-            test "$(jq -r '.state // ""' <<< "$pr")" = "open"
-            test "$(jq -r '.head.sha // ""' <<< "$pr")" = "$HEAD_SHA"
-            test "$(jq -r '.head.repo.full_name // ""' <<< "$pr")" = "$REPOSITORY"
-          elif [ "$state" = "RECOVERABLE" ]; then
-            test "$RECOVERY_ARTIFACT" = "yes"
-            test -n "$RECOVERY_DIGEST"
-            test "$(jq -r '.recovery.kind // ""' <<< "$payload")" = "artifact"
-            test "$(jq -r '.recovery.digest // ""' <<< "$payload")" = "$RECOVERY_DIGEST"
-          else
-            echo "Worker success is not durably published or recoverable; success outcome persistence refused." >&2
+          # A recoverable artifact is an owner-push handoff, not a successful
+          # Worker publication. Leave its start nonterminal pending separate
+          # authenticated owner publication and PR binding.
+          if [ "$state" != "PUBLISHED" ]; then
+            echo "Unpublished Worker handoff is nonterminal; success persistence refused." >&2
             exit 1
           fi
+          test "$(jq -r '.pr_number // empty' <<< "$payload")" = "$PR_NUMBER"
+          pr="$(gh api "repos/${REPOSITORY}/pulls/${PR_NUMBER}")"
+          test "$(jq -r '.state // ""' <<< "$pr")" = "open"
+          test "$(jq -r '.head.sha // ""' <<< "$pr")" = "$HEAD_SHA"
+          test "$(jq -r '.head.repo.full_name // ""' <<< "$pr")" = "$REPOSITORY"
 
           observed_at="$(date -u +'%Y-%m-%dT%H:%M:%S.000Z')"
           record_input="$(jq -n \
@@ -1923,8 +1922,8 @@ jobs:
             --argjson packet "$packet" \
             --arg observed_at "$observed_at" \
             --arg run_attempt "$RUN_ATTEMPT" \
-            --arg pr_number "$success_pr_number" \
-            '$control + {packet:$packet,outcome:"succeeded",observed_at:$observed_at,run_attempt:($run_attempt|tonumber),pr_number:(if $pr_number == "" then null else ($pr_number|tonumber) end)}')"
+            --arg pr_number "$PR_NUMBER" \
+            '$control + {packet:$packet,outcome:"succeeded",observed_at:$observed_at,run_attempt:($run_attempt|tonumber),pr_number:($pr_number|tonumber)}')"
           printf '%s' "$record_input" | node "$helper" worker-strategy-record > "$RUNNER_TEMP/proffera-worker-strategy-success.json"
           jq -e '.decision == "RECORDED" or .decision == "ALREADY_RECORDED"' "$RUNNER_TEMP/proffera-worker-strategy-success.json" >/dev/null
           printf '%s' "$control_input" | node "$helper" reservation-mutex-check
@@ -2693,7 +2692,7 @@ jobs:
                 rm -f "$archive" "$recovery_artifact"
                 gh api "repos/${REPOSITORY}/actions/artifacts/${artifact_id}/zip" > "$archive"
                 test -s "$archive"
-                # Exactly one historical recovery JSON, or the four-file
+                # Exactly one historical recovery JSON, or the five-file
                 # owner-push artifact. Sorting admits any ZIP entry order but
                 # never duplicates, path traversal, or unexpected members.
                 archive_entries="$(unzip -Z1 "$archive" | LC_ALL=C sort)"
@@ -2702,7 +2701,8 @@ jobs:
                   proffera-publication-artifact.json \
                   proffera-owner-handoff.bundle \
                   proffera-owner-handoff.bundle.sha256 \
-                  proffera-owner-handoff.json | LC_ALL=C sort)"
+                  proffera-owner-handoff.json \
+                  proffera-worker-pr-body.md | LC_ALL=C sort)"
                 archive_layout=""
                 if [ "$archive_entries" = "$owner_entries" ]; then
                   archive_layout=owner
@@ -2720,32 +2720,36 @@ jobs:
                 test "$actual_recovery_digest" = "$recovery_digest"
                 if [ "$archive_layout" = "owner" ]; then
                   owner_dir="$(mktemp -d "$RUNNER_TEMP/proffera-owner-recovery-XXXXXX")"
-                  for name in proffera-owner-handoff.bundle proffera-owner-handoff.bundle.sha256 proffera-owner-handoff.json; do
+                  for name in proffera-owner-handoff.bundle proffera-owner-handoff.bundle.sha256 proffera-owner-handoff.json proffera-worker-pr-body.md; do
                     unzip -p "$archive" "$name" > "$owner_dir/$name"
                     test -s "$owner_dir/$name"
                   done
                   owner_bundle="$owner_dir/proffera-owner-handoff.bundle"
                   owner_sha="$owner_dir/proffera-owner-handoff.bundle.sha256"
                   owner_manifest="$owner_dir/proffera-owner-handoff.json"
+                  owner_body="$owner_dir/proffera-worker-pr-body.md"
+                  body_digest="$(sha256sum "$owner_body" | cut -d' ' -f1)"
+                  [[ "$body_digest" =~ ^[0-9a-f]{64}$ ]]
                   bundle_sha="$(sha256sum "$owner_bundle" | cut -d' ' -f1)"
                   test "$(cat "$owner_sha")" = "$bundle_sha  proffera-owner-handoff.bundle"
                   (cd "$owner_dir" && sha256sum --check --status proffera-owner-handoff.bundle.sha256)
                   jq -e --arg repo "$REPOSITORY" --arg branch "$BRANCH" \
                     --arg task "$TASK_ID" --arg base "$BASE_SHA" \
                     --arg head "$head_sha" --arg tree "$target_tree_sha" \
-                    --arg recovery "$recovery_digest" --arg bundle "$bundle_sha" \
+                    --arg recovery "$recovery_digest" --arg bundle "$bundle_sha" --arg body_digest "$body_digest" \
                     --argjson run "$RUN_ID" '
                       type == "object"
                       and ((keys | sort) == ([
                         "state","published","repository","branch","task_id",
                         "base_sha","parent_sha","head_sha","tree_sha",
-                        "bundle_sha256","recovery_sha256","run_id","run_attempt"
+                        "bundle_sha256","recovery_sha256","pr_body_sha256","run_id","run_attempt"
                       ] | sort))
                       and .state == "OWNER_PUSH_REQUIRED" and .published == false
                       and .repository == $repo and .branch == $branch and .task_id == $task
                       and .base_sha == $base and .parent_sha == $base
                       and .head_sha == $head and .tree_sha == $tree
                       and .recovery_sha256 == $recovery and .bundle_sha256 == $bundle
+                       and .pr_body_sha256 == $body_digest
                       and .run_id == $run and (.run_attempt | type == "number" and . > 0 and . == floor)
                     ' "$owner_manifest" >/dev/null
                   git bundle verify "$owner_bundle" >/dev/null

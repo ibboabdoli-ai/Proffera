@@ -194,6 +194,7 @@ describe("Worker fallback recovery ZIP inventory", () => {
       '    proffera-owner-handoff.bundle) printf "fixture-bundle";;',
       '    proffera-owner-handoff.bundle.sha256) printf "%s  proffera-owner-handoff.bundle\\n" "$BUNDLE_SHA";;',
       '    proffera-owner-handoff.json) printf "{}\\n";;',
+      '    proffera-worker-pr-body.md) printf "frozen-owner-body";;',
       '    *) return 1;;',
       '  esac',
       "}",
@@ -239,8 +240,8 @@ describe("Worker fallback recovery ZIP inventory", () => {
       '  esac',
       "}",
     ].join("\n");
-    const four = ["proffera-publication-artifact.json", "proffera-owner-handoff.bundle",
-      "proffera-owner-handoff.bundle.sha256", "proffera-owner-handoff.json"];
+    const ownerEntries = ["proffera-publication-artifact.json", "proffera-owner-handoff.bundle",
+      "proffera-owner-handoff.bundle.sha256", "proffera-owner-handoff.json", "proffera-worker-pr-body.md"];
     try {
       for (const layout of ["owner", "legacy"] as const) {
         const events = join(work, layout + "-git-calls");
@@ -249,7 +250,7 @@ describe("Worker fallback recovery ZIP inventory", () => {
         const result = spawnSync("bash", ["-c", mock + "\n" + actualShell +
           '\nprintf "LAYOUT=%s LABEL=%s PAYLOAD=%s\\n" "$archive_layout" "$label" "$payload"'], {
           encoding: "utf8", timeout: 15000,
-          env: {...process.env, EVENTS:bashPath(events), FETCHED_HEAD:bashPath(fetchedHead), ZIP_NAMES:(layout === "owner" ? four : [four[0]]).join("\n"),
+          env: {...process.env, EVENTS:bashPath(events), FETCHED_HEAD:bashPath(fetchedHead), ZIP_NAMES:(layout === "owner" ? ownerEntries : [ownerEntries[0]]).join("\n"),
             BUNDLE_SHA:digest(bundle), RUNNER_TEMP:bashPath(work), archive:"fixture.zip",
             recovery_artifact:bashPath(join(work, layout + "-recovery.json")),recovery_digest:digest(recovery),
             REPOSITORY:"ibboabdoli-ai/Proffera",BRANCH:"work/proffera-test",
@@ -300,7 +301,7 @@ describe("Worker fallback recovery ZIP inventory", () => {
           '\nprintf "LAYOUT=%s LABEL=%s PAYLOAD=%s\\n" "$archive_layout" "$label" "$payload"'], {
           encoding:"utf8",timeout:15000,
           env:{...process.env, EVENTS:bashPath(events), FETCHED_HEAD:bashPath(fetchedHead),
-            ZIP_NAMES:four.join("\n"), BUNDLE_SHA:digest(bundle), RUNNER_TEMP:bashPath(work),
+            ZIP_NAMES:ownerEntries.join("\n"), BUNDLE_SHA:digest(bundle), RUNNER_TEMP:bashPath(work),
             archive:"fixture.zip", recovery_artifact:bashPath(join(work, mutation.name + "-recovery.json")),
             recovery_digest:digest(recovery), REPOSITORY:"ibboabdoli-ai/Proffera",
             BRANCH:"work/proffera-test",TASK_ID:"SUP-TEST",BASE_SHA:"a".repeat(40),
@@ -334,16 +335,16 @@ describe("Worker fallback recovery ZIP inventory", () => {
     expect(start).toBeGreaterThan(0);
     expect(end).toBeGreaterThan(start);
     const verifyInventory = source.slice(start, end);
-    const four = ["proffera-publication-artifact.json", "proffera-owner-handoff.bundle",
-      "proffera-owner-handoff.bundle.sha256", "proffera-owner-handoff.json"];
+    const ownerEntries = ["proffera-publication-artifact.json", "proffera-owner-handoff.bundle",
+      "proffera-owner-handoff.bundle.sha256", "proffera-owner-handoff.json", "proffera-worker-pr-body.md"];
     const trials = [
-      {names: four, accepted: true},
-      {names: [...four].reverse(), accepted: true},
+      {names: ownerEntries, accepted: true},
+      {names: [...ownerEntries].reverse(), accepted: true},
       {names: ["proffera-publication-artifact.json"], accepted: true}, // historical recovery
-      {names: [...four, "untrusted.sh"], accepted: false},
-      {names: [...four, "proffera-owner-handoff.json"], accepted: false},
-      {names: [...four.slice(0, 3), "../escape"], accepted: false},
-      {names: four.slice(0, 3), accepted: false},
+      {names: [...ownerEntries, "untrusted.sh"], accepted: false},
+      {names: [...ownerEntries, "proffera-owner-handoff.json"], accepted: false},
+      {names: [...ownerEntries.slice(0, 3), "../escape"], accepted: false},
+      {names: ownerEntries.slice(0, 4), accepted: false}, // missing frozen PR body
       {names: ["proffera-publication-artifact.json", "junk"], accepted: false},
     ];
     const work = mkdtempSync(join(tmpdir(), "proffera-owner-zip-inventory-"));
@@ -380,7 +381,8 @@ describe("Worker owner archive integrity and ancestry", () => {
     const sha = (value: Buffer | string) => createHash("sha256").update(value).digest("hex");
     const zip = (folder: string, target: string) => {
       const names = ["proffera-publication-artifact.json", "proffera-owner-handoff.bundle",
-        "proffera-owner-handoff.bundle.sha256", "proffera-owner-handoff.json"];
+        "proffera-owner-handoff.bundle.sha256", "proffera-owner-handoff.json",
+        "proffera-worker-pr-body.md"];
       const result = spawnSync("python3", ["-c",
         "import sys,zipfile,os; p=sys.argv[1]; z=zipfile.ZipFile(sys.argv[2],'w'); [z.write(os.path.join(p,n),n) for n in sys.argv[3:]]; z.close()",
         folder, target, ...names], {encoding:"utf8",timeout:10000});
@@ -409,14 +411,17 @@ describe("Worker owner archive integrity and ancestry", () => {
       const bundleDigest = sha(readFileSync(bundle));
       const recovery = "{}\n";
       const recoveryDigest = sha(recovery);
+      const prBody = "## Frozen Worker PR body\n\nOwner publication requires exact bytes.\n";
+      const prBodyDigest = sha(prBody);
       writeFileSync(join(payloadDir, "proffera-publication-artifact.json"), recovery);
+      writeFileSync(join(payloadDir, "proffera-worker-pr-body.md"), prBody);
       writeFileSync(join(payloadDir, "proffera-owner-handoff.bundle.sha256"),
         bundleDigest + "  proffera-owner-handoff.bundle\n");
       const valid = {
         state:"OWNER_PUSH_REQUIRED",published:false,repository:"ibboabdoli-ai/Proffera",
         branch:"work/proffera-test",task_id:"SUP-TEST",base_sha:base,parent_sha:base,
         head_sha:head,tree_sha:tree,bundle_sha256:bundleDigest,
-        recovery_sha256:recoveryDigest,run_id:51,run_attempt:1,
+        recovery_sha256:recoveryDigest,pr_body_sha256:prBodyDigest,run_id:51,run_attempt:1,
       };
       const manifestPath = join(payloadDir, "proffera-owner-handoff.json");
       const archive = join(work, "archive.zip");
@@ -442,6 +447,7 @@ describe("Worker owner archive integrity and ancestry", () => {
         {...valid, run_id:52}, {...valid, tree_sha:"a".repeat(40)},
         {...valid, published:true}, {...valid, state:"PUBLISHED"},
         {...valid, branch:"work/proffera-else"}, {...valid, run_attempt:0},
+        {...valid, pr_body_sha256:"0".repeat(64)},
       ]) {
         const result=execute(bad);
         expect(result.status, JSON.stringify({bad,stderr:result.stderr})).not.toBe(0);
