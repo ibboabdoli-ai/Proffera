@@ -18,7 +18,7 @@ type PageProps = {
 
 type Locale = "sv" | "en" | "ar";
 type VerificationExperience = {
-  defaultLanguage: Locale;
+  defaultLanguage: "sv" | "en";
   swedishEnabled: boolean;
   englishEnabled: boolean;
   primaryColor: string;
