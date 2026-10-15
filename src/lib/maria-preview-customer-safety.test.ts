@@ -3,6 +3,7 @@ import { getMariaPreviewPortalBase, isMariaPreviewTestRecipient } from "./maria-
 
 describe("Maria Preview customer-only delivery gate", () => {
   const preview = {
+    NODE_ENV: "test",
     VERCEL_ENV: "preview",
     VERCEL_URL: "proffera-jhap-qa.vercel.app",
     PROFFERA_MARIA_PREVIEW_TEST_EMAIL: "qa@example.invalid",
