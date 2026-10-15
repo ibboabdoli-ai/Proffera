@@ -59,6 +59,17 @@ describe("versioned authenticated owner-push ledger",()=>{
     failures:[{job:"Validate",steps:["Test"]}],records:[],starts:[],pending:a.records}))
     .toMatchObject({decision:"SUPPRESS_UNRESOLVED_ATTEMPT",prior_attempts:0});
  });
+ it("accepts nested work/proffera branches but refuses unsafe path segments",()=>{
+  const f=fixture(),nested="work/proffera-feature/subtask";
+  const comment=bot(make("pending","review_repair:81:1",{...f.value,branch:nested}));
+  expect(readPending([comment],pr)).toMatchObject([{branch:nested}]);
+  for(const branch of ["work/proffera-feature//subtask","work/proffera-feature/../subtask",
+    "work/proffera-feature/.hidden","work/proffera-feature/subtask.lock",
+    "work/proffera-feature/trailing."]){
+   expect(()=>readPending([bot(make("pending","review_repair:81:1",{...f.value,branch}))],pr))
+    .toThrow("pending_payload");
+  }
+ });
  it("blocks across lanes without debiting the other lane model budget",()=>{
   const ci=fixture(99,"ci_autofix"),pending=admission([ci.comment],pr).records;
   expect(decideReviewRepairStrategyHistory({pr_number:pr,head:"5".repeat(40),
@@ -348,10 +359,11 @@ describe("authenticated Git fetch and published-before-record handoff",()=>{
    return {status:0,stdout:"",stderr:"",error:undefined};
   }) as typeof spawnSync);
   try{
-   for(const ref of ["refs/heads/main","refs/heads/work/proffera-b4-repair-safety","b".repeat(40)]){
+   for(const ref of ["refs/heads/main","refs/heads/work/proffera-b4-repair-safety",
+    "refs/heads/work/proffera-feature/subtask","b".repeat(40)]){
     expect(authenticatedGitFetch(ref)).toBe("");
    }
-   expect(commands).toHaveLength(3);
+   expect(commands).toHaveLength(4);
    for(const {bin,args,env} of commands){
     expect(bin).toBe("git");
     expect(args).toEqual(["-c","credential.helper=","-c","credential.helper=!gh auth git-credential",
@@ -362,10 +374,15 @@ describe("authenticated Git fetch and published-before-record handoff",()=>{
    }
    expect(()=>authenticatedGitFetch("refs/heads/evil")).toThrow("git_ref");
    expect(()=>authenticatedGitFetch("https://attacker.invalid/")).toThrow("git_ref");
-   expect(commands).toHaveLength(3);
+   for(const invalid of ["refs/heads/work/proffera-feature/../subtask",
+     "refs/heads/work/proffera-feature//subtask",
+     "refs/heads/work/proffera-feature/.hidden"]){
+    expect(()=>authenticatedGitFetch(invalid)).toThrow("git_ref");
+   }
+   expect(commands).toHaveLength(4);
    vi.stubEnv("GH_TOKEN","");
    expect(()=>authenticatedGitFetch("refs/heads/main")).toThrow("git_auth");
-   expect(commands).toHaveLength(3);
+   expect(commands).toHaveLength(4);
   }finally{vi.mocked(spawnSync).mockImplementation(actual.spawnSync);vi.unstubAllEnvs();}
  });
  it("permits exact artifact head published before record, never unrelated or backward ref movement",()=>{

@@ -35,10 +35,16 @@ function cmd(bin,args,opts={}){
 }
 const api=path=>JSON.parse(cmd("gh",["api",path]));
 const TRUSTED_REMOTE="https://github.com/"+REPO+".git";
+// Match nested work/proffera-* branches admitted by the trusted preflight.
+const WORK_BRANCH_RE=/^work\/proffera-[A-Za-z0-9._-]+(?:\/[A-Za-z0-9_-][A-Za-z0-9._-]*)*$/;
+const validWorkBranch=branch=>typeof branch==="string"&&WORK_BRANCH_RE.test(branch)
+ &&!branch.includes("..")&&!branch.split("/").some(part=>part.endsWith(".")||part.endsWith(".lock"));
 // Never persist checkout credentials, put GH_TOKEN into a Git URL, or alter git
 // config on disk. The per-process helper authenticates read-only fetches via gh.
 export function authenticatedGitFetch(ref){
- check(ref==="refs/heads/main"||/^refs\/heads\/work\/proffera-[a-zA-Z0-9._-]+$/.test(ref)
+ check(ref==="refs/heads/main"
+  ||(typeof ref==="string"&&ref.startsWith("refs/heads/")
+    &&validWorkBranch(ref.slice("refs/heads/".length)))
   ||hex(ref,40),"git_ref");
  check(typeof process.env.GH_TOKEN==="string"&&process.env.GH_TOKEN.length>0
   &&!/[^\x21-\x7e]/.test(process.env.GH_TOKEN),"git_auth");
@@ -81,7 +87,7 @@ export function readPending(comments,pr){
     "validation_job_id","artifact_id","artifact_digest","bundle_digest","manifest_digest",
     "finding_digest","observed_at"];
    check(shape(p,fields)&&p.version===1&&p.repository===REPO&&Object.hasOwn(LANES,p.lane)
-    &&pos(p.pr_number)&&/^work\/proffera-[a-zA-Z0-9._-]+$/.test(p.branch)
+    &&pos(p.pr_number)&&validWorkBranch(p.branch)
     &&["base_sha","parent_sha","head_sha","tree_sha"].every(k=>hex(p[k],40))
     &&["run_id","run_attempt","workflow_id","publish_job_id","model_job_id",
        "validation_job_id","artifact_id"].every(k=>pos(p[k]))
