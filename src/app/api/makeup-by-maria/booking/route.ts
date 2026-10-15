@@ -64,8 +64,6 @@ export async function POST(request: Request) {
   const date = field(input.date, 10);
   const time = field(input.time, 5);
   const requestedLang = input.lang === "ar" ? "ar" : input.lang === "en" ? "en" : "sv";
-  // Email templates remain English until Arabic notification copy ships.
-  const lang = requestedLang === "ar" ? "en" : requestedLang;
   const startedAt = Number(input.startedAt);
 
   if (
@@ -186,7 +184,7 @@ export async function POST(request: Request) {
       startsAt: start,
       endsAt: end,
       timeZone,
-      language: lang,
+      language: requestedLang,
       verificationSms: false,
     });
 

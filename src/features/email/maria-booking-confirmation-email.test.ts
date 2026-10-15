@@ -28,6 +28,20 @@ describe("Maria booking confirmation branding", () => {
     expect(email.text).toContain("with Makeup by Maria.");
   });
 
+  it("renders Arabic confirmation with right-to-left customer links and no PrimeView branding", () => {
+    const email = buildUnifiedBookingConfirmationEmail({
+      ...booking, language: "ar", branding: "makeup-by-maria",
+      portalUrl: "https://qa.vercel.app/my-bookings/test?lang=ar",
+      rescheduleUrl: "https://qa.vercel.app/reschedule/test?lang=ar",
+    });
+    expect(email.subject).toContain("تم استلام طلب حجزك");
+    expect(email.html).toContain('dir="rtl"');
+    expect(email.html).toContain("إدارة الحجز");
+    expect(email.html).toContain("lang=ar");
+    expect(email.html.toLowerCase()).not.toContain("primeview");
+    expect(email.text).toContain("تغيير الموعد");
+  });
+
   it("escapes Maria's configured company name in the sentence and footer", () => {
     const email = buildUnifiedBookingConfirmationEmail({
       ...booking, companyName: "Maria <&>", branding: "makeup-by-maria",

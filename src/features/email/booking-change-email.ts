@@ -16,15 +16,15 @@ type BookingChangeEmailInput = {
   newEndsAt?: string;
   portalUrl: string;
   timeZone: WorkspaceTimeZone;
-  language: "sv" | "en";
+  language: "sv" | "en" | "ar";
 };
 
 function escapeHtml(value: string) {
   return value.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;").replaceAll("'", "&#039;");
 }
 
-function formatTime(value: string, timeZone: WorkspaceTimeZone, language: "sv" | "en") {
-  return new Intl.DateTimeFormat(language === "en" ? "en-GB" : "sv-SE", { timeZone, dateStyle: "full", timeStyle: "short" }).format(new Date(value));
+function formatTime(value: string, timeZone: WorkspaceTimeZone, language: "sv" | "en" | "ar") {
+  return new Intl.DateTimeFormat(language === "ar" ? "ar-SA" : language === "en" ? "en-GB" : "sv-SE", { timeZone, dateStyle: "full", timeStyle: "short" }).format(new Date(value));
 }
 
 function parseSender(value: string) {
@@ -52,15 +52,26 @@ async function send(to: { email: string; name: string }, subject: string, text: 
 export async function sendBookingChangeEmails(input: BookingChangeEmailInput) {
   const language = input.language;
   const isEnglish = language === "en";
+  const isArabic = language === "ar";
   const oldTime = `${formatTime(input.oldStartsAt, input.timeZone, language)}–${formatTime(input.oldEndsAt, input.timeZone, language)}`;
   const newTime = input.newStartsAt && input.newEndsAt ? `${formatTime(input.newStartsAt, input.timeZone, language)}–${formatTime(input.newEndsAt, input.timeZone, language)}` : null;
   const changed = input.kind === "rescheduled";
 
-  const customerSubject = isEnglish
+  const customerSubject = isArabic
+    ? changed ? `تم تغيير موعد حجزك – ${input.companyName}` : `تم إلغاء حجزك – ${input.companyName}`
+    : isEnglish
     ? changed ? `Your booking has been rescheduled – ${input.companyName}` : `Your booking has been cancelled – ${input.companyName}`
     : changed ? `Din bokningstid har ändrats – ${input.companyName}` : `Din bokning är avbokad – ${input.companyName}`;
 
-  const customerText = isEnglish
+  const customerText = isArabic
+    ? [
+        `مرحبًا ${input.customerName}،`, "",
+        changed ? `تم تغيير موعد حجزك لدى ${input.companyName}.` : `تم إلغاء حجزك لدى ${input.companyName}.`,
+        `الخدمة: ${input.service}`, `الموعد السابق: ${oldTime}`,
+        newTime ? `الموعد الجديد: ${newTime}` : "", input.city ? `المدينة: ${input.city}` : "", "",
+        `إدارة حجوزاتك: ${input.portalUrl}`,
+      ].filter(Boolean).join("\n")
+    : isEnglish
     ? [
         `Hello ${input.customerName},`, "",
         changed ? `Your booking with ${input.companyName} has been rescheduled.` : `Your booking with ${input.companyName} has been cancelled.`,
@@ -74,7 +85,9 @@ export async function sendBookingChangeEmails(input: BookingChangeEmailInput) {
         `Hantera dina bokningar: ${input.portalUrl}`,
       ].filter(Boolean).join("\n");
 
-  const customerHtml = isEnglish
+  const customerHtml = isArabic
+    ? `<div dir="rtl" lang="ar" style="direction:rtl;text-align:right;font-family:Arial,sans-serif;line-height:1.8;color:#352a2c;max-width:640px;margin:0 auto"><h2>${escapeHtml(input.companyName)}</h2><p>مرحبًا ${escapeHtml(input.customerName)}،</p><p>${changed ? `تم تغيير موعد حجزك لدى <strong>${escapeHtml(input.companyName)}</strong>.` : `تم إلغاء حجزك لدى <strong>${escapeHtml(input.companyName)}</strong>.`}</p><ul><li><strong>الخدمة:</strong> ${escapeHtml(input.service)}</li><li><strong>الموعد السابق:</strong> ${escapeHtml(oldTime)}</li>${newTime ? `<li><strong>الموعد الجديد:</strong> ${escapeHtml(newTime)}</li>` : ""}${input.city ? `<li><strong>المدينة:</strong> ${escapeHtml(input.city)}</li>` : ""}</ul><p><a href="${escapeHtml(input.portalUrl)}" style="display:inline-block;background:#845363;color:#fff;padding:13px 20px;border-radius:12px;text-decoration:none">إدارة الحجوزات</a></p><p>مع أطيب التحيات،<br>${escapeHtml(input.companyName)}</p><small>${escapeHtml(input.companyName)} · Powered by Proffera</small></div>`
+    : isEnglish
     ? `<div style="font-family:Arial,sans-serif;line-height:1.6;color:#0b2a4a;max-width:640px;margin:0 auto"><div style="overflow:hidden;border:1px solid #d9e4ef;border-radius:20px;background:#fff"><div style="background:#06183b;color:#fff;padding:20px 24px"><div style="font-size:12px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:#b8ceff">Booking update</div><div style="font-size:21px;font-weight:700;color:#fff">${escapeHtml(input.companyName)}</div></div><div style="padding:24px"><p>Hello ${escapeHtml(input.customerName)},</p><p>${changed ? `Your booking with <strong>${escapeHtml(input.companyName)}</strong> has been rescheduled.` : `Your booking with <strong>${escapeHtml(input.companyName)}</strong> has been cancelled.`}</p><ul><li><strong>Service:</strong> ${escapeHtml(input.service)}</li><li><strong>Previous time:</strong> ${escapeHtml(oldTime)}</li>${newTime ? `<li><strong>New time:</strong> ${escapeHtml(newTime)}</li>` : ""}${input.city ? `<li><strong>Location:</strong> ${escapeHtml(input.city)}</li>` : ""}</ul><p><a href="${escapeHtml(input.portalUrl)}" style="display:inline-block;border-radius:12px;background:#0a3c8f;color:#fff;padding:13px 20px;text-decoration:none;font-weight:700">Manage bookings</a></p><p>Kind regards<br><strong>${escapeHtml(input.companyName)}</strong></p></div></div><p style="text-align:center;font-size:12px;color:#8a98aa">${escapeHtml(input.companyName)} · Powered by Proffera</p></div>`
     : `<div style="font-family:Arial,sans-serif;line-height:1.6;color:#17201a"><p>Hej ${escapeHtml(input.customerName)},</p><p>${changed ? `Din bokning hos <strong>${escapeHtml(input.companyName)}</strong> har flyttats.` : `Din bokning hos <strong>${escapeHtml(input.companyName)}</strong> har avbokats.`}</p><ul><li><strong>Tjänst:</strong> ${escapeHtml(input.service)}</li><li><strong>Tidigare tid:</strong> ${escapeHtml(oldTime)}</li>${newTime ? `<li><strong>Ny tid:</strong> ${escapeHtml(newTime)}</li>` : ""}${input.city ? `<li><strong>Ort:</strong> ${escapeHtml(input.city)}</li>` : ""}</ul><p><a href="${escapeHtml(input.portalUrl)}" style="display:inline-block;border-radius:12px;background:#17452f;color:#fff;padding:13px 20px;text-decoration:none;font-weight:700">Hantera bokningar</a></p><p>Med vänliga hälsningar<br>${escapeHtml(input.companyName)}</p></div>`;
 

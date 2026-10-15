@@ -100,7 +100,7 @@ async function verify(formData: FormData) {
   const locale: Locale = experience.mariaPreview && wanted === "ar"
     ? "ar" : resolvePublicBusinessLocale(experience, wanted);
   const channel = String(formData.get("channel") ?? "");
-  const result = await verifyPublicBookingCode(id, code, locale === "ar" ? "en" : locale);
+  const result = await verifyPublicBookingCode(id, code, locale);
   if (!result.ok) redirect(`/boka/verifiera/${id}?error=${result.error}&lang=${locale}${channelSuffix(channel)}`);
   redirect(publicBookingSuccessRedirect(result.slug, locale));
 }
@@ -112,7 +112,7 @@ async function resend(formData: FormData) {
   const wanted = String(formData.get("lang") ?? "");
   const locale: Locale = experience.mariaPreview && wanted === "ar"
     ? "ar" : resolvePublicBusinessLocale(experience, wanted);
-  const result = await resendPublicBookingCode(id, locale === "ar" ? "en" : locale);
+  const result = await resendPublicBookingCode(id, locale);
   if (!result.ok) redirect(`/boka/verifiera/${id}?error=${result.error}&lang=${locale}`);
   redirect(`/boka/verifiera/${id}?resent=1&lang=${locale}&channel=${encodeURIComponent(result.delivery)}`);
 }

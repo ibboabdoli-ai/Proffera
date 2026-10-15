@@ -104,7 +104,7 @@ export type BeginBookingVerificationInput = {
   startsAt: string;
   endsAt: string;
   timeZone: WorkspaceTimeZone;
-  language?: "sv" | "en";
+  language?: "sv" | "en" | "ar";
   verificationSms?: boolean;
 };
 
@@ -217,10 +217,13 @@ export async function beginBookingEmailVerification(input: BeginBookingVerificat
   if (!id) return { ok: false as const, error: input.slug === "makeup-by-maria" ? "conflict" : "database" };
   await sql`update public_booking_verifications set code_hash = ${hashCode(id, code)} where id = ${id}::uuid`;
 
+  const effectiveInitialLanguage = input.language === "ar"
+    && !(input.slug === "makeup-by-maria" && process.env.VERCEL_ENV === "preview")
+    ? "en" : input.language;
   const [emailSent, smsSent] = await Promise.all([
-    sendBookingVerificationEmail({ customerName: input.customerName, customerEmail: input.customerEmail, companyName: input.companyName, code, expiresMinutes: EXPIRY_MINUTES, language: input.language }),
+    sendBookingVerificationEmail({ customerName: input.customerName, customerEmail: input.customerEmail, companyName: input.companyName, code, expiresMinutes: EXPIRY_MINUTES, language: effectiveInitialLanguage }),
     input.verificationSms && input.customerPhone
-      ? sendBookingVerificationSms({ customerPhone: input.customerPhone, companyName: input.companyName, code, expiresMinutes: EXPIRY_MINUTES, language: input.language })
+      ? sendBookingVerificationSms({ customerPhone: input.customerPhone, companyName: input.companyName, code, expiresMinutes: EXPIRY_MINUTES, language: input.language === "ar" ? "en" : input.language })
       : Promise.resolve({ ok: false as const, skipped: true as const, message: "SMS verification not requested." }),
   ]);
   if (!emailSent.ok && !smsSent.ok) {
@@ -231,7 +234,7 @@ export async function beginBookingEmailVerification(input: BeginBookingVerificat
   return { ok: true as const, verificationId: id, delivery };
 }
 
-export async function resendPublicBookingCode(id: string, language: "sv" | "en" = "sv") {
+export async function resendPublicBookingCode(id: string, language: "sv" | "en" | "ar" = "sv") {
   const sql = getSql();
   if (!sql || !/^[0-9a-f-]{36}$/i.test(id)) return { ok: false as const, error: "invalid" };
 
@@ -305,10 +308,11 @@ export async function resendPublicBookingCode(id: string, language: "sv" | "en" 
   }
 
 
+  const genericLanguage = language === "ar" ? "en" : language;
   const [emailSent, smsSent] = await Promise.all([
-    sendBookingVerificationEmail({ customerName, customerEmail, companyName, code, expiresMinutes: EXPIRY_MINUTES, language }),
+    sendBookingVerificationEmail({ customerName, customerEmail, companyName, code, expiresMinutes: EXPIRY_MINUTES, language: genericLanguage }),
     useSms
-      ? sendBookingVerificationSms({ customerPhone, companyName, code, expiresMinutes: EXPIRY_MINUTES, language })
+      ? sendBookingVerificationSms({ customerPhone, companyName, code, expiresMinutes: EXPIRY_MINUTES, language: language === "ar" ? "en" : language })
       : Promise.resolve({ ok: false as const, skipped: true as const, message: "SMS verification not requested." }),
   ]);
   if (!emailSent.ok && !smsSent.ok) return { ok: false as const, error: "email" };
@@ -323,7 +327,7 @@ export async function resendPublicBookingCode(id: string, language: "sv" | "en" 
   return { ok: true as const, delivery };
 }
 
-export async function verifyPublicBookingCode(id: string, code: string, language?: "sv" | "en") {
+export async function verifyPublicBookingCode(id: string, code: string, language?: "sv" | "en" | "ar") {
   const sql = getSql();
   if (!sql || !/^[0-9a-f-]{36}$/i.test(id) || !/^\d{6}$/.test(code)) return { ok: false as const, error: "invalid" };
 
@@ -465,7 +469,12 @@ export async function verifyPublicBookingCode(id: string, code: string, language
   }
 
   const timeZone = String(challenge.time_zone) as WorkspaceTimeZone;
-  const confirmationLanguage: "sv" | "en" = language ?? (String(challenge.public_booking_slug) === "primeview" ? "en" : "sv");
+  const requestedConfirmationLanguage = language ?? (String(challenge.public_booking_slug) === "primeview" ? "en" : "sv");
+  const mariaArabicPreview = String(challenge.public_booking_slug) === "makeup-by-maria"
+    && process.env.VERCEL_ENV === "preview";
+  // An Arabic locale must not be trusted for another tenant.
+  const confirmationLanguage: "sv" | "en" | "ar" = requestedConfirmationLanguage === "ar" && !mariaArabicPreview
+    ? "en" : requestedConfirmationLanguage;
   const portalToken = createCustomerCalendarToken({ workspaceId: String(challenge.workspace_id), customerId, expiresInSeconds: portalTokenLifetimeSeconds(endsAt) });
   // Never direct Preview-only Maria customers to Production portal links.
   const mariaPreview = String(challenge.public_booking_slug) === "makeup-by-maria"

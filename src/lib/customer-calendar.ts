@@ -146,7 +146,7 @@ export async function getCustomerCalendarBooking(token: string, bookingId: strin
 export async function cancelCustomerCalendarBooking(
   token: string,
   bookingId: string,
-  language: "sv" | "en",
+  language: "sv" | "en" | "ar",
 ) {
   const payload = verifyCustomerCalendarToken(token);
   if (!payload || !connectionString || !/^[0-9a-f-]{36}$/i.test(bookingId)) {

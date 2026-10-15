@@ -13,7 +13,7 @@ type MariaChangeInput = {
   bookingId: string;
   startsAtLocal: string;
   token: string;
-  language: "sv" | "en";
+  language: "sv" | "en" | "ar";
 };
 
 /**
