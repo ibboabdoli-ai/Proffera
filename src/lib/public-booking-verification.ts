@@ -10,6 +10,7 @@ import { createCustomerCalendarToken } from "@/lib/customer-calendar";
 import { getSql } from "@/lib/db/server";
 import { finalizeMariaVerifiedBooking } from "@/lib/maria-verified-booking";
 import { getMariaPreviewBookingReadiness } from "@/lib/maria-preview-booking";
+import { isMariaPreviewTestRecipient } from "@/lib/maria-preview-customer-safety";
 import type { WorkspaceTimeZone } from "@/lib/workspace-market";
 
 const EXPIRY_MINUTES = 10;
@@ -491,9 +492,11 @@ export async function verifyPublicBookingCode(id: string, code: string, language
   const portalUrl = `${appUrl}${portalPath}?lang=${confirmationLanguage}`;
   const rescheduleUrl = `${appUrl}${portalPath}/${encodedBookingId}/boka-om?lang=${confirmationLanguage}`;
 
+  const ownerEmailAllowed = challenge.owner_email
+    && (!mariaPreview || isMariaPreviewTestRecipient(String(challenge.owner_email)));
   await Promise.allSettled([
     sendUnifiedBookingConfirmationEmail({ customerName: String(challenge.customer_name), customerEmail: String(challenge.customer_email), companyName: String(challenge.company_name), service: String(challenge.service_name), startsAt, endsAt, city: String(challenge.city ?? ""), address, postcode, timeZone, portalUrl, rescheduleUrl, language: confirmationLanguage, branding: mariaPreview ? "makeup-by-maria" : undefined }),
-    challenge.owner_email ? sendBookingOwnerNotificationEmail({ ownerEmail: String(challenge.owner_email), companyName: String(challenge.company_name), customerName: String(challenge.customer_name), customerEmail: String(challenge.customer_email), customerPhone: String(challenge.customer_phone ?? ""), service: String(challenge.service_name), startsAt, endsAt, city: String(challenge.city ?? ""), address, postcode, timeZone, language: String(challenge.public_booking_slug) === "primeview" ? "en" : undefined }) : Promise.resolve(),
+    ownerEmailAllowed ? sendBookingOwnerNotificationEmail({ ownerEmail: String(challenge.owner_email), companyName: String(challenge.company_name), customerName: String(challenge.customer_name), customerEmail: String(challenge.customer_email), customerPhone: String(challenge.customer_phone ?? ""), service: String(challenge.service_name), startsAt, endsAt, city: String(challenge.city ?? ""), address, postcode, timeZone, language: String(challenge.public_booking_slug) === "primeview" ? "en" : undefined }) : Promise.resolve(),
     challenge.owner_phone ? sendBookingOwnerSms({ ownerPhone: String(challenge.owner_phone), companyName: String(challenge.company_name), customerName: String(challenge.customer_name), customerPhone: String(challenge.customer_phone ?? ""), service: String(challenge.service_name), startsAt, timeZone }) : Promise.resolve(),
   ]);
 
