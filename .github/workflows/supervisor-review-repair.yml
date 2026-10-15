@@ -226,10 +226,6 @@ jobs:
             echo "Authenticated unresolved owner-push handoff blocks automatic repair."
             exit 0
           fi
-          if [ "$FINDING_COUNT" -eq 0 ]; then
-            echo "No settled current-head material review finding; no model attempt is admitted."
-            exit 0
-          fi
 
           comments_file="$RUNNER_TEMP/proffera-review-repair-comments.json"
           gh api --paginate "repos/${REPOSITORY}/issues/548/comments?per_page=100" --jq '.[]' | jq -s '.' > "$comments_file"
@@ -283,6 +279,13 @@ jobs:
             gh api --paginate "repos/${REPOSITORY}/issues/548/comments?per_page=100" --jq '.[]' | jq -s '.' > "$comments_file"
             jq -e 'type == "array"' "$comments_file" >/dev/null
             build_admit_input
+          fi
+
+          # Recover proven historical pre-model orphans even when this review burst
+          # has no material findings. No new model attempt is admitted in that case.
+          if [ "$FINDING_COUNT" -eq 0 ]; then
+            echo "No settled current-head material review finding; no model attempt is admitted."
+            exit 0
           fi
 
           decision="$(node scripts/supervisor-review-repair-strategy-memory.mjs admit < "$input_file")"
