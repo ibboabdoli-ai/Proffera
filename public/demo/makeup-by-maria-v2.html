@@ -208,13 +208,14 @@ const returnParams=new URLSearchParams(window.location.search);
 const returnLanguage=returnParams.get("lang");
 if(["sv","en","ar"].includes(returnLanguage))state.lang=returnLanguage;
 const successfulBookingReturn=returnParams.get("booked")==="1";
+let bookingReturnLoading=successfulBookingReturn;
 const bookingCompleteCopy={
  sv:{title:"Tack! Din e-post är verifierad.",text:"Din bokningsförfrågan har tagits emot. Maria bekräftar tiden separat.",again:"Gör en ny bokning"},
  en:{title:"Thank you! Your email is verified.",text:"We have received your booking request. Maria will confirm the appointment separately.",again:"Make another booking"},
  ar:{title:"شكراً! تم تأكيد بريدك الإلكتروني.",text:"لقد استلمنا طلب الحجز. ستؤكد ماريا الموعد بشكل منفصل.",again:"احجزي موعداً آخر"}
 };
 function showBookingComplete(){
- if(!successfulBookingReturn||!workspaceConfig.bookingEnabled)return;
+ if(!successfulBookingReturn||bookingReturnLoading||!workspaceConfig.bookingEnabled)return;
  const c=bookingCompleteCopy[state.lang]||bookingCompleteCopy.sv;
  $("bookingCompleteTitle").textContent=c.title;
  $("bookingCompleteText").textContent=c.text;
@@ -323,6 +324,7 @@ function translate(){
  buildTimes();
 }
 function showStep(step){
+ if(successfulBookingReturn)return;
  state.step=step;
  for(const name of ["year","service","details"])$(name==="year"?"yearStep":name==="service"?"serviceStep":"detailsStep").hidden=name!==step;
  const order=["year","service","details"];
@@ -482,6 +484,30 @@ async function loadMariaWorkspace(){
   }
   translate();
  }catch(_error){/* Stay with the customer-approved static preview if offline. */}
+ finally{
+  if(successfulBookingReturn){
+   bookingReturnLoading=false;
+   if(workspaceConfig.bookingEnabled){
+    showBookingComplete();
+    $("bookingCompleteAgain").hidden=false;
+   }else{
+    $("bookingCompleteTitle").textContent=state.lang==="en"
+     ?"Booking status unavailable. Refresh or use the link in your email."
+     :state.lang==="ar"?"حالة الحجز غير متاحة. يرجى تحديث الصفحة أو استخدام رابط البريد الإلكتروني."
+     :"Bokningsstatus är inte tillgänglig. Uppdatera sidan eller använd länken i ditt mejl.";
+   }
+   $("bookingComplete").hidden=false;
+  }
+ }
+}
+if(successfulBookingReturn){
+ $("bookingComplete").hidden=false;
+ $("bookingCompleteTitle").textContent=state.lang==="en"
+  ?"Loading your booking..." :state.lang==="ar"?"جارٍ تحميل الحجز...":"Hämtar bokningen...";
+ $("bookingCompleteText").textContent="";
+ $("bookingCompleteAgain").hidden=true;
+ document.querySelector(".steps").hidden=true;
+ for(const name of ["yearStep","serviceStep","detailsStep"])$(name).hidden=true;
 }
 translate();showStep("year");void loadMariaWorkspace();
 </script>
