@@ -6224,7 +6224,8 @@ process.stdout.write(JSON.stringify({
 
   it("requires authenticated model dispatch but no automatic push credential", () => {
     expect(evaluate(baseContext({ secrets: { openai: false, push: true } })).code).toBe("dispatch_auth_unavailable");
-    expect(evaluate(baseContext({ secrets: { openai: true, push: false } })).code).not.toBe("dispatch_auth_unavailable");
+    expect(evaluate(baseContext({ secrets: { openai: true, push: false } })))
+      .toMatchObject({ ok: true, code: "accepted" });
   });
 
   it("does not redispatch after the source Issue comment is edited", () => {
