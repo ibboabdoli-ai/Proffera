@@ -98,6 +98,16 @@ footer a{color:#875565}
 [dir=rtl] .package{align-items:flex-start;text-align:start}
 @media(max-width:720px){.main-content{padding-top:49px}.panel{padding:28px 24px 35px}.steps{gap:6px}.step-line{width:19px}.step{font-size:9px;gap:5px}.step b{width:25px;height:25px}}
 @media(max-width:540px){.site-top{padding:18px 15px 12px}.identity strong{font-size:21px}.identity span{font-size:8px}.top-right{gap:4px}.lang-switch button{padding:8px 7px;min-height:34px}.first-design{font-size:9px}.main-content{padding:40px 13px 60px}.main-intro h1{font-size:clamp(44px,11vw,59px);margin:17px 0 15px}.main-intro p{max-width:330px;font-size:13px}.divider{margin:23px auto 17px}.demo-note{font-size:9px;max-width:330px}.panel{padding:28px 15px 31px;margin-top:34px}.panel:before{top:10px;left:10px;bottom:10px;right:10px}.steps{margin-bottom:24px;gap:5px}.step{font-size:9px;letter-spacing:0;gap:4px}.step b{height:24px;width:24px}.step-line{width:15px}.step-title{font-size:34px}.step-sub{font-size:12px;margin-bottom:22px}.year-options{gap:8px}.year-options button{min-height:116px;padding:10px 2px;gap:9px}.year-options button strong{font-size:34px}.year-options button span{font-size:9px}.packages{grid-template-columns:1fr}.package{min-height:0;padding:20px;gap:10px}.package .description{font-size:12px}.form-grid{grid-template-columns:1fr;gap:12px}.field.wide{grid-column:auto}.beneath{margin-top:27px}.beneath p{padding-inline:12px}}
+@media(max-width:540px){
+  .site-top{flex-wrap:wrap}
+  .identity,.top-right,.main-intro,.main-intro h1,.panel-body{min-width:0;max-width:100%}
+  .top-right{flex-wrap:wrap}
+  .main-intro h1,.step-title{overflow-wrap:anywhere}
+  [dir=rtl] .main-intro h1{font-size:clamp(31px,8.2vw,44px);line-height:1.26}
+  .year-options button{min-width:0}
+  .year-options button strong{font-size:clamp(24px,8vw,34px)}
+  .steps{flex-wrap:wrap}
+}
 @media(max-width:345px){.identity strong{font-size:18px}.main-content{padding-inline:8px}.panel{padding-inline:12px}.step{font-size:8px}.year-options button strong{font-size:30px}}
 @media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}*,*:before,*:after{transition:none!important;animation:none!important}}
 </style>
