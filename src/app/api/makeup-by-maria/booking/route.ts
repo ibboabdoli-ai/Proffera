@@ -63,7 +63,9 @@ export async function POST(request: Request) {
   const notes = field(input.notes, 600);
   const date = field(input.date, 10);
   const time = field(input.time, 5);
-  const lang = input.lang === "en" || input.lang === "ar" ? "en" : "sv";
+  const requestedLang = input.lang === "ar" ? "ar" : input.lang === "en" ? "en" : "sv";
+  // Email templates remain English until Arabic notification copy ships.
+  const lang = requestedLang === "ar" ? "en" : requestedLang;
   const startedAt = Number(input.startedAt);
 
   if (
@@ -191,7 +193,7 @@ export async function POST(request: Request) {
     if (!result.ok) return failure(result.error === "email" ? "email" : "conflict", 409);
     return NextResponse.json({
       ok: true,
-      verificationUrl: `/boka/verifiera/${result.verificationId}?lang=${lang}`,
+      verificationUrl: `/boka/verifiera/${result.verificationId}?lang=${requestedLang}`,
     }, { headers: privateHeaders });
   } catch (error) {
     console.error("Maria preview booking preparation failed", error);

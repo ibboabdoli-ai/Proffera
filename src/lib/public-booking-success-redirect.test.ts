@@ -16,6 +16,8 @@ describe("email-verified booking success URLs", () => {
       .toBe("/demo/makeup-by-maria-v2.html?booked=1&lang=sv");
     expect(publicBookingSuccessRedirect("makeup-by-maria", "en"))
       .toBe("/demo/makeup-by-maria-v2.html?booked=1&lang=en");
+    expect(publicBookingSuccessRedirect("makeup-by-maria", "ar"))
+      .toBe("/demo/makeup-by-maria-v2.html?booked=1&lang=ar");
   });
 
   it("preserves generic success URL outside Preview", () => {

@@ -1,4 +1,4 @@
-export type PublicBookingSuccessLocale = "sv" | "en";
+export type PublicBookingSuccessLocale = "sv" | "en" | "ar";
 
 /** Returns the public success URL used immediately after a verified booking is created. */
 export function publicBookingSuccessRedirect(
