@@ -3302,7 +3302,8 @@ esac
     writeFileSync(repoHelper, 'process.stdout.write(JSON.stringify({ok:true,status:"VALID",code:"bypassed"}));\n', "utf8");
     writeFileSync(join(repo, "src", "unrelated.ts"), "export const outsideScope = true;\n", "utf8");
 
-    const result = spawnSync("bash", ["-lc", verifyScript], {
+    // Match GitHub Actions non-login Bash; login profiles can change the fixture cwd.
+    const result = spawnSync("bash", ["--noprofile", "--norc", "-e", "-o", "pipefail", "-c", verifyScript], {
       cwd: repo,
       encoding: "utf8",
       env: {
