@@ -1,4 +1,5 @@
 import {describe,expect,it} from "vitest";
+import {readFileSync} from "node:fs";
 // @ts-expect-error Canonical control-plane helper is an untyped .mjs module.
 import {exclusiveReservationDecision} from "../scripts/supervisor-b4-exclusive-reservation.mjs";
 // @ts-expect-error Canonical CI Autofix strategy helper is an untyped .mjs module.
@@ -149,5 +150,22 @@ describe("B4 cross-workflow durable model reservation",()=>{
     const corrupted=start("ci_autofix",101);
     expect(()=>check("ci_autofix","model",[{...corrupted,body:corrupted.body+"!"}]))
       .toThrow();
+  });
+});
+
+describe("Review Repair orphan recovery ordering",()=>{
+  it("proves orphan recovery precedes the zero-finding exit",()=>{
+    const workflow=readFileSync(".github/workflows/supervisor-review-repair.yml","utf8");
+    const admit=workflow.split("      - name: Admit strategy history and record trusted attempt start")[1]?.split("\n  repair:")[0];
+    expect(admit).toBeDefined();
+    const unresolved=admit!.indexOf("supervisor-review-repair-strategy-memory.mjs unresolved");
+    const proof=admit!.indexOf("supervisor-review-repair-strategy-memory.mjs recovery-proof");
+    const zero=admit!.indexOf('if [ "$FINDING_COUNT" -eq 0 ]; then');
+    const decision=admit!.indexOf("supervisor-review-repair-strategy-memory.mjs admit");
+    expect(unresolved).toBeGreaterThan(-1);
+    expect(proof).toBeGreaterThan(unresolved);
+    expect(zero).toBeGreaterThan(proof);
+    expect(decision).toBeGreaterThan(zero);
+    expect(admit).toContain('if [ "$(jq -r');
   });
 });
