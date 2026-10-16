@@ -1,5 +1,6 @@
 import type { CSSProperties } from "react";
 import Link from "next/link";
+import Image from "next/image";
 import { headers } from "next/headers";
 import { notFound, redirect } from "next/navigation";
 import { CalendarClock, Clock3, UserRound } from "lucide-react";
@@ -144,16 +145,17 @@ export default async function ReschedulePage({ params, searchParams }: PageProps
   const errors = isArabic ? errorsAr : isEnglish ? errorsEn : errorsSv;
   const errorKey = first(query?.error);
   const showLanguageSwitch = isMaria || (presentation ? presentation.swedishEnabled && presentation.englishEnabled : true);
-  const portalPrimary = presentation?.primaryColor || (isPrimeView ? "#1769c2" : "#0a2e63");
+  const portalPrimary = isMaria ? "#845363" : presentation?.primaryColor || (isPrimeView ? "#1769c2" : "#0a2e63");
   const style = {
     "--portal-primary": portalPrimary,
     "--portal-primary-text": readableBookingTextColor(portalPrimary),
   } as CSSProperties;
 
   return (
-    <main className={styles.page} lang={language} dir={isArabic ? "rtl" : "ltr"} style={style}>
+    <main className={isMaria ? `${styles.page} ${styles.mariaPage}` : styles.page} lang={language} dir={isArabic ? "rtl" : "ltr"} style={style}>
       <div className={styles.shell}>
         <div className={styles.topbar}>
+          {isMaria ? <Image src="/demo/makeup-by-maria/assets/maria-mark.svg" alt="Makeup by Maria" width={44} height={44} className={styles.mariaLogo} /> : null}
           <Link href={`/mina-bokningar/${encodeURIComponent(token)}?lang=${language}`} className={styles.backLink}>
             ← {t("Till mina bokningar", "Back to my bookings", "العودة إلى حجوزاتي")}
           </Link>

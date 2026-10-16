@@ -174,22 +174,24 @@ export default async function Page({ params, searchParams }: PageProps) {
   );
 
   const companyName = presentation?.companyName || (isPrimeView ? "PrimeView Window Care" : "Proffera");
-  const portalPrimary = presentation?.primaryColor || (isPrimeView ? "#1769c2" : "#0a2e63");
+  const isMaria = presentation?.publicBookingSlug === "makeup-by-maria"
+    && process.env.VERCEL_ENV === "preview";
+  const portalPrimary = isMaria ? "#845363" : presentation?.primaryColor || (isPrimeView ? "#1769c2" : "#0a2e63");
   const style = {
     "--portal-primary": portalPrimary,
     "--portal-primary-text": readableBookingTextColor(portalPrimary),
   } as CSSProperties;
   const switchQuery = { changed: first(query?.changed), cancelled: first(query?.cancelled), error: first(query?.error) };
-  const isMaria = presentation?.publicBookingSlug === "makeup-by-maria"
-    && process.env.VERCEL_ENV === "preview";
   const showLanguageSwitch = isMaria || (presentation ? presentation.swedishEnabled && presentation.englishEnabled : true);
 
   return (
-    <main className={styles.page} lang={language} dir={isArabic ? "rtl" : "ltr"} style={style}>
+    <main className={isMaria ? `${styles.page} ${styles.mariaPage}` : styles.page} lang={language} dir={isArabic ? "rtl" : "ltr"} style={style}>
       <div className={styles.shell}>
         <div className={styles.topbar}>
           <div className={styles.identity}>
-            {isPrimeView ? (
+            {isMaria ? (
+              <Image src="/demo/makeup-by-maria/assets/maria-mark.svg" alt="Makeup by Maria" width={44} height={44} className={styles.mariaLogo} />
+            ) : isPrimeView ? (
               <Image src="/brand/primeview-window-care-logo.jpeg" alt="PrimeView Window Care" width={48} height={48} className={styles.logo} />
             ) : presentation?.logoUrl ? (
               // Workspace logos are runtime tenant media and may use Blob/CDN hosts.

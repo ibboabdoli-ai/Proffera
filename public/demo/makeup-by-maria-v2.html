@@ -7,6 +7,7 @@
 <meta name="robots" content="noindex,nofollow">
 <meta name="description" content="Makeup by Maria — exklusiv bokningsförfrågan för brudmakeup. Designförslag 02, endast demo.">
 <title>Makeup by Maria — Design 02 · Bridal Booking</title>
+<link rel="icon" type="image/svg+xml" href="/demo/makeup-by-maria/assets/maria-favicon.svg">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=DM+Serif+Display:ital@0;1&display=swap" rel="stylesheet">
@@ -22,7 +23,8 @@ button{cursor:pointer}
 [hidden]{display:none!important}
 .topline{height:5px;background:linear-gradient(90deg,#e5cac9,#b48792 49%,#e5cac9)}
 .site-top{padding:27px 30px 15px;max-width:1280px;margin:auto;display:flex;align-items:center;justify-content:space-between;gap:12px}
-.identity{display:flex;flex-direction:column;gap:1px}
+.identity{display:flex;flex-direction:column;gap:1px;max-width:330px}
+.identity img{display:block;width:clamp(205px,25vw,310px);height:auto;object-fit:contain;flex:none}
 .identity strong{font:400 25px/1.2 var(--serif);letter-spacing:.01em}
 .identity span{font-size:9px;font-weight:700;color:#9a7680;letter-spacing:.22em;text-transform:uppercase}
 .top-right{display:flex;gap:13px;align-items:center}
@@ -95,7 +97,8 @@ main{min-height:85vh}
 .beneath p{font-size:12px;line-height:1.9;color:#8b777d}
 .beneath a{display:inline-block;color:var(--rose);border-bottom:1px solid #cda9b2;font-size:11px;font-weight:700;padding-bottom:3px;margin-top:6px}
 footer{border-top:1px solid var(--border);padding:28px 24px 33px;text-align:center}
-.footer-brand{font:400 24px var(--serif)}
+.footer-brand{display:flex;justify-content:center;align-items:center}
+.footer-brand img{width:230px;max-width:100%;height:auto;display:block}
 footer small{display:block;font-size:10px;color:#8c7d80;margin-top:6px}
 footer a{color:#875565}
 [dir=rtl] .site-top,[dir=rtl] .top-right,[dir=rtl] .step,[dir=rtl] .panel-body{direction:rtl}
@@ -121,7 +124,7 @@ footer a{color:#875565}
 <body>
 <div class="topline"></div>
 <header class="site-top">
-<a class="identity" href="#top"><strong>Makeup by Maria</strong><span data-i="artistTagline">Bridal makeup artist</span></a>
+<a class="identity" href="#top" aria-label="Makeup by Maria"><img src="/demo/makeup-by-maria/assets/maria-wordmark.svg" alt="Makeup by Maria" width="900" height="184"><span data-i="artistTagline">Bridal makeup artist</span></a>
 <div class="top-right">
 <div class="lang-switch" id="langSwitch" aria-label="Language">
 <button type="button" data-lang="sv" aria-pressed="true">SV</button>
@@ -191,7 +194,7 @@ footer a{color:#875565}
 </div></section>
 <div class="beneath"><div class="ornament" aria-hidden="true"><span>✧</span></div><p data-i="footCopy">Varje brud har sin egen historia. Upptäck Marias tidigare arbeten och låt oss skapa en look som passar din stora dag.</p><a href="https://www.instagram.com/makeupbymaria998/" target="_blank" rel="noopener noreferrer" data-i="instagram">SE PORTFOLIO PÅ INSTAGRAM ↗</a></div>
 </div></main>
-<footer><div class="footer-brand">Makeup by Maria</div><small data-i="footer">En förhandsvisning · Stockholm, Sverige</small><small>Instagram <a href="https://www.instagram.com/makeupbymaria998/" target="_blank" rel="noopener noreferrer">@makeupbymaria998</a></small></footer>
+<footer><div class="footer-brand"><img src="/demo/makeup-by-maria/assets/maria-stacked.svg" alt="Makeup by Maria" width="560" height="368" loading="lazy"></div><small data-i="footer">En förhandsvisning · Stockholm, Sverige</small><small>Instagram <a href="https://www.instagram.com/makeupbymaria998/" target="_blank" rel="noopener noreferrer">@makeupbymaria998</a></small></footer>
 <script>
 const dict={
 sv:{
