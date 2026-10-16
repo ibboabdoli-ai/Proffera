@@ -62,7 +62,7 @@ function assertNoUnapprovedPublication(workflowName: string, jobName: string,
     for (const apiCommand of script.match(/(?<![\w./-])gh\b[^\r\n;|&]*?\bapi\b[^\r\n;|&]*/gi) ?? []) {
       if (/\bgraphql\b/i.test(apiCommand)) {
         const graphqlEvidence = JSON.stringify({
-          apiCommand, workflowEnv, jobEnv: job.env ?? null, stepEnv: step.env ?? null,
+          script, workflowEnv, jobEnv: job.env ?? null, stepEnv: step.env ?? null,
         });
         expect(graphqlEvidence, `${workflowName} ${jobName} cannot publish PRs via GraphQL`)
           .not.toMatch(/\b(?:createPullRequest|mergePullRequest)\b/i);
@@ -78,6 +78,21 @@ function assertNoUnapprovedPublication(workflowName: string, jobName: string,
         .not.toMatch(new RegExp(repository + String.raw`\/pulls(?=[\s?#]|$)`, "i"));
       expect(apiCommand, `${workflowName} ${jobName} cannot merge PRs via API`)
         .not.toMatch(new RegExp(repository + String.raw`\/pulls\/(?:\$\{[^}]+\}|[^/\s]+)\/merge(?=[\s?#]|$)`, "i"));
+      // PR writes are safe only when they explicitly close the PR.
+      // Reject reopen, arbitrary PATCH, review mutations and extra fields.
+      const prNumber = String.raw`(?:\$\{\{[^}]+\}\}|\$\{[^}]+\}|\$[A-Za-z_][A-Za-z0-9_]*|\d+)`;
+      const prPath = new RegExp(repository + String.raw`\/pulls\/` + prNumber + String.raw`(?=[\s?#/]|$)`, "i");
+      if (prPath.test(apiCommand)) {
+        const exactPrPath = new RegExp(repository + String.raw`\/pulls\/` + prNumber + String.raw`(?=[\s?#]|$)`, "i");
+        const patch = /(?:--method(?:=|\s+)|-X(?:=|\s+))PATCH\b/i.test(apiCommand);
+        const conflictingMethod = /(?:--method(?:=|\s+)|-X(?:=|\s+))(?:POST|PUT|DELETE)\b/i.test(apiCommand);
+        const closeField = /(?:^|\s)(?:-f|--field|--raw-field)(?:=|\s+)state=closed(?=\s|$)/i.test(apiCommand);
+        const fields = (apiCommand.match(/(?:^|\s)(?:-f|-F|--field|--raw-field)(?:=|\s+)/gi) ?? []).length;
+        const extraInput = /(?:^|\s)--input(?:=|\s+)/i.test(apiCommand);
+        expect(exactPrPath.test(apiCommand) && patch && !conflictingMethod
+          && closeField && fields === 1 && !extraInput,
+          `${workflowName} ${jobName} only explicit PR closing is permitted`).toBe(true);
+      }
     }
     // Fail closed for Git global options (e.g. `git -c key=value push`).
     // Keep the search within one Bash logical command line; a literal `.git`
@@ -171,6 +186,26 @@ describe("owner-authorized publication handoff contracts", () => {
     expect(() => assertNoUnapprovedPublication("fixture.yml", "audit", {
       permissions:{contents:"read", "pull-requests":"write"}, steps:[{run:command}],
     })).toThrow(/cannot publish PRs via GraphQL/);
+  });
+
+  it.each([
+    ["merge on later line", "gh api graphql -f query='mutation {\n  mergePullRequest(input: {}) { pullRequest { id } }\n}'"],
+    ["create on later line", "gh api graphql -f query='mutation {\n  createPullRequest(input: {}) { pullRequest { id } }\n}'"],
+  ])("rejects a multiline GraphQL PR publication: %s", (_name, run) => {
+    expect(() => assertNoUnapprovedPublication("fixture.yml", "audit", {
+      permissions:{contents:"read", "pull-requests":"write"}, steps:[{run}],
+    })).toThrow(/cannot publish PRs via GraphQL/);
+  });
+
+  it.each([
+    ["reopen PR", "gh api --method PATCH repos/${REPOSITORY}/pulls/${PR_NUMBER} -f state=open"],
+    ["change PR title", "gh api --method PATCH repos/${REPOSITORY}/pulls/${PR_NUMBER} -f title=unauthorized"],
+    ["close and mutate title", "gh api --method PATCH repos/${REPOSITORY}/pulls/${PR_NUMBER} -f state=closed -f title=unauthorized"],
+    ["create PR review", "gh api --method POST repos/OWNER/REPO/pulls/941/reviews -f event=APPROVE"],
+  ])("rejects PR mutations other than explicit close: %s", (_name, run) => {
+    expect(() => assertNoUnapprovedPublication("fixture.yml", "audit", {
+      permissions:{contents:"read", "pull-requests":"write"}, steps:[{run}],
+    })).toThrow(/only explicit PR closing is permitted/);
   });
 
   it("rejects GraphQL mutations inherited from step environment", () => {
