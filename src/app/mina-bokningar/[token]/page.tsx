@@ -7,6 +7,7 @@ import { notFound, redirect } from "next/navigation";
 import { CalendarClock, CalendarDays, Clock3, History, MapPin, XCircle } from "lucide-react";
 
 import { readableBookingTextColor } from "@/lib/booking-theme-contract";
+import { localizeMariaPreviewServiceName } from "@/lib/maria-preview-service-copy";
 import { cancelCustomerCalendarBooking, getCustomerCalendar, type CustomerCalendarBooking } from "@/lib/customer-calendar";
 import { getCustomerPortalPresentation, resolveCustomerPortalLanguage, type CustomerPortalLanguage } from "@/lib/customer-portal-language";
 import { isPrimeViewHost } from "@/lib/public-site-domains";
@@ -64,7 +65,7 @@ async function cancelBooking(formData: FormData) {
 }
 
 export function BookingCard({
-  booking, token, timeZone, canReschedule, canCancel, cancelNoticeHours, language,
+  booking, token, timeZone, canReschedule, canCancel, cancelNoticeHours, language, isMariaPreview,
 }: {
   booking: CustomerCalendarBooking;
   token: string;
@@ -73,6 +74,7 @@ export function BookingCard({
   canCancel: boolean;
   cancelNoticeHours: number;
   language: CustomerPortalLanguage;
+  isMariaPreview: boolean;
 }) {
   const isEnglish = language === "en";
   const isArabic = language === "ar";
@@ -93,14 +95,16 @@ export function BookingCard({
       ? styles.statusMuted
       : styles.statusNeutral;
   const rescheduleHref = `/mina-bokningar/${encodeURIComponent(token)}/${booking.id}/boka-om?lang=${language}`;
+  const displayTitle = localizeMariaPreviewServiceName(booking.title, language, isMariaPreview);
+  const displayService = localizeMariaPreviewServiceName(booking.service, language, isMariaPreview);
 
   return (
     <article className={styles.bookingCard}>
       <div className={styles.bookingTop}>
         <div>
           <span className={`${styles.status} ${statusClass}`}>{displayStatus}</span>
-          <h3 className={styles.bookingTitle}>{booking.title}</h3>
-          <p className={styles.bookingService}>{booking.service}</p>
+          <h3 className={styles.bookingTitle}>{displayTitle}</h3>
+          {displayService !== displayTitle ? <p className={styles.bookingService}>{displayService}</p> : null}
         </div>
         <span className={`${styles.status} ${styles.statusNeutral}`}>{t("Privat bokning", "Private booking", "حجز خاص")}</span>
       </div>
@@ -165,6 +169,7 @@ export default async function Page({ params, searchParams }: PageProps) {
       canCancel={data.policy.customerCancelEnabled}
       cancelNoticeHours={data.policy.cancelNoticeHours}
       language={language}
+      isMariaPreview={presentation?.publicBookingSlug === "makeup-by-maria" && process.env.VERCEL_ENV === "preview"}
     />
   );
 
