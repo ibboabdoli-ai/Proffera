@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { usePathname, useSearchParams } from "next/navigation";
+import { resolvedCustomerPortalShellLanguage } from "@/lib/customer-portal-shell";
 
 import {
   ANALYTICS_CONSENT_CHANGED_EVENT,
@@ -91,7 +92,7 @@ function currentDocumentLocale(
   const routeLanguage = document.querySelector<HTMLElement>("main[lang]")?.getAttribute("lang")?.toLowerCase();
   // Only Maria's isolated Preview portal currently resolves Arabic.
   // The route's server-resolved lang is authoritative; a query alone is not.
-  if (pathname?.startsWith("/mina-bokningar/") && routeLanguage === "ar") return "ar";
+  if (resolvedCustomerPortalShellLanguage(pathname, routeLanguage) === "ar") return "ar";
   if (routeLanguage?.startsWith("en")) return "en";
   if (routeLanguage?.startsWith("sv")) return "sv";
 
