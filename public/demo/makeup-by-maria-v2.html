@@ -241,9 +241,9 @@ const liveBookingCopy={
  ar:{safety:"يتم إنشاء الحجز بعد تأكيد البريد الإلكتروني فقط، ويجب أن يكون الموعد متاحاً. يتم إرسال رمز التحقق باللغة العربية، ويمكنك تأكيد الحجز باللغة العربية.",submit:"المتابعة لتأكيد البريد الإلكتروني ↗",sending:"جارٍ التحقق من الموعد وإرسال رمز التأكيد...",error:"تعذر بدء الحجز. يرجى مراجعة الموعد والمحاولة مجدداً."}
 };
 const uiMessages={
- sv:{home:"← Till startsidan",closed:"Bokning öppnar senare",availability:"Kunde inte kontrollera lediga tider. Försök igen.",artistTagline:"Brudmakeupartist",packageOne:"01 / BRUDMAKEUP",packageTwo:"02 / BRUDMAKEUP",languageLabel:"Språk",bookingLabel:"Bokningsförfrågan för brudmakeup",stepsLabel:"Steg"},
- en:{home:"← Back to home",closed:"Booking opens later",availability:"Could not check available times. Try again.",artistTagline:"Bridal makeup artist",packageOne:"01 / BRIDAL",packageTwo:"02 / BRIDAL",languageLabel:"Language",bookingLabel:"Bridal booking request",stepsLabel:"Steps"},
- ar:{home:"→ العودة إلى الرئيسية",closed:"الحجز سيفتح لاحقاً",availability:"تعذر التحقق من الأوقات المتاحة. يرجى المحاولة مجدداً.",artistTagline:"خبيرة مكياج العرائس",packageOne:"٠١ / مكياج العرائس",packageTwo:"٠٢ / مكياج العرائس",languageLabel:"اللغة",bookingLabel:"طلب حجز مكياج العروس",stepsLabel:"الخطوات"}
+ sv:{home:"← Till startsidan",closed:"Bokning öppnar senare",availability:"Kunde inte kontrollera lediga tider. Försök igen.",artistTagline:"Brudmakeupartist",packageOne:"01 / BRUDMAKEUP",packageTwo:"02 / BRUDMAKEUP",languageLabel:"Språk",bookingLabel:"Bokningsförfrågan för brudmakeup",stepsLabel:"Steg",noDatesWindow:"Inga bokningsbara datum inom bokningsperioden."},
+ en:{home:"← Back to home",closed:"Booking opens later",availability:"Could not check available times. Try again.",artistTagline:"Bridal makeup artist",packageOne:"01 / BRIDAL",packageTwo:"02 / BRIDAL",languageLabel:"Language",bookingLabel:"Bridal booking request",stepsLabel:"Steps",noDatesWindow:"No bookable dates within the booking window."},
+ ar:{home:"→ العودة إلى الرئيسية",closed:"الحجز سيفتح لاحقاً",availability:"تعذر التحقق من الأوقات المتاحة. يرجى المحاولة مجدداً.",artistTagline:"خبيرة مكياج العرائس",packageOne:"٠١ / مكياج العرائس",packageTwo:"٠٢ / مكياج العرائس",languageLabel:"اللغة",bookingLabel:"طلب حجز مكياج العروس",stepsLabel:"الخطوات",noDatesWindow:"لا توجد تواريخ متاحة ضمن فترة الحجز المسموح بها."}
 };
 const bookingErrors={
  sv:{invalid_email:"Ange en giltig e-postadress, exempelvis namn@example.com.",invalid_phone:"Ange ett giltigt telefonnummer med 7–15 siffror och utan bokstäver.",invalid:"Kontrollera namn, e-post, telefon och bokningsuppgifter.",service:"Den här tjänsten är inte öppen för bokning ännu.",conflict:"Tiden är inte längre ledig. Välj ett annat klockslag.",rate_limit:"För många försök. Vänta cirka 15 minuter.",email:"Verifieringsmejlet kunde inte skickas.",unavailable:"Bokning är inte tillgänglig för denna testförfrågan. Använd en godkänd testadress.",hours:"Välj en tillgänglig fredag eller lördag.",time:"Välj ett giltigt datum och klockslag.",database:"Bokningstjänsten är tillfälligt otillgänglig."},
@@ -287,6 +287,7 @@ function showBookingError(code,invalidInput){
 let workspaceConfig={
  bookingEnabled:false,
  bookableDurations:{},
+ bookableAdvanceDays:{},
  years:[
   {year:2026,enabled:true,trial:6800,without:5800},
   {year:2027,enabled:true,trial:null,without:null},
@@ -429,16 +430,18 @@ function buildDates(){
  sel.add(new Option(c.dateEmpty,""));
  if(!state.year)return;
  const today=stockholmDate();let n=0;
+ const advance=workspaceConfig.bookingEnabled?(workspaceConfig.bookableAdvanceDays[String(state.year)]?.[state.kind]??730):null;
+ const latest=advance===null?null:new Date(Date.parse(today+"T00:00:00Z")+advance*86400000).toISOString().slice(0,10);
  for(let day=1;day<=366;day++){
   const dt=new Date(Date.UTC(state.year,0,day,12));
   if(dt.getUTCFullYear()!==state.year)break;
   const weekday=dt.getUTCDay();if(!isAllowedWeekday(weekday))continue;
-  const iso=dt.toISOString().slice(0,10);if(iso<today)continue;
+  const iso=dt.toISOString().slice(0,10);if(iso<today||(latest&&iso>latest))continue;
   const fmt=new Intl.DateTimeFormat(state.lang==="ar"?"ar-SE":state.lang==="en"?"en-GB":"sv-SE",{weekday:"long",day:"numeric",month:"long",year:"numeric",timeZone:"UTC"});
   sel.add(new Option(fmt.format(dt),iso));n++;
  }
  if(prior&&[...sel.options].some(o=>o.value===prior))sel.value=prior;
- if(!n)sel.options[0].textContent=c.noDates;
+ if(!n)sel.options[0].textContent=workspaceConfig.bookingEnabled?uiCopy().noDatesWindow:c.noDates;
 }
 let availabilitySequence=0;
 async function buildTimes(preserveSelection=true){
@@ -565,6 +568,18 @@ async function loadMariaWorkspace(){
     }
    }
    workspaceConfig.bookableDurations=accepted;
+  }
+  if(workspaceConfig.bookingEnabled&&config.bookableAdvanceDays&&typeof config.bookableAdvanceDays==="object"){
+   const accepted={};
+   for(const [year,packages] of Object.entries(config.bookableAdvanceDays)){
+    if(!/^(202[6-9]|203[0-6])$/.test(year)||!packages||typeof packages!=="object")continue;
+    accepted[year]={};
+    for(const kind of ["trial","without"]){
+     const days=packages[kind];
+     if(Number.isSafeInteger(days)&&days>=1&&days<=730)accepted[year][kind]=days;
+    }
+   }
+   workspaceConfig.bookableAdvanceDays=accepted;
   }
   if(Array.isArray(config.years)){
    const parsed=config.years
