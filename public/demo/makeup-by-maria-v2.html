@@ -121,9 +121,9 @@ footer a{color:#875565}
 <body>
 <div class="topline"></div>
 <header class="site-top">
-<a class="identity" href="#top"><strong>Makeup by Maria</strong><span>Bridal makeup artist</span></a>
+<a class="identity" href="#top"><strong>Makeup by Maria</strong><span data-i="artistTagline">Bridal makeup artist</span></a>
 <div class="top-right">
-<div class="lang-switch" aria-label="Language">
+<div class="lang-switch" id="langSwitch" aria-label="Language">
 <button type="button" data-lang="sv" aria-pressed="true">SV</button>
 <button type="button" data-lang="en" aria-pressed="false">EN</button>
 <button type="button" data-lang="ar" aria-pressed="false">AR</button>
@@ -139,13 +139,13 @@ footer a{color:#875565}
 <div class="divider"></div>
 <div class="demo-note" data-i="notice">Designförslag – endast förhandsvisning, ingen riktig bokning</div>
 </div>
-<section class="panel" aria-label="Bridal booking request"><div class="panel-body">
+<section class="panel" id="bookingPanel" aria-label="Bridal booking request"><div class="panel-body">
 <div id="bookingComplete" class="booking-complete" role="status" hidden>
 <h2 id="bookingCompleteTitle">Tack! Din e-post är verifierad.</h2>
 <p id="bookingCompleteText">Vi har tagit emot din bokningsförfrågan. Maria bekräftar tiden separat.</p>
 <a id="bookingCompleteAgain" href="/demo/makeup-by-maria-v2.html">Gör en ny bokning</a>
 </div>
-<div class="steps" aria-label="Steg">
+<div class="steps" id="bookingSteps" aria-label="Steg">
 <div class="step active" data-step-marker="year"><b>1</b><span data-i="s1">År</span></div><i class="step-line"></i>
 <div class="step" data-step-marker="service"><b>2</b><span data-i="s2">Tjänst</span></div><i class="step-line"></i>
 <div class="step" data-step-marker="details"><b>3</b><span data-i="s3">Datum & kontakt</span></div>
@@ -165,8 +165,8 @@ footer a{color:#875565}
 <h2 class="step-title"><span data-i="serviceTitle">Välj tjänst</span> — <span id="selectedYear">2026</span></h2>
 <p class="step-sub" data-i="servicePrompt">Så här kan du boka din brudsmink</p>
 <div class="packages">
-<button type="button" class="package" data-package="trial"><span class="number">01 / BRIDAL</span><strong data-i="trialTitle">Brudsmink med prov</strong><span class="description" data-i="trialDesc">En professionell och hållbar makeup som utförs på bröllopsdagen, inklusive en provsminkning cirka 1–3 månader innan bröllopet. Hembesök ingår.</span><span class="price" id="trialPrice">6 800 kr</span><span class="choose" data-i="choose">VÄLJ TJÄNST ↗</span></button>
-<button type="button" class="package" data-package="without"><span class="number">02 / BRIDAL</span><strong data-i="withoutTitle">Brudsmink utan prov</strong><span class="description" data-i="withoutDesc">En professionell och hållbar makeup som utförs direkt på bröllopsdagen. Hembesök ingår.</span><span class="price" id="withoutPrice">5 800 kr</span><span class="choose" data-i="choose">VÄLJ TJÄNST ↗</span></button>
+<button type="button" class="package" data-package="trial"><span class="number" data-i="packageOne">01 / BRIDAL</span><strong data-i="trialTitle">Brudsmink med prov</strong><span class="description" data-i="trialDesc">En professionell och hållbar makeup som utförs på bröllopsdagen, inklusive en provsminkning cirka 1–3 månader innan bröllopet. Hembesök ingår.</span><span class="price" id="trialPrice">6 800 kr</span><span class="choose" data-i="choose">VÄLJ TJÄNST ↗</span></button>
+<button type="button" class="package" data-package="without"><span class="number" data-i="packageTwo">02 / BRIDAL</span><strong data-i="withoutTitle">Brudsmink utan prov</strong><span class="description" data-i="withoutDesc">En professionell och hållbar makeup som utförs direkt på bröllopsdagen. Hembesök ingår.</span><span class="price" id="withoutPrice">5 800 kr</span><span class="choose" data-i="choose">VÄLJ TJÄNST ↗</span></button>
 </div>
 </div>
 <div id="detailsStep" hidden>
@@ -241,16 +241,49 @@ const liveBookingCopy={
  ar:{safety:"يتم إنشاء الحجز بعد تأكيد البريد الإلكتروني فقط، ويجب أن يكون الموعد متاحاً. يتم إرسال رمز التحقق باللغة العربية، ويمكنك تأكيد الحجز باللغة العربية.",submit:"المتابعة لتأكيد البريد الإلكتروني ↗",sending:"جارٍ التحقق من الموعد وإرسال رمز التأكيد...",error:"تعذر بدء الحجز. يرجى مراجعة الموعد والمحاولة مجدداً."}
 };
 const uiMessages={
- sv:{home:"← Till startsidan",closed:"Bokning öppnar senare",availability:"Kunde inte kontrollera lediga tider. Försök igen."},
- en:{home:"← Back to home",closed:"Booking opens later",availability:"Could not check available times. Try again."},
- ar:{home:"→ العودة إلى الرئيسية",closed:"الحجز سيفتح لاحقاً",availability:"تعذر التحقق من الأوقات المتاحة. يرجى المحاولة مجدداً."}
+ sv:{home:"← Till startsidan",closed:"Bokning öppnar senare",availability:"Kunde inte kontrollera lediga tider. Försök igen.",artistTagline:"Brudmakeupartist",packageOne:"01 / BRUDMAKEUP",packageTwo:"02 / BRUDMAKEUP",languageLabel:"Språk",bookingLabel:"Bokningsförfrågan för brudmakeup",stepsLabel:"Steg"},
+ en:{home:"← Back to home",closed:"Booking opens later",availability:"Could not check available times. Try again.",artistTagline:"Bridal makeup artist",packageOne:"01 / BRIDAL",packageTwo:"02 / BRIDAL",languageLabel:"Language",bookingLabel:"Bridal booking request",stepsLabel:"Steps"},
+ ar:{home:"→ العودة إلى الرئيسية",closed:"الحجز سيفتح لاحقاً",availability:"تعذر التحقق من الأوقات المتاحة. يرجى المحاولة مجدداً.",artistTagline:"خبيرة مكياج العرائس",packageOne:"٠١ / مكياج العرائس",packageTwo:"٠٢ / مكياج العرائس",languageLabel:"اللغة",bookingLabel:"طلب حجز مكياج العروس",stepsLabel:"الخطوات"}
 };
 const bookingErrors={
- sv:{invalid:"Kontrollera namn, e-post, telefon och bokningsuppgifter.",service:"Den här tjänsten är inte öppen för bokning ännu.",conflict:"Tiden är inte längre ledig. Välj ett annat klockslag.",rate_limit:"För många försök. Vänta cirka 15 minuter.",email:"Verifieringsmejlet kunde inte skickas.",unavailable:"Bokning är inte tillgänglig för denna testförfrågan. Använd en godkänd testadress.",hours:"Välj en tillgänglig fredag eller lördag.",time:"Välj ett giltigt datum och klockslag.",database:"Bokningstjänsten är tillfälligt otillgänglig."},
- en:{invalid:"Check your name, email, phone and booking details.",service:"This service is not open for booking yet.",conflict:"This time is no longer available. Select another time.",rate_limit:"Too many attempts. Wait about 15 minutes.",email:"The verification email could not be sent.",unavailable:"Booking is unavailable for this test request. Use an approved test address.",hours:"Choose an available Friday or Saturday.",time:"Select a valid date and time.",database:"Booking is temporarily unavailable."},
- ar:{invalid:"تحققي من الاسم والبريد الإلكتروني ورقم الهاتف وبيانات الحجز.",service:"هذه الخدمة غير متاحة للحجز حالياً.",conflict:"هذا الموعد لم يعد متاحاً. اختاري وقتاً آخر.",rate_limit:"محاولات كثيرة. انتظري حوالي ١٥ دقيقة.",email:"تعذر إرسال رسالة التحقق.",unavailable:"الحجز غير متاح لهذا الطلب التجريبي. استخدمي بريد الاختبار المعتمد.",hours:"اختاري يوم الجمعة أو السبت المتاح.",time:"اختاري تاريخاً ووقتاً صالحين.",database:"خدمة الحجز غير متاحة مؤقتاً."}
+ sv:{invalid_email:"Ange en giltig e-postadress, exempelvis namn@example.com.",invalid_phone:"Ange ett giltigt telefonnummer med 7–15 siffror och utan bokstäver.",invalid:"Kontrollera namn, e-post, telefon och bokningsuppgifter.",service:"Den här tjänsten är inte öppen för bokning ännu.",conflict:"Tiden är inte längre ledig. Välj ett annat klockslag.",rate_limit:"För många försök. Vänta cirka 15 minuter.",email:"Verifieringsmejlet kunde inte skickas.",unavailable:"Bokning är inte tillgänglig för denna testförfrågan. Använd en godkänd testadress.",hours:"Välj en tillgänglig fredag eller lördag.",time:"Välj ett giltigt datum och klockslag.",database:"Bokningstjänsten är tillfälligt otillgänglig."},
+ en:{invalid_email:"Enter a valid email address, such as name@example.com.",invalid_phone:"Enter a valid phone number with 7–15 digits and no letters.",invalid:"Check your name, email, phone and booking details.",service:"This service is not open for booking yet.",conflict:"This time is no longer available. Select another time.",rate_limit:"Too many attempts. Wait about 15 minutes.",email:"The verification email could not be sent.",unavailable:"Booking is unavailable for this test request. Use an approved test address.",hours:"Choose an available Friday or Saturday.",time:"Select a valid date and time.",database:"Booking is temporarily unavailable."},
+ ar:{invalid_email:"أدخلي عنوان بريد إلكتروني صالحاً مثل name@example.com.",invalid_phone:"أدخلي رقم هاتف صالحاً من ٧ إلى ١٥ رقماً وبدون أحرف.",invalid:"تحققي من الاسم والبريد الإلكتروني ورقم الهاتف وبيانات الحجز.",service:"هذه الخدمة غير متاحة للحجز حالياً.",conflict:"هذا الموعد لم يعد متاحاً. اختاري وقتاً آخر.",rate_limit:"محاولات كثيرة. انتظري حوالي ١٥ دقيقة.",email:"تعذر إرسال رسالة التحقق.",unavailable:"الحجز غير متاح لهذا الطلب التجريبي. استخدمي بريد الاختبار المعتمد.",hours:"اختاري يوم الجمعة أو السبت المتاح.",time:"اختاري تاريخاً ووقتاً صالحين.",database:"خدمة الحجز غير متاحة مؤقتاً."}
 };
 function uiCopy(){return uiMessages[state.lang]||uiMessages.sv}
+function isValidMariaEmail(raw){
+ const email=raw.trim();
+ if(email.length<6||email.length>254||!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))return false;
+ const at=email.lastIndexOf("@"),local=email.slice(0,at),domain=email.slice(at+1).toLowerCase();
+ if(local.length<2||local.length>64||local.startsWith(".")||local.endsWith(".")||local.includes(".."))return false;
+ const labels=domain.split(".");
+ if(labels.length<2||labels.some(label=>!/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/i.test(label)))return false;
+ if(!/^[a-z]{2,63}$/i.test(labels[labels.length-1]))return false;
+ if(["gmail.com","googlemail.com"].includes(domain)&&local.split("+",1)[0].replace(/\./g,"").length<6)return false;
+ return true;
+}
+function isValidMariaPhone(raw){
+ const phone=raw.trim();
+ if(!/^\+?[0-9 ()-]+$/.test(phone)||phone.startsWith("-"))return false;
+ const opens=(phone.match(/\(/g)||[]).length,closes=(phone.match(/\)/g)||[]).length;
+ if(opens!==closes||opens>1||(opens&&phone.indexOf("(")>phone.indexOf(")")))return false;
+ const digits=phone.replace(/\D/g,"");
+ return digits.length>=7&&digits.length<=15&&!(phone.startsWith("+")&&digits.startsWith("0"))&&!/^(\d)\1+$/.test(digits);
+}
+let lastBookingError=null;
+function localizedBookingError(code){
+ const lookup=bookingErrors[state.lang]||bookingErrors.sv;
+ return Object.prototype.hasOwnProperty.call(lookup,code)?lookup[code]:(liveBookingCopy[state.lang]||liveBookingCopy.sv).error;
+}
+function showBookingError(code,invalidInput){
+ lastBookingError=code;
+ const m=$("message");m.style.display="block";m.textContent=localizedBookingError(code);
+ if(invalidInput){
+  invalidInput.setCustomValidity(m.textContent);
+  invalidInput.reportValidity();
+  invalidInput.focus();
+ }
+}
 let workspaceConfig={
  bookingEnabled:false,
  bookableDurations:{},
@@ -334,6 +367,20 @@ function translate(){
  document.querySelectorAll("[data-i]").forEach(el=>{const value=c[el.dataset.i];if(value!=null)el.textContent=value});
  document.querySelectorAll("[data-h]").forEach(el=>{const value=c[el.dataset.h];if(value!=null)el.innerHTML=value});
  document.querySelectorAll("[data-lang]").forEach(b=>b.setAttribute("aria-pressed",String(b.dataset.lang===state.lang)));
+ document.querySelector('[data-i="artistTagline"]').textContent=uiCopy().artistTagline;
+ document.querySelector('[data-i="packageOne"]').textContent=uiCopy().packageOne;
+ document.querySelector('[data-i="packageTwo"]').textContent=uiCopy().packageTwo;
+ $("langSwitch").setAttribute("aria-label",uiCopy().languageLabel);
+ $("bookingPanel").setAttribute("aria-label",uiCopy().bookingLabel);
+ $("bookingSteps").setAttribute("aria-label",uiCopy().stepsLabel);
+ if(lastBookingError){
+  $("message").textContent=localizedBookingError(lastBookingError);
+  for(const id of ["customerEmail","customerPhone"]){
+   const input=$(id);if(input.validity.customError)input.setCustomValidity(localizedBookingError(lastBookingError));
+  }
+ }else if($("bookingForm").querySelector('button[type="submit"]').disabled){
+  $("message").textContent=(liveBookingCopy[state.lang]||liveBookingCopy.sv).sending;
+ }
  if(workspaceConfig.bookingEnabled){
   const info=liveBookingCopy[state.lang]||liveBookingCopy.sv;
   document.querySelector('[data-i="safety"]').textContent=info.safety;
@@ -447,9 +494,22 @@ document.querySelector(".identity").addEventListener("click",e=>{e.preventDefaul
 $("backHome").addEventListener("click",returnHome);
 $("backYear").addEventListener("click",()=>showStep("year"));
 $("backService").addEventListener("click",()=>showStep("service"));
+for(const id of ["customerEmail","customerPhone"]){
+ $(id).addEventListener("input",()=>{
+  $(id).setCustomValidity("");
+  if(["invalid_email","invalid_phone"].includes(lastBookingError)){
+   lastBookingError=null;$("message").style.display="none";
+  }
+ });
+}
 $("bookingForm").addEventListener("submit",async e=>{
  e.preventDefault();
+ $("customerEmail").setCustomValidity("");
+ $("customerPhone").setCustomValidity("");
  if(!$("bookingForm").reportValidity())return;
+ if(!isValidMariaEmail($("customerEmail").value)){showBookingError("invalid_email",$("customerEmail"));return}
+ if(!isValidMariaPhone($("customerPhone").value)){showBookingError("invalid_phone",$("customerPhone"));return}
+ lastBookingError=null;
  const date=$("weddingDate").value,time=$("weddingTime").value;
  const weekday=new Date(date+"T12:00:00Z").getUTCDay();
  if(!state.kind||!state.year||!date||!isAllowedWeekday(weekday)||!time||!date.startsWith(String(state.year))||date<stockholmDate()||![...$("weddingTime").options].some(o=>o.value===time))return;
@@ -481,11 +541,9 @@ $("bookingForm").addEventListener("submit",async e=>{
    window.location.assign(data.verificationUrl);
    return;
   }
-  const errors=bookingErrors[state.lang]||bookingErrors.sv;
-  const code=typeof data?.error==="string"?data.error:"";
-  message.textContent=Object.prototype.hasOwnProperty.call(errors,code)?errors[code]:(liveBookingCopy[state.lang]||liveBookingCopy.sv).error;
+  showBookingError(typeof data?.error==="string"?data.error:"general");
  }catch(_error){
-  message.textContent=(liveBookingCopy[state.lang]||liveBookingCopy.sv).error;
+  showBookingError("general");
  }finally{button.disabled=false;}
 });
 $("weddingDate").addEventListener("change",()=>buildTimes(false));
