@@ -10,6 +10,7 @@ import { createCustomerCalendarToken } from "@/lib/customer-calendar";
 import { getSql } from "@/lib/db/server";
 import { finalizeMariaVerifiedBooking } from "@/lib/maria-verified-booking";
 import { getMariaPreviewBookingReadiness } from "@/lib/maria-preview-booking";
+import { renewMariaPreviewHoldForResend } from "@/lib/maria-resend-hold";
 import { isMariaPreviewTestRecipient } from "@/lib/maria-preview-customer-safety";
 import type { WorkspaceTimeZone } from "@/lib/workspace-market";
 
@@ -269,26 +270,16 @@ export async function resendPublicBookingCode(id: string, language: "sv" | "en" 
 
     const expectedHash = hashCode(id, code);
     const expiresAt = new Date(Date.now() + EXPIRY_MINUTES * 60_000).toISOString();
-    // Use the same workspace-wide lock as hold creation and consumption.
-    // This prevents a concurrent verification from consuming a code while
-    // this request is resetting it and prevents duplicate resend races.
-    const [, changed] = await sql.transaction([
-      sql`select pg_advisory_xact_lock(hashtextextended(${readiness.workspaceId}::text, 713))`,
-      sql`
-        update public_booking_verifications
-        set code_hash = ${expectedHash},
-          expires_at = ${expiresAt}::timestamptz,
-          attempts = 0, updated_at = now()
-        where id = ${id}::uuid
-          and workspace_id = ${readiness.workspaceId}::uuid
-          and public_booking_slug = 'makeup-by-maria'
-          and consumed_at is null and verified_at is null
-          and created_at >= now() - interval '1 hour'
-          and updated_at <= now() - interval '30 seconds'
-        returning id
-      `,
-    ]);
-    if (!changed?.[0]) return { ok: false as const, error: "wait" };
+    // Re-acquire the hold only after checking current bookings, other active
+    // holds, service policy and buffers under Maria's workspace-wide lock.
+    // An expired hold must not evict a booking created in the meantime.
+    const renewed = await renewMariaPreviewHoldForResend({
+      workspaceId: readiness.workspaceId,
+      verificationId: id,
+      expectedCodeHash: expectedHash,
+      expiresAt,
+    });
+    if (!renewed.ok) return { ok: false as const, error: renewed.error };
 
     const delivered = await sendBookingVerificationEmail({
       customerName, customerEmail, companyName, code,
