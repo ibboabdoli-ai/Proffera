@@ -69,11 +69,14 @@ function assertNoUnapprovedPublication(workflowName: string, jobName: string,
         expect(apiCommand, `${workflowName} ${jobName} cannot use a dynamic GraphQL query`)
           .not.toMatch(/(?:^|\s)(?:-f|-F|--field|--raw-field)(?:=|\s+)query=(?:\$|@)|(?:^|\s)--input(?:=|\s+)/i);
       }
-      const writeMethod = /(?:--method(?:=|\s+)|-X(?:=|\s+))(?:POST|PUT|PATCH|DELETE)\b/i;
-      const explicitGet = /(?:--method(?:=|\s+)|-X(?:=|\s+))GET\b/i;
-      const implicitPost = /(?:^|\s)(?:-f|-F|--field|--raw-field)(?:=|\s+)/i;
-      if (!writeMethod.test(apiCommand) && (explicitGet.test(apiCommand) || !implicitPost.test(apiCommand))) continue;
-      const repository = String.raw`repos\/(?:\$\{\{[^}]+\}\}|\$\{[^}]+\}|\$[A-Za-z_][A-Za-z0-9_]*|[^/\s]+\/[^/\s]+)`;
+      const methodFlag = String.raw`(?:^|\s)(?:--method(?:=|\s+)|-X(?:=|\s*)?)`;
+      const fieldFlag = String.raw`(?:^|\s)(?:-[fF](?:=|\s+)?|--(?:raw-)?field(?:=|\s+))`;
+      const writeMethod = new RegExp(methodFlag + String.raw`(?:POST|PUT|PATCH|DELETE)\b`, "i");
+      const explicitGet = new RegExp(methodFlag + String.raw`GET\b`, "i");
+      const inputFlag = /(?:^|\s)--input(?:=|\s|$)/i;
+      const implicitPost = new RegExp(fieldFlag, "i").test(apiCommand) || inputFlag.test(apiCommand);
+      if (!writeMethod.test(apiCommand) && (explicitGet.test(apiCommand) || !implicitPost)) continue;
+      const repository = String.raw`repos\/(?:\$\{\{[^}]+\}\}|\$\{[^}]+\}|\$[A-Za-z_][A-Za-z0-9_]*|[^/\s]+(?:\/[^/\s]+)?)`;
       expect(apiCommand, `${workflowName} ${jobName} cannot create PRs via API`)
         .not.toMatch(new RegExp(repository + String.raw`\/pulls(?=[\s?#]|$)`, "i"));
       expect(apiCommand, `${workflowName} ${jobName} cannot merge PRs via API`)
@@ -84,11 +87,11 @@ function assertNoUnapprovedPublication(workflowName: string, jobName: string,
       const prPath = new RegExp(repository + String.raw`\/pulls\/` + prNumber + String.raw`(?=[\s?#/]|$)`, "i");
       if (prPath.test(apiCommand)) {
         const exactPrPath = new RegExp(repository + String.raw`\/pulls\/` + prNumber + String.raw`(?=[\s?#]|$)`, "i");
-        const patch = /(?:--method(?:=|\s+)|-X(?:=|\s+))PATCH\b/i.test(apiCommand);
-        const conflictingMethod = /(?:--method(?:=|\s+)|-X(?:=|\s+))(?:POST|PUT|DELETE)\b/i.test(apiCommand);
-        const closeField = /(?:^|\s)(?:-f|--field|--raw-field)(?:=|\s+)state=closed(?=\s|$)/i.test(apiCommand);
-        const fields = (apiCommand.match(/(?:^|\s)(?:-f|-F|--field|--raw-field)(?:=|\s+)/gi) ?? []).length;
-        const extraInput = /(?:^|\s)--input(?:=|\s+)/i.test(apiCommand);
+        const patch = new RegExp(methodFlag + String.raw`PATCH\b`, "i").test(apiCommand);
+        const conflictingMethod = new RegExp(methodFlag + String.raw`(?:POST|PUT|DELETE)\b`, "i").test(apiCommand);
+        const closeField = new RegExp(fieldFlag + String.raw`state=closed(?=\s|$)`, "i").test(apiCommand);
+        const fields = (apiCommand.match(new RegExp(fieldFlag, "gi")) ?? []).length;
+        const extraInput = inputFlag.test(apiCommand);
         expect(exactPrPath.test(apiCommand) && patch && !conflictingMethod
           && closeField && fields === 1 && !extraInput,
           `${workflowName} ${jobName} only explicit PR closing is permitted`).toBe(true);
@@ -173,6 +176,10 @@ describe("owner-authorized publication handoff contracts", () => {
     ["GitHub Actions expression POST create", 'gh api --method POST "repos/${{ github.repository }}/pulls" -f title=unsafe'],
     ["shell-variable POST create", "gh api -X POST repos/$GITHUB_REPOSITORY/pulls -f title=unsafe -f head=topic -f base=main"],
     ["PUT merge", "gh api -X PUT repos/OWNER/REPO/pulls/941/merge"],
+    ["attached -XPUT merge", "gh api -XPUT repos/OWNER/REPO/pulls/941/merge"],
+    ["attached -XPOST create", "gh api -XPOST repos/OWNER/REPO/pulls"],
+    ["attached -f create", "gh api repos/OWNER/REPO/pulls -ftitle=x -fhead=topic -fbase=main"],
+    ["input file create", "gh api repos/OWNER/REPO/pulls --input body.json"],
   ])("rejects PR publication through GitHub API: %s", (_name, command) => {
     expect(() => assertNoUnapprovedPublication("fixture.yml", "audit", {
       permissions: {contents:"read", "pull-requests":"write"}, steps:[{run:command}],
@@ -201,6 +208,7 @@ describe("owner-authorized publication handoff contracts", () => {
     ["reopen PR", "gh api --method PATCH repos/${REPOSITORY}/pulls/${PR_NUMBER} -f state=open"],
     ["change PR title", "gh api --method PATCH repos/${REPOSITORY}/pulls/${PR_NUMBER} -f title=unauthorized"],
     ["close and mutate title", "gh api --method PATCH repos/${REPOSITORY}/pulls/${PR_NUMBER} -f state=closed -f title=unauthorized"],
+    ["attached title field after close", "gh api --method PATCH repos/R/pulls/1 -f state=closed -ftitle=x"],
     ["create PR review", "gh api --method POST repos/OWNER/REPO/pulls/941/reviews -f event=APPROVE"],
   ])("rejects PR mutations other than explicit close: %s", (_name, run) => {
     expect(() => assertNoUnapprovedPublication("fixture.yml", "audit", {
