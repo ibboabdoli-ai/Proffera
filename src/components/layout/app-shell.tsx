@@ -3,6 +3,7 @@
 import { usePathname, useSearchParams } from "next/navigation";
 import { useEffect } from "react";
 import { Footer } from "@/components/layout/footer";
+import { isCustomerPortalSelfServicePath, resolvedCustomerPortalShellLanguage } from "@/lib/customer-portal-shell";
 import { Header } from "@/components/layout/header";
 import {
   isAuthSurfacePath,
@@ -16,7 +17,7 @@ export function AppShell({ children }: Readonly<{ children: React.ReactNode }>) 
   const locale = resolvePublicRequestLocale(pathname, searchParams.get("lang"));
   // Guest booking self-service already supplies its own workspace-branded,
   // localized header and footer. Do not wrap it with the Proffera site shell.
-  const isCustomerPortal = Boolean(pathname?.startsWith("/mina-bokningar/"));
+  const isCustomerPortal = isCustomerPortalSelfServicePath(pathname);
   const requestedPortalLanguage = searchParams.get("lang");
   const authSurface = isAuthSurfacePath(pathname);
   const marketplaceHome = pathname === "/" || pathname === "/en";
@@ -29,7 +30,10 @@ export function AppShell({ children }: Readonly<{ children: React.ReactNode }>) 
     if (isCustomerPortal) {
       // Trust the language resolved by the portal page (not the raw query,
       // which could request Arabic for a tenant where it is not enabled).
-      const resolvedLanguage = document.querySelector<HTMLElement>("main[lang]")?.lang;
+      const resolvedLanguage = resolvedCustomerPortalShellLanguage(
+        pathname,
+        document.querySelector<HTMLElement>("main[lang]")?.lang,
+      );
       if (resolvedLanguage === "sv" || resolvedLanguage === "en" || resolvedLanguage === "ar") {
         document.documentElement.lang = resolvedLanguage;
         document.documentElement.dir = resolvedLanguage === "ar" ? "rtl" : "ltr";
@@ -39,7 +43,7 @@ export function AppShell({ children }: Readonly<{ children: React.ReactNode }>) 
     if (routeResolvedLocale) return;
     document.documentElement.lang = locale === "en" ? "en" : "sv";
     document.documentElement.dir = "ltr";
-  }, [locale, routeResolvedLocale, isCustomerPortal, requestedPortalLanguage]);
+  }, [locale, routeResolvedLocale, isCustomerPortal, pathname, requestedPortalLanguage]);
 
   const isStandaloneRoute = pathname?.startsWith("/admin")
     || pathname?.startsWith("/dashboard")
