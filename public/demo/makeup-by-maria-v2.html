@@ -299,7 +299,7 @@ function displayYearPrice(kind){
  const item=workspaceConfig.years.find(row=>row.year===state.year);
  const amount=item?item[kind]:null;
  return Number.isSafeInteger(amount)&&amount>=0
-  ?new Intl.NumberFormat("sv-SE",{maximumFractionDigits:0}).format(amount)+" kr"
+  ?new Intl.NumberFormat(state.lang==="ar"?"ar-SE":state.lang==="en"?"en-GB":"sv-SE",{maximumFractionDigits:0}).format(amount)+" "+copy().currency
   :copy().requestPrice;
 }
 function isBookablePackage(year,kind){
