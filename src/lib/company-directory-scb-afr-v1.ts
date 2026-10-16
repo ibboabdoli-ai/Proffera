@@ -117,6 +117,11 @@ function workplaceRecord(payload: unknown, expectedOrg: string, expectedCfar: st
     throw new Error("SCB AFR v1 workplace ownership/CFAR mismatch");
   }
   if (workplace.aeStat !== 1) throw new Error("SCB AFR v1 workplace is not active");
+  // SCB aeTyp=3 is a fictitious workplace for mobile staff, not a physical location.
+  // Fail closed for missing or unknown workplace types as well.
+  if (workplace.aeTyp !== 1 && workplace.aeTyp !== 2) {
+    throw new Error("SCB AFR v1 workplace type is not a physical workplace");
+  }
   const visiting = objectOrEmpty(workplace.belagenhetsadress);
   const geo = objectOrEmpty(workplace.geografiskInformation);
   return {

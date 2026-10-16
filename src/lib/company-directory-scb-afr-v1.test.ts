@@ -23,6 +23,7 @@ const workplace = {
   peOrgNr: "165563115707",
   cfarNr: 12345678,
   aeStat: 1,
+  aeTyp: 1,
   ben: "Exempel El Södertälje",
   postAdress: { gatuAdress: "Box 5", postNr: "15122", postOrt: "Södertälje" },
   belagenhetsadress: { bGatuAdress: "Storgatan 1", bPostNr: "15172", bPostOrt: "Södertälje", kommun: "0181" },
@@ -125,6 +126,24 @@ describe("SCB AFR v1 Preview-only verification", () => {
       await expect(fetchScbAfrV1PreviewEvidence("5563115707", ["12345678"], { fetcher: fetcher(company, ae) }))
         .rejects.toThrow();
     }
+  });
+
+  it("rejects SCB fictitious and unclassified AE types before normalizing a physical location", async () => {
+    for (const aeTyp of [3, 0, 9, undefined]) {
+      const ae = { ...workplace, aeTyp };
+      const mock = fetcher(company, ae);
+      await expect(fetchScbAfrV1PreviewEvidence("5563115707", ["12345678"], { fetcher: mock }))
+        .rejects.toThrow("workplace type is not a physical workplace");
+      expect(mock).toHaveBeenCalledTimes(2);
+    }
+  });
+
+  it("accepts an active, physical type-2 workplace without claiming it represents the legal entity", async () => {
+    const data = await fetchScbAfrV1PreviewEvidence("5563115707", ["12345678"], {
+      fetcher: fetcher(company, { ...workplace, aeTyp: 2 }),
+    });
+    expect(data.workplaces).toHaveLength(1);
+    expect(data.workplaces[0].visitingAddress.addressLine).toBe("Storgatan 1");
   });
 
   it("rejects an incorrect legal-entity identity and malformed company content", async () => {
