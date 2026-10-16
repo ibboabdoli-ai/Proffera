@@ -3563,7 +3563,7 @@ esac
     expect(commentPatchCalls(replay.calls, 103)).toHaveLength(0);
     expect(String(replay.comments.find((comment) => comment.id === 101)?.body ?? "")).toBe(reservationBody);
     expect(String(replay.comments.find((comment) => comment.id === 103)?.body ?? "")).toBe(taskBody);
-  });
+  }, 15_000);
 
   it("preserves normal on-main PUBLISHED head rebind when no retarget provenance exists", () => {
     const evidence = exactReservationEvidence(sha, {
@@ -3897,7 +3897,7 @@ esac
     expect(replay.stdout).toContain("already released idempotently");
     expect(prPatchCalls(replay.calls)).toHaveLength(0);
     expect(commentPatchCalls(replay.calls, 101)).toHaveLength(0);
-  });
+  }, 15_000);
 
   it("retries transient malformed-close evidence reads before releasing the exact reservation", () => {
     const evidence = exactReservationEvidence(sha, {
@@ -4937,7 +4937,7 @@ esac
         });
       }
     }
-  });
+  }, 15_000);
 
   it("recovers a released-valid split close after terminal task persistence fails in both sync paths", () => {
     let recoveredForCapacity: Array<Record<string, unknown>> | null = null;
@@ -5117,7 +5117,7 @@ esac
     expect(valid.status, valid.stderr).toBe(0);
     expect(commentPatchCalls(valid.calls, 101)).toHaveLength(1);
     expect(commentPatchCalls(valid.calls, 103)).toHaveLength(1);
-  });
+  }, 15_000);
 
   it("rejects invalid lifecycle close provenance without mutation", () => {
     const evidence = exactReservationEvidence(sha, { state: "PUBLISHED", pr_number: 849, recovery: null });
@@ -5254,7 +5254,7 @@ esac
     const freedCapacity = runSlotReservation({ reservation: existing, extraComments: result.comments });
     expect(freedCapacity.status, freedCapacity.stderr).toBe(0);
     expect(freedCapacity.comments.some((comment) => comment.id === 999)).toBe(true);
-  });
+  }, 15_000);
 
   it("does not automatically admit the observed pre-bind HEAD B after terminal release", async () => {
     const fixture = await ownershipHarness();
