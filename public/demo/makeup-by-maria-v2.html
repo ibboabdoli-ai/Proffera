@@ -66,6 +66,11 @@ main{min-height:85vh}
 .year-options button strong{font:italic 400 42px/1 var(--serif)}
 .year-options button span{font-size:10px;font-weight:700;letter-spacing:.1em}
 .year-options button span:after{content:" ↗"}
+.year-options button:disabled{opacity:.7;cursor:not-allowed;background:#f3eeee;color:#887b7f}
+.year-options button:disabled:hover{transform:none;background:#f3eeee;border-color:#e4cacb}
+.year-options button:disabled span:after{content:""}
+.package:disabled{opacity:.65;cursor:not-allowed}
+.package:disabled:hover{background:#fffbfa;border-color:#e7d7d7}
 .back{display:inline-flex;gap:8px;align-items:center;border:0;background:none;padding:6px 0 15px;font-size:11px;font-weight:700;color:var(--rose)}
 .packages{display:grid;grid-template-columns:1fr 1fr;gap:14px}
 .package{min-height:255px;border:1px solid #e7d7d7;background:#fffbfa;padding:26px 23px;display:flex;flex-direction:column;align-items:flex-start;text-align:start;gap:12px;color:var(--text);transition:border-color .2s,background .2s}
@@ -108,6 +113,7 @@ footer a{color:#875565}
   .year-options button strong{font-size:clamp(24px,8vw,34px)}
   .steps{flex-wrap:wrap}
 }
+@media(max-width:540px){.field{font-size:12px}.field input,.field select,.field textarea{font-size:16px}.step{font-size:10px}.step-sub{font-size:13px}.demo-note{font-size:11px}.year-options button span{font-size:10px}}
 @media(max-width:345px){.identity strong{font-size:18px}.main-content{padding-inline:8px}.panel{padding-inline:12px}.step{font-size:8px}.year-options button strong{font-size:30px}}
 @media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}*,*:before,*:after{transition:none!important;animation:none!important}}
 </style>
@@ -144,6 +150,7 @@ footer a{color:#875565}
 <div class="step" data-step-marker="service"><b>2</b><span data-i="s2">Tjänst</span></div><i class="step-line"></i>
 <div class="step" data-step-marker="details"><b>3</b><span data-i="s3">Datum & kontakt</span></div>
 </div>
+<button type="button" class="back" id="backHome" hidden>← Till startsidan</button>
 <div id="yearStep">
 <h2 class="step-title" data-i="yearTitle">Välj bröllopsår</h2>
 <p class="step-sub" data-i="yearPrompt">Vilket år gifter du dig?</p>
@@ -233,6 +240,17 @@ const liveBookingCopy={
  en:{safety:"Your booking is created only after email verification. The selected date and time must be available.",submit:"CONTINUE TO EMAIL VERIFICATION ↗",sending:"Checking availability and sending a verification code...",error:"We could not begin your booking. Check your selected date and try again."},
  ar:{safety:"يتم إنشاء الحجز بعد تأكيد البريد الإلكتروني فقط، ويجب أن يكون الموعد متاحاً. يتم إرسال رمز التحقق باللغة العربية، ويمكنك تأكيد الحجز باللغة العربية.",submit:"المتابعة لتأكيد البريد الإلكتروني ↗",sending:"جارٍ التحقق من الموعد وإرسال رمز التأكيد...",error:"تعذر بدء الحجز. يرجى مراجعة الموعد والمحاولة مجدداً."}
 };
+const uiMessages={
+ sv:{home:"← Till startsidan",closed:"Bokning öppnar senare",availability:"Kunde inte kontrollera lediga tider. Försök igen."},
+ en:{home:"← Back to home",closed:"Booking opens later",availability:"Could not check available times. Try again."},
+ ar:{home:"→ العودة إلى الرئيسية",closed:"الحجز سيفتح لاحقاً",availability:"تعذر التحقق من الأوقات المتاحة. يرجى المحاولة مجدداً."}
+};
+const bookingErrors={
+ sv:{invalid:"Kontrollera namn, e-post, telefon och bokningsuppgifter.",service:"Den här tjänsten är inte öppen för bokning ännu.",conflict:"Tiden är inte längre ledig. Välj ett annat klockslag.",rate_limit:"För många försök. Vänta cirka 15 minuter.",email:"Verifieringsmejlet kunde inte skickas.",unavailable:"Bokning är inte tillgänglig för denna testförfrågan. Använd en godkänd testadress.",hours:"Välj en tillgänglig fredag eller lördag.",time:"Välj ett giltigt datum och klockslag.",database:"Bokningstjänsten är tillfälligt otillgänglig."},
+ en:{invalid:"Check your name, email, phone and booking details.",service:"This service is not open for booking yet.",conflict:"This time is no longer available. Select another time.",rate_limit:"Too many attempts. Wait about 15 minutes.",email:"The verification email could not be sent.",unavailable:"Booking is unavailable for this test request. Use an approved test address.",hours:"Choose an available Friday or Saturday.",time:"Select a valid date and time.",database:"Booking is temporarily unavailable."},
+ ar:{invalid:"تحققي من الاسم والبريد الإلكتروني ورقم الهاتف وبيانات الحجز.",service:"هذه الخدمة غير متاحة للحجز حالياً.",conflict:"هذا الموعد لم يعد متاحاً. اختاري وقتاً آخر.",rate_limit:"محاولات كثيرة. انتظري حوالي ١٥ دقيقة.",email:"تعذر إرسال رسالة التحقق.",unavailable:"الحجز غير متاح لهذا الطلب التجريبي. استخدمي بريد الاختبار المعتمد.",hours:"اختاري يوم الجمعة أو السبت المتاح.",time:"اختاري تاريخاً ووقتاً صالحين.",database:"خدمة الحجز غير متاحة مؤقتاً."}
+};
+function uiCopy(){return uiMessages[state.lang]||uiMessages.sv}
 let workspaceConfig={
  bookingEnabled:false,
  bookableDurations:{},
@@ -249,6 +267,17 @@ function displayYearPrice(kind){
  return Number.isSafeInteger(amount)&&amount>=0
   ?new Intl.NumberFormat("sv-SE",{maximumFractionDigits:0}).format(amount)+" kr"
   :copy().requestPrice;
+}
+function isBookablePackage(year,kind){
+ return !workspaceConfig.bookingEnabled || Number.isSafeInteger(workspaceConfig.bookableDurations[String(year)]?.[kind]);
+}
+function isBookableYear(year){return isBookablePackage(year,"trial")||isBookablePackage(year,"without")}
+function renderPackageAvailability(){
+ for(const button of document.querySelectorAll("[data-package]")){
+  const enabled=!state.year||isBookablePackage(state.year,button.dataset.package);
+  button.disabled=!enabled;
+  button.querySelector(".choose").textContent=enabled?copy().choose:uiCopy().closed;
+ }
 }
 function renderYears(){
  const target=document.querySelector(".year-options");
@@ -269,6 +298,9 @@ function renderYears(){
   const strong=document.createElement("strong");strong.textContent=String(item.year);
   const span=document.createElement("span");span.textContent=copy().book;
   button.append(strong,span);
+  const available=isBookableYear(item.year);
+  button.disabled=!available;
+  span.textContent=available?copy().book:uiCopy().closed;
   button.addEventListener("click",()=>selectYear(item.year));
   target.append(button);
  }
@@ -317,6 +349,8 @@ function translate(){
  document.querySelector('[data-i="detailsPrompt"]').textContent=displayedBookingHours();
  $("trialPrice").textContent=displayYearPrice("trial");
  $("withoutPrice").textContent=displayYearPrice("without");
+ $("backHome").textContent=uiCopy().home;
+ renderPackageAvailability();
  showBookingComplete();
  renderYears();
  if(state.kind)renderSummary();
@@ -326,12 +360,13 @@ function translate(){
 function showStep(step){
  if(successfulBookingReturn)return;
  state.step=step;
+ $("backHome").hidden=step==="year";
  for(const name of ["year","service","details"])$(name==="year"?"yearStep":name==="service"?"serviceStep":"detailsStep").hidden=name!==step;
  const order=["year","service","details"];
  document.querySelectorAll("[data-step-marker]").forEach(el=>{const n=order.indexOf(el.dataset.stepMarker),current=order.indexOf(step);el.classList.toggle("active",n===current);el.classList.toggle("done",n<current)});
 }
-function selectYear(year){state.year=year;state.kind=null;$("selectedYear").textContent=year;translate();showStep("service")}
-function choosePackage(kind){state.kind=kind;translate();showStep("details");$("message").style.display="none";$("message").textContent=""}
+function selectYear(year){if(!isBookableYear(year))return;state.year=year;state.kind=null;$("selectedYear").textContent=year;translate();showStep("service")}
+function choosePackage(kind){if(!state.year||!isBookablePackage(state.year,kind))return;state.kind=kind;translate();showStep("details");$("message").style.display="none";$("message").textContent=""}
 function renderSummary(){
  const c=copy();const label=state.kind==="trial"?c.trialTitle:c.withoutTitle;
  const price=displayYearPrice(state.kind);
@@ -359,9 +394,9 @@ function buildDates(){
  if(!n)sel.options[0].textContent=c.noDates;
 }
 let availabilitySequence=0;
-async function buildTimes(){
+async function buildTimes(preserveSelection=true){
  const seq=++availabilitySequence;
- const s=$("weddingTime"),old=s.value;s.replaceChildren();
+ const s=$("weddingTime"),old=preserveSelection?s.value:"";s.replaceChildren();
  s.add(new Option(copy().timeEmpty,""));
  const chosen=$("weddingDate").value;
  if(!chosen||!state.year||!state.kind)return;
@@ -382,7 +417,11 @@ async function buildTimes(){
    if(seq!==availabilitySequence||$("weddingDate").value!==chosen
        ||state.kind!==kind||state.year!==year)return;
    s.options[0].textContent=empty[state.lang]||empty.sv;
-   if(!data||data.ok!==true||!Array.isArray(data.times))return;
+   if(!data||data.ok!==true||!Array.isArray(data.times)){
+    if(data?.error==="service")s.options[0].textContent=uiCopy().closed;
+    else if(!data||["database","unavailable"].includes(data.error))s.options[0].textContent=uiCopy().availability;
+    return;
+   }
    for(const value of data.times){
     if(typeof value==="string"&&/^\d{2}:\d{2}$/.test(value))s.add(new Option(value,value));
    }
@@ -403,6 +442,9 @@ async function buildTimes(){
 }
 document.querySelectorAll("[data-package]").forEach(b=>b.addEventListener("click",()=>choosePackage(b.dataset.package)));
 document.querySelectorAll("[data-lang]").forEach(b=>b.addEventListener("click",()=>{state.lang=b.dataset.lang;translate()}));
+function returnHome(){window.location.assign("/demo/makeup-by-maria-v2.html?lang="+encodeURIComponent(state.lang))}
+document.querySelector(".identity").addEventListener("click",e=>{e.preventDefault();returnHome()});
+$("backHome").addEventListener("click",returnHome);
 $("backYear").addEventListener("click",()=>showStep("year"));
 $("backService").addEventListener("click",()=>showStep("service"));
 $("bookingForm").addEventListener("submit",async e=>{
@@ -439,12 +481,14 @@ $("bookingForm").addEventListener("submit",async e=>{
    window.location.assign(data.verificationUrl);
    return;
   }
-  message.textContent=(liveBookingCopy[state.lang]||liveBookingCopy.sv).error;
+  const errors=bookingErrors[state.lang]||bookingErrors.sv;
+  const code=typeof data?.error==="string"?data.error:"";
+  message.textContent=Object.prototype.hasOwnProperty.call(errors,code)?errors[code]:(liveBookingCopy[state.lang]||liveBookingCopy.sv).error;
  }catch(_error){
   message.textContent=(liveBookingCopy[state.lang]||liveBookingCopy.sv).error;
  }finally{button.disabled=false;}
 });
-$("weddingDate").addEventListener("change",buildTimes);
+$("weddingDate").addEventListener("change",()=>buildTimes(false));
 async function loadMariaWorkspace(){
  try{
   const response=await fetch("/api/makeup-by-maria/config",{credentials:"same-origin",cache:"no-store"});
@@ -481,6 +525,9 @@ async function loadMariaWorkspace(){
    workspaceConfig.hours=config.hours
     .filter(h=>h&&[5,6].includes(h.weekday)&&/^\d{2}:\d{2}$/.test(h.opensAt)&&/^\d{2}:\d{2}$/.test(h.closesAt)&&h.opensAt<h.closesAt)
     .map(h=>({weekday:h.weekday,opensAt:h.opensAt,closesAt:h.closesAt}));
+  }
+  if(state.year&&!isBookableYear(state.year)){
+   state.year=null;state.kind=null;$("bookingForm").reset();showStep("year");
   }
   translate();
  }catch(_error){/* Stay with the customer-approved static preview if offline. */}
