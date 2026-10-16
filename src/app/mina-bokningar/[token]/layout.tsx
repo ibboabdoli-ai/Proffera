@@ -14,7 +14,7 @@ export async function generateMetadata({
     title: "Makeup by Maria — Mina bokningar",
     icons: {
       icon: "/demo/makeup-by-maria/assets/maria-favicon.svg",
-      apple: "/demo/makeup-by-maria/assets/maria-mark-dark.svg",
+      apple: "/demo/makeup-by-maria/assets/maria-apple-touch-icon.png",
     },
   };
 }
