@@ -5,6 +5,7 @@ import { notFound, redirect } from "next/navigation";
 import { CalendarClock, Clock3, UserRound } from "lucide-react";
 
 import { readableBookingTextColor } from "@/lib/booking-theme-contract";
+import { localizeMariaPreviewServiceName } from "@/lib/maria-preview-service-copy";
 import { getRescheduleBooking, rescheduleCustomerBooking } from "@/lib/customer-booking-reschedule";
 import { getCustomerPortalPresentation, resolveCustomerPortalLanguage, type CustomerPortalLanguage } from "@/lib/customer-portal-language";
 import { getAvailableRescheduleSlots, getUpcomingRescheduleDays } from "@/lib/customer-reschedule-slots";
@@ -167,7 +168,7 @@ export default async function ReschedulePage({ params, searchParams }: PageProps
 
         <section className={styles.rescheduleCard}>
           <p className={styles.eyebrow}>{t("Boka om", "Reschedule", "تغيير الموعد")}</p>
-          <h1 className={styles.title}>{booking.service}</h1>
+          <h1 className={styles.title}>{localizeMariaPreviewServiceName(booking.service, language, isMaria)}</h1>
 
           <div className={styles.currentBooking}>
             <p><Clock3 aria-hidden="true" />{t("Nuvarande tid", "Current time", "الموعد الحالي")}: <strong>{formatDate(booking.startsAt, booking.timeZone, language)}</strong></p>
