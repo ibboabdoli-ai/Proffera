@@ -40,7 +40,7 @@ export async function GET() {
     const [services, hours, bookingReadiness] = await Promise.all([
       sql`
         select public_slug, price_type, price_amount_minor, is_active,
-          public_status, duration_minutes
+          public_status, duration_minutes, maximum_advance_days
         from workspace_services
         where workspace_id = ${workspaceId}
           and public_slug ~ '^maria-bridal-(trial|without-trial)-(202[6-9]|203[0-6])$'
@@ -100,6 +100,7 @@ export async function GET() {
     // Only explicitly published, active services with a real duration can
     // offer slots when verified booking is deliberately enabled in Preview.
     const bookableDurations: Record<string, Record<string, number>> = {};
+    const bookableAdvanceDays: Record<string, Record<string, number>> = {};
     if (bookingReadiness.enabled) {
       for (const row of services) {
         if (row.public_status !== "published" || row.is_active !== true) continue;
@@ -111,6 +112,12 @@ export async function GET() {
         const durationsForYear = bookableDurations[year] ?? {};
         durationsForYear[kind] = duration;
         bookableDurations[year] = durationsForYear;
+        const advance = Number(row.maximum_advance_days);
+        if (Number.isSafeInteger(advance) && advance >= 1 && advance <= 730) {
+          const limits = bookableAdvanceDays[year] ?? {};
+          limits[kind] = advance;
+          bookableAdvanceDays[year] = limits;
+        }
       }
     }
 
@@ -133,6 +140,7 @@ export async function GET() {
       previewOnly: true,
       bookingEnabled: bookingReadiness.enabled,
       bookableDurations,
+      bookableAdvanceDays,
       editorPreview: canPreviewDrafts,
       prices2026,
       years,
