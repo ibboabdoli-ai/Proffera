@@ -10,10 +10,12 @@ const require = createRequire(import.meta.url);
 type WorkflowPermissions = Record<string, string> | string;
 type WorkflowJob = {
   permissions?: WorkflowPermissions;
+  env?: unknown;
   steps: Array<{name?: string; run?: string; env?: unknown; with?: unknown}>;
 };
 type WorkflowDocument = {
   permissions?: WorkflowPermissions;
+  env?: unknown;
   jobs: Record<string, WorkflowJob>;
 };
 const yaml = require("js-yaml") as { load(source: string): WorkflowDocument };
@@ -23,11 +25,14 @@ const root = resolve(process.cwd());
 // commands, including continuations inside a command name or API path.
 const bashLogicalLines = (source: string) => source.replace(/\\\r?\n/g, "");
 function assertNoUnapprovedPublication(workflowName: string, jobName: string,
-  job: WorkflowJob, workflowPermissions?: WorkflowPermissions) {
+  job: WorkflowJob, workflowPermissions?: WorkflowPermissions, workflowEnv?: unknown) {
   // A job inherits workflow-level permissions unless it defines its own.
   // Issue/PR comment write is allowed for audit records and review routing;
   // code, Actions, security, deployment and other write scopes are not.
-  const effective = job.permissions ?? workflowPermissions ?? {};
+  const effective = job.permissions ?? workflowPermissions;
+  if (effective == null) {
+    throw new Error(`${workflowName} ${jobName} must declare explicit token permissions`);
+  }
   expect(effective, `${workflowName} ${jobName} cannot grant write-all`).not.toBe("write-all");
   if (typeof effective === "string") {
     expect(effective, `${workflowName} ${jobName} permissions must be read-all`).toBe("read-all");
@@ -38,6 +43,9 @@ function assertNoUnapprovedPublication(workflowName: string, jobName: string,
       }
     }
   }
+  const inheritedOptions = JSON.stringify({workflowEnv: workflowEnv ?? null, jobEnv: job.env ?? null});
+  expect(inheritedOptions, `${workflowName} ${jobName} cannot inherit push credentials`)
+    .not.toMatch(/(?:PROFFERA_AUTOFIX_PUSH_TOKEN|PUSH_TOKEN)/i);
   for (const step of job.steps ?? []) {
     const stepOptions = JSON.stringify({env: step.env ?? null, with: step.with ?? null});
     expect(stepOptions, `${workflowName} ${jobName} cannot use push credentials`)
@@ -49,6 +57,28 @@ function assertNoUnapprovedPublication(workflowName: string, jobName: string,
       .replace(/["']/g, "");
     expect(script, `${workflowName} ${jobName} cannot create or merge PRs`)
       .not.toMatch(/(?<![\w./-])gh\b[^\r\n;|&]*?\bpr\b[^\r\n;|&]*?\b(?:create|merge)\b/i);
+    // Keep the existing fail-closed PR-closing PATCH permitted; prohibit
+    // PR creation and merge through the equivalent gh api endpoints.
+    for (const apiCommand of script.match(/(?<![\w./-])gh\b[^\r\n;|&]*?\bapi\b[^\r\n;|&]*/gi) ?? []) {
+      if (/\bgraphql\b/i.test(apiCommand)) {
+        const graphqlEvidence = JSON.stringify({
+          apiCommand, workflowEnv, jobEnv: job.env ?? null, stepEnv: step.env ?? null,
+        });
+        expect(graphqlEvidence, `${workflowName} ${jobName} cannot publish PRs via GraphQL`)
+          .not.toMatch(/\b(?:createPullRequest|mergePullRequest)\b/i);
+        expect(apiCommand, `${workflowName} ${jobName} cannot use a dynamic GraphQL query`)
+          .not.toMatch(/(?:^|\s)(?:-f|-F|--field|--raw-field)(?:=|\s+)query=(?:\$|@)|(?:^|\s)--input(?:=|\s+)/i);
+      }
+      const writeMethod = /(?:--method(?:=|\s+)|-X(?:=|\s+))(?:POST|PUT|PATCH|DELETE)\b/i;
+      const explicitGet = /(?:--method(?:=|\s+)|-X(?:=|\s+))GET\b/i;
+      const implicitPost = /(?:^|\s)(?:-f|-F|--field|--raw-field)(?:=|\s+)/i;
+      if (!writeMethod.test(apiCommand) && (explicitGet.test(apiCommand) || !implicitPost.test(apiCommand))) continue;
+      const repository = String.raw`repos\/(?:\$\{\{[^}]+\}\}|\$\{[^}]+\}|\$[A-Za-z_][A-Za-z0-9_]*|[^/\s]+\/[^/\s]+)`;
+      expect(apiCommand, `${workflowName} ${jobName} cannot create PRs via API`)
+        .not.toMatch(new RegExp(repository + String.raw`\/pulls(?=[\s?#]|$)`, "i"));
+      expect(apiCommand, `${workflowName} ${jobName} cannot merge PRs via API`)
+        .not.toMatch(new RegExp(repository + String.raw`\/pulls\/(?:\$\{[^}]+\}|[^/\s]+)\/merge(?=[\s?#]|$)`, "i"));
+    }
     // Fail closed for Git global options (e.g. `git -c key=value push`).
     // Keep the search within one Bash logical command line; a literal `.git`
     // path must not be mistaken for the Git executable.
@@ -89,7 +119,7 @@ describe("owner-authorized publication handoff contracts", () => {
     expect(raw).not.toContain("PROFFERA_AUTOFIX_PUSH_TOKEN");
     expect(raw).not.toContain("PUSH_TOKEN:");
     for (const [jobName, job] of Object.entries(doc.jobs)) {
-      assertNoUnapprovedPublication(name, jobName, job, doc.permissions);
+      assertNoUnapprovedPublication(name, jobName, job, doc.permissions, doc.env);
     }
   });
 
@@ -103,8 +133,73 @@ describe("owner-authorized publication handoff contracts", () => {
     {name:"PR creation in a non-publish job", job:{steps:[{run:"gh pr create --title unsafe"}]}},
     {name:"PR merge in a non-publish job", job:{steps:[{run:"gh pr merge 941 --squash"}]}},
   ])("rejects publication authority outside the publish job: $name", ({job,workflowPermissions}) => {
-    expect(() => assertNoUnapprovedPublication("fixture.yml","audit",job,workflowPermissions))
+    expect(() => assertNoUnapprovedPublication("fixture.yml","audit",job,workflowPermissions ?? {contents:"read"}))
       .toThrow();
+  });
+
+  it("rejects missing job and workflow token permissions", () => {
+    expect(() => assertNoUnapprovedPublication("fixture.yml", "audit", {
+      steps: [{run: "echo safe"}],
+    })).toThrow(/must declare explicit token permissions/);
+  });
+
+  it.each([
+    {name: "workflow-level push token", workflowEnv: {GH_TOKEN: "${{ secrets.PROFFERA_AUTOFIX_PUSH_TOKEN }}"}, jobEnv: undefined},
+    {name: "job-level push token", workflowEnv: undefined, jobEnv: {GH_TOKEN: "${{ secrets.PROFFERA_AUTOFIX_PUSH_TOKEN }}"}},
+  ])("rejects $name inherited by a job", ({workflowEnv, jobEnv}) => {
+    expect(() => assertNoUnapprovedPublication("fixture.yml", "audit", {
+      permissions: {contents:"read"}, env:jobEnv, steps:[{run:"echo safe"}],
+    }, undefined, workflowEnv)).toThrow(/cannot inherit push credentials/);
+  });
+
+  it.each([
+    ["explicit POST create", "gh api --method POST repos/OWNER/REPO/pulls"],
+    ["implicit POST create", "gh api repos/OWNER/REPO/pulls -f title=unsafe"],
+    ["GitHub Actions expression POST create", 'gh api --method POST "repos/${{ github.repository }}/pulls" -f title=unsafe'],
+    ["shell-variable POST create", "gh api -X POST repos/$GITHUB_REPOSITORY/pulls -f title=unsafe -f head=topic -f base=main"],
+    ["PUT merge", "gh api -X PUT repos/OWNER/REPO/pulls/941/merge"],
+  ])("rejects PR publication through GitHub API: %s", (_name, command) => {
+    expect(() => assertNoUnapprovedPublication("fixture.yml", "audit", {
+      permissions: {contents:"read", "pull-requests":"write"}, steps:[{run:command}],
+    })).toThrow(/cannot (?:create|merge) PRs via API/);
+  });
+
+  it.each([
+    ["create", "gh api graphql -f query='mutation { createPullRequest(input: {}) { pullRequest { id } } }'"],
+    ["merge", "gh api graphql -f query='mutation { mergePullRequest(input: {}) { pullRequest { id } } }'"],
+  ])("rejects GraphQL PR %s mutation", (_name, command) => {
+    expect(() => assertNoUnapprovedPublication("fixture.yml", "audit", {
+      permissions:{contents:"read", "pull-requests":"write"}, steps:[{run:command}],
+    })).toThrow(/cannot publish PRs via GraphQL/);
+  });
+
+  it("rejects GraphQL mutations inherited from step environment", () => {
+    expect(() => assertNoUnapprovedPublication("fixture.yml", "audit", {
+      permissions:{contents:"read", "pull-requests":"write"},
+      steps:[{
+        env:{QUERY:"mutation { mergePullRequest(input: {}) { pullRequest { id } } }"},
+        run:'gh api graphql -f query="$QUERY"',
+      }],
+    })).toThrow(/cannot publish PRs via GraphQL/);
+  });
+
+  it("rejects an uninspectable GraphQL query even without an explicit mutation", () => {
+    expect(() => assertNoUnapprovedPublication("fixture.yml", "audit", {
+      permissions:{contents:"read", "pull-requests":"write"},
+      steps:[{run:'gh api graphql -f query="$QUERY"'}],
+    })).toThrow(/cannot use a dynamic GraphQL query/);
+  });
+
+  it("permits the existing fail-closed PR close API and read-only PR lookup", () => {
+    expect(() => assertNoUnapprovedPublication("fixture.yml","audit",{
+      permissions:{contents:"read", "pull-requests":"write"},
+      steps:[
+        {run:"gh api --method PATCH repos/${REPOSITORY}/pulls/${PR_NUMBER} -f state=closed"},
+        {run:"gh api repos/OWNER/REPO/pulls/941"},
+        {run:"gh api -X GET repos/OWNER/REPO/pulls -f state=open"},
+        {run:"gh api graphql -f query='query { viewer { login } }'"},
+      ],
+    })).not.toThrow();
   });
 
   it("allows the narrow issue/PR comment permissions without publication commands", () => {
