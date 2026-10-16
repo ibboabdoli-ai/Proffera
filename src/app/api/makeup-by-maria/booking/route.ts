@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 
 import { getSql } from "@/lib/db/server";
 import { getMariaPreviewBookingReadiness } from "@/lib/maria-preview-booking";
+import { isValidMariaBookingEmail, isValidMariaBookingPhone } from "@/lib/maria-booking-contact";
 import { getMariaAvailability } from "@/lib/maria-booking-availability";
 import { allowPublicSubmission } from "@/lib/public-form-protection";
 import {
@@ -69,14 +70,15 @@ export async function POST(request: Request) {
   if (
     !Number.isInteger(year) || year < 2026 || year > 2036
     || (kind !== "trial" && kind !== "without")
-    || name.length < 2 || phone.length < 5
-    || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)
+    || name.length < 2
     || !/^\d{4}-\d{2}-\d{2}$/.test(date)
     || !/^\d{2}:\d{2}$/.test(time)
     || !Number.isFinite(startedAt)
     || Date.now() - startedAt < 2500
     || Date.now() - startedAt > 86_400_000
   ) return failure("invalid", 400);
+  if (!isValidMariaBookingEmail(email)) return failure("invalid_email", 400);
+  if (!isValidMariaBookingPhone(phone)) return failure("invalid_phone", 400);
 
   // Preview test booking is intentionally restricted to one approved inbox.
   // Without an explicit allowlist, fail closed even if a Preview instance
