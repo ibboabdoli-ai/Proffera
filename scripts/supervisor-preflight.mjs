@@ -93,6 +93,8 @@ function assertRepositoryPath(path) {
 
 function repositoryFromRemote(remote) {
   const value = String(remote ?? "").trim().replace(/\\/g, "/");
+  // Fail with a constant diagnostic: never expose URL userinfo in logs.
+  const reject = () => fail("repository", "unsupported origin URL; use a credential-free GitHub remote");
   const scp = value.match(/^git@github\.com:([^/]+)\/([^/]+?)(?:\.git)?$/i);
   if (scp) return `${scp[1]}/${scp[2]}`;
 
@@ -100,20 +102,20 @@ function repositoryFromRemote(remote) {
   try {
     parsed = new URL(value);
   } catch {
-    fail("repository", `unsupported origin URL: ${value}`);
+    reject();
   }
   if (!["https:", "ssh:"].includes(parsed.protocol)
     || parsed.hostname.toLowerCase() !== "github.com"
     || parsed.search
-    || parsed.hash) {
-    fail("repository", `unsupported origin URL: ${value}`);
-  }
-  if (parsed.protocol === "ssh:" && parsed.username !== "git") {
-    fail("repository", `unsupported origin URL: ${value}`);
+    || parsed.hash
+    || parsed.password
+    || (parsed.protocol === "https:" && parsed.username)
+    || (parsed.protocol === "ssh:" && parsed.username !== "git")) {
+    reject();
   }
   const path = parsed.pathname.replace(/^\/+|\/+$/g, "");
   const match = path.match(/^([^/]+)\/([^/]+?)(?:\.git)?$/);
-  if (!match) fail("repository", `unsupported origin URL: ${value}`);
+  if (!match) reject();
   return `${match[1]}/${match[2]}`;
 }
 

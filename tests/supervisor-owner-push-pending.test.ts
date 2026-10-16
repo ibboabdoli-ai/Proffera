@@ -340,9 +340,11 @@ describe("cancelled owner-push handoff is never an automatic model-launch permit
       [".github/workflows/proffera-ci-autofix.yml","- name: Run one bounded Codex repair attempt"]
     ]){
       const source=readFileSync(name,"utf8");
-      const gateLine="node scripts/supervisor-owner-push-pending.mjs gate";
-      expect(source.indexOf(gateLine)).toBeGreaterThan(-1);
-      expect(source.indexOf(modelLine)).toBeGreaterThan(source.indexOf(gateLine));
+      const admitGate="node scripts/supervisor-owner-push-pending.mjs gate";
+      const modelGate="node .proffera-trusted-model-gate/scripts/supervisor-owner-push-pending.mjs gate";
+      expect(source.indexOf(admitGate)).toBeGreaterThan(-1);
+      expect(source.indexOf(modelGate)).toBeGreaterThan(source.indexOf(admitGate));
+      expect(source.indexOf(modelLine)).toBeGreaterThan(source.indexOf(modelGate));
       expect(source).toContain("'.allow'");
     }
   });

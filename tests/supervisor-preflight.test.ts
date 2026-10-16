@@ -237,6 +237,38 @@ describe("canonical Supervisor pre-publication gate", () => {
     }
   });
 
+  it("rejects embedded origin credentials without ever printing them in errors", () => {
+    const { repo, base } = fixture();
+    write(join(repo, "docs", "note.md"), "candidate\n");
+    git(repo, ["add", "."]);
+    git(repo, ["commit", "-qm", "candidate"]);
+
+    const fakeSecret = "FAKE_CREDENTIAL_MUST_NEVER_APPEAR_IN_ERRORS";
+    for (const remote of [
+      "https://x-access-token:" + fakeSecret + "@github.com/ibboabdoli-ai/Proffera.git",
+      "https://x-access-token:" + fakeSecret + "@wrong.invalid/ibboabdoli-ai/Proffera.git",
+      "https://x-access-token:" + fakeSecret + "@github.com/ibboabdoli-ai/Proffera/extra.git",
+      "https://x-access-token:" + fakeSecret + "@github.com/ibboabdoli-ai/Proffera.git?token=" + fakeSecret,
+      "https://x-access-token:" + fakeSecret + "@github.com/ibboabdoli-ai/Proffera.git#token",
+      "ssh://git:" + fakeSecret + "@github.com/ibboabdoli-ai/Proffera.git",
+      "https://x-access-token:" + fakeSecret + "@",
+    ]) {
+      git(repo, ["remote", "set-url", "origin", remote]);
+      let message = "";
+      try {
+        inspectFixture({ cwd: repo, baseSha: base, prBody: body(base) });
+      } catch (error) {
+        message = String(error);
+      }
+      expect(message).toMatch(/supervisor_preflight:repository/);
+      expect(message).not.toContain(fakeSecret);
+      expect(message).not.toContain("x-access-token");
+    }
+    git(repo, ["remote", "set-url", "origin", "https://github.com/ibboabdoli-ai/Proffera.git"]);
+    expect(inspectFixture({ cwd: repo, baseSha: base, prBody: body(base) }).repository)
+      .toBe("ibboabdoli-ai/Proffera");
+  });
+
   it("accounts for both rename endpoints by disabling rename detection", () => {
     const { repo, base } = fixture({
       baseFiles: {
