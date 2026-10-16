@@ -352,7 +352,7 @@ jobs:
               [
                 .[]
                 | select($request_time != "")
-                | select(.state == "APPROVED" or .state == "COMMENTED")
+                | select(.state == "APPROVED")
                 | select((.submitted_at // "") >= $request_time)
                 | .submitted_at
               ]

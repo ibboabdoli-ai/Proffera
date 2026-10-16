@@ -381,7 +381,8 @@ describe("tooling safety contract", () => {
     expect(gate).not.toContain("clean_summary_count");
     expect(gate).not.toContain("coderabbit_review_completion_time");
     expect(gate).toContain('terminal_count="$(jq -r');
-    expect(gate).toContain('select(.state == "APPROVED" or .state == "COMMENTED")');
+    expect(gate).toContain('select(.state == "APPROVED")');
+    expect(gate).not.toContain('select(.state == "APPROVED" or .state == "COMMENTED")');
 
     const malformedHeadSha = runCiReviewFixture({
       changedFiles: ".github/workflows/ci.yml",
@@ -445,7 +446,7 @@ describe("tooling safety contract", () => {
       }],
       failOnPost: true,
     });
-    expect(completedReviewWithoutSummary.status).toBe(0);
+    expect(completedReviewWithoutSummary.status).toBe(1);
 
     const commentedReviewWithInlineFinding = runCiReviewFixture({
       changedFiles: ".github/workflows/ci.yml",
@@ -497,7 +498,7 @@ describe("tooling safety contract", () => {
       firstReviews: [{
         user: { login: "coderabbitai[bot]" },
         commit_id: reviewHead,
-        state: "COMMENTED",
+        state: "APPROVED",
         submitted_at: "2026-08-31T10:02:00Z",
       }],
       inlineComments: [{
@@ -516,7 +517,7 @@ describe("tooling safety contract", () => {
       firstReviews: [{
         user: { login: "coderabbitai[bot]" },
         commit_id: reviewHead,
-        state: "COMMENTED",
+        state: "APPROVED",
         submitted_at: "2026-08-31T10:02:00Z",
       }],
       inlineComments: [{
@@ -535,7 +536,7 @@ describe("tooling safety contract", () => {
       firstReviews: [{
         user: { login: "coderabbitai[bot]" },
         commit_id: reviewHead,
-        state: "COMMENTED",
+        state: "APPROVED",
         submitted_at: "2026-08-31T10:03:00Z",
       }],
       failOnPost: true,
