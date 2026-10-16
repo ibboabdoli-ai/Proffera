@@ -42,7 +42,7 @@ describe("Maria Preview resend hold revalidation", () => {
     expect(statements[0].sql).toContain(", 713)");
     expect(statements[0].values).toContain(params.workspaceId);
 
-    const update = statements[1].sql.replace(/\\s+/g, " ");
+    const update = statements[1].sql.replace(/\s+/g, " ");
     expect(update).toContain("update public_booking_verifications v");
     expect(update).toContain("not exists ( select 1 from bookings b");
     expect(update).toContain("not exists ( select 1 from public_booking_verifications other");
