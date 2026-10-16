@@ -57,6 +57,10 @@ export function buildUnifiedBookingConfirmationEmail(input: Input) {
   const isEnglish = language === "en";
   const isArabic = language === "ar" && input.branding === "makeup-by-maria";
   const isMaria = input.branding === "makeup-by-maria";
+  const mariaLogoUrl = isMaria ? new URL("/demo/makeup-by-maria/assets/maria-wordmark.svg", input.portalUrl).toString() : "";
+  const mariaEmailLogo = isMaria
+    ? `<div style="background:#fcfaf8;text-align:center;padding:18px 20px;border-bottom:1px solid #e9dedc;"><img src="${escapeHtml(mariaLogoUrl)}" alt="Makeup by Maria" width="300" height="62" style="display:block;width:300px;max-width:100%;height:auto;margin:auto;" /></div>`
+    : "";
   const start = formatBookingTime(input.startsAt, input.timeZone, language);
   const end = formatBookingTime(input.endsAt, input.timeZone, language);
   const subject = isArabic ? `تم استلام طلب حجزك – ${input.companyName}` : isEnglish
@@ -133,6 +137,7 @@ export function buildUnifiedBookingConfirmationEmail(input: Input) {
   const html = isArabic ? `
     <div lang="ar" dir="rtl" style="direction:rtl;text-align:right;font-family:Arial,sans-serif;line-height:1.8;color:#352a2c;max-width:640px;margin:0 auto">
       <div style="border:1px solid #e9dedc;border-radius:18px;overflow:hidden;background:#fff">
+        ${mariaEmailLogo}
         <div style="background:#845363;color:#fff;padding:22px 26px"><small>طلب حجز</small><h1 style="margin:6px 0 0;font-size:24px;color:#fff">${escapeHtml(input.companyName)}</h1></div>
         <div style="padding:24px">
           <p>مرحبًا ${escapeHtml(input.customerName)}،</p>
@@ -158,7 +163,8 @@ export function buildUnifiedBookingConfirmationEmail(input: Input) {
   ` : isEnglish ? `
     <div style="font-family:Arial,sans-serif;line-height:1.6;color:#0b2a4a;max-width:640px;margin:0 auto;">
       <div style="border:1px solid #d9e4ef;border-radius:20px;overflow:hidden;background:#ffffff;box-shadow:0 10px 30px rgba(11,42,74,.08);">
-        <div style="background:#06183b;color:#ffffff;padding:22px 28px;">
+        ${mariaEmailLogo}
+         <div style="background:${isMaria ? "#845363" : "#06183b"};color:#ffffff;padding:22px 28px;">
           <table role="presentation" style="width:100%;border-collapse:collapse;"><tr>
             ${isMaria ? "" : `<td style="width:58px;vertical-align:middle;"><img src="${primeViewLogo}" width="48" height="48" alt="PrimeView Window Care" style="display:block;width:48px;height:48px;border-radius:11px;object-fit:cover;border:1px solid rgba(255,255,255,.25);" /></td>`}
             <td style="vertical-align:middle;"><p style="margin:0;font-size:12px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:#b8ceff;">Booking request</p><h1 style="margin:5px 0 0;font-size:24px;line-height:1.25;color:#ffffff;">${escapeHtml(input.companyName)}</h1></td>
@@ -193,7 +199,8 @@ export function buildUnifiedBookingConfirmationEmail(input: Input) {
   ` : `
     <div style="font-family:Arial,sans-serif;line-height:1.6;color:#17201a;max-width:640px;margin:0 auto;">
       <div style="border:1px solid #dfe6df;border-radius:20px;overflow:hidden;background:#ffffff;">
-        <div style="background:#173e2b;color:#ffffff;padding:24px 28px;">
+        ${mariaEmailLogo}
+         <div style="background:${isMaria ? "#845363" : "#173e2b"};color:#ffffff;padding:24px 28px;">
           <p style="margin:0;font-size:12px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:#dce9df;">Bokningsförfrågan</p>
           <h1 style="margin:8px 0 0;font-size:25px;line-height:1.25;">${escapeHtml(input.companyName)}</h1>
         </div>
