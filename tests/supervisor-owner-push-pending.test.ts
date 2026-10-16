@@ -8,7 +8,7 @@ import {createHash} from "node:crypto";
 import {readFileSync} from "node:fs";
 import {createRequire} from "node:module";
 // @ts-expect-error Trusted control-plane .mjs helper.
-import {readPending,admission,verifyArtifactMetadata,verifyHandoffManifest,resolveDecision,mayResolveExpiredArtifact,verifyHandoffBranch,gate,commitLookupKnown,authenticatedGitFetch,verifyRecordBranch,record} from "../scripts/supervisor-owner-push-pending.mjs";
+import {readPending,admission,verifyArtifactMetadata,verifyHandoffManifest,resolveDecision,mayResolveExpiredArtifact,verifyHandoffBranch,gate,commitLookupKnown,authenticatedGitFetch,verifyRecordBranch,admittedRecordIdentity,record} from "../scripts/supervisor-owner-push-pending.mjs";
 // @ts-expect-error Trusted control-plane .mjs helper.
 import {decideReviewRepairStrategyHistory} from "../scripts/supervisor-review-repair-strategy-memory.mjs";
 // @ts-expect-error Trusted control-plane .mjs helper.
@@ -418,8 +418,38 @@ describe("trusted Git history at owner-push admission",()=>{
  });
 });
 
+describe("admitted-attempt ownership and workflow record boundaries",()=>{
+ it("binds original and rerun recorder execution to the admitted attempt only",()=>{
+  const initial={GITHUB_RUN_ID:"81",GITHUB_RUN_ATTEMPT:"1",ADMITTED_RUN_ATTEMPT:"1"};
+  expect(admittedRecordIdentity(initial)).toEqual({run_id:81,run_attempt:1});
+  expect(admittedRecordIdentity({...initial,GITHUB_RUN_ATTEMPT:"2"}))
+   .toEqual({run_id:81,run_attempt:1});
+  expect(admittedRecordIdentity({...initial,GITHUB_RUN_ATTEMPT:"3",ADMITTED_RUN_ATTEMPT:"2"}))
+   .toEqual({run_id:81,run_attempt:2});
+ });
+ it.each([undefined,"","0","-1","01","1.0","1e2","NaN","9999999999999999999999"])(
+  "rejects missing or invalid admitted-attempt evidence: %s",attempt=>{
+   expect(()=>admittedRecordIdentity({GITHUB_RUN_ID:"81",GITHUB_RUN_ATTEMPT:"2",
+    ADMITTED_RUN_ATTEMPT:attempt})).toThrow("record_attempt_evidence");
+  });
+ it("requires each authenticated pending recorder to receive its admitted attempt output",()=>{
+  type RecorderStep={name?:string;run?:string;env?:Record<string,string>};
+  type RecorderWorkflow={jobs:{record:{steps:RecorderStep[]}}};
+  const yamlLoad=createRequire(import.meta.url)("js-yaml").load as (source:string)=>unknown;
+  for(const file of ["proffera-ci-autofix.yml","supervisor-review-repair.yml"]){
+   const workflow=yamlLoad(readFileSync(root+"/.github/workflows/"+file,"utf8")) as RecorderWorkflow;
+   const steps=workflow.jobs.record.steps;
+   const pending=steps.filter(step=>step.run?.includes("supervisor-owner-push-pending.mjs record"));
+   expect(pending,file).toHaveLength(1);
+   expect(pending[0].env?.ADMITTED_RUN_ATTEMPT,file).toBe(
+    "${{ needs.admit.outputs.admitted_run_attempt }}");
+   expect(pending[0].env?.GITHUB_RUN_ATTEMPT,file+": no runner attempt override").toBeUndefined();
+  }
+ });
+});
+
 describe("executed owner-push pending recorder after exact owner publication",()=>{
- it.each(["parent","already-published","published-during-auth","unrelated-head","rewound-after-auth","rewound-after-fetched-tip"] as const)(
+ it.each(["parent","rerun-admitted","missing-admitted","wrong-admitted","changed-base","unauthorized-pr-identity","already-published","published-during-auth","unrelated-head","rewound-after-auth","rewound-after-fetched-tip"] as const)(
   "records authenticated handoff without relaxing owner gate: %s",async scenario=>{
    const actual=await vi.importActual<typeof import("node:child_process")>("node:child_process");
    const p=fixture().value;
@@ -472,8 +502,8 @@ describe("executed owner-push pending recorder after exact owner publication",()
      if(endpoint==="repos/"+repo+"/pulls/"+pr){
       const current=reads++===0?firstHead:
        scenario==="rewound-after-auth"?p.parent_sha:published()?p.head_sha:p.parent_sha;
-      return good(JSON.stringify({state:"open",merged:false,base:{ref:"main",sha:p.base_sha},
-       head:{ref:p.branch,sha:current,repo:{full_name:repo}},user:{login:"ibboabdoli-ai"}}));
+      return good(JSON.stringify({state:"open",merged:false,base:{ref:"main",sha:scenario==="changed-base"?"8".repeat(40):p.base_sha},
+       head:{ref:p.branch,sha:current,repo:{full_name:repo}},user:{login:scenario==="unauthorized-pr-identity"?"untrusted-user":"ibboabdoli-ai"}}));
      }
      if(endpoint==="repos/"+repo+"/git/ref/heads/"+p.branch){
       const current=reads<=1?firstHead:
@@ -484,6 +514,8 @@ describe("executed owner-push pending recorder after exact owner publication",()
       return good(JSON.stringify({object:{sha:p.base_sha}}));
      if(endpoint==="repos/"+repo+"/actions/runs/81/attempts/1")
       return good(JSON.stringify(run));
+     if(endpoint==="repos/"+repo+"/actions/runs/81/attempts/2")
+      return good(JSON.stringify({...run,run_attempt:2}));
      if(endpoint==="repos/"+repo+"/actions/runs/81/artifacts?per_page=100")
       return good(JSON.stringify({artifacts:[{id:401,name:"supervisor-review-repair-owner-handoff-81-1",expired:false,
        workflow_run:{id:81},digest:"sha256:"+digest(zip)}]}));
@@ -529,10 +561,17 @@ describe("executed owner-push pending recorder after exact owner publication",()
    }) as typeof spawnSync);
    const env={LANE:"review_repair",PR_NUMBER:String(pr),HEAD_REF:p.branch,
     BASE_SHA:p.base_sha,PARENT_SHA:p.parent_sha,NEW_HEAD:p.head_sha,NEW_TREE:p.tree_sha,
-    FINDINGS_SHA:p.finding_digest,ARTIFACT_ID:"401",GITHUB_RUN_ID:"81",GITHUB_RUN_ATTEMPT:"1"};
+    FINDINGS_SHA:p.finding_digest,ARTIFACT_ID:"401",GITHUB_RUN_ID:"81",
+    GITHUB_RUN_ATTEMPT:scenario==="rerun-admitted"?"2":"1",
+    ADMITTED_RUN_ATTEMPT:scenario==="missing-admitted"?undefined:scenario==="wrong-admitted"?"2":"1"};
    try{
-    if(scenario==="unrelated-head"||scenario==="rewound-after-auth"||scenario==="rewound-after-fetched-tip"){
-     expect(()=>record(env)).toThrow(scenario==="unrelated-head"?"stale_parent":"record_ref");
+    if(["unrelated-head","rewound-after-auth","rewound-after-fetched-tip","missing-admitted",
+        "wrong-admitted","changed-base","unauthorized-pr-identity"].includes(scenario)){
+     expect(()=>record(env)).toThrow(
+      scenario==="unrelated-head"||scenario==="changed-base"?"stale_parent":
+      scenario==="unauthorized-pr-identity"?"pr_identity":
+      scenario==="missing-admitted"?"record_attempt_evidence":
+      scenario==="wrong-admitted"?"artifact_id":"record_ref");
      expect(posts).toBe(0);
     }else{
      expect(record(env)).toEqual({pending:true});
@@ -541,6 +580,8 @@ describe("executed owner-push pending recorder after exact owner publication",()
      const ledger=readPending(comments,pr);
      expect(ledger).toHaveLength(1);
      expect(ledger[0].head_sha).toBe(p.head_sha);
+     expect(ledger[0].run_attempt).toBe(1);
+     expect(ledger[0].run_id).toBe(81);
      expect(ledger[0].resolution).toBeUndefined();
      expect(admission(comments,pr)).toMatchObject({allow:false,unresolved:1});
     }

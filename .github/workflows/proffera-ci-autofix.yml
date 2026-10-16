@@ -978,6 +978,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           LANE: ci_autofix
+          ADMITTED_RUN_ATTEMPT: ${{ needs.admit.outputs.admitted_run_attempt }}
           PR_NUMBER: ${{ needs.prepare.outputs.pr_number }}
           HEAD_REF: ${{ needs.prepare.outputs.head_ref }}
           PARENT_SHA: ${{ needs.admit.outputs.head_sha }}

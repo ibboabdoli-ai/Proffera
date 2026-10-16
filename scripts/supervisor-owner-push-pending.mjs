@@ -247,11 +247,19 @@ export function verifyRecordBranch(initial,final,parent,proposed){
   &&!(initial===proposed&&final===parent),"record_ref");
  return true;
 }
+export function admittedRecordIdentity(env){
+  // Rerun recorder identity stays bound to the original admitted model attempt.
+  check(typeof env.ADMITTED_RUN_ATTEMPT==="string"
+   &&/^[1-9][0-9]*$/.test(env.ADMITTED_RUN_ATTEMPT)
+   &&Number.isSafeInteger(Number(env.ADMITTED_RUN_ATTEMPT))
+   &&pos(Number(env.GITHUB_RUN_ID)),"record_attempt_evidence");
+  return {run_id:Number(env.GITHUB_RUN_ID),run_attempt:Number(env.ADMITTED_RUN_ATTEMPT)};
+}
 export function record(env){
  const p={lane:env.LANE,repository:REPO,pr_number:Number(env.PR_NUMBER),
   branch:env.HEAD_REF,base_sha:env.BASE_SHA,parent_sha:env.PARENT_SHA,
   head_sha:env.NEW_HEAD,tree_sha:env.NEW_TREE,
-  run_id:Number(env.GITHUB_RUN_ID),run_attempt:Number(env.GITHUB_RUN_ATTEMPT),
+  ...admittedRecordIdentity(env),
   finding_digest:env.LANE==="review_repair"?env.FINDINGS_SHA:null};
  check(Object.hasOwn(LANES,p.lane)&&pos(p.pr_number)&&pos(p.run_id)&&pos(p.run_attempt)
   &&["base_sha","parent_sha","head_sha","tree_sha"].every(k=>hex(p[k],40))

@@ -727,7 +727,22 @@ ${reviewHead}
       comments: [requestComment()],
       firstReviews: [{ ...codeRabbitCompletedReview(), state: "COMMENTED", body: "" }],
     });
+    expect(threadOnlyReply.status).toBe(0);
+    expect(threadOnlyReply.stdout).toContain(
+      "Refused: no completed CodeRabbit review exists for the current PR head and the bounded Codex fallback is not active.",
+    );
     expect(threadOnlyReply.stdout).not.toContain("AI_REVIEW_OK");
+
+    const threadReplyWithText = runAutomergeFixture({
+      comments: [requestComment()],
+      firstReviews: [{ ...codeRabbitCompletedReview(), state: "COMMENTED",
+        body: "A reply to a resolved inline review thread; not a full review." }],
+    });
+    expect(threadReplyWithText.status).toBe(0);
+    expect(threadReplyWithText.stdout).toContain(
+      "Refused: no completed CodeRabbit review exists for the current PR head and the bounded Codex fallback is not active.",
+    );
+    expect(threadReplyWithText.stdout).not.toContain("AI_REVIEW_OK");
 
     const commentedReviewWithInlineFinding = runAutomergeFixture({
       comments: [requestComment()],

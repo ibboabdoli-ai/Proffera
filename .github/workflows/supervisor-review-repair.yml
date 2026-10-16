@@ -838,6 +838,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           LANE: review_repair
+          ADMITTED_RUN_ATTEMPT: ${{ needs.admit.outputs.admitted_run_attempt }}
           PR_NUMBER: ${{ inputs.pr_number }}
           HEAD_REF: ${{ needs.admit.outputs.head_ref }}
           PARENT_SHA: ${{ needs.admit.outputs.head_sha }}
