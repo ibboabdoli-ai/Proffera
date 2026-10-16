@@ -8,6 +8,10 @@ import { sendUnifiedBookingConfirmationEmail } from "@/features/email/unified-bo
 import { sendBookingOwnerSms, sendBookingVerificationSms } from "@/features/sms/booking-sms";
 import { createCustomerCalendarToken } from "@/lib/customer-calendar";
 import { getSql } from "@/lib/db/server";
+import { finalizeMariaVerifiedBooking } from "@/lib/maria-verified-booking";
+import { getMariaPreviewBookingReadiness } from "@/lib/maria-preview-booking";
+import { renewMariaPreviewHoldForResend } from "@/lib/maria-resend-hold";
+import { isMariaPreviewTestRecipient } from "@/lib/maria-preview-customer-safety";
 import type { WorkspaceTimeZone } from "@/lib/workspace-market";
 
 const EXPIRY_MINUTES = 10;
@@ -102,7 +106,7 @@ export type BeginBookingVerificationInput = {
   startsAt: string;
   endsAt: string;
   timeZone: WorkspaceTimeZone;
-  language?: "sv" | "en";
+  language?: "sv" | "en" | "ar";
   verificationSms?: boolean;
 };
 
@@ -127,26 +131,101 @@ export async function beginBookingEmailVerification(input: BeginBookingVerificat
   `;
   if (!serviceRows[0]) return { ok: false as const, error: "service" };
 
-  const rows = await sql`
-    insert into public_booking_verifications (
-      workspace_id, public_booking_slug, customer_name, customer_email, customer_phone,
-      service_id, service_name, staff_id, city, address, postcode, booking_details,
-      starts_at, ends_at, code_hash, expires_at
-    ) values (
-      ${input.workspaceId}::uuid, ${input.slug}, ${input.customerName}, ${input.customerEmail.toLowerCase()},
-      ${input.customerPhone || null}, ${input.serviceId}::uuid, ${input.serviceName}, ${input.staffId || null}::uuid, ${input.city || null},
-      ${input.address || null}, ${input.postcode || null}, ${input.bookingDetails || null},
-      ${input.startsAt}::timestamptz, ${input.endsAt}::timestamptz, '', ${expiresAt}::timestamptz
-    ) returning id
-  `;
+  // Maria is a single-person operation. Serialize all new holds for this
+  // workspace, regardless of customer email, and check overlap INSIDE
+  // the same transaction as the insert. A prior public UI check is not enough.
+  const rows = input.slug === "makeup-by-maria"
+    ? (await sql.transaction([
+        sql`select pg_advisory_xact_lock(hashtextextended(${input.workspaceId}::text, 713))`,
+        sql`
+          insert into public_booking_verifications (
+            workspace_id, public_booking_slug, customer_name, customer_email, customer_phone,
+            service_id, service_name, staff_id, city, address, postcode, booking_details,
+            starts_at, ends_at, code_hash, expires_at
+          )
+          select ${input.workspaceId}::uuid, ${input.slug}, ${input.customerName},
+            ${input.customerEmail.toLowerCase()}, ${input.customerPhone || null},
+            ${input.serviceId}::uuid, ${input.serviceName}, ${input.staffId || null}::uuid,
+            ${input.city || null}, ${input.address || null}, ${input.postcode || null},
+            ${input.bookingDetails || null}, ${input.startsAt}::timestamptz,
+            ${input.endsAt}::timestamptz, '', ${expiresAt}::timestamptz
+          where exists (
+            select 1 from workspaces w
+            join workspace_services s on s.workspace_id=w.id::text
+            join workspace_booking_hours h on h.workspace_id=w.id::text
+              and h.weekday=extract(dow from ${input.startsAt}::timestamptz at time zone 'Europe/Stockholm')::int
+            where w.id=${input.workspaceId}::uuid and w.slug='makeup-by-maria'
+              and w.public_booking_slug='makeup-by-maria' and w.status in ('active','trial')
+              and s.id=${input.serviceId}::uuid and s.is_active=true and s.public_status='published'
+              and s.duration_minutes between 1 and 1440
+              and ${input.startsAt}::timestamptz >= now()
+                + (s.minimum_notice_minutes * interval '1 minute')
+              and ${input.startsAt}::timestamptz <= now()
+                + (s.maximum_advance_days * interval '1 day')
+              and ${input.staffId || null}::uuid is null
+              and h.is_closed=false
+              and (${input.startsAt}::timestamptz at time zone 'Europe/Stockholm')::time
+                  between h.opens_at and h.closes_at
+              and ${input.endsAt}::timestamptz = ${input.startsAt}::timestamptz
+                  + (s.duration_minutes * interval '1 minute')
+          )
+          and not exists (
+            select 1 from bookings b
+            left join workspace_services bs on bs.id=b.service_id
+              and bs.workspace_id=b.workspace_id
+            where b.workspace_id=${input.workspaceId}
+              and b.status not in ('cancelled','no_show')
+              and b.starts_at - (coalesce(bs.buffer_before_minutes,0) * interval '1 minute')
+                  < ${input.endsAt}::timestamptz
+                    + (select coalesce(buffer_after_minutes,0) * interval '1 minute'
+                       from workspace_services where id=${input.serviceId}::uuid)
+              and b.ends_at + (coalesce(bs.buffer_after_minutes,0) * interval '1 minute')
+                  > ${input.startsAt}::timestamptz
+                    - (select coalesce(buffer_before_minutes,0) * interval '1 minute'
+                       from workspace_services where id=${input.serviceId}::uuid)
+          )
+          and not exists (
+            select 1 from public_booking_verifications v
+            left join workspace_services vs on vs.id=v.service_id and vs.workspace_id=v.workspace_id::text
+            where v.workspace_id=${input.workspaceId}::uuid
+              and v.consumed_at is null and v.expires_at>now()
+              and v.starts_at - (coalesce(vs.buffer_before_minutes,0) * interval '1 minute')
+                  < ${input.endsAt}::timestamptz
+                    + (select coalesce(buffer_after_minutes,0) * interval '1 minute'
+                       from workspace_services where id=${input.serviceId}::uuid)
+              and v.ends_at + (coalesce(vs.buffer_after_minutes,0) * interval '1 minute')
+                  > ${input.startsAt}::timestamptz
+                    - (select coalesce(buffer_before_minutes,0) * interval '1 minute'
+                       from workspace_services where id=${input.serviceId}::uuid)
+          )
+          returning id
+        `,
+      ]))[1]
+    : await sql`
+      insert into public_booking_verifications (
+        workspace_id, public_booking_slug, customer_name, customer_email, customer_phone,
+        service_id, service_name, staff_id, city, address, postcode, booking_details,
+        starts_at, ends_at, code_hash, expires_at
+      ) values (
+        ${input.workspaceId}::uuid, ${input.slug}, ${input.customerName},
+        ${input.customerEmail.toLowerCase()}, ${input.customerPhone || null},
+        ${input.serviceId}::uuid, ${input.serviceName}, ${input.staffId || null}::uuid,
+        ${input.city || null}, ${input.address || null}, ${input.postcode || null},
+        ${input.bookingDetails || null}, ${input.startsAt}::timestamptz,
+        ${input.endsAt}::timestamptz, '', ${expiresAt}::timestamptz
+      ) returning id
+    `;
   const id = String(rows[0]?.id ?? "");
-  if (!id) return { ok: false as const, error: "database" };
+  if (!id) return { ok: false as const, error: input.slug === "makeup-by-maria" ? "conflict" : "database" };
   await sql`update public_booking_verifications set code_hash = ${hashCode(id, code)} where id = ${id}::uuid`;
 
+  const effectiveInitialLanguage = input.language === "ar"
+    && !(input.slug === "makeup-by-maria" && process.env.VERCEL_ENV === "preview")
+    ? "en" : input.language;
   const [emailSent, smsSent] = await Promise.all([
-    sendBookingVerificationEmail({ customerName: input.customerName, customerEmail: input.customerEmail, companyName: input.companyName, code, expiresMinutes: EXPIRY_MINUTES, language: input.language }),
+    sendBookingVerificationEmail({ customerName: input.customerName, customerEmail: input.customerEmail, companyName: input.companyName, code, expiresMinutes: EXPIRY_MINUTES, language: effectiveInitialLanguage }),
     input.verificationSms && input.customerPhone
-      ? sendBookingVerificationSms({ customerPhone: input.customerPhone, companyName: input.companyName, code, expiresMinutes: EXPIRY_MINUTES, language: input.language })
+      ? sendBookingVerificationSms({ customerPhone: input.customerPhone, companyName: input.companyName, code, expiresMinutes: EXPIRY_MINUTES, language: input.language === "ar" ? "en" : input.language })
       : Promise.resolve({ ok: false as const, skipped: true as const, message: "SMS verification not requested." }),
   ]);
   if (!emailSent.ok && !smsSent.ok) {
@@ -157,7 +236,7 @@ export async function beginBookingEmailVerification(input: BeginBookingVerificat
   return { ok: true as const, verificationId: id, delivery };
 }
 
-export async function resendPublicBookingCode(id: string, language: "sv" | "en" = "sv") {
+export async function resendPublicBookingCode(id: string, language: "sv" | "en" | "ar" = "sv") {
   const sql = getSql();
   if (!sql || !/^[0-9a-f-]{36}$/i.test(id)) return { ok: false as const, error: "invalid" };
 
@@ -183,11 +262,49 @@ export async function resendPublicBookingCode(id: string, language: "sv" | "en" 
   const customerEmail = String(challenge.customer_email);
   const customerPhone = challenge.customer_phone ? String(challenge.customer_phone) : "";
   const useSms = String(challenge.public_booking_slug) === "primeview" && Boolean(customerPhone);
+  if (String(challenge.public_booking_slug) === "makeup-by-maria") {
+    const readiness = await getMariaPreviewBookingReadiness();
+    if (!readiness.enabled || readiness.workspaceId !== String(challenge.workspace_id)) {
+      return { ok: false as const, error: "invalid" };
+    }
 
+    const expectedHash = hashCode(id, code);
+    const expiresAt = new Date(Date.now() + EXPIRY_MINUTES * 60_000).toISOString();
+    // Re-acquire the hold only after checking current bookings, other active
+    // holds, service policy and buffers under Maria's workspace-wide lock.
+    // An expired hold must not evict a booking created in the meantime.
+    const renewed = await renewMariaPreviewHoldForResend({
+      workspaceId: readiness.workspaceId,
+      verificationId: id,
+      expectedCodeHash: expectedHash,
+      expiresAt,
+    });
+    if (!renewed.ok) return { ok: false as const, error: renewed.error };
+
+    const delivered = await sendBookingVerificationEmail({
+      customerName, customerEmail, companyName, code,
+      expiresMinutes: EXPIRY_MINUTES, language,
+    });
+    if (!delivered.ok) {
+      // The new code was not delivered. Release this unusable hold so it
+      // cannot continue blocking a different customer for ten minutes.
+      await sql`
+        delete from public_booking_verifications
+        where id = ${id}::uuid and workspace_id = ${readiness.workspaceId}::uuid
+          and code_hash = ${expectedHash}
+          and consumed_at is null and verified_at is null
+      `;
+      return { ok: false as const, error: "email" };
+    }
+    return { ok: true as const, delivery: "email" as const };
+  }
+
+
+  const genericLanguage = language === "ar" ? "en" : language;
   const [emailSent, smsSent] = await Promise.all([
-    sendBookingVerificationEmail({ customerName, customerEmail, companyName, code, expiresMinutes: EXPIRY_MINUTES, language }),
+    sendBookingVerificationEmail({ customerName, customerEmail, companyName, code, expiresMinutes: EXPIRY_MINUTES, language: genericLanguage }),
     useSms
-      ? sendBookingVerificationSms({ customerPhone, companyName, code, expiresMinutes: EXPIRY_MINUTES, language })
+      ? sendBookingVerificationSms({ customerPhone, companyName, code, expiresMinutes: EXPIRY_MINUTES, language: language === "ar" ? "en" : language })
       : Promise.resolve({ ok: false as const, skipped: true as const, message: "SMS verification not requested." }),
   ]);
   if (!emailSent.ok && !smsSent.ok) return { ok: false as const, error: "email" };
@@ -202,7 +319,7 @@ export async function resendPublicBookingCode(id: string, language: "sv" | "en" 
   return { ok: true as const, delivery };
 }
 
-export async function verifyPublicBookingCode(id: string, code: string, language?: "sv" | "en") {
+export async function verifyPublicBookingCode(id: string, code: string, language?: "sv" | "en" | "ar") {
   const sql = getSql();
   if (!sql || !/^[0-9a-f-]{36}$/i.test(id) || !/^\d{6}$/.test(code)) return { ok: false as const, error: "invalid" };
 
@@ -222,7 +339,12 @@ export async function verifyPublicBookingCode(id: string, code: string, language
   if (Number(challenge.attempts) >= Number(challenge.max_attempts)) return { ok: false as const, error: "attempts" };
 
   if (hashCode(id, code) !== String(challenge.code_hash)) {
-    await sql`update public_booking_verifications set attempts = attempts + 1, updated_at = now() where id = ${id}::uuid`;
+    await sql`
+      update public_booking_verifications set attempts=attempts+1,updated_at=now()
+      where id=${id}::uuid and consumed_at is null and verified_at is null
+        and code_hash=${String(challenge.code_hash)}
+        and attempts<max_attempts
+    `;
     return { ok: false as const, error: "code" };
   }
 
@@ -246,87 +368,126 @@ export async function verifyPublicBookingCode(id: string, code: string, language
   const bookingDetails = challenge.booking_details ? String(challenge.booking_details) : "";
   const bookingNote = buildBookingNote(address, postcode, bookingDetails);
 
-  const conflict = await sql`
-    select id from bookings
-    where workspace_id = ${String(challenge.workspace_id)}
-      and status not in ('cancelled', 'no_show')
-      and (${staffId}::uuid is null or staff_id = ${staffId}::uuid or staff_id is null)
-      and starts_at < ${endsAt}::timestamptz
-      and ends_at > ${startsAt}::timestamptz
-    limit 1
-  `;
-  if (conflict[0]) return { ok: false as const, error: "conflict" };
+  let bookingId: string;
+  let customerId: string;
 
-  const customerLockKey = `${String(challenge.workspace_id)}:${String(challenge.customer_email).toLowerCase()}`;
-  const appendExistingCustomerNote = String(challenge.public_booking_slug) === "primeview" && Boolean(bookingNote);
-  const [, booked] = await sql.transaction([
-    sql`select pg_advisory_xact_lock(hashtextextended(${customerLockKey}::text, 0))`,
-    sql`
-      with existing_customer as (
-        select id from customers
-        where workspace_id = ${String(challenge.workspace_id)} and lower(email) = lower(${String(challenge.customer_email)})
-        order by created_at asc nulls last, id asc limit 1
-      ), inserted_customer as (
-        insert into customers (workspace_id, name, email, phone, city, status, source, notes)
-        select ${String(challenge.workspace_id)}, ${String(challenge.customer_name)}, ${String(challenge.customer_email)}, ${challenge.customer_phone ? String(challenge.customer_phone) : null}, ${challenge.city ? String(challenge.city) : null}, 'prospect', 'public_booking', ${bookingNote || null}
-        where not exists (select 1 from existing_customer)
-        returning id
-      ), updated_existing_customer as (
-        update customers
-        set notes = case
-          when coalesce(trim(notes), '') = '' then ${bookingNote || null}
-          when position(${bookingNote} in coalesce(notes, '')) > 0 then notes
-          else rtrim(notes) || E'\n\n' || ${bookingNote}
-        end
-        where ${appendExistingCustomerNote} = true
-          and id in (select id from existing_customer)
-        returning id
-      ), selected_customer as (
-        select id from existing_customer
-        union all
-        select id from inserted_customer
-        union all
-        select id from updated_existing_customer
-        limit 1
-      ), booking as (
-        insert into bookings (workspace_id, customer_id, staff_id, service_id, title, service, city, status, starts_at, ends_at, source, notes)
-        select ${String(challenge.workspace_id)}, id, ${staffId}::uuid, ${serviceId}::uuid, ${String(challenge.service_name)}, ${String(challenge.service_name)}, ${challenge.city ? String(challenge.city) : null}, 'requested', ${startsAt}::timestamptz, ${endsAt}::timestamptz, 'public_booking', ${bookingNote || null}
-        from selected_customer limit 1 returning id, customer_id
-      ), created_event as (
-        insert into customer_events (workspace_id, customer_id, booking_id, event_type, title, description, metadata)
-        select
-          ${String(challenge.workspace_id)},
-          booking.customer_id,
-          booking.id,
-          'booking',
-          'Booking created',
-          'Booking request created after customer email verification.',
-          jsonb_build_object('source', 'public_booking', 'service', ${String(challenge.service_name)}::text)
-        from booking
-        returning id
-      )
-      update public_booking_verifications set verified_at = now(), consumed_at = now(), updated_at = now()
-      where id = ${id}::uuid
-      returning (select id from booking) as booking_id, (select customer_id from booking) as customer_id
-    `,
-  ]);
-  const bookingId = String(booked?.[0]?.booking_id ?? "");
-  const customerId = String(booked?.[0]?.customer_id ?? "");
-  if (!bookingId || !customerId) return { ok: false as const, error: "save" };
+  if (String(challenge.public_booking_slug) === "makeup-by-maria") {
+    // A preview booking must never be created if its customer links cannot
+    // be generated on the same isolated Preview deployment.
+    if (process.env.VERCEL_ENV !== "preview" || !process.env.VERCEL_URL) {
+      return { ok: false as const, error: "unavailable" };
+    }
+    // Revalidates the code and the latest start window, service duration,
+    // publication, buffer and all Maria bookings/holds under the same
+    // workspace-scoped transaction lock used when a hold is created.
+    const confirmed = await finalizeMariaVerifiedBooking({
+      verificationId: id,
+      expectedCodeHash: hashCode(id, code),
+      bookingNote,
+    });
+    if (!confirmed.ok) return { ok: false as const, error: confirmed.error };
+    bookingId = confirmed.bookingId;
+    customerId = confirmed.customerId;
+  } else {
+    const conflict = await sql`
+      select id from bookings
+      where workspace_id = ${String(challenge.workspace_id)}
+        and status not in ('cancelled', 'no_show')
+        and (${staffId}::uuid is null or staff_id = ${staffId}::uuid or staff_id is null)
+        and starts_at < ${endsAt}::timestamptz
+        and ends_at > ${startsAt}::timestamptz
+      limit 1
+    `;
+    if (conflict[0]) return { ok: false as const, error: "conflict" };
+
+    const customerLockKey = `${String(challenge.workspace_id)}:${String(challenge.customer_email).toLowerCase()}`;
+    const appendExistingCustomerNote = String(challenge.public_booking_slug) === "primeview" && Boolean(bookingNote);
+    const [, booked] = await sql.transaction([
+      sql`select pg_advisory_xact_lock(hashtextextended(${customerLockKey}::text, 0))`,
+      sql`
+        with existing_customer as (
+          select id from customers
+          where workspace_id = ${String(challenge.workspace_id)} and lower(email) = lower(${String(challenge.customer_email)})
+          order by created_at asc nulls last, id asc limit 1
+        ), inserted_customer as (
+          insert into customers (workspace_id, name, email, phone, city, status, source, notes)
+          select ${String(challenge.workspace_id)}, ${String(challenge.customer_name)}, ${String(challenge.customer_email)}, ${challenge.customer_phone ? String(challenge.customer_phone) : null}, ${challenge.city ? String(challenge.city) : null}, 'prospect', 'public_booking', ${bookingNote || null}
+          where not exists (select 1 from existing_customer)
+          returning id
+        ), updated_existing_customer as (
+          update customers
+          set notes = case
+            when coalesce(trim(notes), '') = '' then ${bookingNote || null}
+            when position(${bookingNote} in coalesce(notes, '')) > 0 then notes
+            else rtrim(notes) || E'\n\n' || ${bookingNote}
+          end
+          where ${appendExistingCustomerNote} = true
+            and id in (select id from existing_customer)
+          returning id
+        ), selected_customer as (
+          select id from existing_customer
+          union all
+          select id from inserted_customer
+          union all
+          select id from updated_existing_customer
+          limit 1
+        ), booking as (
+          insert into bookings (workspace_id, customer_id, staff_id, service_id, title, service, city, status, starts_at, ends_at, source, notes)
+          select ${String(challenge.workspace_id)}, id, ${staffId}::uuid, ${serviceId}::uuid, ${String(challenge.service_name)}, ${String(challenge.service_name)}, ${challenge.city ? String(challenge.city) : null}, 'requested', ${startsAt}::timestamptz, ${endsAt}::timestamptz, 'public_booking', ${bookingNote || null}
+          from selected_customer limit 1 returning id, customer_id
+        ), created_event as (
+          insert into customer_events (workspace_id, customer_id, booking_id, event_type, title, description, metadata)
+          select
+            ${String(challenge.workspace_id)},
+            booking.customer_id,
+            booking.id,
+            'booking',
+            'Booking created',
+            'Booking request created after customer email verification.',
+            jsonb_build_object('source', 'public_booking', 'service', ${String(challenge.service_name)}::text)
+          from booking
+          returning id
+        )
+        update public_booking_verifications set verified_at = now(), consumed_at = now(), updated_at = now()
+        where id = ${id}::uuid
+        returning (select id from booking) as booking_id, (select customer_id from booking) as customer_id
+      `,
+    ]);
+    const createdBookingId = String(booked?.[0]?.booking_id ?? "");
+    const createdCustomerId = String(booked?.[0]?.customer_id ?? "");
+    if (!createdBookingId || !createdCustomerId) return { ok: false as const, error: "save" };
+    bookingId = createdBookingId;
+    customerId = createdCustomerId;
+  }
 
   const timeZone = String(challenge.time_zone) as WorkspaceTimeZone;
-  const confirmationLanguage: "sv" | "en" = language ?? (String(challenge.public_booking_slug) === "primeview" ? "en" : "sv");
+  const requestedConfirmationLanguage = language ?? (String(challenge.public_booking_slug) === "primeview" ? "en" : "sv");
+  const mariaArabicPreview = String(challenge.public_booking_slug) === "makeup-by-maria"
+    && process.env.VERCEL_ENV === "preview";
+  // An Arabic locale must not be trusted for another tenant.
+  const confirmationLanguage: "sv" | "en" | "ar" = requestedConfirmationLanguage === "ar" && !mariaArabicPreview
+    ? "en" : requestedConfirmationLanguage;
   const portalToken = createCustomerCalendarToken({ workspaceId: String(challenge.workspace_id), customerId, expiresInSeconds: portalTokenLifetimeSeconds(endsAt) });
-  const appUrl = (process.env.NEXT_PUBLIC_APP_URL ?? process.env.APP_URL ?? "https://www.proffera.se").replace(/\/$/, "");
+  // Never direct Preview-only Maria customers to Production portal links.
+  const mariaPreview = String(challenge.public_booking_slug) === "makeup-by-maria"
+    && process.env.VERCEL_ENV === "preview";
+  const appUrl = mariaPreview
+    ? process.env.VERCEL_URL
+      ? `https://${process.env.VERCEL_URL}`
+      : ""
+    : (process.env.NEXT_PUBLIC_APP_URL ?? process.env.APP_URL ?? "https://www.proffera.se").replace(/\/$/, "");
+  if (!appUrl) return { ok: false as const, error: "unavailable" };
   const encodedToken = encodeURIComponent(portalToken);
   const encodedBookingId = encodeURIComponent(bookingId);
   const portalPath = `/mina-bokningar/${encodedToken}`;
   const portalUrl = `${appUrl}${portalPath}?lang=${confirmationLanguage}`;
   const rescheduleUrl = `${appUrl}${portalPath}/${encodedBookingId}/boka-om?lang=${confirmationLanguage}`;
 
+  const ownerEmailAllowed = challenge.owner_email
+    && (!mariaPreview || isMariaPreviewTestRecipient(String(challenge.owner_email)));
   await Promise.allSettled([
-    sendUnifiedBookingConfirmationEmail({ customerName: String(challenge.customer_name), customerEmail: String(challenge.customer_email), companyName: String(challenge.company_name), service: String(challenge.service_name), startsAt, endsAt, city: String(challenge.city ?? ""), address, postcode, timeZone, portalUrl, rescheduleUrl, language: confirmationLanguage }),
-    challenge.owner_email ? sendBookingOwnerNotificationEmail({ ownerEmail: String(challenge.owner_email), companyName: String(challenge.company_name), customerName: String(challenge.customer_name), customerEmail: String(challenge.customer_email), customerPhone: String(challenge.customer_phone ?? ""), service: String(challenge.service_name), startsAt, endsAt, city: String(challenge.city ?? ""), address, postcode, timeZone, language: String(challenge.public_booking_slug) === "primeview" ? "en" : undefined }) : Promise.resolve(),
+    sendUnifiedBookingConfirmationEmail({ customerName: String(challenge.customer_name), customerEmail: String(challenge.customer_email), companyName: String(challenge.company_name), service: String(challenge.service_name), startsAt, endsAt, city: String(challenge.city ?? ""), address, postcode, timeZone, portalUrl, rescheduleUrl, language: confirmationLanguage, branding: mariaPreview ? "makeup-by-maria" : undefined }),
+    ownerEmailAllowed ? sendBookingOwnerNotificationEmail({ ownerEmail: String(challenge.owner_email), companyName: String(challenge.company_name), customerName: String(challenge.customer_name), customerEmail: String(challenge.customer_email), customerPhone: String(challenge.customer_phone ?? ""), service: String(challenge.service_name), startsAt, endsAt, city: String(challenge.city ?? ""), address, postcode, timeZone, language: String(challenge.public_booking_slug) === "primeview" ? "en" : undefined }) : Promise.resolve(),
     challenge.owner_phone ? sendBookingOwnerSms({ ownerPhone: String(challenge.owner_phone), companyName: String(challenge.company_name), customerName: String(challenge.customer_name), customerPhone: String(challenge.customer_phone ?? ""), service: String(challenge.service_name), startsAt, timeZone }) : Promise.resolve(),
   ]);
 

@@ -10,18 +10,20 @@ type Props = {
   slots: Slot[];
   action: (formData: FormData) => void | Promise<void>;
   selectedDayLabel?: string;
-  language?: "sv" | "en";
+  language?: "sv" | "en" | "ar";
 };
 
 export function RescheduleSlotPicker({ slots, action, selectedDayLabel, language = "sv" }: Props) {
   const [selected, setSelected] = useState("");
   const selectedSlot = slots.find((slot) => slot.startsAtLocal === selected);
   const isEnglish = language === "en";
+  const isArabic = language === "ar";
+  const t = (sv: string, en: string, ar: string) => isArabic ? ar : isEnglish ? en : sv;
 
   return (
     <form action={action} className={styles.slotForm}>
       <fieldset>
-        <legend className="sr-only">{isEnglish ? "Choose an available time" : "Välj en ledig tid"}</legend>
+        <legend className="sr-only">{t("Välj en ledig tid", "Choose an available time", "اختر وقتًا متاحًا")}</legend>
         <div className={styles.slotGrid}>
           {slots.map((slot) => (
             <label key={slot.startsAtLocal} className={styles.slotLabel}>
@@ -42,19 +44,21 @@ export function RescheduleSlotPicker({ slots, action, selectedDayLabel, language
 
       {selectedSlot ? (
         <p className={styles.selectedNotice} role="status">
-          {isEnglish ? "Selected time" : "Vald tid"}: {selectedDayLabel ? `${selectedDayLabel}${isEnglish ? " at " : " kl. "}` : ""}{selectedSlot.label}
+          {t("Vald tid", "Selected time", "الموعد المختار")}: {selectedDayLabel ? `${selectedDayLabel}${isArabic ? "، الساعة " : isEnglish ? " at " : " kl. "}` : ""}{selectedSlot.label}
         </p>
       ) : (
-        <p className={styles.slotHelp}>{isEnglish ? "Choose a time to continue." : "Välj en tid för att fortsätta."}</p>
+        <p className={styles.slotHelp}>{t("Välj en tid för att fortsätta.", "Choose a time to continue.", "اختر وقتًا للمتابعة.")}</p>
       )}
 
       <p className={styles.slotHelp}>
-        {isEnglish
-          ? "Times have already been checked against working hours, staff time off, other bookings and temporarily reserved slots. Availability is checked again when you save."
-          : "Tiderna är redan kontrollerade mot arbetstid, medarbetarens frånvaro, andra bokningar och tillfälligt reserverade tider. Tillgängligheten kontrolleras igen när du sparar."}
+        {t(
+          "Tiderna är redan kontrollerade mot arbetstid, medarbetarens frånvaro, andra bokningar och tillfälligt reserverade tider. Tillgängligheten kontrolleras igen när du sparar.",
+          "Times have already been checked against working hours, staff time off, other bookings and temporarily reserved slots. Availability is checked again when you save.",
+          "تم التحقق من الأوقات مقابل ساعات العمل والحجوزات الأخرى والأوقات المحجوزة مؤقتًا. سنعيد التحقق عند الحفظ."
+        )}
       </p>
       <button disabled={!selected} className={styles.saveButton}>
-        {isEnglish ? "Save selected time" : "Spara vald tid"}
+        {t("Spara vald tid", "Save selected time", "حفظ الموعد المختار")}
       </button>
     </form>
   );

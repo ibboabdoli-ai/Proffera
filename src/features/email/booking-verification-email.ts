@@ -4,7 +4,7 @@ type BookingVerificationEmailInput = {
   companyName: string;
   code: string;
   expiresMinutes?: number;
-  language?: "sv" | "en";
+  language?: "sv" | "en" | "ar";
 };
 
 type BrevoResponse = { messageId?: string; message?: string; code?: string };
@@ -42,15 +42,35 @@ export async function sendBookingVerificationEmail(input: BookingVerificationEma
 
   const expiresMinutes = input.expiresMinutes ?? 10;
   const isEnglish = input.language === "en";
-  const subject = isEnglish ? `${input.code} is your verification code for ${input.companyName}` : `${input.code} är din verifieringskod för ${input.companyName}`;
-  const text = isEnglish ? [
+  const isArabic = input.language === "ar";
+  const mariaPreview = process.env.VERCEL_ENV === "preview"
+    && input.companyName.trim().toLowerCase() === "makeup by maria";
+  const mariaLogo = mariaPreview && process.env.VERCEL_URL
+    ? `<div style="background:#fcfaf8;text-align:center;padding:18px 12px;margin-bottom:18px"><img src="https://${escapeHtml(process.env.VERCEL_URL)}/demo/makeup-by-maria/assets/maria-wordmark.png" alt="Makeup by Maria" width="300" height="62" style="display:block;width:300px;max-width:100%;height:auto;margin:auto" /></div>`
+    : "";
+  const subject = isArabic ? `${input.code} هو رمز التحقق لحجزك لدى ${input.companyName}` : isEnglish ? `${input.code} is your verification code for ${input.companyName}` : `${input.code} är din verifieringskod för ${input.companyName}`;
+  const text = isArabic ? [
+    `${input.code} هو رمز التحقق الخاص بك.`, "", `استخدم هذا الرمز لتأكيد الحجز لدى ${input.companyName}.`, `الرمز صالح لمدة ${expiresMinutes} دقائق.`, "", `مرحبًا ${input.customerName}،`, "لن يتم إنشاء الحجز إلا بعد التحقق من الرمز.", "إذا لم تطلب هذا الحجز، يمكنك تجاهل الرسالة.",
+  ].join("\n") : isEnglish ? [
     `${input.code} is your verification code.`, "", `Use this code to verify your booking with ${input.companyName}.`, `The code is valid for ${expiresMinutes} minutes.`, "", `Hi ${input.customerName},`, "Your booking is created only after the code is verified.", "If you did not make this booking, you can ignore this email.",
   ].join("\n") : [
     `${input.code} är din verifieringskod.`, "", `Använd koden för att verifiera din bokning hos ${input.companyName}.`, `Koden gäller i ${expiresMinutes} minuter.`, "", `Hej ${input.customerName},`, "Bokningen skapas först när koden har verifierats.", "Om du inte gjorde bokningen kan du ignorera mejlet.",
   ].join("\n");
-  const html = isEnglish ? `
+  const html = isArabic ? `
+    <div lang="ar" dir="rtl" style="direction:rtl;text-align:right;font-family:Arial,sans-serif;line-height:1.8;color:#352a2c;max-width:620px;margin:0 auto">
+      <div style="display:none;max-height:0;overflow:hidden;opacity:0;color:transparent">${escapeHtml(input.code)} هو رمز التحقق لحجزك لدى ${escapeHtml(input.companyName)}.</div>
+      ${mariaLogo}
+      <p style="font-size:14px;color:#876875;margin:0 0 8px">رمز التحقق</p>
+      <p dir="ltr" style="text-align:right;font-size:40px;font-weight:800;letter-spacing:10px;margin:0 0 24px;color:#845363">${escapeHtml(input.code)}</p>
+      <p>مرحبًا ${escapeHtml(input.customerName)}،</p>
+      <p>استخدم الرمز أعلاه لتأكيد حجزك لدى <strong>${escapeHtml(input.companyName)}</strong>.</p>
+      <p>الرمز صالح لمدة ${expiresMinutes} دقائق. لن يتم إنشاء الحجز إلا بعد التحقق من الرمز.</p>
+      <p style="font-size:13px;color:#86767b">إذا لم تطلب هذا الحجز، يمكنك تجاهل الرسالة.</p>
+    </div>
+  ` : isEnglish ? `
     <div style="font-family:Arial,sans-serif;line-height:1.6;color:#17201a;max-width:620px;margin:0 auto">
       <div style="display:none;max-height:0;overflow:hidden;opacity:0;color:transparent">${escapeHtml(input.code)} is your verification code for ${escapeHtml(input.companyName)}.</div>
+      ${mariaLogo}
       <p style="font-size:14px;color:#667168;margin:0 0 8px">Verification code</p>
       <p style="font-size:40px;font-weight:800;letter-spacing:10px;margin:0 0 24px;color:#17452f">${escapeHtml(input.code)}</p>
       <p>Hi ${escapeHtml(input.customerName)},</p>
@@ -61,6 +81,7 @@ export async function sendBookingVerificationEmail(input: BookingVerificationEma
   ` : `
     <div style="font-family:Arial,sans-serif;line-height:1.6;color:#17201a;max-width:620px;margin:0 auto">
       <div style="display:none;max-height:0;overflow:hidden;opacity:0;color:transparent">${escapeHtml(input.code)} är din verifieringskod för ${escapeHtml(input.companyName)}.</div>
+      ${mariaLogo}
       <p style="font-size:14px;color:#667168;margin:0 0 8px">Verifieringskod</p>
       <p style="font-size:40px;font-weight:800;letter-spacing:10px;margin:0 0 24px;color:#17452f">${escapeHtml(input.code)}</p>
       <p>Hej ${escapeHtml(input.customerName)},</p>

@@ -560,3 +560,13 @@
     width: 100%;
   }
 }
+
+/* Maria Preview-only bridal palette; other tenant styles remain unchanged. */
+.mariaPage{background:#fcfaf8;color:#352a2c}
+.mariaPage .hero,.mariaPage .section,.mariaPage .rescheduleCard{border-color:#e9dedc;box-shadow:0 7px 20px rgb(103 43 60 / 4%)}
+.mariaPage .companyName,.mariaPage .title,.mariaPage .sectionHeader h2{color:#672b3c}
+.mariaPage .portalLabel,.mariaPage .lead{color:#816f77}
+.mariaPage .languageActive{color:#fff;background:#845363;border-color:#845363}
+.mariaPage .languageLink{color:#672b3c;border-color:#e0c9cc}
+.mariaPage .eyebrow{color:#845363}
+.mariaPage .mariaLogo{width:44px;height:44px;flex:none;border-radius:8px;object-fit:contain;background:#fcf4f1}

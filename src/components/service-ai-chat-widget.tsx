@@ -2,6 +2,7 @@
 
 import Script from "next/script";
 import { usePathname } from "next/navigation";
+import { isCustomerPortalSelfServicePath } from "@/lib/customer-portal-shell";
 
 const widgetHost = "https://chat.proffera.se";
 const clientId = "proffera";
@@ -19,6 +20,7 @@ export function ServiceAiChatWidget() {
     || pathname?.startsWith("/dashboard")
     || pathname?.startsWith("/demo/")
     || pathname?.startsWith("/boka/")
+    || isCustomerPortalSelfServicePath(pathname)
     || pathname?.startsWith("/foretag/")
     || pathname?.startsWith("/logga-in")
     || pathname?.startsWith("/aktivera/")

@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { usePathname, useSearchParams } from "next/navigation";
+import { resolvedCustomerPortalShellLanguage } from "@/lib/customer-portal-shell";
 
 import {
   ANALYTICS_CONSENT_CHANGED_EVENT,
@@ -12,7 +13,7 @@ import {
   type PersistedAnalyticsConsentState,
 } from "@/lib/analytics/posthog-privacy";
 
-type AnalyticsConsentLocale = "sv" | "en";
+type AnalyticsConsentLocale = "sv" | "en" | "ar";
 type AnalyticsConsentBrand = "proffera" | "primeview";
 type AnalyticsConsentControlProps = {
   brand?: AnalyticsConsentBrand;
@@ -38,6 +39,16 @@ const consentCopy = {
     reject: "Reject analytics",
     accept: "Allow analytics",
     close: "Keep current choice and close",
+  },
+  ar: {
+    settingsLabel: "تغيير إعدادات التحليلات",
+    settingsButton: "إعدادات التحليلات",
+    eyebrow: "تحليلات اختيارية",
+    title: "هل تسمح بتحليلات محدودة؟",
+    body: "قد تستخدم Proffera مشاهدات الصفحات وإشارات جلسات مجهولة الهوية لفهم كيفية استخدام الخدمة. لا نستخدم تتبع الإعلانات أو نصوص النماذج أو البيانات الشخصية لهذا الغرض. لن يُرسل أي شيء قبل موافقتك.",
+    reject: "رفض التحليلات",
+    accept: "السماح بالتحليلات",
+    close: "الاحتفاظ بالاختيار الحالي والإغلاق",
   },
 } as const;
 
@@ -79,6 +90,9 @@ function currentDocumentLocale(
   if (typeof document === "undefined") return "sv";
 
   const routeLanguage = document.querySelector<HTMLElement>("main[lang]")?.getAttribute("lang")?.toLowerCase();
+  // Only Maria's isolated Preview portal currently resolves Arabic.
+  // The route's server-resolved lang is authoritative; a query alone is not.
+  if (resolvedCustomerPortalShellLanguage(pathname, routeLanguage) === "ar") return "ar";
   if (routeLanguage?.startsWith("en")) return "en";
   if (routeLanguage?.startsWith("sv")) return "sv";
 
@@ -96,7 +110,7 @@ export function AnalyticsConsentControl({ brand = "proffera" }: AnalyticsConsent
   );
   const [consent, setConsent] = useState<AnalyticsConsentState | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const labels = brand === "primeview" ? primeViewConsentCopy[locale] : consentCopy[locale];
+  const labels = brand === "primeview" ? primeViewConsentCopy[locale === "ar" ? "en" : locale] : consentCopy[locale];
 
   useEffect(() => {
     const syncConsent = () => setConsent(readAnalyticsConsent(window.localStorage));
