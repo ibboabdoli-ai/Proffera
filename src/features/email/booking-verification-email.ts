@@ -46,7 +46,7 @@ export async function sendBookingVerificationEmail(input: BookingVerificationEma
   const mariaPreview = process.env.VERCEL_ENV === "preview"
     && input.companyName.trim().toLowerCase() === "makeup by maria";
   const mariaLogo = mariaPreview && process.env.VERCEL_URL
-    ? `<div style="background:#fcfaf8;text-align:center;padding:18px 12px;margin-bottom:18px"><img src="https://${escapeHtml(process.env.VERCEL_URL)}/demo/makeup-by-maria/assets/maria-wordmark.svg" alt="Makeup by Maria" width="300" height="62" style="display:block;width:300px;max-width:100%;height:auto;margin:auto" /></div>`
+    ? `<div style="background:#fcfaf8;text-align:center;padding:18px 12px;margin-bottom:18px"><img src="https://${escapeHtml(process.env.VERCEL_URL)}/demo/makeup-by-maria/assets/maria-wordmark.png" alt="Makeup by Maria" width="300" height="62" style="display:block;width:300px;max-width:100%;height:auto;margin:auto" /></div>`
     : "";
   const subject = isArabic ? `${input.code} هو رمز التحقق لحجزك لدى ${input.companyName}` : isEnglish ? `${input.code} is your verification code for ${input.companyName}` : `${input.code} är din verifieringskod för ${input.companyName}`;
   const text = isArabic ? [

@@ -57,7 +57,7 @@ export function buildUnifiedBookingConfirmationEmail(input: Input) {
   const isEnglish = language === "en";
   const isArabic = language === "ar" && input.branding === "makeup-by-maria";
   const isMaria = input.branding === "makeup-by-maria";
-  const mariaLogoUrl = isMaria ? new URL("/demo/makeup-by-maria/assets/maria-wordmark.svg", input.portalUrl).toString() : "";
+  const mariaLogoUrl = isMaria ? new URL("/demo/makeup-by-maria/assets/maria-wordmark.png", input.portalUrl).toString() : "";
   const mariaEmailLogo = isMaria
     ? `<div style="background:#fcfaf8;text-align:center;padding:18px 20px;border-bottom:1px solid #e9dedc;"><img src="${escapeHtml(mariaLogoUrl)}" alt="Makeup by Maria" width="300" height="62" style="display:block;width:300px;max-width:100%;height:auto;margin:auto;" /></div>`
     : "";
