@@ -389,7 +389,13 @@ function additionalTargetedSuites(candidate) {
     "scripts/supervisor-ci-autofix-strategy-memory.mjs",
     "scripts/supervisor-review-repair-strategy-memory.mjs",
     ".github/workflows/ci.yml",
+    ".github/workflows/proffera-automerge.yml",
+    ".github/workflows/proffera-final-gate-wakeup.yml",
     ".github/workflows/supervisor-planner.yml",
+    "tests/ci-postgres-image-preload.test.ts",
+    "tests/proffera-final-gate-wakeup.test.ts",
+    "tests/proffera-standing-automerge.test.ts",
+    "tests/tooling-safety-contract.test.ts",
     "tests/supervisor-owner-push-pending.test.ts",
     "tests/supervisor-model-launch-boundary.test.ts",
     "tests/supervisor-failure-memory-queue.test.ts",
@@ -423,7 +429,16 @@ function additionalTargetedSuites(candidate) {
   ]);
   // Exact behavior-changing paths map to executable tests, not a generic PASS assertion.
   const pathSuites = new Map([
-    [".github/workflows/ci.yml", "tests/github-workflow-yaml.test.ts"],
+    [".github/workflows/ci.yml", [
+      "tests/github-workflow-yaml.test.ts",
+      "tests/ci-postgres-image-preload.test.ts",
+    ]],
+    [".github/workflows/proffera-automerge.yml", "tests/proffera-standing-automerge.test.ts"],
+    [".github/workflows/proffera-final-gate-wakeup.yml", "tests/proffera-final-gate-wakeup.test.ts"],
+    ["tests/ci-postgres-image-preload.test.ts", "tests/ci-postgres-image-preload.test.ts"],
+    ["tests/proffera-final-gate-wakeup.test.ts", "tests/proffera-final-gate-wakeup.test.ts"],
+    ["tests/proffera-standing-automerge.test.ts", "tests/proffera-standing-automerge.test.ts"],
+    ["tests/tooling-safety-contract.test.ts", "tests/tooling-safety-contract.test.ts"],
     [".github/workflows/supervisor-planner.yml", "tests/supervisor-control-plane-v2.test.ts"],
     ["scripts/supervisor-owner-push-pending.mjs", "tests/supervisor-owner-push-pending.test.ts"],
     ["scripts/supervisor-ci-autofix-strategy-memory.mjs", "tests/supervisor-ci-autofix-strategy-history.test.ts"],
@@ -440,7 +455,12 @@ function additionalTargetedSuites(candidate) {
     ["tests/supervisor-worker-strategy-history.test.ts", "tests/supervisor-worker-strategy-history.test.ts"],
   ]);
   for (const path of candidate.diff.paths) {
-    if (pathSuites.has(path)) suites.add(pathSuites.get(path));
+    const mappedSuites = pathSuites.get(path);
+    if (mappedSuites) {
+      for (const suite of Array.isArray(mappedSuites) ? mappedSuites : [mappedSuites]) {
+        suites.add(suite);
+      }
+    }
     if (workerPaths.has(path) || path === ".github/workflows/supervisor-worker-handoff.yml") {
       suites.add("tests/supervisor-worker-handoff.test.ts");
     }

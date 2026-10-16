@@ -581,6 +581,12 @@ describe("canonical Supervisor pre-publication gate", () => {
       "scripts/supervisor-review-repair-strategy-memory.mjs":"tests/supervisor-review-repair-strategy-history.test.ts",
       "tests/supervisor-review-repair-strategy-history.test.ts":"tests/supervisor-review-repair-strategy-history.test.ts",
       ".github/workflows/ci.yml":"tests/github-workflow-yaml.test.ts",
+      ".github/workflows/proffera-automerge.yml":"tests/proffera-standing-automerge.test.ts",
+      ".github/workflows/proffera-final-gate-wakeup.yml":"tests/proffera-final-gate-wakeup.test.ts",
+      "tests/ci-postgres-image-preload.test.ts":"tests/ci-postgres-image-preload.test.ts",
+      "tests/proffera-final-gate-wakeup.test.ts":"tests/proffera-final-gate-wakeup.test.ts",
+      "tests/proffera-standing-automerge.test.ts":"tests/proffera-standing-automerge.test.ts",
+      "tests/tooling-safety-contract.test.ts":"tests/tooling-safety-contract.test.ts",
       ".github/workflows/supervisor-planner.yml":"tests/supervisor-control-plane-v2.test.ts",
       "tests/supervisor-owner-push-pending.test.ts":"tests/supervisor-owner-push-pending.test.ts",
       "tests/supervisor-model-launch-boundary.test.ts":"tests/supervisor-model-launch-boundary.test.ts",
@@ -601,7 +607,9 @@ describe("canonical Supervisor pre-publication gate", () => {
     for(const id of ["targeted","workflow-semantics"]){
       const result=executeLocalValidation(candidate,repo,[id],{
         runner: (_command:string,args:string[]) => {
-          for(const suite of new Set(Object.values(mapped)))expect(args).toContain(suite);
+          for(const suite of new Set([...Object.values(mapped), "tests/ci-postgres-image-preload.test.ts"])) {
+            expect(args).toContain(suite);
+          }
           return {status:0,signal:null,stdout:"",stderr:""};
         },
       });

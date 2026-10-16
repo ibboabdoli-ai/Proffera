@@ -7,29 +7,48 @@ import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
 
 const require = createRequire(import.meta.url);
+type WorkflowPermissions = Record<string, string> | string;
 type WorkflowJob = {
-  permissions?: Record<string, string>;
-  steps: Array<{name?: string; run?: string}>;
+  permissions?: WorkflowPermissions;
+  steps: Array<{name?: string; run?: string; env?: unknown; with?: unknown}>;
 };
-const yaml = require("js-yaml") as { load(source: string): {
+type WorkflowDocument = {
+  permissions?: WorkflowPermissions;
   jobs: Record<string, WorkflowJob>;
-} };
+};
+const yaml = require("js-yaml") as { load(source: string): WorkflowDocument };
 const root = resolve(process.cwd());
 
 // Bash removes unquoted backslash-newline continuations BEFORE parsing
 // commands, including continuations inside a command name or API path.
 const bashLogicalLines = (source: string) => source.replace(/\\\r?\n/g, "");
 function assertNoUnapprovedPublication(workflowName: string, jobName: string,
-  job: WorkflowJob) {
-  // Issue write is permitted for authenticated state/ledger records.
-  expect(job.permissions?.contents, `${workflowName} ${jobName} cannot write contents`)
-    .not.toBe("write");
+  job: WorkflowJob, workflowPermissions?: WorkflowPermissions) {
+  // A job inherits workflow-level permissions unless it defines its own.
+  // Issue/PR comment write is allowed for audit records and review routing;
+  // code, Actions, security, deployment and other write scopes are not.
+  const effective = job.permissions ?? workflowPermissions ?? {};
+  expect(effective, `${workflowName} ${jobName} cannot grant write-all`).not.toBe("write-all");
+  if (typeof effective === "string") {
+    expect(effective, `${workflowName} ${jobName} permissions must be read-all`).toBe("read-all");
+  } else {
+    for (const [scope, access] of Object.entries(effective)) {
+      if (scope !== "issues" && scope !== "pull-requests") {
+        expect(access, `${workflowName} ${jobName} cannot write ${scope}`).not.toBe("write");
+      }
+    }
+  }
   for (const step of job.steps ?? []) {
+    const stepOptions = JSON.stringify({env: step.env ?? null, with: step.with ?? null});
+    expect(stepOptions, `${workflowName} ${jobName} cannot use push credentials`)
+      .not.toMatch(/(?:PROFFERA_AUTOFIX_PUSH_TOKEN|PUSH_TOKEN)/i);
     // Conservative shell-word scan: adjacent quoted/escaped fragments are
     // concatenated by Bash (e.g. g''it, gi"t" and g\\it all invoke git).
     const script = bashLogicalLines(String(step.run ?? ""))
       .replace(/\\(?=[A-Za-z])/g, "")
       .replace(/["']/g, "");
+    expect(script, `${workflowName} ${jobName} cannot create or merge PRs`)
+      .not.toMatch(/(?<![\w./-])gh\b[^\r\n;|&]*?\bpr\b[^\r\n;|&]*?\b(?:create|merge)\b/i);
     // Fail closed for Git global options (e.g. `git -c key=value push`).
     // Keep the search within one Bash logical command line; a literal `.git`
     // path must not be mistaken for the Git executable.
@@ -69,10 +88,29 @@ describe("owner-authorized publication handoff contracts", () => {
     expect(raw).not.toContain("gh pr merge");
     expect(raw).not.toContain("PROFFERA_AUTOFIX_PUSH_TOKEN");
     expect(raw).not.toContain("PUSH_TOKEN:");
-    expect(publish.permissions?.contents).not.toBe("write");
     for (const [jobName, job] of Object.entries(doc.jobs)) {
-      assertNoUnapprovedPublication(name, jobName, job);
+      assertNoUnapprovedPublication(name, jobName, job, doc.permissions);
     }
+  });
+
+  it.each([
+    {name:"inherited workflow-level write", workflowPermissions:{contents:"write"}, job:{steps:[]}},
+    {name:"inherited workflow-level write-all", workflowPermissions:"write-all", job:{steps:[]}},
+    {name:"explicit job write-all", job:{permissions:"write-all",steps:[]}},
+    {name:"explicit non-comment job write", job:{permissions:{actions:"write"},steps:[]}},
+    {name:"push token in another job environment", job:{steps:[{env:{GH_TOKEN:"${{ secrets.PROFFERA_AUTOFIX_PUSH_TOKEN }}"} }]}},
+    {name:"push token in checkout with options", job:{steps:[{with:{token:"${{ secrets.PROFFERA_AUTOFIX_PUSH_TOKEN }}"} }]}},
+    {name:"PR creation in a non-publish job", job:{steps:[{run:"gh pr create --title unsafe"}]}},
+    {name:"PR merge in a non-publish job", job:{steps:[{run:"gh pr merge 941 --squash"}]}},
+  ])("rejects publication authority outside the publish job: $name", ({job,workflowPermissions}) => {
+    expect(() => assertNoUnapprovedPublication("fixture.yml","audit",job,workflowPermissions))
+      .toThrow();
+  });
+
+  it("allows the narrow issue/PR comment permissions without publication commands", () => {
+    expect(() => assertNoUnapprovedPublication("fixture.yml","audit",{
+      steps:[{run:"gh pr view 941 --json title"}],
+    },{issues:"write","pull-requests":"write",contents:"read"})).not.toThrow();
   });
 
   it.each([

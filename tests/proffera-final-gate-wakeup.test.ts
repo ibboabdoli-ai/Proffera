@@ -427,6 +427,25 @@ describe("event-driven final review gate", () => {
     expect(trusted.rerun).toBe(true);
   });
 
+  it("does not wake the final gate for a persistent summary with only a thread-only COMMENTED review", () => {
+    const summary = `<!-- recent_review_start -->\nSummary for exact current head ${reviewHead}`;
+    const threaded = runWakeupFixture({
+      body: summary,
+      comments: [requestComment()],
+      firstReviews: [{...codeRabbitCompletedReview(), state: "COMMENTED", body: ""}],
+      updatedAt: "2099-09-05T12:03:00Z",
+    });
+    expect(threaded.result.status, threaded.result.stdout + threaded.result.stderr).toBe(0);
+    expect(threaded.rerun).toBe(false);
+    expect(threaded.posts).toBe(0);
+    expect(`${threaded.result.stdout}${threaded.result.stderr}`).toContain(
+      "CodeRabbit summary is not bound to a post-request completed current-head review",
+    );
+
+    // Successful review wakeups are covered separately with their full
+    // authenticated completion evidence; a summary alone is not sufficient.
+  });
+
   it("fails closed when routed final-gate source provenance differs from fetched evidence", () => {
     const wrongPr = runWakeupFixture({
       body: cleanBody(),
