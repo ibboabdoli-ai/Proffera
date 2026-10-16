@@ -19,6 +19,7 @@ export function ServiceAiChatWidget() {
     || pathname?.startsWith("/dashboard")
     || pathname?.startsWith("/demo/")
     || pathname?.startsWith("/boka/")
+    || pathname?.startsWith("/mina-bokningar/")
     || pathname?.startsWith("/foretag/")
     || pathname?.startsWith("/logga-in")
     || pathname?.startsWith("/aktivera/")
