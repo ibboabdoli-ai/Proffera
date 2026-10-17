@@ -1,0 +1,140 @@
+name: PR946 Isolated PostgreSQL Validation - No Deploy
+
+on:
+  push:
+    branches: [qa/pr946-pg-validation-20261017]
+    paths:
+      - ".github/workflows/pr946-isolated-validation.yml"
+      - ".github/pr946-review/**"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pr946-isolated-validation
+  cancel-in-progress: true
+
+env:
+  CI: "true"
+  SCB_COMPANY_REGISTRY_ENABLED: "false"
+  SCB_GLOBAL_COORDINATION_REQUIRED: "false"
+  COMPANY_DIRECTORY_READY_SCB_ENRICHMENT_ENABLED: "false"
+  COMPANY_DIRECTORY_AUTO_PUBLISH: "false"
+  DATABASE_URL: ""
+  POSTGRES_URL: ""
+  PROFFERA_PREVIEW_DATABASE_URL: ""
+
+jobs:
+  postgres:
+    name: Disposable PostgreSQL 16 coordination and leases
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - name: Checkout isolated test branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Restore original HEAD and apply exact-hash candidate
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp .github/pr946-review/PR946-P1-Final-Local.patch.xz.b64 /tmp/pr946.patch.xz.b64
+          git checkout --detach 482e6be7f3cfdd644a1db2414129e40f1ba52e5a
+          base64 --decode /tmp/pr946.patch.xz.b64 | xz --decompress --stdout > /tmp/pr946.patch
+          echo "025fdd49757da5310739532ecdbf11b7398187983a0ec5d3c8b98eddd08dc26d  /tmp/pr946.patch" | sha256sum --check
+          git apply --check /tmp/pr946.patch
+          git apply /tmp/pr946.patch
+          git diff --check
+          test -f tests/company-directory-scb-coordinator.integration.test.ts
+      - name: Set up Node.js 22
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: "22"
+          cache: npm
+      - name: Install locked dependencies
+        run: npm ci --no-audit --no-fund
+      - name: Coordinator ACL and concurrency on disposable PostgreSQL 16
+        id: coordinator
+        continue-on-error: true
+        env:
+          PROFFERA_POSTGRES_INTEGRATION: "1"
+        run: npx vitest run tests/company-directory-scb-coordinator.integration.test.ts --reporter=verbose
+      - name: Existing Ready SCB PostgreSQL test lanes
+        id: pipelines
+        continue-on-error: true
+        env:
+          PROFFERA_POSTGRES_INTEGRATION: "1"
+        run: |
+          npx vitest run tests/company-directory-ready-scb-pipeline.integration.test.ts tests/company-directory-ready-scb-publish.integration.test.ts tests/company-directory-ready-scb-flow.integration.test.ts --reporter=verbose
+      - name: Summarize and enforce PostgreSQL status
+        if: always()
+        env:
+          COORD_STATUS: ${{ steps.coordinator.outcome }}
+          PIPE_STATUS: ${{ steps.pipelines.outcome }}
+        run: |
+          echo "Coordinator: $COORD_STATUS"
+          echo "Ready pipelines: $PIPE_STATUS"
+          test "$COORD_STATUS" = success
+          test "$PIPE_STATUS" = success
+
+  project:
+    name: TypeScript, ESLint, Build and complete unit suite
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - name: Checkout isolated test branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Restore original HEAD and apply exact-hash candidate
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp .github/pr946-review/PR946-P1-Final-Local.patch.xz.b64 /tmp/pr946.patch.xz.b64
+          git checkout --detach 482e6be7f3cfdd644a1db2414129e40f1ba52e5a
+          base64 --decode /tmp/pr946.patch.xz.b64 | xz --decompress --stdout > /tmp/pr946.patch
+          echo "025fdd49757da5310739532ecdbf11b7398187983a0ec5d3c8b98eddd08dc26d  /tmp/pr946.patch" | sha256sum --check
+          git apply --check /tmp/pr946.patch
+          git apply /tmp/pr946.patch
+          git diff --check
+      - name: Set up Node.js 22
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: "22"
+          cache: npm
+      - name: Install locked dependencies
+        run: npm ci --no-audit --no-fund
+      - name: Semantic TypeScript
+        id: types
+        continue-on-error: true
+        run: npm run typecheck -- --incremental false
+      - name: ESLint
+        id: lint
+        continue-on-error: true
+        run: npm run lint
+      - name: Next.js build without deployment
+        id: build
+        continue-on-error: true
+        run: npm run build
+      - name: Full unit test suite
+        id: unit
+        continue-on-error: true
+        run: npm test -- --reporter=dot
+      - name: Summarize and enforce application results
+        if: always()
+        env:
+          TYPES_STATUS: ${{ steps.types.outcome }}
+          LINT_STATUS: ${{ steps.lint.outcome }}
+          BUILD_STATUS: ${{ steps.build.outcome }}
+          UNIT_STATUS: ${{ steps.unit.outcome }}
+        run: |
+          echo "TypeScript: $TYPES_STATUS"
+          echo "ESLint: $LINT_STATUS"
+          echo "Build: $BUILD_STATUS"
+          echo "Unit: $UNIT_STATUS"
+          test "$TYPES_STATUS" = success
+          test "$LINT_STATUS" = success
+          test "$BUILD_STATUS" = success
+          test "$UNIT_STATUS" = success
