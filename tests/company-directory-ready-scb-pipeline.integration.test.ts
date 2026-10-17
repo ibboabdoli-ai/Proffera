@@ -200,7 +200,7 @@ const transport = {
       let saved = 0;
       for (let run = 0; run < 3; run += 1) {
         const result = await enrichReadyCompanyDirectoryScbBatch();
-        expect(result.errors).toBe(0);
+        expect(result.errors, result.errorSummary).toBe(0);
         expect(result.attempted).toBeLessThanOrEqual(2);
         attempted += result.attempted;
         saved += result.saved;
