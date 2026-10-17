@@ -83,7 +83,7 @@ describe("controlled Ready SCB enrichment", () => {
 
   it("scans a bounded Ready-only, fail-closed SQL query and enriches two of five synthetic profiles", async () => {
     enablePilot();
-    const sql = vi.fn(async () => candidates(5));
+    const sql = vi.fn(async (_strings: TemplateStringsArray, ..._values: unknown[]) => candidates(5));
     mocks.getSql.mockReturnValue(sql);
 
     const result = await enrichReadyCompanyDirectoryScbBatch();
