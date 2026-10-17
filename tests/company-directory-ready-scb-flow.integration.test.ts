@@ -27,7 +27,9 @@ vi.mock("@/lib/company-directory-authority-cache", () => ({
 import { enrichReadyCompanyDirectoryScbBatch } from "@/lib/company-directory-ready-scb-enrichment";
 import { autoPublishReadyHighConfidenceCompanyDirectoryBatch } from "@/lib/company-directory-ready-auto-publish";
 
-const ACTIVE = process.env.PROFFERA_POSTGRES_INTEGRATION === "1";
+const ACTIVE = process.env.PROFFERA_POSTGRES_INTEGRATION === "1"
+  || (process.env.GITHUB_ACTIONS === "true"
+    && process.env.GITHUB_HEAD_REF === "work/proffera-ready-scb-controlled-20261017");
 const TEST_ORGS = Array.from({ length: 5 }, (_, index) => `9999946${String(index + 1).padStart(3, "0")}`);
 const CASES = ["safe-stockholm", "safe-sodertalje", "outside-pilot", "name-conflict", "ambiguous-workplaces"] as const;
 
