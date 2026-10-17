@@ -62,6 +62,9 @@ export async function enrichReadyCompanyDirectoryScbBatch(
   if (process.env.COMPANY_DIRECTORY_AUTO_PUBLISH !== "true") {
     return emptyResult("auto_publication_disabled");
   }
+  if (options.deadlineAt && Date.now() + MIN_REQUEST_HEADROOM_MS >= options.deadlineAt) {
+    return emptyResult("deadline_reached");
+  }
 
   const sql = getSql();
   if (!sql) return emptyResult("database_unavailable");
