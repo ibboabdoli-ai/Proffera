@@ -117,6 +117,7 @@ function docker(args: string[]) {
       await client.query("create table workspaces (id uuid primary key)");
       for (const migration of [
         "../db/migrations/20260809_0037_company_profile_engine_foundation.sql",
+        "../db/migrations/20260809_0038_company_profile_engine_provenance.sql",
         "../db/migrations/20260810_0043_company_profile_discovery_queue.sql",
         "../db/migrations/20260812_0044_company_directory_official_facts.sql",
         "../db/migrations/20260819_0048_company_directory_scb_enrichment.sql",
@@ -200,7 +201,7 @@ function docker(args: string[]) {
       let saved = 0;
       for (let run = 0; run < 3; run += 1) {
         const batch = await enrichReadyCompanyDirectoryScbBatch({ limit: 2 });
-        expect(batch.errors).toBe(0);
+        expect(batch.errors, batch.errorSummary).toBe(0);
         expect(batch.attempted).toBeLessThanOrEqual(2);
         attempted += batch.attempted;
         saved += batch.saved;
