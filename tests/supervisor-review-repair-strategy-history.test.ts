@@ -2,10 +2,11 @@ import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { spawnSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
 // @ts-expect-error Standalone .mjs follows the repository control-plane convention.
 import { createMemory, memoryIdentity, mergeObservation, serializeMemory } from "../scripts/supervisor-failure-memory.mjs";
 // @ts-expect-error Standalone .mjs follows the repository control-plane convention.
-import { MAX_AUTOMATIC_REVIEW_REPAIR_ATTEMPTS, REVIEW_REPAIR_EXECUTION_CONTRACT, REVIEW_REPAIR_EXECUTION_PROMPT, decideReviewRepairStrategyHistory, parseReviewRepairRecoveries, parseReviewRepairStarts, prepareReviewRepairOutcome, proveReviewRepairPrelaunchRecovery, reviewRepairMemoryState, reviewRepairObservation, reviewRepairRecoveryBody, reviewRepairStartBody, reviewRepairStrategyDescriptor, unresolvedReviewRepairStarts } from "../scripts/supervisor-review-repair-strategy-memory.mjs";
+import { MAX_AUTOMATIC_REVIEW_REPAIR_ATTEMPTS, REVIEW_REPAIR_EXECUTION_CONTRACT, REVIEW_REPAIR_EXECUTION_PROMPT, decideReviewRepairStrategyHistory, parseReviewRepairRecoveries, parseReviewRepairStarts, prepareReviewRepairOutcome, proveReviewRepairPrelaunchRecovery, reviewRepairMemoryState, reviewRepairObservation, reviewRepairRecoveryBody, reviewRepairStagedUploadEvidence, reviewRepairStartBody, reviewRepairStrategyDescriptor, unresolvedReviewRepairStarts } from "../scripts/supervisor-review-repair-strategy-memory.mjs";
 
 const repository = "ibboabdoli-ai/Proffera";
 const pr = 923;
@@ -355,6 +356,68 @@ describe("Review Repair attempt admission", () => {
     expect(decideReviewRepairStrategyHistory({
       pr_number: pr, head, finding_ids: findings, records: state.records, starts: state.starts,
     })).toMatchObject({decision: "ALLOW", attempts: 0});
+  });
+
+  it("rejects staged downstream execution on historical pre-model recovery, including partial inventories",()=>{
+    const makeProof=(jobs:unknown[])=>proveReviewRepairPrelaunchRecovery({
+      repository,pr_number:pr,start:start({run_id:55}),
+      run:{id:55,run_attempt:1,head_sha:dispatchHead,head_branch:"main",
+        status:"completed",conclusion:"cancelled",event:"workflow_dispatch",
+        name:"Supervisor review repair",path:".github/workflows/supervisor-review-repair.yml"},
+      jobs
+    });
+    const admit={name:"Settle review burst and admit one bounded attempt",
+      status:"completed",conclusion:"success"};
+    const repaired={name:"Batch current-head review findings",
+      status:"completed",conclusion:"skipped",steps:[]};
+    const skippedModel={...repaired,conclusion:"failure",
+      steps:[{name:"Run one batched exact-head repair",status:"completed",conclusion:"skipped"}]};
+    const staged={name:"Stage Review Repair owner-push handoff (no publication)",
+      status:"completed",conclusion:"cancelled",
+      steps:[{name:"Upload Review Repair owner handoff",status:"completed",conclusion:"success"}]};
+    const validated={name:"Validate repair without model or push credentials",
+      status:"completed",conclusion:"success",steps:[]};
+    for(const repair of [null,repaired,skippedModel]){
+      for(const downstream of [staged,validated]){
+        const jobs=[admit,...(repair?[repair]:[]),downstream];
+        expect(makeProof(jobs)).toEqual({recoverable:false,reason:"model_evidence_contradictory"});
+      }
+    }
+    const contradictorySkipped={...repaired,steps:[{name:"Run one batched exact-head repair",
+      status:"completed",conclusion:"success"}]};
+    expect(makeProof([admit,contradictorySkipped]))
+      .toEqual({recoverable:false,reason:"repair_job_may_have_launched"});
+    expect(()=>makeProof([admit,repaired,repaired])).toThrow("recovery_jobs_binding");
+    expect(()=>makeProof([admit,repaired,staged,staged])).toThrow("recovery_jobs_binding");
+    const stageSkipped={...staged,conclusion:"skipped",steps:[]};
+    expect(makeProof([admit,repaired,stageSkipped]))
+      .toEqual({recoverable:true,reason:"model_step_skipped"});
+    expect(makeProof([admit,stageSkipped]))
+      .toEqual({recoverable:true,reason:"repair_job_absent"});
+  });
+
+  it.each([
+    ["missing", undefined],
+    ["null", null],
+    ["empty", ""],
+    ["unknown", "not_a_github_conclusion"],
+    ["unsupported", "neutral"],
+  ] as const)("rejects %s Review Repair run conclusion before retiring an orphan", (caseName, conclusion) => {
+    const run = {
+      id: 55, run_attempt: 1, head_sha: dispatchHead, head_branch: "main",
+      status: "completed", event: "workflow_dispatch",
+      name: "Supervisor review repair", path: ".github/workflows/supervisor-review-repair.yml",
+      ...(caseName === "missing" ? {} : {conclusion}),
+    };
+    const admit = {name: "Settle review burst and admit one bounded attempt",
+      status: "completed", conclusion: "success"};
+    const skippedModel = {name: "Batch current-head review findings",
+      status: "completed", conclusion: "skipped", steps: []};
+    for (const jobs of [[admit], [admit, skippedModel]]) {
+      expect(proveReviewRepairPrelaunchRecovery({
+        repository, pr_number: pr, start: start({run_id: 55}), run, jobs,
+      })).toEqual({recoverable: false, reason: "run_conclusion_unknown"});
+    }
   });
 
   it("keeps an older different-evidence start in budget when its repair may have launched", () => {
@@ -801,9 +864,13 @@ describe("Review Repair pre-model start recovery", () => {
   it("revalidates head and finding set immediately before the model and does not charge a skipped model", () => {
     const repairSteps = rerunWorkflow.jobs.repair.steps.map((step) => step.name);
     const guardIndex = repairSteps.indexOf("Revalidate exact-head review evidence before model");
+    const trustedIndex = repairSteps.indexOf("Checkout immutable workflow-revision owner-push gate");
+    const ledgerIndex = repairSteps.indexOf("Revalidate owner-push ledger at Review Repair model boundary");
     const modelIndex = repairSteps.indexOf("Run one batched exact-head repair");
     expect(guardIndex).toBeGreaterThanOrEqual(0);
-    expect(modelIndex).toBe(guardIndex + 1);
+    expect(trustedIndex).toBe(guardIndex + 1);
+    expect(ledgerIndex).toBe(trustedIndex + 1);
+    expect(modelIndex).toBe(ledgerIndex + 1);
     const guard = workflowStep("repair", "Revalidate exact-head review evidence before model").run!;
     expect(guard).toContain("PR head changed before Review Repair model execution");
     expect(guard).toContain("Current-head review finding burst changed before model execution");
@@ -813,7 +880,7 @@ describe("Review Repair pre-model start recovery", () => {
     expect(classify).toContain("Run one batched exact-head repair");
     expect(classify).toContain('echo "persist=no" >> "$GITHUB_OUTPUT"');
     expect(workflowStep("record", "Persist exact attempt outcome in canonical Failure Memory").if)
-      .toBe("steps.classify.outputs.persist == 'yes'");
+      .toBe("always() && steps.classify.outputs.persist == 'yes'");
   });
 
   it("recovers only after exact historical Actions proof and re-reads memory before admission", () => {
@@ -848,6 +915,67 @@ describe("Review Repair pre-model start recovery", () => {
     expect(admission).toContain("Could not prove historical Review Repair job state; leaving start unresolved.");
     expect(admission).toContain("Historical start remains fail-closed:");
     expect(admission).not.toContain("actions/runs/${old_run_id}/rerun");
+  });
+});
+
+describe("Review Repair authenticated owner-handoff upload evidence", () => {
+  const modelStep={name:"Run one batched exact-head repair",status:"completed",conclusion:"success"};
+  const staged=(jobConclusion:string,uploadConclusion="success")=>({
+    name:"Stage Review Repair owner-push handoff (no publication)",
+    status:"completed",conclusion:jobConclusion,
+    steps:[{name:"Upload Review Repair owner handoff",status:"completed",conclusion:uploadConclusion}],
+  });
+  it.each(["success","failure","cancelled"] as const)(
+    "retains staged upload with %s job conclusion after the upload succeeded",conclusion=>{
+      const jobs=[{name:"Batch current-head review findings",status:"completed",conclusion:"success",steps:[modelStep]},
+        staged(conclusion)];
+      expect(reviewRepairStagedUploadEvidence({jobs})).toEqual({uploaded:true});
+      const cli=spawnSync(process.execPath,[
+        fileURLToPath(new URL("../scripts/supervisor-review-repair-strategy-memory.mjs",import.meta.url)),
+        "upload-proof"
+      ],{input:JSON.stringify({jobs}),encoding:"utf8"});
+      expect(cli.status,cli.stderr).toBe(0);
+      expect(JSON.parse(cli.stdout)).toEqual({uploaded:true});
+    });
+  it("keeps harmless failed or cancelled uploads distinct from an authenticated upload",()=>{
+    for (const result of ["failure","cancelled"]) {
+      expect(reviewRepairStagedUploadEvidence({jobs:[staged(result,"failure")]}))
+        .toEqual({uploaded:false});
+    }
+    // An absent staging job is incomplete GitHub inventory, not a proof of no upload.
+    expect(reviewRepairStagedUploadEvidence({jobs:[]})).toEqual({uploaded:false,uncertain:true});
+    expect(reviewRepairStagedUploadEvidence({jobs:[],changed:"no",repair_result:"success"}))
+      .toEqual({uploaded:false});
+  });
+  it.each(["failure","cancelled"] as const)(
+    "holds incomplete stage jobs and %s upload steps instead of concluding no handoff",conclusion=>{
+      expect(reviewRepairStagedUploadEvidence({jobs:[]})).toEqual({uploaded:false,uncertain:true});
+      expect(reviewRepairStagedUploadEvidence({jobs:[staged(conclusion,"cancelled")]}))
+        .toEqual({uploaded:false,uncertain:true});
+      expect(reviewRepairStagedUploadEvidence({jobs:[{...staged(conclusion),steps:[]}]}))
+        .toEqual({uploaded:false,uncertain:true});
+      // Ordinary no-change and a truly skipped staging job cannot have uploaded.
+      expect(reviewRepairStagedUploadEvidence({jobs:[],changed:"no",repair_result:"success"}))
+        .toEqual({uploaded:false});
+      expect(reviewRepairStagedUploadEvidence({jobs:[{
+        name:"Stage Review Repair owner-push handoff (no publication)",
+        status:"completed",conclusion:"skipped"
+      }]})).toEqual({uploaded:false});
+      const cli=spawnSync(process.execPath,[
+        fileURLToPath(new URL("../scripts/supervisor-review-repair-strategy-memory.mjs",import.meta.url)),
+        "upload-proof"
+      ],{input:JSON.stringify({jobs:[staged(conclusion,"cancelled")]}),encoding:"utf8"});
+      expect(cli.status,cli.stderr).toBe(0);
+      expect(JSON.parse(cli.stdout)).toEqual({uploaded:false,uncertain:true});
+    });
+  it("rejects ambiguous duplicate jobs/steps and a job falsely reporting upload success",()=>{
+    expect(()=>reviewRepairStagedUploadEvidence({jobs:[staged("failure"),staged("failure")]}))
+      .toThrow("upload_job_collision");
+    expect(()=>reviewRepairStagedUploadEvidence({jobs:[{
+      ...staged("failure"),steps:[staged("failure").steps[0],staged("failure").steps[0]]
+    }]})).toThrow("upload_step_collision");
+    expect(()=>reviewRepairStagedUploadEvidence({jobs:[staged("success","failed")]}))
+      .toThrow("unverified_handoff_upload");
   });
 });
 

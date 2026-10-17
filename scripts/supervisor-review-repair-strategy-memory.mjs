@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { pathToFileURL } from "node:url";
+import { readPending } from "./supervisor-owner-push-pending.mjs";
 import {
   fingerprintEvidence,
   fingerprintStrategy,
@@ -208,17 +209,39 @@ export function proveReviewRepairPrelaunchRecovery(input) {
   if (run.status !== "completed") {
     return {recoverable: false, reason: "run_not_terminal"};
   }
+  // Do not release a reservation on missing, null, or unsupported historical
+  // conclusions. Keep this allowlist aligned with CI Autofix recovery proof.
+  if (!["success", "failure", "cancelled", "timed_out", "startup_failure", "skipped"].includes(run.conclusion)) {
+    return {recoverable: false, reason: "run_conclusion_unknown"};
+  }
   const jobs = input?.jobs;
   if (!Array.isArray(jobs) || jobs.length > 1000) fail("recovery_jobs");
   const admitJobs = jobs.filter((job) => job?.name === "Settle review burst and admit one bounded attempt");
   if (admitJobs.length !== 1 || admitJobs[0]?.status !== "completed") fail("recovery_jobs_binding");
   const repairJobs = jobs.filter((job) => job?.name === "Batch current-head review findings");
+  if (repairJobs.length > 1) fail("recovery_jobs_binding");
+  // A downstream job that ran cannot coexist with a proven absent/skipped
+  // model invocation. Refuse to retire the authenticated reservation when
+  // GitHub's historical job inventory is partial or contradictory.
+  const downstreamJobs = jobs.filter((job) => [
+    "Validate repair without model or push credentials",
+    "Stage Review Repair owner-push handoff (no publication)",
+  ].includes(job?.name));
+  if (new Set(downstreamJobs.map((job) => job.name)).size !== downstreamJobs.length)
+    fail("recovery_jobs_binding");
+  const downstreamRan = downstreamJobs.some((job) =>
+    job.status !== "completed" || job.conclusion !== "skipped"
+    || job.steps?.some((step) => step.status !== "completed" || step.conclusion !== "skipped"));
   if (repairJobs.length === 0) {
+    if (downstreamRan) return {recoverable:false,reason:"model_evidence_contradictory"};
     if (run.conclusion === "success") return {recoverable: false, reason: "run_succeeded"};
     return {recoverable: true, reason: "repair_job_absent"};
   }
   const modelDefinitelySkipped = repairJobs.every((job) => {
-    if (job?.status === "completed" && job?.conclusion === "skipped") return true;
+    if (job?.status === "completed" && job?.conclusion === "skipped") {
+      return job.steps === undefined || (Array.isArray(job.steps)
+        && job.steps.every((step) => step?.status === "completed" && step.conclusion === "skipped"));
+    }
     const modelSteps = Array.isArray(job?.steps)
       ? job.steps.filter((step) => step?.name === "Run one batched exact-head repair")
       : [];
@@ -227,6 +250,7 @@ export function proveReviewRepairPrelaunchRecovery(input) {
       && modelSteps[0]?.conclusion === "skipped";
   });
   if (modelDefinitelySkipped) {
+    if (downstreamRan) return {recoverable:false,reason:"model_evidence_contradictory"};
     return {recoverable: true, reason: "model_step_skipped"};
   }
   if (run.conclusion === "success") {
@@ -413,7 +437,7 @@ function recordAttemptKeys(records) {
   return keys;
 }
 
-export function decideReviewRepairStrategyHistory({pr_number, head, finding_ids, records, starts}) {
+export function decideReviewRepairStrategyHistory({pr_number, head, finding_ids, records, starts, pending = []}) {
   const descriptor = reviewRepairStrategyDescriptor({pr_number, head, finding_ids});
   if (!Array.isArray(records) || !Array.isArray(starts)) fail("history");
   const allRecordKeys = recordAttemptKeys(records);
@@ -424,7 +448,9 @@ export function decideReviewRepairStrategyHistory({pr_number, head, finding_ids,
     sha(start.head, "start_head");
     return `${start.run_id}:${start.run_attempt}`;
   }));
-  const allAttempts = new Set([...allRecordKeys, ...allStartKeys]);
+  const pendingKeys = new Set(pending.filter(item => item.lane === 'review_repair')
+    .map(item => item.run_id + ':' + item.run_attempt));
+  const allAttempts = new Set([...allRecordKeys, ...allStartKeys, ...pendingKeys]);
 
   const matchingRecords = records.filter((record) => record?.action_id === "review_repair_attempt"
     && record?.evidence_fingerprint === descriptor.evidence_fingerprint
@@ -432,7 +458,15 @@ export function decideReviewRepairStrategyHistory({pr_number, head, finding_ids,
   // Admission is PR-scoped: while any model attempt lacks a durable outcome,
   // a changed head/finding burst must not start a concurrent model execution.
   // Proven pre-launch orphans are removed from starts before this decision.
-  const unresolved = starts.filter((start) => !allRecordKeys.has(`${start.run_id}:${start.run_attempt}`));
+  const unresolved = starts.filter((start) => !allRecordKeys.has(`${start.run_id}:${start.run_attempt}`)
+    && !pendingKeys.has(`${start.run_id}:${start.run_attempt}`));
+  if (pending.some(item => !item.resolution)) return {
+    decision:'SUPPRESS_UNRESOLVED_ATTEMPT',
+    reason:'An authenticated owner-push handoff is unresolved on this PR.',
+    attempts:allAttempts.size,unresolved_attempts:unresolved.length,...descriptor};
+  if (pending.some(item => item.lane === 'review_repair' && item.parent_sha === descriptor.head)) return {
+    decision:'SUPPRESS_REPEAT',reason:'This HEAD already consumed a Review Repair handoff attempt.',
+    attempts:allAttempts.size,unresolved_attempts:unresolved.length,...descriptor};
 
   if (matchingRecords.length > 0) {
     return {
@@ -507,6 +541,45 @@ export function reviewRepairObservation(input) {
   };
 }
 
+// Authenticated, exact-run GitHub job evidence determines whether an uploaded
+// owner-push artifact already exists, independently of the enclosing job result.
+// A successful upload cannot be retired by a later job failure/cancellation.
+export function reviewRepairStagedUploadEvidence(input) {
+  const jobs=input?.jobs;
+  if (!Array.isArray(jobs) || jobs.length > 1000) fail("upload_jobs");
+  const staged=jobs.filter(job=>job?.name==="Stage Review Repair owner-push handoff (no publication)");
+  if (staged.length > 1) fail("upload_job_collision");
+  if (staged.length === 0) {
+    // A proven unchanged candidate cannot reach publication. Otherwise
+    // missing jobs might only mean that the GitHub job inventory was partial.
+    if (input?.changed==="no" && input?.repair_result==="success")
+      return {uploaded:false};
+    return {uploaded:false,uncertain:true};
+  }
+  const stage=staged[0];
+  if (stage.status!=="completed") fail("upload_job_evidence");
+  if (stage.conclusion==="skipped") {
+    if (stage.steps !== undefined
+      && (!Array.isArray(stage.steps) || stage.steps.some(step=>step?.status!=="completed"
+        || step.conclusion!=="skipped"))) fail("upload_job_evidence");
+    return {uploaded:false};
+  }
+  if (!Array.isArray(stage.steps)) fail("upload_job_evidence");
+  const uploads=stage.steps.filter(step=>step?.name==="Upload Review Repair owner handoff");
+  if (uploads.length > 1) fail("upload_step_collision");
+  const upload=uploads[0];
+  if (upload?.status==="completed" && upload.conclusion==="success")
+    return {uploaded:true};
+  if (stage.conclusion==="success") fail("unverified_handoff_upload");
+  // A cancelled or absent upload step is not a verified absence of an
+  // artifact: finalization may have happened immediately before cancellation.
+  if (!upload || upload.conclusion==="cancelled")
+    return {uploaded:false,uncertain:true};
+  if (upload.status!=="completed" || !["failure","skipped"].includes(upload.conclusion))
+    fail("upload_step_evidence");
+  return {uploaded:false};
+}
+
 export function reviewRepairMemoryState({repository: repo, pr_number, comments}) {
   repository(repo);
   const prNumber = positiveInteger(pr_number, "pr_number");
@@ -520,11 +593,12 @@ export function reviewRepairMemoryState({repository: repo, pr_number, comments})
     {repository: EXPECTED_REPOSITORY, pr_number: prNumber},
     snapshot.memory.records,
   );
+  const pending = readPending(comments,prNumber);
+  const recorded = recordAttemptKeys(snapshot.memory.records);
+  if (pending.some(item => recorded.has(item.run_id + ':' + item.run_attempt))) fail('pending_terminal_conflict');
   return {
-    snapshot,
-    records: snapshot.memory.records,
-    starts: active.starts,
-    recoveries: active.recoveries,
+    snapshot,records:snapshot.memory.records,starts:active.starts,
+    recoveries:active.recoveries,pending,
   };
 }
 
@@ -534,7 +608,10 @@ export function unresolvedReviewRepairStarts(input) {
   // Recovery is PR-scoped, not current-evidence-scoped. A pre-model orphan from
   // an older head/finding burst must not keep consuming the bounded model budget
   // after review evidence changes.
-  return state.starts.filter((start) => !recorded.has(`${start.run_id}:${start.run_attempt}`));
+  const pendingKeys = new Set(state.pending.filter(item => item.lane === 'review_repair')
+    .map(item => item.run_id + ':' + item.run_attempt));
+  return state.starts.filter((start) => !recorded.has(`${start.run_id}:${start.run_attempt}`)
+    && !pendingKeys.has(`${start.run_id}:${start.run_attempt}`));
 }
 
 export function prepareReviewRepairOutcome(input) {
@@ -615,7 +692,12 @@ async function main(args) {
       finding_ids: parsed.finding_ids,
       records: state.records,
       starts: state.starts,
+      pending: state.pending,
     })) + "\n");
+    return;
+  }
+  if (mode === "upload-proof") {
+    process.stdout.write(JSON.stringify(reviewRepairStagedUploadEvidence(parsed)) + "\n");
     return;
   }
   if (mode === "prepare-outcome") {

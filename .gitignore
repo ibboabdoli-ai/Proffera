@@ -5,6 +5,8 @@
 node_modules
 
 # Generated local/build caches
+.next/
+next-env.d.ts
 *.tsbuildinfo
 __pycache__/
 *.py[cod]

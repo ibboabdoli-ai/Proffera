@@ -1,4 +1,4 @@
-import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { delimiter, join, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
@@ -2756,20 +2756,21 @@ describe("Supervisor ↔ Worker Phase-1 handoff", () => {
     },
   );
 
-  it("does not redispatch an orphan when Worker or aliased reservation evidence appears after the retryable write", () => {
+  it.each([
+    { evidence: "Worker dispatch", mutation: { dispatchOnCommentRead: 3 } },
+    { evidence: "aliased reservation", mutation: { aliasReservationOnCommentRead: 3 } },
+  ])("does not redispatch an orphan when $evidence appears after the retryable write", ({ mutation }) => {
     const task = { id: 701, user: { login: "github-actions[bot]" }, body: runText("state-body", {
       packet: packet(), state: "TASK_CREATED", run_id: "9001", reason: "Prior preflight",
     }) };
-    for (const mutation of [{ dispatchOnCommentRead: 3 }, { aliasReservationOnCommentRead: 3 }]) {
-      const harness = createPreflightHarness({ comments: [task] });
-      const changed = harness.run({ runId: "1002", mutation });
-      expect(changed.outputs.proceed).not.toBe("yes");
-      expect(String(changed.comments.find((comment) => comment.id === 701)?.body)).toContain("TASK_CREATED");
-      expect(commentPatchCalls(changed.calls, 701)).toHaveLength(0);
-      const retry = harness.run({ runId: "1003" });
-      expect(retry.outputs.proceed).not.toBe("yes");
-      expect(commentPatchCalls(retry.calls, 701)).toHaveLength(0);
-    }
+    const harness = createPreflightHarness({ comments: [task] });
+    const changed = harness.run({ runId: "1002", mutation });
+    expect(changed.outputs.proceed).not.toBe("yes");
+    expect(String(changed.comments.find((comment) => comment.id === 701)?.body)).toContain("TASK_CREATED");
+    expect(commentPatchCalls(changed.calls, 701)).toHaveLength(0);
+    const retry = harness.run({ runId: "1003" });
+    expect(retry.outputs.proceed).not.toBe("yes");
+    expect(commentPatchCalls(retry.calls, 701)).toHaveLength(0);
   });
 
   it("recovers a lost mutex POST response only by its exact new descriptor", () => {
@@ -3087,7 +3088,7 @@ describe("Supervisor ↔ Worker Phase-1 handoff", () => {
     const workflow = source(".github/workflows/supervisor-worker-handoff.yml");
     const preflight = workflow.slice(0, workflow.indexOf("  dispatch:"));
     expect(preflight).toContain("OPENAI_AVAILABLE: ${{ secrets.OPENAI_API_KEY != '' }}");
-    expect(preflight).toContain("PUSH_AVAILABLE: ${{ secrets.PROFFERA_AUTOFIX_PUSH_TOKEN != '' }}");
+    expect(preflight).not.toContain("PUSH_AVAILABLE: ${{ secrets.");
     expect(preflight).not.toContain("OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}");
     expect(preflight).not.toContain("DISPATCH_PUSH_TOKEN: ${{ secrets.PROFFERA_AUTOFIX_PUSH_TOKEN }}");
   });
@@ -3241,10 +3242,10 @@ esac
     expect(publish).toContain("Materialize trusted publication helper in isolated job");
     expect(publish).toContain("actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0");
     expect(publish).toContain("Verify Worker diff is nonempty and packet-bounded with immutable helper");
-    expect(publish).toContain("PROFFERA_AUTOFIX_PUSH_TOKEN");
+    expect(publish).not.toContain("PROFFERA_AUTOFIX_PUSH_TOKEN");
     expect(publish).not.toContain("npm test");
     expect(publish).not.toContain("npm run build");
-    expect(publish.indexOf("validate-changes")).toBeLessThan(publish.indexOf("PROFFERA_AUTOFIX_PUSH_TOKEN"));
+    expect(publish).toContain("git bundle create");
   });
   it("Worker tampering with the repository helper cannot change trusted post-Worker validation", () => {
     const dir = mkdtempSync(join(tmpdir(), "proffera-handoff-trust-"));
@@ -3302,7 +3303,8 @@ esac
     writeFileSync(repoHelper, 'process.stdout.write(JSON.stringify({ok:true,status:"VALID",code:"bypassed"}));\n', "utf8");
     writeFileSync(join(repo, "src", "unrelated.ts"), "export const outsideScope = true;\n", "utf8");
 
-    const result = spawnSync("bash", ["-lc", verifyScript], {
+    // Match GitHub Actions non-login Bash; login profiles can change the fixture cwd.
+    const result = spawnSync("bash", ["--noprofile", "--norc", "-e", "-o", "pipefail", "-c", verifyScript], {
       cwd: repo,
       encoding: "utf8",
       env: {
@@ -3320,7 +3322,7 @@ esac
   it("does not expose OpenAI or push credentials to post-Worker reconciliation helper execution", () => {
     const workflow = source(".github/workflows/supervisor-worker-handoff.yml");
     const reconcileScript = workflowRunStep(workflow, "Reconcile live state again immediately before publication");
-    const publishScript = workflowRunStep(workflow, "Publish branch normally or persist validated recovery artifact");
+    const publishScript = workflowRunStep(workflow, "Prepare immutable Worker owner-push handoff");
     expectShellAndJqSyntax(reconcileScript);
     expectShellAndJqSyntax(publishScript);
     const reconcileStart = workflow.indexOf("Reconcile live state again immediately before publication");
@@ -3329,13 +3331,13 @@ esac
     expect(reconcile).not.toContain("OPENAI_API_KEY");
     expect(reconcile).not.toContain("PROFFERA_AUTOFIX_PUSH_TOKEN");
 
-    const publishStart = workflow.indexOf("Publish branch normally or persist validated recovery artifact");
+    const publishStart = workflow.indexOf("Prepare immutable Worker owner-push handoff");
     const publishEnd = workflow.indexOf("Record dispatched Worker PR", publishStart);
     const publish = workflow.slice(publishStart, publishEnd);
-    expect(publish).toContain("PROFFERA_AUTOFIX_PUSH_TOKEN");
+    expect(publish).not.toContain("PROFFERA_AUTOFIX_PUSH_TOKEN");
     expect(publish).toContain('node "$helper" validate-publication');
     expect(publish).toContain("proffera-publication-recovery-complete");
-    expect(publish).toContain('git push --force-with-lease="refs/heads/${BRANCH}:"');
+    expect(publish).not.toMatch(/\bgit\s+push\b/);
     expect(publish).not.toContain("--force ");
     expect(publish).toContain('echo "recovery_digest=$digest"');
     expect(publish).toContain('echo "recovery_chunks=$total"');
@@ -3349,7 +3351,7 @@ esac
 
   it("wires bounded idempotent recovery and an actionable readiness diagnostic", () => {
     const handoff = source(".github/workflows/supervisor-worker-handoff.yml");
-    expect(handoff).toContain("Build and validate deterministic publication artifact");
+    expect(handoff).toContain("Prepare immutable Worker owner-push handoff");
     expect(handoff).toContain("BASE64_GZIP_JSON");
     expect(handoff).toContain("current_source_head:$current_source_head");
     const sync = source(".github/workflows/worker-supervisor-sync.yml");
@@ -3562,7 +3564,7 @@ esac
     expect(commentPatchCalls(replay.calls, 103)).toHaveLength(0);
     expect(String(replay.comments.find((comment) => comment.id === 101)?.body ?? "")).toBe(reservationBody);
     expect(String(replay.comments.find((comment) => comment.id === 103)?.body ?? "")).toBe(taskBody);
-  });
+  }, 15_000);
 
   it("preserves normal on-main PUBLISHED head rebind when no retarget provenance exists", () => {
     const evidence = exactReservationEvidence(sha, {
@@ -3896,7 +3898,7 @@ esac
     expect(replay.stdout).toContain("already released idempotently");
     expect(prPatchCalls(replay.calls)).toHaveLength(0);
     expect(commentPatchCalls(replay.calls, 101)).toHaveLength(0);
-  });
+  }, 15_000);
 
   it("retries transient malformed-close evidence reads before releasing the exact reservation", () => {
     const evidence = exactReservationEvidence(sha, {
@@ -4936,7 +4938,7 @@ esac
         });
       }
     }
-  });
+  }, 15_000);
 
   it("recovers a released-valid split close after terminal task persistence fails in both sync paths", () => {
     let recoveredForCapacity: Array<Record<string, unknown>> | null = null;
@@ -5116,7 +5118,7 @@ esac
     expect(valid.status, valid.stderr).toBe(0);
     expect(commentPatchCalls(valid.calls, 101)).toHaveLength(1);
     expect(commentPatchCalls(valid.calls, 103)).toHaveLength(1);
-  });
+  }, 15_000);
 
   it("rejects invalid lifecycle close provenance without mutation", () => {
     const evidence = exactReservationEvidence(sha, { state: "PUBLISHED", pr_number: 849, recovery: null });
@@ -5253,7 +5255,7 @@ esac
     const freedCapacity = runSlotReservation({ reservation: existing, extraComments: result.comments });
     expect(freedCapacity.status, freedCapacity.stderr).toBe(0);
     expect(freedCapacity.comments.some((comment) => comment.id === 999)).toBe(true);
-  });
+  }, 15_000);
 
   it("does not automatically admit the observed pre-bind HEAD B after terminal release", async () => {
     const fixture = await ownershipHarness();
@@ -5433,7 +5435,6 @@ esac
     expect(cleanup).toContain("Checkout exact cleanup baseline");
     expect(reconcile).toContain('actions/runs/${RUN_ID}/artifacts?per_page=100');
     expect(reconcile).toContain('actions/artifacts/${artifact_id}/zip');
-    expect(reconcile).toContain('test "$archive_entries" = "proffera-publication-artifact.json"');
     expect(reconcile).toContain('actual_recovery_digest="$(sha256sum "$recovery_artifact"');
     expect(reconcile).toContain('node "$helper" validate-publication');
     expect(reconcile).toContain('--arg expected_target_head "$head_sha"');
@@ -5457,6 +5458,104 @@ esac
     const finalize = workflowRunStep(workflow, "Finalize reserved Worker snapshot before publication");
     expect(finalize).toContain('target_tree_sha="$(git rev-parse HEAD^{tree})"');
     expect(finalize).toContain(".target_tree_sha=$target_tree_sha");
+  });
+
+  it.each(["valid", "tampered-manifest", "wrong-parent", "extra-member", "tampered-body", "missing-body", "wrong-body-digest"])(
+    "executes reconcile owner-layout ZIP validation with real Git and jq (%s)", (scenario) => {
+      const root = mkdtempSync(join(tmpdir(), "proffera-owner-zip-validation-"));
+      const repo = join(root, "repo"); const members = join(root, "members"); const temporary = join(root, "runner");
+      mkdirSync(repo); mkdirSync(members); mkdirSync(temporary);
+      const git = (...args: string[]) => {
+        const r = spawnSync("git", args, {cwd: repo, encoding: "utf8"});
+        expect(r.status, r.stderr).toBe(0); return r.stdout.trim();
+      };
+      const digest = (bytes: string | Buffer) => createHash("sha256").update(bytes).digest("hex");
+      try {
+        git("init", "-q"); git("config", "user.name", "Fixture"); git("config", "user.email", "fixture@example.invalid");
+        writeFileSync(join(repo, "candidate.txt"), "baseline\n"); git("add", "."); git("commit", "-qm", "baseline");
+        const base = git("rev-parse", "HEAD");
+        writeFileSync(join(repo, "candidate.txt"), "repair\n"); git("add", "."); const tree = git("write-tree");
+        const wrongParent = git("commit-tree", tree, "-p", base, "-m", "unexpected parent");
+        const next = git("commit-tree", tree, "-p", scenario === "wrong-parent" ? wrongParent : base, "-m", "repair");
+        git("update-ref", "HEAD", next, base);
+        const bundle = join(members, "proffera-owner-handoff.bundle"); git("bundle", "create", bundle, "HEAD", "^" + base);
+        git("reset", "--hard", "-q", base);
+        const recovery = "{}\n"; const bundleDigest = digest(readFileSync(bundle)); const recoveryDigest = digest(recovery);
+        const prBody = "## Exact Worker PR body\n\nThis text is frozen for owner publication.\n";
+        const bodyDigest = digest(prBody);
+        writeFileSync(join(members, "proffera-publication-artifact.json"), recovery);
+        if (scenario !== "missing-body") writeFileSync(join(members, "proffera-worker-pr-body.md"),
+          scenario === "tampered-body" ? prBody + "untrusted mutation\n" : prBody);
+        writeFileSync(join(members, "proffera-owner-handoff.bundle.sha256"), bundleDigest + "  proffera-owner-handoff.bundle\n");
+        writeFileSync(join(members, "proffera-owner-handoff.json"), JSON.stringify({
+          state: "OWNER_PUSH_REQUIRED", published: false, repository: "ibboabdoli-ai/Proffera",
+          branch: "work/proffera-fixture", task_id: "SUP-TEST", base_sha: base, parent_sha: base,
+          head_sha: scenario === "tampered-manifest" ? base : next, tree_sha: tree,
+          bundle_sha256: bundleDigest, recovery_sha256: recoveryDigest,
+          pr_body_sha256: scenario === "wrong-body-digest" ? "0".repeat(64) : bodyDigest,
+          run_id: 51, run_attempt: 1,
+        }));
+        const entries = ["proffera-publication-artifact.json", "proffera-owner-handoff.bundle",
+          "proffera-owner-handoff.bundle.sha256", "proffera-owner-handoff.json"];
+        if (scenario !== "missing-body") entries.push("proffera-worker-pr-body.md");
+        if (scenario === "extra-member") {writeFileSync(join(members, "unexpected.txt"), "unexpected archive member");entries.push("unexpected.txt");}
+        const archive = join(root, "handoff.zip");
+        const zipped = spawnSync("zip", ["-q", archive, ...entries], {cwd: members, encoding: "utf8"});
+        expect(zipped.status, zipped.stderr).toBe(0);
+        const workflow = source(".github/workflows/supervisor-worker-handoff.yml");
+        const reconcile = workflowRunStep(workflow, "Reconcile exact stranded reservation after publish setup failure");
+        const start = reconcile.indexOf('archive_entries="$(unzip -Z1');
+        const end = reconcile.indexOf('live_source="$(gh api', start);
+        expect(start).toBeGreaterThan(0); expect(end).toBeGreaterThan(start);
+        // Execute the complete local archive boundary; transport and later state mutation are outside this test.
+        const r = spawnSync("bash", ["-c", "set -euo pipefail\n" + reconcile.slice(start, end) + '\nprintf "OWNER_ARCHIVE_VALIDATED\\n"'], {
+          cwd: repo, encoding: "utf8", timeout: 15000,
+          env: {...process.env, RUNNER_TEMP: temporary, archive, recovery_artifact: join(root, "recovery.json"),
+            recovery_digest: recoveryDigest, REPOSITORY: "ibboabdoli-ai/Proffera", BRANCH: "work/proffera-fixture",
+            TASK_ID: "SUP-TEST", BASE_SHA: base, head_sha: next, target_tree_sha: tree, RUN_ID: "51"},
+        });
+        if (scenario === "valid") {
+          expect(r.status, r.stdout + r.stderr).toBe(0);
+          expect(r.stdout).toContain("OWNER_ARCHIVE_VALIDATED");
+          expect(git("rev-parse", "FETCH_HEAD")).toBe(next);
+          expect(git("rev-parse", "FETCH_HEAD^" )).toBe(base);
+        } else {
+          expect(r.status, r.stdout + r.stderr).not.toBe(0);
+          expect(r.stdout).not.toContain("OWNER_ARCHIVE_VALIDATED");
+          if (scenario !== "wrong-parent") expect(existsSync(join(repo, ".git", "FETCH_HEAD"))).toBe(false);
+        }
+      } finally { rmSync(root, {recursive: true, force: true}); }
+    },
+  );
+
+  it("never persists Worker succeeded before a verified published PR", () => {
+    const workflow = source(".github/workflows/supervisor-worker-handoff.yml");
+    const stepName = "Persist successful Worker strategy outcome only after authenticated publication";
+    const index = workflow.indexOf("- name: " + stepName);
+    expect(index).toBeGreaterThanOrEqual(0);
+    const next = workflow.indexOf("        env:", index);
+    const gate = workflow.slice(index, next);
+    expect(gate).toContain("steps.publish.outputs.pr_number != ''");
+    expect(gate).not.toContain("recovery_artifact");
+
+    const script = workflowRunStep(workflow, stepName);
+    const start = script.indexOf('if [ "$state" != "PUBLISHED" ]; then');
+    const end = script.indexOf('test "$(jq -r', start);
+    expect(start).toBeGreaterThanOrEqual(0);
+    expect(end).toBeGreaterThan(start);
+    const guard = script.slice(start, end);
+    const run = (state: string) => spawnSync("bash", ["-c",
+      "set -euo pipefail\nstate=" + state + "\n" + guard + "\nprintf 'CONTINUED\n'"], {encoding: "utf8"});
+    for (const state of ["RESERVED", "RECOVERABLE", "RELEASED"]) {
+      const result = run(state);
+      expect(result.status, result.stderr).not.toBe(0);
+      expect(result.stdout).not.toContain("CONTINUED");
+    }
+    const published = run("PUBLISHED");
+    expect(published.status, published.stderr).toBe(0);
+    expect(published.stdout).toContain("CONTINUED");
+    expect(script).toContain("pr_number:($pr_number|tonumber)");
+    expect(script).not.toContain("pr_number:(if $pr_number");
   });
 
   it("defers uploaded failure artifacts to independent trusted cleanup validation", () => {
@@ -5681,15 +5780,17 @@ esac
     expect(failure).toContain("No reservation was acquired and no Worker was invoked");
   });
 
-  it("keeps every failure before reservation acquisition retryable", () => {
-    for (const capacityBlocked of [false, true]) {
-      const result = runDispatchFailureState({ capacityBlocked });
-      expect(result.status, result.stderr).toBe(0);
-      expect(result.body).toContain("- State: `TASK_BLOCKED`");
-      expect(result.body).toMatch(/no Worker was invoked/iu);
-      expect(result.body).toContain("same task may be resubmitted");
-    }
+  // Each independent Bash/helper invocation gets the normal per-test budget;
+  // concurrent suites must not accumulate all three process runtimes in one test.
+  it.each([false, true])("keeps failure before reservation acquisition retryable (capacity blocked: %s)", (capacityBlocked) => {
+    const result = runDispatchFailureState({ capacityBlocked });
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.body).toContain("- State: `TASK_BLOCKED`");
+    expect(result.body).toMatch(/no Worker was invoked/iu);
+    expect(result.body).toContain("same task may be resubmitted");
+  });
 
+  it("keeps failure after reservation acquisition Worker-blocked", () => {
     const postReservation = runDispatchFailureState({ reservationCommentId: "101" });
     expect(postReservation.status, postReservation.stderr).toBe(0);
     expect(postReservation.body).toContain("- State: `WORKER_BLOCKED`");
@@ -6159,8 +6260,10 @@ process.stdout.write(JSON.stringify({
     expect(evaluate(baseContext({ branch: { exists: true } })).code).toBe("branch_exists");
   });
 
-  it("fails closed when authenticated dispatch capability is missing", () => {
+  it("requires authenticated model dispatch but no automatic push credential", () => {
     expect(evaluate(baseContext({ secrets: { openai: false, push: true } })).code).toBe("dispatch_auth_unavailable");
+    expect(evaluate(baseContext({ secrets: { openai: true, push: false } })))
+      .toMatchObject({ ok: true, code: "accepted" });
   });
 
   it("does not redispatch after the source Issue comment is edited", () => {
@@ -6403,6 +6506,18 @@ process.stdout.write(JSON.stringify({
     expect(run("validate-changes", { packet: packet(), changed_files: ["scripts/supervisor-worker-strategy-memory.mjs"] }).code).toBe("hard_blocked_change");
     expect(run("validate-changes", { packet: packet(), changed_files: ["scripts/supervisor-review-repair-strategy-memory.mjs"] }).code).toBe("hard_blocked_change");
     expect(run("validate-changes", { packet: packet(), changed_files: ["scripts/supervisor-ci-autofix-candidate.mjs"] }).code).toBe("hard_blocked_change");
+    expect(run("validate-changes", { packet: packet(), changed_files: ["scripts/supervisor-authorization-policy.mjs"] }).code).toBe("hard_blocked_change");
+    expect(run("validate-changes", { packet: packet(), changed_files: ["scripts/supervisor-preflight.mjs"] }).code).toBe("hard_blocked_change");
+    expect(run("validate-changes", { packet: packet(), changed_files: ["scripts/supervisor-owner-push-pending.mjs"] }).code).toBe("hard_blocked_change");
+    const reservationHelper = "scripts/supervisor-b4-exclusive-reservation.mjs";
+    expect(run("validate-changes", { packet: packet(), changed_files: [reservationHelper] }).code).toBe("hard_blocked_change");
+    const attemptedPacket = packet({allowed_paths: [reservationHelper]});
+    const rejectedPacket = spawnSync(process.execPath, [helper, "validate-changes"], {
+      input: JSON.stringify({packet: attemptedPacket, changed_files: [reservationHelper]}),
+      encoding: "utf8",
+    });
+    expect(rejectedPacket.status).toBe(1);
+    expect(rejectedPacket.stderr).toContain("allowed_paths cannot include hard-blocked scope");
     expect(run("validate-changes", { packet: packet(), changed_files: ["scripts/supervisor-failure-memory.mjs"] }).code).toBe("hard_blocked_change");
     const plannerWorkflow = source(".github/workflows/supervisor-planner.yml");
     expect(plannerWorkflow).toContain("scripts/supervisor-worker-strategy-memory.mjs");

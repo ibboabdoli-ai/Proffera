@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { readFileSync, mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
+import { existsSync, readFileSync, mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
@@ -184,7 +184,7 @@ describe("CI Autofix durable admission and outcomes", () => {
     }]})).toEqual({recoverable: false, reason: "model_step_may_have_launched"});
   });
 
-  it("turns a terminal post-model orphan into outcome unknown without claiming success or failure", () => {
+  it("keeps a post-model orphan unresolved unless staging was proven skipped", () => {
     const input = {
       repository, pr_number: pr, start: start(),
       run: {
@@ -200,6 +200,12 @@ describe("CI Autofix durable admission and outcomes", () => {
       ],
     };
     expect(proveCiAutofixIndeterminateRecovery(input)).toEqual({
+      recoverable: false, reason: "staged_handoff_evidence_incomplete",
+    });
+    expect(proveCiAutofixIndeterminateRecovery({...input,jobs:[...input.jobs,
+      {name:"Stage CI Autofix owner-push handoff (no publication)",
+        status:"completed",conclusion:"skipped",steps:[]}
+    ]})).toEqual({
       recoverable: true, reason: "model_outcome_unknown", outcome: "unknown", observed_at: "2026-10-05T18:01:00Z",
     });
     expect(proveCiAutofixIndeterminateRecovery({
@@ -209,6 +215,106 @@ describe("CI Autofix durable admission and outcomes", () => {
         {name: "Bounded Codex CI autofix", status: "completed", conclusion: "failure", steps: []},
       ],
     })).toEqual({recoverable: false, reason: "model_not_launched"});
+  });
+
+  it.each(["failure", "cancelled", "success"] as const)(
+    "retains the unresolved reservation for a staged/uploaded orphan without pending: %s", (conclusion) => {
+      const admit = {name: "Admit one bounded CI autofix strategy", status: "completed", conclusion: "success"};
+      const launched = {name: "Bounded Codex CI autofix", status: "completed", conclusion: "success",
+        steps: [{name: "Run one bounded Codex repair attempt", status: "completed", conclusion: "success"}]};
+      const staged = {name: "Stage CI Autofix owner-push handoff (no publication)",
+        status: "completed", conclusion: "success",
+        steps: [{name: "Upload CI Autofix owner handoff", status: "completed", conclusion: "success"}]};
+      const jobs = [admit, launched, staged,
+        {name: "Record CI Autofix owner-push pending", status: "completed", conclusion, steps: []}];
+      const input = {
+        repository, pr_number: pr, start: start(), jobs,
+        run: {
+          id: 50, run_attempt: 1, head_sha: "f".repeat(40), head_branch: "main",
+          event: "workflow_run", path: ".github/workflows/proffera-ci-autofix.yml",
+          name: "Proffera CI autofix", status: "completed", conclusion,
+          updated_at: "2026-10-05T18:01:00Z",
+        },
+      };
+      expect(classifyCiAutofixOutcome({jobs})).toEqual({
+        persist: false, reason: "staged_handoff_pending_unrecorded",
+      });
+      // Historical recovery must not manufacture an unknown terminal here:
+      // it would suppress the original start and release cross-lane ownership.
+      const expected = {recoverable: false, reason: "staged_handoff_pending_unrecorded"};
+      expect(proveCiAutofixIndeterminateRecovery(input)).toEqual(expected);
+      expect(proveCiAutofixIndeterminateRecovery(input)).toEqual(expected);
+      expect(proveCiAutofixIndeterminateRecovery({...input, run: {...input.run, status: "in_progress"}}))
+        .toMatchObject({recoverable: false, reason: "run_not_terminal"});
+      expect(() => proveCiAutofixIndeterminateRecovery({...input,
+        run: {...input.run, run_attempt: 2}})).toThrow("indeterminate_run_binding");
+      expect(proveCiAutofixIndeterminateRecovery({...input, jobs: [admit,
+        {...launched, steps: [{name: "Run one bounded Codex repair attempt", status: "completed", conclusion: "skipped"}]},
+        {...staged, conclusion: "skipped"}]})).toMatchObject({recoverable: false});
+      for (const stageConclusion of ["failure", "cancelled"] as const) {
+        const postUploadFailureJobs = [admit, launched, {...staged, conclusion: stageConclusion}, jobs[3]];
+        expect(classifyCiAutofixOutcome({jobs: postUploadFailureJobs, pending_result: stageConclusion}))
+          .toEqual({persist: false, reason: "staged_handoff_pending_unrecorded"});
+        expect(proveCiAutofixIndeterminateRecovery({...input, jobs: postUploadFailureJobs}))
+          .toEqual(expected);
+      }
+    },
+  );
+
+  it("does not mistake a failed staging upload for authenticated owner-handoff evidence", () => {
+    const completed=(name:string,conclusion="success")=>({name,status:"completed",conclusion});
+    const model={name:"Bounded Codex CI autofix",status:"completed",conclusion:"success",
+      steps:[completed("Run one bounded Codex repair attempt")]};
+    const staged={name:"Stage CI Autofix owner-push handoff (no publication)",
+      status:"completed",conclusion:"failure",steps:[completed("Upload CI Autofix owner handoff","failure")]};
+    expect(classifyCiAutofixOutcome({jobs:[model,staged],pending_result:"failure"}))
+      .toEqual({persist:true,outcome:"unknown"});
+    expect(()=>classifyCiAutofixOutcome({jobs:[model,{...staged,conclusion:"success"}]}))
+      .toThrow("unverified_handoff_upload");
+  });
+
+  it("holds partial stage inventory and cancelled upload steps instead of retiring an active start",()=>{
+    const completed=(name:string,conclusion="success")=>({name,status:"completed",conclusion});
+    const launched={name:"Bounded Codex CI autofix",status:"completed",conclusion:"success",
+      steps:[completed("Run one bounded Codex repair attempt")]};
+    const stage=(conclusion:string,steps:unknown[])=>({
+      name:"Stage CI Autofix owner-push handoff (no publication)",
+      status:"completed",conclusion,steps
+    });
+    const cases=[
+      {name:"missing_job",jobs:[launched]},
+      {name:"cancelled_step",jobs:[launched,stage("cancelled",
+        [completed("Upload CI Autofix owner handoff","cancelled")])]},
+      {name:"missing_step",jobs:[launched,stage("failure",[])]},
+    ];
+    for(const item of cases){
+      expect(classifyCiAutofixOutcome({jobs:item.jobs,pending_result:"failure"}),item.name)
+        .toEqual({persist:false,reason:"staged_handoff_evidence_incomplete"});
+      const orphan={
+        repository,pr_number:pr,start:start(),
+        run:{id:50,run_attempt:1,head_sha:"f".repeat(40),head_branch:"main",
+          event:"workflow_run",path:".github/workflows/proffera-ci-autofix.yml",
+          name:"Proffera CI autofix",status:"completed",conclusion:"failure",
+          updated_at:"2026-10-05T18:01:00Z"},
+        jobs:[{name:"Admit one bounded CI autofix strategy",status:"completed",conclusion:"success"},...item.jobs],
+      };
+      expect(proveCiAutofixIndeterminateRecovery(orphan),item.name)
+        .toEqual({recoverable:false,reason:"staged_handoff_evidence_incomplete"});
+    }
+  });
+  it("preserves proven no-change, skipped upload and legacy positive publication outcomes",()=>{
+    const step=(name:string,conclusion="success")=>({name,status:"completed",conclusion});
+    const noChange={name:"Bounded Codex CI autofix",status:"completed",conclusion:"success",steps:[
+      step("Run one bounded Codex repair attempt"),step("Capture bounded repair candidate")]};
+    expect(classifyCiAutofixOutcome({jobs:[noChange],changed:"no"}))
+      .toEqual({persist:true,outcome:"no_change"});
+    const skippedStage={name:"Stage CI Autofix owner-push handoff (no publication)",
+      status:"completed",conclusion:"skipped"};
+    expect(classifyCiAutofixOutcome({jobs:[noChange,skippedStage],changed:"no"}))
+      .toEqual({persist:true,outcome:"no_change"});
+    const historical={...noChange,steps:[...noChange.steps,step("Publish validated repair")]};
+    expect(classifyCiAutofixOutcome({jobs:[historical]}))
+      .toEqual({persist:true,outcome:"succeeded"});
   });
 
   it("keeps unknown historical evidence suppressed while allowing materially changed evidence", () => {
@@ -516,12 +622,18 @@ describe("CI Autofix workflow accounting boundary", () => {
 
   it("keeps the model job outside issue-write authority and revalidates the exact head immediately before model execution", () => {
     const autofix = job("autofix");
-    expect(autofix.permissions ?? {}).not.toHaveProperty("issues");
+    // Ledger admission needs read-only issue access, never issue-write authority.
+    expect(autofix.permissions?.issues).toBe("read");
+    expect(autofix.permissions?.issues).not.toBe("write");
     const names = (autofix.steps ?? []).map((candidate) => candidate.name);
     const revalidate = names.indexOf("Revalidate exact failed head before model");
+    const trusted = names.indexOf("Checkout immutable workflow-revision owner-push gate");
+    const ledger = names.indexOf("Revalidate owner-push ledger at CI Autofix model boundary");
     const model = names.indexOf("Run one bounded Codex repair attempt");
     expect(revalidate).toBeGreaterThanOrEqual(0);
-    expect(model).toBe(revalidate + 1);
+    expect(trusted).toBe(revalidate + 1);
+    expect(ledger).toBe(trusted + 1);
+    expect(model).toBe(ledger + 1);
   });
 
   it("uses exact source-run attempt evidence and classifies terminal outcomes only in the record job", () => {
@@ -569,11 +681,14 @@ describe("CI Autofix workflow accounting boundary", () => {
     expect(terminalIndex).toBeGreaterThanOrEqual(0);
     expect(firstOutcomePlanIndex).toBeGreaterThan(terminalIndex);
     expect(classify).toContain('--arg published "$PUBLISHED"');
-    const publish = run("publish", "Publish validated repair");
-    expect(publish.trim().split("\n").at(-1)).toBe('echo "published=yes" >> "$GITHUB_OUTPUT"');
-    expect(publish.indexOf('git -c core.hooksPath=')).toBeLessThan(publish.indexOf('echo "published=yes"'));
-    expect(publish.slice(publish.indexOf('git -c core.hooksPath='))).not.toContain('gh api');
-    expect(run("publish", "Verify and report published repair")).not.toContain("git push");
+    const handoff = run("publish", "Stage CI Autofix commit for owner push");
+    expect(handoff).toContain('echo "published=no" >> "$GITHUB_OUTPUT"');
+    expect(handoff).toContain('git update-ref HEAD "$NEW_HEAD" "$EXPECTED_HEAD"');
+    expect(handoff).toContain('git bundle verify "$bundle"');
+    expect(handoff).not.toMatch(/\bgit\s+push\b/);
+    expect(handoff).not.toContain("PUSH_TOKEN");
+    expect((job("publish").steps ?? []).map((item) => item.name))
+      .not.toContain("Publish validated repair");
   });
 
   it("aligns every explicit action input and action-default model with the canonical strategy", () => {
@@ -591,99 +706,73 @@ describe("CI Autofix workflow accounting boundary", () => {
     expect(model.with).not.toHaveProperty("model");
   });
 
-  it.each(["api_failure", "poll_mismatch"])("keeps a successful push authoritative after %s and refuses a stale publication", (failure) => {
-    const dir = mkdtempSync(join(tmpdir(), "ci-autofix-publication-"));
-    try {
-      const output = join(dir, "output");
-      const calls = join(dir, "pushes");
-      writeFileSync(join(dir, "git"), `#!/bin/bash
-if [ "$1" = rev-parse ]; then
-  if [ "$2" = HEAD ]; then echo "$EXPECTED_HEAD"; else echo "$VALIDATED_TREE"; fi
-elif [ "$1" = show ]; then echo "$EXPECTED_HEAD"
-elif [ "$1" = -c ] && [ "$3" = push ]; then echo push >> "$PUSH_CALLS"; fi
-`, {mode: 0o755});
-      writeFileSync(join(dir, "gh"), `#!/bin/bash
-if [ "$PHASE" = report ]; then
-  if [ "$FAILURE" = api_failure ]; then exit 1; fi
-  echo stale
-elif [[ "$2" == */actions/runs/* ]]; then
-  jq -n --arg head "$EXPECTED_HEAD" '{id:40,run_attempt:1,head_sha:$head,status:"completed",conclusion:"failure"}'
-else
-  jq -n --arg head "$LIVE_HEAD" --arg ref "$HEAD_REF" '{head:{sha:$head,ref:$ref}}'
-fi
-`, {mode: 0o755});
-      writeFileSync(join(dir, "sleep"), "#!/bin/bash\nexit 0\n", {mode: 0o755});
-      const env = {...process.env, PATH: dir + ":" + process.env.PATH, GITHUB_OUTPUT: output,
-        RUNNER_TEMP: dir, PUSH_CALLS: calls, EXPECTED_HEAD: head, NEW_HEAD: "b".repeat(40), LIVE_HEAD: head,
-        GITHUB_RUN_ID: "50", GITHUB_RUN_ATTEMPT: "1", ADMITTED_RUN_ID: "50", ADMITTED_RUN_ATTEMPT: "1",
-        SOURCE_RUN_ID: "40", SOURCE_RUN_ATTEMPT: "1", HEAD_REF: "work/proffera-example", PR_NUMBER: "934", REPOSITORY: repository,
-        PUSH_TOKEN: "fixture", VALIDATED_TREE: "d".repeat(40), FAILURE: failure};
-      const publish = spawnSync("bash", ["-c", run("publish", "Publish validated repair")], {env, encoding: "utf8"});
-      expect(publish.status, publish.stderr).toBe(0);
-      expect(readFileSync(output, "utf8")).toContain("published=yes");
-      const report = spawnSync("bash", ["-c", run("publish", "Verify and report published repair")], {
-        env: {...env, PHASE: "report"}, encoding: "utf8",
-      });
-      expect(report.status).not.toBe(0);
-      expect(readFileSync(output, "utf8")).toContain("published=yes");
-      expect(readFileSync(calls, "utf8")).toBe("push\n");
-      const stale = spawnSync("bash", ["-c", run("publish", "Publish validated repair")], {
-        env: {...env, LIVE_HEAD: "c".repeat(40)}, encoding: "utf8",
-      });
-      expect(stale.status).not.toBe(0);
-      expect(readFileSync(calls, "utf8")).toBe("push\n");
-    } finally { rmSync(dir, {recursive: true, force: true}); }
-  });
-
-  it("rejects branch rewinds/deletion before advertisement and ref movement after advertisement without force", () => {
-    const dir = mkdtempSync(join(tmpdir(), "ci-autofix-cas-"));
-    try {
-      const remote = join(dir, "remote.git");
-      const repo = join(dir, "repo");
-      const hooks = join(dir, "hooks");
-      mkdirSync(repo); mkdirSync(hooks);
-      const git = (args: string[], cwd = repo) => {
-        const result = spawnSync("git", args, {cwd, encoding: "utf8"});
+  it.each(["valid", "wrong-head", "wrong-parent", "wrong-tree", "remote-head-moved", "wrong-branch"])(
+    "executes real CI Autofix owner staging and bundle guards (%s)", (scenario) => {
+      const root = mkdtempSync(join(tmpdir(), "ci-autofix-owner-staging-"));
+      const repo = join(root, "repo");
+      const artifacts = join(root, "artifacts");
+      mkdirSync(repo); mkdirSync(artifacts);
+      const git = (...args: string[]) => {
+        const result = spawnSync("git", args, {cwd: repo, encoding: "utf8"});
         expect(result.status, result.stderr).toBe(0);
         return result.stdout.trim();
       };
-      git(["init", "--bare", "-q", remote]);
-      git(["init", "-q"]);
-      git(["config", "user.name", "Fixture"]); git(["config", "user.email", "fixture@example.invalid"]);
-      git(["config", "core.hooksPath", "/dev/null"]);
-      writeFileSync(join(repo, "file"), "base"); git(["add", "file"]); git(["commit", "-qm", "base"]);
-      const base = git(["rev-parse", "HEAD"]);
-      writeFileSync(join(repo, "file"), "expected"); git(["commit", "-qam", "expected"]);
-      const expected = git(["rev-parse", "HEAD"]);
-      writeFileSync(join(repo, "file"), "candidate"); git(["commit", "-qam", "candidate"]);
-      const candidate = git(["rev-parse", "HEAD"]);
-      const ref = "refs/heads/work/proffera-fixture";
-      git(["push", remote, candidate + ":" + ref]);
-      const hook = run("publish", "Publish validated repair").match(/<<'HOOK'\n([\s\S]*?)\nHOOK/);
-      expect(hook).not.toBeNull();
-      const env = {...process.env, NEW_HEAD: candidate, EXPECTED_HEAD: expected,
-        HEAD_REF: "work/proffera-fixture", REMOTE_FIXTURE: remote, BASE_FIXTURE: base};
-      const push = () => spawnSync("git", ["-c", "core.hooksPath=" + hooks, "push", remote, candidate + ":" + ref], {
-        cwd: repo, env, encoding: "utf8",
-      });
-      writeFileSync(join(hooks, "pre-push"), hook![1] + "\n", {mode: 0o700});
-      git(["--git-dir=" + remote, "update-ref", ref, base]);
-      expect(push().status).not.toBe(0);
-      expect(git(["--git-dir=" + remote, "rev-parse", ref])).toBe(base);
-      git(["--git-dir=" + remote, "update-ref", "-d", ref]);
-      expect(push().status).not.toBe(0);
-      git(["--git-dir=" + remote, "update-ref", ref, expected]);
-      writeFileSync(join(hooks, "pre-push"), hook![1] +
-        '\ngit --git-dir="$REMOTE_FIXTURE" update-ref "refs/heads/$HEAD_REF" "$BASE_FIXTURE"\n', {mode: 0o700});
-      expect(push().status).not.toBe(0);
-      expect(git(["--git-dir=" + remote, "rev-parse", ref])).toBe(base);
-      git(["--git-dir=" + remote, "update-ref", ref, expected]);
-      writeFileSync(join(hooks, "pre-push"), hook![1] + "\n", {mode: 0o700});
-      expect(push().status).toBe(0);
-      expect(git(["--git-dir=" + remote, "rev-parse", ref])).toBe(candidate);
-      expect(push().status).not.toBe(0); // no second publication, including a no-op
-    } finally { rmSync(dir, {recursive: true, force: true}); }
-  });
+      try {
+        git("init", "-q");
+        git("config", "user.name", "Fixture");
+        git("config", "user.email", "fixture@example.invalid");
+        writeFileSync(join(repo, "candidate.txt"), "baseline\n");
+        git("add", "."); git("commit", "-qm", "baseline");
+        const parent = git("rev-parse", "HEAD");
+        const baseTree = git("rev-parse", "HEAD^{tree}");
+        writeFileSync(join(repo, "candidate.txt"), "repair\n"); git("add", ".");
+        const tree = git("write-tree");
+        const wrongParent = git("commit-tree", baseTree, "-p", parent, "-m", "unexpected parent");
+        const next = git("commit-tree", tree, "-p", scenario === "wrong-parent" ? wrongParent : parent, "-m", "repair");
+        git("checkout", "--detach", "-q", parent); git("reset", "--hard", "-q", parent); git("read-tree", tree);
+        const branch = "work/proffera-fixture";
+        const prJson = JSON.stringify({head: {sha: scenario === "remote-head-moved" ? wrongParent : parent,
+          ref: branch, repo: {full_name: repository}}, base: {ref: "main", sha: parent}, user: {login: "ibboabdoli-ai"}});
+        const gh = 'gh() { test "$*" = "api repos/' + repository + '/pulls/934" || return 1; printf "%s\\n" "$PR_JSON"; }\n';
+        const result = spawnSync("bash", ["-c", gh + run("publish", "Stage CI Autofix commit for owner push")], {
+          cwd: repo, encoding: "utf8", timeout: 15000,
+          env: {...process.env, EXPECTED_HEAD: scenario === "wrong-head" ? wrongParent : parent,
+            NEW_HEAD: next, VALIDATED_TREE: scenario === "wrong-tree" ? baseTree : tree,
+            HEAD_REF: scenario === "wrong-branch" ? "work/proffera-other" : branch,
+            REPOSITORY: repository, PR_NUMBER: "934", PR_JSON: prJson,
+            RUNNER_TEMP: artifacts, GITHUB_OUTPUT: join(root, "outputs"), GITHUB_STEP_SUMMARY: join(root, "summary"),
+            GITHUB_RUN_ID: "50", GITHUB_RUN_ATTEMPT: "1", GIT_CONFIG_NOSYSTEM: "1", GIT_CONFIG_GLOBAL: "/dev/null"},
+        });
+        const bundle = join(artifacts, "proffera-ci-autofix-owner-handoff.bundle");
+        expect(readFileSync(join(root, "outputs"), "utf8")).toContain("published=no");
+        if (scenario !== "valid") {
+          expect(result.status, result.stdout + result.stderr).not.toBe(0);
+          expect(existsSync(bundle)).toBe(false);
+          expect(git("rev-parse", "HEAD")).toBe(parent);
+        } else {
+          expect(result.status, result.stdout + result.stderr).toBe(0);
+          git("bundle", "verify", bundle);
+          expect(git("bundle", "list-heads", bundle)).toBe(next + " HEAD");
+          const header = readFileSync(bundle).subarray(0, 160).toString();
+          expect(header).toContain("-" + parent + " ");
+          const recipient = join(root, "recipient"); mkdirSync(recipient);
+          const receive = (...args: string[]) => {
+            const r = spawnSync("git", args, {cwd: recipient, encoding: "utf8"});
+            expect(r.status, r.stderr).toBe(0); return r.stdout.trim();
+          };
+          receive("init", "-q"); receive("fetch", "--no-tags", repo, parent);
+          receive("fetch", "--no-tags", bundle, "HEAD");
+          expect(receive("rev-list", parent + "..FETCH_HEAD")).toBe(next);
+          expect(receive("rev-parse", "FETCH_HEAD^{tree}")).toBe(tree);
+          expect(JSON.parse(readFileSync(join(artifacts, "proffera-ci-autofix-owner-handoff.json"), "utf8")))
+            .toMatchObject({state: "OWNER_PUSH_REQUIRED", published: false, parent_sha: parent, head_sha: next, tree_sha: tree});
+        }
+        const upload = step("publish", "Upload CI Autofix owner handoff");
+        expect(upload.uses).toMatch(/^actions\/upload-artifact@[a-f0-9]{40}$/);
+        expect(upload.with?.["if-no-files-found"]).toBe("error");
+      } finally { rmSync(root, {recursive: true, force: true}); }
+    },
+  );
 
   it("rejects selective job reruns with cached admission and superseded source attempts before model execution", () => {
     const dir = mkdtempSync(join(tmpdir(), "ci-autofix-model-boundary-"));
@@ -897,6 +986,12 @@ describe("CI Autofix truthful terminal outcomes", () => {
   const jobs = (conclusion: string, steps: Array<ReturnType<typeof step>>) => [{
     name: "Bounded Codex CI autofix", status: "completed", conclusion, steps,
   }];
+  // An authentic completed Actions job inventory includes jobs skipped by
+  // needs/if, even after the model job itself failed or was cancelled.
+  const withSkippedStage = (inventory: ReturnType<typeof jobs>) => [...inventory, {
+    name: "Stage CI Autofix owner-push handoff (no publication)",
+    status: "completed", conclusion: "skipped", steps: [],
+  }];
   it.each(["failure", "cancelled", "timed_out", "startup_failure"])("retires an authenticated %s before model execution without a model charge", (conclusion) => {
     expect(classifyCiAutofixOutcome({jobs: jobs(conclusion, [])})).toMatchObject({persist: false});
     expect(classifyCiAutofixOutcome({jobs: jobs(conclusion, [step(modelName, "skipped")])})).toMatchObject({persist: false});
@@ -912,19 +1007,20 @@ describe("CI Autofix truthful terminal outcomes", () => {
     ]) expect(() => classifyCiAutofixOutcome({jobs: ambiguous})).toThrow();
   });
   it.each(["failure", "cancelled", "timed_out"])("records post-model %s as unknown without a proven result", (conclusion) => {
-    expect(classifyCiAutofixOutcome({jobs: jobs(conclusion, [step(modelName, "success")])}))
+    expect(classifyCiAutofixOutcome({jobs: withSkippedStage(jobs(conclusion, [step(modelName, "success")]))}))
       .toEqual({persist: true, outcome: "unknown"});
-    expect(classifyCiAutofixOutcome({jobs: jobs(conclusion, [step(modelName, "cancelled")])}))
+    expect(classifyCiAutofixOutcome({jobs: withSkippedStage(jobs(conclusion, [step(modelName, "cancelled")]))}))
       .toEqual({persist: true, outcome: "unknown"});
   });
   it("does not treat an action failure as a proven model result and accepts only proven no-change/publication", () => {
-    expect(classifyCiAutofixOutcome({jobs: jobs("failure", [step(modelName, "failure")])}))
+    expect(classifyCiAutofixOutcome({jobs: withSkippedStage(jobs("failure", [step(modelName, "failure")]))}))
       .toEqual({persist: true, outcome: "unknown"});
     const noChange = jobs("success", [step(modelName, "success"), step("Validate bounded repair without repository token", "success")]);
     expect(classifyCiAutofixOutcome({jobs: noChange, changed: "no"})).toEqual({persist: true, outcome: "no_change"});
-    expect(classifyCiAutofixOutcome({jobs: noChange})).toEqual({persist: true, outcome: "unknown"});
-    expect(classifyCiAutofixOutcome({jobs: jobs("cancelled", [step(modelName, "success")]), published: "yes"}))
-      .toEqual({persist: true, outcome: "succeeded"});
+    expect(classifyCiAutofixOutcome({jobs: withSkippedStage(noChange)})).toEqual({persist: true, outcome: "unknown"});
+    // A caller-supplied published=yes flag is not authenticated push evidence.
+    expect(classifyCiAutofixOutcome({jobs: withSkippedStage(jobs("cancelled", [step(modelName, "success")])), published: "yes"}))
+      .toEqual({persist: true, outcome: "unknown"});
     expect(classifyCiAutofixOutcome({jobs: jobs("failure", [step(modelName, "success"), step("Publish validated repair", "success"),
       step("Verify and report published repair", "failure")])})).toEqual({persist: true, outcome: "succeeded"});
   });
@@ -935,9 +1031,56 @@ describe("CI Autofix truthful terminal outcomes", () => {
       step("Publish validated repair", "success"), step("Verify and report published repair", "failure"),
     ]};
     expect(classifyCiAutofixOutcome({jobs: [...model, publication]})).toEqual({persist: true, outcome: "succeeded"});
-    expect(classifyCiAutofixOutcome({jobs: [...model, {...publication, steps: [step("Publish validated repair", "cancelled")]}]}))
+    expect(classifyCiAutofixOutcome({jobs: withSkippedStage([...model, {...publication, steps: [step("Publish validated repair", "cancelled")]}])}))
       .toEqual({persist: true, outcome: "unknown"});
     expect(() => classifyCiAutofixOutcome({jobs: [...model, publication, publication]})).toThrow("autofix_jobs_binding");
+  });
+
+  it("distinguishes exact-run Actions skipped staging from an incomplete job inventory",()=>{
+    const apiReply={
+      total_count: 3,
+      jobs:[
+        {id:1101,run_id:50,run_attempt:2,
+          name:"Admit one bounded CI autofix strategy",status:"completed",conclusion:"success",steps:[]},
+        {id:1102,run_id:50,run_attempt:2,
+          name:"Bounded Codex CI autofix",status:"completed",conclusion:"failure",
+          steps:[{number:1,name:"Run one bounded Codex repair attempt",
+            status:"completed",conclusion:"failure"}]},
+        {id:1103,run_id:50,run_attempt:2,
+          name:"Stage CI Autofix owner-push handoff (no publication)",
+          status:"completed",conclusion:"skipped"},
+      ],
+    };
+    expect(apiReply.jobs.length).toBe(apiReply.total_count);
+    expect(classifyCiAutofixOutcome({jobs:apiReply.jobs}))
+      .toEqual({persist:true,outcome:"unknown"});
+    // The same job-list response truncated at two entries cannot prove the
+    // staging job was skipped; an unknown terminal must not release B4.
+    expect(classifyCiAutofixOutcome({jobs:apiReply.jobs.slice(0,2)}))
+      .toEqual({persist:false,reason:"staged_handoff_evidence_incomplete"});
+    const contrary={...apiReply.jobs[2],conclusion:"cancelled",
+      steps:[{number:1,name:"Upload CI Autofix owner handoff",
+        status:"completed",conclusion:"success"}]};
+    expect(classifyCiAutofixOutcome({jobs:[...apiReply.jobs.slice(0,2),contrary]}))
+      .toEqual({persist:false,reason:"staged_handoff_pending_unrecorded"});
+  });
+  it("holds a staged owner-push handoff when pending recording fails or is skipped", () => {
+    const launched = jobs("success", [step(modelName, "success")]);
+    const staged = {name: "Stage CI Autofix owner-push handoff (no publication)",
+      status: "completed", conclusion: "success", steps: [step("Upload CI Autofix owner handoff", "success")]};
+    for (const pending_result of ["failure", "cancelled", "skipped", "success", undefined]) {
+      expect(classifyCiAutofixOutcome({jobs: [...launched, staged], pending_result}))
+        .toEqual({persist: false, reason: "staged_handoff_pending_unrecorded"});
+    }
+    // An absent or failed upload does not prove a staged owner handoff.
+    expect(()=>classifyCiAutofixOutcome({jobs: [...launched, {...staged,steps: [step("Upload CI Autofix owner handoff", "failed")]}],
+      pending_result:"failure"})).toThrow("unverified_handoff_upload");
+    expect(classifyCiAutofixOutcome({jobs: launched, pending_result: "failure"}))
+      .toEqual({persist: false, reason: "staged_handoff_evidence_incomplete"});
+    expect(classifyCiAutofixOutcome({jobs:[...launched,{
+      ...staged,conclusion:"failure",steps:[step("Upload CI Autofix owner handoff","failure")]
+    }],pending_result:"failure"}))
+      .toEqual({persist:true,outcome:"unknown"});
   });
 
   it("recognizes current no-change capture and rejects contradictory downstream execution before model launch", () => {
