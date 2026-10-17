@@ -105,6 +105,78 @@ function recoveryBody({
   });
 }
 
+describe("retired completed Review Repair attempts remain charged",()=>{
+ it("keeps bounded model budget while permitting exact independently authorized re-entry",()=>{
+  const retired=[{lane:"review_repair",run_id:10,run_attempt:1,parent_sha:head}];
+  const earlier=start();
+  expect(decideReviewRepairStrategyHistory({pr_number:pr,head,finding_ids:findings,
+    records:[],starts:[earlier],retired}))
+    .toMatchObject({decision:"SUPPRESS_REPEAT",attempts:1,unresolved_attempts:0});
+  expect(decideReviewRepairStrategyHistory({pr_number:pr,head,finding_ids:findings,
+    records:[],starts:[earlier],retired,authorizedReentry:true}))
+    .toMatchObject({decision:"ALLOW",attempts:1,unresolved_attempts:0});
+  const second=start({run_id:11});
+  const charged=[...retired,{lane:"review_repair",run_id:11,run_attempt:1,parent_sha:head}];
+  expect(decideReviewRepairStrategyHistory({pr_number:pr,head:"f".repeat(40),finding_ids:findings,
+    records:[],starts:[earlier,second],retired:charged}))
+    .toMatchObject({decision:"HUMAN_REQUIRED",attempts:2,unresolved_attempts:0});
+ });
+});
+
+
+describe("Review Repair automatic budget is independent of owner re-entry", () => {
+  const nextHead = "f".repeat(40);
+
+  it("permits an independently authorized re-entry while fewer than two model attempts are charged", () => {
+    const retired = [{lane: "review_repair", run_id: 10, run_attempt: 1, parent_sha: head}];
+    const earlier = start();
+    expect(decideReviewRepairStrategyHistory({pr_number: pr, head, finding_ids: findings,
+      records: [], starts: [earlier], retired, authorizedReentry: true}))
+      .toMatchObject({decision: "ALLOW", attempts: 1});
+  });
+
+  it.each([
+    ["two retired attempts with no surviving start", [], [], [
+      {lane: "review_repair", run_id: 10, run_attempt: 1, parent_sha: head},
+      {lane: "review_repair", run_id: 11, run_attempt: 1, parent_sha: head},
+    ], []],
+    ["two distinct completed outcomes", [
+      failureRecord({run_id: 10, finding_ids: ["review:1101"], attemptHead: head}),
+      failureRecord({run_id: 11, finding_ids: ["review:1102"], attemptHead: "b".repeat(40)}),
+    ], [], [], []],
+    ["one retired and one recorded attempt", [
+      failureRecord({run_id: 11, finding_ids: ["review:1103"], attemptHead: head}),
+    ], [], [{lane: "review_repair", run_id: 10, run_attempt: 1, parent_sha: head}], []],
+    ["one retired and one already resolved pending handoff", [], [], [
+      {lane: "review_repair", run_id: 10, run_attempt: 1, parent_sha: head},
+    ], [{lane: "review_repair", run_id: 11, run_attempt: 1, parent_sha: head,
+      resolution: {decision: "push_confirmed"}}]],
+    ["three retired model attempts", [], [], [
+      {lane: "review_repair", run_id: 10, run_attempt: 1, parent_sha: head},
+      {lane: "review_repair", run_id: 11, run_attempt: 1, parent_sha: head},
+      {lane: "review_repair", run_id: 12, run_attempt: 1, parent_sha: head},
+    ], []],
+  ] as const)("blocks %s even with a fresh one-shot owner re-entry claim",
+    (_name, records, starts, retired, pending) => {
+      const decision = decideReviewRepairStrategyHistory({pr_number: pr, head: nextHead,
+        finding_ids: ["inline:9099"], records: [...records], starts: [...starts],
+        retired: [...retired], pending: [...pending], authorizedReentry: true});
+      expect(decision).toMatchObject({decision: "HUMAN_REQUIRED", unresolved_attempts: 0});
+      expect(decision.attempts).toBe(retired.length === 3 ? 3 : 2);
+    });
+
+  it("does not double-charge duplicated authenticated history but blocks once the second unique attempt appears", () => {
+    const first = start({run_id: 10});
+    const retired = [{lane: "review_repair", run_id: 10, run_attempt: 1, parent_sha: head}];
+    const input = {pr_number: pr, head: nextHead, finding_ids: ["inline:9100"],
+      records: [], starts: [first], retired, authorizedReentry: true};
+    expect(decideReviewRepairStrategyHistory(input)).toMatchObject({decision: "ALLOW", attempts: 1});
+    expect(decideReviewRepairStrategyHistory({...input,
+      retired: [...retired, {lane: "review_repair", run_id: 11, run_attempt: 1, parent_sha: head}]}))
+      .toMatchObject({decision: "HUMAN_REQUIRED", attempts: 2});
+  });
+});
+
 describe("Review Repair stable strategy identity", () => {
   it("deduplicates finding order and duplicate delivery", () => {
     const a = reviewRepairStrategyDescriptor({

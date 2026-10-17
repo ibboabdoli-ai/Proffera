@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { pathToFileURL } from "node:url";
-import { readPending } from "./supervisor-owner-push-pending.mjs";
+import { readOwnerHandoffLedger, reentryAuthorized } from "./supervisor-owner-push-pending.mjs";
 import {
   fingerprintEvidence,
   fingerprintStrategy,
@@ -437,7 +437,7 @@ function recordAttemptKeys(records) {
   return keys;
 }
 
-export function decideReviewRepairStrategyHistory({pr_number, head, finding_ids, records, starts, pending = []}) {
+export function decideReviewRepairStrategyHistory({pr_number, head, finding_ids, records, starts, pending = [], retired = [], authorizedReentry = false}) {
   const descriptor = reviewRepairStrategyDescriptor({pr_number, head, finding_ids});
   if (!Array.isArray(records) || !Array.isArray(starts)) fail("history");
   const allRecordKeys = recordAttemptKeys(records);
@@ -450,7 +450,9 @@ export function decideReviewRepairStrategyHistory({pr_number, head, finding_ids,
   }));
   const pendingKeys = new Set(pending.filter(item => item.lane === 'review_repair')
     .map(item => item.run_id + ':' + item.run_attempt));
-  const allAttempts = new Set([...allRecordKeys, ...allStartKeys, ...pendingKeys]);
+  const retiredKeys = new Set(retired.filter(item=>item.lane==="review_repair")
+    .map(item=>item.run_id+":"+item.run_attempt));
+  const allAttempts = new Set([...allRecordKeys, ...allStartKeys, ...pendingKeys,...retiredKeys]);
 
   const matchingRecords = records.filter((record) => record?.action_id === "review_repair_attempt"
     && record?.evidence_fingerprint === descriptor.evidence_fingerprint
@@ -459,11 +461,16 @@ export function decideReviewRepairStrategyHistory({pr_number, head, finding_ids,
   // a changed head/finding burst must not start a concurrent model execution.
   // Proven pre-launch orphans are removed from starts before this decision.
   const unresolved = starts.filter((start) => !allRecordKeys.has(`${start.run_id}:${start.run_attempt}`)
-    && !pendingKeys.has(`${start.run_id}:${start.run_attempt}`));
+    && !pendingKeys.has(`${start.run_id}:${start.run_attempt}`)
+    && !retiredKeys.has(`${start.run_id}:${start.run_attempt}`));
   if (pending.some(item => !item.resolution)) return {
     decision:'SUPPRESS_UNRESOLVED_ATTEMPT',
     reason:'An authenticated owner-push handoff is unresolved on this PR.',
     attempts:allAttempts.size,unresolved_attempts:unresolved.length,...descriptor};
+  if (retired.some(item=>item.lane==="review_repair"&&item.parent_sha===descriptor.head)
+    &&!authorizedReentry)return {decision:"SUPPRESS_REPEAT",
+     reason:"Retired model attempt requires exact owner re-entry authorization.",
+     attempts:allAttempts.size,unresolved_attempts:unresolved.length,...descriptor};
   if (pending.some(item => item.lane === 'review_repair' && item.parent_sha === descriptor.head)) return {
     decision:'SUPPRESS_REPEAT',reason:'This HEAD already consumed a Review Repair handoff attempt.',
     attempts:allAttempts.size,unresolved_attempts:unresolved.length,...descriptor};
@@ -486,10 +493,13 @@ export function decideReviewRepairStrategyHistory({pr_number, head, finding_ids,
       ...descriptor,
     };
   }
+  // A one-shot owner re-entry only releases the historical handoff hold.
+  // It is NOT independent authorization to increase the model-attempt budget.
+  // All completed/retired attempts remain charged; no budget override exists here.
   if (allAttempts.size >= MAX_AUTOMATIC_REVIEW_REPAIR_ATTEMPTS) {
     return {
       decision: "HUMAN_REQUIRED",
-      reason: "The bounded automatic Review Repair model-attempt budget is exhausted.",
+      reason: "The bounded automatic Review Repair model-attempt budget is exhausted; owner re-entry does not extend it.",
       attempts: allAttempts.size,
       unresolved_attempts: 0,
       ...descriptor,
@@ -593,12 +603,14 @@ export function reviewRepairMemoryState({repository: repo, pr_number, comments})
     {repository: EXPECTED_REPOSITORY, pr_number: prNumber},
     snapshot.memory.records,
   );
-  const pending = readPending(comments,prNumber);
+  const ledger=readOwnerHandoffLedger(comments,prNumber);
+  const pending = ledger.pending;
+  const retired=ledger.retirements.map(r=>ledger.staged.find(s=>s.stage_digest===r.stage_digest));
   const recorded = recordAttemptKeys(snapshot.memory.records);
   if (pending.some(item => recorded.has(item.run_id + ':' + item.run_attempt))) fail('pending_terminal_conflict');
   return {
     snapshot,records:snapshot.memory.records,starts:active.starts,
-    recoveries:active.recoveries,pending,
+    recoveries:active.recoveries,pending,retired,
   };
 }
 
@@ -610,8 +622,12 @@ export function unresolvedReviewRepairStarts(input) {
   // after review evidence changes.
   const pendingKeys = new Set(state.pending.filter(item => item.lane === 'review_repair')
     .map(item => item.run_id + ':' + item.run_attempt));
+  const ledger=readOwnerHandoffLedger(input.comments,input.pr_number);
+  const retired=new Set(ledger.retirements.map(r=>ledger.staged.find(s=>s.stage_digest===r.stage_digest))
+    .filter(s=>s.lane==="review_repair").map(s=>s.run_id+":"+s.run_attempt));
   return state.starts.filter((start) => !recorded.has(`${start.run_id}:${start.run_attempt}`)
-    && !pendingKeys.has(`${start.run_id}:${start.run_attempt}`));
+    && !pendingKeys.has(`${start.run_id}:${start.run_attempt}`)
+    && !retired.has(`${start.run_id}:${start.run_attempt}`));
 }
 
 export function prepareReviewRepairOutcome(input) {
@@ -692,7 +708,9 @@ async function main(args) {
       finding_ids: parsed.finding_ids,
       records: state.records,
       starts: state.starts,
-      pending: state.pending,
+      pending: state.pending,retired:state.retired,
+      authorizedReentry:state.retired.length>0&&reentryAuthorized(parsed.comments,parsed.pr_number,
+        {lane:"review_repair",run_id:Number(parsed.run_id),run_attempt:Number(parsed.run_attempt),head:parsed.head}),
     })) + "\n");
     return;
   }

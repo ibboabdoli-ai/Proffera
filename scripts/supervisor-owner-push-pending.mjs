@@ -70,7 +70,7 @@ function decode(c,kind){
  let payload;try{payload=JSON.parse(m[2]);}catch{throw new Error("pending:json");}
  check(canonical(payload)===m[2],"noncanonical");return {key:m[1],payload};
 }
-export function readPending(comments,pr){
+function readPendingLegacy(comments,pr){
  check(Array.isArray(comments)&&comments.length<=10000&&pos(pr),"comments");
  const starts=new Map(),ends=new Map();
  for(const c of comments){
@@ -107,7 +107,9 @@ export function readPending(comments,pr){
     &&p.historical_nonpublication_proven===false&&Number.isFinite(Date.parse(p.observed_at)),"resolution_payload");
    const old=ends.get(key);check(!old||old.body===c.body,"resolution_conflict");
    if(!old)ends.set(key,{...p,body:c.body,comment_id:c.id});
-  }else throw new Error("pending:unexpected_marker");
+  }else if(["staged","retirement","reentry-claim"].some(kind=>
+    c.body.startsWith("<!-- proffera-owner-push-"+kind+":")))continue;
+  else throw new Error("pending:unexpected_marker");
  }
  const records=[...starts.values()];
  for(const [key,v] of ends){const item=records.find(r=>r.pending_digest===key);
@@ -121,13 +123,118 @@ export function readPending(comments,pr){
  check(records.filter(r=>!r.resolution).length<=1,"multiple_unresolved");
  return records;
 }
-export function admission(comments,pr){
- const records=readPending(comments,pr);
+// The public pending array remains v1-compatible. All consumers validate the
+// staged/retirement/re-entry ledger as well, so novel markers are never silently ignored.
+export function readOwnerHandoffLedger(comments,pr){
+ const pending=readPendingLegacy(comments,pr);
+ const staged=new Map(),retirements=new Map(),claims=new Map();
+ for(const c of comments){
+  if(typeof c?.body!=="string"||!c.body.startsWith("<!-- proffera-owner-push-"))continue;
+  const kind=["staged","retirement","reentry-claim"].find(k=>
+   c.body.startsWith("<!-- proffera-owner-push-"+k+":"));
+  if(!kind)continue; // Legacy parser already rejects other unrecognized bot markers.
+  if(c.user?.login!=="github-actions[bot]"||c.user?.type!=="Bot")continue;
+  check(c.issue_url?.toLowerCase()===ISSUE_URL.toLowerCase()&&pos(c.id)
+   &&c.body.length<14000,"ledger_provenance");
+  const {key,payload:v}=decode(c,kind);
+  if(kind==="staged"){
+   // Reuse the exact validated pending v1 schema and identity checks.
+   const legacy=readPendingLegacy([{...c,body:c.body.replace(
+    "proffera-owner-push-staged:","proffera-owner-push-pending:")}],pr);
+   if(v.pr_number!==pr)continue;
+   check(legacy.length===1,"staged_identity");
+   const k=v.lane+":"+v.run_id+":"+v.run_attempt;
+   const prior=staged.get(k);check(!prior||prior.body===c.body,"staged_conflict");
+   if(!prior)staged.set(k,{...v,body:c.body,stage_digest:sha256(c.body),comment_id:c.id});
+  }else if(kind==="retirement"){
+   check(shape(v,["stage_digest","owner_comment_id","pr_number","observed_branch_sha",
+      "observed_main_sha","observed_at"])
+    &&key===v.stage_digest&&hex(key,64)&&pos(v.pr_number)&&pos(v.owner_comment_id)
+    &&hex(v.observed_branch_sha,40)&&hex(v.observed_main_sha,40)
+    &&Number.isFinite(Date.parse(v.observed_at)),"retirement_payload");
+   if(v.pr_number!==pr)continue;
+   const prior=retirements.get(key);check(!prior||prior.body===c.body,"retirement_conflict");
+   if(!prior)retirements.set(key,{...v,body:c.body,retirement_digest:sha256(c.body),comment_id:c.id});
+  }else{
+   check(shape(v,["retirement_digest","owner_comment_id","pr_number","lane",
+    "run_id","run_attempt","head","observed_at"])
+    &&hex(v.retirement_digest,64)&&pos(v.pr_number)&&pos(v.owner_comment_id)
+    &&Object.hasOwn(LANES,v.lane)&&pos(v.run_id)&&pos(v.run_attempt)&&hex(v.head,40)
+    &&Number.isFinite(Date.parse(v.observed_at)),"reentry_claim_payload");
+   if(v.pr_number!==pr)continue;
+   // Old v1 claims use the retirement digest as their key. New claims are
+   // attempt-keyed so an independently authorized, proven safe re-entry can
+   // follow a pre-model attempt that ended without creating a Start.
+   check(key===v.retirement_digest ||
+    key===v.retirement_digest+":"+v.run_id+":"+v.run_attempt,"reentry_claim_key");
+   const prior=claims.get(key);check(!prior||prior.body===c.body,"reentry_claim_conflict");
+   if(!prior)claims.set(key,{...v,body:c.body,claim_digest:sha256(c.body),comment_id:c.id});
+  }
+ }
+ const stageRows=[...staged.values()],retiredRows=[...retirements.values()];
+ for(const retired of retiredRows){
+  const stage=stageRows.find(x=>x.stage_digest===retired.stage_digest);
+  check(stage,"retirement_missing_stage");
+  check(!pending.some(x=>x.lane===stage.lane&&x.run_id===stage.run_id
+   &&x.run_attempt===stage.run_attempt),"retirement_late_pending");
+  const owners=comments.filter(c=>c.id===retired.owner_comment_id
+   &&c.user?.login===OWNER&&c.user?.type==="User"
+   &&c.issue_url?.toLowerCase()===ISSUE_URL.toLowerCase()
+   &&c.body?.trim()===marker("retire",retired.stage_digest));
+  check(owners.length===1,"retirement_owner_provenance");
+ }
+ for(const stage of stageRows){
+  const p=pending.find(x=>x.lane===stage.lane&&x.run_id===stage.run_id
+   &&x.run_attempt===stage.run_attempt);
+  if(p)check(["head_sha","tree_sha","parent_sha","artifact_id","artifact_digest",
+   "bundle_digest","manifest_digest","workflow_id","observed_at"].every(k=>p[k]===stage[k]),
+   "staged_pending_conflict");
+ }
+ const claimRows=[...claims.values()];
+ for(const claim of claimRows){
+  const retired=retiredRows.find(x=>x.retirement_digest===claim.retirement_digest);
+  check(retired,"reentry_missing_retirement");
+  const action=marker("reentry",claim.retirement_digest+":"+claim.lane+":"+
+   claim.run_id+":"+claim.run_attempt+":"+claim.head);
+  check(comments.filter(c=>c.id===claim.owner_comment_id&&c.user?.login===OWNER
+   &&c.user?.type==="User"&&c.issue_url?.toLowerCase()===ISSUE_URL.toLowerCase()
+   &&c.body?.trim()===action).length===1,"reentry_owner_provenance");
+ }
+ // The same run/attempt cannot claim authorization twice, even across lanes.
+ const attempts=new Map(),uniqueClaims=new Set();
+ for(const claim of claimRows){
+  const key=claim.run_id+":"+claim.run_attempt;
+  const binding=claim.retirement_digest+":"+key;
+  check(!uniqueClaims.has(binding),"reentry_duplicate_claim");
+  uniqueClaims.add(binding);
+  const prior=attempts.get(key);
+  check(!prior||(prior.lane===claim.lane&&prior.head===claim.head),"reentry_duplicate_attempt");
+  if(!prior)attempts.set(key,claim);
+ }
+ return {pending,staged:stageRows,retirements:retiredRows,claims:claimRows};
+}
+export function readPending(comments,pr){return readOwnerHandoffLedger(comments,pr).pending;}
+function attemptAuthorized(ledger,attempt){
+ if(!attempt)return false;
+ return ledger.retirements.every(retired=>ledger.claims.some(c=>
+  c.retirement_digest===retired.retirement_digest
+  &&c.lane===attempt.lane&&c.run_id===attempt.run_id
+  &&c.run_attempt===attempt.run_attempt&&c.head===attempt.head));
+}
+export function reentryAuthorized(comments,pr,attempt){
+ return attemptAuthorized(readOwnerHandoffLedger(comments,pr),attempt);
+}
+export function admission(comments,pr,attempt=null){
+ const ledger=readOwnerHandoffLedger(comments,pr);
+ const records=ledger.pending;
  // A cancellation is not an admission token. Owner-push and model launch have
  // no shared atomic lock, so a cancelled candidate cannot be used to re-enable
  // either automatic model lane, even after an earlier nonpublication check.
- return {allow:records.every(r=>r.resolution?.decision==="push_confirmed"),
-  records:records.map(({body,...r})=>r),
+ return {allow:records.every(r=>r.resolution?.decision==="push_confirmed")
+  &&ledger.staged.every(s=>ledger.retirements.some(r=>r.stage_digest===s.stage_digest)
+   ||records.some(p=>p.lane===s.lane&&p.run_id===s.run_id&&p.run_attempt===s.run_attempt))
+  &&(ledger.retirements.length===0||attemptAuthorized(ledger,attempt)),
+  records:records.map(record=>Object.fromEntries(Object.entries(record).filter(([k])=>k!=="body"))),
   unresolved:records.filter(r=>!r.resolution).length};
 }
 function readPR(p,{historicalResolution=false}={}){
@@ -241,6 +348,19 @@ function post(bodyText){
  const result=cmd("gh",["api","--method","POST","repos/"+REPO+"/issues/"+ISSUE+"/comments",
   "-f","body="+bodyText]);const out=JSON.parse(result);check(pos(out.id),"comment_write");return out;
 }
+// Never retry an ambiguous GitHub POST blindly. Accept only an exact,
+// authenticated ledger readback; otherwise preserve the original error.
+function postOnceWithReadback(text,pr,kind,key){
+ let error;
+ try{post(text);}catch(e){error=e;}
+ const ledger=readOwnerHandoffLedger(issueComments(),pr);
+ const records=kind==="staged"?ledger.staged:ledger.pending;
+ const found=records.filter(r=>r.lane+":"+r.run_id+":"+r.run_attempt===key);
+ check(found.every(r=>r.body===text),"post_conflict");
+ if(found.length===1)return found[0];
+ if(error)throw error;
+ check(false,"post_readback");
+}
 export function verifyRecordBranch(initial,final,parent,proposed){
  check([initial,final,parent,proposed].every(v=>hex(v,40))&&parent!==proposed,"record_ref_evidence");
  check([parent,proposed].includes(initial)&&[parent,proposed].includes(final)
@@ -270,7 +390,6 @@ export function record(env){
  const {observedBranchSha,...att}=verifyArtifact(p,auth,Number(env.ARTIFACT_ID));
  const value={version:1,...p,...att,observed_at:new Date().toISOString()};
  const key=p.lane+":"+p.run_id+":"+p.run_attempt;
- const proposed=body("pending",key,value);
  const comments=issueComments();
  const admissionLane=p.lane==="review_repair"?"review-repair":"ci-autofix";
  const expectedStart="<!-- proffera-"+admissionLane+"-start:v1:"+
@@ -297,6 +416,18 @@ export function record(env){
    &&verifyRecordBranch(live.branch,finalLive.branch,p.parent_sha,p.head_sha)
    &&finalLive.pr.base.sha===p.base_sha,"record_revalidation");
  const history=admission(comments,p.pr_number);
+ const ledger=readOwnerHandoffLedger(comments,p.pr_number);
+ const priorStage=ledger.staged.find(s=>s.lane===p.lane&&s.run_id===p.run_id
+   &&s.run_attempt===p.run_attempt);
+ // observed_at is part of the immutable Stage identity. A recorder rerun must
+ // use the ORIGINAL authenticated Stage bytes, not a fresh timestamp.
+ const stableValue=priorStage?Object.fromEntries(Object.keys(value).map(k=>[k,priorStage[k]])):value;
+ if(priorStage)check(Object.keys(value).filter(k=>k!=="observed_at")
+   .every(k=>priorStage[k]===value[k]),"staged_replay");
+ const proposed=body("pending",key,stableValue);
+ check(!ledger.retirements.some(r=>ledger.staged.some(s=>s.stage_digest===r.stage_digest
+   &&s.lane===p.lane&&s.run_id===p.run_id&&s.run_attempt===p.run_attempt)),
+   "record_retired_attempt");
  // Record mode is another admission surface after the workflow gate.
  // Historical cancellation cannot authorize work after contrary publication.
  for(const prior of history.records.filter(r=>r.resolution?.decision==="cancelled")){
@@ -308,7 +439,22 @@ export function record(env){
   // observed_at is immutable; compare identity/artifact fields, not a new timestamp.
   check(["head_sha","tree_sha","parent_sha","artifact_id","artifact_digest","bundle_digest",
     "manifest_digest","workflow_id"].every(k=>existing[k]===value[k]),"pending_replay");
- }else post(proposed);
+ }else{
+  // The record job already has issues:write. Persist the authenticated candidate
+  // before Pending; a later Pending write failure leaves recoverable Stage evidence.
+  const stageBody=body("staged",key,stableValue);
+  if(!priorStage)postOnceWithReadback(stageBody,p.pr_number,"staged",key);
+  const verified=readOwnerHandoffLedger(issueComments(),p.pr_number);
+  check(verified.staged.some(s=>s.lane===p.lane&&s.run_id===p.run_id
+    &&s.run_attempt===p.run_attempt),"staged_readback");
+  // Re-read immediately before Pending to reject an intervening owner retirement.
+  check(!verified.retirements.some(r=>verified.staged.some(s=>
+    s.stage_digest===r.stage_digest&&s.lane===p.lane
+    &&s.run_id===p.run_id&&s.run_attempt===p.run_attempt)),"late_pending_retirement");
+  // POST may have persisted despite a client timeout. Resolve by exact
+  // readback only, never by an uncontrolled duplicate POST.
+  postOnceWithReadback(proposed,p.pr_number,"pending",key);
+ }
  const readback=readPending(issueComments(),p.pr_number);
  check(readback.some(r=>r.lane===p.lane&&r.run_id===p.run_id&&r.run_attempt===p.run_attempt),"pending_readback");
  return {pending:true};
@@ -421,6 +567,123 @@ export function mayResolveExpiredArtifact(p,artifacts,ownerAction,nowMs=Date.now
   &&a.workflow_run?.id===p.run_id&&a.digest==="sha256:"+p.artifact_digest,"expired_artifact_identity");
  return true;
 }
+function verifyStagedProvenance(stage){
+ const auth=trustedRun(stage);
+ check(auth.run.status==="completed"&&stage.workflow_id===auth.run.workflow_id
+  &&stage.publish_job_id===auth.publish.id&&stage.model_job_id===auth.model.id
+  &&stage.validation_job_id===auth.validate.id,"staged_trusted_job_binding");
+ // Stage evidence must originate from an authenticated finished workflow
+ // attempt. A failed Record job is permitted: posting Pending can fail *after*
+ // its durable Stage write. Incomplete job inventory is never proof.
+ const jobs=paged("repos/"+REPO+"/actions/runs/"+stage.run_id+
+  "/attempts/"+stage.run_attempt+"/jobs?per_page=100","jobs");
+ const expectedName=stage.lane==="ci_autofix"?
+  "Record durable CI Autofix attempt outcome":"Record durable Review Repair attempt outcome";
+ const recorders=jobs.filter(j=>j.name===expectedName);
+ check(recorders.length===1&&pos(recorders[0].id)
+  &&recorders[0].status==="completed"
+  &&["success","failure","cancelled"].includes(recorders[0].conclusion),"staged_record_job");
+ return auth;
+}
+function retireStaged(stage,comments){
+ const actions=comments.filter(c=>c.issue_url?.toLowerCase()===ISSUE_URL.toLowerCase()
+  &&c.user?.login===OWNER&&c.user?.type==="User"
+  &&c.body?.trim()===marker("retire",stage.stage_digest));
+ check(actions.length<=1,"retirement_owner_conflict");
+ if(!actions.length)return;
+ verifyStagedProvenance(stage);
+ const before=assertCancellationUnpublished(stage);
+ // Re-read ledger: an asynchronously arriving Pending may never be retired.
+ const current=readOwnerHandoffLedger(issueComments(),stage.pr_number);
+ check(!current.pending.some(p=>p.lane===stage.lane&&p.run_id===stage.run_id
+  &&p.run_attempt===stage.run_attempt),"retirement_late_pending");
+ check(!current.retirements.some(r=>r.stage_digest===stage.stage_digest),"retirement_race");
+ const after=assertCancellationUnpublished(stage);
+ check(before.branch===after.branch&&before.main===after.main,"retirement_state_changed");
+ const v={stage_digest:stage.stage_digest,owner_comment_id:actions[0].id,
+  pr_number:stage.pr_number,observed_branch_sha:after.branch,
+  observed_main_sha:after.main,observed_at:new Date().toISOString()};
+ post(body("retirement",stage.stage_digest,v));
+ const confirmed=readOwnerHandoffLedger(issueComments(),stage.pr_number);
+ check(confirmed.retirements.some(r=>r.stage_digest===stage.stage_digest),"retirement_readback");
+}
+// A previous claim may be superseded ONLY if its trusted workflow attempt is
+// terminal, its model job was conclusively skipped, and no Start exists.
+// The existing shared PR mutex surrounds this call and the subsequent write.
+function proveAbandonedClaim(claim,comments,pr){
+ const lane=LANES[claim.lane];check(lane,"abandoned_lane");
+ const r=api("repos/"+REPO+"/actions/runs/"+claim.run_id+"/attempts/"+claim.run_attempt);
+ check(r.id===claim.run_id&&r.run_attempt===claim.run_attempt
+  &&r.path===lane.path&&r.name===lane.name&&r.event===lane.event
+  &&r.head_branch==="main"&&r.status==="completed"
+  &&["success","failure","cancelled"].includes(r.conclusion)
+  &&pos(r.workflow_id),"abandoned_run_provenance");
+ const jobs=paged("repos/"+REPO+"/actions/runs/"+claim.run_id+
+  "/attempts/"+claim.run_attempt+"/jobs?per_page=100","jobs");
+ check(jobs.length>0&&jobs.length<=1000,"abandoned_jobs");
+ const models=jobs.filter(j=>j.name===lane.model);
+ check(models.length===1&&models[0].status==="completed"
+  &&models[0].conclusion==="skipped"
+  &&(!models[0].steps||models[0].steps.every(x=>x.status==="completed"
+   &&x.conclusion==="skipped")),"abandoned_model_not_skipped");
+ const startMarker="<!-- proffera-"+(claim.lane==="review_repair"?"review-repair":"ci-autofix")+
+  "-start:v1:"+pr+":"+claim.run_id+":"+claim.run_attempt+" -->";
+ check(!comments.some(c=>typeof c.body==="string"&&c.body.startsWith(startMarker)),
+  "abandoned_start_exists");
+ const ledger=readOwnerHandoffLedger(comments,pr);
+ check(!ledger.staged.some(s=>s.lane===claim.lane&&s.run_id===claim.run_id
+  &&s.run_attempt===claim.run_attempt)
+  &&!ledger.pending.some(s=>s.lane===claim.lane&&s.run_id===claim.run_id
+   &&s.run_attempt===claim.run_attempt),"abandoned_handoff_exists");
+ return true;
+}
+function establishReentryClaim(ledger,comments,attempt,pr){
+ check(attempt&&Object.hasOwn(LANES,attempt.lane)&&pos(attempt.run_id)
+  &&pos(attempt.run_attempt)&&hex(attempt.head,40),"reentry_attempt");
+ for(const retired of ledger.retirements){
+  if(ledger.claims.some(c=>c.retirement_digest===retired.retirement_digest
+   &&c.lane===attempt.lane&&c.run_id===attempt.run_id
+   &&c.run_attempt===attempt.run_attempt&&c.head===attempt.head))continue;
+  for(const previous of ledger.claims.filter(c=>c.retirement_digest===retired.retirement_digest)){
+   proveAbandonedClaim(previous,comments,pr);
+  }
+  const bodyText=marker("reentry",retired.retirement_digest+":"+attempt.lane+":"+
+   attempt.run_id+":"+attempt.run_attempt+":"+attempt.head);
+  const owner=comments.filter(c=>c.issue_url?.toLowerCase()===ISSUE_URL.toLowerCase()
+   &&c.user?.login===OWNER&&c.user?.type==="User"&&c.body?.trim()===bodyText);
+  if(owner.length!==1)return false;
+  const stage=ledger.staged.find(s=>s.stage_digest===retired.stage_digest);
+  check(stage,"reentry_missing_stage");
+  verifyStagedProvenance(stage);
+  const before=assertCancellationUnpublished(stage);
+  check(before.pr.head.sha===attempt.head&&before.branch===attempt.head,"reentry_head");
+  const current=readOwnerHandoffLedger(issueComments(),pr);
+  check(!current.pending.some(p=>p.lane===stage.lane&&p.run_id===stage.run_id
+   &&p.run_attempt===stage.run_attempt),"reentry_late_pending");
+  for(const previous of current.claims.filter(c=>c.retirement_digest===retired.retirement_digest)){
+   check(!(previous.lane===attempt.lane&&previous.run_id===attempt.run_id
+    &&previous.run_attempt===attempt.run_attempt),"reentry_claim_race");
+   proveAbandonedClaim(previous,issueComments(),pr);
+  }
+  const after=assertCancellationUnpublished(stage);
+  check(before.branch===after.branch&&before.main===after.main,"reentry_state_changed");
+  const value={retirement_digest:retired.retirement_digest,owner_comment_id:owner[0].id,
+   pr_number:pr,...attempt,observed_at:new Date().toISOString()};
+  const claimBody=body("reentry-claim",retired.retirement_digest+":"+
+   attempt.run_id+":"+attempt.run_attempt,value);
+  let writeError;
+  try{post(claimBody);}catch(e){writeError=e;}
+  const confirmed=readOwnerHandoffLedger(issueComments(),pr);
+  check(confirmed.claims.filter(c=>c.retirement_digest===retired.retirement_digest
+   &&c.lane===attempt.lane&&c.run_id===attempt.run_id
+   &&c.run_attempt===attempt.run_attempt).every(c=>c.body===claimBody),"reentry_claim_conflict");
+  if(!confirmed.claims.some(c=>c.body===claimBody)){
+   if(writeError)throw writeError;
+   check(false,"reentry_claim_readback");
+  }
+ }
+ return true;
+}
 export function gate(env){
  const pr=Number(env.PR_NUMBER);check(pos(pr),"gate_pr");
  const comments=issueComments(),rows=readPending(comments,pr);
@@ -450,12 +713,50 @@ export function gate(env){
  // A cancellation is not irrevocable proof of nonpublication. Repeat live
   // checks even for previously persisted owner decisions. Even successful reads
   // do not grant automatic admission once cancellation exists.
- const finalComments=issueComments();
- const finalRows=readPending(finalComments,pr);
+ let finalComments=issueComments();
+ let ledger=readOwnerHandoffLedger(finalComments,pr);
+ for(const stage of ledger.staged.filter(s=>!ledger.retirements.some(r=>
+   r.stage_digest===s.stage_digest)
+   &&!ledger.pending.some(p=>p.lane===s.lane&&p.run_id===s.run_id
+     &&p.run_attempt===s.run_attempt))){
+  retireStaged(stage,finalComments);
+ }
+ finalComments=issueComments();
+ ledger=readOwnerHandoffLedger(finalComments,pr);
+ // Even an existing retirement must be rechecked on *every* admission and
+ // model boundary; the historical cancellation isn't a publication lock.
+ for(const retired of ledger.retirements){
+  const stage=ledger.staged.find(s=>s.stage_digest===retired.stage_digest);
+  verifyStagedProvenance(stage);
+  assertCancellationUnpublished(stage);
+ }
+ // A prior attempt's terminal/skipped-model proof is rechecked on every
+ // admission AND model boundary; late starts, pending or API uncertainty block.
+ const currentAttempt={lane:env.LANE,run_id:Number(env.GITHUB_RUN_ID),
+  run_attempt:Number(env.GITHUB_RUN_ATTEMPT),head:env.EXPECTED_HEAD};
+ for(const claim of ledger.claims){
+  if(claim.lane===currentAttempt.lane&&claim.run_id===currentAttempt.run_id
+   &&claim.run_attempt===currentAttempt.run_attempt&&claim.head===currentAttempt.head)continue;
+  proveAbandonedClaim(claim,finalComments,pr);
+ }
+ const phase=env.OWNER_GATE_PHASE;
+ const attempt=ledger.retirements.length?{
+  lane:env.LANE,run_id:Number(env.GITHUB_RUN_ID),
+  run_attempt:Number(env.GITHUB_RUN_ATTEMPT),head:env.EXPECTED_HEAD}:null;
+ if(ledger.retirements.length&&phase==="admit"){
+  establishReentryClaim(ledger,finalComments,attempt,pr);
+  finalComments=issueComments();
+  ledger=readOwnerHandoffLedger(finalComments,pr);
+  for(const retired of ledger.retirements){
+   const stage=ledger.staged.find(s=>s.stage_digest===retired.stage_digest);
+   assertCancellationUnpublished(stage);
+  }
+ }
+ const finalRows=ledger.pending;
  for(const p of finalRows.filter(r=>r.resolution?.decision==="cancelled")){
   assertCancellationUnpublished(p);
  }
- const result=admission(finalComments,pr);
+ const result=admission(finalComments,pr,attempt);
  // Historical merged-PR owner reconciliation never grants model admission.
  // The owner may prove a past publication even if the PR branch was deleted.
  const livePr=api("repos/"+REPO+"/pulls/"+pr);

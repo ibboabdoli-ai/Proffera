@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { pathToFileURL } from "node:url";
-import { readPending } from "./supervisor-owner-push-pending.mjs";
+import { readOwnerHandoffLedger, reentryAuthorized } from "./supervisor-owner-push-pending.mjs";
 import { stripVTControlCharacters } from "node:util";
 import {
   fingerprintEvidence,
@@ -835,14 +835,18 @@ function activeCiAutofixStarts(comments, scope, records, terminals) {
   return {starts: starts.filter((start) => !recovered.has(`${start.run_id}:${start.run_attempt}`)), recoveries};
 }
 
-export function decideCiAutofixStrategyHistory({pr_number, head, failures: failureSet, records, starts, terminals = [], pending = []}) {
+export function decideCiAutofixStrategyHistory({pr_number, head, failures: failureSet, records, starts, terminals = [], pending = [], retired = [], authorizedReentry = false}) {
   const descriptor = ciAutofixStrategyDescriptor({pr_number, head, failures: failureSet});
   if (!Array.isArray(records) || !Array.isArray(starts) || !Array.isArray(terminals)) fail("history");
   const recordKeys = recordAttemptKeys(records);
   const terminalKeys = new Set(terminals.map((terminal) => `${terminal.run_id}:${terminal.run_attempt}`));
   const pendingKeys = new Set(pending.filter(item => item.lane === "ci_autofix")
     .map(item => item.run_id + ":" + item.run_attempt));
-  const durableAttemptKeys = new Set([...recordKeys, ...terminalKeys, ...pendingKeys]);
+  // A completed model whose staged owner handoff was retired is still a
+  // charged attempt. Retirement does not fabricate a terminal outcome.
+  const retiredKeys = new Set(retired.filter(item=>item.lane==="ci_autofix")
+    .map(item=>item.run_id+":"+item.run_attempt));
+  const durableAttemptKeys = new Set([...recordKeys, ...terminalKeys, ...pendingKeys,...retiredKeys]);
   const laneRecords = records.filter((record) => record?.action_id === "ci_autofix_attempt");
   const matchingRecords = laneRecords.filter((record) =>
     record?.evidence_fingerprint === descriptor.evidence_fingerprint
@@ -854,6 +858,10 @@ export function decideCiAutofixStrategyHistory({pr_number, head, failures: failu
   if (pending.some(item=>!item.resolution)) return {
     decision:"SUPPRESS_UNRESOLVED_ATTEMPT",reason:"An authenticated owner-push handoff is unresolved.",
     prior_attempts:durableAttemptKeys.size,unresolved_attempts:unresolved.length,...descriptor};
+  if (retired.some(item=>item.lane==="ci_autofix"&&item.parent_sha===descriptor.head)
+    &&!authorizedReentry)
+    return {decision:"SUPPRESS_REPEAT",reason:"Retired model attempt requires exact owner re-entry authorization.",
+      prior_attempts:durableAttemptKeys.size,unresolved_attempts:unresolved.length,...descriptor};
   if (pending.some(item=>item.lane==="ci_autofix"&&item.parent_sha===descriptor.head))
     return {decision:"SUPPRESS_REPEAT",reason:"This HEAD already consumed a CI Autofix handoff attempt.",
       prior_attempts:durableAttemptKeys.size,unresolved_attempts:unresolved.length,...descriptor};
@@ -914,12 +922,14 @@ export function ciAutofixMemoryState({repository: repo, pr_number, comments}) {
   const terminals = parseCiAutofixTerminals(comments, {repository: EXPECTED_REPOSITORY, pr_number: prNumber});
   const active = activeCiAutofixStarts(
     comments, {repository: EXPECTED_REPOSITORY, pr_number: prNumber}, snapshot.memory.records, terminals);
-  const pending=readPending(comments,prNumber);
+  const ledger=readOwnerHandoffLedger(comments,prNumber);
+  const pending=ledger.pending;
+  const retired=ledger.retirements.map(r=>ledger.staged.find(s=>s.stage_digest===r.stage_digest));
   const existing=new Set([...recordAttemptKeys(snapshot.memory.records),
     ...terminals.map(item=>item.run_id+":"+item.run_attempt)]);
   if(pending.some(item=>existing.has(item.run_id+":"+item.run_attempt)))fail("pending_terminal_conflict");
   return {snapshot, records:snapshot.memory.records, starts:active.starts,
-    recoveries:active.recoveries,terminals,pending};
+    recoveries:active.recoveries,terminals,pending,retired};
 }
 
 export function unresolvedCiAutofixStarts(input) {
@@ -928,9 +938,13 @@ export function unresolvedCiAutofixStarts(input) {
   const terminalKeys = new Set(state.terminals.map((terminal) => `${terminal.run_id}:${terminal.run_attempt}`));
   const pendingKeys=new Set(state.pending.filter(item=>item.lane==='ci_autofix')
     .map(item=>item.run_id+":"+item.run_attempt));
+  const ledger=readOwnerHandoffLedger(input.comments,input.pr_number);
+  const retired=new Set(ledger.retirements.map(r=>ledger.staged.find(s=>s.stage_digest===r.stage_digest))
+    .filter(s=>s.lane==="ci_autofix").map(s=>s.run_id+":"+s.run_attempt));
   return state.starts.filter((start) => !recorded.has(`${start.run_id}:${start.run_attempt}`)
     && !terminalKeys.has(`${start.run_id}:${start.run_attempt}`)
-    && !pendingKeys.has(`${start.run_id}:${start.run_attempt}`));
+    && !pendingKeys.has(`${start.run_id}:${start.run_attempt}`)
+    && !retired.has(`${start.run_id}:${start.run_attempt}`));
 }
 
 export function ciAutofixAdmittedFailures(input) {
@@ -1083,7 +1097,9 @@ async function main(args) {
     return void process.stdout.write(JSON.stringify(decideCiAutofixStrategyHistory({
       pr_number: parsed.pr_number, head: parsed.head, failures: parsed.failures,
       records: state.records, starts: state.starts, terminals: state.terminals,
-      pending: state.pending,
+      pending: state.pending,retired:state.retired,
+      authorizedReentry:state.retired.length>0&&reentryAuthorized(parsed.comments,parsed.pr_number,
+        {lane:"ci_autofix",run_id:Number(parsed.run_id),run_attempt:Number(parsed.run_attempt),head:parsed.head}),
     })) + "\n");
   }
   if (mode === "prepare-outcome") {

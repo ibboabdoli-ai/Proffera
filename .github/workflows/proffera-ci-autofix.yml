@@ -309,6 +309,7 @@ jobs:
           SOURCE_RUN_ID: ${{ needs.prepare.outputs.source_run_id }}
           SOURCE_RUN_ATTEMPT: ${{ needs.prepare.outputs.source_run_attempt }}
           LANE: ci_autofix
+          OWNER_GATE_PHASE: admit
           EXPECTED_HEAD: ${{ needs.prepare.outputs.head_sha }}
           EXPECTED_REF: ${{ needs.prepare.outputs.head_ref }}
         shell: bash
@@ -374,8 +375,9 @@ jobs:
           build_input() {
             jq -n --arg repository "$REPOSITORY" --arg pr_number "$PR_NUMBER" --arg head "$HEAD_SHA" \
               --arg source_run_id "$SOURCE_RUN_ID" --arg source_run_attempt "$SOURCE_RUN_ATTEMPT" \
+              --arg run_id "$GITHUB_RUN_ID" --arg run_attempt "$GITHUB_RUN_ATTEMPT" \
               --slurpfile failures "$failures_file" --slurpfile comments "$comments_file" \
-              '{repository:$repository,pr_number:($pr_number|tonumber),head:$head,source_run_id:($source_run_id|tonumber),source_run_attempt:($source_run_attempt|tonumber),failures:$failures[0],comments:$comments[0]}'
+              '{repository:$repository,pr_number:($pr_number|tonumber),head:$head,source_run_id:($source_run_id|tonumber),source_run_attempt:($source_run_attempt|tonumber),run_id:($run_id|tonumber),run_attempt:($run_attempt|tonumber),failures:$failures[0],comments:$comments[0]}'
           }
 
           input_json="$(build_input)"
@@ -650,6 +652,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ needs.prepare.outputs.pr_number }}
           LANE: ci_autofix
+          OWNER_GATE_PHASE: model
           EXPECTED_HEAD: ${{ needs.admit.outputs.head_sha }}
           EXPECTED_REF: ${{ needs.prepare.outputs.head_ref }}
         shell: bash

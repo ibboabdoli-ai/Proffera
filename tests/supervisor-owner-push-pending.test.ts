@@ -8,7 +8,7 @@ import {createHash} from "node:crypto";
 import {readFileSync} from "node:fs";
 import {createRequire} from "node:module";
 // @ts-expect-error Trusted control-plane .mjs helper.
-import {readPending,admission,verifyArtifactMetadata,verifyHandoffManifest,resolveDecision,mayResolveExpiredArtifact,verifyHandoffBranch,gate,commitLookupKnown,authenticatedGitFetch,verifyRecordBranch,admittedRecordIdentity,record} from "../scripts/supervisor-owner-push-pending.mjs";
+import {readPending,readOwnerHandoffLedger,admission,verifyArtifactMetadata,verifyHandoffManifest,resolveDecision,mayResolveExpiredArtifact,verifyHandoffBranch,gate,commitLookupKnown,authenticatedGitFetch,verifyRecordBranch,admittedRecordIdentity,record} from "../scripts/supervisor-owner-push-pending.mjs";
 // @ts-expect-error Trusted control-plane .mjs helper.
 import {decideReviewRepairStrategyHistory} from "../scripts/supervisor-review-repair-strategy-memory.mjs";
 // @ts-expect-error Trusted control-plane .mjs helper.
@@ -449,7 +449,9 @@ describe("admitted-attempt ownership and workflow record boundaries",()=>{
 });
 
 describe("executed owner-push pending recorder after exact owner publication",()=>{
- it.each(["parent","rerun-admitted","missing-admitted","wrong-admitted","changed-base","unauthorized-pr-identity","already-published","published-during-auth","unrelated-head","rewound-after-auth","rewound-after-fetched-tip"] as const)(
+ it.each(["parent","rerun-admitted","missing-admitted","wrong-admitted","changed-base","unauthorized-pr-identity","already-published","published-during-auth","unrelated-head","rewound-after-auth","rewound-after-fetched-tip","stage-write-error",
+  "pending-write-error","pending-write-timeout-after-post","stage-write-timeout-after-post",
+  "staged-conflicting-identity"] as const)(
   "records authenticated handoff without relaxing owner gate: %s",async scenario=>{
    const actual=await vi.importActual<typeof import("node:child_process")>("node:child_process");
    const p=fixture().value;
@@ -479,10 +481,14 @@ describe("executed owner-push pending recorder after exact owner publication",()
     head:p.parent_sha,pr_number:pr,run_id:81,run_attempt:1,
    })+"\n"+bt,130);
    const comments=[start];
+   if(scenario==="staged-conflicting-identity")comments.push(bot(
+    make("staged","review_repair:81:1",{
+     ...p,head_sha:"9".repeat(40)
+    }),131));
    const published=()=>scenario==="already-published"||scenario==="published-during-auth";
    const firstHead=scenario==="already-published"||scenario==="rewound-after-auth"?p.head_sha:
     scenario==="unrelated-head"?"9".repeat(40):p.parent_sha;
-   let reads=0,posts=0,fetchHead="",parentFetched=false,fetches=0;
+   let reads=0,posts=0,fetchHead="",parentFetched=false,fetches=0,pendingFailed=false;
    vi.stubEnv("GH_TOKEN","test-only-token-do-not-use");
    const good=(stdout:string|Buffer)=>({status:0,stdout,stderr:"",error:undefined});
    const fail=(stderr:string)=>({status:1,stdout:"",stderr,error:undefined});
@@ -493,9 +499,19 @@ describe("executed owner-push pending recorder after exact owner publication",()
       if(args[3].includes("/jobs?"))return good(JSON.stringify([{jobs}]));
      }
      if(args[1]==="--method"&&args.includes("POST")){
+      if(scenario==="stage-write-error")return fail("503 Service Unavailable");
+      if(scenario==="pending-write-error" && posts===1 && !pendingFailed){
+       pendingFailed=true;return fail("503 Service Unavailable");
+      }
       const body=args.find(s=>s.startsWith("body="));
       if(!body)throw Error("missing record body");
       comments.push(bot(body.slice(5),300+ ++posts));
+      if(scenario==="pending-write-timeout-after-post" && posts===2 && !pendingFailed){
+       pendingFailed=true;return fail("504 Gateway Timeout");
+      }
+      if(scenario==="stage-write-timeout-after-post" && posts===1 && !pendingFailed){
+       pendingFailed=true;return fail("504 Gateway Timeout");
+      }
       return good(JSON.stringify({id:300+posts}));
      }
      const endpoint=args[1];
@@ -573,10 +589,32 @@ describe("executed owner-push pending recorder after exact owner publication",()
       scenario==="missing-admitted"?"record_attempt_evidence":
       scenario==="wrong-admitted"?"artifact_id":"record_ref");
      expect(posts).toBe(0);
+    }else if(scenario==="staged-conflicting-identity"){
+     expect(()=>record(env)).toThrow("staged_replay");
+     expect(posts).toBe(0);
+    }else if(scenario==="stage-write-error"){
+     expect(()=>record(env)).toThrow("command_gh");
+     expect(posts).toBe(0);
+     expect(readPending(comments,pr)).toEqual([]);
+     expect(readOwnerHandoffLedger(comments,pr).staged).toEqual([]);
     }else{
-     expect(record(env)).toEqual({pending:true});
-     expect(posts).toBe(1);
-     expect(fetches).toBe(2);
+     if(scenario==="pending-write-error"){
+      expect(()=>record(env)).toThrow("command_gh");
+      const frozen=readOwnerHandoffLedger(comments,pr).staged;
+      expect(frozen).toHaveLength(1);
+      expect(readOwnerHandoffLedger(comments,pr).pending).toHaveLength(0);
+      expect(record(env)).toEqual({pending:true});
+      const replay=readOwnerHandoffLedger(comments,pr);
+      expect(replay.pending[0].observed_at).toBe(frozen[0].observed_at);
+      expect(replay.pending[0].observed_at).not.toBeUndefined();
+     }else expect(record(env)).toEqual({pending:true});
+     const committedPosts=posts;
+     if(scenario!=="published-during-auth"){
+      expect(record(env)).toEqual({pending:true}); // same Run/Attempt replay is idempotent
+      expect(posts).toBe(committedPosts);
+     }
+     expect(posts).toBe(2); // durable Stage then Pending
+     expect(fetches).toBeGreaterThanOrEqual(2);
      const ledger=readPending(comments,pr);
      expect(ledger).toHaveLength(1);
      expect(ledger[0].head_sha).toBe(p.head_sha);
@@ -748,4 +786,161 @@ describe("production gate with a retained artifact and an advanced branch",()=>{
    }
   }finally{vi.mocked(spawnSync).mockImplementation(actual.spawnSync);vi.unstubAllEnvs();}
  });
+});
+
+
+describe("executed Stage -> owner retirement -> one-shot re-entry gate",()=>{
+ it.each(["success","late_pending","late_publish","unknown_commit","claim_write_error",
+  "safe_reissue","strategy_rejected","old_model_ran","old_run_active","old_start_late",
+  "old_pending_late","old_api_uncertain","new_head_changed","cross_lane_reissue"] as const)(
+  "holds the exact historical attempt and fails closed on %s",async scenario=>{
+   const actual=await vi.importActual<typeof import("node:child_process")>("node:child_process");
+   const f=fixture(),stage=bot(make("staged","review_repair:81:1",f.value),1300);
+   const stageDigest=sha(stage.body),retire=owner("<!-- proffera-owner-push-retire:v1:"+stageDigest+" -->",1400);
+   const comments:(ReturnType<typeof bot>|ReturnType<typeof owner>)[]=[stage,retire];
+   const completed=(name:string)=>({name,status:"completed",conclusion:"success"});
+   const jobs=[
+    {id:302,name:"Batch current-head review findings",status:"completed",conclusion:"success",
+     steps:[completed("Run one batched exact-head repair")]},
+    {id:303,name:"Validate repair without model or push credentials",status:"completed",conclusion:"success",steps:[]},
+    {id:301,name:"Stage Review Repair owner-push handoff (no publication)",status:"completed",conclusion:"success",
+     steps:[completed("Revalidate and commit bounded repair for owner handoff"),
+      completed("Upload Review Repair owner handoff")]},
+    {id:399,name:"Record durable Review Repair attempt outcome",status:"completed",conclusion:"failure",steps:[]},
+   ];
+   const run={id:81,run_attempt:1,path:".github/workflows/supervisor-review-repair.yml",
+    name:"Supervisor review repair",event:"workflow_dispatch",head_branch:"main",workflow_id:201,
+    status:"completed",conclusion:"failure"};
+   const good=(stdout:string)=>({status:0,stdout,stderr:"",error:undefined});
+   const bad=(stderr:string)=>({status:1,stdout:"",stderr,error:undefined});
+   let fetchHead="",posts=0,commitKnown=false,failLookup=false,oldRunStatus="in_progress";
+   let currentHead=f.value.parent_sha;
+   vi.stubEnv("GH_TOKEN","temporary-test-token");
+   vi.mocked(spawnSync).mockImplementation(((bin:string,args:string[])=>{
+    if(bin==="gh"&&args[0]==="api"){
+     if(args[1]==="--paginate"&&args[2]==="--slurp"){
+      if(args[3].includes("/issues/548/comments"))return good(JSON.stringify([comments]));
+      if(args[3].includes("/jobs?")){
+       if(args[3].includes("/runs/202/"))return good(JSON.stringify([{jobs:[{
+        name:"Bounded Codex CI autofix",status:"completed",
+        conclusion:scenario==="old_model_ran"?"success":"skipped",steps:[]
+       }]}]));
+       return good(JSON.stringify([{jobs}]));
+      }
+     }
+     if(args[1]==="--method"&&args.includes("POST")){
+      posts++;
+      if(scenario==="claim_write_error"&&posts===2)return bad("503 Service Unavailable");
+      const submitted=args.find(s=>s.startsWith("body="));
+      if(!submitted)throw Error("POST missing body");
+      comments.push(bot(submitted.slice(5),1600+posts));
+      return good(JSON.stringify({id:1600+posts}));
+     }
+     const url=args[1];
+     if(url==="repos/"+repo+"/actions/runs/81/attempts/1")return good(JSON.stringify(run));
+     if(url==="repos/"+repo+"/actions/runs/202/attempts/1"){
+      if(scenario==="old_api_uncertain")return bad("503 Service Unavailable");
+      return good(JSON.stringify({
+       ...run,id:202,run_attempt:1,status:oldRunStatus,
+       conclusion:oldRunStatus==="completed"?(scenario==="strategy_rejected"?"success":"failure"):null,
+       path:".github/workflows/proffera-ci-autofix.yml",name:"Proffera CI autofix",event:"workflow_run"}));
+     }
+     if(url==="repos/"+repo+"/pulls/"+pr)return good(JSON.stringify({
+      state:"open",merged:false,user:{login:"ibboabdoli-ai"},base:{ref:"main",sha:f.value.base_sha},
+      head:{ref:f.value.branch,sha:currentHead,repo:{full_name:repo}},
+     }));
+     if(url==="repos/"+repo+"/git/ref/heads/"+f.value.branch)
+      return good(JSON.stringify({object:{sha:currentHead}}));
+     if(url==="repos/"+repo+"/git/ref/heads/main")
+      return good(JSON.stringify({object:{sha:f.value.base_sha}}));
+     if(url==="repos/"+repo+"/deployments?sha="+f.value.head_sha+"&per_page=100")return good("[]");
+     if(url==="repos/"+repo+"/commits/"+f.value.head_sha){
+      if(scenario==="unknown_commit"&&failLookup)return bad("503 Service Unavailable");
+      return commitKnown?good("{}"):bad("gh: No commit found for SHA: "+f.value.head_sha+" (HTTP 422)");
+     }
+    }
+    if(bin==="git"){
+     if(args.includes("fetch")){
+      const ref=args.at(-1);
+      fetchHead=ref==="refs/heads/main"?f.value.base_sha:currentHead;
+      return good("");
+     }
+     if(args[0]==="rev-parse"&&args[1]==="FETCH_HEAD")return good(fetchHead+"\n");
+     if(args[0]==="rev-list")return good(args[1]+"\n");
+    }
+    throw Error("unexpected command "+bin+" "+args.join(" "));
+   }) as typeof spawnSync);
+   const ctx={PR_NUMBER:String(pr)};
+   const attempt={...ctx,OWNER_GATE_PHASE:"admit",LANE:"ci_autofix",GITHUB_RUN_ID:"202",
+    GITHUB_RUN_ATTEMPT:"1",EXPECTED_HEAD:f.value.parent_sha};
+   try{
+    const first=gate(ctx);
+    expect(first.allow).toBe(false);
+    expect(posts).toBe(1); // independent durable Retirement, not Admission
+    expect(readOwnerHandoffLedger(comments,pr).retirements).toHaveLength(1);
+    const digest=readOwnerHandoffLedger(comments,pr).retirements[0].retirement_digest;
+    const reentry=owner("<!-- proffera-owner-push-reentry:v1:"+digest+":ci_autofix:202:1:"+
+      f.value.parent_sha+" -->",1500);
+    comments.push(reentry);
+    if(scenario==="late_pending")comments.push(f.comment);
+    if(scenario==="late_publish")commitKnown=true;
+    if(scenario==="unknown_commit")failLookup=true;
+    if(["safe_reissue","strategy_rejected","old_model_ran","old_run_active","old_start_late",
+      "old_pending_late","old_api_uncertain","new_head_changed","cross_lane_reissue"].includes(scenario)){
+     expect(gate(attempt).allow).toBe(true); // first claim, no Start
+     expect(posts).toBe(2);
+     if(scenario!=="old_run_active")oldRunStatus="completed";
+     if(scenario==="old_start_late")comments.push(bot(
+      "<!-- proffera-ci-autofix-start:v1:941:202:1 -->",1705));
+     if(scenario==="old_pending_late")comments.push(
+      bot(make("pending","ci_autofix:202:1",fixture(202,"ci_autofix").value),1706));
+     if(scenario==="new_head_changed")currentHead="9".repeat(40);
+     const nextLane=scenario==="cross_lane_reissue"?"review_repair":"ci_autofix";
+     if(scenario!=="cross_lane_reissue")comments.push(owner(
+      "<!-- proffera-owner-push-reentry:v1:"+digest+":"+nextLane+":203:1:"+
+       f.value.parent_sha+" -->",1501));
+     const next={...attempt,LANE:nextLane,GITHUB_RUN_ID:"203"};
+     if(scenario==="safe_reissue"||scenario==="strategy_rejected"){
+      // A normal strategy-level suppression ends the admitted workflow with a
+      // skipped model job, but cannot consume the owner's NEXT authorization.
+      expect(gate(next).allow).toBe(true);
+      expect(readOwnerHandoffLedger(comments,pr).claims).toHaveLength(2);
+      expect(gate({...next,OWNER_GATE_PHASE:"model"}).allow).toBe(true);
+      expect(posts).toBe(3);
+      // New claim now owns the re-entry sequence; the earlier attempt cannot
+      // launch while the new run has not conclusively ended without a model.
+      expect(()=>gate({...attempt,OWNER_GATE_PHASE:"model"})).toThrow();
+     }else if(scenario==="cross_lane_reissue"){
+      expect(gate(next).allow).toBe(false);
+      expect(posts).toBe(2);
+     }else{
+      expect(()=>gate(next)).toThrow();
+      expect(posts).toBe(2);
+     }
+    }else if(scenario==="success"){
+     expect(gate(attempt).allow).toBe(true);
+     expect(posts).toBe(2);
+     expect(gate({...attempt,OWNER_GATE_PHASE:"model"}).allow).toBe(true);
+     expect(()=>gate({...attempt,GITHUB_RUN_ID:"203"})).toThrow("abandoned_run_provenance");
+     expect(()=>gate({...attempt,GITHUB_RUN_ATTEMPT:"2"})).toThrow("abandoned_run_provenance");
+     expect(()=>gate({...attempt,LANE:"review_repair"})).toThrow("abandoned_run_provenance");
+     expect(posts).toBe(2); // one-shot claim is never replayed
+    }else if(scenario==="late_pending"){
+     expect(()=>gate(attempt)).toThrow("retirement_late_pending");
+     expect(posts).toBe(1);
+    }else if(scenario==="late_publish"){
+     expect(()=>gate(attempt)).toThrow("historical_publication_ambiguous");
+     expect(posts).toBe(1);
+    }else if(scenario==="unknown_commit"){
+     expect(()=>gate(attempt)).toThrow("publication_lookup_ambiguous");
+     expect(posts).toBe(1);
+    }else{
+     expect(()=>gate(attempt)).toThrow();
+     expect(posts).toBe(2);
+     expect(readOwnerHandoffLedger(comments,pr).claims).toHaveLength(0);
+     expect(admission(comments,pr,{
+      lane:"ci_autofix",run_id:203,run_attempt:1,head:f.value.parent_sha}).allow).toBe(false);
+    }
+   }finally{vi.mocked(spawnSync).mockImplementation(actual.spawnSync);vi.unstubAllEnvs();}
+  });
 });

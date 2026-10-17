@@ -6,7 +6,7 @@ import {spawnSync} from "node:child_process";
 import {pathToFileURL} from "node:url";
 import {unresolvedCiAutofixStarts} from "./supervisor-ci-autofix-strategy-memory.mjs";
 import {unresolvedReviewRepairStarts} from "./supervisor-review-repair-strategy-memory.mjs";
-import {readPending} from "./supervisor-owner-push-pending.mjs";
+import {readOwnerHandoffLedger,reentryAuthorized} from "./supervisor-owner-push-pending.mjs";
 const REPO="ibboabdoli-ai/Proffera";
 const positive=n=>Number.isSafeInteger(n)&&n>0;
 const sha=v=>typeof v==="string"&&/^[a-f0-9]{40}$/.test(v);
@@ -32,7 +32,8 @@ export function exclusiveReservationDecision({repository,pr_number,comments:rows
  const input={repository,pr_number,comments:rows};
  const ci=unresolvedCiAutofixStarts(input);
  const review=unresolvedReviewRepairStarts(input);
- const pending=readPending(rows,pr_number);
+ const ledger=readOwnerHandoffLedger(rows,pr_number);
+ const pending=ledger.pending;
  const active=[...ci.map(x=>({...x,lane:"ci_autofix"})),
    ...review.map(x=>({...x,lane:"review_repair"}))];
  const ownership=active.filter(x=>x.lane===lane&&x.run_id===run_id
@@ -40,9 +41,15 @@ export function exclusiveReservationDecision({repository,pr_number,comments:rows
  const allow=phase==="admit"?active.length===0:
    active.length===1&&ownership.length===1;
  const noUnresolvedPending=pending.every(x=>x.resolution?.decision==="push_confirmed");
+ const noStagingGap=ledger.staged.every(s=>ledger.retirements.some(r=>r.stage_digest===s.stage_digest)
+  ||pending.some(p=>p.lane===s.lane&&p.run_id===s.run_id&&p.run_attempt===s.run_attempt));
+ const authorized=ledger.retirements.length===0||reentryAuthorized(rows,pr_number,
+  {lane,run_id,run_attempt,head});
  return {
-   allow:allow&&noUnresolvedPending,
+   allow:allow&&noUnresolvedPending&&noStagingGap&&authorized,
    reason:!noUnresolvedPending?"pending_owner_handoff":
+     !noStagingGap?"unresolved_staged_handoff":
+     !authorized?"owner_retired_hold":
      !allow?"other_or_missing_active_reservation":"exact_reservation",
    ci_unresolved:ci.length,review_unresolved:review.length,
  };

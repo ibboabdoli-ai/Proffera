@@ -1,4 +1,5 @@
 import {describe,expect,it} from "vitest";
+import {createHash} from "node:crypto";
 import {chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync} from "node:fs";
 import {tmpdir} from "node:os";
 import {dirname, join} from "node:path";
@@ -35,6 +36,97 @@ const check=(lane:Lane,phase:"admit"|"model",comments:ReturnType<typeof bot>[],
   run_id=101,run_attempt=1,headValue=head)=>
   exclusiveReservationDecision({repository,pr_number:pr,comments,lane,phase,
     run_id,run_attempt,head:headValue});
+
+const issue="https://api.github.com/repos/ibboabdoli-ai/Proffera/issues/548";
+const sha256=(value:string)=>createHash("sha256").update(value).digest("hex");
+const ledgerBody=(kind:string,key:string,payload:Record<string,unknown>)=>
+  "<!-- proffera-owner-push-"+kind+":v1:"+key+" -->\n```json\n"+canonical(payload)+"\n```";
+function stagedRetired(lane:Lane,oldRun=101){
+  const v={version:1,lane,repository,pr_number:pr,branch:"work/proffera-test",
+    base_sha:"a".repeat(40),parent_sha:head,head_sha:"e".repeat(40),
+    tree_sha:"f".repeat(40),run_id:oldRun,run_attempt:1,workflow_id:33,
+    publish_job_id:44,model_job_id:45,validation_job_id:46,artifact_id:47,
+    artifact_digest:digest,bundle_digest:digest,manifest_digest:digest,
+    finding_digest:lane==="review_repair"?digest:null,observed_at:"2026-10-17T12:00:00Z"};
+  const stage=bot(ledgerBody("staged",lane+":"+oldRun+":1",v),6001);
+  const stageDigest=sha256(stage.body);
+  const retireOwner={id:6002,body:"<!-- proffera-owner-push-retire:v1:"+stageDigest+" -->",
+    user:{login:"ibboabdoli-ai",type:"User"},issue_url:issue};
+  const retirePayload={stage_digest:stageDigest,owner_comment_id:6002,pr_number:pr,
+    observed_branch_sha:head,observed_main_sha:"b".repeat(40),observed_at:"2026-10-17T13:00:00Z"};
+  const retirement=bot(ledgerBody("retirement",stageDigest,retirePayload),6003);
+  const retirementDigest=sha256(retirement.body);
+  return {stage,retireOwner,retirement,retirementDigest,v};
+}
+function reentryProof(retirementDigest:string,lane:Lane,run=202,attempt=1,headValue=head){
+  const action={id:7001,body:"<!-- proffera-owner-push-reentry:v1:"+retirementDigest+":"+
+    lane+":"+run+":"+attempt+":"+headValue+" -->",
+    issue_url:issue,user:{login:"ibboabdoli-ai",type:"User"}};
+  const claim=bot(ledgerBody("reentry-claim",retirementDigest,{
+    retirement_digest:retirementDigest,owner_comment_id:action.id,pr_number:pr,
+    lane,run_id:run,run_attempt:attempt,head:headValue,
+    observed_at:"2026-10-17T14:00:00Z"}),7002);
+  return {action,claim};
+}
+
+describe("authenticated staged handoff Retirement and one-shot re-entry races",()=>{
+  it.each([["ci_autofix","review_repair"],["review_repair","ci_autofix"]] as const)(
+    "%s retirement releases historical reservation, but %s needs its exact owner claim",(oldLane,newLane)=>{
+      const evidence=stagedRetired(oldLane),old=start(oldLane,101);
+      const staged=[old,evidence.stage];
+      expect(check(newLane,"admit",staged,202).allow).toBe(false);
+      const retired=[...staged,evidence.retireOwner,evidence.retirement];
+      expect(check(newLane,"admit",retired,202)).toMatchObject({allow:false,
+        reason:"owner_retired_hold",ci_unresolved:0,review_unresolved:0});
+      const {action,claim}=reentryProof(evidence.retirementDigest,newLane);
+      const authorized=[...retired,action,claim];
+      expect(check(newLane,"admit",authorized,202).allow).toBe(true);
+      expect(check(newLane,"admit",authorized,203).allow).toBe(false);
+      expect(check(oldLane,"admit",authorized,202).allow).toBe(false);
+      expect(check(newLane,"admit",authorized,202,2).allow).toBe(false);
+      expect(check(newLane,"admit",authorized,202,1,otherHead).allow).toBe(false);
+      const started=[...authorized,start(newLane,202)];
+      expect(check(newLane,"model",started,202).allow).toBe(true);
+      expect(check(oldLane,"model",started,101).allow).toBe(false);
+      expect(check(newLane,"model",[...started,start(oldLane,303)],202).allow).toBe(false);
+      expect(check(oldLane,"model",[...started,start(oldLane,303)],303).allow).toBe(false);
+    });
+  it("rejects missing Stage, spoofed owner, late Pending and competing claims",()=>{
+    const f=stagedRetired("review_repair"),fresh=reentryProof(f.retirementDigest,"ci_autofix");
+    const seed=[start("review_repair",101),f.stage];
+    expect(()=>check("ci_autofix","admit",[f.retireOwner,f.retirement],202)).toThrow("retirement_missing_stage");
+    expect(()=>check("ci_autofix","admit",[...seed,{...f.retireOwner,
+      user:{login:"attacker",type:"User"}},f.retirement],202)).toThrow("retirement_owner_provenance");
+    expect(()=>check("ci_autofix","admit",[...seed,f.retireOwner,f.retirement,fresh.claim],202))
+      .toThrow("reentry_owner_provenance");
+    expect(()=>check("ci_autofix","admit",[...seed,f.retireOwner,f.retirement,fresh.action,
+      fresh.claim,bot(ledgerBody("pending","review_repair:101:1",f.v),8001)],202))
+      .toThrow("retirement_late_pending");
+    const conflict=reentryProof(f.retirementDigest,"ci_autofix",203);
+    expect(()=>check("ci_autofix","admit",[...seed,f.retireOwner,f.retirement,fresh.action,
+      fresh.claim,conflict.action,{...conflict.claim,id:8002}],202)).toThrow("reentry_claim_conflict");
+    expect(()=>check("ci_autofix","admit",[...seed,f.retireOwner,f.retirement,fresh.action,
+      fresh.claim,{...fresh.claim,body:fresh.claim.body.replace('"head":"'+head+'"',
+        '"head":"'+otherHead+'"'),id:8003}],202)).toThrow();
+  });
+  it("rejects duplicate legacy and attempt-keyed claims for the same Run/Attempt",()=>{
+    const f=stagedRetired("review_repair"),fresh=reentryProof(f.retirementDigest,"ci_autofix");
+    const duplicate=bot(fresh.claim.body.replace(
+      "reentry-claim:v1:"+f.retirementDigest+" -->",
+      "reentry-claim:v1:"+f.retirementDigest+":202:1 -->"),8004);
+    const proof=[start("review_repair",101),f.stage,f.retireOwner,f.retirement,
+      fresh.action,fresh.claim,duplicate];
+    expect(()=>check("ci_autofix","admit",proof,202)).toThrow("reentry_duplicate_claim");
+  });
+  it("a Claim without its Start does not launch a model and cannot be reused",()=>{
+    const f=stagedRetired("ci_autofix"),c=reentryProof(f.retirementDigest,"review_repair");
+    const proof=[start("ci_autofix",101),f.stage,f.retireOwner,f.retirement,c.action,c.claim];
+    // Crash after the claim write but before the new Start must not launch anything.
+    expect(check("review_repair","model",proof,202).allow).toBe(false);
+    expect(check("review_repair","admit",proof,203).allow).toBe(false);
+    expect(check("ci_autofix","admit",proof,303).allow).toBe(false);
+  });
+});
 
 describe("B4 cross-workflow durable model reservation",()=>{
   it.each([

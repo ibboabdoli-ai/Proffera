@@ -111,6 +111,19 @@ describe("CI Autofix stable evidence and strategy identity", () => {
 
 });
 
+describe("retired handoff budget cannot be reset by removal of its reservation",()=>{
+ it("counts completed staged model even without fabricated terminal Failure Memory",()=>{
+  const prior={lane:"ci_autofix",run_id:50,run_attempt:1,parent_sha:head};
+  const historical=start({run_id:50});
+  expect(decideCiAutofixStrategyHistory({pr_number:pr,head,failures,records:[],
+    starts:[historical],retired:[prior]}))
+    .toMatchObject({decision:"SUPPRESS_REPEAT",prior_attempts:1,unresolved_attempts:0});
+  expect(decideCiAutofixStrategyHistory({pr_number:pr,head,failures,records:[],
+    starts:[historical],retired:[prior],authorizedReentry:true}))
+    .toMatchObject({decision:"ALLOW_MATERIAL_REENTRY",prior_attempts:1,unresolved_attempts:0});
+ });
+});
+
 describe("CI Autofix durable admission and outcomes", () => {
   it("allows the first deterministic failure snapshot", () => {
     expect(decideCiAutofixStrategyHistory({pr_number: pr, head, failures, records: [], starts: []}))

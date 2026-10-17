@@ -360,6 +360,8 @@ describe("canonical Supervisor pre-publication gate", () => {
   it("runs an allowlisted real local check and never confuses it with publication approval", () => {
     const { root, repo, base } = fixture({ baseFiles: { "AGENTS.md": "base\n" } });
     write(join(repo, "AGENTS.md"), "candidate\n");
+    write(join(repo, "node_modules", "next", "dist", "bin", "next"),
+      'process.stdout.write("fixture-typegen-executed\\n");\n');
     write(join(repo, "node_modules", "typescript", "bin", "tsc"),
       'process.stdout.write("fixture-check-executed\\n");\n');
     git(repo, ["add", "."]);
@@ -396,6 +398,8 @@ describe("canonical Supervisor pre-publication gate", () => {
     expect(duplicate.status).toBe(1);
     expect(duplicate.stderr).toContain("unique check IDs");
 
+    write(join(repo, "node_modules", "next", "dist", "bin", "next"),
+      'process.stdout.write("fixture-typegen-executed\\n");\n');
     write(join(repo, "node_modules", "typescript", "bin", "tsc"),
       'process.stderr.write("deliberate failed check\\n");process.exit(7);\n');
     git(repo, ["add", "."]);
@@ -410,10 +414,44 @@ describe("canonical Supervisor pre-publication gate", () => {
     });
   });
 
+  it("keeps v1 Validation Evidence compatible while rejecting contradictory two-step typecheck",()=>{
+    const f=fixture({baseFiles:{"AGENTS.md":"baseline\n"}});
+    write(join(f.repo,"AGENTS.md"),"updated\n");
+    git(f.repo,["add","."]);git(f.repo,["commit","-qm","candidate"]);
+    const candidate=inspectFixture({cwd:f.repo,baseSha:f.base,prBody:body(f.base)});
+    const bodyPath=writeBody(f.root,body(f.base));
+    const {validationPath,reviewPath}=writeEvidence(f.root,candidate);
+    const verify=()=>cli(f.repo,["verify","--base",f.base,"--pr-body",bodyPath,
+      "--validation",validationPath,"--review",reviewPath]);
+    const old=verify();
+    expect(old.status).toBe(1);
+    expect(JSON.parse(old.stdout).code).toBe("evidence_provenance_unverified");
+    const evidence=JSON.parse(readFileSync(validationPath,"utf8"));
+    const result=evidence.results.find((r:{id:string})=>r.id==="typecheck");
+    expect(result).toBeDefined();
+    result.exit_code=0;
+    result.steps=[
+      {id:"next-typegen",status:"passed",exit_code:0,error:null,command:"node next typegen"},
+      {id:"typescript-noemit",status:"failed",exit_code:1,error:null,command:"node tsc --noEmit"},
+    ];
+    writeFileSync(validationPath,JSON.stringify(evidence));
+    const rejected=verify();
+    expect(rejected.status).toBe(1);
+    expect(rejected.stderr).toContain("typecheck requires two successful ordered steps");
+    result.steps[1].status="passed";
+    result.steps[1].exit_code=0;
+    writeFileSync(validationPath,JSON.stringify(evidence));
+    const consistent=verify();
+    expect(consistent.status).toBe(1);
+    expect(JSON.parse(consistent.stdout).code).toBe("evidence_provenance_unverified");
+  });
+
   it("fails closed if run-checks mutates the PR body during validation", () => {
     const { root, repo, base } = fixture({ baseFiles: { "AGENTS.md": "base\n" } });
     write(join(repo, "AGENTS.md"), "candidate\n");
     const bodyPath = writeBody(root, body(base));
+    write(join(repo, "node_modules", "next", "dist", "bin", "next"),
+      'process.stdout.write("fixture-typegen-executed\\n");\n');
     write(join(repo, "node_modules", "typescript", "bin", "tsc"),
       'require("node:fs").appendFileSync(' + JSON.stringify(bodyPath)
       + ', ' + JSON.stringify("\nChanged during validation\n") + ');\n');
@@ -675,6 +713,60 @@ describe("canonical Supervisor pre-publication gate", () => {
         },
       });
       expect(result.ok).toBe(true);
+    }
+  });
+
+  it("maps package.json edits to actual executable tooling, scope and preflight suites",()=>{
+    const f=fixture({baseFiles:{"package.json":"{\"scripts\":{}}\n"}});
+    write(join(f.repo,"package.json"),'{"scripts":{"typecheck":"next typegen && tsc --noEmit"}}\n');
+    git(f.repo,["add","."]);git(f.repo,["commit","-qm","package scripts update"]);
+    const candidate=inspectFixture({cwd:f.repo,baseSha:f.base,prBody:body(f.base)});
+    expect(candidate.required_validation_checks).toContain("targeted");
+    const required=["tests/supervisor-preflight.test.ts","tests/ci-scope-plan.test.ts",
+      "tests/tooling-safety-contract.test.ts"];
+    const ids=["targeted","workflow-semantics"].filter(id=>candidate.required_validation_checks.includes(id));
+    let calls=0;
+    for(const id of ids){
+      const result=executeLocalValidation(candidate,f.repo,[id],{runner:(_bin:string,args:string[])=>{
+        calls++;
+        for(const suite of required)expect(args).toContain(suite);
+        return {status:0,signal:null,stderr:"",stdout:""};
+      }});
+      expect(result.ok).toBe(true);
+    }
+    expect(calls).toBe(ids.length);
+    write(join(f.repo,"src","unmapped-feature.ts"),"export const broken=true;\n");
+    git(f.repo,["add","."]);git(f.repo,["commit","-qm","unmapped path"]);
+    const unmapped=inspectFixture({cwd:f.repo,baseSha:f.base,prBody:body(f.base)});
+    expect(()=>executeLocalValidation(unmapped,f.repo,["targeted"],{runner:()=>{
+      throw new Error("must not execute unmapped paths");
+    }})).toThrow(/no mapped targeted tests/);
+  });
+
+  it("traces sequential typegen and tsc with fail-fast receipt under one typecheck ID",()=>{
+    const f=fixture({baseFiles:{"AGENTS.md":"base\n"}});
+    write(join(f.repo,"AGENTS.md"),"changed\n");
+    git(f.repo,["add","."]);git(f.repo,["commit","-qm","typecheck"]);
+    const candidate=inspectFixture({cwd:f.repo,baseSha:f.base,prBody:body(f.base)});
+    for(const [statuses,expected] of [
+      [[0,0],"passed"],[[7],"failed"],[[0,9],"failed"],[[null],"failed"],
+    ] as const){
+      const invoked:string[]=[];
+      const receipt=executeLocalValidation(candidate,f.repo,["typecheck"],{
+        runner:(_bin:string,args:string[])=>{
+          invoked.push(args.join(" "));
+          const code=statuses[invoked.length-1];
+          return {status:code,signal:null,stderr:code===0?"":"error",stdout:"",
+            error:code===null?new Error("ETIMEDOUT"):undefined};
+        },
+      });
+      expect(receipt.results).toHaveLength(1);
+      expect(receipt.results[0].status).toBe(expected);
+      expect(receipt.results[0].steps.map((s:{id:string})=>s.id)).toEqual(statuses.length===1
+        ?["next-typegen"]:["next-typegen","typescript-noemit"]);
+      expect(invoked[0]).toContain("node_modules/next/dist/bin/next typegen");
+      if(statuses.length===2)expect(invoked[1]).toContain("node_modules/typescript/bin/tsc --noEmit");
+      expect(receipt.ok).toBe(expected==="passed");
     }
   });
 

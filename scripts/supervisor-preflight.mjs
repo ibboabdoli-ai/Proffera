@@ -312,6 +312,20 @@ function validateValidationEvidence(evidence, candidate, requiredChecks) {
       continue;
     }
 
+    if (id === "typecheck" && result.steps !== undefined) {
+      // Additive v1 evidence: legacy receipts without steps remain structurally
+      // readable but cannot masquerade as verified two-stage execution.
+      const expected=["next-typegen","typescript-noemit"];
+      if (!Array.isArray(result.steps)||result.steps.length!==2
+        ||result.steps.some((step,index)=>!step||step.id!==expected[index]
+          ||step.status!=="passed"||step.exit_code!==0||step.error!==null
+          ||typeof step.command!=="string"||!step.command.trim())) {
+        fail("validation", "typecheck requires two successful ordered steps");
+      }
+      if(result.status!=="passed"||result.exit_code!==0) {
+        fail("validation", "typecheck summary disagrees with steps");
+      }
+    }
     if (result.status !== "passed") fail("validation", `validation check ${id} did not pass`);
     byId.set(id, result);
   }
@@ -376,7 +390,7 @@ function additionalTargetedSuites(candidate) {
     ".github/workflows/supervisor-worker-handoff.yml",
     ".github/workflows/supervisor-review-repair.yml",
     // Verified Next generated-output contract is covered by supervisor-preflight tests.
-    ".gitignore", "next-env.d.ts", "tsconfig.json",
+    ".gitignore", "next-env.d.ts", "tsconfig.json", "package.json",
     "AGENTS.md", "WORKER_BOOTSTRAP.md", "README.md",
     "scripts/ci-scope-plan.mjs", "tests/ci-scope-plan.test.ts",
     "tests/github-workflow-yaml.test.ts",
@@ -429,6 +443,8 @@ function additionalTargetedSuites(candidate) {
   ]);
   // Exact behavior-changing paths map to executable tests, not a generic PASS assertion.
   const pathSuites = new Map([
+    ["package.json", ["tests/supervisor-preflight.test.ts", "tests/ci-scope-plan.test.ts",
+      "tests/tooling-safety-contract.test.ts"]],
     [".github/workflows/proffera-ci-autofix.yml", [
       "tests/supervisor-owner-handoff.test.ts",
       "tests/supervisor-owner-push-pending.test.ts",
@@ -541,19 +557,40 @@ export function executeLocalValidation(candidate, cwd, ids, {runner = spawnSync,
   const results = [];
   for (const id of ids) {
     const spec = commandForCheck(id, cwd, candidate);
-    const result = runner(spec.command, spec.args, {
-      cwd: spec.cwd, encoding: "utf8", windowsHide: true, timeout: spec.timeout,
-      maxBuffer: 4 * 1024 * 1024,
+    // Type generation is part of the single authoritative typecheck ID.
+    // Keep the v1 validation envelope stable while preserving each process result.
+    const steps = id === "typecheck" ? [
+      {id:"next-typegen",command:process.execPath,args:["node_modules/next/dist/bin/next","typegen"],
+        cwd,timeout:240000},
+      {id:"typescript-noemit",...spec},
+    ] : [{id, ...spec}];
+    const executed=[];
+    for (const step of steps) {
+      const outcome=runner(step.command,step.args,{
+        cwd:step.cwd,encoding:"utf8",windowsHide:true,timeout:step.timeout,
+        maxBuffer:4*1024*1024,
+      });
+      executed.push({
+        id:step.id,command:[step.command,...step.args].join(" "),
+        exit_code:outcome.status,signal:outcome.signal??null,
+        status:outcome.status===0&&!outcome.error?"passed":"failed",
+        error:outcome.error?String(outcome.error.message??outcome.error).slice(0,1000):null,
+        stderr_sha256:sha256(String(outcome.stderr??"")),
+        stderr_bytes:Buffer.byteLength(String(outcome.stderr??""),"utf8"),
+      });
+      if(outcome.status!==0||outcome.error)break;
+    }
+    const last=executed.at(-1);
+    const passed=executed.length===steps.length&&executed.every(s=>s.status==="passed");
+    results.push({id,
+      command:steps.map(step=>[step.command,...step.args].join(" ")).join(" && "),
+      exit_code:passed?0:last.exit_code,signal:last.signal,
+      status:passed?"passed":"failed",error:last.error,
+      stderr_sha256:last.stderr_sha256,stderr_bytes:last.stderr_bytes,
+      ...(id==="typecheck"?{steps:executed}:{}),
     });
-    results.push({
-      id, command: [spec.command, ...spec.args].join(" "), exit_code: result.status,
-      signal: result.signal ?? null,
-      status: result.status === 0 && !result.error ? "passed" : "failed",
-      error: result.error ? String(result.error.message ?? result.error).slice(0, 1000) : null,
-      stderr_sha256: sha256(String(result.stderr ?? "")),
-      stderr_bytes: Buffer.byteLength(String(result.stderr ?? ""), "utf8"),
-    });
-    if (result.status !== 0 || result.error) break; // fail fast
+    if(!passed)break; // fail fast, including a failed next typegen
+
   }
   if (revalidate) {
     const after = revalidate();
