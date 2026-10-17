@@ -396,6 +396,30 @@ describe("Review Repair attempt admission", () => {
       .toEqual({recoverable:true,reason:"repair_job_absent"});
   });
 
+  it.each([
+    ["missing", undefined],
+    ["null", null],
+    ["empty", ""],
+    ["unknown", "not_a_github_conclusion"],
+    ["unsupported", "neutral"],
+  ] as const)("rejects %s Review Repair run conclusion before retiring an orphan", (caseName, conclusion) => {
+    const run = {
+      id: 55, run_attempt: 1, head_sha: dispatchHead, head_branch: "main",
+      status: "completed", event: "workflow_dispatch",
+      name: "Supervisor review repair", path: ".github/workflows/supervisor-review-repair.yml",
+      ...(caseName === "missing" ? {} : {conclusion}),
+    };
+    const admit = {name: "Settle review burst and admit one bounded attempt",
+      status: "completed", conclusion: "success"};
+    const skippedModel = {name: "Batch current-head review findings",
+      status: "completed", conclusion: "skipped", steps: []};
+    for (const jobs of [[admit], [admit, skippedModel]]) {
+      expect(proveReviewRepairPrelaunchRecovery({
+        repository, pr_number: pr, start: start({run_id: 55}), run, jobs,
+      })).toEqual({recoverable: false, reason: "run_conclusion_unknown"});
+    }
+  });
+
   it("keeps an older different-evidence start in budget when its repair may have launched", () => {
     const oldHead = "b".repeat(40);
     const oldFindings = ["inline:11"];

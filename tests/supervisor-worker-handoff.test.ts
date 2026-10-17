@@ -2756,20 +2756,21 @@ describe("Supervisor ↔ Worker Phase-1 handoff", () => {
     },
   );
 
-  it("does not redispatch an orphan when Worker or aliased reservation evidence appears after the retryable write", () => {
+  it.each([
+    { evidence: "Worker dispatch", mutation: { dispatchOnCommentRead: 3 } },
+    { evidence: "aliased reservation", mutation: { aliasReservationOnCommentRead: 3 } },
+  ])("does not redispatch an orphan when $evidence appears after the retryable write", ({ mutation }) => {
     const task = { id: 701, user: { login: "github-actions[bot]" }, body: runText("state-body", {
       packet: packet(), state: "TASK_CREATED", run_id: "9001", reason: "Prior preflight",
     }) };
-    for (const mutation of [{ dispatchOnCommentRead: 3 }, { aliasReservationOnCommentRead: 3 }]) {
-      const harness = createPreflightHarness({ comments: [task] });
-      const changed = harness.run({ runId: "1002", mutation });
-      expect(changed.outputs.proceed).not.toBe("yes");
-      expect(String(changed.comments.find((comment) => comment.id === 701)?.body)).toContain("TASK_CREATED");
-      expect(commentPatchCalls(changed.calls, 701)).toHaveLength(0);
-      const retry = harness.run({ runId: "1003" });
-      expect(retry.outputs.proceed).not.toBe("yes");
-      expect(commentPatchCalls(retry.calls, 701)).toHaveLength(0);
-    }
+    const harness = createPreflightHarness({ comments: [task] });
+    const changed = harness.run({ runId: "1002", mutation });
+    expect(changed.outputs.proceed).not.toBe("yes");
+    expect(String(changed.comments.find((comment) => comment.id === 701)?.body)).toContain("TASK_CREATED");
+    expect(commentPatchCalls(changed.calls, 701)).toHaveLength(0);
+    const retry = harness.run({ runId: "1003" });
+    expect(retry.outputs.proceed).not.toBe("yes");
+    expect(commentPatchCalls(retry.calls, 701)).toHaveLength(0);
   });
 
   it("recovers a lost mutex POST response only by its exact new descriptor", () => {

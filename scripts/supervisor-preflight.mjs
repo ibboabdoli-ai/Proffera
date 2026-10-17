@@ -429,12 +429,30 @@ function additionalTargetedSuites(candidate) {
   ]);
   // Exact behavior-changing paths map to executable tests, not a generic PASS assertion.
   const pathSuites = new Map([
+    [".github/workflows/proffera-ci-autofix.yml", [
+      "tests/supervisor-owner-handoff.test.ts",
+      "tests/supervisor-owner-push-pending.test.ts",
+      "tests/supervisor-ci-autofix-strategy-history.test.ts",
+      "tests/supervisor-control-plane-v2.test.ts",
+    ]],
+    [".github/workflows/supervisor-review-repair.yml", [
+      "tests/supervisor-review-repair-strategy-history.test.ts",
+      "tests/supervisor-owner-handoff.test.ts",
+      "tests/supervisor-owner-push-pending.test.ts",
+      "tests/supervisor-control-plane-v2.test.ts",
+    ]],
+    [".github/workflows/supervisor-worker-handoff.yml", [
+      "tests/supervisor-worker-strategy-history.test.ts",
+      "tests/supervisor-owner-handoff.test.ts",
+      "tests/supervisor-control-plane-v2.test.ts",
+    ]],
     [".github/workflows/ci.yml", [
       "tests/github-workflow-yaml.test.ts",
       "tests/ci-postgres-image-preload.test.ts",
+      "tests/tooling-safety-contract.test.ts",
     ]],
-    [".github/workflows/proffera-automerge.yml", "tests/proffera-standing-automerge.test.ts"],
-    [".github/workflows/proffera-final-gate-wakeup.yml", "tests/proffera-final-gate-wakeup.test.ts"],
+    [".github/workflows/proffera-automerge.yml", ["tests/proffera-standing-automerge.test.ts", "tests/supervisor-control-plane-v2.test.ts"]],
+    [".github/workflows/proffera-final-gate-wakeup.yml", ["tests/proffera-final-gate-wakeup.test.ts", "tests/supervisor-control-plane-v2.test.ts"]],
     ["tests/ci-postgres-image-preload.test.ts", "tests/ci-postgres-image-preload.test.ts"],
     ["tests/proffera-final-gate-wakeup.test.ts", "tests/proffera-final-gate-wakeup.test.ts"],
     ["tests/proffera-standing-automerge.test.ts", "tests/proffera-standing-automerge.test.ts"],

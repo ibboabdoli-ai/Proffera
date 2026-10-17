@@ -209,6 +209,11 @@ export function proveReviewRepairPrelaunchRecovery(input) {
   if (run.status !== "completed") {
     return {recoverable: false, reason: "run_not_terminal"};
   }
+  // Do not release a reservation on missing, null, or unsupported historical
+  // conclusions. Keep this allowlist aligned with CI Autofix recovery proof.
+  if (!["success", "failure", "cancelled", "timed_out", "startup_failure", "skipped"].includes(run.conclusion)) {
+    return {recoverable: false, reason: "run_conclusion_unknown"};
+  }
   const jobs = input?.jobs;
   if (!Array.isArray(jobs) || jobs.length > 1000) fail("recovery_jobs");
   const admitJobs = jobs.filter((job) => job?.name === "Settle review burst and admit one bounded attempt");

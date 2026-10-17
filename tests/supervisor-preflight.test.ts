@@ -617,6 +617,44 @@ describe("canonical Supervisor pre-publication gate", () => {
     }
   });
   it.each([
+    [".github/workflows/proffera-ci-autofix.yml", [
+      "tests/supervisor-owner-handoff.test.ts",
+      "tests/supervisor-owner-push-pending.test.ts",
+      "tests/supervisor-ci-autofix-strategy-history.test.ts",
+      "tests/supervisor-control-plane-v2.test.ts",
+    ]],
+    [".github/workflows/supervisor-review-repair.yml", [
+      "tests/supervisor-review-repair-strategy-history.test.ts",
+      "tests/supervisor-owner-handoff.test.ts",
+      "tests/supervisor-owner-push-pending.test.ts",
+      "tests/supervisor-control-plane-v2.test.ts",
+    ]],
+    [".github/workflows/supervisor-worker-handoff.yml", [
+      "tests/supervisor-worker-strategy-history.test.ts",
+      "tests/supervisor-owner-handoff.test.ts",
+      "tests/supervisor-control-plane-v2.test.ts",
+    ]],
+    [".github/workflows/ci.yml", ["tests/tooling-safety-contract.test.ts"]],
+    [".github/workflows/proffera-automerge.yml", ["tests/supervisor-control-plane-v2.test.ts"]],
+    [".github/workflows/proffera-final-gate-wakeup.yml", ["tests/supervisor-control-plane-v2.test.ts"]],
+  ] as [string, string[]][])("selects every linked workflow-contract suite for %s", (changedPath, suites) => {
+    const {repo,base}=fixture();
+    write(join(repo,...changedPath.split("/")), "name: isolated workflow\n");
+    git(repo,["add","."]);
+    git(repo,["commit","-qm","isolated workflow mapping"]);
+    const candidate=inspectFixture({cwd:repo,baseSha:base,prBody:body(base)});
+    for(const check of ["targeted","workflow-semantics"].filter(id=>candidate.required_validation_checks.includes(id))){
+      const result=executeLocalValidation(candidate,repo,[check],{
+        runner:(_command:string,args:string[])=>{
+          for(const suite of suites)expect(args).toContain(suite);
+          return {status:0,signal:null,stdout:"",stderr:""};
+        },
+      });
+      expect(result.ok).toBe(true);
+    }
+  });
+
+  it.each([
     "tests/supervisor-model-launch-boundary.test.ts",
     ".github/workflows/proffera-ci-autofix.yml",
     ".github/workflows/supervisor-review-repair.yml",
