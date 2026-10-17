@@ -206,7 +206,10 @@ function postgresSql(client: Client) {
         const preflight = await enrichReadyCompanyDirectoryScbBatch({ limit: 3 });
         expect(preflight.attempted).toBeLessThanOrEqual(3);
         expect(preflight.errors).toBeLessThanOrEqual(1);
-        expect(preflight.published).toBeUndefined();
+        const beforePublication = await client.query<{ count: string }>(
+          "select count(*)::text as count from company_directory_profiles where publication_status = 'published'"
+        );
+        expect(Number(beforePublication.rows[0]?.count)).toBe(0);
         const state = await client.query<{ count: string }>(
           "select count(*)::text as count from company_directory_scb_enrichment"
         );
