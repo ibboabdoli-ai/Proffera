@@ -133,6 +133,7 @@ const transport = {
       await client.connect();
       await client.query("create table workspaces (id uuid primary key)");
       await applyMigration("../db/migrations/20260809_0037_company_profile_engine_foundation.sql");
+      await applyMigration("../db/migrations/20260809_0038_company_profile_engine_provenance.sql");
       await applyMigration("../db/migrations/20260810_0043_company_profile_discovery_queue.sql");
       await applyMigration("../db/migrations/20260812_0044_company_directory_official_facts.sql");
       await applyMigration("../db/migrations/20260819_0048_company_directory_scb_enrichment.sql");
