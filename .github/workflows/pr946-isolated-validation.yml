@@ -42,7 +42,7 @@ jobs:
           cp .github/pr946-review/PR946-P1-Final-Local.patch.xz.b64 /tmp/pr946.patch.xz.b64
           git checkout --detach 482e6be7f3cfdd644a1db2414129e40f1ba52e5a
           base64 --decode /tmp/pr946.patch.xz.b64 | xz --decompress --stdout > /tmp/pr946.patch
-          echo "025fdd49757da5310739532ecdbf11b7398187983a0ec5d3c8b98eddd08dc26d  /tmp/pr946.patch" | sha256sum --check
+          echo "178c33462cd3d05f5ae82c4e3e4507d820a023e04bea78742aa7ad1c247232d1  /tmp/pr946.patch" | sha256sum --check
           git apply --check /tmp/pr946.patch
           git apply /tmp/pr946.patch
           git diff --check
@@ -95,7 +95,7 @@ jobs:
           cp .github/pr946-review/PR946-P1-Final-Local.patch.xz.b64 /tmp/pr946.patch.xz.b64
           git checkout --detach 482e6be7f3cfdd644a1db2414129e40f1ba52e5a
           base64 --decode /tmp/pr946.patch.xz.b64 | xz --decompress --stdout > /tmp/pr946.patch
-          echo "025fdd49757da5310739532ecdbf11b7398187983a0ec5d3c8b98eddd08dc26d  /tmp/pr946.patch" | sha256sum --check
+          echo "178c33462cd3d05f5ae82c4e3e4507d820a023e04bea78742aa7ad1c247232d1  /tmp/pr946.patch" | sha256sum --check
           git apply --check /tmp/pr946.patch
           git apply /tmp/pr946.patch
           git diff --check
