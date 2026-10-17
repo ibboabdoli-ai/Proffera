@@ -112,7 +112,7 @@ export async function enrichReadyCompanyDirectoryScbBatch(
             queue.profile_id = profile.id
             or (
               queue.country_code = profile.country_code
-              and queue.organization_number = regexp_replace(profile.organization_number, '\D', '', 'g')
+              and queue.organization_number = regexp_replace(profile.organization_number, '\\D', '', 'g')
             )
           )
       )
