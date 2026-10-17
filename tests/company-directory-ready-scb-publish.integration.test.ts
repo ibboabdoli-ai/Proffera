@@ -89,7 +89,7 @@ function postgresSql(client: Client) {
       }
       client = new Client({ connectionString });
       await client.connect();
-      await client.query(` 
+      await client.query(`
         create table company_directory_profiles (
           id uuid primary key,
           country_code text not null default 'SE',
