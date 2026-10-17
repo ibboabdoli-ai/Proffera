@@ -160,9 +160,8 @@ function docker(args: string[]) {
         ]);
         await client.query(`
           insert into company_directory_discovery_queue (
-            organization_number, provider, state, profile_id,
-            country_code, primary_sni_code
-          ) values ($1, 'qa946_mock', 'ready', $2::uuid, 'SE', '43210')
+            organization_number, provider, state, profile_id, country_code
+          ) values ($1, 'qa946_mock', 'ready', $2::uuid, 'SE')
         `, [org, id]);
       }
 
