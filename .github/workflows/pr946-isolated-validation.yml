@@ -40,11 +40,15 @@ jobs:
         run: |
           set -euo pipefail
           cp .github/pr946-review/PR946-P1-Final-Local.patch.xz.b64 /tmp/pr946.patch.xz.b64
+          cp .github/pr946-review/PR946-15-Independent-Connections.patch /tmp/pr946-15-connections.patch
           git checkout --detach 482e6be7f3cfdd644a1db2414129e40f1ba52e5a
           base64 --decode /tmp/pr946.patch.xz.b64 | xz --decompress --stdout > /tmp/pr946.patch
           echo "178c33462cd3d05f5ae82c4e3e4507d820a023e04bea78742aa7ad1c247232d1  /tmp/pr946.patch" | sha256sum --check
           git apply --check /tmp/pr946.patch
           git apply /tmp/pr946.patch
+          echo "c1571ccc9ce5e0a57c8a136cb6124c27592aa022f69b9acc6cf20a7b0aa93826  /tmp/pr946-15-connections.patch" | sha256sum --check
+          git apply --check /tmp/pr946-15-connections.patch
+          git apply /tmp/pr946-15-connections.patch
           git diff --check
           test -f tests/company-directory-scb-coordinator.integration.test.ts
       - name: Set up Node.js 22
@@ -93,11 +97,15 @@ jobs:
         run: |
           set -euo pipefail
           cp .github/pr946-review/PR946-P1-Final-Local.patch.xz.b64 /tmp/pr946.patch.xz.b64
+          cp .github/pr946-review/PR946-15-Independent-Connections.patch /tmp/pr946-15-connections.patch
           git checkout --detach 482e6be7f3cfdd644a1db2414129e40f1ba52e5a
           base64 --decode /tmp/pr946.patch.xz.b64 | xz --decompress --stdout > /tmp/pr946.patch
           echo "178c33462cd3d05f5ae82c4e3e4507d820a023e04bea78742aa7ad1c247232d1  /tmp/pr946.patch" | sha256sum --check
           git apply --check /tmp/pr946.patch
           git apply /tmp/pr946.patch
+          echo "c1571ccc9ce5e0a57c8a136cb6124c27592aa022f69b9acc6cf20a7b0aa93826  /tmp/pr946-15-connections.patch" | sha256sum --check
+          git apply --check /tmp/pr946-15-connections.patch
+          git apply /tmp/pr946-15-connections.patch
           git diff --check
       - name: Set up Node.js 22
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7

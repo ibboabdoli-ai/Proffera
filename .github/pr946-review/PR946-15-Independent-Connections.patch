@@ -1,0 +1,17 @@
+--- a/tests/company-directory-scb-coordinator.integration.test.ts
++++ b/tests/company-directory-scb-coordinator.integration.test.ts
+@@ -139,11 +139,11 @@
+       .toMatchObject({ accepted: false, reason: "pilot_not_authorized_or_exhausted" });
+   });
+ 
+-  it("serializes simultaneous independent connections and consumes exactly one attempt", async () => {
+-    const connections = await Promise.all(Array.from({ length: 6 }, () => login("scb_test_qa")));
++  it("serializes 15 simultaneous independent connections and consumes exactly one attempt", async () => {
++    const connections = await Promise.all(Array.from({ length: 15 }, () => login("scb_test_qa")));
+     const decisions = await Promise.all(connections.map((c) => reserve(c, { pilot, org: approvedOrg })));
+     expect(decisions.filter((row) => row.accepted)).toHaveLength(1);
+-    expect(decisions.filter((row) => row.reason === "rate_wait")).toHaveLength(5);
++    expect(decisions.filter((row) => row.reason === "rate_wait")).toHaveLength(14);
+     const ledger = await owner.query("select count(*)::int n from scb_control.scb_attempt_reservations where pilot_id=$1", [pilot]);
+     const budget = await owner.query("select used_http_attempts from scb_control.scb_pilot_policies where pilot_id=$1", [pilot]);
+     expect(ledger.rows[0].n).toBe(1);
