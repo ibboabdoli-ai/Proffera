@@ -135,7 +135,7 @@ jobs:
         run: |
           set -euo pipefail
           shopt -s nullglob globstar
-          sarifs=(pr946-codeql-results/**/*.sarif pr946-codeql-results/*.sarif)
+          sarifs=(pr946-codeql-results/**/*.sarif)
           test "${#sarifs[@]}" -gt 0 || { echo 'No SARIF results produced'; exit 1; }
           # Fail closed if any file is malformed, lacks SARIF runs, or is
           # missing the mandatory results array. Do not let `[]?` conceal it.
