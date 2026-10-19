@@ -1,0 +1,31 @@
+{
+  "pr_head": "482e6be7f3cfdd644a1db2414129e40f1ba52e5a",
+  "v3_sha256": "7d7676848af8d5d2788e74aab0dc03f95cbb62fb4b9dbdf0a5f3eec712b132eb",
+  "v5_repair_sha256": "3a5db26c8824c54c3ab3ac00bdcdf73463b8ecbce98e98a22bf4814a322b126e",
+  "test_contract_patch_sha256": "f7f352270e656cd46741cc1ac5a17e5cedba40a128f342c03fddad1fc95d0128",
+  "combined_patch_sha256": "e588038cb1d4490cc86daf24ff69e27c74549ba62daa1f016a15315c125de4ff",
+  "file_count": 19,
+  "files": {
+    ".github/workflows/company-directory-ready-scb-e2e.yml": "222fe5df6c49c005c219dcdf82cb499191d7a43663fd7ede1610fc0539b618eb",
+    "db/migration-drafts/PR946_01_dedicated_scb_coordinator_DRAFT.sql": "3321f0575d9a0a589678c3022b2fdcf78b78bd3efa600a83a6b4ed1923a23f40",
+    "db/migration-drafts/PR946_02_ready_profile_leases_DRAFT.sql": "3d029d84fef8c7b0d66cb2f1fecbe1abab6fb09d309d4c6b2eb4ae06c9b80f8f",
+    "src/lib/company-directory-ready-scb-enrichment.ts": "6884d1b7246a208a8994d384b17c60390f453ecf4da5a63c5848b0eb2118ae5f",
+    "src/lib/company-directory-ready-scb-leases.ts": "16073a1dad65492b13979e832f1a4b2e835dafd19532e1eb23af1cd242f8d6db",
+    "src/lib/company-directory-scb-coordinator.ts": "b036afa3054829f828b44ef940f468f06abbfc789e119cffdbf65073804c5942",
+    "src/lib/company-directory-scb-enrichment.test.ts": "32aed8eb35c33fc1066896194ef5766bb5c0dd37dcdd090b139237034b87afe5",
+    "src/lib/company-directory-scb-enrichment.ts": "2314f6df4b23faea37235f9e63addc3cf1c4b2fa996290bb8924c58064a71b39",
+    "src/lib/company-directory-scb-provider.ts": "fc26d090b77d9840c3f43deb5ba40774dd5d5ffbd55296ce3f0f696f8ff6abdb",
+    "src/lib/company-directory-scb-transport.ts": "f27c9bfb3c154e1773b0c09304a25530759b6dae41c1dbbe8df8fe25b8efc5ac",
+    "tests/company-directory-ready-scb-enrichment.test.ts": "d5a62765aa3bad917f8be6a1373796861b0b8f0757b8401dbb2ff22c725d79c5",
+    "tests/company-directory-ready-scb-five-fixtures.test.ts": "90c3ce707a182b2add8875d53dd2cf9497c2c800c82760b5018f228e8038f15b",
+    "tests/company-directory-ready-scb-five-profile-flow.test.ts": "fd7f12649cf763d802f88528a52a05bf0720b6d71398493fffc175fd4b502c96",
+    "tests/company-directory-ready-scb-flow.integration.test.ts": "ee12a1af7383f645493f8b2a7abfd36594c165a8ebd84f6a8fc317e0d2e36b6f",
+    "tests/company-directory-ready-scb-geography.test.ts": "b2b2791c6102ba9f6b6198964465cb6dfa7825a6f42110938106a256b5b66617",
+    "tests/company-directory-ready-scb-pipeline.integration.test.ts": "b5eef2e4f7a122e42d82774bc56a9b25049b09db820ed216ab6fb36d8539ed77",
+    "tests/company-directory-ready-scb-publish.integration.test.ts": "e8e17e15ffd6f65f8fa9b15a89953d21d809f549b21ccd78d59cac0c12f87410",
+    "tests/company-directory-scb-coordinator-guards.test.ts": "bd8fab376925feb5f6075ee36a8a44302a6eca470c566746ec847f1e9f236472",
+    "tests/company-directory-scb-coordinator.integration.test.ts": "b9c9df1a353ff5f0f794e24a1cf14a61157aa483b0765a63b9d20197a19039e2"
+  },
+  "qa_supplement_sha256": "5ecca44ef8027c243f9abe2824fc54867725a761034a4a4ed1f299b767fb976b",
+  "qa_only": true
+}

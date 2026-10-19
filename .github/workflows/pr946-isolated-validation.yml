@@ -1,148 +1,199 @@
-name: PR946 Isolated PostgreSQL Validation - No Deploy
-
+name: PR946 v5 Isolated QA - No Deploy
 on:
   push:
     branches: [qa/pr946-pg-validation-20261017]
     paths:
-      - ".github/workflows/pr946-isolated-validation.yml"
-      - ".github/pr946-review/**"
-
+      - .github/workflows/pr946-isolated-validation.yml
+      - .github/pr946-review/**
+  workflow_dispatch:
 permissions:
   contents: read
-
 concurrency:
-  group: pr946-isolated-validation
+  group: pr946-v5-isolated-validation
   cancel-in-progress: true
-
 env:
-  CI: "true"
-  SCB_COMPANY_REGISTRY_ENABLED: "false"
-  SCB_GLOBAL_COORDINATION_REQUIRED: "false"
-  COMPANY_DIRECTORY_READY_SCB_ENRICHMENT_ENABLED: "false"
-  COMPANY_DIRECTORY_AUTO_PUBLISH: "false"
-  DATABASE_URL: ""
-  POSTGRES_URL: ""
-  PROFFERA_PREVIEW_DATABASE_URL: ""
-
+  CI: 'true'
+  SCB_COMPANY_REGISTRY_ENABLED: 'false'
+  SCB_GLOBAL_COORDINATION_REQUIRED: 'false'
+  COMPANY_DIRECTORY_READY_SCB_ENRICHMENT_ENABLED: 'false'
+  COMPANY_DIRECTORY_AUTO_PUBLISH: 'false'
+  DATABASE_URL: ''
+  POSTGRES_URL: ''
+  POSTGRES_PRISMA_URL: ''
+  POSTGRES_URL_NON_POOLING: ''
+  DATABASE_URL_UNPOOLED: ''
+  SCB_COORDINATOR_DATABASE_URL: ''
+  SCB_PILOT_COORDINATOR_DATABASE_URL: ''
+  SCB_COMPANY_REGISTRY_PFX_BASE64: ''
+  SCB_COMPANY_REGISTRY_PFX_PASSPHRASE: ''
+  PROFFERA_PREVIEW_DATABASE_URL: ''
 jobs:
   postgres:
-    name: Disposable PostgreSQL 16 coordination and leases
-    runs-on: ubuntu-24.04
-    timeout-minutes: 25
-    steps:
-      - name: Checkout isolated test branch
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-        with:
-          fetch-depth: 0
-          persist-credentials: false
-      - name: Restore original HEAD and apply exact-hash candidate
-        shell: bash
-        run: |
-          set -euo pipefail
-          cp .github/pr946-review/PR946-P1-Final-Local.patch.xz.b64 /tmp/pr946.patch.xz.b64
-          cp .github/pr946-review/PR946-15-Independent-Connections.patch /tmp/pr946-15-connections.patch
-          git checkout --detach 482e6be7f3cfdd644a1db2414129e40f1ba52e5a
-          base64 --decode /tmp/pr946.patch.xz.b64 | xz --decompress --stdout > /tmp/pr946.patch
-          echo "178c33462cd3d05f5ae82c4e3e4507d820a023e04bea78742aa7ad1c247232d1  /tmp/pr946.patch" | sha256sum --check
-          git apply --check /tmp/pr946.patch
-          git apply /tmp/pr946.patch
-          echo "c1571ccc9ce5e0a57c8a136cb6124c27592aa022f69b9acc6cf20a7b0aa93826  /tmp/pr946-15-connections.patch" | sha256sum --check
-          git apply --check /tmp/pr946-15-connections.patch
-          git apply /tmp/pr946-15-connections.patch
-          git diff --check
-          test -f tests/company-directory-scb-coordinator.integration.test.ts
-      - name: Set up Node.js 22
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
-        with:
-          node-version: "22"
-          cache: npm
-      - name: Install locked dependencies
-        run: npm ci --no-audit --no-fund
-      - name: Coordinator ACL and concurrency on disposable PostgreSQL 16
-        id: coordinator
-        continue-on-error: true
-        env:
-          PROFFERA_POSTGRES_INTEGRATION: "1"
-        run: npx vitest run tests/company-directory-scb-coordinator.integration.test.ts --reporter=verbose
-      - name: Existing Ready SCB PostgreSQL test lanes
-        id: pipelines
-        continue-on-error: true
-        env:
-          PROFFERA_POSTGRES_INTEGRATION: "1"
-        run: |
-          npx vitest run tests/company-directory-ready-scb-pipeline.integration.test.ts tests/company-directory-ready-scb-publish.integration.test.ts tests/company-directory-ready-scb-flow.integration.test.ts --reporter=verbose
-      - name: Summarize and enforce PostgreSQL status
-        if: always()
-        env:
-          COORD_STATUS: ${{ steps.coordinator.outcome }}
-          PIPE_STATUS: ${{ steps.pipelines.outcome }}
-        run: |
-          echo "Coordinator: $COORD_STATUS"
-          echo "Ready pipelines: $PIPE_STATUS"
-          test "$COORD_STATUS" = success
-          test "$PIPE_STATUS" = success
-
-  project:
-    name: TypeScript, ESLint, Build and complete unit suite
+    name: PostgreSQL 16 - coordination, leases and stale writer
     runs-on: ubuntu-24.04
     timeout-minutes: 35
     steps:
-      - name: Checkout isolated test branch
+      - name: Checkout isolated QA branch
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           fetch-depth: 0
           persist-credentials: false
-      - name: Restore original HEAD and apply exact-hash candidate
+      - name: Verify exact patch hash and apply to expected PR HEAD
         shell: bash
         run: |
-          set -euo pipefail
-          cp .github/pr946-review/PR946-P1-Final-Local.patch.xz.b64 /tmp/pr946.patch.xz.b64
-          cp .github/pr946-review/PR946-15-Independent-Connections.patch /tmp/pr946-15-connections.patch
-          git checkout --detach 482e6be7f3cfdd644a1db2414129e40f1ba52e5a
-          base64 --decode /tmp/pr946.patch.xz.b64 | xz --decompress --stdout > /tmp/pr946.patch
-          echo "178c33462cd3d05f5ae82c4e3e4507d820a023e04bea78742aa7ad1c247232d1  /tmp/pr946.patch" | sha256sum --check
-          git apply --check /tmp/pr946.patch
-          git apply /tmp/pr946.patch
-          echo "c1571ccc9ce5e0a57c8a136cb6124c27592aa022f69b9acc6cf20a7b0aa93826  /tmp/pr946-15-connections.patch" | sha256sum --check
-          git apply --check /tmp/pr946-15-connections.patch
-          git apply /tmp/pr946-15-connections.patch
-          git diff --check
-      - name: Set up Node.js 22
+          cp .github/pr946-review/restore-exact-candidate.sh /tmp/restore-exact-candidate.sh
+          bash /tmp/restore-exact-candidate.sh
+      - name: Node.js 22
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
-          node-version: "22"
+          node-version: '22'
           cache: npm
       - name: Install locked dependencies
         run: npm ci --no-audit --no-fund
-      - name: Semantic TypeScript
-        id: types
-        continue-on-error: true
-        run: npm run typecheck -- --incremental false
-      - name: ESLint
-        id: lint
-        continue-on-error: true
-        run: npm run lint
-      - name: Next.js build without deployment
-        id: build
-        continue-on-error: true
-        run: npm run build
-      - name: Full unit test suite
-        id: unit
-        continue-on-error: true
-        run: npm test -- --reporter=dot
-      - name: Summarize and enforce application results
-        if: always()
+      - name: PostgreSQL concurrency and permissions
         env:
-          TYPES_STATUS: ${{ steps.types.outcome }}
-          LINT_STATUS: ${{ steps.lint.outcome }}
-          BUILD_STATUS: ${{ steps.build.outcome }}
-          UNIT_STATUS: ${{ steps.unit.outcome }}
+          PROFFERA_POSTGRES_INTEGRATION: '1'
+        run: npx vitest run tests/company-directory-scb-coordinator.integration.test.ts tests/company-directory-ready-scb-pipeline.integration.test.ts tests/company-directory-ready-scb-publish.integration.test.ts tests/company-directory-ready-scb-flow.integration.test.ts --reporter=verbose
+  project:
+    name: Project - ${{ matrix.check }}
+    strategy:
+      fail-fast: false
+      matrix:
+        check: [typecheck, lint, build, tests]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - name: Checkout isolated QA branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Verify exact patch hash and apply to expected PR HEAD
+        shell: bash
         run: |
-          echo "TypeScript: $TYPES_STATUS"
-          echo "ESLint: $LINT_STATUS"
-          echo "Build: $BUILD_STATUS"
-          echo "Unit: $UNIT_STATUS"
-          test "$TYPES_STATUS" = success
-          test "$LINT_STATUS" = success
-          test "$BUILD_STATUS" = success
-          test "$UNIT_STATUS" = success
+          cp .github/pr946-review/restore-exact-candidate.sh /tmp/restore-exact-candidate.sh
+          bash /tmp/restore-exact-candidate.sh
+      - name: Node.js 22
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Install locked dependencies
+        run: npm ci --no-audit --no-fund
+      - name: Run full project check
+        shell: bash
+        run: |
+          set -euo pipefail
+          case '${{ matrix.check }}' in
+            typecheck) npm run typecheck -- --incremental false ;;
+            lint) npm run lint ;;
+            build) npm run build ;;
+            tests)
+              npm test -- --reporter=dot
+              python3 -m py_compile scripts/company-directory-discovery.py
+              python3 tests/test_company_directory_discovery_worker.py
+              ;;
+          esac
+  codeql:
+    name: CodeQL isolated candidate (SARIF artifact; no upload to PR head)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    permissions:
+      actions: read
+      contents: read
+    steps:
+      - name: Checkout isolated QA branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Verify exact patch hash and apply to expected PR HEAD
+        env:
+          PR946_ONLY_PRIMARY_CANDIDATE: 'true'
+        shell: bash
+        run: |
+          cp .github/pr946-review/restore-exact-candidate.sh /tmp/restore-exact-candidate.sh
+          bash /tmp/restore-exact-candidate.sh
+      - name: Node.js 22
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Install locked dependencies
+        run: npm ci --no-audit --no-fund
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@db488ddef3bf6cb639b32c2e9a7c0a7ea8271d28 # v4.37.8
+        with:
+          languages: javascript-typescript
+      - name: Build CodeQL databases and analyze
+        uses: github/codeql-action/analyze@db488ddef3bf6cb639b32c2e9a7c0a7ea8271d28 # v4.37.8
+        with:
+          upload: never
+          output: pr946-codeql-results
+      - name: Fail-closed on missing results or security findings
+        shell: bash
+        run: |
+          set -euo pipefail
+          shopt -s nullglob globstar
+          sarifs=(pr946-codeql-results/**/*.sarif pr946-codeql-results/*.sarif)
+          test "${#sarifs[@]}" -gt 0 || { echo 'No SARIF results produced'; exit 1; }
+          # Fail closed if any file is malformed, lacks SARIF runs, or is
+          # missing the mandatory results array. Do not let `[]?` conceal it.
+          jq -e -s '
+            length > 0 and all(.[];
+              .version == "2.1.0" and
+              (.runs | type) == "array" and (.runs | length) > 0 and
+              all(.runs[];
+                (.tool.driver.name | type) == "string" and
+                (.tool.driver.name | length) > 0 and
+                (.results | type) == "array"
+              )
+            )
+          ' "${sarifs[@]}" > /tmp/pr946-codeql-sarif-shape-valid.json
+          jq -s '[ .[] | .runs[] | .results[] | {ruleId, level, message} ]' "${sarifs[@]}" > /tmp/pr946-codeql-findings.json
+          cat /tmp/pr946-codeql-findings.json
+          test "$(jq length /tmp/pr946-codeql-findings.json)" -eq 0
+      - name: Preserve exact-candidate CodeQL results
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: pr946-v5-codeql-sarif
+          path: pr946-codeql-results/
+          if-no-files-found: error
+  browser:
+    name: Local public browser smoke
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    container:
+      image: mcr.microsoft.com/playwright@sha256:dcc5531e97840b9b5e794f2814476b21571c5124a3fca2267d73041f56e7580e # v1.62.1-noble
+      options: --user 1001
+    steps:
+      - name: Checkout isolated QA branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Restore reviewed candidate
+        shell: bash
+        run: |
+          cp .github/pr946-review/restore-exact-candidate.sh /tmp/restore-exact-candidate.sh
+          bash /tmp/restore-exact-candidate.sh
+      - name: Node.js 22
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            e2e/package-lock.json
+      - name: Install locked app dependencies
+        run: npm ci --no-audit --no-fund
+      - name: Install locked browser dependencies
+        working-directory: e2e
+        run: npm ci --no-audit --no-fund
+      - name: Browser tests against local app only
+        working-directory: e2e
+        env:
+          E2E_BASE_URL: http://127.0.0.1:3000
+          E2E_ALLOW_REMOTE: 'false'
+        run: npm test
