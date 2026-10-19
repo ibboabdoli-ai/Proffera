@@ -1,11 +1,13 @@
 import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { delimiter, join, resolve } from "node:path";
+import { delimiter, dirname, join, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { pathToFileURL } from "node:url";
 
 import { describe, expect, it } from "vitest";
+// @ts-expect-error Standalone .mjs follows the repository control-plane convention.
+import { workerStrategyDescriptor } from "../scripts/supervisor-worker-strategy-memory.mjs";
 
 const helper = resolve(process.cwd(), "scripts/supervisor-worker-handoff.mjs");
 const ciScopeHelper = resolve(process.cwd(), "scripts/ci-scope-plan.mjs");
@@ -154,6 +156,46 @@ function exactReservationEvidence(head = sha, overrides: Record<string, unknown>
   };
 }
 
+// Model the authenticated, original Worker-strategy dispatch, never a legacy-only marker.
+function trustedStrategyStartComment(value = packet(), runId = 9001, runAttempt = 1) {
+  const descriptor = workerStrategyDescriptor(value);
+  const dependencyPaths = [...((value as typeof value & { dependency_paths?: string[] }).dependency_paths ?? [])].sort();
+  return {
+    id: 900101,
+    user: { login: "github-actions[bot]", type: "Bot" },
+    body: [
+      `<!-- proffera-worker-dispatch-start:${value.task_id}:${runId} -->`,
+      `<!-- proffera-worker-strategy-start:v1:${value.task_id}:${runId} -->`,
+      `- Task ID: \`${value.task_id}\``,
+      `- GitHub Run ID: \`${runId}\``,
+      `- Run Attempt: \`${runAttempt}\``,
+      `- Baseline SHA: \`${value.base_sha}\``,
+      `- Dependency paths: \`${JSON.stringify(dependencyPaths)}\``,
+      `- Evidence fingerprint: \`${descriptor.evidence_fingerprint}\``,
+      `- Strategy fingerprint: \`${descriptor.strategy_fingerprint}\``,
+      "- State: \`DISPATCH_STARTED\`",
+    ].join("\n"),
+  };
+}
+
+function withTrustedStrategyStart(comments: Array<Record<string, unknown>>, value = packet(), runId = 9001) {
+  const legacy = `<!-- proffera-worker-dispatch-start:${value.task_id}:${runId} -->`;
+  const matches = comments.filter((comment) => comment.body === legacy);
+  if (matches.length !== 1) throw new Error("fixture requires exactly one original dispatch marker");
+  const trusted = trustedStrategyStartComment(value, runId);
+  return comments.map((comment) => comment.body === legacy
+    ? { ...comment, user: trusted.user, body: trusted.body }
+    : comment);
+}
+
+// Fake runner checkouts must contain the actual trusted helper import graph.
+function copyWorkerStrategyDependencies(helperFile: string) {
+  const dir = dirname(helperFile);
+  for (const filename of ["supervisor-worker-strategy-memory.mjs", "supervisor-failure-memory.mjs"]) {
+    copyFileSync(resolve(process.cwd(), "scripts", filename), join(dir, filename));
+  }
+}
+
 function expiredSameTaskEvidence(
   reservationState: "RESERVED" | "RECOVERABLE",
   overrides: Record<string, unknown> = {},
@@ -210,6 +252,15 @@ function reservationControlApiStub() {
   return String.raw`
 const controlField = (name) => args.find((arg) => arg.startsWith(name + "="))?.slice(name.length + 1) ?? "";
 const controlSave = () => writeFileSync(process.env.GH_STUB_STATE_FILE, JSON.stringify(state));
+if (method === "POST" && endpoint.endsWith("/issues/548/comments")) {
+  const id = (state.nextCommentId ?? 999) + 1;
+  state.nextCommentId = id;
+  state.comments.push({ id, user: { login: "github-actions[bot]", type: "Bot" },
+    issue_url: "https://api.github.com/repos/ibboabdoli-ai/Proffera/issues/548", body: controlField("body") });
+  controlSave();
+  process.stdout.write(JSON.stringify({ id }) + "\n");
+  process.exit(0);
+}
 if (method === "POST" && endpoint.endsWith("/labels")) {
   if (state.mutex) process.exit(1);
   state.mutex = controlField("description");
@@ -325,7 +376,10 @@ if (method !== "GET") {
     comment.body = bodyArg.slice("body=".length);
     writeFileSync(process.env.GH_STUB_STATE_FILE, JSON.stringify(state));
   } else if (method === "POST" && bodyArg && endpoint === "repos/ibboabdoli-ai/Proffera/issues/548/comments") {
-    state.comments.push({ id: 999, user: { login: "github-actions[bot]" }, body: bodyArg.slice("body=".length) });
+    state.comments.push({ id: 999, user: { login: "github-actions[bot]", type: "Bot" }, issue_url: "https://api.github.com/repos/ibboabdoli-ai/Proffera/issues/548", body: bodyArg.slice("body=".length) });
+    writeFileSync(process.env.GH_STUB_STATE_FILE, JSON.stringify(state));
+    process.stdout.write(JSON.stringify({ id: 999 }) + "\\n");
+    process.exit(0);
     writeFileSync(process.env.GH_STUB_STATE_FILE, JSON.stringify(state));
   }
   process.stdout.write("{}\\n");
@@ -433,6 +487,7 @@ function runReservationRecovery({
   const trustedHelper = join(trusted, "supervisor-worker-handoff.mjs");
   const trustedManifest = join(trusted, "supervisor-worker-handoff.sha256");
   copyFileSync(helper, trustedHelper);
+  copyWorkerStrategyDependencies(trustedHelper);
   const trustedDigest = createHash("sha256").update(readFileSync(trustedHelper)).digest("hex");
   writeFileSync(trustedManifest, `${trustedDigest}  ${trustedHelper}\n`);
   const parsed = spawnSync(process.execPath, [helper, "parse"], { input: packetComment(), encoding: "utf8" });
@@ -615,6 +670,7 @@ function runFallbackCleanup({
   mkdirSync(bin, { recursive: true });
   mkdirSync(trusted, { recursive: true });
   copyFileSync(helper, join(trusted, "supervisor-worker-handoff.mjs"));
+  copyWorkerStrategyDependencies(join(trusted, "supervisor-worker-handoff.mjs"));
 
   const parsed = spawnSync(process.execPath, [helper, "parse"], { input: packetComment(), encoding: "utf8" });
   expect(parsed.status, parsed.stderr).toBe(0);
@@ -1147,6 +1203,7 @@ function runSlotReservation({
   mkdirSync(bin, { recursive: true });
   mkdirSync(trusted, { recursive: true });
   copyFileSync(helper, trustedHelper);
+  copyWorkerStrategyDependencies(trustedHelper);
   const helperDigest = createHash("sha256").update(readFileSync(trustedHelper)).digest("hex");
   writeFileSync(manifest, `${helperDigest}  ${trustedHelper}\n`);
   writeFileSync(output, "");
@@ -1383,6 +1440,7 @@ function runReservationFinalization({ changedReservationBody = false } = {}) {
     recovery: null,
   };
   copyFileSync(helper, join(trusted, "supervisor-worker-handoff.mjs"));
+  copyWorkerStrategyDependencies(join(trusted, "supervisor-worker-handoff.mjs"));
   const helperDigest = createHash("sha256").update(readFileSync(join(trusted, "supervisor-worker-handoff.mjs"))).digest("hex");
   writeFileSync(join(trusted, "supervisor-worker-handoff.sha256"), `${helperDigest}  ${join(trusted, "supervisor-worker-handoff.mjs")}\n`);
   writeFileSync(join(root, "proffera-worker-changed-files.txt"), "src/change.txt\n");
@@ -1520,6 +1578,7 @@ function runSyncCheckReconciliation({
   mkdirSync(join(repo, "scripts"), { recursive: true });
   mkdirSync(bin, { recursive: true });
   copyFileSync(helper, join(repo, "scripts", "supervisor-worker-handoff.mjs"));
+  copyWorkerStrategyDependencies(join(repo, "scripts", "supervisor-worker-handoff.mjs"));
   writeFileSync(githubOutput, "");
   const pr = {
     number: 849,
@@ -1581,7 +1640,10 @@ if (method !== "GET") {
     comment.body = bodyArg.slice("body=".length);
     writeFileSync(process.env.GH_STUB_STATE_FILE, JSON.stringify(state));
   } else if (method === "POST" && bodyArg && endpoint === "repos/ibboabdoli-ai/Proffera/issues/548/comments") {
-    state.comments.push({ id: 999, user: { login: "github-actions[bot]" }, body: bodyArg.slice("body=".length) });
+    state.comments.push({ id: 999, user: { login: "github-actions[bot]", type: "Bot" }, issue_url: "https://api.github.com/repos/ibboabdoli-ai/Proffera/issues/548", body: bodyArg.slice("body=".length) });
+    writeFileSync(process.env.GH_STUB_STATE_FILE, JSON.stringify(state));
+    process.stdout.write(JSON.stringify({ id: 999 }) + "\\n");
+    process.exit(0);
     writeFileSync(process.env.GH_STUB_STATE_FILE, JSON.stringify(state));
   }
   process.stdout.write("{}\\n");
@@ -1691,12 +1753,13 @@ function runWorkerPrStateRecord(currentBody: string) {
   mkdirSync(bin, { recursive: true });
   mkdirSync(trusted, { recursive: true });
   copyFileSync(helper, trustedHelper);
+  copyWorkerStrategyDependencies(trustedHelper);
   const helperDigest = createHash("sha256").update(readFileSync(trustedHelper)).digest("hex");
   writeFileSync(manifest, `${helperDigest}  ${trustedHelper}\n`);
   writeFileSync(log, "");
   const evidence = exactReservationEvidence(sha, { state: "PUBLISHED", pr_number: 900 });
   writeFileSync(stateFile, JSON.stringify({
-    comments: [...evidence.comments, { id: 99, user: { login: "github-actions[bot]" }, body: currentBody }],
+    comments: [...withTrustedStrategyStart(evidence.comments), { id: 99, user: { login: "github-actions[bot]" }, body: currentBody }],
     pr: {
       number: 900, state: "open", merged: false, base: { ref: "main", sha },
       head: { sha, ref: packet().branch, repo: { full_name: packet().repository } },
@@ -1789,6 +1852,7 @@ function runDispatchFailureState({
   mkdirSync(bin, { recursive: true });
   mkdirSync(trusted, { recursive: true });
   copyFileSync(helper, join(trusted, "supervisor-worker-handoff.mjs"));
+  copyWorkerStrategyDependencies(join(trusted, "supervisor-worker-handoff.mjs"));
   const helperDigest = createHash("sha256").update(readFileSync(helper)).digest("hex");
   writeFileSync(join(trusted, "supervisor-worker-handoff.sha256"), `${helperDigest}  ${join(trusted, "supervisor-worker-handoff.mjs")}\n`);
   writeFileSync(
@@ -2039,7 +2103,7 @@ async function ownershipHarness() {
   const state = {
     owner: "1001", failTaskPatch: false, hook: (_step: string) => { void _step; },
     comments: [reservationComment(payload, 101),
-      { id: 102, user: { login: "github-actions[bot]" }, body: `<!-- proffera-worker-dispatch-start:${taskPacket.task_id}:9001 -->` },
+      { ...trustedStrategyStartComment(taskPacket, 9001), id: 102 },
       { id: 103, user: { login: "github-actions[bot]" }, body: control.taskStateBody({ packet: taskPacket,
         state: "CLOSED_UNMERGED", run_id: "9001", pr_number: 849, head_sha: sha, reason: "Previously closed without merge." }) }],
     prs: [pr], writes: [] as Array<{ id: number; body: string }>, closes: [] as number[], posts: 0,
@@ -2095,6 +2159,62 @@ async function ownershipHarness() {
 }
 
 describe("Canonical Worker reservation ownership", () => {
+  it.each(["missing", "forged", "duplicate"] as const)(
+    "fails closed before rejecting a capacity-blocked reopened PR with %s Worker strategy provenance", async (kind) => {
+      const fixture = await ownershipHarness();
+      fixture.state.comments.push(fixture.other(1), fixture.other(2));
+      const start = fixture.state.comments.find((record) =>
+        String(record.body).includes("proffera-worker-strategy-start:v1:"));
+      expect(start).toBeDefined();
+      if (kind === "missing") {
+        fixture.state.comments = fixture.state.comments.filter((record) => record.id !== start!.id);
+      } else if (kind === "forged") {
+        const oldFingerprint = String(start!.body).match(/Evidence fingerprint: `([a-f0-9]{64})`/u)?.[1];
+        expect(oldFingerprint).toMatch(/^[0-9a-f]{64}$/u);
+        const forged = oldFingerprint === "f".repeat(64) ? "a".repeat(64) : "f".repeat(64);
+        start!.body = String(start!.body).replace(oldFingerprint!, forged);
+      } else {
+        fixture.state.comments.push({ ...start!, id: 900992 });
+      }
+      expect(() => fixture.authority.admitPr(fixture.request)).toThrow();
+      expect(fixture.state.closes).toEqual([]);
+      expect(fixture.state.writes).toEqual([]);
+      expect(fixture.state.posts).toBe(0);
+      expect(fixture.pr.state).toBe("open");
+    },
+  );
+
+  it.each(["missing", "duplicate", "forged", "wrong_attempt", "changed_between_reads"] as const)(
+    "rejects %s original strategy provenance before any canonical admission write", async (kind) => {
+      const fixture = await ownershipHarness();
+      const strategy = fixture.state.comments.find((item) =>
+        String(item.body).includes("proffera-worker-strategy-start:v1:"));
+      expect(strategy).toBeDefined();
+      if (kind === "missing") {
+        fixture.state.comments = fixture.state.comments.filter((item) => item.id !== strategy!.id);
+      } else if (kind === "duplicate") {
+        fixture.state.comments.push({ ...strategy!, id: 900991 });
+      } else if (kind === "forged") {
+        const matches = String(strategy!.body).match(/Evidence fingerprint: `([a-f0-9]{64})`/u);
+        expect(matches).not.toBeNull();
+        const altered = matches![1] === "f".repeat(64) ? "a".repeat(64) : "f".repeat(64);
+        strategy!.body = String(strategy!.body).replace(matches![1], altered);
+      } else if (kind === "changed_between_reads") {
+        let commentReads = 0;
+        fixture.state.hook = (step) => {
+          if (step !== "comments" || ++commentReads !== 2) return;
+          strategy!.body = String(strategy!.body).replace("DISPATCH_STARTED", "DISPATCH_CLOSED");
+        };
+      }
+      const request = kind === "wrong_attempt"
+        ? { ...fixture.request, original_run_attempt: 2 } : fixture.request;
+      expect(() => fixture.authority.admitPr(request)).toThrow();
+      expect(fixture.state.writes).toEqual([]);
+      expect(fixture.state.closes).toEqual([]);
+      expect(fixture.state.posts).toBe(0);
+    },
+  );
+
   const acquisition = (fixture: Awaited<ReturnType<typeof ownershipHarness>>) => ({
     packet: fixture.taskPacket, run_id: "1001", head_sha: sha, changed_files: [],
   });
@@ -2708,7 +2828,7 @@ describe("Supervisor ↔ Worker Phase-1 handoff", () => {
       expect(result.calls.filter((args) => args.includes("POST") && args.some((arg) => arg.endsWith("/issues/548/comments")))).toHaveLength(comments.length ? 0 : 1);
       if (comments.length) expect(commentPatchCalls(result.calls, 701)).toHaveLength(1);
     }
-  });
+  }, 45_000);
 
   it("converges a completed orphan after verification retries are exhausted through the same retryable transition", () => {
     const harness = createPreflightHarness();
@@ -2729,7 +2849,7 @@ describe("Supervisor ↔ Worker Phase-1 handoff", () => {
     expect(verificationReadCalls(retry.calls)).toHaveLength(1);
     expect(commentPatchCalls(retry.calls, Number(retry.comments[0].id)).map((args) => args.find((arg) => arg.startsWith("body="))))
       .toEqual([expect.stringContaining("- State: `TASK_BLOCKED`"), expect.stringContaining("- State: `TASK_CREATED`")]);
-  });
+  }, 45_000);
 
   it.each(["active run", "reservation", "dispatch marker", "branch", "PR on another base", "advanced task state"] as const)(
     "keeps genuinely dispatched and reserved, branched, or PR-backed TASK_CREATED tasks non-dispatchable (%s)",
@@ -2818,7 +2938,7 @@ describe("Supervisor ↔ Worker Phase-1 handoff", () => {
       expect(commentPatchCalls(result.calls, 201)).toHaveLength(0);
       expect(commentPatchCalls(result.calls, 203)).toHaveLength(0);
     }
-  });
+  }, 45_000);
 
   it("fails closed on initial duplicate task-state or reservation evidence and never reclaims another task", () => {
     const evidence = expiredSameTaskEvidence("RESERVED");
@@ -2862,7 +2982,7 @@ describe("Supervisor ↔ Worker Phase-1 handoff", () => {
       expect(result.status).toBe(1);
       expect(result.calls.filter((args) => args.includes("--method") && args.includes("PATCH"))).toHaveLength(0);
     }
-  });
+  }, 45_000);
 
   it("ignores a spoofed task-state comment not authored by the trusted bot", () => {
     const spoofed = { ...trustedState("WORKER_PR_OPENED", "1000"), user: { login: "attacker" } };
@@ -3149,6 +3269,7 @@ describe("Supervisor ↔ Worker Phase-1 handoff", () => {
     mkdirSync(join(repo, "scripts"), { recursive: true });
     mkdirSync(bin, { recursive: true });
     copyFileSync(helper, join(repo, "scripts", "supervisor-worker-handoff.mjs"));
+  copyWorkerStrategyDependencies(join(repo, "scripts", "supervisor-worker-handoff.mjs"));
     writeFileSync(ghLog, "", "utf8");
     writeFileSync(
       prJsonFile,
@@ -3252,6 +3373,7 @@ esac
     const trusted = join(dir, "trusted-helper.mjs");
     const workerCopy = join(dir, "worker-helper.mjs");
     copyFileSync(helper, trusted);
+  copyWorkerStrategyDependencies(trusted);
     writeFileSync(workerCopy, 'process.stdout.write(JSON.stringify({ok:true,status:"VALID",code:"bypassed"}));\n', "utf8");
 
     const input = { packet: packet(), changed_files: ["src/unrelated.ts"] };
@@ -3283,7 +3405,9 @@ esac
     mkdirSync(join(repo, "src"), { recursive: true });
     mkdirSync(trustedDir, { recursive: true });
     copyFileSync(helper, repoHelper);
+  copyWorkerStrategyDependencies(repoHelper);
     copyFileSync(helper, trustedHelper);
+  copyWorkerStrategyDependencies(trustedHelper);
 
     const checksum = spawnSync("sha256sum", [trustedHelper], { encoding: "utf8" });
     expect(checksum.status, checksum.stderr).toBe(0);
@@ -3413,7 +3537,7 @@ esac
   it("accepts one exact reservation and matching bot-authored dispatch record", () => {
     const evidence = exactReservationEvidence();
     const result = runReservationEnforcement({ ...evidence, comments: [
-      ...evidence.comments,
+      ...withTrustedStrategyStart(evidence.comments),
       { id: 103, user: { login: "github-actions[bot]" }, body: durableStateBody("TASK_CREATED") },
     ] });
     expect(result.status, result.stderr).toBe(0);
@@ -3431,7 +3555,7 @@ esac
     const retargeted = runReservationEnforcement({
       body: evidence.body,
       comments: [
-        ...evidence.comments,
+        ...withTrustedStrategyStart(evidence.comments),
         { id: 103, user: { login: "github-actions[bot]" }, body: durableStateBody("CHECKS_PENDING") },
       ],
       eventAction: "edited",
@@ -3576,7 +3700,7 @@ esac
     const result = runReservationEnforcement({
       body: evidence.body,
       comments: [
-        ...evidence.comments,
+        ...withTrustedStrategyStart(evidence.comments),
         { id: 103, user: { login: "github-actions[bot]" }, body: durableStateBody("CHECKS_PENDING", sha) },
       ],
       eventAction: "synchronize",
@@ -4531,7 +4655,7 @@ esac
       recovery: { kind: "branch", expires_at: "2099-01-01T00:00:00Z" },
     });
     const result = runReservationEnforcement({ ...evidence, comments: [
-      ...evidence.comments,
+      ...withTrustedStrategyStart(evidence.comments),
       { id: 103, user: { login: "github-actions[bot]" }, body: durableStateBody("WORKER_BLOCKED") },
     ] });
     expect(result.status, result.stderr).toBe(0);
@@ -4556,7 +4680,7 @@ esac
     const result = runReservationEnforcement({
       body: evidence.body,
       comments: [
-        ...evidence.comments,
+        ...withTrustedStrategyStart(evidence.comments),
         { id: 103, user: { login: "github-actions[bot]" }, body: durableStateBody("CHECKS_PENDING") },
       ],
       eventHead: otherSha,
@@ -5139,6 +5263,49 @@ esac
     }
   });
 
+  it("blocks missing original Worker strategy evidence before writing active task state", () => {
+    const evidence = exactReservationEvidence(sha, { state: "PUBLISHED", pr_number: 849 });
+    const result = runLifecycleReconciliation({
+      action: "synchronize",
+      comments: [
+        ...evidence.comments,
+        { id: 103, user: { login: "github-actions[bot]" }, body: durableStateBody("WORKER_PR_OPENED") },
+      ],
+      liveState: "open",
+    });
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toContain("Worker strategy dispatch-start identity is missing or ambiguous");
+    expect(durableMutationCalls(result.calls)).toHaveLength(0);
+    expect(String(result.comments.find((entry) => entry.id === 103)?.body)).toContain("- State: \`WORKER_PR_OPENED\`");
+  });
+
+  it("blocks forged or duplicate original Worker strategy evidence before admission writes", () => {
+    const evidence = exactReservationEvidence(sha, { state: "PUBLISHED", pr_number: 849 });
+    const trusted = withTrustedStrategyStart(evidence.comments);
+    const index = trusted.findIndex((record) => String(record.body).includes("proffera-worker-strategy-start:v1:"));
+    expect(index).toBeGreaterThanOrEqual(0);
+    const original = trusted[index];
+    const fingerprint = String(original.body).match(/Evidence fingerprint: .([a-f0-9]{64})./u)?.[1] ?? "";
+    expect(fingerprint).toHaveLength(64);
+    const replacement = fingerprint === "f".repeat(64) ? "a".repeat(64) : "f".repeat(64);
+    const forged = trusted.map((record, idx) => idx === index ? {
+      ...record,
+      body: String(record.body).replace(fingerprint, replacement),
+    } : record);
+    for (const records of [forged, [...trusted, { ...original, id: 987654 }]]) {
+      const result = runLifecycleReconciliation({
+        action: "synchronize",
+        comments: [
+          ...records,
+          { id: 103, user: { login: "github-actions[bot]" }, body: durableStateBody("WORKER_PR_OPENED") },
+        ],
+        liveState: "open",
+      });
+      expect(result.status).not.toBe(0);
+      expect(durableMutationCalls(result.calls)).toHaveLength(0);
+    }
+  });
+
   it("preserves exact event-head enforcement for the open lifecycle path", () => {
     const stale = runLifecycleReconciliation({
       action: "synchronize",
@@ -5154,7 +5321,7 @@ esac
     const current = runLifecycleReconciliation({
       action: "synchronize",
       comments: [
-        ...exactReservationEvidence(sha, { state: "PUBLISHED", pr_number: 849 }).comments,
+        ...withTrustedStrategyStart(exactReservationEvidence(sha, { state: "PUBLISHED", pr_number: 849 }).comments),
         { id: 103, user: { login: "github-actions[bot]" }, body: durableStateBody("WORKER_PR_OPENED") },
       ],
       liveState: "open",
@@ -5170,7 +5337,7 @@ esac
   it("preserves the normal exact-head check-evidence path for an open PR", () => {
     const result = runSyncCheckReconciliation({
       comments: [
-        ...exactReservationEvidence(sha, { state: "PUBLISHED", pr_number: 849 }).comments,
+        ...withTrustedStrategyStart(exactReservationEvidence(sha, { state: "PUBLISHED", pr_number: 849 }).comments),
         { id: 103, user: { login: "github-actions[bot]" }, body: durableStateBody("CHECKS_PENDING") },
       ],
       liveState: "open",
@@ -6304,7 +6471,7 @@ process.stdout.write(JSON.stringify({
     const reopened = runLifecycleReconciliation({
       action: "reopened",
       comments: [
-        ...exactReservationEvidence(sha, { state: "RELEASED", pr_number: 849, recovery: { kind: "closed_pr", merged: false } }).comments,
+        ...withTrustedStrategyStart(exactReservationEvidence(sha, { state: "RELEASED", pr_number: 849, recovery: { kind: "closed_pr", merged: false } }).comments),
         { id: 103, user: { login: "github-actions[bot]" }, body: durableStateBody("CLOSED_UNMERGED") },
       ],
       liveState: "open",

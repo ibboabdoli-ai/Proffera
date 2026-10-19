@@ -6,6 +6,7 @@ import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
+import { createRequire } from "node:module";
 
 export const TASK_PACKET_MARKER = "<!-- proffera-worker-task-packet:v1 -->";
 export const TASK_STATE_MARKER_PREFIX = "<!-- proffera-worker-task-state:";
@@ -2712,6 +2713,33 @@ export function createWorkerReservationAuthority(io) {
       const taskState = assertWorkerTask(task, packet, payload, prNumber);
       const dispatchMarker = `<!-- proffera-worker-dispatch-start:${packet.task_id}:${payload.run_id} -->`;
       const dispatch = trustedRecord(observed.comments, dispatchMarker);
+      // This authority is callable directly: never rely on CLI wrappers or
+      // caller-supplied callbacks to authenticate original Worker provenance.
+      const starts = parseWorkerStrategyDispatchStarts(observed.comments)
+        .filter((start) => start.task_id === packet.task_id);
+      const exactStarts = starts.filter((start) => String(start.run_id) === String(payload.run_id));
+      if (exactStarts.length !== 1) {
+        throw new Error("Worker strategy dispatch-start identity is missing or ambiguous; owner reconciliation required");
+      }
+      const descriptor = createRequire(import.meta.url)("./supervisor-worker-strategy-memory.mjs").workerStrategyDescriptor(packet);
+      const start = exactStarts[0];
+      if (start.head !== packet.base_sha
+        || start.evidence_fingerprint !== descriptor.evidence_fingerprint
+        || start.strategy_fingerprint !== descriptor.strategy_fingerprint
+        || (input.original_run_attempt != null
+          && Number(input.original_run_attempt) !== start.run_attempt)) {
+        throw new Error("Worker strategy dispatch-start provenance conflicts with admitted packet");
+      }
+      // Both acceptance and denied released-PR reopen can write durable state.
+      // Authenticate original strategy evidence before either path; the
+      // post-plan freshness checks still guard writes after planning.
+      if (typeof input.beforeAdmissionPersist === "function") {
+        input.beforeAdmissionPersist({ packet, payload, comments: observed.comments });
+      }
+      io.assertOwner();
+      if (!equal(snapshot(), observed)) {
+        throw new Error("Worker strategy admission evidence changed before any durable write");
+      }
       if (payload.pr_number != null && payload.pr_number !== prNumber) throw new Error("reservation belongs to another PR");
       const released = payload.state === "RELEASED";
       const closedRelease = released && payload.pr_number === prNumber && payload.head_sha === pr.head.sha
@@ -3196,12 +3224,40 @@ export async function recordWorkerStrategyOutcome(input) {
     packet,
     repository: input.repository,
     outcome,
-    run_id: input.run_id,
+    run_id: input.strategy_run_id ?? input.run_id,
     run_attempt: input.run_attempt,
     observed_at: input.observed_at,
     pr_number: input.pr_number ?? null,
   });
   const descriptor = strategy.workerStrategyDescriptor(packet);
+  if (outcome === "succeeded") {
+    // Read authenticated durable memory under the existing reservation mutex.
+    // A lifecycle/check replay is not a new execution; never refresh last_seen.
+    const runId = Number(input.strategy_run_id ?? input.run_id);
+    const attempt = Number(input.run_attempt);
+    const matches = current.memory.records.filter((record) =>
+      record.action_id === "worker_codex_attempt"
+      && Array.isArray(record.observations)
+      && record.observations.some((entry) => entry.source?.kind === "actions"
+        && Number(entry.source.run_id) === runId && Number(entry.source.attempt) === attempt));
+    if (matches.length > 0) {
+      if (matches.length !== 1 || matches[0].outcome !== "succeeded"
+        || matches[0].pr_number !== Number(input.pr_number)
+        || matches[0].evidence_fingerprint !== descriptor.evidence_fingerprint
+        || matches[0].strategy_fingerprint !== descriptor.strategy_fingerprint
+        || !matches[0].observations.some((entry) => entry.source?.kind === "actions"
+          && Number(entry.source.run_id) === runId && Number(entry.source.attempt) === attempt
+          && entry.head === packet.base_sha)) {
+        throw new Error("Worker strategy success conflicts with a durable outcome for this attempt");
+      }
+      assertReservationMutex(input);
+      return {
+        decision: "ALREADY_RECORDED",
+        evidence_fingerprint: descriptor.evidence_fingerprint,
+        strategy_fingerprint: descriptor.strategy_fingerprint,
+      };
+    }
+  }
   const replacement = failure.mergeObservation(current, expected, observation);
   const unchanged = JSON.stringify(failure.memoryIdentity(replacement)) === JSON.stringify(expected);
   let expectedSnapshot = replacement;
@@ -3828,19 +3884,88 @@ async function main() {
     process.stdout.write(`${JSON.stringify(reconcileUnboundTasks(parsed))}\n`);
     return;
   }
-  if (mode === "reservation-acquire" || mode === "worker-pr-admit" || mode === "retarget-pr-reconcile"
+  if (mode === "worker-pr-admit") {
+    assertControlIdentity(parsed);
+    const authority = createWorkerReservationAuthority(workerReservationIO(parsed));
+    const strategy = await import("./supervisor-worker-strategy-memory.mjs");
+    const validateOriginalStrategyStart = ({ packet, payload, comments }) => {
+      const starts = parseWorkerStrategyDispatchStarts(comments)
+        .filter((start) => start.task_id === packet.task_id);
+      const exact = starts.filter((start) => String(start.run_id) === String(payload.run_id));
+      if (exact.length !== 1) {
+        throw new Error("Worker strategy dispatch-start identity is missing or ambiguous; owner reconciliation required");
+      }
+      const descriptor = strategy.workerStrategyDescriptor(packet);
+      if (exact[0].head !== packet.base_sha
+        || exact[0].evidence_fingerprint !== descriptor.evidence_fingerprint
+        || exact[0].strategy_fingerprint !== descriptor.strategy_fingerprint) {
+        throw new Error("Worker strategy dispatch-start provenance conflicts with admitted packet");
+      }
+    };
+    const result = authority.admitPr({
+      ...parsed,
+      beforeAdmissionPersist: validateOriginalStrategyStart,
+    });
+    if (result.ok === true) {
+      // The original Worker run (not this lifecycle workflow run) owns the
+      // strategy start. Record its outcome only after authenticated admission.
+      const prNumber = Number(parsed.pr_number);
+      const pr = retryGitHubRead(() => githubApiJson([`repos/${parsed.repository}/pulls/${prNumber}`]));
+      if (pr?.state !== "open" || pr?.head?.sha !== result.head_sha
+        || pr?.head?.repo?.full_name !== parsed.repository
+        || pr?.user?.login !== TRUSTED_SUPERVISOR_ACTOR) {
+        throw new Error("Worker strategy outcome refused: admitted PR identity changed");
+      }
+      const packet = parseTaskPacketComment(pr.body);
+      if (packet.task_id !== result.task_id) throw new Error("Worker strategy admitted task identity changed");
+      const comments = githubAllIssueComments(parsed.repository);
+      const own = reservationRecords(comments).find((record) => record.payload.task_id === result.task_id);
+      if (!own || own.payload.state !== "PUBLISHED" || own.payload.pr_number !== prNumber
+        || own.payload.head_sha !== result.head_sha || String(own.payload.run_id) !== String(result.task_run_id)
+        || !sameReservationPacket(own.payload, packet)) {
+        throw new Error("Worker strategy success requires exact PUBLISHED reservation provenance");
+      }
+      const starts = parseWorkerStrategyDispatchStarts(comments)
+        .filter((start) => start.task_id === result.task_id);
+      const exactStarts = starts.filter((start) => String(start.run_id) === String(result.task_run_id));
+      if (exactStarts.length !== 1) {
+        // Modern Worker dispatch always emits this trusted marker first.
+        // Do not misclassify legacy/missing-marker evidence as success.
+        throw new Error("Worker strategy dispatch-start identity is missing or ambiguous; owner reconciliation required");
+      }
+      {
+        const start = exactStarts[0];
+        const strategy = await import("./supervisor-worker-strategy-memory.mjs");
+        const descriptor = strategy.workerStrategyDescriptor(packet);
+        if (start.head !== packet.base_sha || start.evidence_fingerprint !== descriptor.evidence_fingerprint
+          || start.strategy_fingerprint !== descriptor.strategy_fingerprint) {
+          throw new Error("Worker strategy dispatch-start provenance conflicts with admitted packet");
+        }
+        const persisted = await recordWorkerStrategyOutcome({
+          ...parsed, packet, outcome: "succeeded", strategy_run_id: start.run_id,
+          run_attempt: start.run_attempt, pr_number: prNumber, observed_at: new Date().toISOString(),
+        });
+        if (persisted.decision !== "RECORDED" && persisted.decision !== "ALREADY_RECORDED") {
+          throw new Error("Worker strategy success did not persist");
+        }
+        result.strategy_outcome = persisted.decision;
+      }
+      assertReservationMutex(parsed);
+    }
+    process.stdout.write(`${JSON.stringify(result)}\n`);
+    return;
+  }
+  if (mode === "reservation-acquire" || mode === "retarget-pr-reconcile"
     || mode === "released-retarget-return-enforce" || mode === "published-retarget-return-enforce") {
     assertControlIdentity(parsed);
     const authority = createWorkerReservationAuthority(workerReservationIO(parsed));
     const result = mode === "reservation-acquire"
       ? authority.acquire(parsed)
-      : mode === "worker-pr-admit"
-        ? authority.admitPr(parsed)
-        : mode === "retarget-pr-reconcile"
-          ? authority.retargetPr(parsed)
-          : mode === "released-retarget-return-enforce"
-            ? authority.closeChangedReleasedRetargetPr(parsed)
-            : authority.closeRapidPublishedRetargetReturnPr(parsed);
+      : mode === "retarget-pr-reconcile"
+        ? authority.retargetPr(parsed)
+        : mode === "released-retarget-return-enforce"
+          ? authority.closeChangedReleasedRetargetPr(parsed)
+          : authority.closeRapidPublishedRetargetReturnPr(parsed);
     process.stdout.write(`${JSON.stringify(result)}\n`);
     return;
   }

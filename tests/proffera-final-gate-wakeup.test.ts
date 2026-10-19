@@ -344,8 +344,7 @@ describe("event-driven final review gate", () => {
     expect(automerge).not.toContain('select(.state == "APPROVED" or .state == "COMMENTED")');
     expect(wakeup).toContain("EVENT_COMMENT_CREATED_AT");
     expect(wakeup).toContain("coderabbit_review_completion_time");
-    expect(wakeup).toContain('select(.state == "APPROVED")');
-    expect(wakeup).not.toContain('select(.state == "APPROVED" or .state == "COMMENTED")');
+    expect(wakeup).toContain('select(.state == "APPROVED" or (.state == "COMMENTED" and $clean_summary == "true"))');
     expect(wakeup).toContain('select((.submitted_at // "") >= $request_time)');
     expect(wakeup).toContain("<!-- CodeRabbit review command invocation: v2:");
     expect(wakeup).toContain("[0-9a-f]{64}");
@@ -700,6 +699,63 @@ ${reviewHead}
     expect(completedCurrentHeadReview.rerun).toBe(true);
   }, 120000);
 
+  it("accepts the repository's ordinary clean persistent summary paired with current-head COMMENTED", () => {
+    const ordinary = `<!-- recent_review_start -->
+No actionable comments were generated in the recent review.
+${reviewHead}
+<!-- recent_review_end -->`;
+    const result = runWakeupFixture({
+      body: ordinary, comments: [requestComment()],
+      firstReviews: [{...codeRabbitCompletedReview(), state:"COMMENTED", body:""}],
+    });
+    expect(result.result.status, result.result.stderr).toBe(0);
+    expect(result.rerun).toBe(true);
+
+    const stale = runWakeupFixture({
+      body: ordinary.replace(reviewHead, oldHead), comments: [requestComment()],
+      firstReviews: [{...codeRabbitCompletedReview(), state:"COMMENTED", body:""}],
+    });
+    expect(stale.rerun).toBe(false);
+  }, 120000);
+
+  it("blocks an approved persistent summary when a newer change request arrives before rerun", () => {
+    const ordinary = `<!-- recent_review_start -->
+No actionable comments were generated in the recent review.
+${reviewHead}
+<!-- recent_review_end -->`;
+    const result = runWakeupFixture({
+      body: ordinary, comments: [requestComment()],
+      firstReviews: [codeRabbitCompletedReview()],
+      laterReviews: [codeRabbitCompletedReview(), {
+        ...codeRabbitCompletedReview("2099-09-05T12:04:00Z", reviewHead, 7999),
+        state: "CHANGES_REQUESTED",
+      }],
+    });
+    expect(result.result.status, result.result.stderr).toBe(0);
+    expect(result.rerun).toBe(false);
+    expect(`${result.result.stdout}${result.result.stderr}`).toContain("CodeRabbit changes were recorded before final-gate wakeup");
+  }, 120000);
+
+  it("accepts a clean current-head COMMENTED summary without bypassing newer change requests", () => {
+    const body = `Review completed for exact HEAD ${reviewHead}.
+I found no material findings.`;
+    const commented = { ...codeRabbitCompletedReview(), state: "COMMENTED", body: "" };
+    const positive = runWakeupFixture({
+      body, comments: [requestComment(), cleanIssueComment({ body })], firstReviews: [commented],
+    });
+    expect(positive.result.status, positive.result.stdout + positive.result.stderr).toBe(0);
+    expect(positive.rerun).toBe(true);
+
+    const denied = runWakeupFixture({
+      body, comments: [requestComment(), cleanIssueComment({ body })], firstReviews: [commented, {
+        ...codeRabbitCompletedReview("2099-09-05T12:02:30Z", reviewHead, 7002), state: "CHANGES_REQUESTED",
+      }],
+    });
+    expect(denied.result.status, denied.result.stdout + denied.result.stderr).toBe(0);
+    expect(denied.rerun).toBe(false);
+    expect(`${denied.result.stdout}${denied.result.stderr}`).toContain("CodeRabbit changes were recorded before final-gate wakeup");
+  }, 120000);
+
   it("does not classify availability/status comments as the new clean CodeRabbit decision", () => {
     const wakeup = source(".github/workflows/proffera-final-gate-wakeup.yml");
     const cleanPredicateStart = wakeup.indexOf('clean_comment_match="$(jq -rn');
@@ -714,12 +770,50 @@ ${reviewHead}
     expect(cleanPredicate).toContain("| not");
   });
 
+  it("refuses clean CodeRabbit comments without a newer qualifying current-head PR review", () => {
+    const comments = [requestComment(), cleanIssueComment()];
+    const commentOnly = runAutomergeFixture({comments});
+    expect(commentOnly.status).toBe(0);
+    expect(commentOnly.stdout).toContain("clean comment has no completed current-head CodeRabbit PR review");
+    expect(commentOnly.stdout).not.toContain("AI_REVIEW_OK");
+
+    const oldReview = runAutomergeFixture({
+      comments,
+      firstReviews: [{...codeRabbitCompletedReview("2099-09-05T11:59:00Z"),state:"COMMENTED"}],
+    });
+    expect(oldReview.status).toBe(0);
+    expect(oldReview.stdout).toContain("clean comment has no completed current-head CodeRabbit PR review");
+    expect(oldReview.stdout).not.toContain("AI_REVIEW_OK");
+
+    const newerChanges = runAutomergeFixture({
+      comments,
+      firstReviews: [
+        {...codeRabbitCompletedReview("2099-09-05T12:02:00Z"),state:"COMMENTED"},
+        {...codeRabbitCompletedReview("2099-09-05T12:04:00Z",reviewHead,7002),state:"CHANGES_REQUESTED"},
+      ],
+    });
+    expect(newerChanges.status).toBe(0);
+    expect(newerChanges.stdout).toContain("CodeRabbit changes remain requested");
+    expect(newerChanges.stdout).not.toContain("AI_REVIEW_OK");
+  });
+
   it("recognizes the same trusted clean exact-head CodeRabbit evidence in gated automerge", () => {
     const positive = runAutomergeFixture({
       comments: [requestComment(), cleanIssueComment()],
+      firstReviews: [{ ...codeRabbitCompletedReview(), state: "COMMENTED" }],
     });
     expect(positive.status).toBe(0);
     expect(positive.stdout).toContain("AI_REVIEW_OK");
+
+    const alternativeClean = runAutomergeFixture({
+      firstReviews: [{ ...codeRabbitCompletedReview(), state: "COMMENTED" }],
+      comments: [requestComment(), cleanIssueComment({
+        body: `Review completed for exact HEAD ${reviewHead}.
+I found no material findings.`,
+      })],
+    });
+    expect(alternativeClean.status).toBe(0);
+    expect(alternativeClean.stdout).toContain("AI_REVIEW_OK");
 
     // A COMMENTED review can be generated by a bot replying to a resolved
     // thread. It does not attest that the full exact-head PR was reviewed.
@@ -1020,5 +1114,68 @@ describe("complete wakeup shell to durable adapter", () => {
       const result = spawnSync("bash", ["-c", 'grep -Eqi "$MATCH" <<< "$BODY"'], { encoding: "utf8", env: { ...process.env, MATCH: match![1], BODY: body } });
       expect(result.status).toBe(0);
     }
+  });
+});
+
+// PR #941: exercise the exact jq predicates shipped in AutoMerge.
+describe("AutoMerge CodeRabbit review provenance (adversarial)", () => {
+  const workflow = source(".github/workflows/proffera-automerge.yml");
+  const extract = (begin: string, end: string) => {
+    const a = workflow.indexOf(begin), b = workflow.indexOf(end,a);
+    expect(a).toBeGreaterThanOrEqual(0);
+    expect(b).toBeGreaterThan(a);
+    return workflow.slice(a+begin.length,b);
+  };
+  const jq = (filter: string, input: unknown, params: Record<string,string>) => {
+    const args = ["-c",...Object.entries(params).flatMap(([k,v])=>["--arg",k,v]),filter];
+    const r = spawnSync("jq",args,{input:JSON.stringify(input),encoding:"utf8"});
+    expect(r.status,r.stderr).toBe(0);
+    return r.stdout.trim() ? JSON.parse(r.stdout) : null;
+  };
+  const request = "2026-10-18T21:00:00Z";
+  const completed = "2026-10-18T21:02:00Z";
+  const summary = "2026-10-18T21:03:00Z";
+  const clean = [{
+    user:{login:"coderabbitai[bot]"},created_at:summary,updated_at:summary,
+    body:"Review completed for exact HEAD "+reviewHead+".\nI found no material findings.",
+  }];
+  const cleanFilter = extract(
+    'clean_final_comments_json="$(jq -c --arg sha "$head_sha" --arg request_time "$coderabbit_request_time" \x27\n',
+    '\x27 <<< "$comments_json")"',
+  );
+  const reviewFilter = extract(
+    'guard_review_completion_time="$(jq -r --arg request_time "$coderabbit_request_time" \x27\n',
+    '\x27 <<< "$guard_current_reviews")"',
+  );
+  const afterFilter = extract(
+    'guard_clean_after_review_count="$(jq -r --arg review_time "$guard_review_completion_time" \x27\n',
+    '\x27 <<< "$clean_final_comments_json")"',
+  );
+  const qualify = (reviews: unknown[], comments = clean) => {
+    const summaries = jq(cleanFilter,comments,{sha:reviewHead,request_time:request}) as unknown[];
+    const reviewTime = jq(reviewFilter,reviews,{request_time:request}) as string | null;
+    const matches = reviewTime
+      ? jq(afterFilter,summaries,{review_time:reviewTime}) as number : 0;
+    return {summaries:summaries.length,matches};
+  };
+  const review = (state:string,time=completed) => ({user:{login:"coderabbitai[bot]"},commit_id:reviewHead,state,submitted_at:time});
+  it("rejects comment-only clean evidence",() => {
+    expect(qualify([])).toEqual({summaries:1,matches:0});
+  });
+  it("rejects stale-HEAD or pre-request reviews",() => {
+    expect(qualify([review("COMMENTED","2026-10-18T20:55:00Z")]).matches).toBe(0);
+    const stale = [{...review("COMMENTED"),commit_id:oldHead}].filter((r)=>r.commit_id === reviewHead);
+    expect(qualify(stale).matches).toBe(0);
+  });
+  it("rejects clean summaries older than review completion",() => {
+    expect(qualify([review("COMMENTED","2026-10-18T21:04:00Z")]).matches).toBe(0);
+  });
+  it("accepts qualifying COMMENTED and APPROVED only with later clean summaries",() => {
+    expect(qualify([review("COMMENTED")]).matches).toBe(1);
+    expect(qualify([review("APPROVED")]).matches).toBe(1);
+  });
+  it("retains the current-head CHANGES_REQUESTED hard block",() => {
+    expect(workflow).toContain("guard_latest_changes");
+    expect(workflow).toContain("CodeRabbit changes were recorded before clean-comment automerge acceptance");
   });
 });

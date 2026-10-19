@@ -1,4 +1,4 @@
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync, readFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, rmSync, symlinkSync, writeFileSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { spawnSync } from "node:child_process";
@@ -191,6 +191,23 @@ describe("canonical Supervisor pre-publication gate", () => {
     const result = cli(repo, ["snapshot", "--base", base, "--pr-body", bodyPath]);
     expect(result.status, result.stderr).toBe(0);
     expect(JSON.parse(result.stdout)).toMatchObject({ ok: true });
+  });
+
+  it("accepts a symlinked path to the actual Git worktree root", () => {
+    const { root, repo, base } = fixture();
+    const alias = join(root, "repo-alias");
+    try {
+      symlinkSync(repo, alias, "dir");
+    } catch (error) {
+      // Windows without symlink privilege does not supply this facility.
+      if (process.platform === "win32") return;
+      throw error;
+    }
+    write(join(repo, "docs", "note.md"), "candidate\n");
+    git(repo, ["add", "."]);
+    git(repo, ["commit", "-qm", "candidate"]);
+    expect(inspectFixture({ cwd: alias, baseSha: base, prBody: body(base) }).head_sha)
+      .toBe(git(repo, ["rev-parse", "HEAD"]).stdout.trim());
   });
 
   it("rejects the wrong branch and any dirty staged, unstaged, or untracked candidate state", () => {
@@ -547,6 +564,28 @@ describe("canonical Supervisor pre-publication gate", () => {
     expect(() => executeLocalValidation(candidate, repo, ["targeted"], {
       runner: () => ({ status: 0, signal: null, stderr: "", stdout: "" }),
     })).toThrow(/supervisor_preflight:validation: no mapped targeted tests/);
+  });
+
+  it("maps the PR941 Worker strategy-admission suite into required targeted validation", () => {
+    const { repo, base } = fixture();
+    write(join(repo, "tests", "pr941-worker-strategy-admission.test.ts"),
+      'import { it } from "vitest"; it("registered", () => {});\n');
+    git(repo, ["add", "."]);
+    git(repo, ["commit", "-qm", "add PR941 strategy admission regression"]);
+    const candidate = inspectFixture({ cwd: repo, baseSha: base, prBody: body(base) });
+    for (const id of ["targeted"]) {
+      let executed = false;
+      const result = executeLocalValidation(candidate, repo, [id], {
+        runner: (_command: string, args: string[]) => {
+          expect(args).toContain("tests/pr941-worker-strategy-admission.test.ts");
+          expect(args).toContain("tests/supervisor-worker-handoff.test.ts");
+          executed = true;
+          return { status: 0, signal: null, stdout: "", stderr: "" };
+        },
+      });
+      expect(executed).toBe(true);
+      expect(result.ok).toBe(true);
+    }
   });
 
   it("includes the booking-reminders behavioral suite for affected workflow candidates", () => {

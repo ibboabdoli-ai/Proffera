@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { readFileSync } from "node:fs";
+import { readFileSync, realpathSync } from "node:fs";
 import { resolve } from "node:path";
 import process from "node:process";
 import { spawnSync } from "node:child_process";
@@ -423,6 +423,7 @@ function additionalTargetedSuites(candidate) {
     "tests/supervisor-ci-autofix-candidate.test.ts",
     "tests/supervisor-preflight.test.ts",
     "tests/supervisor-worker-handoff.test.ts",
+    "tests/pr941-worker-strategy-admission.test.ts",
   ]);
   const unmapped = candidate.diff.paths.filter((path) =>
     path !== bookingWorkflow
@@ -435,6 +436,7 @@ function additionalTargetedSuites(candidate) {
   const workerPaths = new Set([
     "scripts/supervisor-worker-handoff.mjs",
     "tests/supervisor-worker-handoff.test.ts",
+    "tests/pr941-worker-strategy-admission.test.ts",
   ]);
   const autofixPaths = new Set([
     ".github/workflows/proffera-ci-autofix.yml",
@@ -497,6 +499,7 @@ function additionalTargetedSuites(candidate) {
     }
     if (workerPaths.has(path) || path === ".github/workflows/supervisor-worker-handoff.yml") {
       suites.add("tests/supervisor-worker-handoff.test.ts");
+      suites.add("tests/pr941-worker-strategy-admission.test.ts");
     }
     if (path === ".github/workflows/supervisor-review-repair.yml"
       || path === "scripts/supervisor-review-repair-strategy-memory.mjs") {
@@ -729,8 +732,8 @@ export function inspectCandidate({
     fail("runtime", `Node 22.x is required; running ${process.version}`);
   }
 
-  const root = resolve(gitText(cwd, ["rev-parse", "--show-toplevel"]));
-  if (root.toLowerCase() !== resolve(cwd).toLowerCase()) fail("repository", "run preflight from the repository root");
+  const root = realpathSync.native(resolve(gitText(cwd, ["rev-parse", "--show-toplevel"])));
+  if (root !== realpathSync.native(resolve(cwd))) fail("repository", "run preflight from the repository root");
 
   const originRepository = repositoryFromRemote(gitText(cwd, ["config", "--get", "remote.origin.url"]));
   if (originRepository.toLowerCase() !== repository.toLowerCase()) {
