@@ -990,8 +990,9 @@ jobs:
                     .[]
                     | select(.user.login == "chatgpt-codex-connector[bot]")
                     | select(.created_at >= $request_time)
-                    | select((.body // "") | startswith("Codex Review: Didn\u0027t find any major issues."))
-                    | ((.body // "") | capture("Reviewed commit:\\*{0,2}[[:space:]]*`?(?<reviewed>[0-9a-fA-F]{7,40})`?").reviewed | ascii_downcase) as $reviewed
+                    | select((.body // "") | ltrimstr("<!-- codex-review-receipt:v1 -->\n\n") | startswith("Codex Review: Didn\u0027t find any major issues."))
+                    | ((.body // "") | capture("Reviewed commit:\\*{0,2}[[:space:]]*`?(?<reviewed>[0-9a-fA-F]{10,40})`?").reviewed | ascii_downcase) as $reviewed
+                    | select(($reviewed | length) == 10 or ($reviewed | length) == 40)
                     | select($sha | startswith($reviewed))
                   ]
                   | length
@@ -1029,6 +1030,31 @@ jobs:
                     echo "CodeRabbit changes were recorded while Codex fallback was running; Codex cannot clear them."
                     sleep 15
                     continue
+                  fi
+
+                  # Re-read blocking inline findings after review-state validation.
+                  # GitHub does not offer an atomic cross-endpoint review snapshot.
+                  guard_inline_json="$(gh api --paginate "repos/${REPOSITORY}/pulls/${PR_NUMBER}/comments?per_page=100" --jq '.[]' | jq -s '.')"
+                  guard_blocking_inline_count="$(jq -r --arg sha "$HEAD_SHA" --arg request_time "$codex_request_time" '
+                    [
+                      .[]
+                      | select(
+                          (.user.login == "chatgpt-codex-connector[bot]" and (.original_commit_id // .commit_id) == $sha and (.created_at // "") >= $request_time)
+                          or
+                          (.user.login == "coderabbitai[bot]" and (.original_commit_id // .commit_id) == $sha)
+                        )
+                    ]
+                    | length
+                  ' <<< "$guard_inline_json")"
+                  if [ "$guard_blocking_inline_count" -gt 0 ]; then
+                    echo "Refused: blocking current-head AI inline findings appeared during final recheck."
+                    exit 1
+                  fi
+
+                  final_head_sha="$(gh api "repos/${REPOSITORY}/pulls/${PR_NUMBER}" --jq '.head.sha')"
+                  if [ "$final_head_sha" != "$HEAD_SHA" ]; then
+                    echo "Refused: final AI review became stale while rechecking findings."
+                    exit 1
                   fi
 
                   echo "Codex fallback completed clean for the current unchanged head after CodeRabbit availability failure."

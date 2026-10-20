@@ -59,6 +59,7 @@ type CiReviewFixture = {
   comments?: Array<Record<string, unknown>>;
   reactions?: Array<Record<string, unknown>>;
   inlineComments?: Array<Record<string, unknown>>;
+  laterInlineComments?: Array<Record<string, unknown>>;
   headSha?: string;
   headAfterLoopCheck?: string;
   failOnPost?: boolean;
@@ -75,6 +76,7 @@ function runCiReviewFixture(fixture: CiReviewFixture) {
   const script = join(dir, "review-gate.sh");
   const stateFile = join(dir, "reviews-count");
   const headStateFile = join(dir, "head-count");
+  const inlineStateFile = join(dir, "inline-count");
 
   writeFileSync(fakeGh, `#!/usr/bin/env bash
 set -euo pipefail
@@ -103,7 +105,14 @@ if [[ "$args" == *"/issues/comments/42/reactions?per_page=100"* ]]; then
   exit 0
 fi
 if [[ "$args" == *"/pulls/801/comments?per_page=100"* ]]; then
-  printf '%s\\n' "$FAKE_INLINE_COMMENTS"
+  count=0
+  [ -f "$FAKE_INLINE_STATE" ] && count="$(cat "$FAKE_INLINE_STATE")"
+  if [ "$count" -lt 2 ]; then
+    printf '%s\\n' "$FAKE_INLINE_COMMENTS"
+  else
+    printf '%s\\n' "$FAKE_LATER_INLINE_COMMENTS"
+  fi
+  printf '%s' "$((count + 1))" > "$FAKE_INLINE_STATE"
   exit 0
 fi
 if [ "$1" = "api" ] && [ "\${2:-}" = "repos/ibboabdoli-ai/Proffera/pulls/801" ]; then
@@ -154,6 +163,8 @@ ${ciReviewGateShellBlock()}
       FAKE_COMMENTS: toNdjson(fixture.comments),
       FAKE_REACTIONS: toNdjson(fixture.reactions),
       FAKE_INLINE_COMMENTS: toNdjson(fixture.inlineComments),
+      FAKE_LATER_INLINE_COMMENTS: toNdjson(fixture.laterInlineComments ?? fixture.inlineComments),
+      FAKE_INLINE_STATE: inlineStateFile,
       FAKE_INITIAL_HEAD_SHA: fixture.headSha ?? reviewHead,
       FAKE_HEAD_SHA: reviewHead,
       FAKE_HEAD_AFTER_LOOP: fixture.headAfterLoopCheck ?? "",
@@ -835,6 +846,54 @@ describe("tooling safety contract", () => {
     });
     expect(delightfulComment.status).toBe(0);
 
+    const codexReceipt = `<!-- codex-review-receipt:v1 -->\n\nCodex Review: Didn't find any major issues. Can't wait for the next one!\n\n**Reviewed commit:** \`${reviewHead.slice(0, 10)}\``;
+    const acceptedReceipt = runCiReviewFixture({
+      changedFiles: largeSafeChange(),
+      comments: [...fallbackComments(), cleanCodexComment({ body: codexReceipt })],
+      failOnPost: true,
+    });
+    expect(acceptedReceipt.status).toBe(0);
+
+    const invalidReceiptBodies = [
+      codexReceipt.replace("codex-review-receipt:v1", "codex-review-receipt:v2"),
+      codexReceipt.replace("-->\n\nCodex Review", "-->\nCodex Review"),
+      `Untrusted preface\n${codexReceipt}`,
+      codexReceipt.replace(reviewHead.slice(0, 10), "deadbeef00"),
+      codexReceipt.replace("Didn't find any major issues.", "Found security issues."),
+    ];
+    for (const body of invalidReceiptBodies) {
+      const rejected = runCiReviewFixture({
+        changedFiles: largeSafeChange(),
+        comments: [...fallbackComments(), cleanCodexComment({ body })],
+        failOnPost: true,
+      });
+      expect(rejected.status, body).toBe(1);
+    }
+
+    // Official Codex comments use 10 hex characters; 7-character prefixes are insufficient.
+    const ambiguousShortSha = runCiReviewFixture({
+      changedFiles: largeSafeChange(),
+      comments: [...fallbackComments(), cleanCodexComment({
+        body: "Codex Review: Didn't find any major issues. Breezy!\n\n**Reviewed commit:** `" + reviewHead.slice(0, 7) + "`",
+      })],
+      failOnPost: true,
+    });
+    expect(ambiguousShortSha.status).toBe(1);
+
+    const untrustedReceipt = runCiReviewFixture({
+      changedFiles: largeSafeChange(),
+      comments: [...fallbackComments(), cleanCodexComment({ body: codexReceipt, user: { login: "untrusted-user" } })],
+      failOnPost: true,
+    });
+    expect(untrustedReceipt.status).toBe(1);
+
+    const staleReceipt = runCiReviewFixture({
+      changedFiles: largeSafeChange(),
+      comments: [...fallbackComments(), cleanCodexComment({ body: codexReceipt, created_at: "2026-08-31T10:01:30Z" })],
+      failOnPost: true,
+    });
+    expect(staleReceipt.status).toBe(1);
+
     const untrustedComment = runCiReviewFixture({
       changedFiles: largeSafeChange(),
       comments: [...fallbackComments(), cleanCodexComment({ user: { login: "untrusted-user" } })],
@@ -892,6 +951,25 @@ describe("tooling safety contract", () => {
     });
     expect(codeRabbitChanges.status).toBe(1);
   }, 120000);
+
+  it("blocks delayed AI inline findings in the final Codex fallback guard", () => {
+    for (const bot of ["chatgpt-codex-connector[bot]", "coderabbitai[bot]"]) {
+      const result = runCiReviewFixture({
+        changedFiles: largeSafeChange(),
+        comments: fallbackComments(),
+        reactions: cleanCodexReaction(),
+        inlineComments: [],
+        laterInlineComments: [{
+          user: { login: bot },
+          commit_id: reviewHead,
+          created_at: "2026-08-31T10:03:20Z",
+        }],
+        failOnPost: true,
+      });
+      expect(result.status, bot).toBe(1);
+      expect(`${result.stdout}${result.stderr}`).toContain("blocking current-head AI inline findings appeared during final recheck");
+    }
+  }, 60000);
 
   it("re-checks CodeRabbit state after Codex fallback and fails closed on equal-timestamp review races", () => {
     const equalTimestamp = "2026-08-31T10:04:00Z";
