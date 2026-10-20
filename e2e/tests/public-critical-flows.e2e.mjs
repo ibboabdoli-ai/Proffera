@@ -237,4 +237,26 @@ test.describe("public critical-flow smoke", () => {
     await expect(page.getByText("Step 1 of 6")).toBeVisible();
     await expect.poll(() => page.evaluate((key) => window.sessionStorage.getItem(key), quoteLanguageDraftKey)).toBeNull();
   });
+  test("keeps private quote data out of browser storage during locale change and reload", async ({ page }) => {
+    await advanceQuoteToLocation(page, {
+      path: "/fa-offert",
+      nextLabel: "Fortsätt",
+      step2Text: "Steg 2 av 6",
+      step3Text: "Steg 3 av 6",
+    });
+    await page.getByLabel("Gatuadress").fill("Storgatan 99");
+    await page.getByLabel("Stad").fill("Södertälje");
+    await page.getByLabel("Postnummer").fill("151 40");
+
+    await Promise.all([
+      page.waitForURL((url) => url.pathname === "/en/get-quote" && url.search === "?resume=1"),
+      page.getByRole("button", { name: "EN English" }).click(),
+    ]);
+    await expect(page.getByLabel("Street address")).toHaveValue("Storgatan 99");
+    await expect.poll(() => page.evaluate((key) => window.sessionStorage.getItem(key), quoteLanguageDraftKey)).toBeNull();
+
+    await page.reload();
+    await expect(page.getByText("Step 1 of 6")).toBeVisible();
+    await expect.poll(() => page.evaluate((key) => window.sessionStorage.getItem(key), quoteLanguageDraftKey)).toBeNull();
+  });
 });

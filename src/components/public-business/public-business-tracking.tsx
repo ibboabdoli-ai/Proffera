@@ -4,12 +4,17 @@ import { useEffect, type ReactNode } from "react";
 
 type EventKey = "business_view" | "service_view" | "book_clicked" | "quote_clicked" | "contact_clicked";
 
-function sessionKey() {
+export function sessionKey() {
   const storageKey = "proffera-public-business-session";
   try {
     const existing = window.sessionStorage.getItem(storageKey);
     if (existing) return existing;
-    const value = window.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    // Use cryptographically strong randomness; never Math.random.
+    const crypto = window.crypto;
+    const value = crypto?.randomUUID?.() ?? (crypto?.getRandomValues
+      ? Array.from(crypto.getRandomValues(new Uint8Array(16)), (byte) => byte.toString(16).padStart(2, "0")).join("")
+      : "");
+    if (!value) return "";
     window.sessionStorage.setItem(storageKey, value);
     return value;
   } catch {
@@ -18,12 +23,16 @@ function sessionKey() {
 }
 
 function sendEvent(workspaceId: string, eventKey: EventKey, serviceId?: string) {
+  const visitorSessionKey = sessionKey();
+  // When secure randomness or session storage is unavailable, fail closed
+  // rather than merging unrelated visitors into an anonymous event bucket.
+  if (!visitorSessionKey) return;
   const payload = JSON.stringify({
     workspaceId,
     serviceId: serviceId || null,
     eventKey,
     path: window.location.pathname,
-    sessionKey: sessionKey(),
+    sessionKey: visitorSessionKey,
     referrer: document.referrer || "",
   });
   void fetch("/api/public-business/events", {
