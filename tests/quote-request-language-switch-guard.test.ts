@@ -9,6 +9,7 @@ const runtime = vi.hoisted(() => ({
 
 const mocks = vi.hoisted(() => ({
   submitQuoteRequest: vi.fn(),
+  routerPush: vi.fn(),
 }));
 
 vi.mock("react", async (importOriginal) => {
@@ -41,6 +42,10 @@ vi.mock("react", async (importOriginal) => {
     useTransition: () => [false, (callback: () => void) => callback()],
   };
 });
+
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ push: mocks.routerPush }),
+}));
 
 vi.mock("lucide-react", () => ({ CheckCircle2: () => null }));
 vi.mock("@/components/analytics/marketplace-funnel-signal", () => ({
@@ -180,7 +185,7 @@ describe("Quote-request language switch guard", () => {
     vi.unstubAllGlobals();
   });
 
-  it("blocks locale navigation and draft writes while submission is unresolved, then restores switching after settlement", async () => {
+  it("blocks locale navigation and browser-storage writes while submission is unresolved, then switches in memory after settlement", async () => {
     let resolveRequest!: (value: { ok: true; referenceId: string }) => void;
     const request = new Promise<{ ok: true; referenceId: string }>((resolve) => {
       resolveRequest = resolve;
@@ -200,20 +205,23 @@ describe("Quote-request language switch guard", () => {
     switchLocale();
 
     expect(setItem).not.toHaveBeenCalled();
+    expect(mocks.routerPush).not.toHaveBeenCalled();
     expect(assign).not.toHaveBeenCalled();
 
     resolveRequest({ ok: true, referenceId: "RQ-safe" });
     await flushMicrotasks();
 
     switchLocale();
-    expect(setItem).toHaveBeenCalledTimes(1);
-    expect(assign).toHaveBeenCalledWith("/en/quote");
+    expect(setItem).not.toHaveBeenCalled();
+    expect(mocks.routerPush).toHaveBeenCalledOnce();
+    expect(mocks.routerPush).toHaveBeenCalledWith("/en/quote");
+    expect(assign).not.toHaveBeenCalled();
   });
 
   it("disables the locale control while the submission state is pending", () => {
     resetHooks(new Map<number, unknown>([
       [0, 5],
-      [8, true],
+      [9, true],
     ]));
     const tree = LocalizedQuoteRequestForm({
       locale: "en",
