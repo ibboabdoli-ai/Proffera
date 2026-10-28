@@ -971,6 +971,7 @@ describe("Proffera standing automerge authorization", () => {
     expect(workflow).not.toContain("clean_summary_count");
     expect(workflow).not.toContain("coderabbit_review_completion_time");
     expect(workflow).toContain('terminal_count="$(jq -r');
+    expect(workflow).not.toContain('select(.state == "APPROVED" or .state == "COMMENTED")');
     expect(workflow).toContain("... on IssueComment { lastEditedAt }");
     expect(workflow).toContain('.data.node.__typename == "IssueComment" and .data.node.lastEditedAt == null');
     expect(workflow).toContain("count_unedited_owner_approvals() {");

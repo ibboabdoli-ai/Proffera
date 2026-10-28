@@ -358,7 +358,7 @@ jobs:
             current_reviews="$(jq -c --arg sha "$head_sha" '[.[] | select(.user.login == "coderabbitai[bot]" and .commit_id == $sha)]' <<< "$reviews_json")"
             latest_changes="$(jq -r '[.[] | select(.state == "CHANGES_REQUESTED") | .submitted_at] | max // empty' <<< "$current_reviews")"
             latest_approval="$(jq -r '[.[] | select(.state == "APPROVED") | .submitted_at] | max // empty' <<< "$current_reviews")"
-            terminal_count="$(jq -r '[.[] | select(.state == "APPROVED" or .state == "COMMENTED")] | length' <<< "$current_reviews")"
+            terminal_count="$(jq -r '[.[] | select(.state == "APPROVED")] | length' <<< "$current_reviews")"
 
             comments_json="$(gh api --paginate "repos/$REPOSITORY/issues/$pr_number/comments?per_page=100" --jq '.[]' | jq -s '.')"
             coderabbit_marker="<!-- proffera-coderabbit-final-review-request:${head_sha} -->"
@@ -382,7 +382,7 @@ jobs:
               ]
               | length
             ' <<< "$coderabbit_inline_json")"
-            clean_final_comment_count="$(jq -r --arg sha "$head_sha" --arg request_time "$coderabbit_request_time" '
+            clean_final_comments_json="$(jq -c --arg sha "$head_sha" --arg request_time "$coderabbit_request_time" '
               [
                 .[]
                 | select(.user.login == "coderabbitai[bot]")
@@ -390,14 +390,24 @@ jobs:
                 | select((.created_at // "") >= $request_time)
                 | (.body // "") as $body
                 | select(
-                    ($body | test("(^|[\\r\\n])<!-- CodeRabbit review command invocation: v2:[0-9a-f]{64} -->($|[\\r\\n])"))
-                    and ($body | test("(^|[\\r\\n])[[:space:]]*(@[A-Za-z0-9-]+[[:space:]]+)?Final exact-head review is complete for[[:space:]]+`?" + $sha + "`?\\.[[:space:]]*($|[\\r\\n])"))
-                    and ($body | test("(^|[\\r\\n])[[:space:]]*I found no issues\\.[[:space:]]*($|[\\r\\n])"))
+                    (
+                      (
+                        ($body | test("(^|[\\r\\n])<!-- CodeRabbit review command invocation: v2:[0-9a-f]{64} -->($|[\\r\\n])"))
+                        and ($body | test("(^|[\\r\\n])[[:space:]]*(@[A-Za-z0-9-]+[[:space:]]+)?Final exact-head review is complete for[[:space:]]+`?" + $sha + "`?\\.[[:space:]]*($|[\\r\\n])"))
+                        and ($body | test("(^|[\\r\\n])[[:space:]]*I found no issues\\.[[:space:]]*($|[\\r\\n])"))
+                      )
+                      or
+                      (
+                        ($body | test("(^|[\\r\\n])[[:space:]]*(@[A-Za-z0-9-]+[[:space:]]+)?Review completed for exact HEAD[[:space:]]+`?" + $sha + "`?\\.[[:space:]]*($|[\\r\\n])"))
+                        and ($body | test("(^|[\\r\\n])[[:space:]]*I found no material findings\\.[[:space:]]*($|[\\r\\n])"))
+                      )
+                    )
                     and (($body | test("Review limit reached|Review rate[ -]?limited|rate[ -]?limit|Action not completed|Review skipped|temporarily unavailable|service unavailable|incomplete|did not complete"; "i")) | not)
                   )
               ]
-              | length
             ' <<< "$comments_json")"
+
+            clean_final_comment_count="$(jq -r 'length' <<< "$clean_final_comments_json")"
 
             if [ "$coderabbit_inline_count" -gt 0 ]; then
               refuse "Refused: CodeRabbit posted current-head review findings; review acceptance is blocked."
@@ -422,6 +432,28 @@ jobs:
               guard_latest_approval="$(jq -r '[.[] | select(.state == "APPROVED") | .submitted_at] | max // empty' <<< "$guard_current_reviews")"
               if [ -n "$guard_latest_changes" ] && { [ -z "$guard_latest_approval" ] || [[ ! "$guard_latest_approval" > "$guard_latest_changes" ]]; }; then
                 refuse "Refused: CodeRabbit changes were recorded before clean-comment automerge acceptance; clean comments cannot clear them."
+              fi
+
+              # A bot-authored issue comment alone is not a completed PR review.
+              # Bind the clean summary to a real, exact-HEAD, post-request
+              # APPROVED/COMMENTED CodeRabbit review, then recheck its timestamp.
+              guard_review_completion_time="$(jq -r --arg request_time "$coderabbit_request_time" '
+                [
+                  .[]
+                  | select((.state == "APPROVED") or (.state == "COMMENTED"))
+                  | select($request_time != "" and (.submitted_at // "") >= $request_time)
+                  | .submitted_at
+                ]
+                | max // empty
+              ' <<< "$guard_current_reviews")"
+              if [ -z "$guard_review_completion_time" ]; then
+                refuse "Refused: clean comment has no completed current-head CodeRabbit PR review after the exact-head request."
+              fi
+              guard_clean_after_review_count="$(jq -r --arg review_time "$guard_review_completion_time" '
+                [.[] | select((.updated_at // .created_at // "") >= $review_time)] | length
+              ' <<< "$clean_final_comments_json")"
+              if [ "$guard_clean_after_review_count" -eq 0 ]; then
+                refuse "Refused: clean comment predates the completed current-head CodeRabbit review."
               fi
 
               summary "- Current-head CodeRabbit decision: clean exact-head completion comment"

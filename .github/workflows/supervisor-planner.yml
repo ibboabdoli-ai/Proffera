@@ -341,4 +341,3 @@ jobs:
       planner_workflow_ref: ${{ github.workflow_ref }}
     secrets:
       OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-      PROFFERA_AUTOFIX_PUSH_TOKEN: ${{ secrets.PROFFERA_AUTOFIX_PUSH_TOKEN }}
