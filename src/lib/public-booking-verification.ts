@@ -223,7 +223,7 @@ export async function beginBookingEmailVerification(input: BeginBookingVerificat
     && !(input.slug === "makeup-by-maria" && process.env.VERCEL_ENV === "preview")
     ? "en" : input.language;
   const [emailSent, smsSent] = await Promise.all([
-    sendBookingVerificationEmail({ customerName: input.customerName, customerEmail: input.customerEmail, companyName: input.companyName, code, expiresMinutes: EXPIRY_MINUTES, language: effectiveInitialLanguage }),
+    sendBookingVerificationEmail({ customerName: input.customerName, customerEmail: input.customerEmail, companyName: input.companyName, code, expiresMinutes: EXPIRY_MINUTES, language: effectiveInitialLanguage, branding: input.slug === "makeup-by-maria" ? "makeup-by-maria" : undefined }),
     input.verificationSms && input.customerPhone
       ? sendBookingVerificationSms({ customerPhone: input.customerPhone, companyName: input.companyName, code, expiresMinutes: EXPIRY_MINUTES, language: input.language === "ar" ? "en" : input.language })
       : Promise.resolve({ ok: false as const, skipped: true as const, message: "SMS verification not requested." }),
@@ -283,7 +283,7 @@ export async function resendPublicBookingCode(id: string, language: "sv" | "en" 
 
     const delivered = await sendBookingVerificationEmail({
       customerName, customerEmail, companyName, code,
-      expiresMinutes: EXPIRY_MINUTES, language,
+      expiresMinutes: EXPIRY_MINUTES, language, branding: "makeup-by-maria",
     });
     if (!delivered.ok) {
       // The new code was not delivered. Release this unusable hold so it

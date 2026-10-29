@@ -2,6 +2,7 @@ type BookingVerificationEmailInput = {
   customerName: string;
   customerEmail: string;
   companyName: string;
+  branding?: "makeup-by-maria";
   code: string;
   expiresMinutes?: number;
   language?: "sv" | "en" | "ar";
@@ -44,7 +45,7 @@ export async function sendBookingVerificationEmail(input: BookingVerificationEma
   const isEnglish = input.language === "en";
   const isArabic = input.language === "ar";
   const mariaPreview = process.env.VERCEL_ENV === "preview"
-    && input.companyName.trim().toLowerCase() === "makeup by maria";
+    && input.branding === "makeup-by-maria";
   const mariaLogo = mariaPreview && process.env.VERCEL_URL
     ? `<div style="background:#fcfaf8;text-align:center;padding:18px 12px;margin-bottom:18px"><img src="https://${escapeHtml(process.env.VERCEL_URL)}/demo/makeup-by-maria/assets/maria-wordmark.png" alt="Makeup by Maria" width="300" height="62" style="display:block;width:300px;max-width:100%;height:auto;margin:auto" /></div>`
     : "";
