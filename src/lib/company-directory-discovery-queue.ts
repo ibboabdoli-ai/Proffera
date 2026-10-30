@@ -5,6 +5,7 @@ import { randomUUID } from "node:crypto";
 import { getSql } from "@/lib/db/server";
 import { upsertCompanyDirectoryCandidate } from "@/lib/company-directory-engine";
 import { enrichCompanyDirectoryOfficialFactsForProfile } from "@/lib/company-directory-official-facts";
+import { isBolagsverketOrganizationNotFoundError } from "@/lib/company-directory-official-facts-errors";
 import { normalizeSniCode, type NormalizedDirectoryCandidate } from "@/lib/company-directory-policy";
 import { autoPublishCompanyDirectoryProfileIfSafe } from "@/lib/company-directory-publication";
 import { verifyOfficialCompanyCandidate } from "@/lib/company-directory-source";
@@ -519,11 +520,15 @@ async function failQueueItem(input: {
   error: string;
   profileId?: string;
   errorPrefix?: string;
+  deterministicNotFound?: boolean;
 }) {
   const sql = getSql();
   if (!sql) return;
   const terminal = input.attemptCount >= MAX_ATTEMPTS;
-  const delayMinutes = terminal ? 24 * 60 : Math.min(360, 2 ** Math.max(0, input.attemptCount - 1));
+  // Keep a missing-company response eligible for later source updates without rapid retries.
+  const delayMinutes = terminal || input.deterministicNotFound
+    ? 24 * 60
+    : Math.min(360, 2 ** Math.max(0, input.attemptCount - 1));
   const profileId = text(input.profileId);
   const error = `${input.errorPrefix ?? ""}${input.error}`.slice(0, 1000);
   const sourceChangedError = `${input.errorPrefix ?? ""}discovery source changed during processing`.slice(0, 1000);
@@ -686,6 +691,7 @@ export async function processCompanyDirectoryDiscoveryQueue(limit?: number) {
         attemptCount: item.attemptCount,
         error: message,
         profileId: itemProfileId,
+        deterministicNotFound: isBolagsverketOrganizationNotFoundError(error),
       });
       errors += 1;
       if (errorMessages.length < 8) errorMessages.push(`${item.organizationNumber}: ${message}`);

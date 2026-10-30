@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { resolveCompleteBolagsverketOrganizationRecord } from "./company-directory-detail-validation";
+import { BolagsverketOrganizationNotFoundError } from "./company-directory-official-facts-errors";
 
 describe("complete Bolagsverket detail validation", () => {
   const requested = "5561234567";
@@ -12,6 +13,28 @@ describe("complete Bolagsverket detail validation", () => {
         juridiskForm: { fel: { typ: "TIMEOUT", felBeskrivning: "upstream timeout" } },
       }],
     }, requested)).toThrow("incomplete data");
+  });
+
+  it("classifies an all-not-found response as a typed deterministic failure", () => {
+    expect(() => resolveCompleteBolagsverketOrganizationRecord({
+      organisationer: [{
+        organisationsidentitet: { identitetsbeteckning: requested },
+        juridiskForm: { fel: { typ: "ORGANISATION_FINNS_EJ" } },
+        organisationsform: { fel: { typ: "ORGANISATION_FINNS_EJ" } },
+      }],
+    }, requested)).toThrow(BolagsverketOrganizationNotFoundError);
+  });
+
+  it("retains generic handling when a not-found response includes a transient error", () => {
+    const verify = () => resolveCompleteBolagsverketOrganizationRecord({
+      organisationer: [{
+        organisationsidentitet: { identitetsbeteckning: requested },
+        juridiskForm: { fel: { typ: "ORGANISATION_FINNS_EJ" } },
+        organisationsform: { fel: { typ: "TIMEOUT" } },
+      }],
+    }, requested);
+    expect(verify).toThrow("incomplete data");
+    expect(verify).not.toThrow(BolagsverketOrganizationNotFoundError);
   });
 
   it("selects the exact organization instead of the first returned record", () => {

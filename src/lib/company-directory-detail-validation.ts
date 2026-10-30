@@ -1,7 +1,9 @@
 import { rememberCompleteBolagsverketOrganizationRecord } from "./company-directory-detail-cache";
 import {
+  BolagsverketOrganizationNotFoundError,
   collectBolagsverketApiErrors,
   formatBolagsverketApiErrors,
+  isDeterministicBolagsverketOrganizationNotFound,
   resolveBolagsverketOrganizationRecord,
 } from "./company-directory-official-facts-errors";
 
@@ -15,9 +17,11 @@ export function resolveCompleteBolagsverketOrganizationRecord(
 ) {
   const errors = collectBolagsverketApiErrors(payload);
   if (errors.length > 0) {
-    throw new Error(
-      `Bolagsverket response contains incomplete data: ${formatBolagsverketApiErrors(errors)}`,
-    );
+    const message = `Bolagsverket response contains incomplete data: ${formatBolagsverketApiErrors(errors)}`;
+    if (isDeterministicBolagsverketOrganizationNotFound(errors)) {
+      throw new BolagsverketOrganizationNotFoundError(message);
+    }
+    throw new Error(message);
   }
 
   const record = resolveBolagsverketOrganizationRecord(payload, requestedOrganizationNumber);
