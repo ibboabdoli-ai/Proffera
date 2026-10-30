@@ -54,5 +54,28 @@ describe("Maria verification email branding isolation", () => {
     expect(sent[0]!.htmlContent).toContain("maria-wordmark.png");
     expect(sent[0]!.htmlContent).toContain('dir="rtl"');
     expect(sent[0]!.subject).toContain("Maria Studio");
+    expect(sent[0]!.textContent).toContain("لن يتم إنشاء الحجز إلا بعد التحقق من الرمز.");
+  });
+
+  it("identifies a definite provider rejection without guessing that delivery succeeded", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => ({
+      ok: false, status: 422, json: async () => ({ message: "rejected" }),
+    })));
+    expect(await sendBookingVerificationEmail(fixture)).toEqual({
+      ok: false, message: "rejected", deliveryOutcome: "not_sent",
+    });
+  });
+
+  it("treats a 503 or lost provider response as uncertain delivery", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => ({
+      ok: false, status: 503, json: async () => ({ message: "unavailable" }),
+    })));
+    expect(await sendBookingVerificationEmail(fixture)).toEqual({
+      ok: false, message: "unavailable", deliveryOutcome: "uncertain",
+    });
+    vi.stubGlobal("fetch", vi.fn(async () => { throw new Error("response lost"); }));
+    expect(await sendBookingVerificationEmail(fixture)).toEqual({
+      ok: false, message: "Email delivery failed.", deliveryOutcome: "uncertain",
+    });
   });
 });

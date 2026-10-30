@@ -286,14 +286,16 @@ export async function resendPublicBookingCode(id: string, language: "sv" | "en" 
       expiresMinutes: EXPIRY_MINUTES, language, branding: "makeup-by-maria",
     });
     if (!delivered.ok) {
-      // The new code was not delivered. Release this unusable hold so it
-      // cannot continue blocking a different customer for ten minutes.
-      await sql`
-        delete from public_booking_verifications
-        where id = ${id}::uuid and workspace_id = ${readiness.workspaceId}::uuid
-          and code_hash = ${expectedHash}
-          and consumed_at is null and verified_at is null
-      `;
+      // A timeout or provider 5xx may happen after the code was sent.
+      // Preserve its verification hold unless the provider definitely rejected it.
+      if (delivered.deliveryOutcome === "not_sent") {
+        await sql`
+          delete from public_booking_verifications
+          where id = ${id}::uuid and workspace_id = ${readiness.workspaceId}::uuid
+            and code_hash = ${expectedHash}
+            and consumed_at is null and verified_at is null
+        `;
+      }
       return { ok: false as const, error: "email" };
     }
     return { ok: true as const, delivery: "email" as const };

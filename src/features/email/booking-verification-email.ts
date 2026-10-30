@@ -39,7 +39,7 @@ function resolveBookingReplyTo() {
 
 export async function sendBookingVerificationEmail(input: BookingVerificationEmailInput) {
   const apiKey = process.env.BREVO_API_KEY;
-  if (!apiKey) return { ok: false as const, message: "Email provider is not configured." };
+  if (!apiKey) return { ok: false as const, message: "Email provider is not configured.", deliveryOutcome: "not_sent" as const };
 
   const expiresMinutes = input.expiresMinutes ?? 10;
   const isEnglish = input.language === "en";
@@ -107,10 +107,16 @@ export async function sendBookingVerificationEmail(input: BookingVerificationEma
       }),
     });
     const data = (await response.json().catch(() => ({}))) as BrevoResponse;
-    return response.ok
-      ? { ok: true as const, providerId: data.messageId ?? null }
-      : { ok: false as const, message: data.message ?? data.code ?? "Email delivery failed." };
+    if (response.ok) return { ok: true as const, providerId: data.messageId ?? null };
+    // A definitive provider rejection is different from a timeout or a 5xx:
+    // in the latter cases the email might have been accepted already.
+    const rejected = [400, 401, 403, 404, 422].includes(response.status);
+    return {
+      ok: false as const,
+      message: data.message ?? data.code ?? "Email delivery failed.",
+      deliveryOutcome: rejected ? "not_sent" as const : "uncertain" as const,
+    };
   } catch {
-    return { ok: false as const, message: "Email delivery failed." };
+    return { ok: false as const, message: "Email delivery failed.", deliveryOutcome: "uncertain" as const };
   }
 }
