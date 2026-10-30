@@ -75,7 +75,7 @@ describe("automatic Directory discovery retry backoff", () => {
     );
     const result = await processCompanyDirectoryDiscoveryQueue(1);
     expect(result).toMatchObject({ claimed: 1, processed: 0, errors: 1 });
-    const retry = calls.find((call) => call.query.includes("last_error = case"));
+    const retry = calls.find((call) => call.query.includes("last_error = case") && call.query.includes("and lock_token ="));
     expect(retry).toBeDefined();
     expect(retry?.values).toContain(24 * 60);
     expect(retry?.values).toContain("pending_verify");
@@ -93,7 +93,7 @@ describe("automatic Directory discovery retry backoff", () => {
     );
     const result = await run();
     expect(result).toMatchObject({ claimed: 1, processed: 0, errors: 1 });
-    const retry = calls.find((call) => call.query.includes("last_error = case"));
+    const retry = calls.find((call) => call.query.includes("last_error = case") && call.query.includes("and lock_token ="));
     expect(retry).toBeDefined();
     expect(retry?.values).toContain(24 * 60);
   });
@@ -104,7 +104,7 @@ describe("automatic Directory discovery retry backoff", () => {
     );
     const result = await processCompanyDirectoryDiscoveryQueue(1);
     expect(result).toMatchObject({ claimed: 1, processed: 0, errors: 1 });
-    const retry = calls.find((call) => call.query.includes("last_error = case"));
+    const retry = calls.find((call) => call.query.includes("last_error = case") && call.query.includes("and lock_token ="));
     expect(retry).toBeDefined();
     expect(retry?.values).toContain(1);
     expect(retry?.values).not.toContain(24 * 60);
