@@ -15,8 +15,11 @@ describe('ReviewForge CodeRabbit-quota fallback merge safety', () => {
   });
 
   it('accepts only the real ReviewForge app and exact-HEAD approval evidence', () => {
-    expect(yamlText).toContain('pull_request_review:');
-    expect(yamlText).toContain("github.event.review.user.login == 'reviewforge-ibbo-dev[bot]'");
+    expect(yamlText).not.toContain('pull_request_review:');
+    const router = readFileSync('.github/workflows/supervisor-event-router.yml', 'utf8');
+    expect(router).toContain('pull_request_review:');
+    expect(router).toContain('"reviewforge-ibbo-dev[bot]"');
+    expect(router).toContain('dispatch_pr proffera-automerge.yml "$pr_number"');
     expect(script).toContain('reviewforge-ibbo-dev[bot]');
     expect(script).toContain('reviewforge-fallback-approval:$head_sha');
     expect(script).toContain('.commit_id == $sha and .state == "APPROVED"');
