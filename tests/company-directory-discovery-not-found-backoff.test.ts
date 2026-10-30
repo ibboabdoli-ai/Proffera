@@ -25,7 +25,11 @@ vi.mock("@/lib/company-directory-publication", () => ({
 vi.mock("@/lib/company-directory-policy", () => ({ normalizeSniCode: (value: string) => value }));
 
 import { BolagsverketOrganizationNotFoundError } from "../src/lib/company-directory-official-facts-errors";
-import { processCompanyDirectoryDiscoveryQueue } from "../src/lib/company-directory-discovery-queue";
+import {
+  processCompanyDirectoryDiscoveryQueue,
+  processNewCompanyDirectoryDiscoveryQueueBatch,
+  processNewCompanyDirectoryDiscoveryQueueCandidate,
+} from "../src/lib/company-directory-discovery-queue";
 
 type SqlCall = { query: string; values: unknown[] };
 let calls: SqlCall[];
@@ -41,6 +45,7 @@ beforeEach(() => {
     calls.push({ query, values });
 
     if (query.includes("where state = 'processing'")) return [];
+    if (query.includes("select profile_id::text") && query.includes("organization_number")) return [];
     if (query.includes("with candidates as (")) {
       return [{
         id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
@@ -77,6 +82,20 @@ describe("automatic Directory discovery retry backoff", () => {
     expect(retry?.query).toContain("source_fingerprint =");
     expect(retry?.query).toContain("primary_sni_code =");
     expect(mocks.upsertCompanyDirectoryCandidate).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["new-company automatic queue", () => processNewCompanyDirectoryDiscoveryQueueBatch(1)],
+    ["targeted pilot queue", () => processNewCompanyDirectoryDiscoveryQueueCandidate("5561234567")],
+  ])("defers deterministic not-found in the %s", async (_name, run) => {
+    mocks.verifyOfficialCompanyCandidate.mockRejectedValue(
+      new BolagsverketOrganizationNotFoundError("ORGANISATION_FINNS_EJ"),
+    );
+    const result = await run();
+    expect(result).toMatchObject({ claimed: 1, processed: 0, errors: 1 });
+    const retry = calls.find((call) => call.query.includes("last_error = case"));
+    expect(retry).toBeDefined();
+    expect(retry?.values).toContain(24 * 60);
   });
 
   it("keeps short retries for transient failures", async () => {

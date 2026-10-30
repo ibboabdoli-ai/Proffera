@@ -599,6 +599,7 @@ async function requeueTargetedPilotItem(input: {
   primarySniCode: string;
   attemptCount: number;
   error: string;
+  deterministicNotFound?: boolean;
 }) {
   return failQueueItem({
     ...input,
@@ -716,6 +717,7 @@ async function requeueControlledBatchPilotItem(input: {
   primarySniCode: string;
   attemptCount: number;
   error: string;
+  deterministicNotFound?: boolean;
 }) {
   return failQueueItem({
     ...input,
@@ -795,6 +797,7 @@ export async function processNewCompanyDirectoryDiscoveryQueueCandidate(organiza
           primarySniCode: item.primarySniCode,
           attemptCount: item.attemptCount,
           error: message,
+          deterministicNotFound: isBolagsverketOrganizationNotFoundError(error),
         });
       } else {
         await failQueueItem({
@@ -804,6 +807,7 @@ export async function processNewCompanyDirectoryDiscoveryQueueCandidate(organiza
           primarySniCode: item.primarySniCode,
           attemptCount: item.attemptCount,
           error: message,
+          deterministicNotFound: isBolagsverketOrganizationNotFoundError(error),
         });
       }
       errors += 1;
@@ -888,6 +892,7 @@ export async function processNewCompanyDirectoryDiscoveryQueueBatch(limit?: numb
           primarySniCode: item.primarySniCode,
           attemptCount: item.attemptCount,
           error: message,
+          deterministicNotFound: isBolagsverketOrganizationNotFoundError(error),
         });
       } else {
         await failQueueItem({
@@ -897,6 +902,7 @@ export async function processNewCompanyDirectoryDiscoveryQueueBatch(limit?: numb
           primarySniCode: item.primarySniCode,
           attemptCount: item.attemptCount,
           error: message,
+          deterministicNotFound: isBolagsverketOrganizationNotFoundError(error),
         });
       }
       errors += 1;
