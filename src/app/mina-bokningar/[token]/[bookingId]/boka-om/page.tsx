@@ -1,10 +1,12 @@
 import type { CSSProperties } from "react";
 import Link from "next/link";
+import Image from "next/image";
 import { headers } from "next/headers";
 import { notFound, redirect } from "next/navigation";
 import { CalendarClock, Clock3, UserRound } from "lucide-react";
 
 import { readableBookingTextColor } from "@/lib/booking-theme-contract";
+import { localizeMariaPreviewServiceName } from "@/lib/maria-preview-service-copy";
 import { getRescheduleBooking, rescheduleCustomerBooking } from "@/lib/customer-booking-reschedule";
 import { getCustomerPortalPresentation, resolveCustomerPortalLanguage, type CustomerPortalLanguage } from "@/lib/customer-portal-language";
 import { getAvailableRescheduleSlots, getUpcomingRescheduleDays } from "@/lib/customer-reschedule-slots";
@@ -32,13 +34,20 @@ const errorsEn: Record<string, string> = {
   conflict: "Someone else has just booked that time. Choose another time.", time_off: "The staff member is not available at that time.",
   not_allowed: "This booking can no longer be changed.",
 };
+const errorsAr: Record<string, string> = {
+  time: "اختر موعدًا متاحًا وصحيحًا.", notice: "هذا الموعد قريب جدًا. اختر موعدًا لاحقًا.",
+  advance: "هذا الموعد بعيد جدًا.", hours: "الوقت خارج ساعات الحجز.",
+  hours_missing: "لا توجد ساعات عمل منشورة لهذا اليوم.",
+  conflict: "حجز شخص آخر هذا الموعد. اختر موعدًا جديدًا.",
+  time_off: "الموظف غير متاح في هذا الوقت.", not_allowed: "لا يمكن تغيير هذا الحجز الآن.",
+};
 
 function first(value: string | string[] | undefined) {
   return Array.isArray(value) ? value[0] : value;
 }
 
-function formatDate(value: string, timeZone: string, isEnglish: boolean) {
-  return new Intl.DateTimeFormat(isEnglish ? "en-GB" : "sv-SE", { timeZone, dateStyle: "full", timeStyle: "short" }).format(new Date(value));
+function formatDate(value: string, timeZone: string, language: CustomerPortalLanguage) {
+  return new Intl.DateTimeFormat(language === "ar" ? "ar-SA" : language === "en" ? "en-GB" : "sv-SE", { timeZone, dateStyle: "full", timeStyle: "short" }).format(new Date(value));
 }
 
 function formatDay(date: string, timeZone: string, isEnglish: boolean, short: boolean) {
@@ -68,6 +77,8 @@ export default async function ReschedulePage({ params, searchParams }: PageProps
   ]);
   const language = resolveCustomerPortalLanguage(first(query?.lang), presentation);
   const isEnglish = language === "en";
+  const isArabic = language === "ar";
+  const t = (sv: string, en: string, ar: string) => isArabic ? ar : isEnglish ? en : sv;
   const isPrimeView = presentation?.publicBookingSlug === "primeview";
 
   if (isPrimeView && !isPrimeViewHost(requestHeaders.get("host"))) {
@@ -81,19 +92,41 @@ export default async function ReschedulePage({ params, searchParams }: PageProps
   const booking = await getRescheduleBooking(token, bookingId);
   if (!booking) notFound();
 
-  const days = getUpcomingRescheduleDays(booking.timeZone, 7);
+  const isMaria = presentation?.publicBookingSlug === "makeup-by-maria"
+    && process.env.VERCEL_ENV === "preview";
+  const days = isMaria ? [] : getUpcomingRescheduleDays(booking.timeZone, 7);
   const slotEntries = await Promise.all(
     days.map(async (day) => [day.date, await getAvailableRescheduleSlots(token, bookingId, day.date)] as const),
   );
   const slotsByDate = new Map(slotEntries);
-  const firstAvailableDate = days.find((day) => (slotsByDate.get(day.date)?.length ?? 0) > 0)?.date;
+  // Bridal appointments may be months away: show an explicit date selector
+  // rather than requesting 730 separate day availability queries.
+  const mariaHorizon = isMaria ? getUpcomingRescheduleDays(booking.timeZone, 731) : [];
+  const earliestMariaDate = mariaHorizon[0]?.date;
+  const latestMariaDate = mariaHorizon[mariaHorizon.length - 1]?.date;
+  const originalLocalParts = new Intl.DateTimeFormat("en-GB", {
+    timeZone: booking.timeZone, year: "numeric", month: "2-digit", day: "2-digit",
+  }).formatToParts(new Date(booking.startsAt));
+  const localPart = (type: string) => originalLocalParts.find((part) => part.type === type)?.value ?? "";
+  const originalDate = `${localPart("year")}-${localPart("month")}-${localPart("day")}`;
   const queryDate = first(query?.date);
-  const requestedDate = queryDate && (slotsByDate.get(queryDate)?.length ?? 0) > 0
+  const selectedMariaDate = queryDate && /^\d{4}-\d{2}-\d{2}$/.test(queryDate)
+    && earliestMariaDate && latestMariaDate && queryDate >= earliestMariaDate && queryDate <= latestMariaDate
     ? queryDate
-    : firstAvailableDate ?? days[0]?.date;
-  const slots = requestedDate ? slotsByDate.get(requestedDate) ?? [] : [];
+    : originalDate >= (earliestMariaDate ?? "") && originalDate <= (latestMariaDate ?? "")
+      ? originalDate : earliestMariaDate;
+  const firstAvailableDate = days.find((day) => (slotsByDate.get(day.date)?.length ?? 0) > 0)?.date;
+  const requestedDate = isMaria ? selectedMariaDate : queryDate && (slotsByDate.get(queryDate)?.length ?? 0) > 0
+    ? queryDate : firstAvailableDate ?? days[0]?.date;
+  const slots = isMaria
+    ? requestedDate ? await getAvailableRescheduleSlots(token, bookingId, requestedDate) : []
+    : requestedDate ? slotsByDate.get(requestedDate) ?? [] : [];
   const selectedDay = days.find((day) => day.date === requestedDate);
-  const selectedDayLabel = selectedDay ? (formatDay(selectedDay.date, booking.timeZone, isEnglish, false) ?? selectedDay.label) : undefined;
+  const selectedDayLabel = isMaria && requestedDate
+    ? new Intl.DateTimeFormat(isArabic ? "ar-SA" : isEnglish ? "en-GB" : "sv-SE", {
+        timeZone: "UTC", weekday: "long", day: "numeric", month: "long", year: "numeric",
+      }).format(new Date(`${requestedDate}T12:00:00Z`))
+    : selectedDay ? (formatDay(selectedDay.date, booking.timeZone, isEnglish, false) ?? selectedDay.label) : undefined;
 
   async function reschedule(formData: FormData) {
     "use server";
@@ -109,43 +142,57 @@ export default async function ReschedulePage({ params, searchParams }: PageProps
     redirect(`/mina-bokningar/${encodeURIComponent(token)}?changed=1${langSuffix}`);
   }
 
-  const errors = isEnglish ? errorsEn : errorsSv;
+  const errors = isArabic ? errorsAr : isEnglish ? errorsEn : errorsSv;
   const errorKey = first(query?.error);
-  const showLanguageSwitch = presentation ? presentation.swedishEnabled && presentation.englishEnabled : true;
-  const portalPrimary = presentation?.primaryColor || (isPrimeView ? "#1769c2" : "#0a2e63");
+  const showLanguageSwitch = isMaria || (presentation ? presentation.swedishEnabled && presentation.englishEnabled : true);
+  const portalPrimary = isMaria ? "#845363" : presentation?.primaryColor || (isPrimeView ? "#1769c2" : "#0a2e63");
   const style = {
     "--portal-primary": portalPrimary,
     "--portal-primary-text": readableBookingTextColor(portalPrimary),
   } as CSSProperties;
 
   return (
-    <main className={styles.page} lang={language} style={style}>
+    <main className={isMaria ? `${styles.page} ${styles.mariaPage}` : styles.page} lang={language} dir={isArabic ? "rtl" : "ltr"} style={style}>
       <div className={styles.shell}>
         <div className={styles.topbar}>
+          {isMaria ? <Image src="/demo/makeup-by-maria/assets/maria-mark.svg" alt="Makeup by Maria" width={44} height={44} className={styles.mariaLogo} /> : null}
           <Link href={`/mina-bokningar/${encodeURIComponent(token)}?lang=${language}`} className={styles.backLink}>
-            ← {isEnglish ? "Back to my bookings" : "Till mina bokningar"}
+            ← {t("Till mina bokningar", "Back to my bookings", "العودة إلى حجوزاتي")}
           </Link>
           {showLanguageSwitch ? (
-            <nav className={styles.languageNav} aria-label={isEnglish ? "Language" : "Språk"}>
+            <nav className={styles.languageNav} aria-label={t("Språk", "Language", "اللغة")}>
               <Link href={rescheduleHref(token, bookingId, "sv", requestedDate)} className={language === "sv" ? styles.languageActive : styles.languageLink}>SV</Link>
               <Link href={rescheduleHref(token, bookingId, "en", requestedDate)} className={language === "en" ? styles.languageActive : styles.languageLink}>EN</Link>
+              {isMaria ? <Link href={rescheduleHref(token, bookingId, "ar", requestedDate)} className={isArabic ? styles.languageActive : styles.languageLink}>AR</Link> : null}
             </nav>
           ) : null}
         </div>
 
         <section className={styles.rescheduleCard}>
-          <p className={styles.eyebrow}>{isEnglish ? "Reschedule" : "Boka om"}</p>
-          <h1 className={styles.title}>{booking.service}</h1>
+          <p className={styles.eyebrow}>{t("Boka om", "Reschedule", "تغيير الموعد")}</p>
+          <h1 className={styles.title}>{localizeMariaPreviewServiceName(booking.service, language, isMaria)}</h1>
 
           <div className={styles.currentBooking}>
-            <p><Clock3 aria-hidden="true" />{isEnglish ? "Current time" : "Nuvarande tid"}: <strong>{formatDate(booking.startsAt, booking.timeZone, isEnglish)}</strong></p>
-            {booking.staffName ? <p><UserRound aria-hidden="true" />{isEnglish ? "Staff member" : "Medarbetare"}: <strong>{booking.staffName}</strong></p> : null}
+            <p><Clock3 aria-hidden="true" />{t("Nuvarande tid", "Current time", "الموعد الحالي")}: <strong>{formatDate(booking.startsAt, booking.timeZone, language)}</strong></p>
+            {booking.staffName ? <p><UserRound aria-hidden="true" />{t("Medarbetare", "Staff member", "الموظف")}: <strong>{booking.staffName}</strong></p> : null}
           </div>
 
-          {errorKey ? <p role="alert" className={styles.noticeError}>{errors[errorKey] ?? (isEnglish ? "The appointment could not be changed." : "Tiden kunde inte ändras.")}</p> : null}
+          {errorKey ? <p role="alert" className={styles.noticeError}>{errors[errorKey] ?? t("Tiden kunde inte ändras.", "The appointment could not be changed.", "تعذّر تغيير الموعد.")}</p> : null}
 
-          <h2 className={styles.subheading}>{isEnglish ? "Choose a day" : "Välj dag"}</h2>
-          <div className={styles.dayGrid}>
+          <h2 className={styles.subheading}>{t("Välj dag", "Choose a day", "اختر يومًا")}</h2>
+          {isMaria ? (
+            <form method="get" className="mt-3 flex flex-wrap items-end gap-3">
+              <input type="hidden" name="lang" value={language} />
+              <label className="flex flex-col gap-2 text-sm">
+                {t("Datum för brudsminkning", "Wedding appointment date", "تاريخ موعد العروس")}
+                <input type="date" name="date" required min={earliestMariaDate} max={latestMariaDate}
+                  defaultValue={requestedDate} className="min-h-11 rounded-lg border px-3" />
+              </label>
+              <button type="submit" className="min-h-11 rounded-lg border px-4 font-semibold">
+                {t("Visa lediga tider", "Show available times", "عرض الأوقات المتاحة")}
+              </button>
+            </form>
+          ) : <div className={styles.dayGrid}>
             {days.map((day) => {
               const active = day.date === requestedDate;
               const availableCount = slotsByDate.get(day.date)?.length ?? 0;
@@ -154,7 +201,7 @@ export default async function ReschedulePage({ params, searchParams }: PageProps
                 return (
                   <span key={day.date} aria-disabled="true" className={styles.dayDisabled}>
                     {shortLabel}
-                    <span className={styles.dayCount}>{isEnglish ? "Fully booked" : "Fullbokad"}</span>
+                    <span className={styles.dayCount}>{t("Fullbokad", "Fully booked", "محجوز بالكامل")}</span>
                   </span>
                 );
               }
@@ -165,25 +212,27 @@ export default async function ReschedulePage({ params, searchParams }: PageProps
                   className={active ? styles.dayActive : styles.dayLink}
                 >
                   {shortLabel}
-                  <span className={styles.dayCount}>{availableCount} {isEnglish ? (availableCount === 1 ? "time" : "times") : "tider"}</span>
+                  <span className={styles.dayCount}>{availableCount} {isArabic ? "وقت متاح" : isEnglish ? (availableCount === 1 ? "time" : "times") : "tider"}</span>
                 </Link>
               );
             })}
-          </div>
+          </div>}
 
           <div className="mt-5">
             <div className={styles.timeHeader}>
               <div>
-                <h2 className={styles.subheading}>{isEnglish ? "Available times" : "Lediga tider"}</h2>
+                <h2 className={styles.subheading}>{t("Lediga tider", "Available times", "الأوقات المتاحة")}</h2>
                 {selectedDayLabel ? <p>{selectedDayLabel}</p> : null}
               </div>
-              <span className={styles.portalLabel}>{isEnglish ? "Bookable times only" : "Endast bokningsbara tider"}</span>
+              <span className={styles.portalLabel}>{t("Endast bokningsbara tider", "Bookable times only", "الأوقات القابلة للحجز فقط")}</span>
             </div>
 
             {slots.length > 0 ? (
               <RescheduleSlotPicker action={reschedule} slots={slots} selectedDayLabel={selectedDayLabel} language={language} />
             ) : (
-              <p className={styles.empty}>{isEnglish ? "No available times during the next seven days. Contact the company if you need help finding another time." : "Inga lediga tider under de kommande sju dagarna. Kontakta företaget om du behöver hjälp med en ny tid."}</p>
+              <p className={styles.empty}>{isMaria
+                ? t("Inga lediga starttider detta datum. Välj en annan fredag eller lördag.", "No available starts on this date. Choose another Friday or Saturday.", "لا توجد أوقات متاحة في هذا اليوم. اختر يوم جمعة أو سبت آخر.")
+                : t("Inga lediga tider under de kommande sju dagarna. Kontakta företaget om du behöver hjälp med en ny tid.", "No available times during the next seven days. Contact the company if you need help finding another time.", "لا توجد أوقات متاحة خلال الأيام السبعة القادمة. تواصل مع الشركة للمساعدة.")}</p>
             )}
           </div>
         </section>

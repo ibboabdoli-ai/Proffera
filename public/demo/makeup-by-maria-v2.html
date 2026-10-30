@@ -1,0 +1,638 @@
+<!doctype html>
+<html lang="sv" dir="ltr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#fcfaf8">
+<meta name="robots" content="noindex,nofollow">
+<meta name="description" content="Makeup by Maria — exklusiv bokningsförfrågan för brudmakeup. Designförslag 02, endast demo.">
+<title>Makeup by Maria — Design 02 · Bridal Booking</title>
+<link rel="icon" type="image/svg+xml" href="/demo/makeup-by-maria/assets/maria-favicon.svg">
+<link rel="apple-touch-icon" sizes="180x180" href="/demo/makeup-by-maria/assets/maria-apple-touch-icon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=DM+Serif+Display:ital@0;1&display=swap" rel="stylesheet">
+<style>
+:root{--paper:#fcfaf8;--white:#fff;--text:#352a2c;--muted:#82767b;--rose:#845363;--rose-deep:#6d3e4e;--soft:#f4e7e6;--soft2:#faefed;--border:#e9dedc;--serif:"DM Serif Display",Georgia,serif;--sans:"DM Sans",Arial,sans-serif}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{margin:0;background:var(--paper);color:var(--text);font:14px/1.65 var(--sans);overflow-x:clip;-webkit-font-smoothing:antialiased}
+a{color:inherit;text-decoration:none}
+button,input,select,textarea{font:inherit}
+button{cursor:pointer}
+:focus-visible{outline:3px solid #b87d8f;outline-offset:3px}
+[hidden]{display:none!important}
+.topline{height:5px;background:linear-gradient(90deg,#e5cac9,#b48792 49%,#e5cac9)}
+.site-top{padding:27px 30px 15px;max-width:1280px;margin:auto;display:flex;align-items:center;justify-content:space-between;gap:12px}
+.identity{display:flex;flex-direction:column;gap:1px;max-width:330px}
+.identity img{display:block;width:clamp(205px,25vw,310px);height:auto;object-fit:contain;flex:none}
+.identity strong{font:400 25px/1.2 var(--serif);letter-spacing:.01em}
+.identity span{font-size:9px;font-weight:700;color:#9a7680;letter-spacing:.22em;text-transform:uppercase}
+.top-right{display:flex;gap:13px;align-items:center}
+.lang-switch{display:flex;align-items:center;gap:3px}
+.lang-switch button{background:none;border:0;color:#87767b;padding:9px 10px;font-size:10px;font-weight:700;min-height:37px;border-radius:4px;letter-spacing:.06em}
+.lang-switch button[aria-pressed=true]{background:#f3e5e4;color:var(--rose-deep)}
+.first-design{font-size:10px;color:#825963;font-weight:700;border-bottom:1px solid #d4b4b9;padding-bottom:3px;white-space:nowrap}
+main{min-height:85vh}
+.main-content{max-width:872px;margin:0 auto;padding:63px 22px 95px}
+.main-intro{text-align:center}
+.ornament{display:flex;gap:10px;justify-content:center;align-items:center;color:#ac7987;margin-bottom:20px}
+.ornament:before,.ornament:after{content:"";height:1px;width:39px;background:#dbc3c6}
+.ornament span{font:400 27px/1 var(--serif)}
+.overline{display:block;font-size:10px;line-height:1.3;letter-spacing:.24em;font-weight:700;color:#9b7780;text-transform:uppercase}
+.main-intro h1{font:400 clamp(47px,7vw,81px)/1.07 var(--serif);letter-spacing:-.028em;margin:20px 0 12px}
+.main-intro h1 em{color:#a06c7d;font-weight:400}
+.main-intro p{font-size:14px;color:var(--muted);line-height:1.9;max-width:490px;margin:0 auto}
+.divider{height:1px;width:72px;background:#bc939d;margin:30px auto 23px}
+.demo-note{display:inline-flex;align-items:center;gap:9px;background:#f4e9e7;color:#805a64;padding:8px 15px;font-size:10px;line-height:1.5;letter-spacing:.02em;border-radius:999px}
+.demo-note:before{content:"";display:block;width:5px;height:5px;border-radius:50%;background:#ae7a89}
+.booking-complete{text-align:center;padding:36px 16px 24px}
+.booking-complete h2{font:400 clamp(25px,4vw,35px)/1.3 var(--serif);margin:0 auto 16px;max-width:500px;color:#51313e}
+.booking-complete p{margin:0 auto 25px;max-width:490px;color:#705f65;line-height:1.8}
+.booking-complete a{display:inline-flex;align-items:center;justify-content:center;min-height:44px;padding:11px 22px;border-radius:8px;background:var(--rose);color:#fff;font-weight:700}
+.booking-complete a:hover{background:var(--rose-deep)}
+.panel{background:#fff;border:1px solid #e7dddd;box-shadow:0 18px 70px rgba(72,43,50,.04);margin:50px auto 0;max-width:730px;padding:36px 48px 45px;position:relative}
+.panel:before{content:"";position:absolute;left:15px;right:15px;top:15px;bottom:15px;pointer-events:none;border:1px solid #f9f1ef}
+.panel-body{position:relative;z-index:1}
+.steps{display:flex;align-items:center;justify-content:center;gap:10px;margin-bottom:33px}
+.step{display:flex;align-items:center;gap:9px;color:#ab9a9c;font-size:10px;font-weight:700;letter-spacing:.08em}
+.step b{display:grid;place-items:center;width:29px;height:29px;font-size:11px;border:1px solid #ddd0d0;border-radius:100%;background:white;font-weight:700}
+.step.active,.step.done{color:var(--rose-deep)}
+.step.active b{background:var(--rose);color:white;border-color:var(--rose)}
+.step.done b{border-color:#ba92a0;color:#915566}
+.step-line{width:45px;height:1px;background:#ebdbdc}
+.step-title{text-align:center;font:400 clamp(32px,5vw,43px)/1.22 var(--serif);letter-spacing:-.02em;margin:0 0 8px}
+.step-sub{text-align:center;font-size:13px;line-height:1.7;color:var(--muted);margin:0 0 31px}
+.year-options{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:13px}
+.year-options button{border:1px solid #e4cacb;background:#f6e7e5;min-height:141px;padding:18px 8px;display:flex;flex-direction:column;justify-content:center;align-items:center;gap:11px;color:var(--rose-deep);transition:background .2s,transform .2s,border-color .2s}
+.year-options button:hover{background:#efd9dc;transform:translateY(-2px);border-color:#b58492}
+.year-options button strong{font:italic 400 42px/1 var(--serif)}
+.year-options button span{font-size:10px;font-weight:700;letter-spacing:.1em}
+.year-options button span:after{content:" ↗"}
+.year-options button:disabled{opacity:.7;cursor:not-allowed;background:#f3eeee;color:#887b7f}
+.year-options button:disabled:hover{transform:none;background:#f3eeee;border-color:#e4cacb}
+.year-options button:disabled span:after{content:""}
+.package:disabled{opacity:.65;cursor:not-allowed}
+.package:disabled:hover{background:#fffbfa;border-color:#e7d7d7}
+.back{display:inline-flex;gap:8px;align-items:center;border:0;background:none;padding:6px 0 15px;font-size:11px;font-weight:700;color:var(--rose)}
+.packages{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.package{min-height:255px;border:1px solid #e7d7d7;background:#fffbfa;padding:26px 23px;display:flex;flex-direction:column;align-items:flex-start;text-align:start;gap:12px;color:var(--text);transition:border-color .2s,background .2s}
+.package:hover{background:#fbf3f2;border-color:#a86e7d}
+.package .number{font-size:10px;color:#a7838e;letter-spacing:.15em;font-weight:700}
+.package strong{font:400 27px/1.2 var(--serif);max-width:250px}
+.package .description{font-size:11.5px;line-height:1.8;color:#7b6d70;flex:1}
+.package .price{font-size:18px;font-weight:700;color:var(--rose-deep)}
+.package .choose{font-size:10px;font-weight:700;letter-spacing:.09em;color:var(--rose)}
+.choice-summary{text-align:center;background:#f8efed;color:#865c68;font-size:12px;line-height:1.6;padding:12px;margin:0 0 22px}
+.form-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}
+.field{display:flex;flex-direction:column;gap:6px;font-size:11px;color:#715760;font-weight:700}
+.field.wide{grid-column:1/-1}
+.field input,.field select,.field textarea{width:100%;border:1px solid #ded0d0;border-radius:0;background:#fff;min-height:45px;padding:11px 12px;color:var(--text);outline:0;font-size:13px}
+.field input:focus,.field select:focus,.field textarea:focus{border-color:#92566b;box-shadow:0 0 0 2px #efdee3}
+.field textarea{resize:vertical;min-height:92px}
+.safety{color:#8c757b;font-size:11px;line-height:1.7;margin:23px 0 15px}
+.confirm{width:100%;border:1px solid var(--rose);background:var(--rose);color:#fff;min-height:50px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;font-size:11px}
+.confirm:hover{background:#6f4051}
+.message{display:none;background:#f7eeee;color:#703d51;padding:14px;font-size:12px;line-height:1.7;margin-top:17px}
+.beneath{text-align:center;margin:33px auto 0;max-width:570px}
+.beneath p{font-size:12px;line-height:1.9;color:#8b777d}
+.beneath a{display:inline-block;color:var(--rose);border-bottom:1px solid #cda9b2;font-size:11px;font-weight:700;padding-bottom:3px;margin-top:6px}
+footer{border-top:1px solid var(--border);padding:28px 24px 33px;text-align:center}
+.footer-brand{display:flex;justify-content:center;align-items:center}
+.footer-brand img{width:230px;max-width:100%;height:auto;display:block}
+footer small{display:block;font-size:10px;color:#8c7d80;margin-top:6px}
+footer a{color:#875565}
+[dir=rtl] .site-top,[dir=rtl] .top-right,[dir=rtl] .step,[dir=rtl] .panel-body{direction:rtl}
+[dir=rtl] .year-options button span:after{content:" ↗"}
+[dir=rtl] .package{align-items:flex-start;text-align:start}
+@media(max-width:720px){.main-content{padding-top:49px}.panel{padding:28px 24px 35px}.steps{gap:6px}.step-line{width:19px}.step{font-size:9px;gap:5px}.step b{width:25px;height:25px}}
+@media(max-width:540px){.site-top{padding:18px 15px 12px}.identity strong{font-size:21px}.identity span{font-size:8px}.top-right{gap:4px}.lang-switch button{padding:8px 7px;min-height:34px}.first-design{font-size:9px}.main-content{padding:40px 13px 60px}.main-intro h1{font-size:clamp(44px,11vw,59px);margin:17px 0 15px}.main-intro p{max-width:330px;font-size:13px}.divider{margin:23px auto 17px}.demo-note{font-size:9px;max-width:330px}.panel{padding:28px 15px 31px;margin-top:34px}.panel:before{top:10px;left:10px;bottom:10px;right:10px}.steps{margin-bottom:24px;gap:5px}.step{font-size:9px;letter-spacing:0;gap:4px}.step b{height:24px;width:24px}.step-line{width:15px}.step-title{font-size:34px}.step-sub{font-size:12px;margin-bottom:22px}.year-options{gap:8px}.year-options button{min-height:116px;padding:10px 2px;gap:9px}.year-options button strong{font-size:34px}.year-options button span{font-size:9px}.packages{grid-template-columns:1fr}.package{min-height:0;padding:20px;gap:10px}.package .description{font-size:12px}.form-grid{grid-template-columns:1fr;gap:12px}.field.wide{grid-column:auto}.beneath{margin-top:27px}.beneath p{padding-inline:12px}}
+@media(max-width:540px){
+  .site-top{flex-wrap:wrap}
+  .identity,.top-right,.main-intro,.main-intro h1,.panel-body{min-width:0;max-width:100%}
+  .top-right{flex-wrap:wrap}
+  .main-intro h1,.step-title{overflow-wrap:anywhere}
+  [dir=rtl] .main-intro h1{font-size:clamp(31px,8.2vw,44px);line-height:1.26}
+  .year-options button{min-width:0}
+  .year-options button strong{font-size:clamp(24px,8vw,34px)}
+  .steps{flex-wrap:wrap}
+}
+@media(max-width:540px){.field{font-size:12px}.field input,.field select,.field textarea{font-size:16px}.step{font-size:10px}.step-sub{font-size:13px}.demo-note{font-size:11px}.year-options button span{font-size:10px}}
+@media(max-width:345px){.identity strong{font-size:18px}.main-content{padding-inline:8px}.panel{padding-inline:12px}.step{font-size:8px}.year-options button strong{font-size:30px}}
+@media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}*,*:before,*:after{transition:none!important;animation:none!important}}
+</style>
+</head>
+<body>
+<div class="topline"></div>
+<header class="site-top">
+<a class="identity" href="#top" aria-label="Makeup by Maria"><img src="/demo/makeup-by-maria/assets/maria-wordmark.svg" alt="Makeup by Maria" width="900" height="184"><span data-i="artistTagline">Bridal makeup artist</span></a>
+<div class="top-right">
+<div class="lang-switch" id="langSwitch" aria-label="Language">
+<button type="button" data-lang="sv" aria-pressed="true">SV</button>
+<button type="button" data-lang="en" aria-pressed="false">EN</button>
+<button type="button" data-lang="ar" aria-pressed="false">AR</button>
+</div><a class="first-design" href="/demo/makeup-by-maria.html" data-i="designOne">Design 01 ↗</a>
+</div>
+</header>
+<main id="top"><div class="main-content">
+<div class="main-intro">
+<div class="ornament" aria-hidden="true"><span>✧</span></div>
+<div class="overline" data-i="eyebrow">PERSONLIG BRUDMAKEUP · SVERIGE</div>
+<h1 data-h="hero">Din dag. <em>Din glöd.</em></h1>
+<p data-i="lead">En makeup som känns som du. Välj bröllopsår och hitta din favoritlook inför din stora dag.</p>
+<div class="divider"></div>
+<div class="demo-note" data-i="notice">Designförslag – endast förhandsvisning, ingen riktig bokning</div>
+</div>
+<section class="panel" id="bookingPanel" aria-label="Bridal booking request"><div class="panel-body">
+<div id="bookingComplete" class="booking-complete" role="status" hidden>
+<h2 id="bookingCompleteTitle">Tack! Din e-post är verifierad.</h2>
+<p id="bookingCompleteText">Vi har tagit emot din bokningsförfrågan. Maria bekräftar tiden separat.</p>
+<a id="bookingCompleteAgain" href="/demo/makeup-by-maria-v2.html">Gör en ny bokning</a>
+</div>
+<div class="steps" id="bookingSteps" aria-label="Steg">
+<div class="step active" data-step-marker="year"><b>1</b><span data-i="s1">År</span></div><i class="step-line"></i>
+<div class="step" data-step-marker="service"><b>2</b><span data-i="s2">Tjänst</span></div><i class="step-line"></i>
+<div class="step" data-step-marker="details"><b>3</b><span data-i="s3">Datum & kontakt</span></div>
+</div>
+<button type="button" class="back" id="backHome" hidden>← Till startsidan</button>
+<div id="yearStep">
+<h2 class="step-title" data-i="yearTitle">Välj bröllopsår</h2>
+<p class="step-sub" data-i="yearPrompt">Vilket år gifter du dig?</p>
+<div class="year-options">
+<button type="button" data-year="2026"><strong>2026</strong><span data-i="book">Boka</span></button>
+<button type="button" data-year="2027"><strong>2027</strong><span data-i="book">Boka</span></button>
+<button type="button" data-year="2028"><strong>2028</strong><span data-i="book">Boka</span></button>
+</div>
+</div>
+<div id="serviceStep" hidden>
+<button class="back" id="backYear" type="button" data-i="changeYear">← Byt år</button>
+<h2 class="step-title"><span data-i="serviceTitle">Välj tjänst</span> — <span id="selectedYear">2026</span></h2>
+<p class="step-sub" data-i="servicePrompt">Så här kan du boka din brudsmink</p>
+<div class="packages">
+<button type="button" class="package" data-package="trial"><span class="number" data-i="packageOne">01 / BRIDAL</span><strong data-i="trialTitle">Brudsmink med prov</strong><span class="description" data-i="trialDesc">En professionell och hållbar makeup som utförs på bröllopsdagen, inklusive en provsminkning cirka 1–3 månader innan bröllopet. Hembesök ingår.</span><span class="price" id="trialPrice">6 800 kr</span><span class="choose" data-i="choose">VÄLJ TJÄNST ↗</span></button>
+<button type="button" class="package" data-package="without"><span class="number" data-i="packageTwo">02 / BRIDAL</span><strong data-i="withoutTitle">Brudsmink utan prov</strong><span class="description" data-i="withoutDesc">En professionell och hållbar makeup som utförs direkt på bröllopsdagen. Hembesök ingår.</span><span class="price" id="withoutPrice">5 800 kr</span><span class="choose" data-i="choose">VÄLJ TJÄNST ↗</span></button>
+</div>
+</div>
+<div id="detailsStep" hidden>
+<button class="back" id="backService" type="button" data-i="changeService">← Byt tjänst</button>
+<h2 class="step-title" data-i="detailsTitle">Datum & kontaktuppgifter</h2>
+<p class="step-sub" data-i="detailsPrompt">Endast fredagar och lördagar kl. 06:00–10:00.</p>
+<div class="choice-summary" id="summary"></div>
+<form id="bookingForm">
+<div class="form-grid">
+<label class="field wide"><span data-i="dateLabel">Bröllopsdatum</span><select id="weddingDate" required></select></label>
+<label class="field wide"><span data-i="timeLabel">Önskad tid</span><select id="weddingTime" required></select></label>
+<label class="field"><span data-i="nameLabel">Namn</span><input id="customerName" type="text" minlength="2" required autocomplete="name"></label>
+<label class="field"><span data-i="emailLabel">E-post</span><input id="customerEmail" type="email" required autocomplete="email"></label>
+<label class="field"><span data-i="phoneLabel">Telefonnummer</span><input id="customerPhone" type="tel" required autocomplete="tel"></label>
+<label class="field"><span data-i="cityLabel">Ort / stad</span><input id="customerCity" type="text"></label>
+<label class="field wide"><span data-i="notesLabel">Övrig information</span><textarea id="customerNotes" rows="3"></textarea></label>
+</div>
+<p class="safety" data-i="safety">Datum och tider är önskemål och innebär inte bekräftad tillgänglighet. Detta är bara en demo – inga uppgifter skickas eller sparas.</p>
+<button type="submit" class="confirm" data-i="submit">FÖRHANDSVISA FÖRFRÅGAN ↗</button><div class="message" id="message" aria-live="polite"></div>
+</form>
+</div>
+</div></section>
+<div class="beneath"><div class="ornament" aria-hidden="true"><span>✧</span></div><p data-i="footCopy">Varje brud har sin egen historia. Upptäck Marias tidigare arbeten och låt oss skapa en look som passar din stora dag.</p><a href="https://www.instagram.com/makeupbymaria998/" target="_blank" rel="noopener noreferrer" data-i="instagram">SE PORTFOLIO PÅ INSTAGRAM ↗</a></div>
+</div></main>
+<footer><div class="footer-brand"><img src="/demo/makeup-by-maria/assets/maria-stacked.svg" alt="Makeup by Maria" width="560" height="368" loading="lazy"></div><small data-i="footer">En förhandsvisning · Stockholm, Sverige</small><small>Instagram <a href="https://www.instagram.com/makeupbymaria998/" target="_blank" rel="noopener noreferrer">@makeupbymaria998</a></small></footer>
+<script>
+const dict={
+sv:{
+designOne:"Design 01 ↗",eyebrow:"PERSONLIG BRUDMAKEUP · SVERIGE",hero:"Din dag. <em>Din glöd.</em>",lead:"En makeup som känns som du. Välj bröllopsår och hitta din favoritlook inför din stora dag.",notice:"Designförslag – endast förhandsvisning, ingen riktig bokning",
+s1:"År",s2:"Tjänst",s3:"Datum & kontakt",yearTitle:"Välj bröllopsår",yearPrompt:"Vilket år gifter du dig?",book:"Boka",
+changeYear:"← Byt år",serviceTitle:"Välj tjänst",servicePrompt:"Så här kan du boka din brudsmink",trialTitle:"Brudsmink med prov",trialDesc:"En professionell och hållbar makeup som utförs på bröllopsdagen, inklusive en provsminkning cirka 1–3 månader innan bröllopet. Hembesök ingår.",withoutTitle:"Brudsmink utan prov",withoutDesc:"En professionell och hållbar makeup som utförs direkt på bröllopsdagen. Hembesök ingår.",choose:"VÄLJ TJÄNST ↗",requestPrice:"Pris på förfrågan",
+changeService:"← Byt tjänst",detailsTitle:"Datum & kontaktuppgifter",detailsPrompt:"Endast fredagar och lördagar kl. 06:00–10:00.",dateLabel:"Bröllopsdatum – fredag eller lördag",timeLabel:"Önskad tid",nameLabel:"Namn",emailLabel:"E-post",phoneLabel:"Telefonnummer",cityLabel:"Ort / stad",notesLabel:"Övrig information",dateEmpty:"Välj ett datum",timeEmpty:"Välj en tid",noDates:"Inga återstående fredagar eller lördagar för det här året.",noYears:"Inga bröllopsår är tillgängliga just nu.",safety:"Datum och tider är önskemål och innebär inte bekräftad tillgänglighet. Detta är bara en demo – inga uppgifter skickas eller sparas.",submit:"FÖRHANDSVISA FÖRFRÅGAN ↗",success:"Förhandsvisning: {service}, {date} kl. {time}. Ingen riktig bokning har gjorts.",footCopy:"Varje brud har sin egen historia. Upptäck Marias tidigare arbeten och låt oss skapa en look som passar din stora dag.",instagram:"SE PORTFOLIO PÅ INSTAGRAM ↗",footer:"En förhandsvisning · Stockholm, Sverige",currency:"kr"},
+en:{
+designOne:"Design 01 ↗",eyebrow:"BRIDAL MAKEUP · SWEDEN",hero:"Your day. <em>Your glow.</em>",lead:"Makeup that feels like you. Choose your wedding year and find the look for your special day.",notice:"Design concept only – no real booking is made",
+s1:"Year",s2:"Service",s3:"Date & contact",yearTitle:"Choose wedding year",yearPrompt:"What year are you getting married?",book:"Book",
+changeYear:"← Change year",serviceTitle:"Choose a service",servicePrompt:"Find the bridal makeup option for you",trialTitle:"Bridal makeup with trial",trialDesc:"Professional, long-lasting wedding-day makeup, including a trial approximately 1–3 months before your wedding. Home visit included.",withoutTitle:"Bridal makeup without trial",withoutDesc:"Professional, long-lasting bridal makeup on your wedding day. Home visit included.",choose:"SELECT SERVICE ↗",requestPrice:"Price on request",
+changeService:"← Change service",detailsTitle:"Date & contact",detailsPrompt:"Fridays and Saturdays only, 06:00–10:00.",dateLabel:"Wedding date – Friday or Saturday",timeLabel:"Preferred time",nameLabel:"Full name",emailLabel:"Email",phoneLabel:"Phone",cityLabel:"City",notesLabel:"Additional information",dateEmpty:"Select a date",timeEmpty:"Select a time",noDates:"No remaining Fridays or Saturdays this year.",noYears:"No wedding years are available right now.",safety:"Dates and times are requests, not verified availability. This is a demo; nothing is sent or stored.",submit:"PREVIEW REQUEST ↗",success:"Preview: {service}, {date} at {time}. No real booking has been made.",footCopy:"Every bride has her own story. Explore Maria's portfolio and create a look for your special day.",instagram:"SEE THE PORTFOLIO ON INSTAGRAM ↗",footer:"Design preview · Stockholm, Sweden",currency:"SEK"},
+ar:{
+designOne:"التصميم الأول ↗",eyebrow:"مكياج العرائس · السويد",hero:"يومكِ. <em>إشراقتكِ.</em>",lead:"مكياج يعكس جمالكِ. اختاري سنة زفافكِ وإطلالتكِ المفضلة ليومكِ المميز.",notice:"تصميم تجريبي فقط – لا يتم إجراء حجز فعلي",
+s1:"السنة",s2:"الخدمة",s3:"الموعد والتواصل",yearTitle:"اختاري سنة الزفاف",yearPrompt:"في أي سنة ستتزوجين؟",book:"احجزي",
+changeYear:"→ تغيير السنة",serviceTitle:"اختاري الخدمة",servicePrompt:"اختاري الباقة المناسبة لمكياج العروس",trialTitle:"مكياج عروس مع تجربة",trialDesc:"مكياج احترافي يدوم طوال يوم الزفاف، مع تجربة قبل الزفاف بحوالي ١–٣ أشهر. تشمل الخدمة الزيارة المنزلية.",withoutTitle:"مكياج عروس بدون تجربة",withoutDesc:"مكياج احترافي وثابت يوم الزفاف مباشرة، ويشمل الزيارة المنزلية.",choose:"اختيار الخدمة ↗",requestPrice:"السعر عند الاستفسار",
+changeService:"→ تغيير الخدمة",detailsTitle:"الموعد ومعلومات التواصل",detailsPrompt:"أيام الجمعة والسبت فقط، من 06:00 إلى 10:00.",dateLabel:"تاريخ الزفاف – الجمعة أو السبت",timeLabel:"الوقت المطلوب",nameLabel:"الاسم",emailLabel:"البريد الإلكتروني",phoneLabel:"رقم الهاتف",cityLabel:"المدينة",notesLabel:"معلومات إضافية",dateEmpty:"اختاري التاريخ",timeEmpty:"اختاري الوقت",noDates:"لا توجد أيام جمعة أو سبت متبقية خلال هذه السنة.",noYears:"لا توجد سنوات متاحة للحجز حالياً.",safety:"التواريخ والأوقات هي طلبات فقط وليست مواعيد مؤكدة. هذه نسخة تجريبية ولا تُرسل أو تُحفظ البيانات.",submit:"معاينة طلب الحجز ↗",success:"معاينة: {service}، {date} الساعة {time}. لم يتم إجراء حجز حقيقي.",footCopy:"لكل عروس قصتها الخاصة. شاهدي أعمال ماريا واختاري إطلالة تناسب يومكِ الكبير.",instagram:"شاهدي الأعمال على إنستغرام ↗",footer:"معاينة التصميم · ستوكهولم، السويد",currency:"كرونة"}
+};
+const state={lang:"sv",year:null,kind:null,step:"year"};
+const returnParams=new URLSearchParams(window.location.search);
+const returnLanguage=returnParams.get("lang");
+if(["sv","en","ar"].includes(returnLanguage))state.lang=returnLanguage;
+const successfulBookingReturn=returnParams.get("booked")==="1";
+let bookingReturnLoading=successfulBookingReturn;
+const bookingCompleteCopy={
+ sv:{title:"Tack! Din e-post är verifierad.",text:"Din bokningsförfrågan har tagits emot. Maria bekräftar tiden separat.",again:"Gör en ny bokning"},
+ en:{title:"Thank you! Your email is verified.",text:"We have received your booking request. Maria will confirm the appointment separately.",again:"Make another booking"},
+ ar:{title:"شكراً! تم تأكيد بريدك الإلكتروني.",text:"لقد استلمنا طلب الحجز. ستؤكد ماريا الموعد بشكل منفصل.",again:"احجزي موعداً آخر"}
+};
+function showBookingComplete(){
+ if(!successfulBookingReturn||bookingReturnLoading||!workspaceConfig.bookingEnabled)return;
+ const c=bookingCompleteCopy[state.lang]||bookingCompleteCopy.sv;
+ $("bookingCompleteTitle").textContent=c.title;
+ $("bookingCompleteText").textContent=c.text;
+ $("bookingCompleteAgain").textContent=c.again;
+ $("bookingCompleteAgain").href="/demo/makeup-by-maria-v2.html?lang="+encodeURIComponent(state.lang);
+ $("bookingComplete").hidden=false;
+ document.querySelector(".steps").hidden=true;
+ for(const name of ["yearStep","serviceStep","detailsStep"])$(name).hidden=true;
+}
+// Fallback is the customer-approved demo. Authenticated workspace managers
+// may preview their unpublished prices from Proffera without enabling booking.
+const formStartedAt=Date.now();
+const liveBookingCopy={
+ sv:{safety:"Bokningen skickas först efter att du har verifierat din e-postadress. Datum och tid måste vara tillgängliga.",submit:"FORTSÄTT TILL E-POSTVERIFIERING ↗",sending:"Kontrollerar bokning och skickar verifieringskod...",error:"Bokningen kunde inte påbörjas. Kontrollera valt datum och försök igen."},
+ en:{safety:"Your booking is created only after email verification. The selected date and time must be available.",submit:"CONTINUE TO EMAIL VERIFICATION ↗",sending:"Checking availability and sending a verification code...",error:"We could not begin your booking. Check your selected date and try again."},
+ ar:{safety:"يتم إنشاء الحجز بعد تأكيد البريد الإلكتروني فقط، ويجب أن يكون الموعد متاحاً. يتم إرسال رمز التحقق باللغة العربية، ويمكنك تأكيد الحجز باللغة العربية.",submit:"المتابعة لتأكيد البريد الإلكتروني ↗",sending:"جارٍ التحقق من الموعد وإرسال رمز التأكيد...",error:"تعذر بدء الحجز. يرجى مراجعة الموعد والمحاولة مجدداً."}
+};
+const uiMessages={
+ sv:{home:"← Till startsidan",closed:"Bokning öppnar senare",availability:"Kunde inte kontrollera lediga tider. Försök igen.",artistTagline:"Brudmakeupartist",packageOne:"01 / BRUDMAKEUP",packageTwo:"02 / BRUDMAKEUP",languageLabel:"Språk",bookingLabel:"Bokningsförfrågan för brudmakeup",stepsLabel:"Steg",noDatesWindow:"Inga bokningsbara datum inom bokningsperioden."},
+ en:{home:"← Back to home",closed:"Booking opens later",availability:"Could not check available times. Try again.",artistTagline:"Bridal makeup artist",packageOne:"01 / BRIDAL",packageTwo:"02 / BRIDAL",languageLabel:"Language",bookingLabel:"Bridal booking request",stepsLabel:"Steps",noDatesWindow:"No bookable dates within the booking window."},
+ ar:{home:"→ العودة إلى الرئيسية",closed:"الحجز سيفتح لاحقاً",availability:"تعذر التحقق من الأوقات المتاحة. يرجى المحاولة مجدداً.",artistTagline:"خبيرة مكياج العرائس",packageOne:"٠١ / مكياج العرائس",packageTwo:"٠٢ / مكياج العرائس",languageLabel:"اللغة",bookingLabel:"طلب حجز مكياج العروس",stepsLabel:"الخطوات",noDatesWindow:"لا توجد تواريخ متاحة ضمن فترة الحجز المسموح بها."}
+};
+const bookingErrors={
+ sv:{invalid_email:"Ange en giltig e-postadress, exempelvis namn@example.com.",invalid_phone:"Ange ett giltigt telefonnummer med 7–15 siffror och utan bokstäver.",invalid:"Kontrollera namn, e-post, telefon och bokningsuppgifter.",service:"Den här tjänsten är inte öppen för bokning ännu.",conflict:"Tiden är inte längre ledig. Välj ett annat klockslag.",rate_limit:"För många försök. Vänta cirka 15 minuter.",email:"Verifieringsmejlet kunde inte skickas.",unavailable:"Bokning är inte tillgänglig för denna testförfrågan. Använd en godkänd testadress.",hours:"Välj en tillgänglig fredag eller lördag.",time:"Välj ett giltigt datum och klockslag.",database:"Bokningstjänsten är tillfälligt otillgänglig."},
+ en:{invalid_email:"Enter a valid email address, such as name@example.com.",invalid_phone:"Enter a valid phone number with 7–15 digits and no letters.",invalid:"Check your name, email, phone and booking details.",service:"This service is not open for booking yet.",conflict:"This time is no longer available. Select another time.",rate_limit:"Too many attempts. Wait about 15 minutes.",email:"The verification email could not be sent.",unavailable:"Booking is unavailable for this test request. Use an approved test address.",hours:"Choose an available Friday or Saturday.",time:"Select a valid date and time.",database:"Booking is temporarily unavailable."},
+ ar:{invalid_email:"أدخلي عنوان بريد إلكتروني صالحاً مثل name@example.com.",invalid_phone:"أدخلي رقم هاتف صالحاً من ٧ إلى ١٥ رقماً وبدون أحرف.",invalid:"تحققي من الاسم والبريد الإلكتروني ورقم الهاتف وبيانات الحجز.",service:"هذه الخدمة غير متاحة للحجز حالياً.",conflict:"هذا الموعد لم يعد متاحاً. اختاري وقتاً آخر.",rate_limit:"محاولات كثيرة. انتظري حوالي ١٥ دقيقة.",email:"تعذر إرسال رسالة التحقق.",unavailable:"الحجز غير متاح لهذا الطلب التجريبي. استخدمي بريد الاختبار المعتمد.",hours:"اختاري يوم الجمعة أو السبت المتاح.",time:"اختاري تاريخاً ووقتاً صالحين.",database:"خدمة الحجز غير متاحة مؤقتاً."}
+};
+function uiCopy(){return uiMessages[state.lang]||uiMessages.sv}
+function isValidMariaEmail(raw){
+ const email=raw.trim();
+ if(email.length<6||email.length>254||!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))return false;
+ const at=email.lastIndexOf("@"),local=email.slice(0,at),domain=email.slice(at+1).toLowerCase();
+ if(local.length<2||local.length>64||local.startsWith(".")||local.endsWith(".")||local.includes(".."))return false;
+ const labels=domain.split(".");
+ if(labels.length<2||labels.some(label=>!/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/i.test(label)))return false;
+ if(!/^[a-z]{2,63}$/i.test(labels[labels.length-1]))return false;
+ if(["gmail.com","googlemail.com"].includes(domain)&&local.split("+",1)[0].replace(/\./g,"").length<6)return false;
+ return true;
+}
+function isValidMariaPhone(raw){
+ const phone=raw.trim();
+ if(!/^\+?[0-9 ()-]+$/.test(phone)||phone.startsWith("-"))return false;
+ const opens=(phone.match(/\(/g)||[]).length,closes=(phone.match(/\)/g)||[]).length;
+ if(opens!==closes||opens>1||(opens&&phone.indexOf("(")>phone.indexOf(")")))return false;
+ const digits=phone.replace(/\D/g,"");
+ return digits.length>=7&&digits.length<=15&&!(phone.startsWith("+")&&digits.startsWith("0"))&&!/^(\d)\1+$/.test(digits);
+}
+let lastBookingError=null;
+function localizedBookingError(code){
+ const lookup=bookingErrors[state.lang]||bookingErrors.sv;
+ return Object.prototype.hasOwnProperty.call(lookup,code)?lookup[code]:(liveBookingCopy[state.lang]||liveBookingCopy.sv).error;
+}
+function showBookingError(code,invalidInput){
+ lastBookingError=code;
+ const m=$("message");m.style.display="block";m.textContent=localizedBookingError(code);
+ if(invalidInput){
+  invalidInput.setCustomValidity(m.textContent);
+  invalidInput.reportValidity();
+  invalidInput.focus();
+ }
+}
+let workspaceConfig={
+ bookingEnabled:false,
+ bookableDurations:{},
+ bookableAdvanceDays:{},
+ years:[
+  {year:2026,enabled:true,trial:6800,without:5800},
+  {year:2027,enabled:true,trial:null,without:null},
+  {year:2028,enabled:true,trial:null,without:null}
+ ],
+ hours:null
+};
+function displayYearPrice(kind){
+ const item=workspaceConfig.years.find(row=>row.year===state.year);
+ const amount=item?item[kind]:null;
+ return Number.isSafeInteger(amount)&&amount>=0
+  ?new Intl.NumberFormat(state.lang==="ar"?"ar-SE":state.lang==="en"?"en-GB":"sv-SE",{maximumFractionDigits:0}).format(amount)+" "+copy().currency
+  :copy().requestPrice;
+}
+function isBookablePackage(year,kind){
+ return !workspaceConfig.bookingEnabled || Number.isSafeInteger(workspaceConfig.bookableDurations[String(year)]?.[kind]);
+}
+function isBookableYear(year){return isBookablePackage(year,"trial")||isBookablePackage(year,"without")}
+function renderPackageAvailability(){
+ for(const button of document.querySelectorAll("[data-package]")){
+  const enabled=!state.year||isBookablePackage(state.year,button.dataset.package);
+  button.disabled=!enabled;
+  button.querySelector(".choose").textContent=enabled?copy().choose:uiCopy().closed;
+ }
+}
+function renderYears(){
+ const target=document.querySelector(".year-options");
+ if(!target)return;
+ target.replaceChildren();
+ const enabled=workspaceConfig.years.filter(item=>item.enabled).sort((a,b)=>a.year-b.year);
+ if(enabled.length===0){
+  const message=document.createElement("p");
+  message.textContent=copy().noYears;
+  message.style.cssText="grid-column:1/-1;text-align:center;color:#795464;padding:20px";
+  target.append(message);
+  return;
+ }
+ for(const item of enabled){
+  const button=document.createElement("button");
+  button.type="button";
+  button.dataset.year=String(item.year);
+  const strong=document.createElement("strong");strong.textContent=String(item.year);
+  const span=document.createElement("span");span.textContent=copy().book;
+  button.append(strong,span);
+  const available=isBookableYear(item.year);
+  button.disabled=!available;
+  span.textContent=available?copy().book:uiCopy().closed;
+  button.addEventListener("click",()=>selectYear(item.year));
+  target.append(button);
+ }
+}
+function isAllowedWeekday(weekday){
+ return workspaceConfig.hours===null?[5,6].includes(weekday):workspaceConfig.hours.some(h=>h.weekday===weekday);
+}
+function displayedBookingHours(){
+ const h=workspaceConfig.hours;
+ if(!Array.isArray(h)||h.length===0)return copy().detailsPrompt;
+ const friday=h.find(item=>item.weekday===5);
+ const saturday=h.find(item=>item.weekday===6);
+ if(friday&&saturday&&friday.opensAt===saturday.opensAt&&friday.closesAt===saturday.closesAt){
+  const range=friday.opensAt+"–"+friday.closesAt;
+  if(state.lang==="en")return "Fridays and Saturdays, "+range+".";
+  if(state.lang==="ar")return "الجمعة والسبت من "+range+".";
+  return "Endast fredagar och lördagar kl. "+range+".";
+ }
+ const entries=[friday,saturday].filter(Boolean).map(h=>h.weekday===5
+  ?state.lang==="en"?"Friday "+h.opensAt+"–"+h.closesAt:state.lang==="ar"?"الجمعة "+h.opensAt+"–"+h.closesAt:"Fredag "+h.opensAt+"–"+h.closesAt
+  :state.lang==="en"?"Saturday "+h.opensAt+"–"+h.closesAt:state.lang==="ar"?"السبت "+h.opensAt+"–"+h.closesAt:"Lördag "+h.opensAt+"–"+h.closesAt);
+ if(!entries.length)return state.lang==="en"?"No booking times available.":state.lang==="ar"?"لا توجد مواعيد متاحة.":"Inga bokningstider finns tillgängliga.";
+ return entries.join(state.lang==="ar"?"، ":state.lang==="en"?" · ":" · ")+".";
+}
+const $=id=>document.getElementById(id);
+function copy(){return dict[state.lang]||dict.sv}
+function translate(){
+ const c=copy();
+ document.documentElement.lang=state.lang;
+ document.documentElement.dir=state.lang==="ar"?"rtl":"ltr";
+ document.querySelectorAll("[data-i]").forEach(el=>{const value=c[el.dataset.i];if(value!=null)el.textContent=value});
+ document.querySelectorAll("[data-h]").forEach(el=>{const value=c[el.dataset.h];if(value!=null)el.innerHTML=value});
+ document.querySelectorAll("[data-lang]").forEach(b=>b.setAttribute("aria-pressed",String(b.dataset.lang===state.lang)));
+ document.querySelector('[data-i="artistTagline"]').textContent=uiCopy().artistTagline;
+ document.querySelector('[data-i="packageOne"]').textContent=uiCopy().packageOne;
+ document.querySelector('[data-i="packageTwo"]').textContent=uiCopy().packageTwo;
+ $("langSwitch").setAttribute("aria-label",uiCopy().languageLabel);
+ $("bookingPanel").setAttribute("aria-label",uiCopy().bookingLabel);
+ $("bookingSteps").setAttribute("aria-label",uiCopy().stepsLabel);
+ if(lastBookingError){
+  $("message").textContent=localizedBookingError(lastBookingError);
+  for(const id of ["customerEmail","customerPhone"]){
+   const input=$(id);if(input.validity.customError)input.setCustomValidity(localizedBookingError(lastBookingError));
+  }
+ }else if($("bookingForm").querySelector('button[type="submit"]').disabled){
+  $("message").textContent=(liveBookingCopy[state.lang]||liveBookingCopy.sv).sending;
+ }
+ if(workspaceConfig.bookingEnabled){
+  const info=liveBookingCopy[state.lang]||liveBookingCopy.sv;
+  document.querySelector('[data-i="safety"]').textContent=info.safety;
+  document.querySelector('[data-i="submit"]').textContent=info.submit;
+  const testNotice={
+   sv:"Testmiljö – endast provbokningar, inga riktiga kundbokningar.",
+   en:"Test environment – test bookings only, no real customer bookings.",
+   ar:"بيئة اختبار – حجوزات تجريبية فقط، وليست حجوزات حقيقية."
+  };
+  document.querySelector('[data-i="notice"]').textContent=testNotice[state.lang]||testNotice.sv;
+  document.querySelector(".first-design").hidden=true;
+ }
+ document.querySelector('[data-i="detailsPrompt"]').textContent=displayedBookingHours();
+ $("trialPrice").textContent=displayYearPrice("trial");
+ $("withoutPrice").textContent=displayYearPrice("without");
+ $("backHome").textContent=uiCopy().home;
+ renderPackageAvailability();
+ showBookingComplete();
+ renderYears();
+ if(state.kind)renderSummary();
+ if(state.year)buildDates();
+ buildTimes();
+}
+function showStep(step){
+ if(successfulBookingReturn)return;
+ state.step=step;
+ $("backHome").hidden=step==="year";
+ for(const name of ["year","service","details"])$(name==="year"?"yearStep":name==="service"?"serviceStep":"detailsStep").hidden=name!==step;
+ const order=["year","service","details"];
+ document.querySelectorAll("[data-step-marker]").forEach(el=>{const n=order.indexOf(el.dataset.stepMarker),current=order.indexOf(step);el.classList.toggle("active",n===current);el.classList.toggle("done",n<current)});
+}
+function selectYear(year){if(!isBookableYear(year))return;state.year=year;state.kind=null;$("selectedYear").textContent=year;translate();showStep("service")}
+function choosePackage(kind){if(!state.year||!isBookablePackage(state.year,kind))return;state.kind=kind;translate();showStep("details");$("message").style.display="none";$("message").textContent=""}
+function renderSummary(){
+ const c=copy();const label=state.kind==="trial"?c.trialTitle:c.withoutTitle;
+ const price=displayYearPrice(state.kind);
+ $("summary").textContent=state.year+" · "+label+" · "+price;
+}
+function stockholmDate(){
+ const parts=new Intl.DateTimeFormat("en-GB",{timeZone:"Europe/Stockholm",year:"numeric",month:"2-digit",day:"2-digit"}).formatToParts(new Date());
+ const find=t=>parts.find(x=>x.type===t).value;
+ return find("year")+"-"+find("month")+"-"+find("day");
+}
+function buildDates(){
+ const sel=$("weddingDate"),prior=sel.value,c=copy();sel.innerHTML="";
+ sel.add(new Option(c.dateEmpty,""));
+ if(!state.year)return;
+ const today=stockholmDate();let n=0;
+ const advance=workspaceConfig.bookingEnabled?(workspaceConfig.bookableAdvanceDays[String(state.year)]?.[state.kind]??730):null;
+ const latest=advance===null?null:new Date(Date.parse(today+"T00:00:00Z")+advance*86400000).toISOString().slice(0,10);
+ for(let day=1;day<=366;day++){
+  const dt=new Date(Date.UTC(state.year,0,day,12));
+  if(dt.getUTCFullYear()!==state.year)break;
+  const weekday=dt.getUTCDay();if(!isAllowedWeekday(weekday))continue;
+  const iso=dt.toISOString().slice(0,10);if(iso<today||(latest&&iso>latest))continue;
+  const fmt=new Intl.DateTimeFormat(state.lang==="ar"?"ar-SE":state.lang==="en"?"en-GB":"sv-SE",{weekday:"long",day:"numeric",month:"long",year:"numeric",timeZone:"UTC"});
+  sel.add(new Option(fmt.format(dt),iso));n++;
+ }
+ if(prior&&[...sel.options].some(o=>o.value===prior))sel.value=prior;
+ if(!n)sel.options[0].textContent=workspaceConfig.bookingEnabled?uiCopy().noDatesWindow:c.noDates;
+}
+let availabilitySequence=0;
+async function buildTimes(preserveSelection=true){
+ const seq=++availabilitySequence;
+ const s=$("weddingTime"),old=preserveSelection?s.value:"";s.replaceChildren();
+ s.add(new Option(copy().timeEmpty,""));
+ const chosen=$("weddingDate").value;
+ if(!chosen||!state.year||!state.kind)return;
+ const day=new Date(chosen+"T12:00:00Z").getUTCDay();
+ const interval=workspaceConfig.hours===null?{opensAt:"06:00",closesAt:"10:00"}:workspaceConfig.hours.find(h=>h.weekday===day);
+ if(!interval)return;
+ if(workspaceConfig.bookingEnabled){
+  const waiting={sv:"Kontrollerar lediga tider...",en:"Checking available times...",ar:"جارٍ التحقق من الأوقات المتاحة..."};
+  const empty={sv:"Inga lediga tider",en:"No available times",ar:"لا توجد أوقات متاحة"};
+  s.options[0].textContent=waiting[state.lang]||waiting.sv;
+  const year=state.year,kind=state.kind;
+  try{
+   const params=new URLSearchParams({year:String(year),kind,date:chosen});
+   const response=await fetch("/api/makeup-by-maria/availability?"+params.toString(),{
+    credentials:"same-origin",cache:"no-store"
+   });
+   const data=response.ok?await response.json():null;
+   if(seq!==availabilitySequence||$("weddingDate").value!==chosen
+       ||state.kind!==kind||state.year!==year)return;
+   s.options[0].textContent=empty[state.lang]||empty.sv;
+   if(!data||data.ok!==true||!Array.isArray(data.times)){
+    if(data?.error==="service")s.options[0].textContent=uiCopy().closed;
+    else if(!data||["database","unavailable"].includes(data.error))s.options[0].textContent=uiCopy().availability;
+    return;
+   }
+   for(const value of data.times){
+    if(typeof value==="string"&&/^\d{2}:\d{2}$/.test(value))s.add(new Option(value,value));
+   }
+   if(s.options.length>1)s.options[0].textContent=copy().timeEmpty;
+  }catch(_error){
+   if(seq===availabilitySequence)s.options[0].textContent=empty[state.lang]||empty.sv;
+  }
+  if(old&&[...s.options].some(o=>o.value===old))s.value=old;
+  return;
+ }
+ const toMinutes=t=>Number(t.slice(0,2))*60+Number(t.slice(3,5));
+ const start=toMinutes(interval.opensAt),last=toMinutes(interval.closesAt);
+ for(let minute=start;minute<=last&&minute<1440;minute+=30){
+  const value=String(Math.floor(minute/60)).padStart(2,"0")+":"+String(minute%60).padStart(2,"0");
+  s.add(new Option(value,value));
+ }
+ if(old&&[...s.options].some(o=>o.value===old))s.value=old;
+}
+document.querySelectorAll("[data-package]").forEach(b=>b.addEventListener("click",()=>choosePackage(b.dataset.package)));
+document.querySelectorAll("[data-lang]").forEach(b=>b.addEventListener("click",()=>{state.lang=b.dataset.lang;translate()}));
+function returnHome(){window.location.assign("/demo/makeup-by-maria-v2.html?lang="+encodeURIComponent(state.lang))}
+document.querySelector(".identity").addEventListener("click",e=>{e.preventDefault();returnHome()});
+$("backHome").addEventListener("click",returnHome);
+$("backYear").addEventListener("click",()=>showStep("year"));
+$("backService").addEventListener("click",()=>showStep("service"));
+for(const id of ["customerEmail","customerPhone"]){
+ $(id).addEventListener("input",()=>{
+  $(id).setCustomValidity("");
+  if(["invalid_email","invalid_phone"].includes(lastBookingError)){
+   lastBookingError=null;$("message").style.display="none";
+  }
+ });
+}
+$("bookingForm").addEventListener("submit",async e=>{
+ e.preventDefault();
+ $("customerEmail").setCustomValidity("");
+ $("customerPhone").setCustomValidity("");
+ if(!$("bookingForm").reportValidity())return;
+ if(!isValidMariaEmail($("customerEmail").value)){showBookingError("invalid_email",$("customerEmail"));return}
+ if(!isValidMariaPhone($("customerPhone").value)){showBookingError("invalid_phone",$("customerPhone"));return}
+ lastBookingError=null;
+ const date=$("weddingDate").value,time=$("weddingTime").value;
+ const weekday=new Date(date+"T12:00:00Z").getUTCDay();
+ if(!state.kind||!state.year||!date||!isAllowedWeekday(weekday)||!time||!date.startsWith(String(state.year))||date<stockholmDate()||![...$("weddingTime").options].some(o=>o.value===time))return;
+ const c=copy(),service=state.kind==="trial"?c.trialTitle:c.withoutTitle;
+ const message=$("message");message.style.display="block";
+ if(!workspaceConfig.bookingEnabled){
+  message.textContent=c.success.replace("{service}",service).replace("{date}",date).replace("{time}",time);
+  return;
+ }
+ const button=$("bookingForm").querySelector('button[type="submit"]');
+ if(button.disabled)return;
+ button.disabled=true;
+ message.textContent=(liveBookingCopy[state.lang]||liveBookingCopy.sv).sending;
+ try{
+  const response=await fetch("/api/makeup-by-maria/booking",{
+   method:"POST",headers:{"Content-Type":"application/json"},credentials:"same-origin",cache:"no-store",
+   body:JSON.stringify({
+    year:state.year,kind:state.kind,date,time,lang:state.lang,
+    name:$("customerName").value,email:$("customerEmail").value,
+    phone:$("customerPhone").value,city:$("customerCity").value,
+    notes:$("customerNotes").value,startedAt:formStartedAt
+   })
+  });
+  const data=await response.json();
+  if(response.ok&&data.ok&&typeof data.verificationUrl==="string"
+      &&data.verificationUrl.startsWith("/boka/verifiera/")
+      &&!data.verificationUrl.startsWith("//")
+      &&data.verificationUrl.length<120){
+   window.location.assign(data.verificationUrl);
+   return;
+  }
+  showBookingError(typeof data?.error==="string"?data.error:"general");
+ }catch(_error){
+  showBookingError("general");
+ }finally{button.disabled=false;}
+});
+$("weddingDate").addEventListener("change",()=>buildTimes(false));
+async function loadMariaWorkspace(){
+ try{
+  const response=await fetch("/api/makeup-by-maria/config",{credentials:"same-origin",cache:"no-store"});
+  if(!response.ok)return;
+  const config=await response.json();
+  if(!config||config.connected!==true)return;
+  workspaceConfig.bookingEnabled=config.bookingEnabled===true;
+  if(workspaceConfig.bookingEnabled&&config.bookableDurations&&typeof config.bookableDurations==="object"){
+   const accepted={};
+   for(const [year,packages] of Object.entries(config.bookableDurations)){
+    if(!/^(202[6-9]|203[0-6])$/.test(year)||!packages||typeof packages!=="object")continue;
+    accepted[year]={};
+    for(const kind of ["trial","without"]){
+     const duration=packages[kind];
+     if(Number.isSafeInteger(duration)&&duration>=1&&duration<=1440)accepted[year][kind]=duration;
+    }
+   }
+   workspaceConfig.bookableDurations=accepted;
+  }
+  if(workspaceConfig.bookingEnabled&&config.bookableAdvanceDays&&typeof config.bookableAdvanceDays==="object"){
+   const accepted={};
+   for(const [year,packages] of Object.entries(config.bookableAdvanceDays)){
+    if(!/^(202[6-9]|203[0-6])$/.test(year)||!packages||typeof packages!=="object")continue;
+    accepted[year]={};
+    for(const kind of ["trial","without"]){
+     const days=packages[kind];
+     if(Number.isSafeInteger(days)&&days>=1&&days<=730)accepted[year][kind]=days;
+    }
+   }
+   workspaceConfig.bookableAdvanceDays=accepted;
+  }
+  if(Array.isArray(config.years)){
+   const parsed=config.years
+    .filter(y=>y&&Number.isInteger(y.year)&&y.year>=2026&&y.year<=2036&&y.enabled===true
+      &&["trial","without"].every(k=>y[k]===null||y[k]===undefined
+         ||(Number.isSafeInteger(y[k])&&y[k]>=0&&y[k]<=250000)))
+    .map(y=>({year:y.year,enabled:true,trial:y.trial??null,without:y.without??null}));
+   if(new Set(parsed.map(y=>y.year)).size===parsed.length&&parsed.length<=11){
+    workspaceConfig.years=parsed;
+    if(state.year&&!parsed.some(y=>y.year===state.year)){
+     state.year=null;state.kind=null;showStep("year");
+    }
+   }
+  }
+  if(Array.isArray(config.hours)){
+   workspaceConfig.hours=config.hours
+    .filter(h=>h&&[5,6].includes(h.weekday)&&/^\d{2}:\d{2}$/.test(h.opensAt)&&/^\d{2}:\d{2}$/.test(h.closesAt)&&h.opensAt<h.closesAt)
+    .map(h=>({weekday:h.weekday,opensAt:h.opensAt,closesAt:h.closesAt}));
+  }
+  if(state.year&&!isBookableYear(state.year)){
+   state.year=null;state.kind=null;$("bookingForm").reset();showStep("year");
+  }
+  translate();
+ }catch(_error){/* Stay with the customer-approved static preview if offline. */}
+ finally{
+  if(successfulBookingReturn){
+   bookingReturnLoading=false;
+   if(workspaceConfig.bookingEnabled){
+    showBookingComplete();
+    $("bookingCompleteAgain").hidden=false;
+   }else{
+    $("bookingCompleteTitle").textContent=state.lang==="en"
+     ?"Booking status unavailable. Refresh or use the link in your email."
+     :state.lang==="ar"?"حالة الحجز غير متاحة. يرجى تحديث الصفحة أو استخدام رابط البريد الإلكتروني."
+     :"Bokningsstatus är inte tillgänglig. Uppdatera sidan eller använd länken i ditt mejl.";
+   }
+   $("bookingComplete").hidden=false;
+  }
+ }
+}
+if(successfulBookingReturn){
+ $("bookingComplete").hidden=false;
+ $("bookingCompleteTitle").textContent=state.lang==="en"
+  ?"Loading your booking..." :state.lang==="ar"?"جارٍ تحميل الحجز...":"Hämtar bokningen...";
+ $("bookingCompleteText").textContent="";
+ $("bookingCompleteAgain").hidden=true;
+ document.querySelector(".steps").hidden=true;
+ for(const name of ["yearStep","serviceStep","detailsStep"])$(name).hidden=true;
+}
+translate();showStep("year");void loadMariaWorkspace();
+</script>
+</body></html>

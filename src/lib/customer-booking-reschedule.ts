@@ -5,6 +5,7 @@ import { neon } from "@neondatabase/serverless";
 import { sendBookingChangeEmails } from "@/features/email/booking-change-email";
 import { verifyCustomerCalendarToken } from "@/lib/customer-calendar";
 import { resolveDatabaseUrl } from "@/lib/db/database-url";
+import { rescheduleMariaCustomerBooking } from "@/lib/maria-customer-reschedule";
 import { parseLocalDateTime, resolveBookingTimeZone, validatePublicBookingPolicy } from "@/lib/public-booking-policy";
 
 const connectionString = resolveDatabaseUrl();
@@ -66,7 +67,7 @@ export async function rescheduleCustomerBooking(
   token: string,
   bookingId: string,
   startsAtLocal: string,
-  language: "sv" | "en",
+  language: "sv" | "en" | "ar",
 ) {
   const payload = verifyCustomerCalendarToken(token);
   if (!payload || !connectionString || !/^[0-9a-f-]{36}$/i.test(bookingId)) {
@@ -82,6 +83,7 @@ export async function rescheduleCustomerBooking(
       b.id,
       b.service,
       b.city,
+      w.slug as workspace_slug,
       b.staff_id,
       b.status as old_status,
       b.starts_at as old_starts_at,
@@ -114,6 +116,12 @@ export async function rescheduleCustomerBooking(
   `;
   const booking = rows[0];
   if (!booking) return { ok: false as const, error: "not_allowed" };
+  if (String(booking.workspace_slug) === "makeup-by-maria") {
+    return rescheduleMariaCustomerBooking({
+      workspaceId: payload.workspaceId, customerId: payload.customerId,
+      bookingId, startsAtLocal, token, language,
+    });
+  }
 
   const weekday = new Date(Date.UTC(local.year, local.month - 1, local.day)).getUTCDay();
   let hours: Record<string, unknown> | undefined;

@@ -44,7 +44,7 @@ export default async function DashboardLayout({ children }: Readonly<{ children:
   ]);
 
   return (
-    <DashboardShell workspaceName={access.workspaceName} workspaceId={access.workspaceId} workspaceOptions={workspaceOptions} moduleAccess={moduleAccess} enabledFeatures={enabledFeatures} canManageSettings={canManageSettings} restaurantEnabled={restaurantEnabled}>
+    <DashboardShell workspaceName={access.workspaceName} workspaceId={access.workspaceId} workspaceOptions={workspaceOptions} moduleAccess={moduleAccess} enabledFeatures={enabledFeatures} canManageSettings={canManageSettings} restaurantEnabled={restaurantEnabled} mariaEnabled={canManageSettings && access.workspaceSlug === "makeup-by-maria"}>
       <DashboardLanguageSwitchFix />
       <DashboardStripeCheckoutFix />
       <DashboardGlobalLocaleBoundary>
