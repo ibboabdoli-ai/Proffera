@@ -1,14 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
-import { load } from 'js-yaml';
-
 const file = '.github/workflows/proffera-automerge.yml';
 const yamlText = readFileSync(file, 'utf8');
-const doc = load(yamlText) as {
-  jobs: Record<string, {steps: Array<{name?: string; run?: string}>}>
-};
-const script = doc.jobs['gated-automerge'].steps.find(s => s.name === 'Evaluate gated automerge')?.run ?? '';
+// Extract the only shell run block without adding a missing @types/js-yaml
+// dependency to Proffera's production TypeScript compilation.
+const block = yamlText.split('        run: |\n')[1] ?? '';
+const script = block.split('\n').map(line => line.startsWith('          ') ? line.slice(10) : line).join('\n');
 
 describe('ReviewForge CodeRabbit-quota fallback merge safety', () => {
   it('keeps all workflow bash syntactically valid', () => {
