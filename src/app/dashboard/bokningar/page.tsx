@@ -3,6 +3,8 @@ import { CalendarCheck2, CalendarClock, CalendarPlus, CheckCircle2, ClipboardLis
 
 import { DashboardDataPanel, DashboardMetricGrid, DashboardPageHeader } from "@/components/dashboard/dashboard-page-ui";
 import { getDashboardBookingsInStockholm } from "@/lib/dashboard-bookings-db";
+import { mariaBookingNumber } from "@/lib/maria-deposit";
+import { getUserWorkspaceAccess } from "@/lib/workspace-access";
 
 export const dynamic = "force-dynamic";
 
@@ -49,7 +51,14 @@ export default async function BookingsPage({ searchParams }: BookingsPageProps) 
   const params = searchParams ? await searchParams : undefined;
   const lang = Array.isArray(params?.lang) ? params?.lang[0] : params?.lang;
   const isEnglish = lang === "en";
-  const bookings = await getDashboardBookingsInStockholm();
+  const [bookings, access] = await Promise.all([
+    getDashboardBookingsInStockholm(),
+    getUserWorkspaceAccess(),
+  ]);
+  // Never add Maria's payment reference to another tenant's booking overview.
+  const mariaPreview = access.ok
+    && access.workspaceSlug === "makeup-by-maria"
+    && process.env.VERCEL_ENV === "preview";
   const confirmedBookings = bookings.filter((booking) => booking.status === "confirmed").length;
   const requestedBookings = bookings.filter((booking) => booking.status === "requested").length;
   const completedBookings = bookings.filter((booking) => booking.status === "completed").length;
@@ -98,6 +107,17 @@ export default async function BookingsPage({ searchParams }: BookingsPageProps) 
                 <div><p className="text-[10px] font-bold uppercase tracking-wide text-ink-muted lg:hidden">{columnLabels[4]}</p><span className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ${statusStyles[booking.status] ?? "bg-surface-subtle text-ink-muted"}`}>{labels[booking.status as keyof typeof labels] ?? booking.status}</span></div>
                 <div><p className="text-[10px] font-bold uppercase tracking-wide text-ink-muted lg:hidden">{columnLabels[5]}</p><p className="font-semibold text-brand">{getNextStep(booking.status, isEnglish)}</p></div>
                 <div><p className="text-[10px] font-bold uppercase tracking-wide text-ink-muted lg:hidden">{columnLabels[6]}</p><Link href={withLang(`/dashboard/bokningar/${booking.id}`, isEnglish)} className="inline-flex min-h-9 items-center justify-center rounded-control bg-brand-deep px-3 py-2 text-xs font-bold text-white transition hover:bg-brand-hover">{isEnglish ? "View booking" : "Visa bokning"}</Link></div>
+                {mariaPreview ? (
+                  <div className="min-w-0 rounded-lg border border-[#e9d6df] bg-[#fff9f8] p-3 lg:col-span-7" aria-label={isEnglish ? "Swish booking reference" : "Bokningsnummer för Swish"}>
+                    <p className="text-xs font-semibold text-[#704858]">{isEnglish ? "Booking number for Swish" : "Bokningsnummer för Swish"}</p>
+                    <code className="mt-1 block select-all break-all font-mono text-xs font-semibold text-[#49313c]">
+                      {mariaBookingNumber(booking.id)}
+                    </code>
+                    <p className="mt-1 text-xs text-[#76545f]">
+                      {isEnglish ? "Match this number with the Swish payment message. Check payment manually." : "Jämför numret med Meddelande i Swish. Kontrollera betalningen i Swish manuellt."}
+                    </p>
+                  </div>
+                ) : null}
               </div>
             ))}
           </>

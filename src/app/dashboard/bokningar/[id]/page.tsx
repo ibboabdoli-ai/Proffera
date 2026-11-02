@@ -332,7 +332,14 @@ export default async function BookingDetailPage({ params, searchParams }: Bookin
           Kontrollera betalningen i Swish själv; utebliven handpenning avbokas
           endast manuellt av Maria. Ingen automatisk betalningskontroll eller SMS.
         </p>
-        <p className="mt-3 text-sm"><strong>Bokningsnummer:</strong> <code className="break-all">{mariaBookingNumber(booking.id)}</code></p>
+
+        <div className="mt-4 rounded-lg border border-[#e9d6df] bg-white p-4">
+          <p className="text-sm font-semibold text-[#704858]">Bokningsnummer · Swish</p>
+          <code className="mt-2 block select-all break-all font-mono text-sm font-semibold text-[#49313c]">{mariaBookingNumber(booking.id)}</code>
+          <p className="mt-2 text-xs leading-6 text-[#76545f]">
+            Jämför numret med kundens Meddelande i Swish. En bekräftad bokning betyder inte att handpenningen är betald.
+          </p>
+        </div>
         <p className="mt-2 text-sm"><strong>Swish företag:</strong> {MARIA_SWISH_NUMBER}</p>
         <Image src={MARIA_SWISH_QR_PATH} alt="Makeup by Maria Swish QR för godkänd QA-kontroll"
           width={210} height={280} unoptimized className="mt-4 h-auto max-w-[210px] rounded-lg border border-[#e8d9dc]" />

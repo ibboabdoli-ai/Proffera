@@ -28,6 +28,17 @@ describe("Makeup by Maria Preview deposit flow contract", () => {
     expect(action).toContain("if (isMariaPreviewTestRecipient(notification.customerEmail))");
   });
 
+  it("shows the exact email payment reference only in Maria Preview dashboard booking views", () => {
+    const list = file("src/app/dashboard/bokningar/page.tsx");
+    const detail = file("src/app/dashboard/bokningar/[id]/page.tsx");
+    expect(list).toContain('access.workspaceSlug === "makeup-by-maria"');
+    expect(list).toContain('process.env.VERCEL_ENV === "preview"');
+    expect(list).toContain('mariaBookingNumber(booking.id)');
+    expect(list).toContain('Kontrollera betalningen i Swish manuellt.');
+    expect(detail).toContain('mariaBookingNumber(booking.id)');
+    expect(detail).toContain('En bekräftad bokning betyder inte att handpenningen är betald.');
+  });
+
   it("does not add a payment gateway, automatic cancellation, migration or production flag", () => {
     const policy = file("src/lib/maria-deposit.ts");
     const email = file("src/features/email/maria-deposit-email.ts");
