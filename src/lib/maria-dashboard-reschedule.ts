@@ -46,7 +46,7 @@ export async function rescheduleMariaDashboardBooking(input: {
   const sql = getSql();
   if (!sql) return { ok: false, error: "conflict" };
   const before = await sql`
-    select b.id, b.starts_at, b.ends_at, b.status, b.source, b.staff_id,
+    select b.id, b.starts_at::text as starts_at, b.ends_at::text as ends_at, b.status, b.source, b.staff_id,
       c.email as customer_email, s.public_slug, s.duration_minutes
     from bookings b
     join customers c on c.id=b.customer_id and c.workspace_id=b.workspace_id
@@ -83,8 +83,10 @@ export async function rescheduleMariaDashboardBooking(input: {
 
   const newStartIso = start.toISOString();
   const newEndIso = end.toISOString();
-  const previousStart = oldStart.toISOString();
-  const previousEnd = oldEnd.toISOString();
+  // PostgreSQL can retain microseconds; a JS Date round-trip would lose them
+  // and falsely reject an unchanged booking during the exact CAS check.
+  const previousStart = String(booking.starts_at);
+  const previousEnd = String(booking.ends_at);
   try {
     const [, result] = await sql.transaction([
       sql`select pg_advisory_xact_lock(hashtextextended(${input.workspaceId}::text, 713))`,
@@ -163,7 +165,7 @@ export async function rescheduleMariaDashboardBooking(input: {
           returning j.id,j.workspace_id
         ),
         job_event as (
-          insert into workspace_service_job_events(workspace_id,service_job_id,event_type,summary,metadata)
+          insert into public.workspace_service_job_events(workspace_id,service_job_id,event_type,summary,metadata)
           select workspace_id,id,'status_changed','Maria dashboard booking time rescheduled.',
             jsonb_build_object('source','maria_preview_dashboard_reschedule','booking_id',${input.bookingId}::text)
           from updated_job returning id
@@ -192,7 +194,7 @@ export async function rescheduleMariaDashboardBooking(input: {
           customerPhone: String(updated.customer_phone ?? ""),
           service: String(updated.service_name ?? "Bokning"),
           city: String(updated.city ?? ""),
-          previousStartsAt: previousStart,
+          previousStartsAt: oldStart.toISOString(),
           startsAt: newStartIso,
           endsAt: newEndIso,
         },
