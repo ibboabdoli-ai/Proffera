@@ -32,18 +32,25 @@ function materialText(value) {
 // The live adapter separately authenticates its actor and post-request freshness.
 export function providerUnavailable(body) {
   if (/automatic reviews? (?:are |is )?disabled|auto(?:matic)?[ _-]?review[^\n]*disabled/i.test(body)) return null;
-  if (/Review limit reached|Review rate limited/i.test(body)) return "rate_limited";
-  if (/temporarily unavailable|service unavailable/i.test(body)) return "unavailable";
-  return null;
+  // Anchor provider status to its supported header, never quoted examples or prose.
+  const status = String(body).match(new RegExp("^(?:(?:<!-- This is an auto-generated reply by CodeRabbit -->\\r?\\n)?<!-- CodeRabbit review command invocation: v2:[0-9a-f]{64} -->\\r?\\n<details>\\r?\\n<summary>⚠️ Action not completed</summary>\\r?\\n(?:[ \\t]*\\r?\\n)*|Action not completed:[ \\t]*)?(Review limit reached|Review rate limited|Temporarily unavailable|Service unavailable)(?:\\.(?:[ \\t][^\\r\\n]*)?)?(?:\\r?\\n|$)", "i"))?.[1];
+  return !status ? null : /^Review /i.test(status) ? "rate_limited" : "unavailable";
 }
 
-export function cleanCodeRabbitComment(body, head) {
+// Review authority is a supported top-level receipt header, never text found
+// inside arbitrary Markdown. Keep the workflow jq predicates behaviorally equivalent.
+export function cleanCodexReviewedCommit(body) {
+  if ([...String(body).matchAll(/Reviewed commit:/gi)].length !== 1) return "";
+  const token = String(body).match(/^(?:<!-- codex-review-receipt:v1 -->\r?\n\r?\n)?Codex Review: Didn't find any major issues\.[^<`\r\n]*\r?\n(?:[ \t]*\r?\n)* {0,3}(?:\*\*Reviewed commit:\*\*|Reviewed commit:)[ \t]*(`?[0-9a-fA-F]{10,40}`?)[ \t]*(?:\r?\n|$)/)?.[1] ?? "";
+  const reviewed = token.replaceAll("`", "").toLowerCase();
+  return token.startsWith("`") === token.endsWith("`") && [10, 40].includes(reviewed.length) ? reviewed : "";
+}
+
+export function cleanCodeRabbitComment(body, head, { allowPersistentSummary = false } = {}) {
   if (!/^[0-9a-f]{40}$/.test(head) || /Review limit reached|Review rate[ -]?limited|rate[ -]?limit|Action not completed|Review skipped|temporarily unavailable|service unavailable|incomplete|did not complete/i.test(body)) return false;
-  const lines = String(body).split(/\r?\n/).map((line) => line.trim());
-  const sentence = (prefix) => lines.some((line) => new RegExp(`^(?:@[A-Za-z0-9-]+\\s+)?${prefix}\\s+\x60?${head}\x60?\\.$`).test(line));
-  return (lines.some((line) => /^<!-- CodeRabbit review command invocation: v2:[0-9a-f]{64} -->$/.test(line))
-    && sentence("Final exact-head review is complete for") && lines.includes("I found no issues."))
-    || (sentence("Review completed for exact HEAD") && lines.includes("I found no material findings."));
+  const patterns = ["^<!-- CodeRabbit review command invocation: v2:[0-9a-f]{64} -->[ \\t]*\\r?\\n(?:[ \\t]*\\r?\\n)* {0,3}(?:@[A-Za-z0-9-]+[ \\t]+)?Final exact-head review is complete for[ \\t]+(?:`@SHA@`|@SHA@)\\.[ \\t]*\\r?\\n(?:[ \\t]*\\r?\\n)* {0,3}I found no issues\\.[ \\t]*(?:\\r?\\n|$)", "^ {0,3}(?:@[A-Za-z0-9-]+[ \\t]+)?Review completed for exact HEAD[ \\t]+(?:`@SHA@`|@SHA@)\\.[ \\t]*\\r?\\n(?:[ \\t]*\\r?\\n)* {0,3}I found no material findings\\.[ \\t]*(?:\\r?\\n|$)"];
+  if (allowPersistentSummary) patterns.push("^<!-- recent_review_start -->[ \\t]*\\r?\\n(?:[ \\t]*\\r?\\n)* {0,3}No actionable comments were generated(?: in the recent review)?\\.[ \\t]*\\r?\\n(?:[ \\t]*\\r?\\n)* {0,3}@SHA@[ \\t]*\\r?\\n(?:[ \\t]*\\r?\\n)*<!-- recent_review_end -->[ \\t]*(?:\\r?\\n|$)");
+  return patterns.some((pattern) => new RegExp(pattern.replaceAll("@SHA@", head)).test(String(body)));
 }
 
 export function normalizeFinalGateEvidence(source, targetHead = source?.review_commit ?? "") {

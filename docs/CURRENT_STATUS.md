@@ -212,3 +212,11 @@ A Production runtime warning observed on 2026-08-18 concerns PostgreSQL connecti
 Do not create another competing current-status file.
 
 Historical phase plans and handoffs may remain in `docs/` for context, but they are not current truth unless a canonical source explicitly points to them. Git history is the archive for older versions of the canonical files.
+
+## PR #941 receipt authority repair (local candidate, not published)
+
+CI, AutoMerge, Wakeup and Final Gate Live accept supported top-level review receipt headers. They never discover clean verdicts or reviewed SHA markers by stripping arbitrary Markdown. Quoted examples, fenced or indented code, multiline inline code and HTML pre blocks are not authority. Codex receipts retain the official optional wrapper, friendly first-line suffix, balanced token formatting, unique 10/40-character SHA and exact-head request ordering.
+
+A CodeRabbit clean issue comment must be unchanged and paired with a currently valid, trusted exact-head completed review between its primary request and its creation. An unrelated later COMMENTED reply does not revoke that pair. Dismissal/removal of every qualifying witness blocks acceptance. A current-head CHANGES_REQUESTED remains blocking until a later qualifying APPROVED decision; a clean summary or Codex fallback cannot clear it. Availability requires a supported status header or the observed CodeRabbit auto-generated Action not completed reply wrapper; quoted examples and incidental prose are not outage evidence. Disabled automatic reviews and generic Review skipped statuses are not provider outages; recognized post-request unavailability or the existing bounded timeout is required for fallback.
+
+The local Windows workflow harness replaces waiting with a Bash function because Git Bash prepends /usr/bin ahead of executable stubs. Polling, repeated reads, response sequencing and assertions remain real. This does not alter production workflow delays. GitHub review reads and merge remain separate non-atomic operations; exact-head and final rechecks reduce but do not eliminate that race.

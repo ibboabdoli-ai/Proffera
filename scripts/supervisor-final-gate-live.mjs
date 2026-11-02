@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import {
   acceptFinalGateRetry,
   cleanCodeRabbitComment,
+  cleanCodexReviewedCommit,
   decideFinalGateRetry,
   ensureFinalGateMemory,
   finalGateMemoryIdentity,
@@ -240,19 +241,18 @@ function recoverAcceptedIntents(input, execute, now) {
   return comments(input.repository, execute);
 }
 
-function coderabbitStillClean(reviews, head) {
+function coderabbitStillClean(reviews, head, requestTime) {
   reviews = reviews.filter((review) => review.user?.login === "coderabbitai[bot]" && review.commit_id === head);
   if (reviews.some((review) => ["CHANGES_REQUESTED", "APPROVED"].includes(review.state)
     && !Number.isFinite(Date.parse(review.submitted_at)))) throw new Error("final_gate_live:review_time");
   const changes = reviews.filter((r) => r.state === "CHANGES_REQUESTED").map((r) => r.submitted_at ?? "").sort().at(-1) ?? "";
-  const approvals = reviews.filter((r) => r.state === "APPROVED").map((r) => r.submitted_at ?? "").sort().at(-1) ?? "";
+  const approvals = reviews.filter((r) => r.state === "APPROVED" && requestTime !== null
+    && Date.parse(r.submitted_at) >= requestTime).map((r) => r.submitted_at ?? "").sort().at(-1) ?? "";
   return !changes || (approvals && approvals > changes);
 }
 
-// Admission and revalidation share this boundary for EVERY event path. A clean
-// issue comment is independently valid under CI's contract; it is never assigned
-// an unrelated "latest review" ID. Persistent summaries still need the completion
-// witness required by CI, but that witness does not become material identity.
+// Admission and revalidation share this boundary for EVERY event path.
+// A clean issue comment needs an independently completed post-request PR review.
 function validatedSource(input, source, execute) {
   const head = input.target.head;
   const reviews = pages(`repos/${input.repository}/pulls/${input.pr_number}/reviews`, execute);
@@ -267,7 +267,6 @@ function validatedSource(input, source, execute) {
       !== JSON.stringify([source.actor, direct.commit_id, direct.state, direct.submitted_at, direct.body])) throw new Error("final_gate_live:review_contradiction");
     if (!listed) reviews.push(direct);
   }
-  if (!coderabbitStillClean(reviews, head)) throw new Error("final_gate_live:review_changed");
   const all = pages(`repos/${input.repository}/issues/${input.pr_number}/comments`, execute);
   const primaryBody = `<!-- proffera-coderabbit-final-review-request:${head} -->\n@coderabbitai review`;
   const primary = all.filter((c) => c.user?.login === "github-actions[bot]" && c.body === primaryBody)
@@ -277,7 +276,9 @@ function validatedSource(input, source, execute) {
     if (!Number.isFinite(parsed)) throw new Error("final_gate_live:evidence_time");
     return parsed;
   };
+  if (primary && (primary.updated_at !== primary.created_at || primary.body !== primaryBody)) throw new Error("final_gate_live:primary_request_changed");
   const primaryTime = primary ? at(primary.created_at) : null;
+  if (!coderabbitStillClean(reviews, head, primaryTime)) throw new Error("final_gate_live:review_changed");
   const sourceTime = at(source.observed_at);
   if (source.kind === "issue_comment" && at(source.created_at) > sourceTime) throw new Error("final_gate_live:evidence_time");
   const marker = `<!-- proffera-codex-fallback-review-request:${head} -->`;
@@ -289,6 +290,7 @@ function validatedSource(input, source, execute) {
   };
   let findings = [];
   let clearedChanges = [];
+  let normalizedBody = source.body;
   if (source.kind === "issue_comment" && source.actor === "ibboabdoli-ai") {
     requirePrimary(source.created_at);
   } else if (["coderabbitai[bot]", "chatgpt-codex-connector[bot]"].includes(source.actor)) {
@@ -297,7 +299,7 @@ function validatedSource(input, source, execute) {
       if (!fallback || resultTime < at(fallback.created_at)) throw new Error("final_gate_live:fallback_request_required");
     }
     const currentInline = pages(`repos/${input.repository}/pulls/${input.pr_number}/comments`, execute)
-      .filter((c) => (c.user?.login === "chatgpt-codex-connector[bot]" ? c.commit_id : c.original_commit_id ?? c.commit_id) === head);
+      .filter((c) => c.original_commit_id === head || c.commit_id === head);
     const inline = currentInline.filter((c) => c.user?.login === source.actor);
     // A later APPROVED can change authority after a blocking decision. Preserve
     // that material transition without making a new review ID a retry budget.
@@ -305,20 +307,24 @@ function validatedSource(input, source, execute) {
       .map((r) => ({ body: r.body ?? "", findings: currentInline.filter((c) => c.user?.login === "coderabbitai[bot]" && c.pull_request_review_id === r.id) }));
     if (source.kind === "pull_request_review") {
       if (source.review_commit !== head || !["commented", "approved"].includes(source.review_state)) throw new Error("final_gate_live:review_source");
+      if (source.actor === "coderabbitai[bot]") requirePrimary(source.observed_at);
+      // A COMMENTED review can be an inline thread reply. Wait for the bot's
+      // separately created clean summary before consuming a final-gate retry.
+      if (source.actor === "coderabbitai[bot]" && source.review_state === "commented") throw new Error("final_gate_live:commented_requires_summary");
       if (source.actor === "chatgpt-codex-connector[bot]" && source.review_state !== "approved") throw new Error("final_gate_live:codex_decision_pending");
       findings = inline.filter((c) => c.pull_request_review_id === source.id);
     } else if (source.actor === "coderabbitai[bot]" && providerUnavailable(source.body)) {
       requirePrimary(source.created_at);
+      if (source.created_at !== source.observed_at) throw new Error("final_gate_live:edited_provider_status");
     } else {
       if (source.actor === "chatgpt-codex-connector[bot]") {
-        const matches = [...source.body.matchAll(/Reviewed commit:\*{0,2}\s*`?([0-9a-fA-F]{7,40})`?/g)];
-        if (!source.body.startsWith("Codex Review: Didn't find any major issues.") || matches.length !== 1
-          || !head.startsWith(matches[0][1].toLowerCase())) throw new Error("final_gate_live:clean_head");
+        const cleanBody = source.body.replace(/^<!-- codex-review-receipt:v1 -->\r?\n\r?\n/, "");
+        const reviewed = cleanCodexReviewedCommit(source.body);
+        if (!reviewed || !head.startsWith(reviewed)) throw new Error("final_gate_live:clean_head");
+        normalizedBody = cleanBody;
       } else if (source.body.includes("<!-- recent_review_start -->")) {
-        const clean = source.body.match(/<!-- recent_review_start -->([\s\S]*?)<!-- recent_review_end -->/g);
-        if (clean?.length !== 1 || !clean[0].includes(head) || !clean[0].includes("No actionable comments were generated")
-          || primaryTime === null || !reviews.some((r) => r.user?.login === source.actor && r.commit_id === head
-            && ["COMMENTED", "APPROVED"].includes(r.state) && at(r.submitted_at) >= primaryTime && at(r.submitted_at) <= sourceTime)) {
+        requirePrimary(source.created_at);
+        if (!cleanCodeRabbitComment(source.body, head, { allowPersistentSummary: true })) {
           throw new Error("final_gate_live:summary_completion_required");
         }
       } else {
@@ -327,11 +333,15 @@ function validatedSource(input, source, execute) {
           throw new Error("final_gate_live:clean_head");
         }
       }
+      if (source.actor === "coderabbitai[bot]" && (source.created_at !== source.observed_at
+        || !reviews.some((r) => r.user?.login === source.actor && r.commit_id === head
+          && ["COMMENTED", "APPROVED"].includes(r.state) && at(r.submitted_at) >= primaryTime
+          && at(r.submitted_at) <= at(source.created_at)))) throw new Error("final_gate_live:summary_completion_required");
       const lowerBound = source.actor === "coderabbitai[bot]" ? primaryTime : at(fallback.created_at);
       if (inline.some((c) => lowerBound === null || at(c.created_at) >= lowerBound)) throw new Error("final_gate_live:clean_comment_findings");
     }
   }
-  const validated = { ...source, findings, cleared_changes: clearedChanges };
+  const validated = { ...source, body: normalizedBody, findings, cleared_changes: clearedChanges };
   normalizeFinalGateEvidence(validated, head);
   return validated;
 }

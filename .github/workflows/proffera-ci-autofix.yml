@@ -197,7 +197,7 @@ jobs:
           trusted_policy_dir="$RUNNER_TEMP/ci-autofix-authorization-policy"
           mkdir -p "$trusted_policy_dir"
           [[ "$GITHUB_WORKFLOW_SHA" =~ ^[a-f0-9]{40}$ ]]
-          for policy_file in supervisor-authorization-policy.mjs supervisor-worker-handoff.mjs; do
+          for policy_file in supervisor-authorization-policy.mjs supervisor-worker-handoff.mjs supervisor-worker-strategy-memory.mjs supervisor-failure-memory.mjs; do
             policy_json="$(gh api "repos/$REPOSITORY/contents/scripts/$policy_file?ref=$GITHUB_WORKFLOW_SHA")"
             policy_blob="$(jq -r '.sha // ""' <<< "$policy_json")"
             [[ "$policy_blob" =~ ^[a-f0-9]{40}$ ]]
@@ -805,11 +805,14 @@ jobs:
           [[ "$expected_policy_blob" =~ ^[a-f0-9]{40}$ ]]
           jq -r '.content' <<< "$policy_json" | tr -d '\n' | base64 --decode > "$trusted_dir/supervisor-authorization-policy.mjs"
           test "$(git hash-object "$trusted_dir/supervisor-authorization-policy.mjs")" = "$expected_policy_blob"
-          worker_json="$(gh api "repos/$REPOSITORY/contents/scripts/supervisor-worker-handoff.mjs?ref=$GITHUB_WORKFLOW_SHA")"
-          expected_worker_blob="$(jq -r '.sha' <<< "$worker_json")"
-          [[ "$expected_worker_blob" =~ ^[a-f0-9]{40}$ ]]
-          jq -r '.content' <<< "$worker_json" | tr -d '\n' | base64 --decode > "$trusted_dir/supervisor-worker-handoff.mjs"
-          test "$(git hash-object "$trusted_dir/supervisor-worker-handoff.mjs")" = "$expected_worker_blob"
+          for worker_file in supervisor-worker-handoff.mjs supervisor-worker-strategy-memory.mjs supervisor-failure-memory.mjs; do
+            worker_json="$(gh api "repos/$REPOSITORY/contents/scripts/$worker_file?ref=$GITHUB_WORKFLOW_SHA")"
+            expected_worker_blob="$(jq -r '.sha' <<< "$worker_json")"
+            [[ "$expected_worker_blob" =~ ^[a-f0-9]{40}$ ]]
+            jq -r '.content' <<< "$worker_json" | tr -d '\n' | base64 --decode > "$trusted_dir/$worker_file"
+            test -s "$trusted_dir/$worker_file"
+            test "$(git hash-object "$trusted_dir/$worker_file")" = "$expected_worker_blob"
+          done
 
       - name: Reconstruct and validate complete candidate scope
         id: candidate
@@ -916,11 +919,14 @@ jobs:
           [[ "$expected_policy_blob" =~ ^[a-f0-9]{40}$ ]]
           jq -r '.content' <<< "$policy_json" | tr -d '\n' | base64 --decode > "$trusted_dir/supervisor-authorization-policy.mjs"
           test "$(git hash-object "$trusted_dir/supervisor-authorization-policy.mjs")" = "$expected_policy_blob"
-          worker_json="$(gh api "repos/$REPOSITORY/contents/scripts/supervisor-worker-handoff.mjs?ref=$GITHUB_WORKFLOW_SHA")"
-          expected_worker_blob="$(jq -r '.sha' <<< "$worker_json")"
-          [[ "$expected_worker_blob" =~ ^[a-f0-9]{40}$ ]]
-          jq -r '.content' <<< "$worker_json" | tr -d '\n' | base64 --decode > "$trusted_dir/supervisor-worker-handoff.mjs"
-          test "$(git hash-object "$trusted_dir/supervisor-worker-handoff.mjs")" = "$expected_worker_blob"
+          for worker_file in supervisor-worker-handoff.mjs supervisor-worker-strategy-memory.mjs supervisor-failure-memory.mjs; do
+            worker_json="$(gh api "repos/$REPOSITORY/contents/scripts/$worker_file?ref=$GITHUB_WORKFLOW_SHA")"
+            expected_worker_blob="$(jq -r '.sha' <<< "$worker_json")"
+            [[ "$expected_worker_blob" =~ ^[a-f0-9]{40}$ ]]
+            jq -r '.content' <<< "$worker_json" | tr -d '\n' | base64 --decode > "$trusted_dir/$worker_file"
+            test -s "$trusted_dir/$worker_file"
+            test "$(git hash-object "$trusted_dir/$worker_file")" = "$expected_worker_blob"
+          done
 
       - name: Independently reconstruct and validate publication scope
         shell: bash

@@ -1249,14 +1249,28 @@ jobs:
         if: steps.capture_candidate.outputs.ready == 'yes' && steps.validate_candidate.outcome == 'success' && steps.confirm_candidate.outcome == 'success'
         env:
           PACKET_B64: ${{ needs.preflight.outputs.packet_b64 }}
+          BASE_SHA: ${{ needs.preflight.outputs.base_sha }}
         shell: bash
         run: |
           set -euo pipefail
-          trusted_helper="$RUNNER_TEMP/proffera-worker-scope-helper.mjs"
-          git show HEAD:scripts/supervisor-worker-handoff.mjs > "$trusted_helper"
-          test "$(git hash-object "$trusted_helper")" = "$(git rev-parse "HEAD:scripts/supervisor-worker-handoff.mjs")"
-          chmod 0444 "$trusted_helper"
+          test "$(git rev-parse HEAD)" = "$BASE_SHA"
+          trusted_dir="$(mktemp -d "$RUNNER_TEMP/proffera-worker-scope-helper.XXXXXX")"
+          trusted_helper="$trusted_dir/supervisor-worker-handoff.mjs"
+          trusted_strategy="$trusted_dir/supervisor-worker-strategy-memory.mjs"
+          trusted_failure="$trusted_dir/supervisor-failure-memory.mjs"
+          for source_path in scripts/supervisor-worker-handoff.mjs scripts/supervisor-worker-strategy-memory.mjs scripts/supervisor-failure-memory.mjs; do
+            trusted_file="$trusted_dir/${source_path##*/}"
+            git show "${BASE_SHA}:${source_path}" > "$trusted_file"
+            test "$(git hash-object "$trusted_file")" = "$(git rev-parse "${BASE_SHA}:${source_path}")"
+          done
+          trusted_manifest="$trusted_dir/supervisor-worker-handoff.sha256"
+          sha256sum "$trusted_helper" "$trusted_strategy" "$trusted_failure" > "$trusted_manifest"
+          chmod 0444 "$trusted_helper" "$trusted_strategy" "$trusted_failure" "$trusted_manifest"
+          chmod 0555 "$trusted_dir"
+          sha256sum --check --status "$trusted_manifest"
           node --check "$trusted_helper"
+          node --check "$trusted_strategy"
+          node --check "$trusted_failure"
           packet="$(printf '%s' "$PACKET_B64" | base64 --decode)"
           jq -e . <<< "$packet" >/dev/null
           git add --all --intent-to-add
@@ -2372,14 +2386,28 @@ jobs:
           set -euo pipefail
           trusted_dir="$RUNNER_TEMP/proffera-trusted-cleanup"
           helper="$trusted_dir/supervisor-worker-handoff.mjs"
+          strategy="$trusted_dir/supervisor-worker-strategy-memory.mjs"
+          failure="$trusted_dir/supervisor-failure-memory.mjs"
+          manifest="$trusted_dir/supervisor-worker-handoff.sha256"
+          test "$(git rev-parse HEAD)" = "$BASE_SHA"
           rm -rf "$trusted_dir"
           mkdir -p "$trusted_dir"
-          helper_json="$(gh api "repos/${REPOSITORY}/contents/scripts/supervisor-worker-handoff.mjs?ref=${BASE_SHA}")"
-          expected_blob="$(jq -r '.sha // ""' <<< "$helper_json")"
-          jq -r '.content' <<< "$helper_json" | tr -d '\n' | base64 --decode > "$helper"
-          test -s "$helper"
-          test "$(git hash-object "$helper")" = "$expected_blob"
+          for source_path in scripts/supervisor-worker-handoff.mjs scripts/supervisor-worker-strategy-memory.mjs scripts/supervisor-failure-memory.mjs; do
+            trusted_file="$trusted_dir/${source_path##*/}"
+            source_json="$(gh api "repos/${REPOSITORY}/contents/${source_path}?ref=${BASE_SHA}")"
+            expected_blob="$(jq -r '.sha // ""' <<< "$source_json")"
+            test "$expected_blob" = "$(git rev-parse "${BASE_SHA}:${source_path}")"
+            jq -r '.content' <<< "$source_json" | tr -d '\n' | base64 --decode > "$trusted_file"
+            test -s "$trusted_file"
+            test "$(git hash-object "$trusted_file")" = "$expected_blob"
+          done
+          sha256sum "$helper" "$strategy" "$failure" > "$manifest"
+          chmod 0444 "$helper" "$strategy" "$failure" "$manifest"
+          chmod 0555 "$trusted_dir"
+          sha256sum --check --status "$manifest"
           node --check "$helper"
+          node --check "$strategy"
+          node --check "$failure"
 
       - name: Reconcile exact stranded reservation after publish setup failure
         env:
@@ -2397,6 +2425,7 @@ jobs:
           set -euo pipefail
           helper="$RUNNER_TEMP/proffera-trusted-cleanup/supervisor-worker-handoff.mjs"
           test -s "$helper"
+          sha256sum --check --status "$RUNNER_TEMP/proffera-trusted-cleanup/supervisor-worker-handoff.sha256"
           packet="$(printf '%s' "$PACKET_B64" | base64 --decode)"
           test "$(jq -r '.task_id' <<< "$packet")" = "$TASK_ID"
           test "$(jq -r '.branch' <<< "$packet")" = "$BRANCH"

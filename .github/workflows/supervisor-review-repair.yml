@@ -703,14 +703,27 @@ jobs:
           test "${#trusted_main_sha}" -eq 40
           trusted_dir="$RUNNER_TEMP/proffera-trusted-review-repair-publish"
           trusted_helper="$trusted_dir/supervisor-worker-handoff.mjs"
+          trusted_strategy="$trusted_dir/supervisor-worker-strategy-memory.mjs"
+          trusted_failure="$trusted_dir/supervisor-failure-memory.mjs"
+          trusted_manifest="$trusted_dir/supervisor-worker-handoff.sha256"
           rm -rf "$trusted_dir"
           mkdir -p "$trusted_dir"
-          helper_json="$(gh api "repos/${REPOSITORY}/contents/scripts/supervisor-worker-handoff.mjs?ref=${trusted_main_sha}")"
-          expected_blob_sha="$(jq -r '.sha // ""' <<< "$helper_json")"
-          jq -r '.content' <<< "$helper_json" | tr -d '\n' | base64 --decode > "$trusted_helper"
-          test -s "$trusted_helper"
-          test "$(git hash-object "$trusted_helper")" = "$expected_blob_sha"
+          for source_path in scripts/supervisor-worker-handoff.mjs scripts/supervisor-worker-strategy-memory.mjs scripts/supervisor-failure-memory.mjs; do
+            trusted_file="$trusted_dir/${source_path##*/}"
+            source_json="$(gh api "repos/${REPOSITORY}/contents/${source_path}?ref=${trusted_main_sha}")"
+            expected_blob_sha="$(jq -r '.sha // ""' <<< "$source_json")"
+            [[ "$expected_blob_sha" =~ ^[a-f0-9]{40}$ ]]
+            jq -r '.content' <<< "$source_json" | tr -d '\n' | base64 --decode > "$trusted_file"
+            test -s "$trusted_file"
+            test "$(git hash-object "$trusted_file")" = "$expected_blob_sha"
+          done
+          sha256sum "$trusted_helper" "$trusted_strategy" "$trusted_failure" > "$trusted_manifest"
+          chmod 0444 "$trusted_helper" "$trusted_strategy" "$trusted_failure" "$trusted_manifest"
+          chmod 0555 "$trusted_dir"
+          sha256sum --check --status "$trusted_manifest"
           node --check "$trusted_helper"
+          node --check "$trusted_strategy"
+          node --check "$trusted_failure"
 
       - name: Revalidate settled current-head finding burst before publication
         env:
@@ -771,6 +784,7 @@ jobs:
           set -euo pipefail
           helper="$RUNNER_TEMP/proffera-trusted-review-repair-publish/supervisor-worker-handoff.mjs"
           test -s "$helper"
+          sha256sum --check --status "$RUNNER_TEMP/proffera-trusted-review-repair-publish/supervisor-worker-handoff.sha256"
           pr="$(gh api "repos/${REPOSITORY}/pulls/${PR_NUMBER}")"
           test "$(jq -r '.state' <<< "$pr")" = "open"
           test "$(jq -r '.base.ref' <<< "$pr")" = "main"

@@ -37,7 +37,7 @@ function authorizationShellBlock() {
 
 function finalOwnerAuthorizationShellBlock() {
   const startMarker = '          final_pr_json="$(gh pr view';
-  const endMarker = '          summary "- Fresh exact-head owner authorization revalidated immediately before merge"';
+  const endMarker = '          summary "- Fresh exact-head owner authorization revalidated before near-merge review checks"';
   const start = workflow.indexOf(startMarker);
   const end = workflow.indexOf(endMarker, start);
   expect(start).toBeGreaterThanOrEqual(0);
@@ -83,7 +83,7 @@ if [[ "$args" == *"/pulls/695/reviews?per_page=100"* ]]; then
   exit 0
 fi
 if [[ "$args" == *"/issues/695/comments?per_page=100"* ]]; then
-  printf '\\n'
+  printf '%s\\n' "$FAKE_REQUEST"
   exit 0
 fi
 if [[ "$args" == *"/pulls/695/comments?per_page=100"* ]]; then
@@ -112,6 +112,7 @@ printf 'AI_REVIEW_OK\\n'
       ...process.env,
       PATH: `${dir}${delimiter}${process.env.PATH ?? ""}`,
       FAKE_REVIEWS: fixture.reviews.map((item) => JSON.stringify(item)).join("\n"),
+      FAKE_REQUEST: JSON.stringify({id: 20, user: {login: "github-actions[bot]"}, body: `<!-- proffera-coderabbit-final-review-request:${headSha} -->\n@coderabbitai review`, created_at: "2026-08-31T10:03:00Z", updated_at: "2026-08-31T10:03:00Z"}),
     },
   });
   rmSync(dir, { recursive: true, force: true });
@@ -120,7 +121,7 @@ printf 'AI_REVIEW_OK\\n'
 }
 
 function finalCodeRabbitGuardShellBlock() {
-  const startMarker = '          if [ "$needs_ai_review" = "true" ]; then\n            final_reviews_json=';
+  const startMarker = '          if [ "$needs_ai_review" = "true" ]; then\n            final_comments_json=';
   const endMarker = "          # Revalidate the mandatory per-PR human authorization";
   const start = workflow.indexOf(startMarker);
   const end = workflow.indexOf(endMarker, start);
@@ -136,6 +137,9 @@ function finalCodeRabbitGuardShellBlock() {
 
 type FinalCodeRabbitFixture = {
   reviews: Array<Record<string, unknown>>;
+  comments?: Array<Record<string, unknown>>;
+  acceptedClean?: Array<Record<string, unknown>>;
+  terminalCount?: number;
 };
 
 function runFinalCodeRabbitFixture(fixture: FinalCodeRabbitFixture) {
@@ -151,6 +155,13 @@ if [[ "$args" == *"/pulls/695/reviews?per_page=100"* ]]; then
   printf '%s\\n' "$FAKE_REVIEWS"
   exit 0
 fi
+if [[ "$args" == *"/pulls/695/comments?per_page=100"* ]]; then
+  exit 0
+fi
+if [[ "$args" == *"/issues/695/comments?per_page=100"* ]]; then
+  printf '%s\\n' "$FAKE_COMMENTS"
+  exit 0
+fi
 printf 'unexpected gh invocation: %s\\n' "$args" >&2
 exit 2
 `, { mode: 0o755 });
@@ -162,6 +173,12 @@ REPOSITORY=ibboabdoli-ai/Proffera
 pr_number=695
 head_sha=${headSha}
 needs_ai_review=true
+terminal_count=${fixture.terminalCount ?? 1}
+coderabbit_marker="<!-- proffera-coderabbit-final-review-request:${headSha} -->"
+coderabbit_request_time="2026-08-31T21:59:00Z"
+clean_final_comments_json="$FAKE_ACCEPTED_CLEAN"
+# Primary CodeRabbit fixture: Codex fallback is inactive.
+codex_accepted_snapshot=""
 ${finalCodeRabbitGuardShellBlock()}
 printf 'FINAL_REVIEW_OK\\n'
 `, { mode: 0o755 });
@@ -172,6 +189,8 @@ printf 'FINAL_REVIEW_OK\\n'
       ...process.env,
       PATH: `${dir}${delimiter}${process.env.PATH ?? ""}`,
       FAKE_REVIEWS: fixture.reviews.map((item) => JSON.stringify(item)).join("\n"),
+      FAKE_COMMENTS: (fixture.comments ?? [{id:20,user:{login:"github-actions[bot]"},body:`<!-- proffera-coderabbit-final-review-request:${headSha} -->\n@coderabbitai review`,created_at:"2026-08-31T21:59:00Z",updated_at:"2026-08-31T21:59:00Z"}]).map((item) => JSON.stringify(item)).join("\n"),
+      FAKE_ACCEPTED_CLEAN: JSON.stringify(fixture.acceptedClean ?? []),
     },
   });
   rmSync(dir, { recursive: true, force: true });
@@ -987,7 +1006,7 @@ describe("Proffera standing automerge authorization", () => {
     expect(workflow).toContain('the exact-head CI Validate check is missing or not successful');
     expect(workflow).toContain('the exact-head E2E public smoke Final Gate is missing or not successful');
     expect(workflow).toContain('Refused: one or more checks failed or were cancelled.');
-    expect(workflow).toContain("Fresh exact-head owner authorization revalidated immediately before merge");
+    expect(workflow).toContain("Fresh exact-head owner authorization revalidated before near-merge review checks");
     expect(workflow).toContain("--match-head-commit \"$head_sha\"");
     expect(workflow).not.toMatch(/gh pr merge[^\n]*--admin/);
     expect(workflow).not.toContain("head_commit_time");
@@ -1087,7 +1106,44 @@ describe("Proffera standing automerge authorization", () => {
       ],
     });
     expect(cleared.output).toContain("FINAL_REVIEW_OK");
+    const staleApproval = runFinalCodeRabbitFixture({ reviews: [{
+      user: { login: "coderabbitai[bot]" }, commit_id: headSha,
+      state: "APPROVED", submitted_at: "2026-08-31T21:58:00Z",
+    }] });
+    expect(staleApproval.output).toContain("accepted current-head CodeRabbit approval is no longer present");
+    const invalidRequest = runFinalCodeRabbitFixture({
+      reviews: [{ user: { login: "coderabbitai[bot]" }, commit_id: headSha,
+        state: "APPROVED", submitted_at: "2026-08-31T22:00:00Z" }],
+      comments: [{ id: 20, user: { login: "github-actions[bot]" },
+        body: `<!-- proffera-coderabbit-final-review-request:${headSha} -->\n@coderabbitai review`,
+        created_at: "2026-08-31T21:59:00Z", updated_at: "2026-08-31T22:01:00Z" }],
+    });
+    expect(invalidRequest.output).toContain("exact-head CodeRabbit request changed during CI polling");
   });
+
+  it("revalidates the accepted clean summary and its completed review after polling", () => {
+    const headSha = "cccccccccccccccccccccccccccccccccccccccc";
+    const request = {
+      id: 20, user: { login: "github-actions[bot]" },
+      body: `<!-- proffera-coderabbit-final-review-request:${headSha} -->\n@coderabbitai review`,
+      created_at: "2026-08-31T21:59:00Z", updated_at: "2026-08-31T21:59:00Z",
+    };
+    const clean = {
+      id: 21, user: { login: "coderabbitai[bot]" }, body: "No issues on current head.",
+      created_at: "2026-08-31T22:00:01Z", updated_at: "2026-08-31T22:00:01Z",
+    };
+    const review = {
+      user: { login: "coderabbitai[bot]" }, commit_id: headSha,
+      state: "COMMENTED", submitted_at: "2026-08-31T22:00:00Z",
+    };
+    const fixture = { reviews: [review], comments: [request, clean], acceptedClean: [clean], terminalCount: 0 };
+    expect(runFinalCodeRabbitFixture(fixture).output).toContain("FINAL_REVIEW_OK");
+    expect(runFinalCodeRabbitFixture({ ...fixture, comments: [request, { ...clean, body: "Edited" }] }).output).toContain("accepted CodeRabbit clean-summary or review request changed");
+    expect(runFinalCodeRabbitFixture({ ...fixture, comments: [request, { ...clean, updated_at: "2026-08-31T22:01:00Z" }] }).output).toContain("accepted CodeRabbit clean-summary or review request changed");
+    expect(runFinalCodeRabbitFixture({ ...fixture, comments: [request] }).output).toContain("accepted CodeRabbit clean-summary or review request changed");
+    expect(runFinalCodeRabbitFixture({ ...fixture, comments: [clean] }).output).toContain("exact-head CodeRabbit request changed during CI polling");
+    expect(runFinalCodeRabbitFixture({ ...fixture, reviews: [{ ...review, state: "DISMISSED" }] }).output).toContain("clean-summary no longer has a completed current-head review");
+  }, 30_000);
 
   it("blocks sensitive control-plane and schema paths even with fresh owner authorization", () => {
     const currentHead = "1111111111111111111111111111111111111111";

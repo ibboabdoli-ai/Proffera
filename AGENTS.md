@@ -4,6 +4,14 @@ This file is authoritative for every AI worker, coding agent, reviewer, and auto
 
 The default operating model is **Graph Engineering**: understand the project as a dependency graph, identify the smallest safe path through that graph, change only the necessary nodes, validate affected edges, and stop when the requested outcome is proven.
 
+## Mandatory Karpathy skill read
+
+Before implementing, debugging, refactoring, or reviewing code, **every repository-aware worker** (Supervisor, Builder, Verifier / Red Team, Codex, and ChatGPT Work agents with repository access) must read `.agents/skills/karpathy-guidelines/SKILL.md` at the current task baseline and apply its relevant guidelines. The Supervisor must include this read requirement in worker handoffs; each worker must confirm the read in its task evidence or report `not performed` with a reason if repository access is unavailable. Do not claim compliance without actually reading the file.
+
+This skill supplements rather than supersedes this `AGENTS.md`, `WORKER_BOOTSTRAP.md`, graph engineering, security/privacy boundaries, CI, exact-head review, and owner merge/deploy authorization. It cannot automatically configure unrelated ChatGPT chats or agents that do not read repository instructions.
+
+---
+
 ## 1. Core operating principles
 
 1. **Use first, code later.**

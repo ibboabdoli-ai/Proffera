@@ -131,7 +131,8 @@ jobs:
             case "$ACTOR" in
               "coderabbitai[bot]")
                 if ! grep -Eqi 'automatic reviews? (are |is )?disabled|auto(matic)?[ _-]?review.*disabled' <<< "${COMMENT_BODY:-}" \
-                  && grep -Eqi 'recent_review_start|Final exact-head review is complete for|Review completed for exact HEAD|Review limit reached|Review rate limited|temporarily unavailable|service unavailable' <<< "${COMMENT_BODY:-}"; then
+                  && { grep -Eqi 'recent_review_start|Final exact-head review is complete for|Review completed for exact HEAD' <<< "${COMMENT_BODY:-}" \
+                    || jq -en --arg body "${COMMENT_BODY:-}" '$body | test("^(?:(?:<!-- This is an auto-generated reply by CodeRabbit -->\\r?\\n)?<!-- CodeRabbit review command invocation: v2:[0-9a-f]{64} -->\\r?\\n<details>\\r?\\n<summary>⚠️ Action not completed</summary>\\r?\\n(?:[ \\t]*\\r?\\n)*|Action not completed:[ \\t]*)?(Review limit reached|Review rate limited|Temporarily unavailable|Service unavailable)(?:\\.(?:[ \\t][^\\r\\n]*)?)?(?:\\r?\\n|$)"; "i")' >/dev/null; }; then
                   wake_final=yes
                 fi
                 ;;

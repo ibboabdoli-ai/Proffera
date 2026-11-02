@@ -374,7 +374,7 @@ describe("canonical Supervisor pre-publication gate", () => {
     });
   });
 
-  it("runs an allowlisted real local check and never confuses it with publication approval", () => {
+  it.each(["success", "unknown-check", "duplicate-check", "failed-check"])("runs an allowlisted real local check without publication approval: %s", (scenario) => {
     const { root, repo, base } = fixture({ baseFiles: { "AGENTS.md": "base\n" } });
     write(join(repo, "AGENTS.md"), "candidate\n");
     write(join(repo, "node_modules", "next", "dist", "bin", "next"),
@@ -388,6 +388,7 @@ describe("canonical Supervisor pre-publication gate", () => {
     const candidate = inspectFixture({ cwd: repo, baseSha: base, prBody });
     expect(candidate.required_validation_checks).toContain("typecheck");
 
+    if (scenario === "success" || scenario === "failed-check") {
     const passed = cli(repo, [
       "run-checks", "--base", base, "--pr-body", bodyPath, "--checks", "typecheck",
     ]);
@@ -401,19 +402,27 @@ describe("canonical Supervisor pre-publication gate", () => {
     expect(receipt.results[0].command).toContain("node_modules/typescript/bin/tsc");
     expect(receipt.missing_checks.length).toBeGreaterThan(0);
 
+    }
+
     // A caller cannot provide an arbitrary executable check or duplicate ID.
+    if (scenario === "unknown-check") {
     const forged = cli(repo, [
       "run-checks", "--base", base, "--pr-body", bodyPath,
       "--checks", "typecheck,arbitrary-command",
     ]);
     expect(forged.status).toBe(1);
     expect(forged.stderr).toContain("was not selected");
+    }
+    if (scenario === "duplicate-check") {
     const duplicate = cli(repo, [
       "run-checks", "--base", base, "--pr-body", bodyPath,
       "--checks", "typecheck,typecheck",
     ]);
     expect(duplicate.status).toBe(1);
     expect(duplicate.stderr).toContain("unique check IDs");
+    }
+
+    if (scenario === "failed-check") {
 
     write(join(repo, "node_modules", "next", "dist", "bin", "next"),
       'process.stdout.write("fixture-typegen-executed\\n");\n');
@@ -429,6 +438,7 @@ describe("canonical Supervisor pre-publication gate", () => {
       ok: false, publication_ready: false, executed_count: 1,
       results: [{ id: "typecheck", status: "failed", exit_code: 7 }],
     });
+    }
   });
 
   it("keeps v1 Validation Evidence compatible while rejecting contradictory two-step typecheck",()=>{
@@ -653,6 +663,9 @@ describe("canonical Supervisor pre-publication gate", () => {
 
   it("maps all B4 pending, strategy, workflow, and evidence paths to executable suites", () => {
     const mapped: Record<string,string> = {
+      "tests/supervisor-review-policy-contract.test.ts":"tests/supervisor-review-policy-contract.test.ts",
+      "scripts/supervisor-final-gate-memory.mjs":"tests/supervisor-final-gate-memory.test.ts",
+      "tests/helpers/review-receipt-counterexamples.ts":"tests/proffera-final-gate-wakeup.test.ts",
       "scripts/supervisor-owner-push-pending.mjs":"tests/supervisor-owner-push-pending.test.ts",
       "scripts/supervisor-ci-autofix-strategy-memory.mjs":"tests/supervisor-ci-autofix-strategy-history.test.ts",
       "scripts/supervisor-review-repair-strategy-memory.mjs":"tests/supervisor-review-repair-strategy-history.test.ts",
@@ -694,6 +707,7 @@ describe("canonical Supervisor pre-publication gate", () => {
     }
   });
   it.each([
+    [".github/workflows/supervisor-event-router.yml", ["tests/supervisor-review-policy-contract.test.ts", "tests/proffera-final-gate-wakeup.test.ts", "tests/supervisor-control-plane-v2.test.ts", "tests/github-workflow-yaml.test.ts"]],
     [".github/workflows/proffera-ci-autofix.yml", [
       "tests/supervisor-owner-handoff.test.ts",
       "tests/supervisor-owner-push-pending.test.ts",
@@ -852,7 +866,7 @@ describe("canonical Supervisor pre-publication gate", () => {
 
   it("stages Worker and Review Repair only as owner-push artifacts, never automatic publication", () => {
     for (const filename of ["supervisor-worker-handoff.yml", "supervisor-review-repair.yml"]) {
-      const workflow = readFileSync(join(process.cwd(), ".github", "workflows", filename), "utf8");
+      const workflow = readFileSync(join(process.cwd(), ".github", "workflows", filename), "utf8").replaceAll("\r\n", "\n");
       const pub = workflow.slice(workflow.indexOf("\n  publish:\n"), workflow.indexOf("\n  record:\n") > 0
         ? workflow.indexOf("\n  record:\n") : workflow.length);
       expect(pub, filename).toContain("git bundle create");
@@ -959,7 +973,7 @@ describe("canonical Supervisor pre-publication gate", () => {
   });
 
   it("stages CI Autofix without token-bearing publication or fabricated success", () => {
-    const workflow = readFileSync(join(process.cwd(), ".github", "workflows", "proffera-ci-autofix.yml"), "utf8");
+    const workflow = readFileSync(join(process.cwd(), ".github", "workflows", "proffera-ci-autofix.yml"), "utf8").replaceAll("\r\n", "\n");
     const pub = workflow.slice(workflow.indexOf("\n  publish:\n"), workflow.indexOf("\n  record:\n"));
     expect(pub).toContain("Stage CI Autofix commit for owner push");
     expect(pub).toContain("git bundle create");
@@ -1073,7 +1087,8 @@ describe("canonical Supervisor pre-publication gate", () => {
     expect(rejected.stderr).toContain("validation check typecheck cannot be deferred");
   });
 
-  it("blocks unresolved verified findings and missing scope-selected validation", () => {
+  it.each(["unresolved", "malformed-string", "malformed-verified", "malformed-resolved", "missing-validation"])("blocks invalid evidence independently: %s", (scenario) => {
+    if (scenario !== "missing-validation") {
     const reviewFixture = fixture();
     write(join(reviewFixture.repo, "docs", "note.md"), "candidate\n");
     git(reviewFixture.repo, ["add", "."]);
@@ -1081,6 +1096,7 @@ describe("canonical Supervisor pre-publication gate", () => {
     const prBody = body(reviewFixture.base);
     const candidate = inspectFixture({ cwd: reviewFixture.repo, baseSha: reviewFixture.base, prBody });
     const bodyPath = writeBody(reviewFixture.root, prBody);
+    if (scenario === "unresolved") {
     const evidence = writeEvidence(reviewFixture.root, candidate, {
       findings: [{ id: "P1", verified: true, resolved: false }],
     });
@@ -1094,11 +1110,10 @@ describe("canonical Supervisor pre-publication gate", () => {
     expect(blocked.status).toBe(1);
     expect(blocked.stderr).toContain("verified finding remains unresolved");
 
-    for (const malformedFinding of [
-      { id: "P1", verified: "true", resolved: false },
-      { id: "P1", resolved: false },
-      { id: "P1", verified: false },
-    ]) {
+    } else {
+      const malformedFinding = scenario === "malformed-string"
+        ? { id: "P1", verified: "true", resolved: false }
+        : scenario === "malformed-verified" ? { id: "P1", resolved: false } : { id: "P1", verified: false };
       const malformed = writeEvidence(reviewFixture.root, candidate, {
         findings: [malformedFinding],
       });
@@ -1113,6 +1128,7 @@ describe("canonical Supervisor pre-publication gate", () => {
       expect(rejected.stderr).toContain("review finding verification state is malformed");
     }
 
+    } else {
     const validationFixture = fixture({ baseFiles: { "AGENTS.md": "base\n" } });
     write(join(validationFixture.repo, "AGENTS.md"), "changed\n");
     git(validationFixture.repo, ["add", "."]);
@@ -1140,6 +1156,7 @@ describe("canonical Supervisor pre-publication gate", () => {
     ]);
     expect(missing.status).toBe(1);
     expect(missing.stderr).toContain("required validation evidence is missing");
+    }
   });
 });
 
@@ -1179,5 +1196,62 @@ describe("owner-authorized PR-push handoff", () => {
     expect(stale.status).toBe(1);
     expect(stale.stderr).toContain("supervisor_preflight:base");
     expect(stale.stderr).toContain("is stale or not current main");
+  });
+});
+
+describe("bounded preflight diagnostics", () => {
+  it("reports the failed step and tracked locations without leaking arbitrary output or errors", () => {
+    const f=fixture();
+    write(join(f.repo,"tests/supervisor-preflight.test.ts"),"// fixture\n");
+    git(f.repo,["add","."]); git(f.repo,["commit","-qm","fixture"]);
+    const candidate=inspectFixture({cwd:f.repo,baseSha:f.base,prBody:body(f.base)});
+    const secret="ghp_privateCredentialSecret123";
+    const stdout="FAIL tests/supervisor-preflight.test.ts:12 secret="+secret+"\nTS2322\n";
+    const result=executeLocalValidation(candidate,f.repo,["targeted"],{runner:()=>({
+      status:null,signal:"SIGTERM",stdout,stderr:("customer@example.invalid "+secret+"\n").repeat(5000),
+      error:Object.assign(new Error("password="+secret),{code:"ETIMEDOUT"}),
+    })});
+    expect(result.ok).toBe(false);
+    expect(result.results[0]).toMatchObject({failed_step:"targeted",error:"subprocess_failed",
+      diagnostics:{process_error:"ETIMEDOUT",output_excerpt:"omitted_sensitive_output"}});
+    const serialized=JSON.stringify(result);
+    expect(serialized).not.toContain(secret);
+    expect(serialized).not.toContain("customer@example.invalid");
+    expect(serialized.length).toBeLessThan(12000);
+    expect(result.independent_review_verified).toBe(false);
+    expect(result.publication_ready).toBe(false);
+  });
+  it("retains useful locations and compiler codes and keeps successful receipts non-authorizing", () => {
+    const f=fixture();
+    write(join(f.repo,"tests/supervisor-preflight.test.ts"),"// fixture\n");
+    git(f.repo,["add","."]);git(f.repo,["commit","-qm","fixture"]);
+    const c=inspectFixture({cwd:f.repo,baseSha:f.base,prBody:body(f.base)});
+    const failed=executeLocalValidation(c,f.repo,["targeted"],{runner:()=>({
+      status:1,stdout:"FAIL tests/supervisor-preflight.test.ts:12 private test title\nTS2322\n",
+      stderr:"Authorization: Bearer unknown-secret",
+    })});
+    expect(failed.results[0].diagnostics.locations).toEqual([{path:"tests/supervisor-preflight.test.ts",line:12}]);
+    expect(failed.results[0].diagnostics.compiler_codes).toEqual(["TS2322"]);
+    expect(JSON.stringify(failed)).not.toContain("unknown-secret");
+    expect(JSON.stringify(failed)).not.toContain("private test title");
+    const passed=executeLocalValidation(c,f.repo,["targeted"],{runner:()=>({status:0,stdout:"secret",stderr:"secret"})});
+    expect(passed.ok).toBe(true);
+    expect(passed.results[0].diagnostics).toBeUndefined();
+    expect(JSON.stringify(passed)).not.toContain('"secret"');
+    expect(passed.publication_ready).toBe(false);
+  });
+  it("forces exact-candidate E2E and retains candidate revalidation", () => {
+    const f=fixture({baseFiles:{"src/app/page.tsx":"export default 1;"}});
+    write(join(f.repo,"src/app/page.tsx"),"export default 2;");
+    git(f.repo,["add","."]);git(f.repo,["commit","-qm","fixture"]);
+    const c=inspectFixture({cwd:f.repo,baseSha:f.base,prBody:body(f.base)});
+    let verified=false;
+    const result=executeLocalValidation(c,f.repo,["e2e"],{runner:(_cmd:string,_args:string[],options:{env:Record<string,string>;cwd:string})=>{
+      expect(options.env.PROFFERA_EXACT_CANDIDATE_E2E).toBe("1");
+      expect(options.cwd).toBe(join(f.repo,"e2e"));
+      return {status:0,stdout:"",stderr:""};
+    },revalidate:()=>{verified=true;return c;}});
+    expect(result.ok).toBe(true);
+    expect(verified).toBe(true);
   });
 });

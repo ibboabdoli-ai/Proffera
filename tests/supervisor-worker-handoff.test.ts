@@ -1,4 +1,4 @@
-import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { delimiter, dirname, join, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
@@ -14,6 +14,59 @@ const ciScopeHelper = resolve(process.cwd(), "scripts/ci-scope-plan.mjs");
 const sha = "a".repeat(40);
 const otherSha = "b".repeat(40);
 const taskMarker = "<!-- proffera-worker-task-packet:v1 -->";
+
+
+/** Test-only bridge: native Windows Node does not execute extensionless shebang fixtures. */
+function isolatedGhEnvironment(bin: string, nodeOptions = process.env.NODE_OPTIONS) {
+  const preload = join(bin, "isolated-gh.cjs");
+  const fixture = join(bin, "gh");
+  if (process.platform === "win32") {
+    // Match Linux byte semantics; native jq otherwise emits CRLF into Bash substitutions.
+    const jq = (process.env.PATH ?? process.env.Path ?? "").split(delimiter)
+      .map(dir => join(dir, "jq.exe")).find(path => existsSync(path));
+    if (!jq) throw new Error("Native jq is required for isolated Windows Worker tests");
+    const quoted = "\u0027" + jq.replaceAll("\\", "/").replaceAll("\u0027", "\u0027\\\u0027\u0027") + "\u0027";
+    // A shell function avoids starting another MSYS shell for every jq invocation.
+    // The real jq still handles stdin, arguments, output and exit status unchanged.
+    writeFileSync(join(bin, "bash-env.sh"), 'jq() { ' + quoted + ' -b "$@"; }\n');
+  }
+  if (!existsSync(fixture)) throw new Error("Missing isolated gh fixture: " + fixture);
+  writeFileSync(preload, [
+    'const cp = require("node:child_process");',
+    'const fs = require("node:fs");',
+    'const path = require("node:path");',
+    'const original = cp.execFileSync;',
+    'cp.execFileSync = function(command, args, options) {',
+    '  if (!/^gh(?:\\.exe)?$/i.test(path.basename(String(command)))) return original.call(this, command, args, options);',
+    '  const fixture = process.env.PROFFERA_TEST_GH_FIXTURE;',
+    '  if (!fixture || !path.isAbsolute(fixture) || !fs.existsSync(fixture)) throw new Error("Isolated gh fixture missing; refusing host gh");',
+    '  const first = fs.readFileSync(fixture, "utf8").split("\\n")[0].replace(/\\r$/, "");',
+    '  const node = /^#!.*\\bnode\\s*$/.test(first);',
+    '  if (!node && !/^#!.*\\b(?:ba)?sh\\s*$/.test(first)) throw new Error("Unsupported isolated gh fixture interpreter");',
+    '  const executable = node ? process.execPath : process.env.PROFFERA_TEST_BASH;',
+    '  if (!executable) throw new Error("Isolated shell interpreter missing");',
+    '  return original.call(this, executable, [fixture, ...(args || [])], options);',
+    '};',
+    'require("node:module").syncBuiltinESMExports();',
+  ].join("\n"));
+  return {
+    ...(process.platform === "win32" ? { BASH_ENV: join(bin, "bash-env.sh").replaceAll("\\", "/") } : {}),
+    PROFFERA_TEST_GH_FIXTURE: fixture,
+    PROFFERA_TEST_BASH: process.platform === "win32"
+      ? join(process.env.ProgramFiles ?? "C:\\Program Files", "Git", "bin", "bash.exe") : "/bin/bash",
+    NODE_OPTIONS: [nodeOptions, "--require " + JSON.stringify(preload.replaceAll("\\", "/"))].filter(Boolean).join(" "),
+  };
+}
+
+
+function spawnBashScript(script: string, options: import("node:child_process").SpawnSyncOptionsWithStringEncoding) {
+  const root = mkdtempSync(join(tmpdir(), "worker-bash-script-"));
+  const path = join(root, "run.sh");
+  try {
+    writeFileSync(path, script, {mode:0o755});
+    return spawnSync("bash", [path], options);
+  } finally { rmSync(root, {recursive:true,force:true}); }
+}
 
 function source(path: string) {
   return readFileSync(resolve(process.cwd(), path), "utf8").replaceAll("\r\n", "\n");
@@ -420,12 +473,13 @@ process.exit(2);
     { encoding: "utf8", mode: 0o755 },
   );
 
-  const result = spawnSync("bash", ["-c", script], {
+  const result = spawnBashScript(script, {
     cwd: process.cwd(),
     encoding: "utf8",
     env: {
       ...process.env,
       PATH: `${bin}${delimiter}${process.env.PATH ?? ""}`,
+      ...isolatedGhEnvironment(bin),
       GH_TOKEN: "test-token",
       GH_STUB_LOG: log,
       GH_STUB_STATE_FILE: stateFile,
@@ -603,12 +657,13 @@ process.exit(2);
 `,
     { encoding: "utf8", mode: 0o755 },
   );
-  const result = spawnSync("bash", ["-c", script], {
+  const result = spawnBashScript(script, {
     cwd: process.cwd(),
     encoding: "utf8",
     env: {
       ...process.env,
       PATH: `${bin}${delimiter}${process.env.PATH ?? ""}`,
+      ...isolatedGhEnvironment(bin),
       GH_TOKEN: "test-token",
       GH_STUB_LOG: log,
       GH_STUB_STATE_FILE: stateFile,
@@ -671,6 +726,11 @@ function runFallbackCleanup({
   mkdirSync(trusted, { recursive: true });
   copyFileSync(helper, join(trusted, "supervisor-worker-handoff.mjs"));
   copyWorkerStrategyDependencies(join(trusted, "supervisor-worker-handoff.mjs"));
+  const trustedNames = ["supervisor-worker-handoff.mjs", "supervisor-worker-strategy-memory.mjs", "supervisor-failure-memory.mjs"];
+  writeFileSync(join(trusted, "supervisor-worker-handoff.sha256"), trustedNames.map((name) => {
+    const file = join(trusted, name);
+    return `${createHash("sha256").update(readFileSync(file)).digest("hex")}  ${file.replaceAll("\\", "/")}`;
+  }).join("\n") + "\n");
 
   const parsed = spawnSync(process.execPath, [helper, "parse"], { input: packetComment(), encoding: "utf8" });
   expect(parsed.status, parsed.stderr).toBe(0);
@@ -819,12 +879,13 @@ process.exit(2);
     { encoding: "utf8", mode: 0o755 },
   );
 
-  const runOnce = () => spawnSync("bash", ["-c", script], {
+  const runOnce = () => spawnBashScript(script, {
     cwd: process.cwd(),
     encoding: "utf8",
     env: {
       ...process.env,
       PATH: `${bin}${delimiter}${process.env.PATH ?? ""}`,
+      ...isolatedGhEnvironment(bin),
       GH_TOKEN: "test-token",
       GH_STUB_LOG: log,
       GH_STUB_STATE_FILE: stateFile,
@@ -1108,13 +1169,13 @@ process.exit(2);
       writeFileSync(waitLog, "");
       const output = join(root, `github-output-${runId}-${commentId}`);
       writeFileSync(output, "");
-      const result = spawnSync("bash", ["-c", script], {
+      const result = spawnBashScript(script, {
         cwd: process.cwd(),
         encoding: "utf8",
         env: {
           ...process.env,
-          NODE_OPTIONS: [process.env.NODE_OPTIONS, `--require ${JSON.stringify(waitPreload.replaceAll("\\", "/"))}`].filter(Boolean).join(" "),
           PATH: `${bin}${delimiter}${process.env.PATH ?? ""}`,
+          ...isolatedGhEnvironment(bin, [process.env.NODE_OPTIONS, "--require " + JSON.stringify(waitPreload.replaceAll("\\", "/"))].filter(Boolean).join(" ")),
           INPUT_COMMENT_ID: commentId,
           PLANNER_PACKET_B64: "",
           PLANNER_PACKET_SHA256: "",
@@ -1163,7 +1224,7 @@ function runTaskLane(taskPacket: ReturnType<typeof packet>, commentId = "501") {
   const root = mkdtempSync(join(tmpdir(), "proffera-task-lane-"));
   const output = join(root, "github-output");
   writeFileSync(output, "");
-  const result = spawnSync("bash", ["-c", script], {
+  const result = spawnBashScript(script, {
     cwd: process.cwd(),
     encoding: "utf8",
     env: {
@@ -1359,12 +1420,13 @@ process.exit(2);
 `,
     { encoding: "utf8", mode: 0o755 },
   );
-  const result = spawnSync("bash", ["-c", script], {
+  const result = spawnBashScript(script, {
     cwd: process.cwd(),
     encoding: "utf8",
     env: {
       ...process.env,
       PATH: `${bin}${delimiter}${process.env.PATH ?? ""}`,
+      ...isolatedGhEnvironment(bin),
       GH_TOKEN: "test-token",
       GH_STUB_LOG: log,
       GH_STUB_MAIN_SHA: localHead,
@@ -1483,12 +1545,13 @@ process.exit(2);
 `,
     { encoding: "utf8", mode: 0o755 },
   );
-  const result = spawnSync("bash", ["-c", script], {
+  const result = spawnBashScript(script, {
     cwd: repo,
     encoding: "utf8",
     env: {
       ...process.env,
       PATH: `${bin}${delimiter}${process.env.PATH ?? ""}`,
+      ...isolatedGhEnvironment(bin),
       GH_TOKEN: "test-token",
       GH_STUB_LOG: log,
       GH_STUB_MAIN_SHA: sourceHead,
@@ -1704,12 +1767,13 @@ process.exit(2);
     { encoding: "utf8", mode: 0o755 },
   );
 
-  const result = spawnSync("bash", ["-c", script], {
+  const result = spawnBashScript(script, {
     cwd: repo,
     encoding: "utf8",
     env: {
       ...process.env,
       PATH: `${bin}${delimiter}${process.env.PATH ?? ""}`,
+      ...isolatedGhEnvironment(bin),
       GH_TOKEN: "test-token",
       GH_STUB_LOG: log,
       GH_STUB_STATE_FILE: stateFile,
@@ -1801,12 +1865,13 @@ process.exit(2);
     { encoding: "utf8", mode: 0o755 },
   );
 
-  const result = spawnSync("bash", ["-c", script], {
+  const result = spawnBashScript(script, {
     cwd: process.cwd(),
     encoding: "utf8",
     env: {
       ...process.env,
       PATH: `${bin}${delimiter}${process.env.PATH ?? ""}`,
+      ...isolatedGhEnvironment(bin),
       RUNNER_TEMP: root,
       GH_TOKEN: "test-token",
       GH_STUB_LOG: log,
@@ -1872,12 +1937,13 @@ process.stdout.write("{}\\n");
 `,
     { encoding: "utf8", mode: 0o755 },
   );
-  const result = spawnSync("bash", ["-c", script], {
+  const result = spawnBashScript(script, {
     cwd: process.cwd(),
     encoding: "utf8",
     env: {
       ...process.env,
       PATH: `${bin}${delimiter}${process.env.PATH ?? ""}`,
+      ...isolatedGhEnvironment(bin),
       RUNNER_TEMP: root,
       GH_TOKEN: "test-token",
       GH_STUB_OUTPUT: output,
@@ -3213,6 +3279,85 @@ describe("Supervisor ↔ Worker Phase-1 handoff", () => {
     expect(preflight).not.toContain("DISPATCH_PUSH_TOKEN: ${{ secrets.PROFFERA_AUTOFIX_PUSH_TOKEN }}");
   });
 
+  it.each([
+    { name: "scope validation", workflow: ".github/workflows/supervisor-worker-handoff.yml", step: "Validate Worker candidate packet scope before strategy success", helper: "trusted_helper" },
+    { name: "cleanup reconciliation", workflow: ".github/workflows/supervisor-worker-handoff.yml", step: "Materialize exact baseline cleanup helper independently", helper: "helper" },
+    { name: "Planner admission", workflow: ".github/workflows/supervisor-planner.yml", step: "Snapshot trusted admission helper", helper: "trusted_helper" },
+    { name: "Review Repair publication", workflow: ".github/workflows/supervisor-review-repair.yml", step: "Materialize trusted repair helper in isolated publish job", helper: "trusted_helper" },
+  ])("stages the actual Worker module graph for $name and rejects missing or untrusted dependencies", ({ workflow: workflowPath, step, helper: helperVariable }) => {
+    const workflow = source(workflowPath);
+    const fullStep = workflowRunStep(workflow, step);
+    const stage = step.startsWith("Validate Worker candidate") ? fullStep.slice(0, fullStep.indexOf('packet="$(printf')) : fullStep;
+    expect(stage).toContain("supervisor-worker-strategy-memory.mjs");
+    expect(stage).toContain("supervisor-failure-memory.mjs");
+    const root = mkdtempSync(join(tmpdir(), "proffera-worker-staging-"));
+    const runner = join(root, "runner");
+    mkdirSync(runner);
+    for (const name of ["supervisor-worker-handoff.mjs", "supervisor-worker-strategy-memory.mjs", "supervisor-failure-memory.mjs"]) {
+      const content = readFileSync(join(process.cwd(), "scripts", name));
+      const blob = spawnSync("git", ["hash-object", join(process.cwd(), "scripts", name)], { encoding: "utf8" });
+      expect(blob.status, blob.stderr).toBe(0);
+      writeFileSync(join(root, `${name}.json`), JSON.stringify({ sha: blob.stdout.trim(), content: content.toString("base64") }));
+    }
+    const transport = [
+      process.platform === "win32" ? 'jq() { command jq --binary "$@"; }' : "",
+      "git() {",
+      '  if [ "$1" = "hash-object" ]; then command git "$@"; return; fi',
+      '  if [ "$1" = "rev-parse" ] && [ "$2" = "HEAD" ]; then printf "%s\\n" "$BASE_SHA"; return; fi',
+      '  if [ "$1" = "rev-parse" ]; then local path="${2#*:}"; if [ "$BAD_BLOB" = "1" ] && [ "$path" = "scripts/supervisor-worker-strategy-memory.mjs" ]; then printf "%040d\\n" 0; else command git hash-object "$SOURCE_ROOT/$path"; fi; return; fi',
+      '  if [ "$1" = "show" ]; then local path="${2#*:}"; if [ "$BAD_BLOB" = "1" ] && [ "$path" = "scripts/supervisor-worker-strategy-memory.mjs" ]; then printf "untrusted\\n"; else cat "$SOURCE_ROOT/$path"; fi; return; fi',
+      '  echo "unexpected git invocation" >&2; return 1',
+      "}",
+      "gh() {",
+      '  local address="$2" path="${2#*/contents/}"',
+      '  if [ "$address" = "repos/${REPOSITORY}" ]; then printf "main\\n"; return; fi',
+      '  if [ "$address" = "repos/${REPOSITORY}/git/ref/heads/main" ]; then printf "%s\\n" "$BASE_SHA"; return; fi',
+      '  path="${path%%\\?*}"',
+      '  local name="${path##*/}"',
+      "  if [ \"$BAD_BLOB\" = \"1\" ] && [ \"$name\" = \"supervisor-worker-strategy-memory.mjs\" ]; then jq '.sha=\"0000000000000000000000000000000000000000\"' \"$MOCK_API_DIR/$name.json\"; else cat \"$MOCK_API_DIR/$name.json\"; fi",
+      "}",
+    ].join("\n");
+    const env = {
+      ...process.env,
+      RUNNER_TEMP: runner.replaceAll("\\", "/"),
+      SOURCE_ROOT: process.cwd().replaceAll("\\", "/"),
+      MOCK_API_DIR: root.replaceAll("\\", "/"),
+      BASE_SHA: sha,
+      REPOSITORY: "ibboabdoli-ai/Proffera",
+      BAD_BLOB: "0",
+      PACKET_BODY: packetComment(),
+    };
+    const helperRef = `$${helperVariable}`;
+    const restoreStagingPermissions = () => {
+      for (const entry of readdirSync(runner, { withFileTypes: true })) {
+        if (entry.isDirectory()) chmodSync(join(runner, entry.name), 0o755);
+      }
+    };
+    const runStage = (badBlob: boolean, after: string) => {
+      restoreStagingPermissions();
+      return spawnSync("bash", [], {
+        input: [transport, stage, after].join("\n"),
+        env: { ...env, BAD_BLOB: badBlob ? "1" : "0" },
+        encoding: "utf8",
+      });
+    };
+    try {
+      const accepted = runStage(false, `printf '%s\\n' "$PACKET_BODY" | node "${helperRef}" parse >/dev/null; echo MODULE_GRAPH_READY`);
+      expect(accepted.status, accepted.stderr).toBe(0);
+      expect(accepted.stdout).toContain("MODULE_GRAPH_READY");
+      const rejected = runStage(true, "echo UNTRUSTED_ACCEPTED");
+      expect(rejected.status).not.toBe(0);
+      expect(rejected.stdout).not.toContain("UNTRUSTED_ACCEPTED");
+      const missing = runStage(false, `chmod u+w "$trusted_dir"; rm -f "$trusted_dir/supervisor-failure-memory.mjs"; test ! -e "$trusted_dir/supervisor-failure-memory.mjs"; printf '%s\\n' "$PACKET_BODY" | node "${helperRef}" parse`);
+      expect(missing.status).not.toBe(0);
+      expect(missing.stderr).toContain("ERR_MODULE_NOT_FOUND");
+      expect(missing.stderr).toContain("supervisor-failure-memory.mjs");
+    } finally {
+      restoreStagingPermissions();
+      rmSync(root, { recursive: true, force: true });
+    }
+  }, 30_000);
+
   it("uses one complete HEAD-relative Worker snapshot for scope, whitespace, and publication eligibility", () => {
     const workflow = source(".github/workflows/supervisor-worker-handoff.yml");
     const verify = workflowRunStep(workflow, "Verify Worker diff is nonempty and packet-bounded with immutable helper");
@@ -3323,6 +3468,7 @@ esac
       env: {
         ...process.env,
         PATH: `${bin}${delimiter}${process.env.Path ?? process.env.PATH ?? ""}`,
+        ...isolatedGhEnvironment(bin),
         GH_LOG: ghLog,
         PR_JSON_FILE: prJsonFile,
         GH_TOKEN: "test-token",
@@ -3335,6 +3481,8 @@ esac
         RUN_ID: "1001",
       },
     });
+    expect(result.error, JSON.stringify({status: result.status, signal: result.signal, stderr: result.stderr})).toBeUndefined();
+    expect(result.signal).toBeNull();
     expect(result.status).not.toBe(0);
     expect(result.stderr).toContain("Trusted Phase-1 marker carries an invalid Task Packet; refusing legacy fallback.");
     expect(readFileSync(ghLog, "utf8")).toBe("");
@@ -6383,6 +6531,7 @@ process.stdout.write(JSON.stringify({
         env: {
           ...process.env,
           PATH: `${bin}${delimiter}${process.env.PATH ?? ""}`,
+          ...isolatedGhEnvironment(bin),
           GH_TOKEN: "test-token",
           REPOSITORY: "ibboabdoli-ai/Proffera",
           PR_NUMBER: "900",
@@ -7114,5 +7263,83 @@ process.stdout.write(JSON.stringify({
     const codexBlock = workflow.slice(codexStart, codexEnd);
     expect(codexBlock).toContain("OPENAI_API_KEY");
     expect(codexBlock).not.toContain("PROFFERA_AUTOFIX_PUSH_TOKEN");
+  });
+});
+
+describe("isolated Worker gh command boundary", () => {
+  it("routes native ESM execFileSync to the extensionless fixture instead of host gh.exe", () => {
+    const bin = mkdtempSync(join(tmpdir(), "worker-gh-resolution-"));
+    try {
+      const fixture = join(bin, "gh");
+      writeFileSync(fixture, '#!/usr/bin/env node\nprocess.stdout.write(JSON.stringify(process.argv.slice(2)));', {mode:0o755});
+      const env = {...process.env, PATH: bin + delimiter + process.env.PATH, ...isolatedGhEnvironment(bin)};
+      const jq = spawnBashScript('jq -nr "\\\"fixture\\\""\n', {encoding:"utf8",env});
+      expect(jq.status, jq.stderr).toBe(0);
+      expect(jq.stdout).toBe("fixture\\n".replace("\\n", "\n"));
+      if (process.platform === "win32") {
+        // A harmless native executable proves Windows selects .exe over the shebang file.
+        copyFileSync(process.execPath, join(bin, "gh.exe"));
+        const resolution = spawnSync(join(bin, "gh"), ["--version"], {encoding:"utf8", env});
+        expect(resolution.error).toBeUndefined();
+        expect(resolution.status, resolution.stderr).toBe(0);
+        expect(resolution.stdout.trim()).toBe(process.version);
+      }
+      const script = 'import {execFileSync} from "node:child_process"; process.stdout.write(execFileSync("gh", ["api", "space value"], {encoding:"utf8"}));';
+      const result = spawnSync(process.execPath, ["--input-type=module", "-e", script], {encoding:"utf8",env});
+      expect(result.error).toBeUndefined();
+      expect(result.status, result.stderr).toBe(0);
+      expect(JSON.parse(result.stdout)).toEqual(["api","space value"]);
+      rmSync(fixture);
+      const missing = spawnSync(process.execPath, ["--input-type=module", "-e", script], {encoding:"utf8",env});
+      expect(missing.status).not.toBe(0);
+      expect(missing.stderr).toContain("Isolated gh fixture missing; refusing host gh");
+    } finally {rmSync(bin,{recursive:true,force:true});}
+  });
+  it("executes shell gh fixtures through the explicit shell interpreter", () => {
+    const bin=mkdtempSync(join(tmpdir(),"worker-gh-shell-"));
+    try {
+      writeFileSync(join(bin,"gh"), '#!/bin/sh\nprintf "%s" "$1"\n', {mode:0o755});
+      const result=spawnSync(process.execPath,["--input-type=module","-e",
+        'import {execFileSync} from "node:child_process";process.stdout.write(execFileSync("gh.exe",["fixture-only"],{encoding:"utf8"}));'],
+        {encoding:"utf8",env:{...process.env,...isolatedGhEnvironment(bin)}});
+      expect(result.error).toBeUndefined();
+      expect(result.status,result.stderr).toBe(0);
+      expect(result.stdout).toBe("fixture-only");
+    } finally {rmSync(bin,{recursive:true,force:true});}
+  });
+});
+
+describe("Worker shell script transport", () => {
+  it("preserves long scripts and quotes through the native host process boundary", () => {
+    const script = "#".repeat(40000) + "\nprintf '%s\\n' 'fixture \"quotes\" and backslash \\\\'\n";
+    const result = spawnBashScript(script, {encoding:"utf8"});
+    expect(result.error).toBeUndefined();
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stdout.trim()).toBe('fixture "quotes" and backslash \\\\');
+  });
+});
+
+describe("Worker jq fixture boundary", () => {
+  it("preserves real jq input, quoted arguments, binary output and failure status", () => {
+    const bin = mkdtempSync(join(tmpdir(), "worker-jq-boundary-"));
+    try {
+      writeFileSync(join(bin, "gh"), '#!/usr/bin/env node\nprocess.exit(2);', { mode: 0o755 });
+      const env = { ...process.env, ...isolatedGhEnvironment(bin) };
+      const direct = process.platform === "win32" ? "command jq -b" : "command jq";
+      for (const expression of [
+        "--arg value 'space value' -r '.value + $value'",
+        "-e 'false'",
+        "'invalid['",
+      ]) {
+        const input = `printf '%s' '{"value":"fixture "}' | `;
+        const actual = spawnBashScript(input + "jq " + expression, { encoding: "utf8", env });
+        const expected = spawnBashScript(input + direct + " " + expression, { encoding: "utf8", env });
+        expect(actual.error).toBeUndefined();
+        expect(expected.error).toBeUndefined();
+        expect(actual.status).toBe(expected.status);
+        expect(actual.stdout).toBe(expected.stdout);
+        expect(actual.stderr).toBe(expected.stderr);
+      }
+    } finally { rmSync(bin, { recursive: true, force: true }); }
   });
 });

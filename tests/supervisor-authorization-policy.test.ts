@@ -79,7 +79,7 @@ describe("canonical Supervisor authorization ownership", () => {
     const patterns = workflow.match(/  BLOCKED_PATH_PATTERNS: \|\r?\n([\s\S]*?)\r?\n\r?\n/)![1].replace(/^    /gm, "");
     const root = mkdtempSync(join(tmpdir(), "proffera-qualification-"));
     try {
-      for (const name of ["supervisor-authorization-policy.mjs", "supervisor-worker-handoff.mjs"]) {
+      for (const name of ["supervisor-authorization-policy.mjs", "supervisor-worker-handoff.mjs", "supervisor-worker-strategy-memory.mjs", "supervisor-failure-memory.mjs"]) {
         const sourcePath = join(process.cwd(), "scripts", name);
         const content = readFileSync(sourcePath);
         const sha = git(process.cwd(), ["hash-object", sourcePath]);
@@ -107,6 +107,50 @@ describe("canonical Supervisor authorization ownership", () => {
       rmSync(root, {recursive: true, force: true});
     }
   });
+
+  it("resolves the actual CI Autofix candidate helper graph in both isolated jobs", () => {
+    const workflow = readFileSync(new URL("../.github/workflows/proffera-ci-autofix.yml", import.meta.url), "utf8").replaceAll("\r\n", "\n");
+    const positions = [...workflow.matchAll(/      - name: Materialize candidate helper from immutable workflow revision/g)].map((match) => match.index);
+    expect(positions).toHaveLength(2);
+    const root = mkdtempSync(join(tmpdir(), "proffera-autofix-graph-"));
+    try {
+      for (const name of ["supervisor-ci-autofix-candidate.mjs", "supervisor-authorization-policy.mjs", "supervisor-worker-handoff.mjs", "supervisor-worker-strategy-memory.mjs", "supervisor-failure-memory.mjs"]) {
+        const file = join(process.cwd(), "scripts", name);
+        const content = readFileSync(file);
+        writeFileSync(join(root, `${name}.json`), JSON.stringify({ sha: git(process.cwd(), ["hash-object", file]), content: content.toString("base64") }));
+      }
+      for (const position of positions) {
+        const runStart = workflow.indexOf("        run: |\n", position) + "        run: |\n".length;
+        const nextStep = workflow.indexOf("\n      - name:", runStart);
+        expect(runStart).toBeGreaterThan(position);
+        expect(nextStep).toBeGreaterThan(runStart);
+        const stage = workflow.slice(runStart, nextStep).replace(/^          /gm, "");
+        expect(stage).toContain("supervisor-worker-strategy-memory.mjs");
+        expect(stage).toContain("supervisor-failure-memory.mjs");
+        const transport = [
+          process.platform === "win32" ? 'jq() { command jq --binary "$@"; }' : "",
+          "gh() { local name=\"${2##*/}\"; name=\"${name%%\\?*}\"; if [ \"$BAD_BLOB\" = \"1\" ] && [ \"$name\" = \"supervisor-worker-strategy-memory.mjs\" ]; then jq '.sha=\"0000000000000000000000000000000000000000\"' \"$MOCK_API_DIR/$name.json\"; else cat \"$MOCK_API_DIR/$name.json\"; fi; }",
+        ].join("\n");
+        const importHelper = "test -s \"$RUNNER_TEMP/ci-autofix-trusted/candidate.mjs\"; node -e 'const p=process.argv[1];process.argv[1]=\"node-e\";import(require(\"node:url\").pathToFileURL(p).href).then(()=>console.log(\"MODULE_GRAPH_READY\"))' \"$RUNNER_TEMP/ci-autofix-trusted/supervisor-authorization-policy.mjs\"";
+        const run = (badBlob: boolean, after: string) => spawnSync("bash", [], {
+          encoding: "utf8", input: [transport, stage, after].join("\n"),
+          env: { ...process.env, RUNNER_TEMP: root.replaceAll("\\", "/"), MOCK_API_DIR: root.replaceAll("\\", "/"),
+            REPOSITORY: "ibboabdoli-ai/Proffera", GITHUB_WORKFLOW_SHA: "a".repeat(40), BAD_BLOB: badBlob ? "1" : "0" },
+        });
+        const accepted = run(false, importHelper);
+        expect(accepted.status, accepted.stderr).toBe(0);
+        expect(accepted.stdout).toContain("MODULE_GRAPH_READY");
+        const untrusted = run(true, "echo UNTRUSTED_ACCEPTED");
+        expect(untrusted.status).not.toBe(0);
+        expect(untrusted.stdout).not.toContain("UNTRUSTED_ACCEPTED");
+        const missing = run(false, 'rm -f "$RUNNER_TEMP/ci-autofix-trusted/supervisor-failure-memory.mjs"; ' + importHelper);
+        expect(missing.status).not.toBe(0);
+        expect(missing.stderr).toContain("ERR_MODULE_NOT_FOUND");
+      }
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  }, 60000);
 
   it.each([
     "src/lib/auth.ts",
@@ -442,7 +486,7 @@ describe("canonical Supervisor authorization ownership", () => {
 
     const workflow = readFileSync(new URL("../.github/workflows/proffera-ci-autofix.yml", import.meta.url), "utf8");
     expect(workflow).toContain("    scripts/supervisor-*.mjs");
-    expect(workflow).toContain("for policy_file in supervisor-authorization-policy.mjs supervisor-worker-handoff.mjs; do");
+    expect(workflow).toContain("for policy_file in supervisor-authorization-policy.mjs supervisor-worker-handoff.mjs supervisor-worker-strategy-memory.mjs supervisor-failure-memory.mjs; do");
     expect(workflow).toContain('repos/$REPOSITORY/pulls/$pr_number/files?per_page=100');
     expect(workflow).toContain('node "$trusted_policy_dir/supervisor-authorization-policy.mjs" qualify-pull-files');
     expect(workflow).toContain('.ok == true and .eligible == true');
@@ -456,7 +500,12 @@ describe("canonical Supervisor authorization ownership", () => {
     expect(candidate).toContain("enforceHumanAuthorization(paths)");
     const worker = readFileSync(new URL("../scripts/supervisor-worker-handoff.mjs", import.meta.url), "utf8");
     expect(worker).toContain("PLANNER_HUMAN_AUTH_OWNERSHIP");
-    expect(workflow.match(/contents\/scripts\/supervisor-worker-handoff\.mjs\?ref=\$GITHUB_WORKFLOW_SHA/g))
-      .toHaveLength(2);
+    // Both isolated CI Autofix jobs must stage the complete Worker module graph
+    // at the immutable workflow revision and verify the downloaded Git blobs.
+    expect(workflow).toContain('contents/scripts/$policy_file?ref=$GITHUB_WORKFLOW_SHA');
+    expect(workflow).toContain('test "$(git hash-object "$trusted_policy_dir/$policy_file")" = "$policy_blob"');
+    expect(workflow).toContain('for worker_file in supervisor-worker-handoff.mjs supervisor-worker-strategy-memory.mjs supervisor-failure-memory.mjs; do');
+    expect(workflow).toContain('contents/scripts/$worker_file?ref=$GITHUB_WORKFLOW_SHA');
+    expect(workflow).toContain('test "$(git hash-object "$trusted_dir/$worker_file")" = "$expected_worker_blob"');
   });
 });

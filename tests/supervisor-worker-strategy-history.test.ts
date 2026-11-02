@@ -609,7 +609,13 @@ describe("Worker workflow B4.1 wiring", () => {
     expect(scope).toBeGreaterThan(workflow.indexOf("Confirm validated Worker tree matches uploaded candidate"));
     expect(scope).toBeLessThan(classify);
     expect(workflow.slice(scope, classify)).toContain("validate-changes");
-    expect(workflow.slice(scope, classify)).toContain("git show HEAD:scripts/supervisor-worker-handoff.mjs");
+    const stagedScope = workflow.slice(scope, classify);
+    expect(stagedScope).toContain('test "$(git rev-parse HEAD)" = "$BASE_SHA"');
+    expect(stagedScope).toContain("for source_path in scripts/supervisor-worker-handoff.mjs scripts/supervisor-worker-strategy-memory.mjs scripts/supervisor-failure-memory.mjs; do");
+    expect(stagedScope).toContain('git show "${BASE_SHA}:${source_path}" > "$trusted_file"');
+    expect(stagedScope).toContain('test "$(git hash-object "$trusted_file")" = "$(git rev-parse "${BASE_SHA}:${source_path}")"');
+    expect(stagedScope).toContain('sha256sum --check --status "$trusted_manifest"');
+    expect(stagedScope).not.toContain("git show HEAD:");
     expect(workflow.slice(classify, refuse)).toContain("SCOPE_OUTCOME");
     expect(workflow.slice(classify, refuse)).toContain('[ "$SCOPE_OUTCOME" = "success" ]');
   });

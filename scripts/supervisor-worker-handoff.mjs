@@ -6,7 +6,7 @@ import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
-import { createRequire } from "node:module";
+import { workerStrategyDescriptor } from "./supervisor-worker-strategy-memory.mjs";
 
 export const TASK_PACKET_MARKER = "<!-- proffera-worker-task-packet:v1 -->";
 export const TASK_STATE_MARKER_PREFIX = "<!-- proffera-worker-task-state:";
@@ -2721,7 +2721,7 @@ export function createWorkerReservationAuthority(io) {
       if (exactStarts.length !== 1) {
         throw new Error("Worker strategy dispatch-start identity is missing or ambiguous; owner reconciliation required");
       }
-      const descriptor = createRequire(import.meta.url)("./supervisor-worker-strategy-memory.mjs").workerStrategyDescriptor(packet);
+      const descriptor = workerStrategyDescriptor(packet);
       const start = exactStarts[0];
       if (start.head !== packet.base_sha
         || start.evidence_fingerprint !== descriptor.evidence_fingerprint

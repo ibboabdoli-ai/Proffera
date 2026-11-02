@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { delimiter, join, resolve } from "node:path";
 
 import { describe, expect, it } from "vitest";
+import { codeContextExamples } from "./helpers/review-receipt-counterexamples";
 
 function source(path: string) {
   return readFileSync(resolve(process.cwd(), path), "utf8").replaceAll("\r\n", "\n");
@@ -63,6 +64,7 @@ type CiReviewFixture = {
   headSha?: string;
   headAfterLoopCheck?: string;
   failOnPost?: boolean;
+  maxAttempts?: number;
 };
 
 function toNdjson(items: Array<Record<string, unknown>> = []) {
@@ -72,7 +74,6 @@ function toNdjson(items: Array<Record<string, unknown>> = []) {
 function runCiReviewFixture(fixture: CiReviewFixture) {
   const dir = mkdtempSync(join(tmpdir(), "proffera-ci-review-"));
   const fakeGh = join(dir, "gh");
-  const fakeSleep = join(dir, "sleep");
   const script = join(dir, "review-gate.sh");
   const stateFile = join(dir, "reviews-count");
   const headStateFile = join(dir, "head-count");
@@ -141,12 +142,15 @@ fi
 printf 'unexpected gh invocation: %s\\n' "$args" >&2
 exit 91
 `, { mode: 0o755 });
-  writeFileSync(fakeSleep, "#!/usr/bin/env bash\nexit 0\n", { mode: 0o755 });
   writeFileSync(script, `#!/usr/bin/env bash
 set -euo pipefail
 REPOSITORY=ibboabdoli-ai/Proffera
 PR_NUMBER=801
 HEAD_SHA="$FAKE_INITIAL_HEAD_SHA"
+${process.platform === "win32" ? 'jq() { command jq.exe -b "$@"; }' : ""}
+# A function wins over Git Bash prepending /usr/bin to PATH on Windows.
+sleep() { :; }
+seq() { if [ "$*" = "1 40" ]; then command seq 1 "$FAKE_MAX_ATTEMPTS"; else command seq "$@"; fi; }
 ${ciReviewGateShellBlock()}
 `, { mode: 0o755 });
 
@@ -171,6 +175,7 @@ ${ciReviewGateShellBlock()}
       FAKE_HEAD_STATE: headStateFile,
       FAKE_REVIEW_STATE: stateFile,
       FAIL_ON_POST: fixture.failOnPost ? "true" : "false",
+      FAKE_MAX_ATTEMPTS: String(fixture.maxAttempts ?? 3),
     },
   });
 
@@ -185,6 +190,7 @@ function codeRabbitRequestComments() {
       user: { login: "github-actions[bot]" },
       body: `<!-- proffera-coderabbit-final-review-request:${reviewHead} -->\n@coderabbitai review`,
       created_at: "2026-08-31T10:00:00Z",
+      updated_at: "2026-08-31T10:00:00Z",
     },
   ];
 }
@@ -212,6 +218,10 @@ function cleanCodeRabbitFinalComment(overrides: Record<string, unknown> = {}) {
     updated_at: "2026-08-31T10:03:00Z",
     ...overrides,
   };
+}
+
+function completedCodeRabbitReview(state = "COMMENTED", submittedAt = "2026-08-31T10:02:00Z") {
+  return { user: { login: "coderabbitai[bot]" }, commit_id: reviewHead, state, submitted_at: submittedAt };
 }
 
 function legacyCleanCodeRabbitSummary(overrides: Record<string, unknown> = {}) {
@@ -393,7 +403,7 @@ describe("tooling safety contract", () => {
     expect(gate).not.toContain("coderabbit_review_completion_time");
     expect(gate).toContain('terminal_count="$(jq -r');
     expect(gate).toContain('select(.state == "APPROVED")');
-    expect(gate).not.toContain('select(.state == "APPROVED" or .state == "COMMENTED")');
+    expect(gate).toContain('select(.state == "APPROVED" or .state == "COMMENTED")');
 
     const malformedHeadSha = runCiReviewFixture({
       changedFiles: ".github/workflows/ci.yml",
@@ -414,16 +424,58 @@ describe("tooling safety contract", () => {
     const accepted = runCiReviewFixture({
       changedFiles: ".github/workflows/ci.yml",
       comments: [...codeRabbitRequestComments(), cleanCodeRabbitFinalComment()],
+      firstReviews: [completedCodeRabbitReview()],
       failOnPost: true,
     });
     expect(accepted.status).toBe(0);
     expect(`${accepted.stdout}${accepted.stderr}`).toContain("CodeRabbit completed a clean exact-head PR comment for the current head");
+
+    const commentOnly = runCiReviewFixture({
+      changedFiles: ".github/workflows/ci.yml",
+      comments: [...codeRabbitRequestComments(), cleanCodeRabbitFinalComment()],
+      failOnPost: true,
+    });
+    expect(commentOnly.status).toBe(1);
+    expect(`${commentOnly.stdout}${commentOnly.stderr}`).not.toContain("CodeRabbit completed a clean exact-head PR comment");
+
+    const cleanBeforeReview = runCiReviewFixture({
+      changedFiles: ".github/workflows/ci.yml",
+      comments: [...codeRabbitRequestComments(), cleanCodeRabbitFinalComment()],
+      firstReviews: [completedCodeRabbitReview("COMMENTED", "2026-08-31T10:04:00Z")],
+      failOnPost: true,
+    });
+    expect(cleanBeforeReview.status).toBe(1);
+
+    const editedClean = runCiReviewFixture({
+      changedFiles: ".github/workflows/ci.yml",
+      comments: [...codeRabbitRequestComments(), cleanCodeRabbitFinalComment({ updated_at: "2026-08-31T10:05:00Z" })],
+      firstReviews: [completedCodeRabbitReview()],
+      failOnPost: true,
+    });
+    expect(editedClean.status).toBe(1);
+
+    const preRequestApproval = runCiReviewFixture({
+      changedFiles: ".github/workflows/ci.yml",
+      comments: codeRabbitRequestComments(),
+      firstReviews: [completedCodeRabbitReview("APPROVED", "2026-08-31T09:59:00Z")],
+      failOnPost: true,
+    });
+    expect(preRequestApproval.status).toBe(1);
+
+    const laterApproval = runCiReviewFixture({
+      changedFiles: ".github/workflows/ci.yml",
+      comments: codeRabbitRequestComments(),
+      firstReviews: [completedCodeRabbitReview("CHANGES_REQUESTED", "2026-08-31T10:01:00Z"), completedCodeRabbitReview("APPROVED", "2026-08-31T10:02:00Z")],
+      failOnPost: true,
+    });
+    expect(laterApproval.status).toBe(0);
 
     const acceptedPlainSha = runCiReviewFixture({
       changedFiles: ".github/workflows/ci.yml",
       comments: [...codeRabbitRequestComments(), cleanCodeRabbitFinalComment({
         body: `${codeRabbitInvocationMarker}\nFinal exact-head review is complete for ${reviewHead}.\n\nI found no issues.`,
       })],
+      firstReviews: [completedCodeRabbitReview()],
       failOnPost: true,
     });
     expect(acceptedPlainSha.status).toBe(0);
@@ -520,7 +572,8 @@ describe("tooling safety contract", () => {
       }],
       failOnPost: true,
     });
-    expect(reanchoredOldInlineFinding.status).toBe(0);
+    expect(reanchoredOldInlineFinding.status).toBe(1);
+    expect(`${reanchoredOldInlineFinding.stdout}${reanchoredOldInlineFinding.stderr}`).toContain("CodeRabbit posted current-head review findings");
 
     const preRequestInlineFinding = runCiReviewFixture({
       changedFiles: ".github/workflows/ci.yml",
@@ -793,6 +846,7 @@ describe("tooling safety contract", () => {
       comments: timeoutFallbackComments(),
       reactions: cleanCodexReaction(),
       failOnPost: true,
+      maxAttempts: 21,
     });
     expect(sensitiveTimeout.status).toBe(0);
     expect(`${sensitiveTimeout.stdout}${sensitiveTimeout.stderr}`).toContain("CodeRabbit high-risk availability timeout reached");
@@ -803,6 +857,7 @@ describe("tooling safety contract", () => {
       comments: codeRabbitRequestComments(),
       reactions: cleanCodexReaction(),
       failOnPost: true,
+      maxAttempts: 21,
     });
     expect(missingTrustedRequest.status).toBe(1);
     expect(`${missingTrustedRequest.stdout}${missingTrustedRequest.stderr}`).toContain("Trusted Codex fallback requires an exact-head @codex review request from ibboabdoli-ai");
@@ -813,6 +868,7 @@ describe("tooling safety contract", () => {
       changedFiles: `${largeSafeChange()}\nsrc/app/en/privacy/page.tsx`,
       comments: codeRabbitRequestComments(),
       failOnPost: true,
+      maxAttempts: 21,
     });
     expect(sensitiveNoDecision.status).toBe(1);
     expect(`${sensitiveNoDecision.stdout}${sensitiveNoDecision.stderr}`).toContain("Refused: no acceptable CodeRabbit or Codex fallback decision was recorded for the current head within the gate window.");
@@ -996,7 +1052,7 @@ describe("tooling safety contract", () => {
     });
     expect(result.status).toBe(1);
     expect(`${result.stdout}${result.stderr}`).toContain("CodeRabbit changes were recorded while Codex fallback was running");
-  });
+  }, 5000);
 
   it("keeps Codex fallback availability-only, exact-head, bounded for high-risk, and fail-closed", () => {
     const ci = source(".github/workflows/ci.yml");
@@ -1057,4 +1113,26 @@ describe("tooling safety contract", () => {
     expect(agents).toContain("remain CodeRabbit-primary and CodeRabbit-only during the normal review window");
     expect(agents).toContain("if neither provider produces an acceptable exact-head result, CI must fail closed");
   });
+});
+
+describe("v5 CI workflow authority counterexamples", () => {
+  it("rejects hidden Codex SHA markers while accepting the real receipt", () => {
+    const prefix = "Codex Review: Didn't find any major issues.\n";
+    for (const body of [prefix + "Reviewed commit: " + reviewHead, ...codeContextExamples("Reviewed commit: " + reviewHead).map(example => prefix + example)]) {
+      const result = runCiReviewFixture({ changedFiles: largeSafeChange(), comments: [...fallbackComments(), cleanCodexComment({ body })], failOnPost: true, maxAttempts: 1 });
+      expect(result.status, body + result.stdout + result.stderr).toBe(body === prefix + "Reviewed commit: " + reviewHead ? 0 : 1);
+    }
+  }, 60000);
+  it("rejects CodeRabbit examples despite a completed review and retains genuine evidence after an unrelated reply", () => {
+    for (const receipt of [cleanCodeRabbitBody(), `Review completed for exact HEAD ${reviewHead}.\nI found no material findings.`]) {
+      for (const body of [receipt, ...codeContextExamples(receipt)]) {
+        const result = runCiReviewFixture({ changedFiles: ".github/workflows/ci.yml", comments: [...codeRabbitRequestComments(), cleanCodeRabbitFinalComment({ body })],
+          firstReviews: [completedCodeRabbitReview(), completedCodeRabbitReview("COMMENTED", "2026-08-31T10:04:00Z")], failOnPost: true, maxAttempts: 1 });
+        expect(result.status, body + result.stdout + result.stderr).toBe(body === receipt ? 0 : 1);
+      }
+    }
+    const dismissed = runCiReviewFixture({ changedFiles: ".github/workflows/ci.yml", comments: [...codeRabbitRequestComments(), cleanCodeRabbitFinalComment()],
+      firstReviews: [completedCodeRabbitReview("DISMISSED"), completedCodeRabbitReview("COMMENTED", "2026-08-31T10:04:00Z")], failOnPost: true, maxAttempts: 1 });
+    expect(dismissed.status, dismissed.stdout + dismissed.stderr).toBe(1);
+  }, 120000);
 });

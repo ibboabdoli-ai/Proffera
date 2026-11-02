@@ -648,7 +648,7 @@ describe("Supervisor control-plane v2", () => {
     expect(planner).toContain("worker-dispatch-enabled");
     expect(planner).toContain("supervisor-autopilot-enabled");
     expect(planner).toContain("Snapshot trusted admission helper");
-    expect(planner).toContain('trusted_helper="$RUNNER_TEMP/trusted-supervisor-worker-handoff.mjs"');
+    expect(planner).toContain('trusted_helper="$trusted_dir/supervisor-worker-handoff.mjs"');
     expect(planner).not.toContain("trusted-ci-scope-plan.mjs");
     expect(planner).not.toContain("scripts/ci-scope-plan.mjs");
     expect(planner).toContain('node "$trusted_helper" parse');
@@ -768,9 +768,9 @@ describe("Supervisor control-plane v2", () => {
     expect(snapshotStart).toBeGreaterThan(contextStart);
     expect(snapshotStart).toBeLessThan(modelStart);
     const trustedSnapshot = planner.slice(snapshotStart, cheapStart);
-    expect(trustedSnapshot).toContain('cp scripts/supervisor-worker-handoff.mjs "$trusted_helper"');
+    expect(trustedSnapshot).toContain('cp -- "$source_path" "$trusted_file"');
     expect(trustedSnapshot).not.toContain("ci-scope-plan.mjs");
-    expect(trustedSnapshot).toContain('chmod 0444 "$trusted_helper"');
+    expect(trustedSnapshot).toContain('chmod 0444 "$trusted_helper" "$trusted_strategy" "$trusted_failure" "$trusted_manifest"');
     const cheapCapacity = planner.slice(cheapStart, modelStart);
     expect(cheapCapacity).toContain("active_reservation_ids");
     expect(cheapCapacity).toContain("lease_expires_at");
@@ -897,7 +897,7 @@ describe("Supervisor control-plane v2", () => {
     expect(cleanup).toContain("needs.preflight.outputs.reservation_comment_id != ''");
     expect(cleanup).toContain("needs.publish.result != 'success'");
     expect(cleanup).toContain("Materialize exact baseline cleanup helper independently");
-    expect(cleanup).toContain('contents/scripts/supervisor-worker-handoff.mjs?ref=${BASE_SHA}');
+    expect(cleanup).toContain('contents/${source_path}?ref=${BASE_SHA}');
     expect(cleanup).toContain("git hash-object");
     expect(cleanup).toContain("released-reservation-retry-body");
     expect(cleanup).toContain("reservation-mutex-acquire");
@@ -1127,6 +1127,8 @@ describe("Supervisor control-plane v2", () => {
     const dir = mkdtempSync(join(tmpdir(), "proffera-review-repair-trust-"));
     const trusted = join(dir, "trusted-helper.mjs");
     copyFileSync(trustedSource, trusted);
+    copyFileSync(resolve(root, "scripts/supervisor-worker-strategy-memory.mjs"), join(dir, "supervisor-worker-strategy-memory.mjs"));
+    copyFileSync(resolve(root, "scripts/supervisor-failure-memory.mjs"), join(dir, "supervisor-failure-memory.mjs"));
 
     const packet = {
       task_id: "SUP-REPAIR-1",
@@ -1156,7 +1158,12 @@ describe("Supervisor control-plane v2", () => {
     expect(validateStart).toBeGreaterThan(materializeStart);
     const materializeStep = trustedPublishJob.slice(materializeStart, validateStart);
     expect(materializeStep).toContain("set -euo pipefail");
-    expect(materializeStep).toContain('test "$(git hash-object "$trusted_helper")" = "$expected_blob_sha"');
+    expect(materializeStep).toContain('git/ref/heads/${default_branch}');
+    expect(materializeStep).toContain('test "${#trusted_main_sha}" -eq 40');
+    expect(materializeStep).toContain('for source_path in scripts/supervisor-worker-handoff.mjs scripts/supervisor-worker-strategy-memory.mjs scripts/supervisor-failure-memory.mjs; do');
+    expect(materializeStep).toContain('contents/${source_path}?ref=${trusted_main_sha}');
+    expect(materializeStep).toContain('test "$(git hash-object "$trusted_file")" = "$expected_blob_sha"');
+    expect(materializeStep).toContain('sha256sum --check --status "$trusted_manifest"');
 
     const verified = spawnSync(process.execPath, [trusted, "validate-changes"], { input, encoding: "utf8" });
     expect(verified.status, verified.stderr).toBe(0);

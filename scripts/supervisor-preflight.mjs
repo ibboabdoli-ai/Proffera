@@ -386,6 +386,8 @@ function additionalTargetedSuites(candidate) {
     "tests/neon-cost-reset-scheduler-contract.test.ts",
   ];
   const mappedSuitePaths = new Set([
+    "e2e/playwright.config.mjs", "tests/proffera-e2e-candidate.test.ts",
+    "tests/proffera-automerge-freshness.test.ts",
     ".github/workflows/proffera-ci-autofix.yml",
     ".github/workflows/supervisor-worker-handoff.yml",
     ".github/workflows/supervisor-review-repair.yml",
@@ -397,6 +399,10 @@ function additionalTargetedSuites(candidate) {
     "scripts/supervisor-authorization-policy.mjs",
     "scripts/supervisor-ci-autofix-candidate.mjs",
     "scripts/supervisor-preflight.mjs",
+    "scripts/supervisor-final-gate-live.mjs",
+    "scripts/supervisor-final-gate-memory.mjs",
+    "tests/helpers/review-receipt-counterexamples.ts",
+    "tests/supervisor-review-policy-contract.test.ts",
     "scripts/supervisor-worker-handoff.mjs",
     "scripts/supervisor-owner-push-pending.mjs",
     "scripts/supervisor-b4-exclusive-reservation.mjs",
@@ -406,8 +412,13 @@ function additionalTargetedSuites(candidate) {
     ".github/workflows/proffera-automerge.yml",
     ".github/workflows/proffera-final-gate-wakeup.yml",
     ".github/workflows/supervisor-planner.yml",
+    ".github/workflows/supervisor-event-router.yml",
     "tests/ci-postgres-image-preload.test.ts",
     "tests/proffera-final-gate-wakeup.test.ts",
+    "tests/supervisor-final-gate-memory.test.ts",
+    "tests/booking-reminder-workspace-join-postgres.test.ts",
+    "tests/marketplace-funnel-claim-paid-postgres.test.ts",
+    "tests/marketplace-funnel-invited-postgres.test.ts",
     "tests/proffera-standing-automerge.test.ts",
     "tests/tooling-safety-contract.test.ts",
     "tests/supervisor-owner-push-pending.test.ts",
@@ -433,6 +444,8 @@ function additionalTargetedSuites(candidate) {
     fail("validation", "no mapped targeted tests for candidate paths: " + unmapped.join(", "));
   }
   const suites = new Set(candidate.diff.paths.includes(bookingWorkflow) ? bookingSuites : []);
+  if(candidate.diff.paths.some(path => ["e2e/playwright.config.mjs","tests/proffera-e2e-candidate.test.ts"].includes(path))) suites.add("tests/proffera-e2e-candidate.test.ts");
+  if(candidate.diff.paths.some(path => [".github/workflows/proffera-automerge.yml","tests/proffera-automerge-freshness.test.ts"].includes(path))) suites.add("tests/proffera-automerge-freshness.test.ts");
   const workerPaths = new Set([
     "scripts/supervisor-worker-handoff.mjs",
     "tests/supervisor-worker-handoff.test.ts",
@@ -445,6 +458,9 @@ function additionalTargetedSuites(candidate) {
   ]);
   // Exact behavior-changing paths map to executable tests, not a generic PASS assertion.
   const pathSuites = new Map([
+    ["tests/supervisor-review-policy-contract.test.ts", "tests/supervisor-review-policy-contract.test.ts"],
+    ["scripts/supervisor-final-gate-memory.mjs", ["tests/supervisor-final-gate-memory.test.ts", "tests/proffera-final-gate-wakeup.test.ts", "tests/supervisor-review-policy-contract.test.ts"]],
+    ["tests/helpers/review-receipt-counterexamples.ts", ["tests/tooling-safety-contract.test.ts", "tests/proffera-final-gate-wakeup.test.ts"]],
     ["package.json", ["tests/supervisor-preflight.test.ts", "tests/ci-scope-plan.test.ts",
       "tests/tooling-safety-contract.test.ts"]],
     [".github/workflows/proffera-ci-autofix.yml", [
@@ -471,11 +487,33 @@ function additionalTargetedSuites(candidate) {
     ]],
     [".github/workflows/proffera-automerge.yml", ["tests/proffera-standing-automerge.test.ts", "tests/supervisor-control-plane-v2.test.ts"]],
     [".github/workflows/proffera-final-gate-wakeup.yml", ["tests/proffera-final-gate-wakeup.test.ts", "tests/supervisor-control-plane-v2.test.ts"]],
+    // Keep integration-optional PostgreSQL cases mapped to executable unit coverage
+    // as well: a skipped database suite alone is not sufficient validation evidence.
+    ["tests/booking-reminder-workspace-join-postgres.test.ts", [
+      "tests/booking-reminder-workspace-join.test.ts",
+      "tests/booking-reminder-workspace-join-postgres.test.ts",
+    ]],
+    ["tests/marketplace-funnel-claim-paid-postgres.test.ts", [
+      "tests/marketplace-funnel-analytics.test.ts",
+      "tests/marketplace-funnel-observability.test.ts",
+      "tests/marketplace-funnel-claim-paid-postgres.test.ts",
+    ]],
+    ["tests/marketplace-funnel-invited-postgres.test.ts", [
+      "tests/marketplace-funnel-analytics.test.ts",
+      "tests/marketplace-funnel-observability.test.ts",
+      "tests/marketplace-funnel-invited-postgres.test.ts",
+    ]],
+    ["scripts/supervisor-final-gate-live.mjs", [
+      "tests/supervisor-final-gate-memory.test.ts",
+      "tests/proffera-final-gate-wakeup.test.ts",
+    ]],
+    ["tests/supervisor-final-gate-memory.test.ts", "tests/supervisor-final-gate-memory.test.ts"],
     ["tests/ci-postgres-image-preload.test.ts", "tests/ci-postgres-image-preload.test.ts"],
     ["tests/proffera-final-gate-wakeup.test.ts", "tests/proffera-final-gate-wakeup.test.ts"],
     ["tests/proffera-standing-automerge.test.ts", "tests/proffera-standing-automerge.test.ts"],
     ["tests/tooling-safety-contract.test.ts", "tests/tooling-safety-contract.test.ts"],
     [".github/workflows/supervisor-planner.yml", "tests/supervisor-control-plane-v2.test.ts"],
+    [".github/workflows/supervisor-event-router.yml", ["tests/supervisor-review-policy-contract.test.ts", "tests/proffera-final-gate-wakeup.test.ts", "tests/supervisor-control-plane-v2.test.ts", "tests/github-workflow-yaml.test.ts"]],
     ["scripts/supervisor-owner-push-pending.mjs", "tests/supervisor-owner-push-pending.test.ts"],
     ["scripts/supervisor-ci-autofix-strategy-memory.mjs", "tests/supervisor-ci-autofix-strategy-history.test.ts"],
     ["scripts/supervisor-review-repair-strategy-memory.mjs", "tests/supervisor-review-repair-strategy-history.test.ts"],
@@ -540,9 +578,28 @@ function commandForCheck(id, cwd, candidate) {
     case "discovery-worker": return {command: "python3", args: ["tests/test_company_directory_discovery_worker.py"],
       cwd, timeout: 300000};
     case "e2e": return {command: node, args: ["node_modules/playwright/cli.js", "test", "--workers=1"],
-      cwd: resolve(cwd, "e2e"), timeout: 1200000};
+      cwd: resolve(cwd, "e2e"), timeout: 1200000, env: { ...process.env, PROFFERA_EXACT_CANDIDATE_E2E: "1" }};
     default: fail("validation", "unsupported executable validation check: " + id);
   }
+}
+
+
+// Diagnostics are deliberately allowlisted, not redacted excerpts of arbitrary
+// child output: test failures can contain credentials, customer data or payloads.
+function failureContext(outcome, cwd) {
+  const output = (String(outcome.stdout ?? "") + "\n" + String(outcome.stderr ?? "")).slice(-65536)
+    .replace(/\x1b\[[0-9;]*m/g, "");
+  const known = new Set(gitText(cwd, ["ls-files"]).split("\n"));
+  const locations = [...output.matchAll(/(?:^|[\s(])((?:tests|src|scripts|e2e)\/[A-Za-z0-9_./-]+\.(?:[cm]?[jt]sx?|mjs))(?::(\d{1,7})(?::(\d{1,7}))?)?/gm)]
+    .filter(match => known.has(match[1]))
+    .map(match => ({path:match[1],line:match[2]?Number(match[2]):null}));
+  const code = String(outcome.error?.code ?? "");
+  return {
+    process_error: ["ENOENT","EACCES","ETIMEDOUT","ENOBUFS","ENOMEM"].includes(code) ? code : outcome.error ? "SUBPROCESS_ERROR" : null,
+    compiler_codes: [...new Set(output.match(/\bTS[0-9]{4,5}\b/g) ?? [])].slice(0,16),
+    locations: [...new Map(locations.map(value => [JSON.stringify(value),value])).values()].slice(0,16),
+    output_excerpt: "omitted_sensitive_output",
+  };
 }
 
 // A caller cannot submit commands, executable arguments or test success values.
@@ -570,14 +627,17 @@ export function executeLocalValidation(candidate, cwd, ids, {runner = spawnSync,
     const executed=[];
     for (const step of steps) {
       const outcome=runner(step.command,step.args,{
-        cwd:step.cwd,encoding:"utf8",windowsHide:true,timeout:step.timeout,
+        cwd:step.cwd,encoding:"utf8",windowsHide:true,timeout:step.timeout,env:step.env,
         maxBuffer:4*1024*1024,
       });
       executed.push({
         id:step.id,command:[step.command,...step.args].join(" "),
         exit_code:outcome.status,signal:outcome.signal??null,
         status:outcome.status===0&&!outcome.error?"passed":"failed",
-        error:outcome.error?String(outcome.error.message??outcome.error).slice(0,1000):null,
+        error:outcome.error?"subprocess_failed":null,
+        ...(outcome.status!==0||outcome.error?{diagnostics:failureContext(outcome,cwd)}:{}),
+        stdout_sha256:sha256(String(outcome.stdout??"")),
+        stdout_bytes:Buffer.byteLength(String(outcome.stdout??""),"utf8"),
         stderr_sha256:sha256(String(outcome.stderr??"")),
         stderr_bytes:Buffer.byteLength(String(outcome.stderr??""),"utf8"),
       });
@@ -589,6 +649,8 @@ export function executeLocalValidation(candidate, cwd, ids, {runner = spawnSync,
       command:steps.map(step=>[step.command,...step.args].join(" ")).join(" && "),
       exit_code:passed?0:last.exit_code,signal:last.signal,
       status:passed?"passed":"failed",error:last.error,
+      ...(!passed?{failed_step:last.id,diagnostics:last.diagnostics}:{}),
+      stdout_sha256:last.stdout_sha256,stdout_bytes:last.stdout_bytes,
       stderr_sha256:last.stderr_sha256,stderr_bytes:last.stderr_bytes,
       ...(id==="typecheck"?{steps:executed}:{}),
     });
