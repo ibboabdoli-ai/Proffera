@@ -111,6 +111,11 @@ export default async function BookingsPage({ searchParams }: BookingsPageProps) 
             {isEnglish ? "The payment mark could not be saved. Verify the Swish payment and try again." : "Betalningsmarkeringen kunde inte sparas. Kontrollera Swish och försök igen."}
           </p>
         ) : null}
+        {mariaPreview && manualSwish?.ok === false ? (
+          <p role="alert" className="m-4 rounded-lg bg-[#fff0ee] p-3 text-sm font-semibold text-[#a33b2f]">
+            {isEnglish ? "Swish payment status is temporarily unavailable." : "Swish-betalningsstatus är tillfälligt otillgänglig."}
+          </p>
+        ) : null}
         {bookings.length === 0 ? (
           <div className="p-5 sm:p-6"><div className="rounded-2xl border border-dashed border-[#ced8cc] bg-[#f7f9f6] p-6 text-center text-sm text-ink-muted"><h4 className="font-bold text-ink">{isEnglish ? "No bookings yet" : "Inga bokningar ännu"}</h4><p className="mt-2 leading-7">{isEnglish ? "New bookings will appear here with time, customer, status and a link to the booking profile." : "När bokningar skapas visas de här med tid, kund, status och länk till bokningsprofilen."}</p><Link href={withLang("/dashboard/bokningar/ny", isEnglish)} className="mt-4 inline-flex min-h-10 items-center justify-center rounded-control bg-brand-deep px-4 py-2 text-sm font-bold text-white transition hover:bg-brand-hover">{isEnglish ? "Create first booking" : "Skapa första bokningen"}</Link></div></div>
         ) : (
@@ -125,7 +130,7 @@ export default async function BookingsPage({ searchParams }: BookingsPageProps) 
                 <div><p className="text-[10px] font-bold uppercase tracking-wide text-ink-muted lg:hidden">{columnLabels[4]}</p><span className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ${statusStyles[booking.status] ?? "bg-surface-subtle text-ink-muted"}`}>{labels[booking.status as keyof typeof labels] ?? booking.status}</span></div>
                 <div><p className="text-[10px] font-bold uppercase tracking-wide text-ink-muted lg:hidden">{columnLabels[5]}</p><p className="font-semibold text-brand">{getNextStep(booking.status, isEnglish)}</p></div>
                 <div><p className="text-[10px] font-bold uppercase tracking-wide text-ink-muted lg:hidden">{columnLabels[6]}</p><Link href={withLang(`/dashboard/bokningar/${booking.id}`, isEnglish)} className="inline-flex min-h-9 items-center justify-center rounded-control bg-brand-deep px-3 py-2 text-xs font-bold text-white transition hover:bg-brand-hover">{isEnglish ? "View booking" : "Visa bokning"}</Link></div>
-                {mariaPreview ? (
+                {mariaPreview && manualSwish?.entries[booking.id] ? (
                   <div className="min-w-0 lg:col-span-7">
                     <MariaSwishPaymentControl
                       bookingId={booking.id}

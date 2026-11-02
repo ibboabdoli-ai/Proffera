@@ -33,24 +33,33 @@ export async function readMariaManualSwishStatuses(): Promise<ManualSwishStatusR
     const sql = getSql();
     if (!sql) return { ok: false, entries: {} };
     const rows = await sql`
-      select distinct on (e.booking_id)
-        e.booking_id::text as booking_id,
-        e.metadata->>'state' as state,
-        e.created_at::text as marked_at
-      from customer_events e
-      join bookings b on b.id = e.booking_id and b.workspace_id = e.workspace_id
-      where e.workspace_id = ${access.workspaceId}
-        and e.event_type = 'note'
-        and e.metadata->>'source' = ${source}
-        and e.metadata->>'state' in ('paid', 'unverified')
-      order by e.booking_id, e.created_at desc, e.id desc
+      select b.id::text as booking_id,
+        latest.metadata->>'state' as state,
+        latest.created_at::text as marked_at
+      from bookings b
+      left join lateral (
+        select e.metadata, e.created_at
+        from customer_events e
+        where e.workspace_id = b.workspace_id
+          and e.booking_id = b.id
+          and e.event_type = 'note'
+          and e.metadata->>'source' = ${source}
+          and e.metadata->>'state' in ('paid', 'unverified')
+        order by e.created_at desc, e.id desc
+        limit 1
+      ) latest on true
+      where b.workspace_id = ${access.workspaceId}
+        and b.customer_id is not null
+        and b.source not in ('dashboard_availability_block', 'dashboard_availability_recurring_block')
     `;
     const entries: Record<string, ManualSwishEntry> = {};
     for (const row of rows) {
       const bookingId = String(row.booking_id ?? "");
-      const state = row.state;
-      if (uuid.test(bookingId) && (state === "paid" || state === "unverified")) {
-        entries[bookingId] = { state, markedAt: String(row.marked_at ?? "") };
+      if (uuid.test(bookingId)) {
+        entries[bookingId] = {
+          state: row.state === "paid" ? "paid" : "unverified",
+          markedAt: String(row.marked_at ?? ""),
+        };
       }
     }
     return { ok: true, entries };
@@ -86,6 +95,8 @@ export async function setMariaManualSwishStatus(bookingId: string, state: Manual
           and w.slug = 'makeup-by-maria'
           and w.status in ('active', 'trial')
           and b.id = ${bookingId}::uuid
+          and b.customer_id is not null
+          and b.source not in ('dashboard_availability_block', 'dashboard_availability_recurring_block')
           and (${state} = 'unverified' or b.status in ('confirmed', 'completed'))
       ),
       latest as (

@@ -36,8 +36,10 @@ describe("Makeup by Maria Preview deposit flow contract", () => {
     expect(list).toContain('canManageWorkspaceSettings(access)');
     expect(list).toContain('process.env.VERCEL_ENV === "preview"');
     expect(list).toContain('readMariaManualSwishStatuses()');
+    expect(list).toContain("mariaPreview && manualSwish?.entries[booking.id]");
     expect(list).toContain("<MariaSwishPaymentControl");
     expect(detail).toContain("<MariaSwishPaymentControl");
+    expect(detail).toContain("mariaPreview && manualSwish?.entries[booking.id]");
     expect(control).toContain("mariaBookingNumber(bookingId)");
     expect(control).toContain('name="swish_checked" required');
     expect(control).toContain("Jag har kontrollerat betalningen i Swish.");
@@ -54,7 +56,9 @@ describe("Makeup by Maria Preview deposit flow contract", () => {
     expect(db).toContain('canManageWorkspaceSettings(access)');
     expect(db).toContain('hasDashboardModuleAccess("online_booking")');
     expect(db).toContain('const source = "maria_swish_manual_deposit_v1"');
-    expect(db).toContain("select distinct on (e.booking_id)");
+    expect(db).toContain("left join lateral (");
+    expect(db).toContain("b.customer_id is not null");
+    expect(db).toContain("b.source not in ('dashboard_availability_block', 'dashboard_availability_recurring_block')");
     expect(db).toContain("join workspaces w on w.id::text = b.workspace_id");
     expect(db).toContain("pg_advisory_xact_lock");
     expect(db).toContain("insert into customer_events");

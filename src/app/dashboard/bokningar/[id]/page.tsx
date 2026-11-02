@@ -326,7 +326,12 @@ export default async function BookingDetailPage({ params, searchParams }: Bookin
     <DashboardPageHeader eyebrow={isEnglish ? "Booking profile" : "Bokningsprofil"} title={booking.title} description={isEnglish ? "View the booking details, connected customer and history. Change the status or reschedule the time securely." : "Se bokningens viktigaste uppgifter, kopplad kund och historik. Ändra status eller flytta tiden kontrollerat."} icon={CalendarClock} actions={<Link href={withLang("/dashboard/bokningar", locale)} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-control border border-[#d5ddd3] bg-surface px-4 py-2.5 text-sm font-bold text-brand"><ArrowLeft className="h-4 w-4" />{isEnglish ? "Back to bookings" : "Tillbaka till bokningar"}</Link>} />
     <DashboardActionFeedback statusMessage={successMessage} alertMessage={errorMessage ?? mariaEmailWarning} />
     <DashboardMetricGrid items={metrics} />
-    {mariaPreview ? (
+    {mariaPreview && manualSwish?.ok === false ? (
+      <p role="alert" className="rounded-lg bg-[#fff0ee] p-3 text-sm font-semibold text-[#a33b2f]">
+        Swish-betalningsstatus kunde inte läsas. Försök igen.
+      </p>
+    ) : null}
+    {mariaPreview && manualSwish?.entries[booking.id] ? (
       <section className="rounded-card border border-[#e8d9dc] bg-[#fff9f8] p-5 shadow-sm sm:p-6">
         <h2 className="font-serif text-xl font-bold text-[#704858]">Makeup by Maria · Swish-handpenning (Preview)</h2>
         <p className="mt-2 text-sm text-[#6a525b]">
