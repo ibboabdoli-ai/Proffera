@@ -299,11 +299,15 @@ let workspaceConfig={
  ],
  hours:null
 };
+function isValidYearPrice(amount){
+ return typeof amount==="number"&&Number.isFinite(amount)&&amount>=0&&amount<=250000
+  &&Math.abs(amount*100-Math.round(amount*100))<1e-6;
+}
 function displayYearPrice(kind){
  const item=workspaceConfig.years.find(row=>row.year===state.year);
  const amount=item?item[kind]:null;
- return Number.isSafeInteger(amount)&&amount>=0
-  ?new Intl.NumberFormat(state.lang==="ar"?"ar-SE":state.lang==="en"?"en-GB":"sv-SE",{maximumFractionDigits:0}).format(amount)+" "+copy().currency
+ return isValidYearPrice(amount)
+  ?new Intl.NumberFormat(state.lang==="ar"?"ar-SE":state.lang==="en"?"en-GB":"sv-SE",{minimumFractionDigits:Number.isInteger(amount)?0:2,maximumFractionDigits:2}).format(amount)+" "+copy().currency
   :copy().requestPrice;
 }
 function isBookablePackage(year,kind){
@@ -589,7 +593,7 @@ async function loadMariaWorkspace(){
    const parsed=config.years
     .filter(y=>y&&Number.isInteger(y.year)&&y.year>=2026&&y.year<=2036&&y.enabled===true
       &&["trial","without"].every(k=>y[k]===null||y[k]===undefined
-         ||(Number.isSafeInteger(y[k])&&y[k]>=0&&y[k]<=250000)))
+         ||isValidYearPrice(y[k])))
     .map(y=>({year:y.year,enabled:true,trial:y.trial??null,without:y.without??null}));
    if(new Set(parsed.map(y=>y.year)).size===parsed.length&&parsed.length<=11){
     workspaceConfig.years=parsed;

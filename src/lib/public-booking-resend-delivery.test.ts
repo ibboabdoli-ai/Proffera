@@ -5,6 +5,7 @@ const mocks = vi.hoisted(() => ({
   readiness: vi.fn(),
   renew: vi.fn(),
   email: vi.fn(),
+  recipient: vi.fn(),
 }));
 
 vi.mock("server-only", () => ({}));
@@ -17,7 +18,7 @@ vi.mock("@/features/email/unified-booking-confirmation-email", () => ({ sendUnif
 vi.mock("@/features/sms/booking-sms", () => ({ sendBookingOwnerSms: vi.fn(), sendBookingVerificationSms: vi.fn() }));
 vi.mock("@/lib/customer-calendar", () => ({ createCustomerCalendarToken: vi.fn() }));
 vi.mock("@/lib/maria-verified-booking", () => ({ finalizeMariaVerifiedBooking: vi.fn() }));
-vi.mock("@/lib/maria-preview-customer-safety", () => ({ isMariaPreviewTestRecipient: vi.fn() }));
+vi.mock("@/lib/maria-preview-customer-safety", () => ({ isMariaPreviewTestRecipient: mocks.recipient }));
 
 import { resendPublicBookingCode } from "./public-booking-verification";
 
@@ -53,6 +54,7 @@ beforeEach(() => {
   };
   mocks.getSql.mockReturnValue(sql);
   mocks.readiness.mockResolvedValue({ enabled: true, workspaceId });
+  mocks.recipient.mockReturnValue(true);
   mocks.renew.mockResolvedValue({ ok: true });
   mocks.email.mockResolvedValue({ ok: true, providerId: "qa" });
 });
@@ -60,6 +62,15 @@ beforeEach(() => {
 const deletes = () => statements.filter((entry) => entry.sql.includes("delete from public_booking_verifications"));
 
 describe("Maria resend: provider uncertainty must not discard a potentially delivered code", () => {
+  it("rejects an outstanding challenge when its Preview recipient is no longer approved", async () => {
+    mocks.recipient.mockReturnValue(false);
+    expect(await resendPublicBookingCode(verificationId)).toEqual({ ok: false, error: "invalid" });
+    expect(mocks.recipient).toHaveBeenCalledWith("qa@example.invalid");
+    expect(mocks.renew).not.toHaveBeenCalled();
+    expect(mocks.email).not.toHaveBeenCalled();
+    expect(deletes()).toHaveLength(0);
+  });
+
   it("keeps the renewed hold when the provider response is lost", async () => {
     mocks.email.mockResolvedValueOnce({
       ok: false, message: "Email delivery failed.", deliveryOutcome: "uncertain",
@@ -102,6 +113,7 @@ describe("Maria resend: provider uncertainty must not discard a potentially deli
     challenge.public_booking_slug = "other-business";
     expect(await resendPublicBookingCode(verificationId)).toEqual({ ok: true, delivery: "email" });
     expect(mocks.renew).not.toHaveBeenCalled();
+    expect(mocks.recipient).not.toHaveBeenCalled();
     expect(mocks.email).toHaveBeenCalledWith(expect.objectContaining({
       companyName: "Maria QA", language: "sv",
     }));

@@ -264,7 +264,8 @@ export async function resendPublicBookingCode(id: string, language: "sv" | "en" 
   const useSms = String(challenge.public_booking_slug) === "primeview" && Boolean(customerPhone);
   if (String(challenge.public_booking_slug) === "makeup-by-maria") {
     const readiness = await getMariaPreviewBookingReadiness();
-    if (!readiness.enabled || readiness.workspaceId !== String(challenge.workspace_id)) {
+    if (!readiness.enabled || readiness.workspaceId !== String(challenge.workspace_id)
+      || !isMariaPreviewTestRecipient(customerEmail)) {
       return { ok: false as const, error: "invalid" };
     }
 
