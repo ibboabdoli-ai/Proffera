@@ -39,49 +39,15 @@ export async function saveMariaScheduleAction(formData: FormData) {
     await sql.transaction([
       // The appointment-time edit must not race an in-flight confirmation.
       sql`select pg_advisory_xact_lock(hashtextextended(${access.workspaceId}::text, 713))`,
-      // Fail the entire transaction if no bridal service exists: do not claim a persisted treatment duration.
+      // Do not claim a saved schedule when there are no Maria packages.
+      // This assertion runs under the same transaction lock as the actual writes.
       sql`
         select 1 / (case when exists(
           select 1 from workspace_services s
           join workspaces w on w.id::text=s.workspace_id
           where w.id=${access.workspaceId}::uuid and w.slug='makeup-by-maria'
             and w.status in ('active','trial')
-            and s.public_slug ~ '^maria-bridal-(trial|without-trial)-(202[6-9]|203[0-6])
-        insert into workspace_booking_hours
-          (workspace_id,weekday,opens_at,closes_at,is_closed)
-        select w.id::text,${d.day},${d.closed ? null : clock(d.first!)}::time,
-          ${d.closed ? null : clock(d.last!)}::time,${d.closed}
-        from workspaces w
-        where w.id=${access.workspaceId}::uuid and w.slug='makeup-by-maria'
-        on conflict (workspace_id,weekday)
-        do update set opens_at=excluded.opens_at,closes_at=excluded.closes_at,is_closed=excluded.is_closed
-      `),
-      sql`
-        update workspace_services s
-        set duration_minutes=${duration},buffer_after_minutes=${buffer},updated_at=now()
-        from workspaces w
-        where w.id=${access.workspaceId}::uuid and w.slug='makeup-by-maria'
-        and s.workspace_id=w.id::text
-        and s.public_slug ~ '^maria-bridal-(trial|without-trial)-(202[6-9]|203[0-6])$'
-      `,
-      sql`
-        insert into admin_audit_logs(admin_user_id,workspace_id,action,reason,new_value)
-        values(${access.userId},${access.workspaceId}::uuid,
-          'maria.booking_schedule.updated',
-          'Workspace manager changed Maria appointment start windows, service duration and buffer',
-          ${JSON.stringify({durationMinutes:duration,bufferAfterMinutes:buffer,
-            days:days.map(d=>({weekday:d.day,closed:d.closed,firstMinute:d.first,lastStartMinute:d.last}))})}::jsonb)
-      `,
-    ]);
-  } catch(error) {
-    console.error("Maria booking schedule could not be updated",error);
-    redirect("/dashboard/maria?error=schedule");
-  }
-  revalidatePath("/dashboard/maria");
-  revalidatePath("/api/makeup-by-maria/config");
-  redirect("/dashboard/maria?updated=schedule#tider");
-}
-
+            and s.public_slug ~ '^maria-bridal-(trial|without-trial)-(202[6-9]|203[0-6])$'
         ) then 1 else 0 end) as maria_package_guard
       `,
       ...days.map(d=>sql`
