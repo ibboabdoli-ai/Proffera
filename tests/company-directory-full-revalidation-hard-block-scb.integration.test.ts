@@ -414,6 +414,11 @@ function postgresSql(client: Client) {
         procedures: [{ code: "FUOL", label: "Överlåtande i fusion", fromDate: "2026-05-04" }],
         syncedAgo: "2 days",
       });
+      // Keep persisted facts updated_at older than the 24-hour recheck gate.
+      await client!.query(
+        "update company_directory_official_facts set updated_at = now() - interval '2 days' where profile_id = $1::uuid",
+        [REVIEW_PROFILE_ID],
+      );
       mocks.enrichOfficialFacts.mockImplementation(async () => {
         await client!.query(`
           update company_directory_official_facts
