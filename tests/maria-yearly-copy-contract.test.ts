@@ -61,6 +61,18 @@ describe("Maria per-year copy and manual booking controls", () => {
     expect(detail).not.toContain('value("payment_saved") === "paid"');
   });
 
+  it("serializes Maria status and rescheduling writes without affecting other tenants", () => {
+    const status = read("src/lib/dashboard-booking-status.ts");
+    const reschedule = read("src/lib/maria-dashboard-reschedule.ts");
+    expect(status).toContain('access.workspaceSlug === "makeup-by-maria"');
+    expect(status).toContain('isMariaPreviewTestRecipient(mariaRecipient)');
+    expect(status).toContain("lower(trim(c.email))=${mariaRecipient}");
+    expect(status).toContain("const updateQuery = sql`");
+    expect(status).toContain("pg_advisory_xact_lock(hashtextextended(");
+    expect(status).toContain("const rows = mariaPreview");
+    expect(reschedule).toContain("pg_advisory_xact_lock(hashtextextended(");
+  });
+
   it("keeps writes scoped, logged and publication state intact", () => {
     const action = read("src/app/dashboard/maria/actions.ts");
     expect(action).toContain('access.workspaceSlug !== "makeup-by-maria"');
