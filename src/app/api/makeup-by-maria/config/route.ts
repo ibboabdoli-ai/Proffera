@@ -10,7 +10,7 @@ import { canManageWorkspaceSettings, getUserWorkspaceAccess } from "@/lib/worksp
 export const dynamic = "force-dynamic";
 const headers = { "Cache-Control": "private, no-store, max-age=0" };
 const demo = { connected: false, previewOnly: true, bookingEnabled: false, prices2026: {}, years: [
-  { year: 2026, enabled: true, trial: 6800, without: 5800 },
+  { year: 2026, enabled: true, trial: 6900, without: 5800 },
   { year: 2027, enabled: true, trial: null, without: null },
   { year: 2028, enabled: true, trial: null, without: null },
 ], hours: [] };
@@ -54,7 +54,7 @@ export async function GET() {
           closes_at::text as closes_at, is_closed
         from workspace_booking_hours
         where workspace_id = ${workspaceId}
-          and weekday in (5, 6)
+          and weekday in (0, 5, 6)
         order by weekday
       `,
       getMariaPreviewBookingReadiness(),
@@ -63,7 +63,7 @@ export async function GET() {
     // This endpoint exposes only the approved Maria demo's year/price values,
     // never customer data. Draft values may be viewed publicly on Preview only.
     const defaults = new Map<number, {year: number; enabled: boolean; trial: number | null; without: number | null; trialDescription?: string; withoutDescription?: string}>([
-      [2026, {year:2026, enabled:true, trial:6800, without:5800}],
+      [2026, {year:2026, enabled:true, trial:6900, without:5800}],
       [2027, {year:2027, enabled:true, trial:null, without:null}],
       [2028, {year:2028, enabled:true, trial:null, without:null}],
     ]);
@@ -133,7 +133,7 @@ export async function GET() {
         closesAt: String(row.closes_at ?? "").slice(0, 5),
       }))
       .filter((row) =>
-        [5, 6].includes(row.weekday)
+        [0, 5, 6].includes(row.weekday)
         && /^\d{2}:\d{2}$/.test(row.opensAt)
         && /^\d{2}:\d{2}$/.test(row.closesAt)
         && row.opensAt < row.closesAt

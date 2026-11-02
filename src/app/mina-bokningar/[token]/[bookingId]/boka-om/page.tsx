@@ -231,7 +231,7 @@ export default async function ReschedulePage({ params, searchParams }: PageProps
               <RescheduleSlotPicker action={reschedule} slots={slots} selectedDayLabel={selectedDayLabel} language={language} />
             ) : (
               <p className={styles.empty}>{isMaria
-                ? t("Inga lediga starttider detta datum. Välj en annan fredag eller lördag.", "No available starts on this date. Choose another Friday or Saturday.", "لا توجد أوقات متاحة في هذا اليوم. اختر يوم جمعة أو سبت آخر.")
+                ? t("Inga lediga starttider detta datum. Välj en annan fredag, lördag eller söndag.", "No available starts on this date. Choose another Friday, Saturday or Sunday.", "لا توجد أوقات متاحة في هذا اليوم. اختر يوم جمعة أو سبت أو أحد آخر.")
                 : t("Inga lediga tider under de kommande sju dagarna. Kontakta företaget om du behöver hjälp med en ny tid.", "No available times during the next seven days. Contact the company if you need help finding another time.", "لا توجد أوقات متاحة خلال الأيام السبعة القادمة. تواصل مع الشركة للمساعدة.")}</p>
             )}
           </div>

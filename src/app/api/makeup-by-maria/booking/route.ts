@@ -89,7 +89,7 @@ export async function POST(request: Request) {
   const localStart = parseLocalDateTime(`${date}T${time}`);
   if (!localStart || localStart.year !== year) return failure("time", 400);
   const weekday = new Date(Date.UTC(localStart.year, localStart.month - 1, localStart.day)).getUTCDay();
-  if (weekday !== 5 && weekday !== 6) return failure("hours", 400);
+  if (![0, 5, 6].includes(weekday)) return failure("hours", 400);
 
   const sql = getSql();
   if (!sql) return failure("unavailable", 503);

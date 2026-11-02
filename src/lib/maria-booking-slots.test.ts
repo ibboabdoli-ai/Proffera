@@ -52,10 +52,18 @@ describe("Maria one-person bridal makeup booking", () => {
     })).toEqual(["09:30","10:00"]);
   });
 
-  it("blocks Friday slots on a weekday other than Friday or Saturday", () => {
+  it("blocks starts on Thursday even though weekends include Sunday", () => {
     expect(availableMariaStartSlots({...settings,date:"2026-10-15",busy:[]})).toEqual([]);
   });
 
+  it("offers Sunday starts without blocking unrelated time automatically", () => {
+    expect(availableMariaStartSlots({...settings,date:"2026-10-18",busy:[]})).toEqual([
+      "06:00","06:30","07:00","07:30","08:00","08:30","09:00","09:30","10:00",
+    ]);
+  });
+  it("does not offer Monday starts", () => {
+    expect(availableMariaStartSlots({...settings,date:"2026-10-19",busy:[]})).toEqual([]);
+  });
   it("rejects dates beyond the booking advance horizon", () => {
     expect(availableMariaStartSlots({...settings,now:new Date("2026-10-15T12:00:00Z"),
       maximumAdvanceDays:1,date:"2026-10-30",busy:[]})).toEqual([]);

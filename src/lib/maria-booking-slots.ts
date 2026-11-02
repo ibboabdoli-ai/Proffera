@@ -42,7 +42,7 @@ export function availableMariaStartSlots(input: MariaStartWindow): string[] {
   ) return [];
 
   const weekday = new Date(Date.UTC(parsedDate.year, parsedDate.month - 1, parsedDate.day)).getUTCDay();
-  if (weekday !== 5 && weekday !== 6) return [];
+  if (![0, 5, 6].includes(weekday)) return [];
 
   const effectiveBusy = input.busy.map((entry) => {
     const start = Date.parse(entry.startsAt);

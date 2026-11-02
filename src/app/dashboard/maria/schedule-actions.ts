@@ -26,7 +26,7 @@ export async function saveMariaScheduleAction(formData: FormData) {
     || !Number.isInteger(buffer)||buffer<0||buffer>120||buffer%15!==0) {
     redirect("/dashboard/maria?error=schedule");
   }
-  const days=[5,6].map(day=>({
+  const days=[5,6,0].map(day=>({
     day,closed:formData.get(`day_${day}_closed`)==="on",
     first:minutes(formData.get(`day_${day}_first`)),
     last:minutes(formData.get(`day_${day}_last`)),
@@ -71,5 +71,6 @@ export async function saveMariaScheduleAction(formData: FormData) {
     redirect("/dashboard/maria?error=schedule");
   }
   revalidatePath("/dashboard/maria");
-  redirect("/dashboard/maria?updated=schedule");
+  revalidatePath("/api/makeup-by-maria/config");
+  redirect("/dashboard/maria?updated=schedule#tider");
 }

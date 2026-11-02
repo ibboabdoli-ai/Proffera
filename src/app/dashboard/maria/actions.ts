@@ -116,5 +116,6 @@ export async function saveMariaYearAction(formData: FormData) {
   }
 
   revalidatePath("/dashboard/maria");
-  redirect(`/dashboard/maria?updated=${year}`);
+  revalidatePath("/api/makeup-by-maria/config");
+  redirect(`/dashboard/maria?updated=${year}&year=${year}#priser`);
 }

@@ -24,7 +24,7 @@ export async function getMariaAvailability(input: AvailabilityRequest): Promise<
     return { ok: false, error: "invalid" };
   }
   const weekday = new Date(Date.UTC(parsed.year, parsed.month - 1, parsed.day)).getUTCDay();
-  if (weekday !== 5 && weekday !== 6) return { ok: false, error: "hours" };
+  if (![0, 5, 6].includes(weekday)) return { ok: false, error: "hours" };
   if (input.excludeBookingId && !/^[0-9a-f-]{36}$/i.test(input.excludeBookingId)) {
     return { ok: false, error: "invalid" };
   }

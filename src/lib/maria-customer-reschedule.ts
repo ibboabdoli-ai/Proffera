@@ -117,7 +117,7 @@ export async function rescheduleMariaCustomerBooking(input: MariaChangeInput) {
             and ${end}::timestamptz=${start}::timestamptz+(s.duration_minutes*interval '1 minute')
             and ${start}::timestamptz>=now()+(s.minimum_notice_minutes*interval '1 minute')
             and ${start}::timestamptz<=now()+(s.maximum_advance_days*interval '1 day')
-            and extract(dow from ${start}::timestamptz at time zone 'Europe/Stockholm')::int in (5,6)
+            and extract(dow from ${start}::timestamptz at time zone 'Europe/Stockholm')::int in (0,5,6)
             and h.is_closed=false
             and ( ${start}::timestamptz at time zone 'Europe/Stockholm')::time
                 between h.opens_at and h.closes_at
