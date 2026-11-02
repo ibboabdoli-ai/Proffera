@@ -15,6 +15,7 @@ import {
 
 import { DashboardActionFeedback } from "@/components/dashboard/dashboard-action-feedback";
 import { DashboardMetricGrid, DashboardPageHeader } from "@/components/dashboard/dashboard-page-ui";
+import { MariaSwishPaymentControl } from "@/components/dashboard/maria-swish-payment-control";
 import { sendBookingRescheduleEmail } from "@/features/email/booking-reschedule-email";
 import { sendBookingStatusEmail } from "@/features/email/lead-email";
 import { sendMariaBookingStatusEmail } from "@/features/email/maria-deposit-email";
@@ -24,7 +25,8 @@ import { BookingRescheduleValidationError, rescheduleDashboardBooking } from "@/
 import { isDashboardBookingStatus, updateDashboardBookingStatus, type DashboardBookingStatus } from "@/lib/dashboard-booking-status";
 import { canManageWorkspaceSettings, getUserWorkspaceAccess } from "@/lib/workspace-access";
 import { hasDashboardModuleAccess } from "@/lib/workspace-module-access";
-import { MARIA_DEPOSIT_AMOUNT_SEK, MARIA_SWISH_NUMBER, MARIA_SWISH_QR_PATH, mariaBookingNumber } from "@/lib/maria-deposit";
+import { MARIA_DEPOSIT_AMOUNT_SEK, MARIA_SWISH_NUMBER, MARIA_SWISH_QR_PATH } from "@/lib/maria-deposit";
+import { readMariaManualSwishStatuses } from "@/lib/maria-manual-swish";
 import { getMariaPreviewPortalBase, isMariaPreviewTestRecipient } from "@/lib/maria-preview-customer-safety";
 
 export const dynamic = "force-dynamic";
@@ -34,7 +36,7 @@ type Locale = "sv" | "en";
 type ErrorKey = "access" | "status" | "save" | "maria_preview" | "maria_email_setup" | "reschedule_time" | "reschedule_past" | "reschedule_conflict" | "reschedule_status";
 type BookingDetailPageProps = {
   params: Promise<{ id: string }>;
-  searchParams?: Promise<{ error?: string | string[]; updated?: string | string[]; rescheduled?: string | string[]; created?: string | string[]; maria_mail?: string | string[]; lang?: string | string[] }>;
+  searchParams?: Promise<{ error?: string | string[]; updated?: string | string[]; rescheduled?: string | string[]; created?: string | string[]; maria_mail?: string | string[]; payment_saved?: string | string[]; payment_error?: string | string[]; lang?: string | string[] }>;
 };
 
 type ParsedBookingNotes = {
@@ -264,8 +266,10 @@ export default async function BookingDetailPage({ params, searchParams }: Bookin
 
   const { booking, customer, events } = detail;
   const access = await getUserWorkspaceAccess();
-  const mariaPreview = access.ok && access.workspaceSlug === "makeup-by-maria" && process.env.VERCEL_ENV === "preview";
-  const value = (key: "error" | "updated" | "rescheduled" | "created" | "maria_mail" | "lang") => { const item = query?.[key]; return Array.isArray(item) ? item[0] : item; };
+  const mariaPreview = access.ok && access.workspaceSlug === "makeup-by-maria"
+    && canManageWorkspaceSettings(access) && process.env.VERCEL_ENV === "preview";
+  const manualSwish = mariaPreview ? await readMariaManualSwishStatuses() : null;
+  const value = (key: "error" | "updated" | "rescheduled" | "created" | "maria_mail" | "payment_saved" | "payment_error" | "lang") => { const item = query?.[key]; return Array.isArray(item) ? item[0] : item; };
   const locale: Locale = value("lang") === "en" ? "en" : "sv";
   const isEnglish = locale === "en";
   const errorValue = value("error") as ErrorKey | undefined;
@@ -333,12 +337,18 @@ export default async function BookingDetailPage({ params, searchParams }: Bookin
           endast manuellt av Maria. Ingen automatisk betalningskontroll eller SMS.
         </p>
 
-        <div className="mt-4 rounded-lg border border-[#e9d6df] bg-white p-4">
-          <p className="text-sm font-semibold text-[#704858]">Bokningsnummer · Swish</p>
-          <code className="mt-2 block select-all break-all font-mono text-sm font-semibold text-[#49313c]">{mariaBookingNumber(booking.id)}</code>
-          <p className="mt-2 text-xs leading-6 text-[#76545f]">
-            Jämför numret med kundens Meddelande i Swish. En bekräftad bokning betyder inte att handpenningen är betald.
-          </p>
+        {value("payment_saved") === "paid" ? <p role="status" className="mt-3 rounded-lg bg-[#eaf8f2] p-3 text-sm font-semibold text-[#176a48]">Handpenningen har markerats som betald efter manuell kontroll.</p> : null}
+        {value("payment_saved") === "unverified" ? <p role="status" className="mt-3 rounded-lg bg-[#fff7df] p-3 text-sm font-semibold text-[#805d14]">Den manuella betalningsmarkeringen har ångrats.</p> : null}
+        {value("payment_error") ? <p role="alert" className="mt-3 rounded-lg bg-[#fff0ee] p-3 text-sm font-semibold text-[#a33b2f]">Kunde inte uppdatera Swish-handpenningen. Kontrollera betalningen och försök igen.</p> : null}
+        <div className="mt-4">
+          <MariaSwishPaymentControl
+            bookingId={booking.id}
+            bookingStatus={booking.status}
+            readOk={manualSwish?.ok === true}
+            entry={manualSwish?.entries[booking.id]}
+            returnTo="detail"
+            isEnglish={isEnglish}
+          />
         </div>
         <p className="mt-2 text-sm"><strong>Swish företag:</strong> {MARIA_SWISH_NUMBER}</p>
         <Image src={MARIA_SWISH_QR_PATH} alt="Makeup by Maria Swish QR för godkänd QA-kontroll"

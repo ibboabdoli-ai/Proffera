@@ -2,9 +2,10 @@ import Link from "next/link";
 import { CalendarCheck2, CalendarClock, CalendarPlus, CheckCircle2, ClipboardList, Clock3 } from "lucide-react";
 
 import { DashboardDataPanel, DashboardMetricGrid, DashboardPageHeader } from "@/components/dashboard/dashboard-page-ui";
+import { MariaSwishPaymentControl } from "@/components/dashboard/maria-swish-payment-control";
 import { getDashboardBookingsInStockholm } from "@/lib/dashboard-bookings-db";
-import { mariaBookingNumber } from "@/lib/maria-deposit";
-import { getUserWorkspaceAccess } from "@/lib/workspace-access";
+import { readMariaManualSwishStatuses } from "@/lib/maria-manual-swish";
+import { canManageWorkspaceSettings, getUserWorkspaceAccess } from "@/lib/workspace-access";
 
 export const dynamic = "force-dynamic";
 
@@ -45,7 +46,7 @@ function shouldShowBookingTitle(title: string, service: string) {
   return title.trim().toLocaleLowerCase("sv-SE") !== service.trim().toLocaleLowerCase("sv-SE");
 }
 
-type BookingsPageProps = { searchParams?: Promise<{ lang?: string | string[] }> };
+type BookingsPageProps = { searchParams?: Promise<{ lang?: string | string[]; payment_saved?: string; payment_error?: string }> };
 
 export default async function BookingsPage({ searchParams }: BookingsPageProps) {
   const params = searchParams ? await searchParams : undefined;
@@ -58,7 +59,9 @@ export default async function BookingsPage({ searchParams }: BookingsPageProps) 
   // Never add Maria's payment reference to another tenant's booking overview.
   const mariaPreview = access.ok
     && access.workspaceSlug === "makeup-by-maria"
+    && canManageWorkspaceSettings(access)
     && process.env.VERCEL_ENV === "preview";
+  const manualSwish = mariaPreview ? await readMariaManualSwishStatuses() : null;
   const confirmedBookings = bookings.filter((booking) => booking.status === "confirmed").length;
   const requestedBookings = bookings.filter((booking) => booking.status === "requested").length;
   const completedBookings = bookings.filter((booking) => booking.status === "completed").length;
@@ -93,6 +96,21 @@ export default async function BookingsPage({ searchParams }: BookingsPageProps) 
       <DashboardMetricGrid items={summary} />
 
       <DashboardDataPanel title={isEnglish ? "Current bookings" : "Aktuella bokningar"} description={isEnglish ? "Overview with time, customer, service, status and next action." : "Översikt med tid, kund, tjänst, status och nästa åtgärd."} count={bookings.length}>
+        {mariaPreview && params?.payment_saved === "paid" ? (
+          <p role="status" className="m-4 rounded-lg bg-[#eaf8f2] p-3 text-sm font-semibold text-[#176a48]">
+            {isEnglish ? "Swish deposit manually marked as paid." : "Swish-handpenningen har markerats som betald efter manuell kontroll."}
+          </p>
+        ) : null}
+        {mariaPreview && params?.payment_saved === "unverified" ? (
+          <p role="status" className="m-4 rounded-lg bg-[#fff7df] p-3 text-sm font-semibold text-[#805d14]">
+            {isEnglish ? "The manual payment mark was undone." : "Den manuella betalningsmarkeringen har ångrats."}
+          </p>
+        ) : null}
+        {mariaPreview && params?.payment_error ? (
+          <p role="alert" className="m-4 rounded-lg bg-[#fff0ee] p-3 text-sm font-semibold text-[#a33b2f]">
+            {isEnglish ? "The payment mark could not be saved. Verify the Swish payment and try again." : "Betalningsmarkeringen kunde inte sparas. Kontrollera Swish och försök igen."}
+          </p>
+        ) : null}
         {bookings.length === 0 ? (
           <div className="p-5 sm:p-6"><div className="rounded-2xl border border-dashed border-[#ced8cc] bg-[#f7f9f6] p-6 text-center text-sm text-ink-muted"><h4 className="font-bold text-ink">{isEnglish ? "No bookings yet" : "Inga bokningar ännu"}</h4><p className="mt-2 leading-7">{isEnglish ? "New bookings will appear here with time, customer, status and a link to the booking profile." : "När bokningar skapas visas de här med tid, kund, status och länk till bokningsprofilen."}</p><Link href={withLang("/dashboard/bokningar/ny", isEnglish)} className="mt-4 inline-flex min-h-10 items-center justify-center rounded-control bg-brand-deep px-4 py-2 text-sm font-bold text-white transition hover:bg-brand-hover">{isEnglish ? "Create first booking" : "Skapa första bokningen"}</Link></div></div>
         ) : (
@@ -108,14 +126,15 @@ export default async function BookingsPage({ searchParams }: BookingsPageProps) 
                 <div><p className="text-[10px] font-bold uppercase tracking-wide text-ink-muted lg:hidden">{columnLabels[5]}</p><p className="font-semibold text-brand">{getNextStep(booking.status, isEnglish)}</p></div>
                 <div><p className="text-[10px] font-bold uppercase tracking-wide text-ink-muted lg:hidden">{columnLabels[6]}</p><Link href={withLang(`/dashboard/bokningar/${booking.id}`, isEnglish)} className="inline-flex min-h-9 items-center justify-center rounded-control bg-brand-deep px-3 py-2 text-xs font-bold text-white transition hover:bg-brand-hover">{isEnglish ? "View booking" : "Visa bokning"}</Link></div>
                 {mariaPreview ? (
-                  <div className="min-w-0 rounded-lg border border-[#e9d6df] bg-[#fff9f8] p-3 lg:col-span-7" aria-label={isEnglish ? "Swish booking reference" : "Bokningsnummer för Swish"}>
-                    <p className="text-xs font-semibold text-[#704858]">{isEnglish ? "Booking number for Swish" : "Bokningsnummer för Swish"}</p>
-                    <code className="mt-1 block select-all break-all font-mono text-xs font-semibold text-[#49313c]">
-                      {mariaBookingNumber(booking.id)}
-                    </code>
-                    <p className="mt-1 text-xs text-[#76545f]">
-                      {isEnglish ? "Match this number with the Swish payment message. Check payment manually." : "Jämför numret med Meddelande i Swish. Kontrollera betalningen i Swish manuellt."}
-                    </p>
+                  <div className="min-w-0 lg:col-span-7">
+                    <MariaSwishPaymentControl
+                      bookingId={booking.id}
+                      bookingStatus={booking.status}
+                      readOk={manualSwish?.ok === true}
+                      entry={manualSwish?.entries[booking.id]}
+                      returnTo="list"
+                      isEnglish={isEnglish}
+                    />
                   </div>
                 ) : null}
               </div>

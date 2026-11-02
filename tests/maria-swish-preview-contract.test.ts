@@ -28,15 +28,43 @@ describe("Makeup by Maria Preview deposit flow contract", () => {
     expect(action).toContain("if (isMariaPreviewTestRecipient(notification.customerEmail))");
   });
 
-  it("shows the exact email payment reference only in Maria Preview dashboard booking views", () => {
+  it("shows one shared Swish booking number and a manual paid control in Maria Preview", () => {
     const list = file("src/app/dashboard/bokningar/page.tsx");
     const detail = file("src/app/dashboard/bokningar/[id]/page.tsx");
+    const control = file("src/components/dashboard/maria-swish-payment-control.tsx");
     expect(list).toContain('access.workspaceSlug === "makeup-by-maria"');
+    expect(list).toContain('canManageWorkspaceSettings(access)');
     expect(list).toContain('process.env.VERCEL_ENV === "preview"');
-    expect(list).toContain('mariaBookingNumber(booking.id)');
-    expect(list).toContain('Kontrollera betalningen i Swish manuellt.');
-    expect(detail).toContain('mariaBookingNumber(booking.id)');
-    expect(detail).toContain('En bekräftad bokning betyder inte att handpenningen är betald.');
+    expect(list).toContain('readMariaManualSwishStatuses()');
+    expect(list).toContain("<MariaSwishPaymentControl");
+    expect(detail).toContain("<MariaSwishPaymentControl");
+    expect(control).toContain("mariaBookingNumber(bookingId)");
+    expect(control).toContain('name="swish_checked" required');
+    expect(control).toContain("Jag har kontrollerat betalningen i Swish.");
+    expect(control).toContain("Markera som betald");
+    expect(control).toContain("Ångra betalningsmarkering");
+    expect(control).toContain("Betalningsstatus kunde inte läsas.");
+  });
+
+  it("persists manual Swish marks in scoped, append-only events, without a payment gateway", () => {
+    const db = file("src/lib/maria-manual-swish.ts");
+    const action = file("src/app/dashboard/maria/payment-actions.ts");
+    expect(db).toContain('process.env.VERCEL_ENV !== "preview"');
+    expect(db).toContain('access.workspaceSlug !== "makeup-by-maria"');
+    expect(db).toContain('canManageWorkspaceSettings(access)');
+    expect(db).toContain('hasDashboardModuleAccess("online_booking")');
+    expect(db).toContain('const source = "maria_swish_manual_deposit_v1"');
+    expect(db).toContain("select distinct on (e.booking_id)");
+    expect(db).toContain("join workspaces w on w.id::text = b.workspace_id");
+    expect(db).toContain("pg_advisory_xact_lock");
+    expect(db).toContain("insert into customer_events");
+    expect(db).toContain("where coalesce((select state from latest), 'unverified') <> ${state}");
+    expect(db).toContain("'actor_user_id', ${access.userId}");
+    expect(db).toContain("b.status in ('confirmed', 'completed')");
+    expect(db).not.toContain("workspace_service_job_payments");
+    expect(db).not.toContain("fetch(");
+    expect(action).toContain('data.get("swish_checked") !== "on"');
+    expect(action).toContain('revalidatePath("/dashboard/bokningar")');
   });
 
   it("does not add a payment gateway, automatic cancellation, migration or production flag", () => {
