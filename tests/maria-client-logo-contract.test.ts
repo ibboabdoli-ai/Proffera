@@ -19,8 +19,8 @@ describe("Makeup by Maria client-approved logo in Preview", () => {
   it("uses the same image on the primary booking and secondary portfolio pages", () => {
     const booking = read("public/demo/makeup-by-maria-v2.html");
     const portfolio = read("public/demo/makeup-by-maria.html");
-    expect(booking.match(new RegExp(logoUrl.replace(/[.*+?^$()|[\]{}]/g, "\\$&"), "g"))?.length).toBeGreaterThanOrEqual(4);
-    expect(portfolio.match(new RegExp(logoUrl.replace(/[.*+?^$()|[\]{}]/g, "\\$&"), "g"))?.length).toBeGreaterThanOrEqual(4);
+    expect(booking.split(logoUrl).length - 1).toBeGreaterThanOrEqual(4);
+    expect(portfolio.split(logoUrl).length - 1).toBeGreaterThanOrEqual(4);
     expect(booking).toContain('alt="Makeup by Maria — Bridal & Event Makeup"');
     expect(portfolio).toContain('alt="Makeup by Maria — Bridal & Event Makeup"');
     expect(booking).not.toContain('maria-wordmark.svg');
