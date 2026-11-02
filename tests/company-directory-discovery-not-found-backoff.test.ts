@@ -33,19 +33,23 @@ import {
 
 type SqlCall = { query: string; values: unknown[] };
 let calls: SqlCall[];
+let existingProfileId: string | null;
 
 beforeEach(() => {
   vi.clearAllMocks();
   vi.stubEnv("COMPANY_DIRECTORY_DETAIL_URL_TEMPLATE", "https://api.bolagsverket.se/organisationer");
   vi.stubEnv("COMPANY_DIRECTORY_SOURCE_BEARER_TOKEN", "test-only");
   calls = [];
+  existingProfileId = null;
 
   mocks.getSql.mockReturnValue(vi.fn(async (strings: TemplateStringsArray, ...values: unknown[]) => {
     const query = strings.join("?").replace(/\s+/g, " ").trim();
     calls.push({ query, values });
 
     if (query.includes("where state = 'processing'")) return [];
-    if (query.includes("select profile_id::text") && query.includes("organization_number")) return [];
+    if (query.includes("select profile_id::text") && query.includes("organization_number")) {
+      return existingProfileId ? [{ profile_id: existingProfileId }] : [];
+    }
     if (query.includes("with candidates as (")) {
       return [{
         id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
@@ -81,6 +85,7 @@ describe("automatic Directory discovery retry backoff", () => {
     expect(retry?.values).toContain("pending_verify");
     expect(retry?.query).toContain("source_fingerprint =");
     expect(retry?.query).toContain("primary_sni_code =");
+    expect(retry?.query).toContain("|| ' minutes')::interval");
     expect(mocks.upsertCompanyDirectoryCandidate).not.toHaveBeenCalled();
   });
 
@@ -96,6 +101,22 @@ describe("automatic Directory discovery retry backoff", () => {
     const retry = calls.find((call) => call.query.includes("last_error = case") && call.query.includes("and lock_token ="));
     expect(retry).toBeDefined();
     expect(retry?.values).toContain(24 * 60);
+  });
+
+  it.each([
+    ["existing-profile targeted pilot", () => processNewCompanyDirectoryDiscoveryQueueCandidate("5561234567")],
+    ["existing-profile controlled batch", () => processNewCompanyDirectoryDiscoveryQueueBatch(1)],
+  ])("preserves the 24-hour backoff for %s", async (_name, run) => {
+    existingProfileId = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
+    mocks.verifyOfficialCompanyCandidate.mockRejectedValue(
+      new BolagsverketOrganizationNotFoundError("ORGANISATION_FINNS_EJ"),
+    );
+    const result = await run();
+    expect(result).toMatchObject({ claimed: 1, processed: 0, errors: 1 });
+    const retry = calls.find((call) => call.query.includes("last_error = case") && call.query.includes("and lock_token ="));
+    expect(retry?.values).toContain(existingProfileId);
+    expect(retry?.values).toContain(24 * 60);
+    expect(retry?.query).toContain("|| ' minutes')::interval");
   });
 
   it("keeps short retries for transient failures", async () => {

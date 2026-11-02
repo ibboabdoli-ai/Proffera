@@ -19,7 +19,23 @@ export function resolveCompleteBolagsverketOrganizationRecord(
   if (errors.length > 0) {
     const message = `Bolagsverket response contains incomplete data: ${formatBolagsverketApiErrors(errors)}`;
     if (isDeterministicBolagsverketOrganizationNotFound(errors)) {
-      throw new BolagsverketOrganizationNotFoundError(message);
+      // A different organization's error must never delay the requested company.
+      // Fail closed on root-level errors, ambiguous identities and mixed records.
+      let requestedRecord: ReturnType<typeof resolveBolagsverketOrganizationRecord> | null = null;
+      try {
+        requestedRecord = resolveBolagsverketOrganizationRecord(payload, requestedOrganizationNumber);
+      } catch {
+        // Keep the ordinary incomplete-data response for ambiguous or absent identities.
+      }
+      if (requestedRecord) {
+        const requestedErrors = collectBolagsverketApiErrors(requestedRecord);
+        if (
+          requestedErrors.length === errors.length
+          && isDeterministicBolagsverketOrganizationNotFound(requestedErrors)
+        ) {
+          throw new BolagsverketOrganizationNotFoundError(message);
+        }
+      }
     }
     throw new Error(message);
   }

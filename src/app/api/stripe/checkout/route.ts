@@ -27,8 +27,8 @@ function settingsUrl(origin: string, status: "success" | "cancelled" | "error", 
 
 function isMissingStripeResource(error: unknown) {
   if (!error || typeof error !== "object") return false;
-  const stripeError = error as { code?: unknown; type?: unknown };
-  return stripeError.code === "resource_missing" || stripeError.type === "StripeInvalidRequestError";
+  const stripeError = error as { code?: unknown };
+  return stripeError.code === "resource_missing";
 }
 
 export async function POST(request: Request) {
@@ -75,6 +75,7 @@ export async function POST(request: Request) {
   }
 
   const planKey = planKeyValue;
+  const allowPromotionCodes = planKey === "starter";
   const sql = getSql();
   const stripe = getStripeClient();
   const priceId = getStripePriceIdForPlan(planKey);
@@ -124,7 +125,10 @@ export async function POST(request: Request) {
           const existingMarketMatches = existingSession.metadata?.billing_country_code === market.countryCode
             && existingSession.metadata?.billing_currency === market.billingCurrency
             && existingSession.metadata?.workspace_time_zone === market.timeZone;
-          if (String(existing?.stripe_price_id ?? "") === priceId && existingMarketMatches) {
+          const promotionCodeModeMatches = allowPromotionCodes
+            ? existingSession.allow_promotion_codes === true
+            : existingSession.allow_promotion_codes !== true;
+          if (String(existing?.stripe_price_id ?? "") === priceId && existingMarketMatches && promotionCodeModeMatches) {
             return checkoutResponse(existingSession.url);
           }
 
@@ -169,6 +173,7 @@ export async function POST(request: Request) {
     const checkoutSession = await stripe.checkout.sessions.create({
       mode: "subscription",
       line_items: [{ price: priceId, quantity: 1 }],
+      allow_promotion_codes: allowPromotionCodes,
       customer: customerId,
       billing_address_collection: "required",
       customer_update: customerId ? { address: "auto", name: "auto" } : undefined,

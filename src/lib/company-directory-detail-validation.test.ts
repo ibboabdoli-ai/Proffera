@@ -25,6 +25,49 @@ describe("complete Bolagsverket detail validation", () => {
     }, requested)).toThrow(BolagsverketOrganizationNotFoundError);
   });
 
+  it("does not treat a different organization's not-found error as the requested company's failure", () => {
+    const verify = () => resolveCompleteBolagsverketOrganizationRecord({
+      organisationer: [
+        { organisationsidentitet: { identitetsbeteckning: requested } },
+        {
+          organisationsidentitet: { identitetsbeteckning: "5567654321" },
+          juridiskForm: { fel: { typ: "ORGANISATION_FINNS_EJ" } },
+        },
+      ],
+    }, requested);
+    expect(verify).toThrow("incomplete data");
+    expect(verify).not.toThrow(BolagsverketOrganizationNotFoundError);
+  });
+
+  it("rejects mixed-organization not-found errors instead of delaying the requested company", () => {
+    const verify = () => resolveCompleteBolagsverketOrganizationRecord({
+      organisationer: [
+        {
+          organisationsidentitet: { identitetsbeteckning: requested },
+          juridiskForm: { fel: { typ: "ORGANISATION_FINNS_EJ" } },
+        },
+        {
+          organisationsidentitet: { identitetsbeteckning: "5567654321" },
+          juridiskForm: { fel: { typ: "ORGANISATION_FINNS_EJ" } },
+        },
+      ],
+    }, requested);
+    expect(verify).toThrow("incomplete data");
+    expect(verify).not.toThrow(BolagsverketOrganizationNotFoundError);
+  });
+
+  it("keeps a requested company's not-found response typed when another record is complete", () => {
+    expect(() => resolveCompleteBolagsverketOrganizationRecord({
+      organisationer: [
+        {
+          organisationsidentitet: { identitetsbeteckning: requested },
+          juridiskForm: { fel: { typ: "ORGANISATION_FINNS_EJ" } },
+        },
+        { organisationsidentitet: { identitetsbeteckning: "5567654321" } },
+      ],
+    }, requested)).toThrow(BolagsverketOrganizationNotFoundError);
+  });
+
   it("retains generic handling when a not-found response includes a transient error", () => {
     const verify = () => resolveCompleteBolagsverketOrganizationRecord({
       organisationer: [{
