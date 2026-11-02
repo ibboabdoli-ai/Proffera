@@ -117,12 +117,12 @@ export async function setMariaManualSwishStatus(bookingId: string, state: Manual
         select eligible.workspace_id, eligible.customer_id, eligible.id,
           'note', ${title}, ${description},
           jsonb_build_object(
-            'source', ${source},
-            'state', ${state},
+            'source', ${source}::text,
+            'state', ${state}::text,
             'currency', 'SEK',
-            'amount_minor', ${MARIA_DEPOSIT_AMOUNT_SEK * 100},
-            'booking_number', ${mariaBookingNumber(bookingId)},
-            'actor_user_id', ${access.userId}
+            'amount_minor', ${MARIA_DEPOSIT_AMOUNT_SEK * 100}::integer,
+            'booking_number', ${mariaBookingNumber(bookingId)}::text,
+            'actor_user_id', ${access.userId}::text
           )
         from eligible
         where coalesce((select state from latest), 'unverified') <> ${state}

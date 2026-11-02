@@ -49,6 +49,8 @@ export async function saveMariaYearAction(formData: FormData) {
     const serviceName = `Brudsmink ${withTrial ? "med" : "utan"} prov ${year}`;
     const slug = `maria-bridal-${kind}-${year}`;
     const label = price === null ? "Pris på förfrågan" : `${new Intl.NumberFormat("sv-SE").format(price)} kr`;
+    // base_price_sek is a legacy integer. Exact öre belong only in price_amount_minor.
+    const legacyIntegerSek = price !== null && Number.isInteger(price) ? price : null;
     return sql!`
       insert into workspace_services (
         workspace_id, name, description, short_description, category, price_label,
@@ -59,7 +61,7 @@ export async function saveMariaYearAction(formData: FormData) {
       select ${access.workspaceId}, ${serviceName},
         ${description}, ${description},
         'Brudmakeup', ${label}, ${price === null ? "quote" : "fixed"},
-        ${price === null ? null : Math.round(price * 100)}, ${price},
+        ${price === null ? null : Math.round(price * 100)}, ${legacyIntegerSek},
         coalesce((select max(s.duration_minutes) from workspace_services s
           where s.workspace_id = ${access.workspaceId}
             and s.public_slug ~ '^maria-bridal-(trial|without-trial)-(202[6-9]|203[0-6])$'), 180),
