@@ -2,6 +2,7 @@ import "server-only";
 
 import { getSql } from "@/lib/db/server";
 import { MARIA_DEPOSIT_AMOUNT_SEK, mariaBookingNumber } from "@/lib/maria-deposit";
+import { isMariaPreviewTestRecipient } from "@/lib/maria-preview-customer-safety";
 import { canManageWorkspaceSettings, getUserWorkspaceAccess } from "@/lib/workspace-access";
 import { hasDashboardModuleAccess } from "@/lib/workspace-module-access";
 
@@ -30,6 +31,8 @@ async function requireMariaPreviewManager() {
 export async function readMariaManualSwishStatuses(): Promise<ManualSwishStatusRead> {
   try {
     const access = await requireMariaPreviewManager();
+    const approvedRecipient = process.env.PROFFERA_MARIA_PREVIEW_TEST_EMAIL?.trim().toLowerCase();
+    if (!approvedRecipient || !isMariaPreviewTestRecipient(approvedRecipient)) return { ok: false, entries: {} };
     const sql = getSql();
     if (!sql) return { ok: false, entries: {} };
     const rows = await sql`
@@ -37,6 +40,8 @@ export async function readMariaManualSwishStatuses(): Promise<ManualSwishStatusR
         latest.metadata->>'state' as state,
         latest.created_at::text as marked_at
       from bookings b
+      join customers c on c.id=b.customer_id and c.workspace_id=b.workspace_id
+        and lower(trim(c.email))=${approvedRecipient}
       left join lateral (
         select e.metadata, e.created_at
         from customer_events e
@@ -75,6 +80,11 @@ export async function setMariaManualSwishStatus(bookingId: string, state: Manual
     throw new Error("MARIA_MANUAL_SWISH_INVALID");
   }
   const access = await requireMariaPreviewManager();
+  const approvedRecipient = process.env.PROFFERA_MARIA_PREVIEW_TEST_EMAIL?.trim().toLowerCase();
+  if (!approvedRecipient || !isMariaPreviewTestRecipient(approvedRecipient)) {
+    throw new Error("MARIA_MANUAL_SWISH_FORBIDDEN");
+  }
+  const normalizedBookingId = bookingId.toLowerCase();
   const sql = getSql();
   if (!sql) throw new Error("MARIA_MANUAL_SWISH_DATABASE");
   const title = state === "paid"
@@ -85,25 +95,28 @@ export async function setMariaManualSwishStatus(bookingId: string, state: Manual
     : "Administratören har återställt betalningsstatus till ej verifierad.";
   // One transaction and one per-booking lock: concurrent clicks cannot create duplicate status events.
   const results = await sql.transaction([
-    sql`select pg_advisory_xact_lock(hashtextextended(${bookingId}::text, 62004))`,
+    sql`select pg_advisory_xact_lock(hashtextextended(${normalizedBookingId}::text, 62004))`,
     sql`
       with eligible as (
         select b.id, b.workspace_id, b.customer_id
         from bookings b
         join workspaces w on w.id::text = b.workspace_id
+        join customers c on c.id=b.customer_id and c.workspace_id=b.workspace_id
         where b.workspace_id = ${access.workspaceId}
+          and lower(trim(c.email))=${approvedRecipient}
           and w.slug = 'makeup-by-maria'
           and w.status in ('active', 'trial')
-          and b.id = ${bookingId}::uuid
+          and b.id = ${normalizedBookingId}::uuid
           and b.customer_id is not null
           and b.source not in ('dashboard_availability_block', 'dashboard_availability_recurring_block')
           and (${state} = 'unverified' or b.status in ('confirmed', 'completed'))
+        for share of b
       ),
       latest as (
         select e.metadata->>'state' as state
         from customer_events e
         where e.workspace_id = ${access.workspaceId}
-          and e.booking_id = ${bookingId}::uuid
+          and e.booking_id = ${normalizedBookingId}::uuid
           and e.event_type = 'note'
           and e.metadata->>'source' = ${source}
           and e.metadata->>'state' in ('paid', 'unverified')
@@ -121,7 +134,7 @@ export async function setMariaManualSwishStatus(bookingId: string, state: Manual
             'state', ${state}::text,
             'currency', 'SEK',
             'amount_minor', ${MARIA_DEPOSIT_AMOUNT_SEK * 100}::integer,
-            'booking_number', ${mariaBookingNumber(bookingId)}::text,
+            'booking_number', ${mariaBookingNumber(normalizedBookingId)}::text,
             'actor_user_id', ${access.userId}::text
           )
         from eligible

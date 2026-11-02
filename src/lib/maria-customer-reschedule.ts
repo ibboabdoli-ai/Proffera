@@ -108,6 +108,7 @@ export async function rescheduleMariaCustomerBooking(input: MariaChangeInput) {
             and b.workspace_id=${input.workspaceId}
             and b.staff_id is null and b.source='public_booking'
             and b.status in ('requested','confirmed') and b.starts_at>now()
+            and b.starts_at<>${start}::timestamptz
             and w.slug='makeup-by-maria' and w.public_booking_slug='makeup-by-maria'
             and w.status in ('active','trial')
             and lower(c.email)=lower(${process.env.PROFFERA_MARIA_PREVIEW_TEST_EMAIL?.trim() ?? ""})

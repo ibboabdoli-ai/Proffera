@@ -34,6 +34,33 @@ describe("Maria per-year copy and manual booking controls", () => {
     expect(page).toContain('[0,5,6].includes(weekday)');
     expect(page).toContain('cache:"no-store"');
   });
+  it("keeps Maria-specific editing in the isolated Preview environment", () => {
+    expect(read("src/app/dashboard/maria/page.tsx")).toContain('process.env.VERCEL_ENV !== "preview"');
+    expect(read("src/app/dashboard/maria/actions.ts")).toContain('process.env.VERCEL_ENV !== "preview"');
+    expect(read("src/app/dashboard/maria/schedule-actions.ts")).toContain('process.env.VERCEL_ENV !== "preview"');
+    expect(read("src/lib/maria-dashboard-reschedule.ts")).toContain("pg_advisory_xact_lock");
+    expect(read("src/lib/maria-dashboard-reschedule.ts")).toContain("public_booking_verifications hold");
+  });
+
+  it("uses bounded request parsing and Stockholm booking times", () => {
+    const route = read("src/app/api/makeup-by-maria/booking/route.ts");
+    expect(route).toContain("request.body.getReader()");
+    expect(route).toContain("reader.cancel()");
+    expect(route).toContain("received > 8192");
+    expect(route).not.toContain("request.text()");
+    expect(route).toContain('const timeZone = "Europe/Stockholm" as const');
+  });
+
+  it("prevents a forged completion notice and shows persisted payment status only", () => {
+    const design = read("public/demo/makeup-by-maria-v2.html");
+    const list = read("src/app/dashboard/bokningar/page.tsx");
+    const detail = read("src/app/dashboard/bokningar/[id]/page.tsx");
+    expect(design).toContain('sv:{title:"Bokningsinformation"');
+    expect(design).not.toContain('title:"Tack! Din e-post är verifierad."');
+    expect(list).not.toContain('params?.payment_saved === "paid"');
+    expect(detail).not.toContain('value("payment_saved") === "paid"');
+  });
+
   it("keeps writes scoped, logged and publication state intact", () => {
     const action = read("src/app/dashboard/maria/actions.ts");
     expect(action).toContain('access.workspaceSlug !== "makeup-by-maria"');

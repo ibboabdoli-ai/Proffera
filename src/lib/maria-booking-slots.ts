@@ -55,6 +55,8 @@ export function availableMariaStartSlots(input: MariaStartWindow): string[] {
   const now = input.now.getTime();
   const slots: string[] = [];
   for (let minute = opening; minute <= latest; minute += step) {
+    // A booking cannot end after the final minute of the selected local day.
+    if (minute + input.durationMinutes > 1439) continue;
     const clock = `${String(Math.floor(minute / 60)).padStart(2, "0")}:${String(minute % 60).padStart(2, "0")}`;
     const start = localTimeToUtc(input.date, clock, input.timeZone).getTime();
     if (!Number.isFinite(start) || start < now + input.minimumNoticeMinutes * 60_000

@@ -7,7 +7,6 @@ import { getMariaAvailability } from "@/lib/maria-booking-availability";
 import { allowPublicSubmission } from "@/lib/public-form-protection";
 import {
   parseLocalDateTime,
-  resolveBookingTimeZone,
   timeToMinutes,
   validatePublicBookingPolicy,
 } from "@/lib/public-booking-policy";
@@ -46,8 +45,33 @@ export async function POST(request: Request) {
 
   let input: Record<string, unknown>;
   try {
-    const raw = await request.text();
-    if (raw.length > 8192) return failure("invalid", 413);
+    // Enforce the byte limit during stream consumption, including chunked requests.
+    if (!request.body) return failure("invalid", 400);
+    const reader = request.body.getReader();
+    const chunks: Uint8Array[] = [];
+    let received = 0;
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        if (!value) continue;
+        received += value.byteLength;
+        if (received > 8192) {
+          await reader.cancel().catch(() => undefined);
+          return failure("invalid", 413);
+        }
+        chunks.push(value);
+      }
+    } finally {
+      reader.releaseLock();
+    }
+    const bytes = new Uint8Array(received);
+    let offset = 0;
+    for (const chunk of chunks) {
+      bytes.set(chunk, offset);
+      offset += chunk.byteLength;
+    }
+    const raw = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
     const parsed: unknown = JSON.parse(raw);
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return failure("invalid", 400);
     input = parsed as Record<string, unknown>;
@@ -115,7 +139,8 @@ export async function POST(request: Request) {
     limit 1
   `;
   const hour = schedule[0];
-  const timeZone = resolveBookingTimeZone(readiness.timeZone);
+  // Maria's advertised slots, persisted starts and messages all use Stockholm wall time.
+  const timeZone = "Europe/Stockholm" as const;
   const validation = validatePublicBookingPolicy({
     startsAt: `${date}T${time}`,
     now: new Date(),

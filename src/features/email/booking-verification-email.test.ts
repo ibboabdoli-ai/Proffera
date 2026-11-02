@@ -57,7 +57,7 @@ describe("Maria verification email branding isolation", () => {
     expect(sent[0]!.textContent).toContain("لن يتم إنشاء الحجز إلا بعد التحقق من الرمز.");
   });
 
-  it.each([413, 422])("identifies HTTP %i as a definitive provider rejection", async (status) => {
+  it.each([413, 422, 429])("identifies HTTP %i as a definitive provider rejection", async (status) => {
     vi.stubGlobal("fetch", vi.fn(async () => ({
       ok: false, status, json: async () => ({ message: "rejected" }),
     })));

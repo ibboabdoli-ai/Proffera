@@ -110,7 +110,7 @@ export async function sendBookingVerificationEmail(input: BookingVerificationEma
     if (response.ok) return { ok: true as const, providerId: data.messageId ?? null };
     // A definitive provider rejection is different from a timeout or a 5xx:
     // in the latter cases the email might have been accepted already.
-    const rejected = [400, 401, 403, 404, 413, 422].includes(response.status);
+    const rejected = [400, 401, 403, 404, 413, 422, 429].includes(response.status);
     return {
       ok: false as const,
       message: data.message ?? data.code ?? "Email delivery failed.",

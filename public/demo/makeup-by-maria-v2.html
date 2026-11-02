@@ -221,9 +221,9 @@ if(["sv","en","ar"].includes(returnLanguage))state.lang=returnLanguage;
 const successfulBookingReturn=returnParams.get("booked")==="1";
 let bookingReturnLoading=successfulBookingReturn;
 const bookingCompleteCopy={
- sv:{title:"Tack! Din e-post är verifierad.",text:"Din bokningsförfrågan har tagits emot. Maria bekräftar tiden separat.",again:"Gör en ny bokning"},
- en:{title:"Thank you! Your email is verified.",text:"We have received your booking request. Maria will confirm the appointment separately.",again:"Make another booking"},
- ar:{title:"شكراً! تم تأكيد بريدك الإلكتروني.",text:"لقد استلمنا طلب الحجز. ستؤكد ماريا الموعد بشكل منفصل.",again:"احجزي موعداً آخر"}
+ sv:{title:"Bokningsinformation",text:"Om du har slutfört e-postverifieringen får du bokningsbesked i mejlet. Maria bekräftar tiden separat.",again:"Gör en ny bokning"},
+ en:{title:"Booking information",text:"If you completed email verification, check your email for booking details. Maria confirms the time separately.",again:"Make another booking"},
+ ar:{title:"معلومات الحجز",text:"إذا أكملتِ التحقق من بريدك الإلكتروني، يرجى مراجعة البريد لمعرفة تفاصيل الحجز. ستؤكد ماريا الموعد بشكل منفصل.",again:"احجزي موعداً آخر"}
 };
 function showBookingComplete(){
  if(!successfulBookingReturn||bookingReturnLoading||!workspaceConfig.bookingEnabled)return;
@@ -238,7 +238,7 @@ function showBookingComplete(){
 }
 // Fallback is the customer-approved demo. Authenticated workspace managers
 // may preview their unpublished prices from Proffera without enabling booking.
-const formStartedAt=Date.now();
+let formStartedAt=Date.now();
 const liveBookingCopy={
  sv:{safety:"Bokningen skickas först efter att du har verifierat din e-postadress. Datum och tid måste vara tillgängliga.",submit:"FORTSÄTT TILL E-POSTVERIFIERING ↗",sending:"Kontrollerar bokning och skickar verifieringskod...",error:"Bokningen kunde inte påbörjas. Kontrollera valt datum och försök igen."},
  en:{safety:"Your booking is created only after email verification. The selected date and time must be available.",submit:"CONTINUE TO EMAIL VERIFICATION ↗",sending:"Checking availability and sending a verification code...",error:"We could not begin your booking. Check your selected date and try again."},
@@ -417,6 +417,7 @@ function translate(){
 }
 function showStep(step){
  if(successfulBookingReturn)return;
+ if(step==="details"&&state.step!=="details")formStartedAt=Date.now();
  state.step=step;
  $("backHome").hidden=step==="year";
  for(const name of ["year","service","details"])$(name==="year"?"yearStep":name==="service"?"serviceStep":"detailsStep").hidden=name!==step;

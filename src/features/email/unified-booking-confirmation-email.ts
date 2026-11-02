@@ -1,6 +1,7 @@
 import "server-only";
 
 import type { WorkspaceTimeZone } from "@/lib/workspace-market";
+import { getMariaPreviewPortalBase, isMariaPreviewTestRecipient } from "@/lib/maria-preview-customer-safety";
 
 type Input = {
   customerName: string;
@@ -236,6 +237,12 @@ export function buildUnifiedBookingConfirmationEmail(input: Input) {
 }
 
 export async function sendUnifiedBookingConfirmationEmail(input: Input) {
+  // Maria branding and its contact links are strictly for the approved QA inbox.
+  // A generic Production caller must never be able to bypass that boundary.
+  if (input.branding === "makeup-by-maria"
+    && (!getMariaPreviewPortalBase() || !isMariaPreviewTestRecipient(input.customerEmail))) {
+    return { ok: false as const, message: "Maria Preview recipient not approved." };
+  }
   const apiKey = process.env.BREVO_API_KEY;
   const from = process.env.LEAD_FROM_EMAIL;
   if (!apiKey || !from) return { ok: false as const, message: "Brevo är inte konfigurerat." };

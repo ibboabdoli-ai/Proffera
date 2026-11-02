@@ -36,6 +36,8 @@ vi.mock("next/navigation", () => ({
 
 import { readMariaManualSwishStatuses, setMariaManualSwishStatus } from "@/lib/maria-manual-swish";
 import { saveMariaYearAction } from "@/app/dashboard/maria/actions";
+import { saveMariaScheduleAction } from "@/app/dashboard/maria/schedule-actions";
+import { rescheduleMariaDashboardBooking } from "@/lib/maria-dashboard-reschedule";
 
 const RUN = process.env.GITHUB_ACTIONS === "true"
   || process.env.PROFFERA_POSTGRES_INTEGRATION === "1";
@@ -62,6 +64,8 @@ function compileSql(strings: TemplateStringsArray, values: unknown[]): Query {
 
   beforeAll(async () => {
     vi.stubEnv("VERCEL_ENV", "preview");
+    vi.stubEnv("VERCEL_URL", "qa.vercel.app");
+    vi.stubEnv("PROFFERA_MARIA_PREVIEW_TEST_EMAIL", "qa@example.invalid");
     runtime.workspaceId = workspaceId;
     container = "proffera-maria-manager-" + process.pid + "-" + Date.now();
     docker(["run", "--rm", "-d", "--name", container,
@@ -129,7 +133,7 @@ function compileSql(strings: TemplateStringsArray, values: unknown[]): Query {
       [workspaceId],
     );
     await db.query(
-      "insert into customers (id, workspace_id, name, status, source) values ($1::uuid, $2, 'Synthetic Maria customer', 'active', 'dashboard_manual')",
+      "insert into customers (id, workspace_id, name, email, status, source) values ($1::uuid, $2, 'Synthetic Maria customer', 'qa@example.invalid', 'active', 'dashboard_manual')",
       [customerId, workspaceId],
     );
     await db.query(
@@ -152,6 +156,7 @@ function compileSql(strings: TemplateStringsArray, values: unknown[]): Query {
     expect(await setMariaManualSwishStatus(bookingId, "paid")).toEqual({ changed: true });
     expect((await readMariaManualSwishStatuses()).entries[bookingId]?.state).toBe("paid");
     expect(await setMariaManualSwishStatus(bookingId, "paid")).toEqual({ changed: false });
+    expect(await setMariaManualSwishStatus(bookingId.toUpperCase(), "paid")).toEqual({ changed: false });
     const paid = await db!.query<{ metadata: { state: string; amount_minor: number; booking_number: string; actor_user_id: string } }>(
       "select metadata from customer_events where workspace_id=$1 and booking_id=$2::uuid and metadata->>'source'='maria_swish_manual_deposit_v1'",
       [workspaceId, bookingId],
@@ -227,4 +232,113 @@ function compileSql(strings: TemplateStringsArray, values: unknown[]): Query {
     expect(updated.rows[0]?.base_price_sek).toBeNull();
     expect(updated.rows[0]?.public_status).toBe("published");
   });
+  it("refuses an unapproved Preview recipient and a cancelled booking", async () => {
+    vi.stubEnv("PROFFERA_MARIA_PREVIEW_TEST_EMAIL", "different-qa@example.invalid");
+    expect((await readMariaManualSwishStatuses()).ok).toBe(false);
+    await expect(setMariaManualSwishStatus(bookingId, "paid")).rejects.toThrow("MARIA_MANUAL_SWISH_FORBIDDEN");
+    vi.stubEnv("PROFFERA_MARIA_PREVIEW_TEST_EMAIL", "qa@example.invalid");
+    await db!.query("update bookings set status='cancelled' where id=$1::uuid and workspace_id=$2", [bookingId, workspaceId]);
+    await expect(setMariaManualSwishStatus(bookingId, "paid")).rejects.toThrow("MARIA_MANUAL_SWISH_INELIGIBLE");
+    await db!.query("update bookings set status='confirmed' where id=$1::uuid and workspace_id=$2", [bookingId, workspaceId]);
+  });
+
+  it("rejects year name/slug collisions atomically without a partial package or audit", async () => {
+    await db!.query(
+      "insert into workspace_services (workspace_id,name,public_slug,duration_minutes) values ($1,'Brudsmink med prov 2027','synthetic-conflicting-slug-2027',180)",
+      [workspaceId],
+    );
+    const beforeAudit = await db!.query<{ count: number }>(
+      "select count(*)::int as count from admin_audit_logs where workspace_id=$1::uuid and action='maria.booking_year_content.updated'",
+      [workspaceId],
+    );
+    const form = new FormData();
+    form.set("year", "2027"); form.set("enabled", "on");
+    form.set("trial", "7000"); form.set("without", "6000");
+    form.set("trial_description", "QA with trial");
+    form.set("without_description", "QA without trial");
+    await expect(saveMariaYearAction(form)).rejects.toThrow("TEST_REDIRECT:/dashboard/maria?error=save");
+    const rows = await db!.query(
+      "select public_slug from workspace_services where workspace_id=$1 and public_slug like 'maria-bridal-%-2027'",
+      [workspaceId],
+    );
+    expect(rows.rowCount).toBe(0);
+    const afterAudit = await db!.query<{ count: number }>(
+      "select count(*)::int as count from admin_audit_logs where workspace_id=$1::uuid and action='maria.booking_year_content.updated'",
+      [workspaceId],
+    );
+    expect(afterAudit.rows[0]?.count).toBe(beforeAudit.rows[0]?.count);
+  });
+
+  it("reschedules one Maria QA booking with the workspace lock and rejects overlapping verification holds", async () => {
+    const service = await db!.query<{ id: string }>(
+      "select id::text from workspace_services where workspace_id=$1 and public_slug='maria-bridal-trial-2026' and public_status='published'",
+      [workspaceId],
+    );
+    expect(service.rowCount).toBe(1);
+    await db!.query(
+      "update bookings set service_id=$1::uuid,source='public_booking',starts_at=now()+interval '20 days', ends_at=now()+interval '20 days 3 hours' where id=$2::uuid",
+      [service.rows[0]!.id, bookingId],
+    );
+    await db!.query(
+      "insert into workspace_booking_hours (workspace_id,weekday,opens_at,closes_at,is_closed) values ($1,5,'06:00','10:00',false) on conflict (workspace_id,weekday) do update set opens_at='06:00',closes_at='10:00',is_closed=false",
+      [workspaceId],
+    );
+    const day = (await db!.query<{ day: string }>(
+      "select to_char(current_date + (((5 - extract(dow from current_date)::int + 7) % 7) + 7), 'YYYY-MM-DD') as day",
+    )).rows[0]!.day;
+    expect(day.slice(0, 4)).toBe("2026");
+    const changed = await rescheduleMariaDashboardBooking({
+      bookingId, workspaceId, localStartsAt: day + "T06:00",
+    });
+    expect(changed.ok).toBe(true);
+    if (!changed.ok) throw new Error(changed.error);
+    expect(changed.result.changed).toBe(true);
+    const persisted = await db!.query(
+      "select (starts_at at time zone 'Europe/Stockholm')::text as starts_local from bookings where id=$1::uuid",
+      [bookingId],
+    );
+    expect(String(persisted.rows[0]?.starts_local)).toContain(day + " 06:00:00");
+
+    await db!.query(
+      "insert into public_booking_verifications (workspace_id,public_booking_slug,customer_name,customer_email,service_id,service_name,starts_at,ends_at,code_hash,expires_at) values ($1::uuid,'makeup-by-maria','QA Hold','qa@example.invalid',$2::uuid,'Synthetic hold',($3::timestamp at time zone 'Europe/Stockholm'),($3::timestamp at time zone 'Europe/Stockholm') + interval '3 hours','synthetic-only',now()+interval '30 minutes')",
+      [workspaceId, service.rows[0]!.id, day + " 09:30"],
+    );
+    const conflicted = await rescheduleMariaDashboardBooking({
+      bookingId, workspaceId, localStartsAt: day + "T09:30",
+    });
+    expect(conflicted).toMatchObject({ ok: false, error: "conflict" });
+  });
+
+  it("saves open days while ignoring invalid hidden clock values for closed days", async () => {
+    const form = new FormData();
+    form.set("duration_minutes", "720");
+    form.set("buffer_after_minutes", "120");
+    for (const day of [5, 6, 0]) {
+      form.set("day_" + day + "_first", "06:00");
+      form.set("day_" + day + "_last", day === 0 ? "10:00" : "08:00");
+    }
+    form.set("day_0_closed", "on");
+    await expect(saveMariaScheduleAction(form))
+      .rejects.toThrow("TEST_REDIRECT:/dashboard/maria?updated=schedule#tider");
+    const results = await db!.query<{
+      weekday: number; is_closed: boolean; opens_at: string | null;
+    }>(
+      "select weekday,is_closed,opens_at::text from workspace_booking_hours where workspace_id=$1 and weekday in (0,5,6) order by weekday",
+      [workspaceId],
+    );
+    expect(results.rows).toHaveLength(3);
+    expect(results.rows.find((x) => x.weekday === 0)?.is_closed).toBe(true);
+    expect(results.rows.find((x) => x.weekday === 0)?.opens_at).toBeNull();
+    expect(results.rows.find((x) => x.weekday === 5)?.is_closed).toBe(false);
+  });
+
+  it("keeps Maria year and schedule writers unavailable in Production", async () => {
+    vi.stubEnv("VERCEL_ENV", "production");
+    const form = new FormData();
+    form.set("year", "2026");
+    await expect(saveMariaYearAction(form)).rejects.toThrow("TEST_REDIRECT:/dashboard");
+    await expect(saveMariaScheduleAction(form)).rejects.toThrow("TEST_REDIRECT:/dashboard");
+    vi.stubEnv("VERCEL_ENV", "preview");
+  });
+
 });

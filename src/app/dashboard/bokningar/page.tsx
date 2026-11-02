@@ -96,16 +96,6 @@ export default async function BookingsPage({ searchParams }: BookingsPageProps) 
       <DashboardMetricGrid items={summary} />
 
       <DashboardDataPanel title={isEnglish ? "Current bookings" : "Aktuella bokningar"} description={isEnglish ? "Overview with time, customer, service, status and next action." : "Översikt med tid, kund, tjänst, status och nästa åtgärd."} count={bookings.length}>
-        {mariaPreview && params?.payment_saved === "paid" ? (
-          <p role="status" className="m-4 rounded-lg bg-[#eaf8f2] p-3 text-sm font-semibold text-[#176a48]">
-            {isEnglish ? "Swish deposit manually marked as paid." : "Swish-handpenningen har markerats som betald efter manuell kontroll."}
-          </p>
-        ) : null}
-        {mariaPreview && params?.payment_saved === "unverified" ? (
-          <p role="status" className="m-4 rounded-lg bg-[#fff7df] p-3 text-sm font-semibold text-[#805d14]">
-            {isEnglish ? "The manual payment mark was undone." : "Den manuella betalningsmarkeringen har ångrats."}
-          </p>
-        ) : null}
         {mariaPreview && params?.payment_error ? (
           <p role="alert" className="m-4 rounded-lg bg-[#fff0ee] p-3 text-sm font-semibold text-[#a33b2f]">
             {isEnglish ? "The payment mark could not be saved. Verify the Swish payment and try again." : "Betalningsmarkeringen kunde inte sparas. Kontrollera Swish och försök igen."}

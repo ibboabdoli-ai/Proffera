@@ -18,7 +18,7 @@ const expectedKeys = [
 
 export default async function MariaSiteDashboardPage({ searchParams }: { searchParams?: Promise<{ updated?: string; error?: string; year?: string }> }) {
   const access = await getUserWorkspaceAccess();
-  if (!access.ok || access.workspaceSlug !== expectedSlug || !canManageWorkspaceSettings(access)) {
+  if (process.env.VERCEL_ENV !== "preview" || !access.ok || access.workspaceSlug !== expectedSlug || !canManageWorkspaceSettings(access)) {
     redirect("/dashboard");
   }
 

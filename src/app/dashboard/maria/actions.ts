@@ -12,7 +12,7 @@ const LAST_YEAR = 2036;
 
 export async function saveMariaYearAction(formData: FormData) {
   const access = await getUserWorkspaceAccess();
-  if (!access.ok || access.workspaceSlug !== "makeup-by-maria" || !canManageWorkspaceSettings(access)) {
+  if (process.env.VERCEL_ENV !== "preview" || !access.ok || access.workspaceSlug !== "makeup-by-maria" || !canManageWorkspaceSettings(access)) {
     redirect("/dashboard");
   }
   const sql = getSql();
@@ -98,6 +98,28 @@ export async function saveMariaYearAction(formData: FormData) {
     const result = await sql.transaction([
       record("trial", trial, trialDescription),
       record("without-trial", without, withoutDescription),
+      // Check the final persisted values inside the DB transaction, not after commit.
+      // A name collision with a different slug must roll back both packages and the audit.
+      sql`
+        select 1 / (case when (
+          select count(*) from workspace_services s
+          where s.workspace_id=${access.workspaceId}
+            and (
+              (s.name=${`Brudsmink med prov ${year}`}
+                and s.public_slug=${`maria-bridal-trial-${year}`}
+                and s.short_description=${trialDescription}
+                and s.price_amount_minor is not distinct from ${trial === null ? null : Math.round(trial*100)}::bigint
+                and s.base_price_sek is not distinct from ${trial !== null && Number.isInteger(trial) ? trial : null}::integer
+                and s.is_active=${enabled})
+              or (s.name=${`Brudsmink utan prov ${year}`}
+                and s.public_slug=${`maria-bridal-without-trial-${year}`}
+                and s.short_description=${withoutDescription}
+                and s.price_amount_minor is not distinct from ${without === null ? null : Math.round(without*100)}::bigint
+                and s.base_price_sek is not distinct from ${without !== null && Number.isInteger(without) ? without : null}::integer
+                and s.is_active=${enabled})
+            )
+        ) = 2 then 1 else 0 end) as maria_year_guard
+      `,
       sql`
         insert into admin_audit_logs (admin_user_id,workspace_id,action,reason,new_value)
         values (
