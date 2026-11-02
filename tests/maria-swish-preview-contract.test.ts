@@ -36,7 +36,8 @@ describe("Makeup by Maria Preview deposit flow contract", () => {
     expect(email).toContain("getMariaPreviewPortalBase()");
     expect(email).toContain("isMariaPreviewTestRecipient(input.customerEmail)");
     expect(email).toContain("Avbokning sker inte automatiskt");
-    expect(email).toContain("maria-swish-qr.jpg");
+    expect(policy).toContain('MARIA_SWISH_QR_PATH = "/demo/makeup-by-maria/assets/maria-swish-qr.jpg"');
+    expect(email).toContain("new URL(MARIA_SWISH_QR_PATH, origin)");
     expect(email).not.toContain("STRIPE_SECRET_KEY");
   });
 });
