@@ -61,6 +61,21 @@ describe("Maria per-year copy and manual booking controls", () => {
     expect(detail).not.toContain('value("payment_saved") === "paid"');
   });
 
+  it("retains existing booking lengths after Maria changes a service duration", () => {
+    const availability = read("src/lib/maria-booking-availability.ts");
+    const manager = read("src/lib/maria-dashboard-reschedule.ts");
+    const customer = read("src/lib/maria-customer-reschedule.ts");
+    expect(availability).toContain("!input.excludeBookingId || !Number.isInteger(input.durationOverrideMinutes)");
+    expect(availability).toContain("durationMinutes: input.durationOverrideMinutes ?? Number(service.duration_minutes)");
+    expect(manager).toContain("durationOverrideMinutes: durationMinutes");
+    expect(manager).toContain("(b.ends_at-b.starts_at)");
+    expect(customer).toContain("durationMinutes: originalDurationMinutes");
+    expect(customer).toContain("durationOverrideMinutes: originalDurationMinutes");
+    expect(customer).toContain("b.starts_at=${bookedStart}::timestamptz");
+    expect(customer).toContain("b.ends_at=${bookedEnd}::timestamptz");
+    expect(customer).toContain("(b.ends_at-b.starts_at)");
+  });
+
   it("serializes Maria status and rescheduling writes without affecting other tenants", () => {
     const status = read("src/lib/dashboard-booking-status.ts");
     const reschedule = read("src/lib/maria-dashboard-reschedule.ts");

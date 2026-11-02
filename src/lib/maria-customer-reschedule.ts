@@ -32,7 +32,8 @@ export async function rescheduleMariaCustomerBooking(input: MariaChangeInput) {
   const sql = getSql();
   if (!sql) return denied;
   const before = await sql`
-    select b.service_id, s.public_slug, s.duration_minutes, s.buffer_before_minutes,
+    select b.service_id, b.starts_at::text as booked_starts_at,
+      b.ends_at::text as booked_ends_at, s.public_slug, s.duration_minutes, s.buffer_before_minutes,
       s.buffer_after_minutes, s.minimum_notice_minutes, s.maximum_advance_days,
       c.email as customer_email
     from bookings b
@@ -46,6 +47,11 @@ export async function rescheduleMariaCustomerBooking(input: MariaChangeInput) {
   `;
   const service = before[0];
   if (!service || !isMariaPreviewTestRecipient(String(service.customer_email))) return denied;
+  const bookedStart = String(service.booked_starts_at);
+  const bookedEnd = String(service.booked_ends_at);
+  const originalDurationMinutes = (Date.parse(bookedEnd)-Date.parse(bookedStart))/60_000;
+  if (!Number.isInteger(originalDurationMinutes) || originalDurationMinutes < 1
+    || originalDurationMinutes > 1440) return denied;
 
   const slug = String(service.public_slug ?? "");
   const match = /^maria-bridal-(trial|without-trial)-(202[6-9]|203[0-6])$/.exec(slug);
@@ -57,7 +63,7 @@ export async function rescheduleMariaCustomerBooking(input: MariaChangeInput) {
     startsAt: input.startsAtLocal,
     now: new Date(),
     service: {
-      durationMinutes: Number(service.duration_minutes),
+      durationMinutes: originalDurationMinutes,
       bufferBeforeMinutes: Number(service.buffer_before_minutes) || 0,
       bufferAfterMinutes: Number(service.buffer_after_minutes) || 0,
       minimumNoticeMinutes: Number(service.minimum_notice_minutes) || 0,
@@ -76,6 +82,7 @@ export async function rescheduleMariaCustomerBooking(input: MariaChangeInput) {
     kind: match[1] === "trial" ? "trial" : "without",
     timeZone: "Europe/Stockholm",
     excludeBookingId: input.bookingId,
+    durationOverrideMinutes: originalDurationMinutes,
   });
   if (!advertised.ok || !advertised.slots.includes(time)) {
     return { ok: false as const, error: "conflict" as const };
@@ -108,6 +115,8 @@ export async function rescheduleMariaCustomerBooking(input: MariaChangeInput) {
             and b.workspace_id=${input.workspaceId}
             and b.staff_id is null and b.source='public_booking'
             and b.status in ('requested','confirmed') and b.starts_at>now()
+            and b.starts_at=${bookedStart}::timestamptz
+            and b.ends_at=${bookedEnd}::timestamptz
             and b.starts_at<>${start}::timestamptz
             and w.slug='makeup-by-maria' and w.public_booking_slug='makeup-by-maria'
             and w.status in ('active','trial')
@@ -115,7 +124,7 @@ export async function rescheduleMariaCustomerBooking(input: MariaChangeInput) {
             and coalesce(ps.customer_reschedule_enabled,true)=true
             and s.public_slug=${slug} and s.is_active=true and s.public_status='published'
             and s.duration_minutes between 1 and 1440
-            and ${end}::timestamptz=${start}::timestamptz+(s.duration_minutes*interval '1 minute')
+            and ${end}::timestamptz=${start}::timestamptz+(b.ends_at-b.starts_at)
             and ${start}::timestamptz>=now()+(s.minimum_notice_minutes*interval '1 minute')
             and ${start}::timestamptz<=now()+(s.maximum_advance_days*interval '1 day')
             and extract(dow from ${start}::timestamptz at time zone 'Europe/Stockholm')::int in (0,5,6)

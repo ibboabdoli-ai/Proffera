@@ -12,6 +12,9 @@ type AvailabilityRequest = {
   timeZone: "Europe/Stockholm";
   // Only authenticated self-service can exclude its own existing booking.
   excludeBookingId?: string;
+  // Only a verified booking change may retain its original appointment length
+  // after the service's configured duration has changed.
+  durationOverrideMinutes?: number;
 };
 
 export type MariaAvailabilityResult =
@@ -28,6 +31,10 @@ export async function getMariaAvailability(input: AvailabilityRequest): Promise<
   if (input.excludeBookingId && !/^[0-9a-f-]{36}$/i.test(input.excludeBookingId)) {
     return { ok: false, error: "invalid" };
   }
+  if (input.durationOverrideMinutes !== undefined && (
+    !input.excludeBookingId || !Number.isInteger(input.durationOverrideMinutes)
+    || input.durationOverrideMinutes < 1 || input.durationOverrideMinutes > 1440
+  )) return { ok: false, error: "invalid" };
   const sql = getSql();
   if (!sql) return { ok: false, error: "database" };
   const slug = `maria-bridal-${input.kind === "trial" ? "trial" : "without-trial"}-${input.year}`;
@@ -99,7 +106,7 @@ export async function getMariaAvailability(input: AvailabilityRequest): Promise<
         date: input.date,
         earliestStart: String(hoursRow.opens_at).slice(0,5),
         latestStart: String(hoursRow.closes_at).slice(0,5),
-        durationMinutes: Number(service.duration_minutes),
+        durationMinutes: input.durationOverrideMinutes ?? Number(service.duration_minutes),
         bufferBeforeMinutes: Number(service.buffer_before_minutes) || 0,
         bufferAfterMinutes: Number(service.buffer_after_minutes) || 0,
         minimumNoticeMinutes: Number(service.minimum_notice_minutes) || 0,

@@ -63,7 +63,10 @@ export async function rescheduleMariaDashboardBooking(input: {
   const oldStart = new Date(String(booking.starts_at));
   const oldEnd = new Date(String(booking.ends_at));
   const durationMs = oldEnd.getTime() - oldStart.getTime();
-  if (durationMs < 60_000 || durationMs !== Number(booking.duration_minutes) * 60_000) {
+  // Existing appointments retain the duration persisted on their booking,
+  // even when Maria later changes the duration for NEW bookings.
+  const durationMinutes = durationMs / 60_000;
+  if (!Number.isInteger(durationMinutes) || durationMinutes < 1 || durationMinutes > 1440) {
     return { ok: false, error: "status" };
   }
   if (oldStart.getTime() === start.getTime()) {
@@ -75,6 +78,7 @@ export async function rescheduleMariaDashboardBooking(input: {
     workspaceId: input.workspaceId, date, year: local.year,
     kind: match[1] === "trial" ? "trial" : "without",
     excludeBookingId: input.bookingId,
+    durationOverrideMinutes: durationMinutes,
     timeZone,
   });
   if (!offered.ok || !offered.slots.includes(clock)) {
@@ -111,7 +115,7 @@ export async function rescheduleMariaDashboardBooking(input: {
             and s.public_slug=${String(booking.public_slug)}
             and s.is_active=true and s.public_status='published'
             and s.duration_minutes between 1 and 1440
-            and ${newEndIso}::timestamptz=${newStartIso}::timestamptz+(s.duration_minutes*interval '1 minute')
+            and ${newEndIso}::timestamptz=${newStartIso}::timestamptz+(b.ends_at-b.starts_at)
             and ${newStartIso}::timestamptz >= now()+(s.minimum_notice_minutes*interval '1 minute')
             and ${newStartIso}::timestamptz <= now()+(s.maximum_advance_days*interval '1 day')
             and extract(dow from ${newStartIso}::timestamptz at time zone 'Europe/Stockholm')::int in (0,5,6)
