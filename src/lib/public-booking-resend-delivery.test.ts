@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   getSql: vi.fn(),
@@ -20,7 +20,7 @@ vi.mock("@/lib/customer-calendar", () => ({ createCustomerCalendarToken: vi.fn()
 vi.mock("@/lib/maria-verified-booking", () => ({ finalizeMariaVerifiedBooking: vi.fn() }));
 vi.mock("@/lib/maria-preview-customer-safety", () => ({ isMariaPreviewTestRecipient: mocks.recipient }));
 
-import { resendPublicBookingCode } from "./public-booking-verification";
+import { resendPublicBookingCode, verifyPublicBookingCode } from "./public-booking-verification";
 
 const workspaceId = "19fecc58-08ba-406e-b3b7-090df9401cf7";
 const verificationId = "00000000-0000-0000-0000-000000000001";
@@ -59,9 +59,50 @@ beforeEach(() => {
   mocks.email.mockResolvedValue({ ok: true, providerId: "qa" });
 });
 
+afterEach(() => {
+  vi.unstubAllEnvs();
+});
+
 const deletes = () => statements.filter((entry) => entry.sql.includes("delete from public_booking_verifications"));
 
 describe("Maria resend: provider uncertainty must not discard a potentially delivered code", () => {
+  it.each(["", "new-qa@example.invalid"])(
+    "rejects verification when the approved Preview inbox changes to %s",
+    async (approvedEmail) => {
+      vi.stubEnv("VERCEL_ENV", "preview");
+      vi.stubEnv("PROFFERA_MARIA_PREVIEW_TEST_EMAIL", approvedEmail);
+      const actual = await vi.importActual<typeof import("./maria-preview-customer-safety")>(
+        "./maria-preview-customer-safety",
+      );
+      mocks.recipient.mockImplementation(actual.isMariaPreviewTestRecipient);
+      challenge.expires_at = new Date(Date.now() + 600_000).toISOString();
+      challenge.attempts = 0;
+      challenge.max_attempts = 5;
+
+      expect(await verifyPublicBookingCode(verificationId, "123456")).toEqual({
+        ok: false, error: "invalid",
+      });
+      expect(mocks.recipient).toHaveBeenCalledWith("qa@example.invalid");
+      expect(statements).toHaveLength(1); // Only the initial read; no writes.
+      expect(mocks.renew).not.toHaveBeenCalled();
+      expect(mocks.email).not.toHaveBeenCalled();
+    },
+  );
+
+  it("does not apply the Maria recipient rule to a different workspace", async () => {
+    vi.stubEnv("VERCEL_ENV", "preview");
+    vi.stubEnv("PROFFERA_MARIA_PREVIEW_TEST_EMAIL", "");
+    challenge.public_booking_slug = "other-business";
+    challenge.expires_at = new Date(Date.now() + 600_000).toISOString();
+    challenge.attempts = 0;
+    challenge.max_attempts = 5;
+    challenge.code_hash = "wrong-code";
+    expect(await verifyPublicBookingCode(verificationId, "123456")).toEqual({
+      ok: false, error: "code",
+    });
+    expect(mocks.recipient).not.toHaveBeenCalled();
+  });
+
   it("rejects an outstanding challenge when its Preview recipient is no longer approved", async () => {
     mocks.recipient.mockReturnValue(false);
     expect(await resendPublicBookingCode(verificationId)).toEqual({ ok: false, error: "invalid" });

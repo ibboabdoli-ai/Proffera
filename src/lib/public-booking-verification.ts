@@ -338,6 +338,11 @@ export async function verifyPublicBookingCode(id: string, code: string, language
   `;
   const challenge = rows[0];
   if (!challenge || challenge.consumed_at || challenge.verified_at) return { ok: false as const, error: "invalid" };
+  // The approved Preview inbox may have changed since the OTP was issued.
+  if (String(challenge.public_booking_slug) === "makeup-by-maria"
+    && !isMariaPreviewTestRecipient(String(challenge.customer_email))) {
+    return { ok: false as const, error: "invalid" };
+  }
   if (new Date(String(challenge.expires_at)) <= new Date()) return { ok: false as const, error: "expired" };
   if (Number(challenge.attempts) >= Number(challenge.max_attempts)) return { ok: false as const, error: "attempts" };
 
