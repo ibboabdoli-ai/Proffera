@@ -7,6 +7,7 @@ describe("Maria Preview customer-only delivery gate", () => {
     VERCEL_ENV: "preview",
     VERCEL_URL: "proffera-jhap-qa.vercel.app",
     PROFFERA_MARIA_PREVIEW_TEST_EMAIL: "qa@example.invalid",
+    PROFFERA_PREVIEW_EMAIL_RECIPIENT: "qa@example.invalid",
   } as NodeJS.ProcessEnv;
 
   it("only permits the approved QA recipient in Preview", () => {
@@ -14,6 +15,21 @@ describe("Maria Preview customer-only delivery gate", () => {
     expect(isMariaPreviewTestRecipient("customer@example.com", preview)).toBe(false);
     expect(isMariaPreviewTestRecipient("qa@example.invalid", { ...preview, VERCEL_ENV: "production" })).toBe(false);
     expect(isMariaPreviewTestRecipient("qa@example.invalid", { ...preview, PROFFERA_MARIA_PREVIEW_TEST_EMAIL: "" })).toBe(false);
+  });
+
+  it("rejects a different, missing or malformed effective Brevo Preview inbox", () => {
+    expect(isMariaPreviewTestRecipient("qa@example.invalid", {
+      ...preview, PROFFERA_PREVIEW_EMAIL_RECIPIENT: "other@example.invalid",
+    })).toBe(false);
+    expect(isMariaPreviewTestRecipient("qa@example.invalid", {
+      ...preview, PROFFERA_PREVIEW_EMAIL_RECIPIENT: "",
+    })).toBe(false);
+    expect(isMariaPreviewTestRecipient("qa@example.invalid", {
+      ...preview, PROFFERA_PREVIEW_EMAIL_RECIPIENT: "not-an-email",
+    })).toBe(false);
+    expect(isMariaPreviewTestRecipient(" QA@example.invalid ", {
+      ...preview, PROFFERA_PREVIEW_EMAIL_RECIPIENT: " QA@EXAMPLE.INVALID ",
+    })).toBe(true);
   });
 
   it("builds Preview-only portal links and refuses arbitrary hosts", () => {

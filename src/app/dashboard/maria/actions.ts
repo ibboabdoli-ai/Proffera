@@ -96,6 +96,9 @@ export async function saveMariaYearAction(formData: FormData) {
 
   try {
     const result = await sql.transaction([
+      // Serialize new-year creation with schedule changes and booking holds.
+      // Both settings writers must inherit the same committed duration/buffer.
+      sql`select pg_advisory_xact_lock(hashtextextended(${access.workspaceId}::text, 713))`,
       record("trial", trial, trialDescription),
       record("without-trial", without, withoutDescription),
       // Check the final persisted values inside the DB transaction, not after commit.
@@ -130,7 +133,7 @@ export async function saveMariaYearAction(formData: FormData) {
         )
       `,
     ]);
-    if (result[0]?.length !== 1 || result[1]?.length !== 1) {
+    if (result[1]?.length !== 1 || result[2]?.length !== 1) {
       // A missing target indicates a stale or conflicting Maria service; fail closed.
       throw new Error("SERVICE_CONFLICT");
     }

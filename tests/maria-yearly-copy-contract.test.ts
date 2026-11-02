@@ -67,5 +67,12 @@ describe("Maria per-year copy and manual booking controls", () => {
     expect(action).toContain("description=excluded.description");
     expect(action).toContain("short_description=excluded.short_description");
     expect(action).toContain("public_status=workspace_services.public_status");
+    // Lock must precede both service inserts, not just the post-write assertion.
+    expect(action.indexOf("pg_advisory_xact_lock(")).toBeGreaterThan(-1);
+    expect(action.indexOf("pg_advisory_xact_lock(")).toBeLessThan(action.indexOf('record("trial"'));
+    expect(action).toContain("result[1]?.length !== 1 || result[2]?.length !== 1");
+    expect(read("src/app/dashboard/maria/schedule-actions.ts")).toContain(
+      "pg_advisory_xact_lock(hashtextextended(",
+    );
   });
 });
