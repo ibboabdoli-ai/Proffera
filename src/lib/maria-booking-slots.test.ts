@@ -66,7 +66,7 @@ describe("Maria one-person bridal makeup booking", () => {
     })).toEqual(["20:00", "20:30"]);
   });
 
-  it("offers Sunday starts without blocking unrelated time automatically" () => {
+  it("offers Sunday starts without blocking unrelated time automatically", () => {
     expect(availableMariaStartSlots({...settings,date:"2026-10-18",busy:[]})).toEqual([
       "06:00","06:30","07:00","07:30","08:00","08:30","09:00","09:30","10:00",
     ]);
