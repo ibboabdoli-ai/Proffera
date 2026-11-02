@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import { setTimeout as delay } from "node:timers/promises";
 
 import { Client } from "pg";
-import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { applyCanonicalProfferaMigrations } from "./helpers/postgres-canonical-schema";
 
 type Query = { text: string; values: unknown[] };
@@ -63,9 +63,6 @@ function compileSql(strings: TemplateStringsArray, values: unknown[]): Query {
   const bookingId = randomUUID();
 
   beforeAll(async () => {
-    vi.stubEnv("VERCEL_ENV", "preview");
-    vi.stubEnv("VERCEL_URL", "qa.vercel.app");
-    vi.stubEnv("PROFFERA_MARIA_PREVIEW_TEST_EMAIL", "qa@example.invalid");
     runtime.workspaceId = workspaceId;
     container = "proffera-maria-manager-" + process.pid + "-" + Date.now();
     docker(["run", "--rm", "-d", "--name", container,
@@ -151,6 +148,18 @@ function compileSql(strings: TemplateStringsArray, values: unknown[]): Query {
     }
   }, 30_000);
 
+  // A failing negative assertion must not leave a revoked QA inbox or
+  // Production environment active for the next real-PostgreSQL test.
+  beforeEach(() => {
+    vi.stubEnv("VERCEL_ENV", "preview");
+    vi.stubEnv("VERCEL_URL", "qa.vercel.app");
+    vi.stubEnv("PROFFERA_MARIA_PREVIEW_TEST_EMAIL", "qa@example.invalid");
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
   it("records, reads, deduplicates and reverses the human-verified Swish deposit", async () => {
     expect((await readMariaManualSwishStatuses()).entries[bookingId]?.state).toBe("unverified");
     expect(await setMariaManualSwishStatus(bookingId, "paid")).toEqual({ changed: true });
@@ -232,14 +241,36 @@ function compileSql(strings: TemplateStringsArray, values: unknown[]): Query {
     expect(updated.rows[0]?.base_price_sek).toBeNull();
     expect(updated.rows[0]?.public_status).toBe("published");
   });
-  it("refuses an unapproved Preview recipient and a cancelled booking", async () => {
+  it("hides and refuses a booking when the approved Preview recipient changes", async () => {
+    const count = () => db!.query<{ count: number }>(
+      "select count(*)::int as count from customer_events where workspace_id=$1 and booking_id=$2::uuid and metadata->>'source'='maria_swish_manual_deposit_v1'",
+      [workspaceId, bookingId],
+    );
+    const before = Number((await count()).rows[0]?.count);
     vi.stubEnv("PROFFERA_MARIA_PREVIEW_TEST_EMAIL", "different-qa@example.invalid");
-    expect((await readMariaManualSwishStatuses()).ok).toBe(false);
-    await expect(setMariaManualSwishStatus(bookingId, "paid")).rejects.toThrow("MARIA_MANUAL_SWISH_FORBIDDEN");
-    vi.stubEnv("PROFFERA_MARIA_PREVIEW_TEST_EMAIL", "qa@example.invalid");
+    // ok reports a successful read; an empty projection proves that the old
+    // recipient's booking is not exposed under the new allowlist.
+    expect(await readMariaManualSwishStatuses()).toEqual({ ok: true, entries: {} });
+    await expect(setMariaManualSwishStatus(bookingId, "paid"))
+      .rejects.toThrow("MARIA_MANUAL_SWISH_INELIGIBLE");
+    expect(Number((await count()).rows[0]?.count)).toBe(before);
+  });
+
+  it("fails closed when no Preview recipient is configured", async () => {
+    vi.stubEnv("PROFFERA_MARIA_PREVIEW_TEST_EMAIL", "");
+    expect(await readMariaManualSwishStatuses()).toEqual({ ok: false, entries: {} });
+    await expect(setMariaManualSwishStatus(bookingId, "paid"))
+      .rejects.toThrow("MARIA_MANUAL_SWISH_FORBIDDEN");
+  });
+
+  it("refuses a cancelled booking without leaving cancelled fixture state behind", async () => {
     await db!.query("update bookings set status='cancelled' where id=$1::uuid and workspace_id=$2", [bookingId, workspaceId]);
-    await expect(setMariaManualSwishStatus(bookingId, "paid")).rejects.toThrow("MARIA_MANUAL_SWISH_INELIGIBLE");
-    await db!.query("update bookings set status='confirmed' where id=$1::uuid and workspace_id=$2", [bookingId, workspaceId]);
+    try {
+      await expect(setMariaManualSwishStatus(bookingId, "paid"))
+        .rejects.toThrow("MARIA_MANUAL_SWISH_INELIGIBLE");
+    } finally {
+      await db!.query("update bookings set status='confirmed' where id=$1::uuid and workspace_id=$2", [bookingId, workspaceId]);
+    }
   });
 
   it("rejects year name/slug collisions atomically without a partial package or audit", async () => {
