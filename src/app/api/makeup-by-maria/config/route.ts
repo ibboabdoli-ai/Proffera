@@ -39,7 +39,7 @@ export async function GET() {
 
     const [services, hours, bookingReadiness] = await Promise.all([
       sql`
-        select public_slug, price_type, price_amount_minor, is_active,
+        select public_slug, price_type, price_amount_minor, short_description, is_active,
           public_status, duration_minutes, maximum_advance_days
         from workspace_services
         where workspace_id = ${workspaceId}
@@ -62,12 +62,12 @@ export async function GET() {
 
     // This endpoint exposes only the approved Maria demo's year/price values,
     // never customer data. Draft values may be viewed publicly on Preview only.
-    const defaults = new Map<number, {year: number; enabled: boolean; trial: number | null; without: number | null}>([
+    const defaults = new Map<number, {year: number; enabled: boolean; trial: number | null; without: number | null; trialDescription?: string; withoutDescription?: string}>([
       [2026, {year:2026, enabled:true, trial:6800, without:5800}],
       [2027, {year:2027, enabled:true, trial:null, without:null}],
       [2028, {year:2028, enabled:true, trial:null, without:null}],
     ]);
-    const saved = new Map<number, {trial?: {enabled: boolean; value: number | null}; without?: {enabled: boolean; value: number | null}}>();
+    const saved = new Map<number, {trial?: {enabled: boolean; value: number | null; description: string}; without?: {enabled: boolean; value: number | null; description: string}}>();
     for (const row of services) {
       const match = /^maria-bridal-(trial|without-trial)-(202[6-9]|203[0-6])$/.exec(String(row.public_slug));
       if (!match) continue;
@@ -79,7 +79,9 @@ export async function GET() {
         ? amount / 100
         : null;
       const item = saved.get(year) ?? {};
-      item[kind] = {enabled: row.is_active === true, value};
+      const description = typeof row.short_description === "string" && row.short_description.length <= 280
+        ? row.short_description.trim() : "";
+      item[kind] = {enabled: row.is_active === true, value, description};
       saved.set(year, item);
     }
     for (const [year, items] of saved) {
@@ -89,6 +91,8 @@ export async function GET() {
         enabled: Boolean(items.trial?.enabled && items.without?.enabled),
         trial: items.trial ? items.trial.value : (original?.trial ?? null),
         without: items.without ? items.without.value : (original?.without ?? null),
+        trialDescription: items.trial?.description ?? original?.trialDescription,
+        withoutDescription: items.without?.description ?? original?.withoutDescription,
       });
     }
     const years = [...defaults.values()].sort((a,b)=>a.year-b.year).filter(v=>v.enabled);

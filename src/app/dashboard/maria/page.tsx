@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { CalendarDays, ExternalLink, Settings2, ShieldCheck } from "lucide-react";
+import { CalendarDays, CalendarOff, ExternalLink, Settings2, ShieldCheck } from "lucide-react";
 
 import { getDashboardWorkspaceServices } from "@/lib/workspace-services-db";
 import { getDashboardWorkspaceBookingHours } from "@/lib/workspace-booking-hours-db";
@@ -44,6 +44,8 @@ export default async function MariaSiteDashboardPage({ searchParams }: { searchP
   const missingYears = availableYears.filter((year) => !displayedYears.includes(year));
   const savedPackage = (year: number, kind: "trial" | "without-trial") =>
     services.find((item) => item.publicSlug === `maria-bridal-${kind}-${year}`);
+  const savedCopy = (year: number, kind: "trial" | "without-trial") =>
+    savedPackage(year, kind)?.shortDescription ?? "";
   const savedPrice = (year: number, kind: "trial" | "without-trial") => {
     const service = savedPackage(year, kind);
     return service?.priceType === "fixed" && service.priceAmountMinor !== null
@@ -82,6 +84,14 @@ export default async function MariaSiteDashboardPage({ searchParams }: { searchP
             className="inline-flex min-h-11 items-center gap-2 rounded-lg bg-[#845363] px-4 py-2 text-sm font-bold text-white">
             Öppna design 02 <ExternalLink size={16} />
           </Link>
+          <Link href="/dashboard/bokningar"
+            className="inline-flex min-h-11 items-center gap-2 rounded-lg border border-[#bfa1a9] px-4 py-2 text-sm font-bold text-[#754b5a]">
+            Hantera bokningar <CalendarDays size={16} />
+          </Link>
+          <Link href="/dashboard/bokningar/blockera"
+            className="inline-flex min-h-11 items-center gap-2 rounded-lg border border-[#bfa1a9] px-4 py-2 text-sm font-bold text-[#754b5a]">
+            Blockera tider manuellt <CalendarOff size={16} />
+          </Link>
           <Link href="/dashboard/installningar#tjanster"
             className="inline-flex min-h-11 items-center gap-2 rounded-lg border border-[#bfa1a9] px-4 py-2 text-sm font-bold text-[#754b5a]">
             Redigera tjänster <Settings2 size={16} />
@@ -93,7 +103,8 @@ export default async function MariaSiteDashboardPage({ searchParams }: { searchP
       <section className="rounded-2xl border border-[#e8d9dc] bg-white p-6 sm:p-8">
         <h2 className="font-serif text-2xl text-[#352a2c]">Bröllopsår och paketpriser</h2>
         <p className="mt-2 max-w-2xl text-sm leading-6 text-[#705f65]">
-          Ändra priset för varje bröllopsår och paket. Ett tomt pris betyder &quot;Pris på förfrågan&quot;.
+          Ändra svensk beskrivning och pris för varje bröllopsår och paket. Ett tomt pris betyder &quot;Pris på förfrågan&quot;.
+          Engelska och arabiska versioner behåller sina befintliga översättningar.
           Avmarkera ett år för att dölja det i förhandsvisningen. Inga riktiga bokningar aktiveras.
         </p>
         {q.updated ? (
@@ -121,17 +132,33 @@ export default async function MariaSiteDashboardPage({ searchParams }: { searchP
               <div className="mt-4 grid gap-3 sm:grid-cols-2">
                 <label className="grid gap-1.5 text-xs font-semibold text-[#634853]">
                   Brudsmink med prov · SEK
-                  <input type="number" name="trial" min="0" max="250000" step="1" inputMode="numeric"
+                  <input type="number" name="trial" min="0" max="250000" step="0.01" inputMode="decimal"
                     defaultValue={savedPrice(year, "trial")}
                     placeholder="Pris på förfrågan"
                     className="min-h-11 w-full rounded-lg border border-[#d8c4cb] bg-white px-3 text-sm text-[#352a2c]" />
                 </label>
                 <label className="grid gap-1.5 text-xs font-semibold text-[#634853]">
                   Brudsmink utan prov · SEK
-                  <input type="number" name="without" min="0" max="250000" step="1" inputMode="numeric"
+                  <input type="number" name="without" min="0" max="250000" step="0.01" inputMode="decimal"
                     defaultValue={savedPrice(year, "without-trial")}
                     placeholder="Pris på förfrågan"
                     className="min-h-11 w-full rounded-lg border border-[#d8c4cb] bg-white px-3 text-sm text-[#352a2c]" />
+                </label>
+              </div>
+              <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                <label className="grid gap-1.5 text-xs font-semibold text-[#634853]">
+                  Text för brudsmink med prov · svenska
+                  <textarea name="trial_description" maxLength={280} rows={3}
+                    defaultValue={savedCopy(year, "trial")}
+                    placeholder="Lämna tomt för standardtext"
+                    className="w-full rounded-lg border border-[#d8c4cb] bg-white px-3 py-2 text-sm text-[#352a2c]" />
+                </label>
+                <label className="grid gap-1.5 text-xs font-semibold text-[#634853]">
+                  Text för brudsmink utan prov · svenska
+                  <textarea name="without_description" maxLength={280} rows={3}
+                    defaultValue={savedCopy(year, "without-trial")}
+                    placeholder="Lämna tomt för standardtext"
+                    className="w-full rounded-lg border border-[#d8c4cb] bg-white px-3 py-2 text-sm text-[#352a2c]" />
                 </label>
               </div>
               <button type="submit" className="mt-4 min-h-11 rounded-lg bg-[#845363] px-5 text-xs font-bold text-white hover:bg-[#6d3e4e]">
@@ -200,11 +227,20 @@ export default async function MariaSiteDashboardPage({ searchParams }: { searchP
               </fieldset>
             ))}
           </div>
-          <p className="text-xs text-[#705f65]">Starttider visas i steg om 30 minuter. Exempel: 06:00–09:00 bokat → tidigast 09:00 kan bokas igen.</p>
+          <p className="text-xs text-[#705f65]">Starttider visas i steg om 30 minuter. En bokning upptar alltid sin behandlingstid för att förhindra dubbelbokning. Välj 0 minuters automatisk paus och använd &quot;Blockera tider manuellt&quot; för egna luckor före eller efter bokningen.</p>
           <button type="submit" className="min-h-11 rounded-lg bg-[#845363] px-5 text-sm font-bold text-white hover:bg-[#6d3e4e]">
             Spara bokningstider
           </button>
         </form>
+      </section>
+
+      <section className="rounded-2xl border border-[#e8d9dc] bg-white p-6 sm:p-8">
+        <h2 className="font-serif text-2xl text-[#352a2c]">Bokningar och manuella blockeringar</h2>
+        <p className="mt-2 text-sm leading-6 text-[#705f65]">Maria kan själv granska bokningsförfrågningar, bekräfta, avboka eller flytta tider från bokningsprofilen. Blockera eller frigör ledig tid före eller efter en bokning separat. Ingen handpenning registreras eller begärs automatiskt.</p>
+        <div className="mt-4 flex flex-wrap gap-3">
+          <Link href="/dashboard/bokningar" className="inline-flex min-h-11 items-center rounded-lg bg-[#845363] px-5 text-sm font-bold text-white">Öppna bokningar</Link>
+          <Link href="/dashboard/bokningar/blockera" className="inline-flex min-h-11 items-center rounded-lg border border-[#bfa1a9] px-5 text-sm font-bold text-[#754b5a]">Blockera / frigör tider</Link>
+        </div>
       </section>
 
       <section className="grid gap-4 sm:grid-cols-2">

@@ -403,6 +403,11 @@ function translate(){
   document.querySelector(".first-design").hidden=true;
  }
  document.querySelector('[data-i="detailsPrompt"]').textContent=displayedBookingHours();
+ if(state.lang==="sv"&&state.year){
+  const details=workspaceConfig.years.find(item=>item.year===state.year);
+  if(details?.trialDescription)document.querySelector('[data-i="trialDesc"]').textContent=details.trialDescription;
+  if(details?.withoutDescription)document.querySelector('[data-i="withoutDesc"]').textContent=details.withoutDescription;
+ }
  $("trialPrice").textContent=displayYearPrice("trial");
  $("withoutPrice").textContent=displayYearPrice("without");
  $("backHome").textContent=uiCopy().home;
@@ -594,7 +599,9 @@ async function loadMariaWorkspace(){
     .filter(y=>y&&Number.isInteger(y.year)&&y.year>=2026&&y.year<=2036&&y.enabled===true
       &&["trial","without"].every(k=>y[k]===null||y[k]===undefined
          ||isValidYearPrice(y[k])))
-    .map(y=>({year:y.year,enabled:true,trial:y.trial??null,without:y.without??null}));
+    .map(y=>({year:y.year,enabled:true,trial:y.trial??null,without:y.without??null,
+      trialDescription:typeof y.trialDescription==="string"&&y.trialDescription.length<=280?y.trialDescription:"",
+      withoutDescription:typeof y.withoutDescription==="string"&&y.withoutDescription.length<=280?y.withoutDescription:""}));
    if(new Set(parsed.map(y=>y.year)).size===parsed.length&&parsed.length<=11){
     workspaceConfig.years=parsed;
     if(state.year&&!parsed.some(y=>y.year===state.year)){
