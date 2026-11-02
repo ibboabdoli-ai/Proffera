@@ -22,7 +22,7 @@ describe("Maria booking confirmation branding", () => {
     const email = buildUnifiedBookingConfirmationEmail({ ...booking, branding: "makeup-by-maria" });
     expect(email.html).toContain("Makeup by Maria will confirm the appointment separately.");
     expect(email.html).toContain("Makeup by Maria · Powered by Proffera");
-    expect(email.html).toContain('src="https://qa.vercel.app/demo/makeup-by-maria/assets/maria-wordmark.png"');
+    expect(email.html).toContain('src="https://qa.vercel.app/demo/makeup-by-maria/assets/maria-client-logo.jpg"');
     expect(email.html).toContain('alt="Makeup by Maria"');
     expect(email.html.toLowerCase()).not.toContain("primeview");
     expect(email.html).toContain("QA &lt;Bride&gt;");
@@ -38,7 +38,7 @@ describe("Maria booking confirmation branding", () => {
     });
     expect(email.subject).toContain("تم استلام طلب حجزك");
     expect(email.html).toContain('dir="rtl"');
-    expect(email.html).toContain('src="https://qa.vercel.app/demo/makeup-by-maria/assets/maria-wordmark.png"');
+    expect(email.html).toContain('src="https://qa.vercel.app/demo/makeup-by-maria/assets/maria-client-logo.jpg"');
     expect(email.html).toContain("إدارة الحجز");
     expect(email.html).toContain("lang=ar");
     expect(email.html.toLowerCase()).not.toContain("primeview");
@@ -58,7 +58,7 @@ describe("Maria booking confirmation branding", () => {
     const email = buildUnifiedBookingConfirmationEmail({ ...booking, companyName: "PrimeView Window Care" });
     expect(email.html).toContain("PrimeView will confirm the appointment separately.");
     expect(email.html).toContain('alt="PrimeView Window Care"');
-    expect(email.html).not.toContain("maria-wordmark.png");
+    expect(email.html).not.toContain("maria-client-logo.jpg");
     expect(email.html).toContain("PrimeView Window Care · Powered by Proffera");
   });
 
@@ -69,12 +69,12 @@ describe("Maria booking confirmation branding", () => {
     const unbranded = buildUnifiedBookingConfirmationEmail({ ...booking, language: "sv" });
     expect(maria.subject).toEqual(unbranded.subject);
     expect(maria.text).toEqual(unbranded.text);
-    expect(maria.html).toContain('src="https://qa.vercel.app/demo/makeup-by-maria/assets/maria-wordmark.png"');
+    expect(maria.html).toContain('src="https://qa.vercel.app/demo/makeup-by-maria/assets/maria-client-logo.jpg"');
     expect(maria.html).toContain('alt="Makeup by Maria"');
     expect(maria.html).toContain("background:#845363");
     expect(maria.html).toContain("QA &lt;Bride&gt;");
     expect(maria.html).toContain(booking.portalUrl);
-    expect(unbranded.html).not.toContain("maria-wordmark.png");
+    expect(unbranded.html).not.toContain("maria-client-logo.jpg");
     expect(unbranded.html).toContain("background:#173e2b");
   });
 });
