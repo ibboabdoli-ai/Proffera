@@ -14,6 +14,34 @@ concurrency:
 
 jobs:
   route:
+    # This is a runner-cost prefilter, not an authorization check. The shell below
+    # still re-fetches exact evidence and enforces the original trust checks.
+    # Keep this a superset of every actionable router signal.
+    if: >-
+      (github.event_name == 'pull_request_review' &&
+        (github.actor == 'ibboabdoli-ai' ||
+         github.actor == 'coderabbitai[bot]' ||
+         github.actor == 'chatgpt-codex-connector[bot]'))
+      || (github.event_name == 'issue_comment' &&
+        (
+          (github.actor == 'ibboabdoli-ai' &&
+            ((github.event.issue.number == 548 &&
+              contains(github.event.comment.body, '<!-- proffera-worker-task-packet:v1 -->'))
+             || (github.event.issue.pull_request != null &&
+                (contains(github.event.comment.body, '<!-- proffera-owner-approval:') ||
+                 contains(github.event.comment.body, 'proffera-codex-fallback-review-request:')))))
+          || (github.event.issue.pull_request != null &&
+            ((github.actor == 'chatgpt-codex-connector[bot]' &&
+              contains(github.event.comment.body, 'Reviewed commit:'))
+             || (github.actor == 'coderabbitai[bot]' &&
+               (contains(github.event.comment.body, 'recent_review_start') ||
+                contains(github.event.comment.body, 'Final exact-head review is complete for') ||
+                contains(github.event.comment.body, 'Review completed for exact HEAD') ||
+                contains(github.event.comment.body, 'Review limit reached') ||
+                contains(github.event.comment.body, 'Review rate limited') ||
+                contains(github.event.comment.body, 'temporarily unavailable') ||
+                contains(github.event.comment.body, 'service unavailable')))))
+        ))
     name: Route one control-plane event
     runs-on: ubuntu-latest
     timeout-minutes: 3
