@@ -1,6 +1,7 @@
 import "server-only";
 
 import { getSql } from "@/lib/db/server";
+import { MARIA_CALENDAR_MARKER } from "@/lib/maria-manual-calendar-policy";
 import { availableMariaStartSlots, type MariaBusyInterval } from "@/lib/maria-booking-slots";
 import { parseLocalDateTime } from "@/lib/public-booking-policy";
 
@@ -66,7 +67,9 @@ export async function getMariaAvailability(input: AvailabilityRequest): Promise<
       sql`
         select b.starts_at::text as starts_at, b.ends_at::text as ends_at,
           coalesce(s.buffer_before_minutes,0) as buffer_before_minutes,
-          coalesce(s.buffer_after_minutes,0) as buffer_after_minutes
+          coalesce(s.buffer_after_minutes,0) as buffer_after_minutes,
+          (coalesce(b.source,'')='dashboard_availability_block' and coalesce(b.notes,'')=${MARIA_CALENDAR_MARKER}
+            and b.customer_id is null and b.status='confirmed') as manual_start_closed
         from bookings b
         left join workspace_services s
           on s.id = b.service_id and s.workspace_id = b.workspace_id
@@ -77,7 +80,7 @@ export async function getMariaAvailability(input: AvailabilityRequest): Promise<
           and b.ends_at > ${before}::timestamptz
         union all
         select v.starts_at::text, v.ends_at::text,
-          coalesce(s.buffer_before_minutes,0), coalesce(s.buffer_after_minutes,0)
+          coalesce(s.buffer_before_minutes,0), coalesce(s.buffer_after_minutes,0),false as manual_start_closed
         from public_booking_verifications v
         left join workspace_services s
           on s.id = v.service_id and s.workspace_id = v.workspace_id::text
@@ -94,7 +97,8 @@ export async function getMariaAvailability(input: AvailabilityRequest): Promise<
       return { ok: false, error: "hours" };
     }
 
-    const occupied: MariaBusyInterval[] = busy.map(row => ({
+    // Manual starts exclude their exact clock; normal bookings and holds still block overlapping treatments.
+    const occupied: MariaBusyInterval[] = busy.filter(row => row.manual_start_closed !== true).map(row => ({
       startsAt: String(row.starts_at),
       endsAt: String(row.ends_at),
       bufferBeforeMinutes: Number(row.buffer_before_minutes) || 0,
@@ -112,6 +116,8 @@ export async function getMariaAvailability(input: AvailabilityRequest): Promise<
         minimumNoticeMinutes: Number(service.minimum_notice_minutes) || 0,
         maximumAdvanceDays: Number(service.maximum_advance_days) || 730,
         busy: occupied,
+        manuallyClosedStartsAt: busy.filter(row => row.manual_start_closed === true)
+          .map(row => String(row.starts_at)),
         now: new Date(),
         timeZone: input.timeZone,
         stepMinutes: 30,

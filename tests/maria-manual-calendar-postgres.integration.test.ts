@@ -31,6 +31,7 @@ import {
   changeMariaManualCalendar, MariaCalendarError, readMariaManualCalendar,
 } from "@/lib/maria-manual-calendar";
 import { mariaCalendarIntervals } from "@/lib/maria-manual-calendar-policy";
+import { getMariaAvailability } from "@/lib/maria-booking-availability";
 
 const RUN = process.env.GITHUB_ACTIONS === "true" || process.env.PROFFERA_POSTGRES_INTEGRATION === "1";
 
@@ -147,7 +148,7 @@ function futureFriday() {
     );
     return result.rows[0];
   }
-  it("shows requests separately and can close overlapping 30-minute intervals without modifying bookings",async()=>{
+  it("shows requests separately and closes only the chosen booking start without modifying bookings",async()=>{
     const before=await persistedBooking();
     const original=await readMariaManualCalendar(day);
     expect(original.appointments.map(x=>x.id)).toContain(bookingId);
@@ -182,6 +183,42 @@ function futureFriday() {
     expect(await persistedBooking()).toEqual(before);
     expect(await changeMariaManualCalendar({date:day,mode:"open_day"}))
       .toMatchObject({changed:false,affectedIntervals:0});
+  });
+
+  it("lets Maria open one chosen start after closing the day while other starts stay closed", async()=>{
+    // Synthetic QA only: all data is created in the temporary PostgreSQL container.
+    const year=Number(day.slice(0,4));
+    await db!.query(
+      "insert into workspace_services(workspace_id,name,public_slug,duration_minutes,is_active,public_status) values($1,'Synthetic independently managed start',$2,180,true,'published')",
+      [workspaceId,`maria-bridal-without-trial-${year}`],
+    );
+    // Cancel the preloaded synthetic appointment to isolate manual-start behavior.
+    await db!.query("update bookings set status='cancelled' where id=$1::uuid",[bookingId]);
+    const availability=()=>getMariaAvailability({
+      workspaceId,date:day,year,kind:"without",timeZone:"Europe/Stockholm",
+    });
+    const before=await availability();
+    expect(before.ok).toBe(true);
+    if(!before.ok) throw new Error("Synthetic Maria availability failed");
+    expect(before.slots).toContain("06:00");
+    expect(before.slots).toContain("07:00");
+
+    await changeMariaManualCalendar({date:day,mode:"close",clock:"07:00"});
+    const afterSingle=await availability();
+    expect(afterSingle.ok).toBe(true);
+    if(!afterSingle.ok) throw new Error("Synthetic close availability failed");
+    expect(afterSingle.slots).toContain("06:00");
+    expect(afterSingle.slots).not.toContain("07:00");
+    expect(afterSingle.slots).toContain("07:30");
+
+    await changeMariaManualCalendar({date:day,mode:"close_day"});
+    const afterWholeDay=await availability();
+    expect(afterWholeDay).toEqual({ok:true,slots:[]});
+
+    await changeMariaManualCalendar({date:day,mode:"open",clock:"07:00"});
+    const afterReopen=await availability();
+    expect(afterReopen).toEqual({ok:true,slots:["07:00"]});
+    expect(await manualBlocks()).toHaveLength(intervals.length-1);
   });
 
   it("does not invalidate an active OTP hold, including when the hold writer owns the same lock",async()=>{
@@ -260,7 +297,7 @@ function futureFriday() {
     expect(await manualBlocks()).toHaveLength(0);
   });
 
-  it("serializes simultaneous closes and writes only one matching busy interval",async()=>{
+  it("serializes simultaneous closes and writes only one matching start marker",async()=>{
     const results=await Promise.all([
       changeMariaManualCalendar({date:day,mode:"close",clock:"08:00"}),
       changeMariaManualCalendar({date:day,mode:"close",clock:"08:00"}),

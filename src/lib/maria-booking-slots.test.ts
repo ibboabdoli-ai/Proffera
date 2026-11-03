@@ -76,6 +76,28 @@ describe("Maria one-person bridal makeup booking", () => {
     expect(newlyConfiguredLength).not.toContain("09:00");
   });
 
+  it("lets Maria close and reopen only one offered start without hiding other starts", () => {
+    const individuallyClosed = ["2026-10-16T05:00:00.000Z"]; // 07:00 Stockholm
+    const closed = availableMariaStartSlots({
+      ...settings, busy: [], manuallyClosedStartsAt: individuallyClosed,
+    });
+    expect(closed).toContain("06:00");
+    expect(closed).toContain("06:30");
+    expect(closed).not.toContain("07:00");
+    expect(closed).toContain("07:30");
+    expect(availableMariaStartSlots({
+      ...settings, busy: [], manuallyClosedStartsAt: [],
+    })).toContain("07:00");
+  });
+
+  it("keeps real appointments blocking overlaps even when Maria opens a manual start", () => {
+    const available = availableMariaStartSlots({
+      ...settings, manuallyClosedStartsAt: [],
+      busy: [{ startsAt: "2026-10-16T07:00:00Z", endsAt: "2026-10-16T10:00:00Z" }],
+    });
+    expect(available).toEqual(["06:00"]);
+  });
+
   it("offers Sunday starts without blocking unrelated time automatically", () => {
     expect(availableMariaStartSlots({...settings,date:"2026-10-18",busy:[]})).toEqual([
       "06:00","06:30","07:00","07:30","08:00","08:30","09:00","09:30","10:00",

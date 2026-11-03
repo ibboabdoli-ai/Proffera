@@ -1,5 +1,7 @@
 import { isValidLocalTime, localDateTimeToUtc, parseLocalDateTime } from "@/lib/public-booking-policy";
 
+// Represents one manually closed BOOKING START, not an occupied treatment interval.
+// Maria-only booking writers must honor it under the shared workspace lock 713.
 export const MARIA_CALENDAR_MARKER = "maria_manual_calendar_v1";
 export const MARIA_CALENDAR_TITLE = "Manuellt stängd tid";
 export const MARIA_CALENDAR_ZONE = "Europe/Stockholm" as const;

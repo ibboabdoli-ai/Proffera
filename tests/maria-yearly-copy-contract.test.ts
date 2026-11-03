@@ -86,6 +86,30 @@ describe("Maria per-year copy and manual booking controls", () => {
     expect(engine).toContain("clock_timestamp() < ${slot.startsAt}::timestamptz");
   });
 
+  it("applies Maria's manual calendar to individual starts at every booking safety boundary", () => {
+    const availability = read("src/lib/maria-booking-availability.ts");
+    const starts = read("src/lib/maria-booking-slots.ts");
+    expect(availability).toContain("manual_start_closed");
+    expect(availability).toContain("manuallyClosedStartsAt:");
+    expect(starts).toContain("manuallyClosedStarts.has(start)");
+    for(const path of [
+      "src/lib/public-booking-verification.ts",
+      "src/lib/maria-verified-booking.ts",
+      "src/lib/maria-resend-hold.ts",
+      "src/lib/maria-customer-reschedule.ts",
+      "src/lib/maria-dashboard-reschedule.ts",
+    ]) {
+      const code=read(path);
+      expect(code).toContain("MARIA_CALENDAR_MARKER");
+      expect(code).toContain("closed.starts_at=");
+      expect(code).toContain("closed.customer_id is null and closed.status='confirmed'");
+      expect(code).toContain("coalesce(");
+    }
+    const calendar = read("src/app/dashboard/maria/kalender/page.tsx");
+    expect(calendar).toContain("Inget stängs automatiskt.");
+    expect(calendar).toContain("Befintliga bokningar och pågående verifieringar");
+  });
+
   it("retains existing booking lengths after Maria changes a service duration", () => {
     const availability = read("src/lib/maria-booking-availability.ts");
     const manager = read("src/lib/maria-dashboard-reschedule.ts");

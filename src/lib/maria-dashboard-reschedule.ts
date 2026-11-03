@@ -1,6 +1,7 @@
 import "server-only";
 
 import { getSql } from "@/lib/db/server";
+import { MARIA_CALENDAR_MARKER } from "@/lib/maria-manual-calendar-policy";
 import type { BookingRescheduleResult } from "@/lib/dashboard-booking-reschedule";
 import { getMariaAvailability } from "@/lib/maria-booking-availability";
 import { getMariaPreviewPortalBase, isMariaPreviewTestRecipient } from "@/lib/maria-preview-customer-safety";
@@ -130,10 +131,21 @@ export async function rescheduleMariaDashboardBooking(input: {
                 and os.workspace_id=other.workspace_id
               where other.workspace_id=b.workspace_id and other.id<>b.id
                 and other.status not in ('cancelled','no_show')
+                and not (coalesce(other.source,'')='dashboard_availability_block'
+                  and coalesce(other.notes,'')=${MARIA_CALENDAR_MARKER}
+                  and other.customer_id is null and other.status='confirmed')
                 and other.starts_at-(coalesce(os.buffer_before_minutes,0)*interval '1 minute')
                   < ${newEndIso}::timestamptz+(s.buffer_after_minutes*interval '1 minute')
                 and other.ends_at+(coalesce(os.buffer_after_minutes,0)*interval '1 minute')
                   > ${newStartIso}::timestamptz-(s.buffer_before_minutes*interval '1 minute')
+            )
+            and not exists (
+              select 1 from bookings closed
+              where closed.workspace_id=b.workspace_id
+                and closed.source='dashboard_availability_block'
+                and closed.notes=${MARIA_CALENDAR_MARKER}
+                and closed.customer_id is null and closed.status='confirmed'
+                and closed.starts_at=${newStartIso}::timestamptz
             )
             and not exists (
               select 1 from public_booking_verifications hold

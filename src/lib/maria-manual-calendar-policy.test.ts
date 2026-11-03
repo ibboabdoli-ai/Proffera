@@ -11,7 +11,7 @@ describe("Maria manual calendar Stockholm date and interval policy", () => {
     expect(nextMariaCalendarDay(new Date("2026-11-08T09:00:00Z"))).toBe("2026-11-08");
   });
 
-  it("shows 30-minute occupied intervals for the manager's Friday start window", () => {
+  it("shows independently controllable start markers in the Friday booking-start window", () => {
     const intervals = mariaCalendarIntervals("2026-11-06", "06:00", "10:00");
     expect(intervals).toHaveLength(9);
     expect(intervals?.[0]).toEqual({

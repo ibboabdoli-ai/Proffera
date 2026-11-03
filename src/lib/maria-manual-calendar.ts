@@ -112,6 +112,8 @@ export async function readMariaManualCalendar(date: string, now = new Date()): P
       b.source === "dashboard_availability_block" && b.notes === MARIA_CALENDAR_MARKER;
     const overlaps = (start: number, end: number, slotStart: number, slotEnd: number) =>
       Number.isFinite(start) && Number.isFinite(end) && start < slotEnd && end > slotStart;
+    // These grid entries are bookable START choices. The 30-minute marker
+    // stores a disabled start, not a customer appointment or occupied duration.
     const slots: MariaCalendarSlot[] = base.map(slot => {
       const start = Date.parse(slot.startsAt), end = Date.parse(slot.endsAt);
       return {
@@ -254,7 +256,7 @@ export async function changeMariaManualCalendar(input: CalendarChange, now = new
         insert into admin_audit_logs(admin_user_id,workspace_id,action,reason,new_value)
         values(${userId},${workspaceId}::uuid,
           'maria.manual_calendar.updated',
-          'Preview-only manual interval availability change',
+          'Preview-only manual booking-start availability change',
           ${audit}::jsonb)
       `,
     ]);

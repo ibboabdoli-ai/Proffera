@@ -1,6 +1,7 @@
 import "server-only";
 
 import { getSql } from "@/lib/db/server";
+import { MARIA_CALENDAR_MARKER } from "@/lib/maria-manual-calendar-policy";
 
 /**
  * Re-acquire an expired Maria Preview hold only if its slot is still free.
@@ -59,10 +60,21 @@ export async function renewMariaPreviewHoldForResend(input: {
                   and bs.workspace_id = b.workspace_id
                 where b.workspace_id = w.id::text
                   and b.status not in ('cancelled','no_show')
+                  and not (coalesce(b.source,'')='dashboard_availability_block'
+                    and coalesce(b.notes,'')=${MARIA_CALENDAR_MARKER}
+                    and b.customer_id is null and b.status='confirmed')
                   and b.starts_at - (coalesce(bs.buffer_before_minutes,0) * interval '1 minute')
                       < v.ends_at + (coalesce(s.buffer_after_minutes,0) * interval '1 minute')
                   and b.ends_at + (coalesce(bs.buffer_after_minutes,0) * interval '1 minute')
                       > v.starts_at - (coalesce(s.buffer_before_minutes,0) * interval '1 minute')
+              )
+              and not exists (
+                select 1 from bookings closed
+                where closed.workspace_id=w.id::text
+                  and closed.source='dashboard_availability_block'
+                  and closed.notes=${MARIA_CALENDAR_MARKER}
+                  and closed.customer_id is null and closed.status='confirmed'
+                  and closed.starts_at=v.starts_at::timestamptz
               )
               and not exists (
                 select 1 from public_booking_verifications other

@@ -97,11 +97,14 @@ export default async function MariaManualCalendarPage({searchParams}: {searchPar
           className="inline-flex min-h-10 items-center gap-2 text-sm font-semibold text-[#754b5a]">
           <ChevronLeft size={16}/>{t("Till bokningsöversikten","Back to bookings")}
         </Link>
-        <h1 className="mt-2 font-serif text-3xl text-[#352a2c]">{t("Hantera dagens tider","Manage today's times")}</h1>
+        <h1 className="mt-2 font-serif text-3xl text-[#352a2c]">{t("Öppna eller stäng bokningstider","Open or close booking starts")}</h1>
         <p className="mt-2 text-sm leading-6 text-[#705f65]">
-          {t("Välj ett datum, se bokningsförfrågningar och stäng eller öppna tider manuellt. Bokningar ändras aldrig automatiskt.",
-            "Choose a date, review booking requests and manually close or open times. Existing bookings never change automatically.")}
+          {t("Kunden bokar först. När du har granskat bokningen och betalningen väljer du själv vilka andra starttider som ska vara öppna eller stängda. Inget stängs automatiskt.",
+            "The customer books first. After checking the booking and payment, you choose which other appointment starts stay open or closed. Nothing closes automatically.")}
         </p>
+        <Link href="/dashboard/bokningar" className="mt-4 inline-flex min-h-11 items-center rounded-lg border border-[#bfa1a9] bg-white px-4 py-2 text-sm font-semibold text-[#754b5a]">
+          {t("1. Kontrollera bokning och Swish", "1. Review bookings and Swish")}
+        </Link>
         <form method="get" className="mt-5 flex flex-wrap items-end gap-3">
           <input type="hidden" name="lang" value={lang}/>
           <label className="grid flex-1 gap-2 text-sm font-semibold text-[#634853]">
@@ -133,14 +136,14 @@ export default async function MariaManualCalendarPage({searchParams}: {searchPar
               <div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <form action={calendarMutation} className="grid">
                   {formDetails(view.date,"close_day","",lang)}
-                  <MariaCalendarConfirmButton kind="close" label={t("Stäng hela dagen","Close the whole day")}
-                    confirmation={t("Stäng alla återstående tidsintervall? Befintliga bokningar påverkas inte.",
-                      "Close all remaining intervals? Existing bookings will not change.")}
+                  <MariaCalendarConfirmButton kind="close" label={t("Stäng alla lediga starttider","Close all remaining starts")}
+                    confirmation={t("Stäng alla återstående starttider? Befintliga bokningar påverkas inte.",
+                      "Close all remaining starts? Existing bookings will not change.")}
                     disabled={!canCloseDay}/>
                 </form>
                 <form action={calendarMutation} className="grid">
                   {formDetails(view.date,"open_day","",lang)}
-                  <MariaCalendarConfirmButton kind="open" label={t("Öppna hela dagen","Open the whole day")}
+                  <MariaCalendarConfirmButton kind="open" label={t("Öppna alla manuellt stängda","Open all manually closed")}
                     confirmation={t("Ta bort dagens manuella stängningar? Bokade tider förblir upptagna.",
                       "Remove today's manual blocks? Existing appointments stay occupied.")}
                     disabled={!canOpenDay}/>
@@ -157,22 +160,25 @@ export default async function MariaManualCalendarPage({searchParams}: {searchPar
           ) : (
             <>
               <p className="mt-3 text-xs leading-5 text-[#705f65]">
-                {t("Tiderna nedan är 30-minutersintervall. Ett stängt intervall kan påverka flera möjliga bokningsstarter eftersom en behandling tar längre tid.",
-                  "These are 30-minute occupied intervals. A closed interval may affect several offered booking starts because treatments are longer.")}
+                {t("2. Varje rad är en möjlig starttid, inte behandlingens längd. Du öppnar eller stänger just den tid du väljer. Befintliga bokningar och pågående verifieringar blockerar fortfarande tider som krockar.",
+                  "2. Each row is a possible appointment start, not a treatment length. You open or close only the chosen start. Existing bookings and active verifications still block overlapping times.")}
               </p>
               <div className="mt-5 space-y-3">
                 {view.slots.map(slot => {
                   const past = Date.parse(slot.startsAt) <= now;
+                  const occupied = slot.appointmentCount > 0;
+                  const verifying = slot.holdCount > 0;
+                  const protectedStart = !slot.manuallyClosed && (occupied || verifying);
                   return <article key={slot.clock} className="flex flex-col gap-3 rounded-xl border border-[#e8d9dc] p-4 sm:flex-row sm:items-center sm:justify-between">
                     <div className="space-y-1.5">
                       <p className="inline-flex items-center gap-2 font-bold text-[#352a2c]">
-                        <Clock3 size={16}/>{slot.clock}–{slot.endClock}
+                        <Clock3 size={16}/>{slot.clock}
                       </p>
                       <p className="text-xs text-[#705f65]">{slot.manuallyClosed
-                        ? t("Stängt manuellt","Closed manually")
-                        : t("Inte manuellt stängt","Not manually closed")}</p>
+                        ? t("Stängd av Maria","Closed by Maria")
+                        : t("Öppen om ingen bokning krockar","Open if no booking conflicts")}</p>
                       {slot.appointmentCount > 0 && <p className="text-xs font-semibold text-[#7c4b5a]">
-                        {t("Bokning/förfrågan påverkar detta intervall","Booking/request overlaps this interval")}
+                        {t("Bokning eller förfrågan under denna tid","Booking or request during this time")}
                       </p>}
                       {slot.holdCount > 0 && <p className="text-xs text-[#705f65]">
                         {t("E-postverifiering pågår","Email verification hold active")}
@@ -184,13 +190,15 @@ export default async function MariaManualCalendarPage({searchParams}: {searchPar
                     <form action={calendarMutation} className="grid sm:w-44">
                       {formDetails(view.date,slot.manuallyClosed?"open":"close",slot.clock,lang)}
                       <MariaCalendarConfirmButton
-                        kind={slot.manuallyClosed?"open":"close"} disabled={past}
-                        label={past?t("Passerad","Past"):slot.manuallyClosed?t("Öppna","Open"):t("Stäng","Close")}
+                        kind={slot.manuallyClosed?"open":"close"} disabled={past || protectedStart}
+                        label={past?t("Passerad","Past"):protectedStart
+                          ? occupied?t("Bokad","Booked"):t("Verifiering pågår","Verification pending")
+                          :slot.manuallyClosed?t("Öppna","Open"):t("Stäng","Close")}
                         confirmation={slot.manuallyClosed
-                          ? t(`Öppna intervallet ${slot.clock}–${slot.endClock}? Bokningar påverkas inte.`,
-                              `Open ${slot.clock}–${slot.endClock}? Bookings are unchanged.`)
-                          : t(`Stäng intervallet ${slot.clock}–${slot.endClock}? Befintliga bokningar påverkas inte.`,
-                              `Close ${slot.clock}–${slot.endClock}? Bookings are unchanged.`)}
+                          ? t(`Öppna starttiden ${slot.clock}? Bokningar påverkas inte.`,
+                              `Open the ${slot.clock} start? Bookings are unchanged.`)
+                          : t(`Stäng starttiden ${slot.clock}? Befintliga bokningar påverkas inte.`,
+                              `Close the ${slot.clock} start? Bookings are unchanged.`)}
                       />
                     </form>
                   </article>;
@@ -203,8 +211,8 @@ export default async function MariaManualCalendarPage({searchParams}: {searchPar
         <section className="rounded-2xl border border-[#e8d9dc] bg-white p-5 sm:p-7">
           <h2 className="font-serif text-xl text-[#352a2c]">{t("Bokningsförfrågningar och bokningar","Requests and appointments")}</h2>
           <p className="mt-2 text-xs text-[#705f65]">
-            {t("Besluta om en bokning på dess egen sida. Kalenderknapparna bekräftar eller avbokar ingen.",
-              "Confirm or cancel an appointment on its booking page. Calendar controls never decide for you.")}
+            {t("Kontrollera betalningen i Swish och hantera kundens bokning på dess egen sida. Kalenderns knappar ändrar inga bokningar eller betalningar.",
+              "Check the Swish payment and manage the customer booking on its own page. Calendar buttons never change bookings or payments.")}
           </p>
           {view.appointments.length === 0
             ? <p className="mt-4 rounded-lg border border-dashed border-[#e8d9dc] p-4 text-sm text-[#705f65]">
