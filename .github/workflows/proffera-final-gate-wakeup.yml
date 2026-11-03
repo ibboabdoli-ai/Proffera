@@ -274,7 +274,10 @@ jobs:
             && [ "${EVENT_ACTOR:-}" = "chatgpt-codex-connector[bot]" ]; then
             reviewed_prefix="$(jq -rn --arg body "${EVENT_COMMENT_BODY:-}" '
               $body
-              | select(startswith("Codex Review: Didn\u0027t find any major issues."))
+              | select(
+                  startswith("Codex Review: Didn\u0027t find any major issues.")
+                  or startswith("<!-- codex-review-receipt:v1 -->\n\nCodex Review: Didn\u0027t find any major issues.")
+                )
               | (try capture("Reviewed commit:\\*{0,2}[[:space:]]*`?(?<reviewed>[0-9a-fA-F]{7,40})`?").reviewed catch "")
               | ascii_downcase
             ')"
@@ -284,6 +287,10 @@ jobs:
             fi
             if [ -z "${EVENT_EVIDENCE_TIME:-}" ]; then
               echo "Codex clean comment has no verified evidence timestamp; refusing to wake the final gate."
+              exit 0
+            fi
+            if [ "${EVENT_EVIDENCE_TIME}" != "${EVENT_COMMENT_CREATED_AT:-}" ]; then
+              echo "Codex clean comment was edited after creation; refusing to wake the final gate."
               exit 0
             fi
 

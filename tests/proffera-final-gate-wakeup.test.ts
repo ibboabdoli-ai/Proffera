@@ -952,14 +952,41 @@ describe("complete wakeup shell to durable adapter", () => {
     expect(result.result.status, result.result.stdout + result.result.stderr).toBe(0);
     expect(result.posts).toBe(1); expect(result.intents.map((i) => i.state)).toEqual(["UNCERTAIN"]);
   }, 30000);
-  it("admits a clean Codex comment independently, but not an old comment edited after its request", () => {
+  it("admits both official receipt-prefixed and legacy clean Codex comments, but never old edited results", () => {
     const request = { id: 50, user: { login: "ibboabdoli-ai" }, body: `<!-- proffera-codex-fallback-review-request:${reviewHead} -->\n@codex review`, created_at: "2099-09-05T12:01:00Z" };
-    const base = { actor: "chatgpt-codex-connector[bot]", body: `Codex Review: Didn't find any major issues. Reviewed commit: ${reviewHead}`, comments: [requestComment(), request] };
-    const fresh = runWakeupFixture(base);
-    expect(fresh.result.status, fresh.result.stdout + fresh.result.stderr).toBe(0); expect(fresh.posts).toBe(1);
+    const receipt = `<!-- codex-review-receipt:v1 -->\n\nCodex Review: Didn't find any major issues. Another round soon, please!\n\n**Reviewed commit:** \`${reviewHead.slice(0, 10)}\``;
+    const base = { actor: "chatgpt-codex-connector[bot]", body: receipt, comments: [requestComment(), request] };
+    for (const body of [receipt, `Codex Review: Didn't find any major issues. Reviewed commit: ${reviewHead}`]) {
+      const fresh = runWakeupFixture({ ...base, body });
+      expect(fresh.result.status, fresh.result.stdout + fresh.result.stderr).toBe(0);
+      expect(fresh.posts).toBe(1);
+    }
     const edited = runWakeupFixture({ ...base, createdAt: "2099-09-05T12:00:30Z", updatedAt: "2099-09-05T12:03:00Z" });
     expect(edited.posts).toBe(0); expect(edited.intents).toEqual([]);
-  }, 30000);
+    const badBodies = [
+      `<!-- codex-review-receipt:v2 -->\n\nCodex Review: Didn't find any major issues. Reviewed commit: ${reviewHead}`,
+      `<!-- codex-review-receipt:v1 -->\n\nCodex Review: Didn't find any major issues. Reviewed commit: ${oldHead}`,
+      `Untrusted preface\n${receipt}`,
+      `<!-- codex-review-receipt:v1 -->\n\nCodex Review: Needs fixes. Reviewed commit: ${reviewHead}`,
+    ];
+    for (const body of badBodies) {
+      const denied = runWakeupFixture({ ...base, body });
+      expect(denied.posts).toBe(0);
+    }
+    for (const deniedFixture of [
+      { ...base, actor: "ibboabdoli-ai" },
+      { ...base, comments: [requestComment()] },
+      { ...base, comments: [requestComment(), { ...request, created_at: "2099-09-05T11:59:00Z" }] },
+      { ...base, comments: [requestComment("2099-09-05T12:04:00Z"), request] },
+      { ...base, firstReviews: [{
+        user: { login: "coderabbitai[bot]" }, commit_id: reviewHead,
+        state: "CHANGES_REQUESTED", submitted_at: "2099-09-05T12:02:30Z",
+      }] },
+    ]) {
+      const denied = runWakeupFixture(deniedFixture);
+      expect(denied.posts).toBe(0);
+    }
+  }, 120000);
   it("does not turn disabled automatic review into an outage, while recognized post-request rate limits reach the adapter", () => {
     const skipped = runWakeupFixture({ body: "Review skipped: automatic reviews are disabled", comments: [requestComment()] });
     expect(skipped.posts).toBe(0); expect(skipped.intents).toEqual([]);
