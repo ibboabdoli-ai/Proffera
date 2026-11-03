@@ -54,6 +54,13 @@ export async function moveDashboardCalendarBooking(input: {
     throw new Error("Owner or admin workspace access is required");
   }
 
+  // Maria's Preview appointments must use the dedicated locked reschedule
+  // workflow, which rechecks manually closed starts, active holds and duration.
+  // The generic drag-and-drop writer lacks those Maria-only safety checks.
+  if (process.env.VERCEL_ENV === "preview" && access.workspaceSlug === "makeup-by-maria") {
+    throw new CalendarMoveValidationError("conflict");
+  }
+
   const sql = neon(connectionString);
   const marketRows = await sql`
     select time_zone
