@@ -278,8 +278,8 @@ jobs:
                   startswith("Codex Review: Didn\u0027t find any major issues.")
                   or startswith("<!-- codex-review-receipt:v1 -->\n\nCodex Review: Didn\u0027t find any major issues.")
                 )
-              | select(([match("Reviewed commit:\\*{0,2}[[:space:]]*`?(?<reviewed>[0-9a-fA-F]{7,40})`?"; "g")] | length) == 1)
-              | (try capture("Reviewed commit:\\*{0,2}[[:space:]]*`?(?<reviewed>[0-9a-fA-F]{7,40})`?").reviewed catch "")
+              | select(([match("Reviewed commit:\\*{0,2}[[:space:]]*`?(?<reviewed>[0-9a-fA-F]{7,40})(?![0-9a-fA-F])`?"; "g")] | length) == 1)
+              | (try capture("Reviewed commit:\\*{0,2}[[:space:]]*`?(?<reviewed>[0-9a-fA-F]{7,40})(?![0-9a-fA-F])`?").reviewed catch "")
               | ascii_downcase
             ')"
             if [ -z "$reviewed_prefix" ] || [[ "$head_sha" != "$reviewed_prefix"* ]]; then

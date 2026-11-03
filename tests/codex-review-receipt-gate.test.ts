@@ -90,6 +90,8 @@ describe("exact-head Codex review receipt recognition (#961)", () => {
       codexComment(official(), { created_at: "2099-09-05T11:59:59Z", updated_at: "2099-09-05T11:59:59Z" }),
       codexComment(official(), { updated_at: "2099-09-05T12:04:00Z" }),
       codexComment(official(otherHead)),
+      codexComment(official().replace(head.slice(0, 10), head + "c")),
+      codexComment(legacy(head + "c").replace(head.slice(0, 10), head + "c")),
       codexComment(official() + "\n\n**Reviewed commit:** `bbbbbbbbbb`"),
       codexComment(official().replace("codex-review-receipt:v1", "codex-review-receipt:v2")),
       codexComment(official().replace(" -->\n\n", " -->\n")),
@@ -102,6 +104,7 @@ describe("exact-head Codex review receipt recognition (#961)", () => {
       expect(runAutomerge([comment])).toBe(0);
     }
     expect(runWake(official(otherHead))).toBe(otherHead.slice(0, 10));
+    expect(runWake(official().replace(head.slice(0, 10), head + "c"))).toBe("");
     expect(runWake(official() + "\n\n**Reviewed commit:** `bbbbbbbbbb`")).toBe("");
     expect(runWake(official().replace("codex-review-receipt:v1", "codex-review-receipt:v2"))).toBe("");
     expect(runWake("Review completed\n" + official())).toBe("");
