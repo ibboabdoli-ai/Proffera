@@ -58,13 +58,14 @@ export function mariaCalendarIntervals(date: string, firstStart: string, lastSta
   if (!parseMariaCalendarDay(date)) return null;
   const first = clockMinutes(firstStart);
   const last = clockMinutes(lastStart);
-  if (first === null || last === null || first > last || last + 30 >= 1440
-    || (last - first) / 30 > 40) return null;
+  if (first === null || last === null || first > last || last + 30 >= 1440) return null;
   const result: MariaCalendarInterval[] = [];
   for (let minute = first; minute <= last; minute += 30) {
     const startsAt = convert(date, minute);
     const endsAt = convert(date, minute + 30);
-    if (!startsAt || !endsAt || Date.parse(endsAt) - Date.parse(startsAt) !== 1_800_000) return null;
+    // Swedish DST may contain a nonexistent or repeated local half-hour.
+    // Omit only the invalid interval; all other start windows remain usable.
+    if (!startsAt || !endsAt || Date.parse(endsAt) - Date.parse(startsAt) !== 1_800_000) continue;
     const clock = `${String(Math.floor(minute / 60)).padStart(2, "0")}:${String(minute % 60).padStart(2, "0")}`;
     const after = minute + 30;
     const endClock = `${String(Math.floor(after / 60)).padStart(2, "0")}:${String(after % 60).padStart(2, "0")}`;

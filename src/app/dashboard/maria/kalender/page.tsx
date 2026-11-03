@@ -25,6 +25,11 @@ async function calendarMutation(formData: FormData) {
   const isEnglish = formData.get("lang") === "en";
   const suffix = isEnglish ? "&lang=en" : "";
   const safeDate = /^\d{4}-\d{2}-\d{2}$/.test(date) ? date : nextMariaCalendarDay();
+  // Client-side dialogs are convenience only. No JavaScript/no hydration
+  // must fail closed rather than performing an unconfirmed mutation.
+  if (formData.get("confirmed") !== "yes") {
+    redirect(`/dashboard/maria/kalender?date=${safeDate}&error=confirm${suffix}`);
+  }
   if (mode !== "open" && mode !== "close" && mode !== "open_day" && mode !== "close_day") {
     redirect(`/dashboard/maria/kalender?date=${safeDate}&error=time${suffix}`);
   }
@@ -72,12 +77,14 @@ export default async function MariaManualCalendarPage({searchParams}: {searchPar
     date: t("Välj ett framtida datum på fredag, lördag eller söndag.", "Choose a future Friday, Saturday or Sunday."),
     schedule: t("Dagen är stängd i ordinarie arbetstider. Ändra arbetstiderna först.", "The day is closed in regular working hours. Edit those hours first."),
     time: t("Tiden har passerat eller är inte tillåten. Välj ett nytt intervall.", "This interval is past or unavailable. Choose another."),
+    confirm: t("Bekräfta ändringen i dialogrutan innan den sparas.", "Please confirm the change in the dialog before saving."),
     conflict: t("En kund verifierar en bokning, eller arbetstiderna ändrades. Inga nya block skapades. Uppdatera och försök igen.", "A customer is verifying a booking, or working hours changed. No new blocks were created. Refresh and try again."),
     database: t("Kalendern kunde inte sparas eller läsas. Inga nya tider visas som lediga.", "The calendar could not be saved or read. No times are shown as available."),
     access: t("Du saknar behörighet till Maria-kalendern.", "You do not have access to Maria's calendar."),
   };
   const activeDate = view?.date ?? nextMariaCalendarDay();
-  const now = Date.now();
+  // The server reader supplies a stable timestamp, not an impure render-time clock.
+  const now = view?.snapshotAtEpoch ?? 0;
   const upcoming = (view?.slots ?? []).filter(s => Date.parse(s.startsAt) > now);
   const canCloseDay = upcoming.some(s => !s.manuallyClosed);
   const canOpenDay = (view?.futureManualBlockCount ?? 0) > 0;

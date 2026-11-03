@@ -74,6 +74,18 @@ describe("Maria per-year copy and manual booking controls", () => {
     expect(picker).toContain("excludeBookingId: bookingId");
   });
 
+  it("fails closed if a manual calendar action has not been explicitly confirmed", () => {
+    const button = read("src/app/dashboard/maria/kalender/maria-calendar-confirm-button.tsx");
+    const calendar = read("src/app/dashboard/maria/kalender/page.tsx");
+    const engine = read("src/lib/maria-manual-calendar.ts");
+    expect(button).toContain('name="confirmed" defaultValue="no"');
+    expect(button).toContain('input.value = "yes"');
+    expect(calendar).toContain('formData.get("confirmed") !== "yes"');
+    expect(calendar).not.toContain("const now = Date.now()");
+    expect(engine).toContain("snapshotAtEpoch: now.getTime()");
+    expect(engine).toContain("clock_timestamp() < ${slot.startsAt}::timestamptz");
+  });
+
   it("retains existing booking lengths after Maria changes a service duration", () => {
     const availability = read("src/lib/maria-booking-availability.ts");
     const manager = read("src/lib/maria-dashboard-reschedule.ts");

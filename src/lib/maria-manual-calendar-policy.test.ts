@@ -35,6 +35,18 @@ describe("Maria manual calendar Stockholm date and interval policy", () => {
     expect(mariaCalendarIntervals("2026-11-06", "06:00", "23:30")).toBeNull();
   });
 
+  it("does not hide valid hours when a wide Sunday window crosses Stockholm DST", () => {
+    const spring = mariaCalendarIntervals("2027-03-28", "00:00", "10:00");
+    const autumn = mariaCalendarIntervals("2027-10-31", "00:00", "10:00");
+    expect(spring).not.toBeNull();
+    expect(autumn).not.toBeNull();
+    expect(spring?.some(slot => slot.clock === "06:00")).toBe(true);
+    expect(autumn?.some(slot => slot.clock === "06:00")).toBe(true);
+    expect(spring?.some(slot => slot.clock === "02:00")).toBe(false);
+    expect(autumn?.some(slot => slot.clock === "02:30")).toBe(false);
+    expect(mariaCalendarIntervals("2026-11-06", "00:00", "20:00")).toHaveLength(41);
+  });
+
   it("handles both Swedish DST transitions without missing or overlapping the morning intervals", () => {
     const spring = mariaCalendarIntervals("2027-03-28", "06:00", "10:00");
     const autumn = mariaCalendarIntervals("2027-10-31", "06:00", "10:00");

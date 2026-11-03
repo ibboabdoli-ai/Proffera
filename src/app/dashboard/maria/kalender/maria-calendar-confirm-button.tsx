@@ -1,5 +1,7 @@
 "use client";
 
+import { useRef } from "react";
+
 type Props = {
   label: string;
   confirmation: string;
@@ -8,12 +10,18 @@ type Props = {
 };
 
 export function MariaCalendarConfirmButton({label,confirmation,disabled,kind="close"}: Props) {
-  return (
+  const confirmationField = useRef<HTMLInputElement>(null);
+  return (<>
+    <input type="hidden" name="confirmed" defaultValue="no" ref={confirmationField} />
     <button
       type="submit"
       disabled={disabled}
       onClick={(event) => {
-        if (!window.confirm(confirmation)) event.preventDefault();
+        const input = confirmationField.current;
+        if (!input) { event.preventDefault(); return; }
+        input.value = "no";
+        if (!window.confirm(confirmation)) { event.preventDefault(); return; }
+        input.value = "yes";
       }}
       className={kind === "close"
         ? "min-h-11 rounded-lg bg-[#845363] px-4 py-2.5 text-sm font-semibold text-white hover:bg-[#6d3e4e] disabled:cursor-not-allowed disabled:opacity-45"
@@ -21,5 +29,5 @@ export function MariaCalendarConfirmButton({label,confirmation,disabled,kind="cl
     >
       {label}
     </button>
-  );
+  </>);
 }

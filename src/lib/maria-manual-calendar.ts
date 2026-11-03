@@ -21,6 +21,7 @@ export type MariaCalendarAppointment = {
 export type MariaCalendarView = {
   date: string; weeklyClosed: boolean; slots: MariaCalendarSlot[];
   appointments: MariaCalendarAppointment[]; holdCount: number; futureManualBlockCount: number;
+  snapshotAtEpoch: number;
 };
 
 export class MariaCalendarError extends Error {
@@ -81,20 +82,23 @@ export async function readMariaManualCalendar(date: string, now = new Date()): P
         limit 300
       `,
       sql`
-        select v.starts_at::text as starts_at,v.ends_at::text as ends_at
+        select (v.starts_at-(coalesce(s.buffer_before_minutes,0)*interval '1 minute'))::text as starts_at,
+          (v.ends_at+(coalesce(s.buffer_after_minutes,0)*interval '1 minute'))::text as ends_at
         from public_booking_verifications v
+        left join workspace_services s on s.id=v.service_id and s.workspace_id=v.workspace_id::text
         where v.workspace_id=${workspaceId}::uuid
           and v.consumed_at is null and v.expires_at>now()
-          and v.starts_at < ${bounds.endsAt}::timestamptz
-          and v.ends_at > ${bounds.startsAt}::timestamptz
+          and v.starts_at-(coalesce(s.buffer_before_minutes,0)*interval '1 minute') < ${bounds.endsAt}::timestamptz
+          and v.ends_at+(coalesce(s.buffer_after_minutes,0)*interval '1 minute') > ${bounds.startsAt}::timestamptz
         order by v.starts_at asc
         limit 300
       `,
     ]);
     // Never present a partial occupancy picture as if it were complete.
     if (bookedRows.length >= 300 || holdRows.length >= 300) throw new MariaCalendarError("database");
-    const base = hours.weeklyClosed ? [] : mariaCalendarIntervals(date, hours.first, hours.last);
-    if (base === null) throw new MariaCalendarError("schedule");
+    // Reopening day-long blocks must stay possible even if the current
+    // working-hours grid is invalid or no longer includes old blocks.
+    const base = (hours.weeklyClosed ? [] : mariaCalendarIntervals(date, hours.first, hours.last)) ?? [];
     const bookings = bookedRows.map(row => ({
       id: String(row.id), title: String(row.title ?? ""), status: String(row.status ?? ""),
       source: String(row.source ?? ""), notes: String(row.notes ?? ""),
@@ -131,7 +135,7 @@ export async function readMariaManualCalendar(date: string, now = new Date()): P
       }));
     const futureManualBlockCount = bookings.filter(b => isManual(b) && b.start > now.getTime()).length;
     return { date, weeklyClosed: hours.weeklyClosed, slots, appointments,
-      holdCount: holds.length, futureManualBlockCount };
+      holdCount: holds.length, futureManualBlockCount, snapshotAtEpoch: now.getTime() };
   } catch (error) {
     if (error instanceof MariaCalendarError) throw error;
     console.error("Maria calendar read failed", error);
@@ -150,10 +154,11 @@ export async function changeMariaManualCalendar(input: CalendarChange, now = new
   const hours = await loadCalendarHours(sql, workspaceId, day);
   if (input.mode !== "open_day" && hours.weeklyClosed) throw new MariaCalendarError("schedule");
   const intervals = hours.weeklyClosed ? [] : mariaCalendarIntervals(input.date, hours.first, hours.last);
-  if (intervals === null) throw new MariaCalendarError("schedule");
+  if (intervals === null && input.mode !== "open_day") throw new MariaCalendarError("schedule");
   if (!["close","open","close_day","open_day"].includes(input.mode)) throw new MariaCalendarError("time");
   const single = input.mode === "close" || input.mode === "open";
-  const requested = single ? intervals.filter(i => i.clock === input.clock) : intervals;
+  const availableIntervals = intervals ?? [];
+  const requested = single ? availableIntervals.filter(i => i.clock === input.clock) : availableIntervals;
   if (single && requested.length !== 1) throw new MariaCalendarError("time");
   const future = requested.filter(i => Date.parse(i.startsAt) > now.getTime());
   if (single && future.length !== 1) throw new MariaCalendarError("time");
@@ -232,7 +237,8 @@ export async function changeMariaManualCalendar(input: CalendarChange, now = new
                 select 1 from workspaces w
                 where w.id=${workspaceId}::uuid and w.slug='makeup-by-maria'
                   and w.status in ('active','trial')
-              ) and not exists(
+              ) and clock_timestamp() < ${slot.startsAt}::timestamptz
+                and not exists(
                 select 1 from bookings b
                 where b.workspace_id=${workspaceId}
                   and b.source='dashboard_availability_block'

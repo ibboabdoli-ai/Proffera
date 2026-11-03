@@ -190,10 +190,14 @@ function futureFriday() {
       [workspaceId],
     );
     const holdId=randomUUID();
+    await db!.query("update workspace_services set buffer_before_minutes=30 where id=$1::uuid", [service.rows[0]!.id]);
     await db!.query(
       "insert into public_booking_verifications(id,workspace_id,public_booking_slug,customer_name,customer_email,service_id,service_name,starts_at,ends_at,code_hash,expires_at) values($1::uuid,$2::uuid,'makeup-by-maria','QA','qa@example.invalid',$3::uuid,'Synthetic', $4::timestamptz,$5::timestamptz,'synthetic-only',now()+interval '30 minutes')",
       [holdId,workspaceId,service.rows[0]!.id,intervals[4]!.startsAt,new Date(Date.parse(intervals[4]!.startsAt)+180*60_000).toISOString()],
     );
+    expect((await readMariaManualCalendar(day)).slots.find(s=>s.clock==="07:30")?.holdCount).toBe(1);
+    await expect(changeMariaManualCalendar({date:day,mode:"close",clock:"07:30"}))
+      .rejects.toMatchObject({code:"conflict"});
     // An active hold is a pending customer reservation. No conflicting
     // manual row may commit while that hold can still be verified.
     await expect(changeMariaManualCalendar({date:day,mode:"close_day"}))
@@ -242,6 +246,15 @@ function futureFriday() {
     const view=await readMariaManualCalendar(day);
     expect(view.slots).toHaveLength(7);
     expect(view.futureManualBlockCount).toBe(9);
+    // The UI must still show an emergency "open day" when the persisted
+    // window is now invalid for single-interval editing.
+    await db!.query(
+      "update workspace_booking_hours set closes_at='23:30' where workspace_id=$1 and weekday=5",
+      [workspaceId],
+    );
+    const invalid=await readMariaManualCalendar(day);
+    expect(invalid.slots).toHaveLength(0);
+    expect(invalid.futureManualBlockCount).toBe(9);
     const result=await changeMariaManualCalendar({date:day,mode:"open_day"});
     expect(result.affectedIntervals).toBe(9);
     expect(await manualBlocks()).toHaveLength(0);
@@ -276,6 +289,43 @@ function futureFriday() {
     await expect(changeMariaManualCalendar({date:"2026-01-02",mode:"close",clock:"06:00"}))
       .rejects.toMatchObject({code:"date"});
     expect(await manualBlocks()).toHaveLength(0);
+  });
+
+  it("fails closed if a schedule edit commits while a close waits for the Maria lock",async()=>{
+    const holder=new Client({connectionString});
+    await holder.connect();
+    let pending:Promise<{ok:boolean;error?:unknown}>|null=null;
+    try{
+      await holder.query("BEGIN");
+      await holder.query("select pg_advisory_xact_lock(hashtextextended($1::text,713))",[workspaceId]);
+      pending=changeMariaManualCalendar({date:day,mode:"close",clock:"08:30"})
+        .then(()=>({ok:true}),error=>({ok:false,error}));
+      // Wait for an actual advisory-lock waiter; no sleep-only race assumption.
+      let queued=false;
+      for(let attempt=0;attempt<60;attempt++){
+        const state=await db!.query<{waiting:number}>(`
+          select count(*)::int as waiting from pg_stat_activity
+          where state='active' and wait_event_type='Lock'
+            and wait_event='advisory' and query like '%pg_advisory_xact_lock%'
+        `);
+        if(Number(state.rows[0]?.waiting)>0){queued=true;break;}
+        await delay(50);
+      }
+      expect(queued).toBe(true);
+      await holder.query(
+        "update workspace_booking_hours set closes_at='09:00' where workspace_id=$1 and weekday=5",
+        [workspaceId],
+      );
+      await holder.query("COMMIT");
+      const result=await pending;
+      expect(result.ok).toBe(false);
+      expect(result.error).toMatchObject({code:"conflict"});
+      expect(await manualBlocks()).toHaveLength(0);
+    }finally{
+      await holder.query("ROLLBACK").catch(()=>undefined);
+      await holder.end();
+      if(pending) await pending;
+    }
   });
 
   it("refuses stale or closed working hours instead of silently re-opening them",async()=>{
