@@ -61,6 +61,19 @@ describe("Maria per-year copy and manual booking controls", () => {
     expect(detail).not.toContain('value("payment_saved") === "paid"');
   });
 
+  it("lets Maria select a readable duration manually and lists reschedule slots using the saved length", () => {
+    const page = read("src/app/dashboard/maria/page.tsx");
+    const picker = read("src/lib/customer-reschedule-slots.ts");
+    expect(page).toContain("Hur lång tid tar sminkningen?");
+    expect(page).toContain('select name="duration_minutes"');
+    expect(page).toContain("Ändringen gäller nya bokningar.");
+    expect(page).toContain("Befintliga bokningar behåller sin sparade behandlingstid");
+    expect(picker).toContain("extract(epoch from (b.ends_at - b.starts_at)) / 60 as booked_duration_minutes");
+    expect(picker).toContain("Number.isInteger(bookedDurationMinutes)");
+    expect(picker).toContain("durationOverrideMinutes: bookedDurationMinutes");
+    expect(picker).toContain("excludeBookingId: bookingId");
+  });
+
   it("retains existing booking lengths after Maria changes a service duration", () => {
     const availability = read("src/lib/maria-booking-availability.ts");
     const manager = read("src/lib/maria-dashboard-reschedule.ts");

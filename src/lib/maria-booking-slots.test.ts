@@ -66,6 +66,16 @@ describe("Maria one-person bridal makeup booking", () => {
     })).toEqual(["20:00", "20:30"]);
   });
 
+  it("uses the existing 180-minute appointment when Maria later selects 210 minutes", () => {
+    const busy = [{ startsAt: "2026-10-16T10:00:00Z", endsAt: "2026-10-16T12:00:00Z" }];
+    // An appointment starting 09:00 Stockholm and lasting 180 minutes ends
+    // exactly when this other booking starts at 12:00; 210 minutes overlaps.
+    const previousBookingLength = availableMariaStartSlots({ ...settings, busy, durationMinutes: 180 });
+    const newlyConfiguredLength = availableMariaStartSlots({ ...settings, busy, durationMinutes: 210 });
+    expect(previousBookingLength).toContain("09:00");
+    expect(newlyConfiguredLength).not.toContain("09:00");
+  });
+
   it("offers Sunday starts without blocking unrelated time automatically", () => {
     expect(availableMariaStartSlots({...settings,date:"2026-10-18",busy:[]})).toEqual([
       "06:00","06:30","07:00","07:30","08:00","08:30","09:00","09:30","10:00",

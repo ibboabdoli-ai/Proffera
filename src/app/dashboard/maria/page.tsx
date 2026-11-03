@@ -187,10 +187,15 @@ export default async function MariaSiteDashboardPage({ searchParams }: { searchP
         <form action={saveMariaScheduleAction} className="mt-6 space-y-5">
           <div className="grid gap-4 sm:grid-cols-2">
             <label className="grid gap-2 text-sm font-semibold text-[#634853]">
-              Behandlingstid (minuter)
-              <input name="duration_minutes" type="number" min={30} max={720} step={30}
-                defaultValue={savedDuration}
-                className="min-h-11 w-full rounded-lg border border-[#d8c4cb] px-3 text-[#352a2c]" required />
+              Hur lång tid tar sminkningen?
+              <select name="duration_minutes" defaultValue={String(savedDuration)}
+                className="min-h-11 w-full rounded-lg border border-[#d8c4cb] bg-white px-3 text-[#352a2c]" required>
+                {Array.from({ length: 24 }, (_, i) => (i + 1) * 30).map(n => (
+                  <option key={n} value={n}>
+                    {n < 60 ? `${n} min` : `${Math.floor(n / 60)} tim${n % 60 ? ` ${n % 60} min` : ""}`}
+                  </option>
+                ))}
+              </select>
             </label>
             <label className="grid gap-2 text-sm font-semibold text-[#634853]">
               Paus efter bokning (minuter)
@@ -200,6 +205,7 @@ export default async function MariaSiteDashboardPage({ searchParams }: { searchP
               </select>
             </label>
           </div>
+          <p className="text-xs leading-6 text-[#705f65]">Du väljer själv hur lång tid sminkningen tar. Ändringen gäller nya bokningar. Befintliga bokningar behåller sin sparade behandlingstid även om de bokas om.</p>
           <div className="grid gap-4 sm:grid-cols-2">
             {editHours.map(h=>(
               <fieldset key={h.day} className="space-y-3 rounded-xl border border-[#e8d9dc] p-4">
