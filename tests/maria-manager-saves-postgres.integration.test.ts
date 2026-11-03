@@ -154,6 +154,7 @@ function compileSql(strings: TemplateStringsArray, values: unknown[]): Query {
     vi.stubEnv("VERCEL_ENV", "preview");
     vi.stubEnv("VERCEL_URL", "qa.vercel.app");
     vi.stubEnv("PROFFERA_MARIA_PREVIEW_TEST_EMAIL", "qa@example.invalid");
+    vi.stubEnv("PROFFERA_PREVIEW_EMAIL_RECIPIENT", "qa@example.invalid");
   });
 
   afterEach(() => {
@@ -248,12 +249,19 @@ function compileSql(strings: TemplateStringsArray, values: unknown[]): Query {
     );
     const before = Number((await count()).rows[0]?.count);
     vi.stubEnv("PROFFERA_MARIA_PREVIEW_TEST_EMAIL", "different-qa@example.invalid");
-    // ok reports a successful read; an empty projection proves that the old
-    // recipient's booking is not exposed under the new allowlist.
-    expect(await readMariaManualSwishStatuses()).toEqual({ ok: true, entries: {} });
+    // A mismatch between the Maria allowlist and the effective Brevo inbox
+    // is now a configuration-level failure, not a successful empty read.
+    expect(await readMariaManualSwishStatuses()).toEqual({ ok: false, entries: {} });
     await expect(setMariaManualSwishStatus(bookingId, "paid"))
-      .rejects.toThrow("MARIA_MANUAL_SWISH_INELIGIBLE");
+      .rejects.toThrow("MARIA_MANUAL_SWISH_FORBIDDEN");
     expect(Number((await count()).rows[0]?.count)).toBe(before);
+  });
+
+  it("fails closed if the effective Brevo inbox differs from the Maria allowlist", async () => {
+    vi.stubEnv("PROFFERA_PREVIEW_EMAIL_RECIPIENT", "other@example.invalid");
+    expect(await readMariaManualSwishStatuses()).toEqual({ ok: false, entries: {} });
+    await expect(setMariaManualSwishStatus(bookingId, "paid"))
+      .rejects.toThrow("MARIA_MANUAL_SWISH_FORBIDDEN");
   });
 
   it("fails closed when no Preview recipient is configured", async () => {

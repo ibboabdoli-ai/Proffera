@@ -22,6 +22,7 @@ beforeEach(() => {
   vi.stubEnv("VERCEL_ENV", "preview");
   vi.stubEnv("VERCEL_URL", "qa.vercel.app");
   vi.stubEnv("PROFFERA_MARIA_PREVIEW_TEST_EMAIL", "qa@example.invalid");
+  vi.stubEnv("PROFFERA_PREVIEW_EMAIL_RECIPIENT", "qa@example.invalid");
   vi.stubEnv("BREVO_API_KEY", "qa-fake-test-only");
   vi.stubEnv("LEAD_FROM_EMAIL", "Makeup by Maria <noreply@example.invalid>");
 });
@@ -68,6 +69,14 @@ describe("Maria-only Swish confirmation and cancellation email", () => {
     vi.stubEnv("PROFFERA_MARIA_PREVIEW_TEST_EMAIL", "new@example.invalid");
     expect(await sendMariaBookingStatusEmail(booking)).toEqual({ ok: false, error: "preview_recipient_not_approved" });
     vi.stubEnv("PROFFERA_MARIA_PREVIEW_TEST_EMAIL", "");
+    expect(await sendMariaBookingStatusEmail(booking)).toEqual({ ok: false, error: "preview_recipient_not_approved" });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("does not send if the effective Brevo Preview inbox is different", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    vi.stubEnv("PROFFERA_PREVIEW_EMAIL_RECIPIENT", "different@example.invalid");
     expect(await sendMariaBookingStatusEmail(booking)).toEqual({ ok: false, error: "preview_recipient_not_approved" });
     expect(fetchMock).not.toHaveBeenCalled();
   });
