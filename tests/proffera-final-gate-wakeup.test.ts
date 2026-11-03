@@ -60,6 +60,7 @@ type WakeupFixture = {
   routedReviewCommit?: string;
   sourceIssueUrl?: string;
   comments?: Array<Record<string, unknown>>;
+  inlineComments?: Array<Record<string, unknown>>;
   firstReviews?: Array<Record<string, unknown>>;
   laterReviews?: Array<Record<string, unknown>>;
   liveHead?: string;
@@ -131,7 +132,7 @@ function respond(args) {
   else if (endpoint.includes('/pulls/801/reviews?')) {
     value = state.reviewsRead++ === 0 ? f.firstReviews ?? [] : f.laterReviews ?? f.firstReviews ?? [];
     if (prepared() && f.adapterFault === 'blocking_review') value = [...value,{id:888,user:{login:'coderabbitai[bot]'},commit_id:head,state:'CHANGES_REQUESTED',submitted_at:'2099-09-05T12:04:00Z'}];
-  } else if (endpoint.includes('/pulls/801/comments?')) value = [];
+  } else if (endpoint.includes('/pulls/801/comments?')) value = f.inlineComments ?? [];
   else if (endpoint.includes('/actions/workflows/ci.yml/runs?')) value = {workflow_runs:[{id:71,head_sha:head,created_at:'2099-09-05T12:00:00Z'}]};
   else if (endpoint === base + '/actions/runs/71') value = {id:71,head_sha:head,path:'.github/workflows/ci.yml',event:'pull_request',repository:{full_name:'ibboabdoli-ai/Proffera'},pull_requests:[{number:801}],run_attempt:prepared() && f.adapterFault==='new_attempt'?2:1};
   else if (endpoint.includes('/actions/runs/71/jobs?')) value = {total_count:jobs.length,jobs};
@@ -978,6 +979,11 @@ describe("complete wakeup shell to durable adapter", () => {
       { ...base, comments: [requestComment()] },
       { ...base, comments: [requestComment(), { ...request, created_at: "2099-09-05T11:59:00Z" }] },
       { ...base, comments: [requestComment("2099-09-05T12:04:00Z"), request] },
+      { ...base, inlineComments: [{
+        user: { login: "chatgpt-codex-connector[bot]" },
+        commit_id: reviewHead, original_commit_id: reviewHead,
+        created_at: "2099-09-05T12:02:30Z", body: "Synthetic active review finding",
+      }] },
       { ...base, firstReviews: [{
         user: { login: "coderabbitai[bot]" }, commit_id: reviewHead,
         state: "CHANGES_REQUESTED", submitted_at: "2099-09-05T12:02:30Z",
