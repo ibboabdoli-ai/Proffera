@@ -258,6 +258,7 @@ function cleanCodexComment(overrides: Record<string, unknown> = {}) {
     user: { login: "chatgpt-codex-connector[bot]" },
     body: `Codex Review: Didn't find any major issues. Breezy!\n\n**Reviewed commit:** \`${reviewHead.slice(0, 10)}\``,
     created_at: "2026-08-31T10:03:00Z",
+    updated_at: "2026-08-31T10:03:00Z",
     ...overrides,
   };
 }
