@@ -92,6 +92,18 @@ describe("canonical material evidence", () => {
     expect(normalizeFinalGateEvidence({ ...request, id: 999, observed_at: at(4), body: "Please review.\n" + request.body + "\nThanks." }, head)).toEqual(first);
     expect(() => normalizeFinalGateEvidence(request, "b".repeat(40))).toThrow("unsupported_evidence");
   });
+  it("normalizes the official Codex receipt exactly like a legacy clean result without accepting forged variants", () => {
+    const legacy = source();
+    const official = { ...legacy, body: "<!-- codex-review-receipt:v1 -->\n\nCodex Review: Didn't find any major issues.\n\n**Reviewed commit:** `aaaaaaaaaa`" };
+    expect(normalizeFinalGateEvidence(official, head)).toEqual(normalizeFinalGateEvidence(legacy, head));
+    for (const body of [
+      official.body.replace("receipt:v1", "receipt:v2"),
+      "Untrusted prefix\n" + official.body,
+      "<!-- codex-review-receipt:v1 -->\n\nCodex Review: Found issues. Reviewed commit: aaaaaaaaaa",
+    ]) {
+      expect(() => normalizeFinalGateEvidence({ ...legacy, body }, head)).toThrow("unsupported_evidence");
+    }
+  });
   it("converges clean review/comment transports without a generation guess", () => {
     for (const actor of ["coderabbitai[bot]", "chatgpt-codex-connector[bot]"]) {
       const reviewed = { ...source(), actor, kind: "pull_request_review", review_commit: head, review_state: actor === "coderabbitai[bot]" ? "commented" : "approved", body: "Review completed.", findings: [] };
@@ -662,6 +674,19 @@ describe("real adapter provider and blocking-review policy", () => {
     const sources: Record<string, LiveSource> = { direct_review: liveReview(), codex_comment: source(), fallback_request: { ...source(9001, fallbackBody), actor: "ibboabdoli-ai" }, outage: { ...source(), actor: "coderabbitai[bot]", body: "Review rate limited" }, coderabbit_comment: { ...source(), actor: "coderabbitai[bot]", body: cleanBody } };
     const f = liveFixture(sources[mode]); f.hooks.before = ({ endpoint }) => { if (f.states().includes("PREPARED") && endpoint.includes(`/pulls/${pr}/reviews?`)) f.reviews = [reviewRecord(888, "CHANGES_REQUESTED", at(14))]; };
     expect(f.run().decision).toBe("FAIL_CLOSED_MISMATCH"); expect(f.posts).toBe(0); expect(f.capacity()).toBe(4);
+  });
+});
+
+describe("Codex receipt admission through the real final-gate adapter", () => {
+  it("admits the authentic receipt once and refuses edited original bot comments", () => {
+    const official = "<!-- codex-review-receipt:v1 -->\n\nCodex Review: Didn't find any major issues.\n\n**Reviewed commit:** `aaaaaaaaaa`";
+    const clean = liveFixture({ ...source(), body: official });
+    expect(clean.run().decision).toBe("ALLOW_RERUN");
+    expect(clean.posts).toBe(1);
+    const edited = liveFixture({ ...source(), body: official });
+    edited.sourceCreatedAt = at(11);
+    expect(() => edited.run()).toThrow("edited_codex_comment");
+    expect(edited.posts).toBe(0);
   });
 });
 
