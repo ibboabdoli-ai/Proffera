@@ -1,9 +1,7 @@
 import { isValidLocalTime, localDateTimeToUtc, parseLocalDateTime } from "@/lib/public-booking-policy";
 
-// Represents one manually closed BOOKING START, not an occupied treatment interval.
-// Maria-only booking writers must honor it under the shared workspace lock 713.
-export const MARIA_CALENDAR_MARKER = "maria_manual_calendar_v1";
-export const MARIA_CALENDAR_TITLE = "Manuellt stängd tid";
+// Manual closed booking starts are stored separately from bookings, in
+// maria_manual_closed_starts; they never create artificial occupied time ranges.
 export const MARIA_CALENDAR_ZONE = "Europe/Stockholm" as const;
 
 export type MariaCalendarInterval = {
@@ -60,17 +58,20 @@ export function mariaCalendarIntervals(date: string, firstStart: string, lastSta
   if (!parseMariaCalendarDay(date)) return null;
   const first = clockMinutes(firstStart);
   const last = clockMinutes(lastStart);
-  if (first === null || last === null || first > last || last + 30 >= 1440) return null;
+  if (first === null || last === null || first > last) return null;
   const result: MariaCalendarInterval[] = [];
   for (let minute = first; minute <= last; minute += 30) {
+    // A manual closure stores an appointment START, never an occupied range.
+    // Derive a display endpoint from the real instant so DST does not hide
+    // a valid 01:30/02:30 customer booking start.
     const startsAt = convert(date, minute);
-    const endsAt = convert(date, minute + 30);
-    // Swedish DST may contain a nonexistent or repeated local half-hour.
-    // Omit only the invalid interval; all other start windows remain usable.
-    if (!startsAt || !endsAt || Date.parse(endsAt) - Date.parse(startsAt) !== 1_800_000) continue;
+    if (!startsAt) continue;
+    const end = new Date(Date.parse(startsAt) + 1_800_000);
+    const endsAt = end.toISOString();
     const clock = `${String(Math.floor(minute / 60)).padStart(2, "0")}:${String(minute % 60).padStart(2, "0")}`;
-    const after = minute + 30;
-    const endClock = `${String(Math.floor(after / 60)).padStart(2, "0")}:${String(after % 60).padStart(2, "0")}`;
+    const endClock = new Intl.DateTimeFormat("sv-SE", {
+      timeZone: MARIA_CALENDAR_ZONE, hour: "2-digit", minute: "2-digit", hourCycle: "h23",
+    }).format(end);
     result.push({ clock, endClock, startsAt, endsAt });
   }
   return result;

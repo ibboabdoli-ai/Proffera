@@ -89,7 +89,7 @@ describe("Maria per-year copy and manual booking controls", () => {
   it("applies Maria's manual calendar to individual starts at every booking safety boundary", () => {
     const availability = read("src/lib/maria-booking-availability.ts");
     const starts = read("src/lib/maria-booking-slots.ts");
-    expect(availability).toContain("manual_start_closed");
+    expect(availability).toContain("from maria_manual_closed_starts");
     expect(availability).toContain("manuallyClosedStartsAt:");
     expect(starts).toContain("manuallyClosedStarts.has(start)");
     for(const path of [
@@ -100,13 +100,15 @@ describe("Maria per-year copy and manual booking controls", () => {
       "src/lib/maria-dashboard-reschedule.ts",
     ]) {
       const code=read(path);
-      expect(code).toContain("MARIA_CALENDAR_MARKER");
+      expect(code).toContain("from maria_manual_closed_starts closed");
+      expect(code).toContain("closed.workspace_id=");
       expect(code).toContain("closed.starts_at=");
-      expect(code).toContain("closed.customer_id is null and closed.status='confirmed'");
-      expect(code).toContain("coalesce(");
     }
     const calendar = read("src/app/dashboard/maria/kalender/page.tsx");
     expect(calendar).toContain("Inget stängs automatiskt.");
+    expect(read("src/lib/maria-manual-calendar.ts")).not.toContain("insert into bookings(");
+    expect(read("db/migrations/20261103_0072_maria_manual_closed_starts.sql"))
+      .toContain("maria_manual_closed_starts_pk PRIMARY KEY (workspace_id, starts_at)");
     expect(calendar).toContain("Befintliga bokningar och pågående verifieringar");
   });
 

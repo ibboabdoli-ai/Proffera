@@ -1,7 +1,6 @@
 import "server-only";
 
 import { getSql } from "@/lib/db/server";
-import { MARIA_CALENDAR_MARKER } from "@/lib/maria-manual-calendar-policy";
 import { availableMariaStartSlots, type MariaBusyInterval } from "@/lib/maria-booking-slots";
 import { parseLocalDateTime } from "@/lib/public-booking-policy";
 
@@ -46,7 +45,7 @@ export async function getMariaAvailability(input: AvailabilityRequest): Promise<
   const after = new Date(Date.parse(`${input.date}T00:00:00Z`) + 259_200_000).toISOString();
 
   try {
-    const [services, hours, busy] = await Promise.all([
+    const [services, hours, busy, closedStarts] = await Promise.all([
       sql`
         select duration_minutes, buffer_before_minutes, buffer_after_minutes,
           minimum_notice_minutes, maximum_advance_days
@@ -67,9 +66,7 @@ export async function getMariaAvailability(input: AvailabilityRequest): Promise<
       sql`
         select b.starts_at::text as starts_at, b.ends_at::text as ends_at,
           coalesce(s.buffer_before_minutes,0) as buffer_before_minutes,
-          coalesce(s.buffer_after_minutes,0) as buffer_after_minutes,
-          (coalesce(b.source,'')='dashboard_availability_block' and coalesce(b.notes,'')=${MARIA_CALENDAR_MARKER}
-            and b.customer_id is null and b.status='confirmed') as manual_start_closed
+          coalesce(s.buffer_after_minutes,0) as buffer_after_minutes
         from bookings b
         left join workspace_services s
           on s.id = b.service_id and s.workspace_id = b.workspace_id
@@ -80,7 +77,7 @@ export async function getMariaAvailability(input: AvailabilityRequest): Promise<
           and b.ends_at > ${before}::timestamptz
         union all
         select v.starts_at::text, v.ends_at::text,
-          coalesce(s.buffer_before_minutes,0), coalesce(s.buffer_after_minutes,0),false as manual_start_closed
+          coalesce(s.buffer_before_minutes,0), coalesce(s.buffer_after_minutes,0)
         from public_booking_verifications v
         left join workspace_services s
           on s.id = v.service_id and s.workspace_id = v.workspace_id::text
@@ -88,6 +85,13 @@ export async function getMariaAvailability(input: AvailabilityRequest): Promise<
           and v.consumed_at is null and v.expires_at > now()
           and v.starts_at < ${after}::timestamptz
           and v.ends_at > ${before}::timestamptz
+      `,
+      sql`
+        select starts_at::text as starts_at
+        from maria_manual_closed_starts
+        where workspace_id=${input.workspaceId}::uuid
+          and starts_at>=${before}::timestamptz
+          and starts_at<${after}::timestamptz
       `,
     ]);
     const service = services[0];
@@ -97,8 +101,8 @@ export async function getMariaAvailability(input: AvailabilityRequest): Promise<
       return { ok: false, error: "hours" };
     }
 
-    // Manual starts exclude their exact clock; normal bookings and holds still block overlapping treatments.
-    const occupied: MariaBusyInterval[] = busy.filter(row => row.manual_start_closed !== true).map(row => ({
+    // Only real appointments, ordinary blocks and holds occupy a treatment range.
+    const occupied: MariaBusyInterval[] = busy.map(row => ({
       startsAt: String(row.starts_at),
       endsAt: String(row.ends_at),
       bufferBeforeMinutes: Number(row.buffer_before_minutes) || 0,
@@ -116,8 +120,7 @@ export async function getMariaAvailability(input: AvailabilityRequest): Promise<
         minimumNoticeMinutes: Number(service.minimum_notice_minutes) || 0,
         maximumAdvanceDays: Number(service.maximum_advance_days) || 730,
         busy: occupied,
-        manuallyClosedStartsAt: busy.filter(row => row.manual_start_closed === true)
-          .map(row => String(row.starts_at)),
+        manuallyClosedStartsAt: closedStarts.map(row => String(row.starts_at)),
         now: new Date(),
         timeZone: input.timeZone,
         stepMinutes: 30,

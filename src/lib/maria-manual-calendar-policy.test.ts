@@ -32,10 +32,10 @@ describe("Maria manual calendar Stockholm date and interval policy", () => {
     expect(mariaCalendarIntervals("2026-11-09", "06:00", "10:00")).toBeNull();
     expect(mariaCalendarIntervals("2026-11-06", "06:10", "10:00")).toBeNull();
     expect(mariaCalendarIntervals("2026-11-06", "11:00", "10:00")).toBeNull();
-    expect(mariaCalendarIntervals("2026-11-06", "06:00", "23:30")).toBeNull();
+    expect(mariaCalendarIntervals("2026-11-06", "06:00", "23:30")).toHaveLength(36);
   });
 
-  it("does not hide valid hours when a wide Sunday window crosses Stockholm DST", () => {
+  it("keeps every valid booking start across Stockholm DST transitions", () => {
     const spring = mariaCalendarIntervals("2027-03-28", "00:00", "10:00");
     const autumn = mariaCalendarIntervals("2027-10-31", "00:00", "10:00");
     expect(spring).not.toBeNull();
@@ -43,7 +43,12 @@ describe("Maria manual calendar Stockholm date and interval policy", () => {
     expect(spring?.some(slot => slot.clock === "06:00")).toBe(true);
     expect(autumn?.some(slot => slot.clock === "06:00")).toBe(true);
     expect(spring?.some(slot => slot.clock === "02:00")).toBe(false);
-    expect(autumn?.some(slot => slot.clock === "02:30")).toBe(false);
+    expect(spring?.some(slot => slot.clock === "01:30")).toBe(true);
+    expect(autumn?.some(slot => slot.clock === "02:30")).toBe(true);
+    const lastBeforeSpringGap = spring?.find(slot => slot.clock === "01:30");
+    expect(lastBeforeSpringGap).toBeDefined();
+    expect(lastBeforeSpringGap?.endClock).toBe("03:00");
+    expect(Date.parse(lastBeforeSpringGap!.endsAt)-Date.parse(lastBeforeSpringGap!.startsAt)).toBe(1_800_000);
     expect(mariaCalendarIntervals("2026-11-06", "00:00", "20:00")).toHaveLength(41);
   });
 

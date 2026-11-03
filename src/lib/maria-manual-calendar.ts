@@ -4,7 +4,6 @@ import { getSql } from "@/lib/db/server";
 import { canManageWorkspaceSettings, getUserWorkspaceAccess } from "@/lib/workspace-access";
 import { hasDashboardModuleAccess } from "@/lib/workspace-module-access";
 import {
-  MARIA_CALENDAR_MARKER, MARIA_CALENDAR_TITLE,
   mariaCalendarDateAllowed, mariaCalendarDayBounds, mariaCalendarIntervals,
 } from "@/lib/maria-manual-calendar-policy";
 
@@ -66,10 +65,10 @@ export async function readMariaManualCalendar(date: string, now = new Date()): P
   const day = new Date(`${date}T12:00:00Z`).getUTCDay();
   if (!bounds) throw new MariaCalendarError("date");
   try {
-    const [hours, bookedRows, holdRows] = await Promise.all([
+    const [hours, bookedRows, holdRows, closedRows] = await Promise.all([
       loadCalendarHours(sql, workspaceId, day),
       sql`
-        select b.id::text as id,b.title,b.status,b.source,b.notes,
+        select b.id::text as id,b.title,b.status,b.source,
           b.starts_at::text as starts_at,b.ends_at::text as ends_at,
           coalesce(c.name,'') as customer_name
         from bookings b
@@ -93,38 +92,44 @@ export async function readMariaManualCalendar(date: string, now = new Date()): P
         order by v.starts_at asc
         limit 300
       `,
+      sql`
+        select starts_at::text as starts_at
+        from maria_manual_closed_starts
+        where workspace_id=${workspaceId}::uuid
+          and starts_at >= ${bounds.startsAt}::timestamptz
+          and starts_at < ${bounds.endsAt}::timestamptz
+        order by starts_at asc
+        limit 300
+      `,
     ]);
-    // Never present a partial occupancy picture as if it were complete.
-    if (bookedRows.length >= 300 || holdRows.length >= 300) throw new MariaCalendarError("database");
+    // Never present partial booking, verification, or manual-start data as complete.
+    if (bookedRows.length >= 300 || holdRows.length >= 300 || closedRows.length >= 300) throw new MariaCalendarError("database");
     // Reopening day-long blocks must stay possible even if the current
     // working-hours grid is invalid or no longer includes old blocks.
     const base = (hours.weeklyClosed ? [] : mariaCalendarIntervals(date, hours.first, hours.last)) ?? [];
     const bookings = bookedRows.map(row => ({
       id: String(row.id), title: String(row.title ?? ""), status: String(row.status ?? ""),
-      source: String(row.source ?? ""), notes: String(row.notes ?? ""),
+      source: String(row.source ?? ""),
       customerName: String(row.customer_name ?? ""),
       start: Date.parse(String(row.starts_at)), end: Date.parse(String(row.ends_at)),
     }));
     const holds = holdRows.map(row => ({
       start: Date.parse(String(row.starts_at)), end: Date.parse(String(row.ends_at)),
     }));
-    const isManual = (b: typeof bookings[number]) =>
-      b.source === "dashboard_availability_block" && b.notes === MARIA_CALENDAR_MARKER;
+    const manualStarts = new Set(closedRows.map(row => Date.parse(String(row.starts_at))));
     const overlaps = (start: number, end: number, slotStart: number, slotEnd: number) =>
       Number.isFinite(start) && Number.isFinite(end) && start < slotEnd && end > slotStart;
-    // These grid entries are bookable START choices. The 30-minute marker
-    // stores a disabled start, not a customer appointment or occupied duration.
+    // Closed starts are stored separately from real booking time ranges.
     const slots: MariaCalendarSlot[] = base.map(slot => {
       const start = Date.parse(slot.startsAt), end = Date.parse(slot.endsAt);
       return {
         ...slot,
-        manuallyClosed: bookings.some(b => isManual(b) && b.start === start && b.end === end),
+        manuallyClosed: manualStarts.has(start),
         appointmentCount: bookings.filter(b =>
           !b.source.startsWith("dashboard_availability_")
           && overlaps(b.start,b.end,start,end)).length,
         otherBlock: bookings.some(b =>
-          b.source.startsWith("dashboard_availability_") && !isManual(b)
-          && overlaps(b.start,b.end,start,end)),
+          b.source.startsWith("dashboard_availability_") && overlaps(b.start,b.end,start,end)),
         holdCount: holds.filter(h => overlaps(h.start,h.end,start,end)).length,
       };
     });
@@ -135,7 +140,7 @@ export async function readMariaManualCalendar(date: string, now = new Date()): P
         id:b.id,customerName:b.customerName,title:b.title,status:b.status,
         startsAt:new Date(b.start).toISOString(),endsAt:new Date(b.end).toISOString(),
       }));
-    const futureManualBlockCount = bookings.filter(b => isManual(b) && b.start > now.getTime()).length;
+    const futureManualBlockCount = [...manualStarts].filter(start => start > now.getTime()).length;
     return { date, weeklyClosed: hours.weeklyClosed, slots, appointments,
       holdCount: holds.length, futureManualBlockCount, snapshotAtEpoch: now.getTime() };
   } catch (error) {
@@ -187,8 +192,8 @@ export async function changeMariaManualCalendar(input: CalendarChange, now = new
             and h.closes_at is not distinct from ${hours.last || null}::time
         ) then 1 else 0 end) as calendar_schedule_guard
       `,
-      // An unexpired OTP hold takes priority. A manual block may overlap an
-      // existing requested/confirmed booking, but must never invalidate a code
+      // An unexpired OTP hold takes priority. A manual start closure must
+      // never invalidate a code
       // the customer is still allowed to verify. This is evaluated AFTER the
       // shared advisory lock, so hold creation/finalization cannot race it.
       ...((input.mode === "close" || input.mode === "close_day") ? [sql`
@@ -206,51 +211,31 @@ export async function changeMariaManualCalendar(input: CalendarChange, now = new
       `] : []),
       ...(input.mode === "open_day"
         ? [sql`
-          delete from bookings b
-          where b.workspace_id=${workspaceId}
-            and b.source='dashboard_availability_block'
-            and b.notes=${MARIA_CALENDAR_MARKER}
-            and b.customer_id is null and b.status='confirmed'
-            and b.starts_at >= ${bounds.startsAt}::timestamptz
-            and b.starts_at < ${bounds.endsAt}::timestamptz
-            and b.ends_at <= ${bounds.endsAt}::timestamptz
-            and b.starts_at>clock_timestamp()
-          returning b.id
+          delete from maria_manual_closed_starts closed
+          where closed.workspace_id=${workspaceId}::uuid
+            and closed.starts_at >= ${bounds.startsAt}::timestamptz
+            and closed.starts_at < ${bounds.endsAt}::timestamptz
+            and closed.starts_at > clock_timestamp()
+          returning closed.starts_at
         `]
         : future.map(slot => input.mode === "open"
           ? sql`
-              delete from bookings b
-              where b.workspace_id=${workspaceId}
-                and b.source='dashboard_availability_block'
-                and b.notes=${MARIA_CALENDAR_MARKER}
-                and b.customer_id is null and b.status='confirmed'
-                and b.starts_at=${slot.startsAt}::timestamptz
-                and b.ends_at=${slot.endsAt}::timestamptz
-                and b.starts_at>clock_timestamp()
-              returning b.id
+              delete from maria_manual_closed_starts closed
+              where closed.workspace_id=${workspaceId}::uuid
+                and closed.starts_at=${slot.startsAt}::timestamptz
+                and closed.starts_at > clock_timestamp()
+              returning closed.starts_at
             `
           : sql`
-              insert into bookings(
-                workspace_id,customer_id,title,service,city,status,starts_at,ends_at,source,notes
-              )
-              select ${workspaceId},null,${MARIA_CALENDAR_TITLE},'Blockerad tid',null,
-                'confirmed',${slot.startsAt}::timestamptz,${slot.endsAt}::timestamptz,
-                'dashboard_availability_block',${MARIA_CALENDAR_MARKER}
+              insert into maria_manual_closed_starts(workspace_id,starts_at,created_by)
+              select ${workspaceId}::uuid,${slot.startsAt}::timestamptz,${userId}
               where exists(
                 select 1 from workspaces w
                 where w.id=${workspaceId}::uuid and w.slug='makeup-by-maria'
                   and w.status in ('active','trial')
               ) and clock_timestamp() < ${slot.startsAt}::timestamptz
-                and not exists(
-                select 1 from bookings b
-                where b.workspace_id=${workspaceId}
-                  and b.source='dashboard_availability_block'
-                  and b.notes=${MARIA_CALENDAR_MARKER}
-                  and b.status='confirmed'
-                  and b.starts_at=${slot.startsAt}::timestamptz
-                  and b.ends_at=${slot.endsAt}::timestamptz
-              )
-              returning id
+              on conflict (workspace_id,starts_at) do nothing
+              returning starts_at
             `)),
       sql`
         insert into admin_audit_logs(admin_user_id,workspace_id,action,reason,new_value)

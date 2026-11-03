@@ -26,12 +26,18 @@ vi.mock("@/lib/workspace-access", () => ({
 vi.mock("@/lib/workspace-module-access", () => ({
   hasDashboardModuleAccess: async (name: string) => name === "online_booking" && access.entitled,
 }));
+vi.mock("@/lib/maria-preview-booking", () => ({
+  getMariaPreviewBookingReadiness: async () => ({
+    enabled: true, workspaceId: access.workspaceId, publicSlug: "makeup-by-maria",
+  }),
+}));
 
 import {
   changeMariaManualCalendar, MariaCalendarError, readMariaManualCalendar,
 } from "@/lib/maria-manual-calendar";
 import { mariaCalendarIntervals } from "@/lib/maria-manual-calendar-policy";
 import { getMariaAvailability } from "@/lib/maria-booking-availability";
+import { finalizeMariaVerifiedBooking } from "@/lib/maria-verified-booking";
 
 const RUN = process.env.GITHUB_ACTIONS === "true" || process.env.PROFFERA_POSTGRES_INTEGRATION === "1";
 
@@ -103,12 +109,17 @@ function futureFriday() {
       }},
     );
     await db.query(
-      "insert into workspaces(id,slug,name,status) values($1::uuid,'makeup-by-maria','Maria synthetic QA','active')",
+      "insert into workspaces(id,slug,name,status,public_booking_slug) values($1::uuid,'makeup-by-maria','Maria synthetic QA','active','makeup-by-maria')",
       [workspaceId],
     );
     await db.query(
       "insert into customers(id,workspace_id,name,email,status,source) values($1::uuid,$2,'Synthetic bride','qa@example.invalid','active','dashboard_manual')",
       [customerId,workspaceId],
+    );
+    // The canonical public_booking trigger requires an existing service by name.
+    await db.query(
+      "insert into workspace_services(workspace_id,name,public_slug,duration_minutes,is_active,public_status) values($1,'Brudmakeup','synthetic-calendar-fixture',180,true,'published')",
+      [workspaceId],
     );
     await db.query(
       "insert into bookings(id,workspace_id,customer_id,title,service,status,source,starts_at,ends_at) values($1::uuid,$2,$3::uuid,'Synthetic booking','Brudmakeup','requested','public_booking',$4::timestamptz,$5::timestamptz)",
@@ -122,8 +133,11 @@ function futureFriday() {
 
   beforeEach(async()=>{
     vi.stubEnv("VERCEL_ENV","preview");
+    vi.stubEnv("PROFFERA_MARIA_PREVIEW_TEST_EMAIL","qa@example.invalid");
     access.workspaceId=workspaceId;access.slug="makeup-by-maria";access.role="owner";access.entitled=true;
-    await db!.query("delete from bookings where workspace_id=$1 and source='dashboard_availability_block'",[workspaceId]);
+    await db!.query("delete from maria_manual_closed_starts where workspace_id=$1::uuid",[workspaceId]);
+    // Every test starts with only its one canonical synthetic customer booking.
+    await db!.query("delete from bookings where workspace_id=$1 and id<>$2::uuid",[workspaceId,bookingId]);
     await db!.query("delete from public_booking_verifications where workspace_id=$1::uuid",[workspaceId]);
     await db!.query("update workspace_booking_hours set opens_at='06:00',closes_at='10:00',is_closed=false where workspace_id=$1 and weekday=5",[workspaceId]);
     await db!.query("update bookings set status='requested',starts_at=$1::timestamptz,ends_at=$2::timestamptz where id=$3::uuid",[bookingStart,bookingEnd,bookingId]);
@@ -136,8 +150,8 @@ function futureFriday() {
   },30_000);
 
   async function manualBlocks(){
-    const result=await db!.query<{starts_at:string,ends_at:string}>(
-      "select starts_at::text,ends_at::text from bookings where workspace_id=$1 and source='dashboard_availability_block' and notes='maria_manual_calendar_v1' order by starts_at",
+    const result=await db!.query<{starts_at:string}>(
+      "select starts_at::text from maria_manual_closed_starts where workspace_id=$1::uuid order by starts_at",
       [workspaceId],
     );
     return result.rows;
@@ -219,6 +233,51 @@ function futureFriday() {
     const afterReopen=await availability();
     expect(afterReopen).toEqual({ok:true,slots:["07:00"]});
     expect(await manualBlocks()).toHaveLength(intervals.length-1);
+
+    // Exercise Maria's ACTUAL finalizer under canonical PostgreSQL triggers
+    // and the bookings_active_time_no_overlap exclusion constraint.
+    // Neighboring manual closed starts must not prevent the accepted 07:00 booking.
+    const confirmedStart=intervals.find(slot=>slot.clock==="07:00")!.startsAt;
+    const confirmedEnd=new Date(Date.parse(confirmedStart)+180*60_000).toISOString();
+    const service=await db!.query<{id:string}>(
+      "select id::text from workspace_services where workspace_id=$1 and name='Synthetic independently managed start'",
+      [workspaceId],
+    );
+    const hold=await db!.query<{id:string}>(
+      "insert into public_booking_verifications(workspace_id,public_booking_slug,customer_name,customer_email,service_id,service_name,starts_at,ends_at,code_hash,expires_at) values($1::uuid,'makeup-by-maria','Synthetic bride','qa@example.invalid',$2::uuid,'Synthetic independently managed start',$3::timestamptz,$4::timestamptz,'synthetic-hash',now()+interval '15 minutes') returning id::text",
+      [workspaceId,service.rows[0]!.id,confirmedStart,confirmedEnd],
+    );
+    const saved=await finalizeMariaVerifiedBooking({
+      verificationId:hold.rows[0]!.id,expectedCodeHash:"synthetic-hash",
+      bookingNote:"synthetic QA only",
+    });
+    expect(saved.ok).toBe(true);
+    if(!saved.ok) throw new Error("Canonical finalization unexpectedly failed");
+    expect((await manualBlocks())).toHaveLength(intervals.length-1);
+
+    // Physical appointments still cannot overlap. The canonical exclusion
+    // constraint and public-booking policy trigger are NOT bypassed.
+    const conflictingStart=intervals.find(slot=>slot.clock==="07:30")!.startsAt;
+    const conflictingEnd=new Date(Date.parse(conflictingStart)+180*60_000).toISOString();
+    await expect(db!.query(
+      "insert into bookings(workspace_id,customer_id,title,service,status,source,starts_at,ends_at) values($1,$2::uuid,'Conflicting synthetic booking','Synthetic independently managed start','requested','public_booking',$3::timestamptz,$4::timestamptz)",
+      [workspaceId,customerId,conflictingStart,conflictingEnd],
+    )).rejects.toMatchObject({code:"23P01"});
+
+    // Moving the one physical booking after reopening another chosen start
+    // must still respect the real overlap constraint but ignore unrelated
+    // Maria manual closure rows held in the separate table.
+    await changeMariaManualCalendar({date:day,mode:"open",clock:"06:00"});
+    const movedStart=intervals[0]!.startsAt;
+    const movedEnd=new Date(Date.parse(movedStart)+180*60_000).toISOString();
+    const moved=await db!.query(
+      "update bookings set starts_at=$1::timestamptz,ends_at=$2::timestamptz where id=$3::uuid returning id",
+      [movedStart,movedEnd,saved.bookingId],
+    );
+    expect(moved.rowCount).toBe(1);
+    expect(await manualBlocks()).toHaveLength(intervals.length-2);
+    const stillBusy=await availability();
+    expect(stillBusy).toEqual({ok:true,slots:[]});
   });
 
   it("does not invalidate an active OTP hold, including when the hold writer owns the same lock",async()=>{
@@ -283,15 +342,14 @@ function futureFriday() {
     const view=await readMariaManualCalendar(day);
     expect(view.slots).toHaveLength(7);
     expect(view.futureManualBlockCount).toBe(9);
-    // The UI must still show an emergency "open day" when the persisted
-    // window is now invalid for single-interval editing.
+    // Reopening all manually closed starts also works after the day is closed.
     await db!.query(
-      "update workspace_booking_hours set closes_at='23:30' where workspace_id=$1 and weekday=5",
+      "update workspace_booking_hours set opens_at=null,closes_at=null,is_closed=true where workspace_id=$1 and weekday=5",
       [workspaceId],
     );
-    const invalid=await readMariaManualCalendar(day);
-    expect(invalid.slots).toHaveLength(0);
-    expect(invalid.futureManualBlockCount).toBe(9);
+    const closed=await readMariaManualCalendar(day);
+    expect(closed.slots).toHaveLength(0);
+    expect(closed.futureManualBlockCount).toBe(9);
     const result=await changeMariaManualCalendar({date:day,mode:"open_day"});
     expect(result.affectedIntervals).toBe(9);
     expect(await manualBlocks()).toHaveLength(0);
@@ -374,9 +432,9 @@ function futureFriday() {
     const date=friday.toISOString().slice(0,10);
     const slots=mariaCalendarIntervals(date,"06:00","10:00")!;
     const target=slots.find(x=>x.clock==="08:00")!;
-    const recorded=await db!.query<{id:string}>(
-      "insert into bookings(workspace_id,customer_id,title,service,status,source,notes,starts_at,ends_at) values($1,null,'Manuellt stängd tid','Blockerad tid','confirmed','dashboard_availability_block','maria_manual_calendar_v1',$2::timestamptz,$3::timestamptz) returning id",
-      [workspaceId,target.startsAt,target.endsAt],
+    await db!.query(
+      "insert into maria_manual_closed_starts(workspace_id,starts_at,created_by) values($1::uuid,$2::timestamptz,'synthetic-qa')",
+      [workspaceId,target.startsAt],
     );
     const staleNow=new Date(Date.parse(target.startsAt)-60_000);
     const opened=await changeMariaManualCalendar({date,mode:"open",clock:"08:00"},staleNow);
@@ -384,12 +442,12 @@ function futureFriday() {
     expect(opened).toMatchObject({changed:false,affectedIntervals:0});
     expect(entireDay).toMatchObject({changed:false,affectedIntervals:0});
     const stillThere=await db!.query(
-      "select id from bookings where id=$1::uuid and workspace_id=$2",
-      [recorded.rows[0]!.id,workspaceId],
+      "select starts_at from maria_manual_closed_starts where workspace_id=$1::uuid and starts_at=$2::timestamptz",
+      [workspaceId,target.startsAt],
     );
     expect(stillThere.rowCount).toBe(1);
-    // Isolate synthetic fixture; no real booking is touched.
-    await db!.query("delete from bookings where id=$1::uuid",[recorded.rows[0]!.id]);
+    // Isolate the synthetic fixture.
+    await db!.query("delete from maria_manual_closed_starts where workspace_id=$1::uuid and starts_at=$2::timestamptz",[workspaceId,target.startsAt]);
   });
 
   it("refuses stale or closed working hours instead of silently re-opening them",async()=>{

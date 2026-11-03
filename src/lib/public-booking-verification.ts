@@ -8,7 +8,6 @@ import { sendUnifiedBookingConfirmationEmail } from "@/features/email/unified-bo
 import { sendBookingOwnerSms, sendBookingVerificationSms } from "@/features/sms/booking-sms";
 import { createCustomerCalendarToken } from "@/lib/customer-calendar";
 import { getSql } from "@/lib/db/server";
-import { MARIA_CALENDAR_MARKER } from "@/lib/maria-manual-calendar-policy";
 import { finalizeMariaVerifiedBooking } from "@/lib/maria-verified-booking";
 import { getMariaPreviewBookingReadiness } from "@/lib/maria-preview-booking";
 import { renewMariaPreviewHoldForResend } from "@/lib/maria-resend-hold";
@@ -176,9 +175,6 @@ export async function beginBookingEmailVerification(input: BeginBookingVerificat
               and bs.workspace_id=b.workspace_id
             where b.workspace_id=${input.workspaceId}
               and b.status not in ('cancelled','no_show')
-              and not (coalesce(b.source,'')='dashboard_availability_block'
-                and coalesce(b.notes,'')=${MARIA_CALENDAR_MARKER}
-                and b.customer_id is null and b.status='confirmed')
               and b.starts_at - (coalesce(bs.buffer_before_minutes,0) * interval '1 minute')
                   < ${input.endsAt}::timestamptz
                     + (select coalesce(buffer_after_minutes,0) * interval '1 minute'
@@ -189,11 +185,8 @@ export async function beginBookingEmailVerification(input: BeginBookingVerificat
                        from workspace_services where id=${input.serviceId}::uuid)
           )
           and not exists (
-            select 1 from bookings closed
-            where closed.workspace_id=${input.workspaceId}
-              and closed.source='dashboard_availability_block'
-              and closed.notes=${MARIA_CALENDAR_MARKER}
-              and closed.customer_id is null and closed.status='confirmed'
+            select 1 from maria_manual_closed_starts closed
+            where closed.workspace_id=${input.workspaceId}::uuid
               and closed.starts_at=${input.startsAt}::timestamptz
           )
           and not exists (
