@@ -212,7 +212,7 @@ export async function changeMariaManualCalendar(input: CalendarChange, now = new
             and b.starts_at >= ${bounds.startsAt}::timestamptz
             and b.starts_at < ${bounds.endsAt}::timestamptz
             and b.ends_at <= ${bounds.endsAt}::timestamptz
-            and b.starts_at>now()
+            and b.starts_at>clock_timestamp()
           returning b.id
         `]
         : future.map(slot => input.mode === "open"
@@ -224,6 +224,7 @@ export async function changeMariaManualCalendar(input: CalendarChange, now = new
                 and b.customer_id is null and b.status='confirmed'
                 and b.starts_at=${slot.startsAt}::timestamptz
                 and b.ends_at=${slot.endsAt}::timestamptz
+                and b.starts_at>clock_timestamp()
               returning b.id
             `
           : sql`

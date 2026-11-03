@@ -328,6 +328,33 @@ function futureFriday() {
     }
   });
 
+  it("will not reopen a slot that already started even when preflight clock is stale",async()=>{
+    // Test a past Friday using an intentionally earlier caller clock.
+    // This reproduces the post-lock time boundary without wall-clock sleeps.
+    const today=new Date();
+    const offset=(today.getUTCDay()-5+7)%7 + 7;
+    const friday=new Date(Date.UTC(today.getUTCFullYear(),today.getUTCMonth(),today.getUTCDate()-offset));
+    const date=friday.toISOString().slice(0,10);
+    const slots=mariaCalendarIntervals(date,"06:00","10:00")!;
+    const target=slots.find(x=>x.clock==="08:00")!;
+    const recorded=await db!.query<{id:string}>(
+      "insert into bookings(workspace_id,customer_id,title,service,status,source,notes,starts_at,ends_at) values($1,null,'Manuellt stängd tid','Blockerad tid','confirmed','dashboard_availability_block','maria_manual_calendar_v1',$2::timestamptz,$3::timestamptz) returning id",
+      [workspaceId,target.startsAt,target.endsAt],
+    );
+    const staleNow=new Date(Date.parse(target.startsAt)-60_000);
+    const opened=await changeMariaManualCalendar({date,mode:"open",clock:"08:00"},staleNow);
+    const entireDay=await changeMariaManualCalendar({date,mode:"open_day"},staleNow);
+    expect(opened).toMatchObject({changed:false,affectedIntervals:0});
+    expect(entireDay).toMatchObject({changed:false,affectedIntervals:0});
+    const stillThere=await db!.query(
+      "select id from bookings where id=$1::uuid and workspace_id=$2",
+      [recorded.rows[0]!.id,workspaceId],
+    );
+    expect(stillThere.rowCount).toBe(1);
+    // Isolate synthetic fixture; no real booking is touched.
+    await db!.query("delete from bookings where id=$1::uuid",[recorded.rows[0]!.id]);
+  });
+
   it("refuses stale or closed working hours instead of silently re-opening them",async()=>{
     await db!.query("update workspace_booking_hours set is_closed=true,opens_at=null,closes_at=null where workspace_id=$1 and weekday=5",[workspaceId]);
     await expect(changeMariaManualCalendar({date:day,mode:"close",clock:"06:00"}))
