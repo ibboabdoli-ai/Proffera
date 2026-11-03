@@ -316,7 +316,7 @@ function validatedSource(input, source, execute) {
         // create new clean-review authority, even with a valid reviewed SHA.
         if (source.created_at !== source.observed_at) throw new Error("final_gate_live:edited_codex_comment");
         const matches = [...source.body.matchAll(/Reviewed commit:\*{0,2}\s*`?([0-9a-fA-F]{7,40})(?![0-9a-fA-F])`?/g)];
-        if (!cleanCodexComment(source.body) || matches.length !== 1
+        if (!cleanCodexComment(source.body) || (source.body.match(/Reviewed commit:/g) ?? []).length !== 1 || matches.length !== 1
           || !head.startsWith(matches[0][1].toLowerCase())) throw new Error("final_gate_live:clean_head");
       } else if (source.body.includes("<!-- recent_review_start -->")) {
         const clean = source.body.match(/<!-- recent_review_start -->([\s\S]*?)<!-- recent_review_end -->/g);

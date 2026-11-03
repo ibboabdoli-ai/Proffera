@@ -688,6 +688,14 @@ describe("Codex receipt admission through the real final-gate adapter", () => {
     expect(() => edited.run()).toThrow("edited_codex_comment");
     expect(edited.posts).toBe(0);
   });
+  it("rejects a clean receipt with a second malformed reviewed-commit marker", () => {
+    const official = "<!-- codex-review-receipt:v1 -->\n\nCodex Review: Didn't find any major issues.\n\n**Reviewed commit:** `aaaaaaaaaa`";
+    for (const extra of ["a".repeat(40) + "c", "INVALID"]) {
+      const f = liveFixture({ ...source(), body: official + "\n\nReviewed commit: " + extra });
+      expect(() => f.run()).toThrow("final_gate_live:clean_head");
+      expect(f.posts).toBe(0);
+    }
+  });
 });
 
 describe("authority transitions and late races", () => {

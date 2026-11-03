@@ -961,6 +961,7 @@ jobs:
                         startswith("Codex Review: Didn\u0027t find any major issues.")
                         or startswith("<!-- codex-review-receipt:v1 -->\n\nCodex Review: Didn\u0027t find any major issues.")
                       ))
+                    | select(([(.body // "") | match("Reviewed commit:"; "g")] | length) == 1)
                     | select(([(.body // "") | match("Reviewed commit:\\*{0,2}[[:space:]]*`?(?<reviewed>[0-9a-fA-F]{7,40})(?![0-9a-fA-F])`?"; "g")] | length) == 1)
                     | ((.body // "") | capture("Reviewed commit:\\*{0,2}[[:space:]]*`?(?<reviewed>[0-9a-fA-F]{7,40})(?![0-9a-fA-F])`?").reviewed | ascii_downcase) as $reviewed
                     | select($sha | startswith($reviewed))

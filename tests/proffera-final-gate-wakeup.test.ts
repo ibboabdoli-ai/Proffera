@@ -1005,6 +1005,8 @@ describe("complete wakeup shell to durable adapter", () => {
       `<!-- codex-review-receipt:v2 -->\n\nCodex Review: Didn't find any major issues. Reviewed commit: ${reviewHead}`,
       `<!-- codex-review-receipt:v1 -->\n\nCodex Review: Didn't find any major issues. Reviewed commit: ${oldHead}`,
       `Untrusted preface\n${receipt}`,
+      receipt + "\n\nReviewed commit: " + reviewHead + "c",
+      receipt + "\n\nReviewed commit: MALFORMED",
       `<!-- codex-review-receipt:v1 -->\n\nCodex Review: Needs fixes. Reviewed commit: ${reviewHead}`,
     ];
     for (const body of badBodies) {
