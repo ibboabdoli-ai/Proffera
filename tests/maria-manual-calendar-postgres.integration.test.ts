@@ -304,7 +304,7 @@ function futureFriday() {
     expect(held.rows[0]?.count).toBe(1);
 
     // After expiration, the manager may close the day and reopen it.
-    await db!.query("update public_booking_verifications set expires_at=now()-interval '1 minute' where id=$1::uuid",[holdId]);
+    await db!.query("update public_booking_verifications set created_at=now()-interval '1 hour', expires_at=now()-interval '1 minute' where id=$1::uuid",[holdId]);
     expect((await changeMariaManualCalendar({date:day,mode:"close_day"})).affectedIntervals).toBe(9);
     expect((await changeMariaManualCalendar({date:day,mode:"open_day"})).affectedIntervals).toBe(9);
     expect(await manualBlocks()).toHaveLength(0);
