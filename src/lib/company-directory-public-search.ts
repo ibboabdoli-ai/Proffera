@@ -316,7 +316,10 @@ export async function searchPublishedCompanyDirectory(
   const sql = getSql();
   const serviceQuery = cleanSearchValue(input.service);
   const locationQuery = cleanSearchValue(input.location);
-  const normalizedLocation = locationQuery.toLocaleLowerCase("sv-SE");
+  // Match the common ASCII spelling of this pilot city without folding all Swedish
+  // place names together (e.g. Habo and Håbo are different municipalities).
+  const lowerLocation = locationQuery.toLocaleLowerCase("sv-SE");
+  const normalizedLocation = lowerLocation === "sodertalje" ? "södertälje" : lowerLocation;
   const resolution = serviceQuery ? resolveDirectoryServiceQuery(serviceQuery) : null;
   const pageSize = boundedLimit(input.limit);
   const requestedPage = boundedPage(input.page);
