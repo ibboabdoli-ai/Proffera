@@ -356,7 +356,7 @@ jobs:
           cache: npm
 
       - name: Download settled exact-head review evidence
-        uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: supervisor-review-evidence-${{ needs.admit.outputs.admitted_run_id }}-${{ needs.admit.outputs.admitted_run_attempt }}-${{ needs.admit.outputs.head_sha }}
           path: .
@@ -470,7 +470,7 @@ jobs:
           node-version: 22
 
       - name: Download exact candidate repair patch
-        uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: supervisor-review-repair-${{ needs.repair.outputs.run_id }}-${{ needs.repair.outputs.run_attempt }}-${{ needs.repair.outputs.head_sha }}
           path: ${{ runner.temp }}/proffera-review-repair-candidate
@@ -555,7 +555,7 @@ jobs:
           node-version: 22
 
       - name: Download exact candidate repair patch
-        uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: supervisor-review-repair-${{ needs.repair.outputs.run_id }}-${{ needs.repair.outputs.run_attempt }}-${{ needs.repair.outputs.head_sha }}
           path: ${{ runner.temp }}/proffera-review-repair-candidate
@@ -762,7 +762,7 @@ jobs:
           node-version: 22
 
       - name: Download settled exact-head review evidence
-        uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: supervisor-review-evidence-${{ needs.admit.outputs.admitted_run_id }}-${{ needs.admit.outputs.admitted_run_attempt }}-${{ needs.admit.outputs.head_sha }}
           path: ${{ runner.temp }}/proffera-review-repair-evidence
