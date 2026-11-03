@@ -72,6 +72,7 @@ export default async function MariaManualCalendarPage({searchParams}: {searchPar
     date: t("Välj ett framtida datum på fredag, lördag eller söndag.", "Choose a future Friday, Saturday or Sunday."),
     schedule: t("Dagen är stängd i ordinarie arbetstider. Ändra arbetstiderna först.", "The day is closed in regular working hours. Edit those hours first."),
     time: t("Tiden har passerat eller är inte tillåten. Välj ett nytt intervall.", "This interval is past or unavailable. Choose another."),
+    conflict: t("En kund verifierar en bokning, eller arbetstiderna ändrades. Inga nya block skapades. Uppdatera och försök igen.", "A customer is verifying a booking, or working hours changed. No new blocks were created. Refresh and try again."),
     database: t("Kalendern kunde inte sparas eller läsas. Inga nya tider visas som lediga.", "The calendar could not be saved or read. No times are shown as available."),
     access: t("Du saknar behörighet till Maria-kalendern.", "You do not have access to Maria's calendar."),
   };
@@ -79,7 +80,7 @@ export default async function MariaManualCalendarPage({searchParams}: {searchPar
   const now = Date.now();
   const upcoming = (view?.slots ?? []).filter(s => Date.parse(s.startsAt) > now);
   const canCloseDay = upcoming.some(s => !s.manuallyClosed);
-  const canOpenDay = upcoming.some(s => s.manuallyClosed);
+  const canOpenDay = (view?.futureManualBlockCount ?? 0) > 0;
   const paramSuffix = lang === "en" ? "?lang=en" : "";
 
   return (
@@ -122,16 +123,6 @@ export default async function MariaManualCalendarPage({searchParams}: {searchPar
               }).format(new Date(`${view.date}T12:00:00Z`))}
             </h2>
           </div>
-          {view.weeklyClosed ? (
-            <p className="mt-4 rounded-lg bg-[#fff5f2] p-4 text-sm text-[#6d3e4e]">
-              {t("Denna veckodag är stängd i dina vanliga arbetstider. Öppna den under Mina arbetstider.",
-                "This weekday is closed in your regular working hours. Open it under Working hours.")}
-              <Link href="/dashboard/maria#tider" className="ml-2 font-bold underline">
-                {t("Ändra arbetstider","Edit working hours")}
-              </Link>
-            </p>
-          ) : (
-            <>
               <div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <form action={calendarMutation} className="grid">
                   {formDetails(view.date,"close_day","",lang)}
@@ -148,6 +139,16 @@ export default async function MariaManualCalendarPage({searchParams}: {searchPar
                     disabled={!canOpenDay}/>
                 </form>
               </div>
+          {view.weeklyClosed ? (
+            <p className="mt-4 rounded-lg bg-[#fff5f2] p-4 text-sm text-[#6d3e4e]">
+              {t("Denna veckodag är stängd i dina vanliga arbetstider. Öppna den under Mina arbetstider.",
+                "This weekday is closed in your regular working hours. Open it under Working hours.")}
+              <Link href="/dashboard/maria#tider" className="ml-2 font-bold underline">
+                {t("Ändra arbetstider","Edit working hours")}
+              </Link>
+            </p>
+          ) : (
+            <>
               <p className="mt-3 text-xs leading-5 text-[#705f65]">
                 {t("Tiderna nedan är 30-minutersintervall. Ett stängt intervall kan påverka flera möjliga bokningsstarter eftersom en behandling tar längre tid.",
                   "These are 30-minute occupied intervals. A closed interval may affect several offered booking starts because treatments are longer.")}

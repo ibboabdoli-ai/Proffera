@@ -184,7 +184,7 @@ function futureFriday() {
       .toMatchObject({changed:false,affectedIntervals:0});
   });
 
-  it("keeps active verification holds intact when closing and reopening the day",async()=>{
+  it("does not invalidate an active OTP hold, including when the hold writer owns the same lock",async()=>{
     const service=await db!.query<{id:string}>(
       "insert into workspace_services(workspace_id,name,public_slug,duration_minutes,is_active,public_status) values($1,'Synthetic calendar service','maria-bridal-trial-2027',180,true,'published') returning id::text",
       [workspaceId],
@@ -194,12 +194,57 @@ function futureFriday() {
       "insert into public_booking_verifications(id,workspace_id,public_booking_slug,customer_name,customer_email,service_id,service_name,starts_at,ends_at,code_hash,expires_at) values($1::uuid,$2::uuid,'makeup-by-maria','QA','qa@example.invalid',$3::uuid,'Synthetic', $4::timestamptz,$5::timestamptz,'synthetic-only',now()+interval '30 minutes')",
       [holdId,workspaceId,service.rows[0]!.id,intervals[4]!.startsAt,new Date(Date.parse(intervals[4]!.startsAt)+180*60_000).toISOString()],
     );
-    await changeMariaManualCalendar({date:day,mode:"close_day"});
-    const afterClose=await readMariaManualCalendar(day);
-    expect(afterClose.holdCount).toBe(1);
-    await changeMariaManualCalendar({date:day,mode:"open_day"});
+    // An active hold is a pending customer reservation. No conflicting
+    // manual row may commit while that hold can still be verified.
+    await expect(changeMariaManualCalendar({date:day,mode:"close_day"}))
+      .rejects.toMatchObject({code:"conflict"});
+    expect(await manualBlocks()).toHaveLength(0);
+    expect((await readMariaManualCalendar(day)).holdCount).toBe(1);
     const held=await db!.query("select count(*)::int as count from public_booking_verifications where id=$1::uuid and consumed_at is null",[holdId]);
     expect(held.rows[0]?.count).toBe(1);
+
+    // After expiration, the manager may close the day and reopen it.
+    await db!.query("update public_booking_verifications set expires_at=now()-interval '1 minute' where id=$1::uuid",[holdId]);
+    expect((await changeMariaManualCalendar({date:day,mode:"close_day"})).affectedIntervals).toBe(9);
+    expect((await changeMariaManualCalendar({date:day,mode:"open_day"})).affectedIntervals).toBe(9);
+    expect(await manualBlocks()).toHaveLength(0);
+
+    // A concurrently created hold is serialized with the calendar close.
+    // The holder owns the Maria workspace lock while publishing its challenge.
+    const lockClient=new Client({connectionString});
+    await lockClient.connect();
+    try{
+      await lockClient.query("BEGIN");
+      await lockClient.query("select pg_advisory_xact_lock(hashtextextended($1::text,713))",[workspaceId]);
+      const pending=expect(changeMariaManualCalendar({date:day,mode:"close",clock:"06:00"}))
+        .rejects.toMatchObject({code:"conflict"});
+      await lockClient.query(
+        "insert into public_booking_verifications(workspace_id,public_booking_slug,customer_name,customer_email,service_id,service_name,starts_at,ends_at,code_hash,expires_at) values($1::uuid,'makeup-by-maria','QA 2','qa@example.invalid',$2::uuid,'Synthetic',$3::timestamptz,$4::timestamptz,'synthetic-concurrent',now()+interval '30 minutes')",
+        [workspaceId,service.rows[0]!.id,intervals[0]!.startsAt,
+          new Date(Date.parse(intervals[0]!.startsAt)+180*60_000).toISOString()],
+      );
+      await lockClient.query("COMMIT");
+      await pending;
+      expect(await manualBlocks()).toHaveLength(0);
+    }finally{
+      await lockClient.query("ROLLBACK").catch(()=>undefined);
+      await lockClient.end();
+    }
+  });
+
+  it("can reopen all blocks hidden by later changes to regular working hours",async()=>{
+    await changeMariaManualCalendar({date:day,mode:"close_day"});
+    expect(await manualBlocks()).toHaveLength(9);
+    await db!.query(
+      "update workspace_booking_hours set closes_at='09:00' where workspace_id=$1 and weekday=5",
+      [workspaceId],
+    );
+    const view=await readMariaManualCalendar(day);
+    expect(view.slots).toHaveLength(7);
+    expect(view.futureManualBlockCount).toBe(9);
+    const result=await changeMariaManualCalendar({date:day,mode:"open_day"});
+    expect(result.affectedIntervals).toBe(9);
+    expect(await manualBlocks()).toHaveLength(0);
   });
 
   it("serializes simultaneous closes and writes only one matching busy interval",async()=>{

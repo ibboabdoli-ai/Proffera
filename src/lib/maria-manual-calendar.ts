@@ -20,11 +20,11 @@ export type MariaCalendarAppointment = {
 
 export type MariaCalendarView = {
   date: string; weeklyClosed: boolean; slots: MariaCalendarSlot[];
-  appointments: MariaCalendarAppointment[]; holdCount: number;
+  appointments: MariaCalendarAppointment[]; holdCount: number; futureManualBlockCount: number;
 };
 
 export class MariaCalendarError extends Error {
-  constructor(public readonly code: "access" | "date" | "schedule" | "time" | "database") {
+  constructor(public readonly code: "access" | "date" | "schedule" | "time" | "conflict" | "database") {
     super(code);
   }
 }
@@ -129,7 +129,9 @@ export async function readMariaManualCalendar(date: string, now = new Date()): P
         id:b.id,customerName:b.customerName,title:b.title,status:b.status,
         startsAt:new Date(b.start).toISOString(),endsAt:new Date(b.end).toISOString(),
       }));
-    return { date, weeklyClosed: hours.weeklyClosed, slots, appointments, holdCount: holds.length };
+    const futureManualBlockCount = bookings.filter(b => isManual(b) && b.start > now.getTime()).length;
+    return { date, weeklyClosed: hours.weeklyClosed, slots, appointments,
+      holdCount: holds.length, futureManualBlockCount };
   } catch (error) {
     if (error instanceof MariaCalendarError) throw error;
     console.error("Maria calendar read failed", error);
@@ -178,6 +180,23 @@ export async function changeMariaManualCalendar(input: CalendarChange, now = new
             and h.closes_at is not distinct from ${hours.last || null}::time
         ) then 1 else 0 end) as calendar_schedule_guard
       `,
+      // An unexpired OTP hold takes priority. A manual block may overlap an
+      // existing requested/confirmed booking, but must never invalidate a code
+      // the customer is still allowed to verify. This is evaluated AFTER the
+      // shared advisory lock, so hold creation/finalization cannot race it.
+      ...((input.mode === "close" || input.mode === "close_day") ? [sql`
+        select 1/(case when not exists(
+          select 1 from public_booking_verifications hold
+          left join workspace_services service
+            on service.id=hold.service_id and service.workspace_id=hold.workspace_id::text
+          where hold.workspace_id=${workspaceId}::uuid
+            and hold.consumed_at is null and hold.expires_at>now()
+            and hold.starts_at-(coalesce(service.buffer_before_minutes,0)*interval '1 minute')
+              < ${future.at(-1)!.endsAt}::timestamptz
+            and hold.ends_at+(coalesce(service.buffer_after_minutes,0)*interval '1 minute')
+              > ${future[0]!.startsAt}::timestamptz
+        ) then 1 else 0 end) as calendar_hold_guard
+      `] : []),
       ...(input.mode === "open_day"
         ? [sql`
           delete from bookings b
@@ -232,9 +251,15 @@ export async function changeMariaManualCalendar(input: CalendarChange, now = new
           ${audit}::jsonb)
       `,
     ]);
-    const effects = rows.slice(2,-1).reduce((count, result) => count + result.length,0);
+    const guardCount = (input.mode === "close" || input.mode === "close_day") ? 3 : 2;
+    const effects = rows.slice(guardCount,-1).reduce((count, result) => count + result.length,0);
     return { changed: effects > 0, affectedIntervals: effects };
   } catch (error) {
+    // SQLSTATE 22012 is an atomic assertion failure: schedule changed, or
+    // a verification hold overlaps the requested closure. No writes committed.
+    if ((error as {code?: string} | null)?.code === "22012") {
+      throw new MariaCalendarError("conflict");
+    }
     console.error("Maria calendar mutation failed closed",error);
     throw new MariaCalendarError("database");
   }
