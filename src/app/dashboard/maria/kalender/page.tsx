@@ -4,7 +4,6 @@ import { revalidatePath } from "next/cache";
 import { CalendarDays, ChevronLeft, Clock3, ShieldCheck } from "lucide-react";
 
 import { canManageWorkspaceSettings, getUserWorkspaceAccess } from "@/lib/workspace-access";
-import { hasDashboardModuleAccess } from "@/lib/workspace-module-access";
 import {
   changeMariaManualCalendar, MariaCalendarError, readMariaManualCalendar,
   type MariaCalendarView,
@@ -61,8 +60,7 @@ function formDetails(date: string, mode: string, clock: string, lang: "sv" | "en
 export default async function MariaManualCalendarPage({searchParams}: {searchParams?: Promise<Params>}) {
   const access = await getUserWorkspaceAccess();
   if (process.env.VERCEL_ENV !== "preview" || !access.ok
-    || access.workspaceSlug !== "makeup-by-maria" || !canManageWorkspaceSettings(access)
-    || !(await hasDashboardModuleAccess("online_booking"))) redirect("/dashboard");
+    || access.workspaceSlug !== "makeup-by-maria" || !canManageWorkspaceSettings(access)) redirect("/dashboard");
 
   const query = (await searchParams) ?? {};
   const lang = first(query.lang) === "en" ? "en" : "sv";

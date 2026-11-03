@@ -364,7 +364,7 @@ function futureFriday() {
     expect(await manualBlocks()).toHaveLength(1);
   });
 
-  it("denies Production, unapproved workspaces, other roles, missing entitlement, weekdays and past dates",async()=>{
+  it("denies Production, other workspaces and roles, but allows a Maria Preview manager without paid booking, weekdays and past dates",async()=>{
     vi.stubEnv("VERCEL_ENV","production");
     await expect(changeMariaManualCalendar({date:day,mode:"close",clock:"06:00"}))
       .rejects.toMatchObject({code:"access"});
@@ -375,8 +375,11 @@ function futureFriday() {
     await expect(changeMariaManualCalendar({date:day,mode:"close",clock:"06:00"}))
       .rejects.toMatchObject({code:"access"});
     access.role="owner";access.entitled=false;
-    await expect(changeMariaManualCalendar({date:day,mode:"close",clock:"06:00"}))
-      .rejects.toMatchObject({code:"access"});
+    // Preview-only Maria manager controls work without enabling paid public booking.
+    expect(await changeMariaManualCalendar({date:day,mode:"close",clock:"06:00"}))
+      .toMatchObject({changed:true,affectedIntervals:1});
+    expect(await changeMariaManualCalendar({date:day,mode:"open",clock:"06:00"}))
+      .toMatchObject({changed:true,affectedIntervals:1});
     access.entitled=true;
     const monday=new Date(Date.parse(`${day}T12:00:00Z`)+3*86_400_000).toISOString().slice(0,10);
     await expect(changeMariaManualCalendar({date:monday,mode:"close",clock:"06:00"}))

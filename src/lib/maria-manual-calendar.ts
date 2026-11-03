@@ -2,7 +2,6 @@ import "server-only";
 
 import { getSql } from "@/lib/db/server";
 import { canManageWorkspaceSettings, getUserWorkspaceAccess } from "@/lib/workspace-access";
-import { hasDashboardModuleAccess } from "@/lib/workspace-module-access";
 import {
   mariaCalendarDateAllowed, mariaCalendarDayBounds, mariaCalendarIntervals,
 } from "@/lib/maria-manual-calendar-policy";
@@ -32,9 +31,10 @@ export class MariaCalendarError extends Error {
 async function requireMariaCalendarManager() {
   if (process.env.VERCEL_ENV !== "preview") throw new MariaCalendarError("access");
   const access = await getUserWorkspaceAccess();
+  // Maria-only Preview manager QA needs no paid online-booking entitlement.
+  // Public booking, payments, other tenants, and Production remain gated.
   if (!access.ok || access.workspaceSlug !== "makeup-by-maria"
-    || !canManageWorkspaceSettings(access)
-    || !(await hasDashboardModuleAccess("online_booking"))) throw new MariaCalendarError("access");
+    || !canManageWorkspaceSettings(access)) throw new MariaCalendarError("access");
   const sql = getSql();
   if (!sql) throw new MariaCalendarError("database");
   return { sql, workspaceId: access.workspaceId, userId: access.userId };

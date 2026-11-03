@@ -6,7 +6,6 @@ import { getDashboardWorkspaceServices } from "@/lib/workspace-services-db";
 import { getDashboardWorkspaceBookingHours } from "@/lib/workspace-booking-hours-db";
 import { getMariaPreviewBookingReadiness } from "@/lib/maria-preview-booking";
 import { canManageWorkspaceSettings, getUserWorkspaceAccess } from "@/lib/workspace-access";
-import { hasDashboardModuleAccess } from "@/lib/workspace-module-access";
 import { saveMariaYearAction } from "./actions";
 import { saveMariaScheduleAction } from "./schedule-actions";
 
@@ -28,7 +27,6 @@ export default async function MariaSiteDashboardPage({ searchParams }: { searchP
     getDashboardWorkspaceBookingHours(),
     getMariaPreviewBookingReadiness(),
   ]);
-  const calendarEnabled = await hasDashboardModuleAccess("online_booking");
   const packages = expectedKeys.map((slug) =>
     services.find((service) => service.publicSlug === slug) ?? null,
   );
@@ -81,10 +79,10 @@ export default async function MariaSiteDashboardPage({ searchParams }: { searchP
             className="inline-flex min-h-11 items-center gap-2 rounded-lg border border-[#bfa1a9] px-4 py-2 text-sm font-bold text-[#754b5a]">
             Hantera bokningar <CalendarDays size={16} />
           </Link>
-          {calendarEnabled ? <Link href="/dashboard/maria/kalender"
+          <Link href="/dashboard/maria/kalender"
             className="inline-flex min-h-11 items-center gap-2 rounded-lg border border-[#bfa1a9] px-4 py-2 text-sm font-bold text-[#754b5a]">
             Hantera dagens tider <CalendarOff size={16} />
-          </Link> : null}
+          </Link>
           <Link href="#priser"
             className="inline-flex min-h-11 items-center gap-2 rounded-lg border border-[#bfa1a9] px-4 py-2 text-sm font-bold text-[#754b5a]">
             Priser och texter <Settings2 size={16} />
@@ -241,7 +239,7 @@ export default async function MariaSiteDashboardPage({ searchParams }: { searchP
         <p className="mt-2 text-sm leading-6 text-[#705f65]">Maria kan själv granska bokningsförfrågningar, bekräfta, avboka eller flytta tider från bokningsprofilen. Blockera eller frigör ledig tid före eller efter en bokning separat. Ingen handpenning registreras eller begärs automatiskt.</p>
         <div className="mt-4 flex flex-wrap gap-3">
           <Link href="/dashboard/bokningar" className="inline-flex min-h-11 items-center rounded-lg bg-[#845363] px-5 text-sm font-bold text-white">Öppna bokningar</Link>
-          {calendarEnabled ? <Link href="/dashboard/maria/kalender" className="inline-flex min-h-11 items-center rounded-lg border border-[#bfa1a9] px-5 text-sm font-bold text-[#754b5a]">Hantera dagens tider</Link> : null}
+          <Link href="/dashboard/maria/kalender" className="inline-flex min-h-11 items-center rounded-lg border border-[#bfa1a9] px-5 text-sm font-bold text-[#754b5a]">Hantera dagens tider</Link>
           <Link href="/dashboard/bokningar/blockera" className="inline-flex min-h-11 items-center rounded-lg border border-[#e8d9dc] px-4 text-xs text-[#705f65]">Avancerad tidsblockering</Link>
         </div>
       </section>
