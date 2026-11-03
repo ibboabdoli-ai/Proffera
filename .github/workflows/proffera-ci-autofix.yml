@@ -25,6 +25,7 @@ env:
     migrations/*
     supabase/*
     prisma/*
+    .npmrc
     package.json
     package-lock.json
     pnpm-lock.yaml
@@ -590,7 +591,7 @@ jobs:
 
       - name: Install dependencies before sandboxed repair
         if: needs.prepare.outputs.api_available == 'yes'
-        run: npm ci --no-audit --no-fund
+        run: npm ci --no-audit --no-fund --ignore-scripts
 
       - name: Capture failed CI logs as untrusted input
         if: needs.prepare.outputs.api_available == 'yes'
@@ -824,7 +825,7 @@ jobs:
           echo "tree=$(jq -r '.tree' <<< "$result")" >> "$GITHUB_OUTPUT"
 
       - name: Install repository dependencies
-        run: npm ci --no-audit --no-fund
+        run: npm ci --no-audit --no-fund --ignore-scripts
 
       - name: Validate bounded repair without repository token
         shell: bash

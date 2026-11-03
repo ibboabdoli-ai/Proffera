@@ -364,10 +364,11 @@ jobs:
                 .[]
                 | select(.user.login == "chatgpt-codex-connector[bot]")
                 | select(.created_at >= $request_time)
+                | select(.updated_at == .created_at)
                 | select((.body // "") | sub("^<!-- codex-review-receipt:v1 -->\\r?\\n\\r?\\n"; "") | startswith("Codex Review: Didn\u0027t find any major issues."))
                 | (.body // "") as $body
                 | select(($body | [match("Reviewed commit:"; "gi")] | length) == 1)
-                | ($body | capture("^(?:<!-- codex-review-receipt:v1 -->\\r?\\n\\r?\\n)?Codex Review: Didn\u0027t find any major issues\\.[^<`\\r\\n]*\\r?\\n(?:[ \\t]*\\r?\\n)* {0,3}(?:\\*\\*Reviewed commit:\\*\\*|Reviewed commit:)[ \\t]*(?<token>`?[0-9a-fA-F]{10,40}`?)[ \\t]*(?:\\r?\\n|$)").token) as $token
+                | ($body | capture("^(?:<!-- codex-review-receipt:v1 -->\\r?\\n\\r?\\n)?Codex Review: Didn\u0027t find any major issues\\.(?:[^<`\\r\\n]*\\r?\\n(?:[ \\t]*\\r?\\n)* {0,3}|[ \\t]+(?=Reviewed commit:[ \\t]*[0-9a-fA-F]{10}(?:\\r?\\n|$)))(?:\\*\\*Reviewed commit:\\*\\*|Reviewed commit:)[ \\t]*(?<token>`?[0-9a-fA-F]{10,40}`?)[ \\t]*(?:\\r?\\n|$)").token) as $token
                 | select(($token | startswith("`")) == ($token | endswith("`")))
                 | ($token | gsub("`"; "") | ascii_downcase) as $reviewed
                 | select(($reviewed | length) == 10 or ($reviewed | length) == 40)
@@ -411,7 +412,7 @@ jobs:
               all((.comments[], .reactions[], .inline[]); (.created_at | valid_time))
               and all(.comments[]; .updated_at == .created_at)
               and all(.reviews[]; (.submitted_at | valid_time))
-              and all(.reviews[]; .state != "CHANGES_REQUESTED")
+              and all(.reviews[]; .state != "CHANGES_REQUESTED" and .state != "DISMISSED")
             ' <<< "$codex_evidence_snapshot" >/dev/null || refuse "Refused: Codex evidence has invalid timestamps, edits, or blocking reviews."
           }
 
@@ -463,7 +464,7 @@ jobs:
 
             reviews_json="$(gh api --paginate "repos/$REPOSITORY/pulls/$pr_number/reviews?per_page=100" --jq '.[]' | jq -s '.')"
             current_reviews="$(jq -c --arg sha "$head_sha" '[.[] | select(.user.login == "coderabbitai[bot]" and .commit_id == $sha)]' <<< "$reviews_json")"
-            latest_changes="$(jq -r '[.[] | select(.state == "CHANGES_REQUESTED") | .submitted_at] | max // empty' <<< "$current_reviews")"
+            latest_changes="$(jq -r '[.[] | select(.state == "CHANGES_REQUESTED" or .state == "DISMISSED") | .submitted_at] | max // empty' <<< "$current_reviews")"
 
             comments_json="$(gh api --paginate "repos/$REPOSITORY/issues/$pr_number/comments?per_page=100" --jq '.[]' | jq -s '.')"
             coderabbit_marker="<!-- proffera-coderabbit-final-review-request:${head_sha} -->"
@@ -523,7 +524,7 @@ jobs:
 
               guard_reviews_json="$(gh api --paginate "repos/$REPOSITORY/pulls/$pr_number/reviews?per_page=100" --jq '.[]' | jq -s '.')"
               guard_current_reviews="$(jq -c --arg sha "$head_sha" '[.[] | select(.user.login == "coderabbitai[bot]" and .commit_id == $sha)]' <<< "$guard_reviews_json")"
-              guard_latest_changes="$(jq -r '[.[] | select(.state == "CHANGES_REQUESTED") | .submitted_at] | max // empty' <<< "$guard_current_reviews")"
+              guard_latest_changes="$(jq -r '[.[] | select(.state == "CHANGES_REQUESTED" or .state == "DISMISSED") | .submitted_at] | max // empty' <<< "$guard_current_reviews")"
               guard_latest_approval="$(jq -r --arg request_time "$coderabbit_request_time" '[.[] | select(.state == "APPROVED" and $request_time != "" and (.submitted_at // "") >= $request_time) | .submitted_at] | max // empty' <<< "$guard_current_reviews")"
               if [ -n "$guard_latest_changes" ] && { [ -z "$guard_latest_approval" ] || [[ ! "$guard_latest_approval" > "$guard_latest_changes" ]]; }; then
                 refuse "Refused: CodeRabbit changes were recorded before clean-comment automerge acceptance; clean comments cannot clear them."
@@ -715,7 +716,7 @@ jobs:
 
             final_reviews_json="$(gh api --paginate "repos/$REPOSITORY/pulls/$pr_number/reviews?per_page=100" --jq '.[]' | jq -s '.')"
             final_current_reviews="$(jq -c --arg sha "$head_sha" '[.[] | select(.user.login == "coderabbitai[bot]" and .commit_id == $sha)]' <<< "$final_reviews_json")"
-            final_latest_changes="$(jq -r '[.[] | select(.state == "CHANGES_REQUESTED") | .submitted_at] | max // empty' <<< "$final_current_reviews")"
+            final_latest_changes="$(jq -r '[.[] | select(.state == "CHANGES_REQUESTED" or .state == "DISMISSED") | .submitted_at] | max // empty' <<< "$final_current_reviews")"
             final_latest_approval="$(jq -r --arg request_time "$coderabbit_request_time" '[.[] | select(.state == "APPROVED" and $request_time != "" and (.submitted_at // "") >= $request_time) | .submitted_at] | max // empty' <<< "$final_current_reviews")"
 
             if [ -n "$final_latest_changes" ] && { [ -z "$final_latest_approval" ] || [[ ! "$final_latest_approval" > "$final_latest_changes" ]]; }; then
@@ -796,7 +797,7 @@ jobs:
               || refuse "Refused: exact-head CodeRabbit request changed after final owner authorization."
             near_merge_reviews_json="$(gh api --paginate "repos/$REPOSITORY/pulls/$pr_number/reviews?per_page=100" --jq '.[]' | jq -s '.')"
             near_merge_current_reviews="$(jq -c --arg sha "$head_sha" '[.[] | select(.user.login == "coderabbitai[bot]" and .commit_id == $sha)]' <<< "$near_merge_reviews_json")"
-            near_merge_latest_changes="$(jq -r '[.[] | select(.state == "CHANGES_REQUESTED") | .submitted_at] | max // empty' <<< "$near_merge_current_reviews")"
+            near_merge_latest_changes="$(jq -r '[.[] | select(.state == "CHANGES_REQUESTED" or .state == "DISMISSED") | .submitted_at] | max // empty' <<< "$near_merge_current_reviews")"
             near_merge_latest_approval="$(jq -r --arg request_time "$coderabbit_request_time" '[.[] | select(.state == "APPROVED" and $request_time != "" and (.submitted_at // "") >= $request_time) | .submitted_at] | max // empty' <<< "$near_merge_current_reviews")"
             if [ -n "$near_merge_latest_changes" ] && { [ -z "$near_merge_latest_approval" ] || [[ ! "$near_merge_latest_approval" > "$near_merge_latest_changes" ]]; }; then
               refuse "Refused: CodeRabbit changes were requested after final owner authorization; merge is blocked."

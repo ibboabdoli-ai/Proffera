@@ -243,9 +243,9 @@ function recoverAcceptedIntents(input, execute, now) {
 
 function coderabbitStillClean(reviews, head, requestTime) {
   reviews = reviews.filter((review) => review.user?.login === "coderabbitai[bot]" && review.commit_id === head);
-  if (reviews.some((review) => ["CHANGES_REQUESTED", "APPROVED"].includes(review.state)
+  if (reviews.some((review) => ["CHANGES_REQUESTED", "DISMISSED", "APPROVED"].includes(review.state)
     && !Number.isFinite(Date.parse(review.submitted_at)))) throw new Error("final_gate_live:review_time");
-  const changes = reviews.filter((r) => r.state === "CHANGES_REQUESTED").map((r) => r.submitted_at ?? "").sort().at(-1) ?? "";
+  const changes = reviews.filter((r) => r.state === "CHANGES_REQUESTED" || r.state === "DISMISSED").map((r) => r.submitted_at ?? "").sort().at(-1) ?? "";
   const approvals = reviews.filter((r) => r.state === "APPROVED" && requestTime !== null
     && Date.parse(r.submitted_at) >= requestTime).map((r) => r.submitted_at ?? "").sort().at(-1) ?? "";
   return !changes || (approvals && approvals > changes);
@@ -318,6 +318,7 @@ function validatedSource(input, source, execute) {
       if (source.created_at !== source.observed_at) throw new Error("final_gate_live:edited_provider_status");
     } else {
       if (source.actor === "chatgpt-codex-connector[bot]") {
+        if (source.created_at !== source.observed_at) throw new Error("final_gate_live:edited_codex_comment");
         const cleanBody = source.body.replace(/^<!-- codex-review-receipt:v1 -->\r?\n\r?\n/, "");
         const reviewed = cleanCodexReviewedCommit(source.body);
         if (!reviewed || !head.startsWith(reviewed)) throw new Error("final_gate_live:clean_head");

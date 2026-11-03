@@ -1142,7 +1142,9 @@ describe("Proffera standing automerge authorization", () => {
     expect(runFinalCodeRabbitFixture({ ...fixture, comments: [request, { ...clean, updated_at: "2026-08-31T22:01:00Z" }] }).output).toContain("accepted CodeRabbit clean-summary or review request changed");
     expect(runFinalCodeRabbitFixture({ ...fixture, comments: [request] }).output).toContain("accepted CodeRabbit clean-summary or review request changed");
     expect(runFinalCodeRabbitFixture({ ...fixture, comments: [clean] }).output).toContain("exact-head CodeRabbit request changed during CI polling");
-    expect(runFinalCodeRabbitFixture({ ...fixture, reviews: [{ ...review, state: "DISMISSED" }] }).output).toContain("clean-summary no longer has a completed current-head review");
+    const dismissed = runFinalCodeRabbitFixture({ ...fixture, reviews: [{ ...review, state: "DISMISSED" }] });
+    expect(dismissed.output).toContain("Refused: CodeRabbit changes were requested on the current PR head after the earlier review gate; merge is blocked.");
+    expect(dismissed.output).not.toContain("FINAL_REVIEW_OK");
   }, 30_000);
 
   it("blocks sensitive control-plane and schema paths even with fresh owner authorization", () => {

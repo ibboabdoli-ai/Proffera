@@ -48,6 +48,7 @@ export const HARD_BLOCKED_SCOPES = Object.freeze([
   "migrations/",
   "supabase/",
   "prisma/",
+  ".npmrc",
   "package.json",
   "package-lock.json",
   "pnpm-lock.yaml",

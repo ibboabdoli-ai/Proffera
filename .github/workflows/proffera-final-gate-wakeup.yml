@@ -252,7 +252,7 @@ jobs:
 
             reviews_json="$(gh api --paginate "repos/$REPOSITORY/pulls/$pr_number/reviews?per_page=100" --jq '.[]' | jq -s '.')"
             current_reviews="$(jq -c --arg sha "$head_sha" '[.[] | select(.user.login == "coderabbitai[bot]" and .commit_id == $sha)]' <<< "$reviews_json")"
-            latest_changes="$(jq -r '[.[] | select(.state == "CHANGES_REQUESTED") | .submitted_at] | max // empty' <<< "$current_reviews")"
+            latest_changes="$(jq -r '[.[] | select(.state == "CHANGES_REQUESTED" or .state == "DISMISSED") | .submitted_at] | max // empty' <<< "$current_reviews")"
             latest_approval="$(jq -r --arg request_time "$coderabbit_request_time" '[.[] | select(.state == "APPROVED" and (.submitted_at // "") >= $request_time) | .submitted_at] | max // empty' <<< "$current_reviews")"
             if [ -n "$latest_changes" ] && { [ -z "$latest_approval" ] || [[ ! "$latest_approval" > "$latest_changes" ]]; }; then
               echo "CodeRabbit changes remain requested on the current head; clean comments cannot wake the final gate past them."
@@ -281,7 +281,7 @@ jobs:
               $body
               | select((sub("^<!-- codex-review-receipt:v1 -->\\r?\\n\\r?\\n"; "")) | startswith("Codex Review: Didn\u0027t find any major issues."))
               | select(([match("Reviewed commit:"; "gi")] | length) == 1)
-              | (try capture("^(?:<!-- codex-review-receipt:v1 -->\\r?\\n\\r?\\n)?Codex Review: Didn\u0027t find any major issues\\.[^<`\\r\\n]*\\r?\\n(?:[ \\t]*\\r?\\n)* {0,3}(?:\\*\\*Reviewed commit:\\*\\*|Reviewed commit:)[ \\t]*(?<token>`?[0-9a-fA-F]{10,40}`?)[ \\t]*(?:\\r?\\n|$)").token catch "") as $token
+              | (try capture("^(?:<!-- codex-review-receipt:v1 -->\\r?\\n\\r?\\n)?Codex Review: Didn\u0027t find any major issues\\.(?:[^<`\\r\\n]*\\r?\\n(?:[ \\t]*\\r?\\n)* {0,3}|[ \\t]+(?=Reviewed commit:[ \\t]*[0-9a-fA-F]{10}(?:\\r?\\n|$)))(?:\\*\\*Reviewed commit:\\*\\*|Reviewed commit:)[ \\t]*(?<token>`?[0-9a-fA-F]{10,40}`?)[ \\t]*(?:\\r?\\n|$)").token catch "") as $token
               | select(($token | startswith("`")) == ($token | endswith("`")))
               | ($token | gsub("`"; "") | ascii_downcase) as $reviewed
               | select(($reviewed | length) == 10 or ($reviewed | length) == 40)
@@ -293,6 +293,10 @@ jobs:
             fi
             if [ -z "${EVENT_EVIDENCE_TIME:-}" ]; then
               echo "Codex clean comment has no verified evidence timestamp; refusing to wake the final gate."
+              exit 0
+            fi
+            if [ "${EVENT_EVIDENCE_TIME}" != "${EVENT_COMMENT_CREATED_AT:-}" ]; then
+              echo "Codex clean comment was edited after creation; refusing to wake the final gate."
               exit 0
             fi
 
@@ -365,7 +369,7 @@ jobs:
             ')"
             reviews_json="$(gh api --paginate "repos/$REPOSITORY/pulls/$pr_number/reviews?per_page=100" --jq '.[]' | jq -s '.')"
             current_reviews="$(jq -c --arg sha "$head_sha" '[.[] | select(.user.login == "coderabbitai[bot]" and .commit_id == $sha)]' <<< "$reviews_json")"
-            latest_changes="$(jq -r '[.[] | select(.state == "CHANGES_REQUESTED") | .submitted_at] | max // empty' <<< "$current_reviews")"
+            latest_changes="$(jq -r '[.[] | select(.state == "CHANGES_REQUESTED" or .state == "DISMISSED") | .submitted_at] | max // empty' <<< "$current_reviews")"
             latest_approval="$(jq -r --arg request_time "$coderabbit_request_time" '[.[] | select(.state == "APPROVED" and $request_time != "" and (.submitted_at // "") >= $request_time) | .submitted_at] | max // empty' <<< "$current_reviews")"
             if [ -n "$latest_changes" ] && { [ -z "$latest_approval" ] || [[ ! "$latest_approval" > "$latest_changes" ]]; }; then
               echo "CodeRabbit changes remain requested on the current head; refusing summary wakeup."
@@ -472,7 +476,7 @@ jobs:
             fi
             guard_reviews_json="$(gh api --paginate "repos/$REPOSITORY/pulls/$pr_number/reviews?per_page=100" --jq '.[]' | jq -s '.')"
             guard_current_reviews="$(jq -c --arg sha "$head_sha" '[.[] | select(.user.login == "coderabbitai[bot]" and .commit_id == $sha)]' <<< "$guard_reviews_json")"
-            guard_latest_changes="$(jq -r '[.[] | select(.state == "CHANGES_REQUESTED") | .submitted_at] | max // empty' <<< "$guard_current_reviews")"
+            guard_latest_changes="$(jq -r '[.[] | select(.state == "CHANGES_REQUESTED" or .state == "DISMISSED") | .submitted_at] | max // empty' <<< "$guard_current_reviews")"
             guard_latest_approval="$(jq -r --arg request_time "$guard_request_time" '[.[] | select(.state == "APPROVED" and (.submitted_at // "") >= $request_time) | .submitted_at] | max // empty' <<< "$guard_current_reviews")"
             if [ -n "$guard_latest_changes" ] && { [ -z "$guard_latest_approval" ] || [[ ! "$guard_latest_approval" > "$guard_latest_changes" ]]; }; then
               echo "CodeRabbit changes were recorded before final-gate wakeup; no CodeRabbit event can bypass them."

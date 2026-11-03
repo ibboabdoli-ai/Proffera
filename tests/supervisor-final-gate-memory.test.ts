@@ -92,6 +92,18 @@ describe("canonical material evidence", () => {
     expect(normalizeFinalGateEvidence({ ...request, id: 999, observed_at: at(4), body: "Please review.\n" + request.body + "\nThanks." }, head)).toEqual(first);
     expect(() => normalizeFinalGateEvidence(request, "b".repeat(40))).toThrow("unsupported_evidence");
   });
+  it("normalizes the official Codex receipt exactly like a legacy clean result without accepting forged variants", () => {
+    const legacy = source();
+    const official = { ...legacy, body: "<!-- codex-review-receipt:v1 -->\n\nCodex Review: Didn't find any major issues.\n\n**Reviewed commit:** `aaaaaaaaaa`" };
+    expect(normalizeFinalGateEvidence(official, head)).toEqual(normalizeFinalGateEvidence(legacy, head));
+    for (const body of [
+      official.body.replace("receipt:v1", "receipt:v2"),
+      "Untrusted prefix\n" + official.body,
+      "<!-- codex-review-receipt:v1 -->\n\nCodex Review: Found issues. Reviewed commit: aaaaaaaaaa",
+    ]) {
+      expect(() => normalizeFinalGateEvidence({ ...legacy, body }, head)).toThrow("unsupported_evidence");
+    }
+  });
   it("converges clean review/comment transports without a generation guess", () => {
     for (const actor of ["coderabbitai[bot]", "chatgpt-codex-connector[bot]"]) {
       const reviewed = { ...source(), actor, kind: "pull_request_review", review_commit: head, review_state: actor === "coderabbitai[bot]" ? "commented" : "approved", body: "Review completed.", findings: [] };
@@ -154,7 +166,7 @@ describe("final-gate retry decisions", () => {
     const newTarget = target();
     newTarget.head = "b".repeat(40);
     newTarget.job.head = newTarget.head;
-    const fresh = prepare([bot(first.persistence.body)], source(9999, "Codex Review: Didn't find any major issues. Reviewed commit: bbbbbbb", 7002), recovery(), newTarget);
+    const fresh = prepare([bot(first.persistence.body)], source(9999, `Codex Review: Didn't find any major issues.\nReviewed commit: ${"b".repeat(10)}`, 7002), recovery(), newTarget);
     expect(fresh.decision).toBe("ALLOW_RERUN");
     expect(fresh.intent_id).not.toBe(first.intent_id);
   });
@@ -672,6 +684,27 @@ describe("real adapter provider and blocking-review policy", () => {
     if (mode === "coderabbit_comment") f.reviews = [reviewRecord(6001, "COMMENTED", at(6))];
     f.hooks.before = ({ endpoint }) => { if (f.states().includes("PREPARED") && endpoint.includes(`/pulls/${pr}/reviews?`)) f.reviews = [reviewRecord(888, "CHANGES_REQUESTED", at(14))]; };
     expect(f.run().decision).toBe("FAIL_CLOSED_MISMATCH"); expect(f.posts).toBe(0); expect(f.capacity()).toBe(4);
+  });
+});
+
+describe("Codex receipt admission through the real final-gate adapter", () => {
+  it("admits the authentic receipt once and refuses edited original bot comments", () => {
+    const official = "<!-- codex-review-receipt:v1 -->\n\nCodex Review: Didn't find any major issues.\n\n**Reviewed commit:** `aaaaaaaaaa`";
+    const clean = liveFixture({ ...source(), body: official });
+    expect(clean.run().decision).toBe("ALLOW_RERUN");
+    expect(clean.posts).toBe(1);
+    const edited = liveFixture({ ...source(), body: official });
+    edited.sourceCreatedAt = at(11);
+    expect(() => edited.run()).toThrow("edited_codex_comment");
+    expect(edited.posts).toBe(0);
+  });
+  it("rejects a clean receipt with a second malformed reviewed-commit marker", () => {
+    const official = "<!-- codex-review-receipt:v1 -->\n\nCodex Review: Didn't find any major issues.\n\n**Reviewed commit:** `aaaaaaaaaa`";
+    for (const extra of ["a".repeat(40) + "c", "INVALID"]) {
+      const f = liveFixture({ ...source(), body: official + "\n\nReviewed commit: " + extra });
+      expect(() => f.run()).toThrow("final_gate_live:clean_head");
+      expect(f.posts).toBe(0);
+    }
   });
 });
 

@@ -279,6 +279,7 @@ function cleanCodexComment(overrides: Record<string, unknown> = {}) {
     user: { login: "chatgpt-codex-connector[bot]" },
     body: `Codex Review: Didn't find any major issues. Breezy!\n\n**Reviewed commit:** \`${reviewHead.slice(0, 10)}\``,
     created_at: "2026-08-31T10:03:00Z",
+    updated_at: "2026-08-31T10:03:00Z",
     ...overrides,
   };
 }
@@ -1112,6 +1113,51 @@ describe("tooling safety contract", () => {
     expect(agents).toContain("Codex can never override it");
     expect(agents).toContain("remain CodeRabbit-primary and CodeRabbit-only during the normal review window");
     expect(agents).toContain("if neither provider produces an acceptable exact-head result, CI must fail closed");
+  });
+});
+
+describe("PR941 explicit adversarial review-state and autofix boundaries", () => {
+  it("rejects a later dismissed CodeRabbit review even when an older approval exists", () => {
+    const result = runCiReviewFixture({
+      changedFiles: ".github/workflows/ci.yml",
+      comments: codeRabbitRequestComments(),
+      firstReviews: [
+        completedCodeRabbitReview("APPROVED", "2026-08-31T10:02:00Z"),
+        completedCodeRabbitReview("DISMISSED", "2026-08-31T10:04:00Z"),
+      ],
+      failOnPost: true,
+      maxAttempts: 1,
+    });
+    expect(result.status, result.stdout + result.stderr).toBe(1);
+  });
+
+  it("rejects later Codex CHANGES_REQUESTED without inline comments after an older approval", () => {
+    const reviews = [
+      { user: { login: "chatgpt-codex-connector[bot]" }, commit_id: reviewHead, state: "APPROVED", submitted_at: "2026-08-31T10:03:00Z" },
+      { user: { login: "chatgpt-codex-connector[bot]" }, commit_id: reviewHead, state: "CHANGES_REQUESTED", submitted_at: "2026-08-31T10:04:00Z" },
+    ];
+    const result = runCiReviewFixture({
+      changedFiles: ".github/workflows/ci.yml",
+      comments: fallbackComments(),
+      firstReviews: reviews,
+      failOnPost: true,
+      maxAttempts: 1,
+    });
+    expect(result.status, result.stdout + result.stderr).toBe(1);
+  });
+
+  it("rejects edited Codex clean comments and protects npm install before the model", () => {
+    const edited = runCiReviewFixture({
+      changedFiles: largeSafeChange(),
+      comments: [...fallbackComments(), cleanCodexComment({ updated_at: "2026-08-31T10:04:00Z" })],
+      failOnPost: true,
+      maxAttempts: 1,
+    });
+    expect(edited.status, edited.stdout + edited.stderr).toBe(1);
+    const autofix = source(".github/workflows/proffera-ci-autofix.yml");
+    expect(autofix).toContain("    .npmrc\n");
+    expect(autofix.match(/run: npm ci --no-audit --no-fund --ignore-scripts/g)).toHaveLength(2);
+    expect(source("scripts/supervisor-worker-handoff.mjs")).toContain('  ".npmrc",');
   });
 });
 

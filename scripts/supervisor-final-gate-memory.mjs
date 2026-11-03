@@ -46,6 +46,11 @@ export function cleanCodexReviewedCommit(body) {
   return token.startsWith("`") === token.endsWith("`") && [10, 40].includes(reviewed.length) ? reviewed : "";
 }
 
+// Compatibility export preserving main while maintaining the stricter parser.
+export function cleanCodexComment(body) {
+  return Boolean(cleanCodexReviewedCommit(body));
+}
+
 export function cleanCodeRabbitComment(body, head, { allowPersistentSummary = false } = {}) {
   if (!/^[0-9a-f]{40}$/.test(head) || /Review limit reached|Review rate[ -]?limited|rate[ -]?limit|Action not completed|Review skipped|temporarily unavailable|service unavailable|incomplete|did not complete/i.test(body)) return false;
   const patterns = ["^<!-- CodeRabbit review command invocation: v2:[0-9a-f]{64} -->[ \\t]*\\r?\\n(?:[ \\t]*\\r?\\n)* {0,3}(?:@[A-Za-z0-9-]+[ \\t]+)?Final exact-head review is complete for[ \\t]+(?:`@SHA@`|@SHA@)\\.[ \\t]*\\r?\\n(?:[ \\t]*\\r?\\n)* {0,3}I found no issues\\.[ \\t]*(?:\\r?\\n|$)", "^ {0,3}(?:@[A-Za-z0-9-]+[ \\t]+)?Review completed for exact HEAD[ \\t]+(?:`@SHA@`|@SHA@)\\.[ \\t]*\\r?\\n(?:[ \\t]*\\r?\\n)* {0,3}I found no material findings\\.[ \\t]*(?:\\r?\\n|$)"];
@@ -73,7 +78,7 @@ export function normalizeFinalGateEvidence(source, targetHead = source?.review_c
       code = "coderabbit_review_completed";
     }
   } else if (kind === "issue_comment" && actor === "chatgpt-codex-connector[bot]") {
-    if (body.startsWith("Codex Review: Didn't find any major issues.")) {
+    if (cleanCodexComment(body)) {
       code = "codex_review_completed";
     }
   } else if (kind === "issue_comment" && actor === OWNER) {
