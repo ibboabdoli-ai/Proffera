@@ -40,6 +40,17 @@ describe("Supervisor router runner-cost preflight", () => {
     }
   });
 
+  it("admits ReviewForge review events without admitting ReviewForge issue comments", () => {
+    // PR #954 will install the exact-head, CodeRabbit-quota and approval
+    // checks downstream. This job prefilter must not suppress those events.
+    const [reviewEvents, commentEvents = ""] = preflight.split(
+      "|| (github.event_name == 'issue_comment'"
+    );
+    expect(reviewEvents).toContain("github.actor == 'reviewforge-ibbo-dev[bot]'");
+    expect(commentEvents).not.toContain("reviewforge-ibbo-dev[bot]");
+    expect(source).toContain("Review actor is not a trusted control-plane reviewer.");
+  });
+
   it("does not preadmit general bot comments or comments outside PRs and issue 548", () => {
     expect(preflight).not.toContain("vercel[bot]");
     expect(preflight).toContain("github.event.issue.pull_request != null");
