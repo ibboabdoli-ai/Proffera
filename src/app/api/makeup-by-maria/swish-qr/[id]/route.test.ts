@@ -41,6 +41,10 @@ describe("Maria Preview booking-specific Swish QR", () => {
     expect((await GET(request, { params: Promise.resolve({ id: "not-a-uuid" }) })).status).toBe(404);
     vi.stubEnv("PROFFERA_MARIA_PREVIEW_BOOKING_ENABLED", "false");
     expect((await GET(request, params)).status).toBe(404);
+    vi.stubEnv("PROFFERA_MARIA_PREVIEW_BOOKING_ENABLED", "true");
+    // Regression: a missing fourth UUID segment is not a valid booking ID.
+    const truncatedId = "c0eb47ac-cecf-4bd4-98c31b8b6deeb2ff";
+    expect((await GET(request, { params: Promise.resolve({ id: truncatedId }) })).status).toBe(404);
     expect(sql).not.toHaveBeenCalled();
   });
 
