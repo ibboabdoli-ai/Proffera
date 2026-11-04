@@ -1,6 +1,6 @@
 # Proffera Current Status
 
-Last updated: 2026-09-27
+Last updated: 2026-10-18
 
 This is the canonical factual status document for Proffera. For worker rules, live task state, current `main` SHA, roadmap order, and the stable V1 completion evidence requirements, also read `AGENTS.md`, `WORKER_BOOTSTRAP.md`, GitHub issue #548, GitHub issue #276, `docs/README.md`, and `docs/V1_LAUNCH_EVIDENCE_CONTRACT.json`.
 
@@ -49,6 +49,9 @@ Recent Production changes independently verified through matching `main` deploym
 - #605 — expand non-destructive Login/Quote browser smoke and add isolated Preview auth/Booking harnesses.
 
 ## Delivery and AI-control system
+
+Worker transfer guidance: `WORKER_BOOTSTRAP.md` links to the canonical `docs/GITHUB_CODE_TRANSFER_PLAYBOOK.md` (after documentation PR merge). This documents earlier working and blocked GitHub publication methods, separates local artifacts from a reachable remote commit, and requires exact-head/CI evidence. It does not change any authorization, production, or merge gate.
+
 
 Current control plane:
 

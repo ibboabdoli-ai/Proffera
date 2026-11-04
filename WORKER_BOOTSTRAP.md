@@ -46,6 +46,10 @@ SonarQube credentials must never be committed or logged. The repository-side int
 - Keep one graph path / purpose per branch.
 - Identify the task using a GitHub issue number when one exists; otherwise use `user-request`.
 
+## GitHub code transfer and recovery
+
+Before a code transfer, read [`docs/GITHUB_CODE_TRANSFER_PLAYBOOK.md`](docs/GITHUB_CODE_TRANSFER_PLAYBOOK.md). It is the single operational reference for Git CLI, Git Data API, Contents API, and Worker/bundle handoffs, including exact-head checks, write authorization, DNS failures, and readback verification. GitHub API connectivity is independent of shell `git push` connectivity. A patch, ZIP, bundle, or local SHA is **not** an uploaded commit. The playbook never overrides `AGENTS.md`, CI, CodeRabbit, or owner-approval/merge gates.
+
 ## Pull request handoff
 
 Every non-Dependabot PR must include these exact machine-readable lines:
