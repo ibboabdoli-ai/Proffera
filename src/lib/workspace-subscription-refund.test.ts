@@ -144,6 +144,36 @@ describe("full subscription refund entitlement reconciliation", () => {
     expect(f.stripe.subscriptions.cancel).not.toHaveBeenCalled();
   });
 
+  it("recovers simultaneous refunded-webhook cancellation races only after Stripe confirms cancellation", async () => {
+    const f = fixture();
+    vi.mocked(f.stripe.subscriptions.retrieve)
+      .mockResolvedValueOnce(f.subscription as never)
+      .mockResolvedValueOnce(f.subscription as never)
+      .mockResolvedValueOnce(f.canceled as never);
+    vi.mocked(f.stripe.subscriptions.cancel)
+      .mockResolvedValueOnce(f.canceled as never)
+      .mockRejectedValueOnce({ code: "resource_missing" });
+
+    const results = await Promise.all([
+      applyFullSubscriptionRefund(f.stripe, f.charge, 123),
+      applyFullSubscriptionRefund(f.stripe, f.charge, 123),
+    ]);
+    expect(results).toEqual([
+      { ok: true, applied: true },
+      { ok: true, applied: true },
+    ]);
+    expect(f.stripe.subscriptions.cancel).toHaveBeenCalledTimes(2);
+    expect(mocks.syncWorkspaceSubscription).toHaveBeenCalledTimes(2);
+  });
+
+  it("fails closed if resource_missing was not caused by a confirmed cancellation", async () => {
+    const f = fixture();
+    vi.mocked(f.stripe.subscriptions.cancel).mockRejectedValue({ code: "resource_missing" });
+    await expect(applyFullSubscriptionRefund(f.stripe, f.charge, 123))
+      .rejects.toMatchObject({ code: "resource_missing" });
+    expect(mocks.syncWorkspaceSubscription).not.toHaveBeenCalled();
+  });
+
   it("reconciles already canceled subscriptions without repeating Stripe cancellation", async () => {
     const f = fixture();
     vi.mocked(f.stripe.subscriptions.retrieve).mockResolvedValue(f.canceled as never);

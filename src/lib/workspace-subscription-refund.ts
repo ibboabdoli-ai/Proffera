@@ -85,13 +85,32 @@ export async function applyFullSubscriptionRefund(stripe: Stripe, refundedCharge
   `;
   if (rows.length !== 1) return { ok: true as const, applied: false };
 
-  // A prior cancellation is idempotent; still reconcile the local entitlement.
-  const canceled = subscription.status === "canceled"
-    ? subscription
-    : await stripe.subscriptions.cancel(subscriptionId, {
+  // Stripe can deliver duplicate refund events at the same time. Both may
+  // see "active" before one cancellation finishes; recover the losing request
+  // only after independently verifying the subscription is now canceled.
+  let canceled: Stripe.Subscription;
+  if (subscription.status === "canceled") {
+    canceled = subscription;
+  } else {
+    try {
+      canceled = await stripe.subscriptions.cancel(subscriptionId, {
         invoice_now: false,
         prorate: false,
       });
+    } catch (error) {
+      if (!error || typeof error !== "object" ||
+          !("code" in error) || error.code !== "resource_missing") throw error;
+
+      const current = await stripe.subscriptions.retrieve(subscriptionId);
+      if (current.status !== "canceled" ||
+          idOf(current.customer) !== customerId ||
+          current.metadata.workspace_id?.trim() !== workspaceId ||
+          current.items.data[0]?.price.id !== priceId) {
+        throw error;
+      }
+      canceled = current;
+    }
+  }
   const synced = await syncWorkspaceSubscription(canceled, eventCreated, planKey, priceId);
   if (!synced.ok && synced.code === "database") return { ok: false as const, code: "database" as const };
   return { ok: true as const, applied: synced.ok };
