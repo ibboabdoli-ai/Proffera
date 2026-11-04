@@ -593,7 +593,8 @@ describe("tooling safety contract", () => {
       }],
       failOnPost: true,
     });
-    expect(preRequestInlineFinding.status).toBe(0);
+    expect(preRequestInlineFinding.status).toBe(1);
+    expect(preRequestInlineFinding.stdout + preRequestInlineFinding.stderr).toContain("CodeRabbit posted current-head review findings");
 
     const reviewSubmission = runCiReviewFixture({
       changedFiles: ".github/workflows/ci.yml",

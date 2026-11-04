@@ -487,7 +487,6 @@ jobs:
                 .[]
                 | select(.user.login == "coderabbitai[bot]")
                 | select(.original_commit_id == $sha or .commit_id == $sha)
-                | select(($request_time == "") or ((.created_at // "") >= $request_time))
               ]
               | length
             ' <<< "$coderabbit_inline_json")"
@@ -706,7 +705,6 @@ jobs:
                 .[]
                 | select(.user.login == "coderabbitai[bot]")
                 | select(.original_commit_id == $sha or .commit_id == $sha)
-                | select(($request_time == "") or ((.created_at // "") >= $request_time))
               ]
               | length
             ' <<< "$final_coderabbit_inline_json")"
@@ -838,8 +836,7 @@ jobs:
             near_merge_inline_json="$(gh api --paginate "repos/$REPOSITORY/pulls/$pr_number/comments?per_page=100" --jq '.[]' | jq -s '.')"
             near_merge_coderabbit_inline_count="$(jq -r --arg sha "$head_sha" --arg request_time "$coderabbit_request_time" '
               [.[] | select(.user.login == "coderabbitai[bot]")
-                | select(.original_commit_id == $sha or .commit_id == $sha)
-                | select($request_time == "" or (.created_at // "") >= $request_time)] | length
+                | select(.original_commit_id == $sha or .commit_id == $sha)] | length
             ' <<< "$near_merge_inline_json")"
             [ "$near_merge_coderabbit_inline_count" -eq 0 ] \
               || refuse "Refused: CodeRabbit inline findings appeared after final owner authorization; merge is blocked."

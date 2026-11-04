@@ -338,8 +338,10 @@ function validatedSource(input, source, execute) {
         || !reviews.some((r) => r.user?.login === source.actor && r.commit_id === head
           && ["COMMENTED", "APPROVED"].includes(r.state) && at(r.submitted_at) >= primaryTime
           && at(r.submitted_at) <= at(source.created_at)))) throw new Error("final_gate_live:summary_completion_required");
-      const lowerBound = source.actor === "coderabbitai[bot]" ? primaryTime : at(fallback.created_at);
-      if (inline.some((c) => lowerBound === null || at(c.created_at) >= lowerBound)) throw new Error("final_gate_live:clean_comment_findings");
+      // A repeat review request cannot silently dispose of an earlier finding
+      // tied to this same commit. A new commit is required to clear that gate.
+      if (inline.some((c) => source.actor === "coderabbitai[bot]"
+        || at(c.created_at) >= at(fallback.created_at))) throw new Error("final_gate_live:clean_comment_findings");
     }
   }
   const validated = { ...source, body: normalizedBody, findings, cleared_changes: clearedChanges };

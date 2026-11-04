@@ -852,6 +852,27 @@ I found no material findings.`;
     expect(newerChanges.stdout).not.toContain("AI_REVIEW_OK");
   });
 
+  it("rejects an earlier unresolved same-head CodeRabbit inline finding before memory or rerun", () => {
+    const result = runWakeupFixture({
+      body: cleanBody(),
+      comments: [requestComment()],
+      firstReviews: [{ ...codeRabbitCompletedReview(), state: "COMMENTED" }],
+      inlineComments: [{
+        id: 9102,
+        user: { login: "coderabbitai[bot]" },
+        original_commit_id: reviewHead,
+        commit_id: reviewHead,
+        created_at: "2099-09-05T11:59:59Z",
+        body: "[P1] Unresolved authorization bypass",
+        path: "src/example.ts",
+        line: 1,
+      }],
+    }, true);
+    expect(result.result.status).not.toBe(0);
+    expect(result.result.stderr).toContain("final_gate_live:clean_comment_findings");
+    expect(result.posts).toBe(0);
+  });
+
   it("recognizes the same trusted clean exact-head CodeRabbit evidence in gated automerge", () => {
     const positive = runAutomergeFixture({
       comments: [requestComment(), cleanIssueComment()],
@@ -949,7 +970,8 @@ I found no material findings.`,
       }],
     });
     expect(preRequestInlineFinding.status).toBe(0);
-    expect(preRequestInlineFinding.stdout).toContain("AI_REVIEW_OK");
+    expect(preRequestInlineFinding.stdout).not.toContain("AI_REVIEW_OK");
+    expect(preRequestInlineFinding.stdout).toContain("CodeRabbit posted current-head review findings");
 
     const summaryBody = `<!-- recent_review_start -->\nNo actionable comments were generated in the recent review.\n${reviewHead}\n<!-- recent_review_end -->`;
     const editedSummary = {
@@ -1392,9 +1414,33 @@ describe("AutoMerge CodeRabbit review provenance (adversarial)", () => {
       expect(jq(initialFilter, [finding], { sha: reviewHead, request_time: request })).toBe(1);
       expect(jq(fallbackFilter, [finding], { sha: reviewHead, request_time: request, coderabbit_request_time: request })).toBe(1);
     }
-    for (const stale of [entry(oldHead, oldHead), entry(oldHead, reviewHead, "2026-10-18T20:59:00Z")]) {
-      expect(jq(initialFilter, [stale], { sha: reviewHead, request_time: request })).toBe(0);
-      expect(jq(fallbackFilter, [stale], { sha: reviewHead, request_time: request, coderabbit_request_time: request })).toBe(0);
+    const genuinelyStale = entry(oldHead, oldHead);
+    expect(jq(initialFilter, [genuinelyStale], { sha: reviewHead, request_time: request })).toBe(0);
+    expect(jq(fallbackFilter, [genuinelyStale], { sha: reviewHead, request_time: request, coderabbit_request_time: request })).toBe(0);
+    const earlierSameHeadFinding = entry(oldHead, reviewHead, "2026-10-18T20:59:00Z");
+    expect(jq(initialFilter, [earlierSameHeadFinding], { sha: reviewHead, request_time: request })).toBe(1);
+    expect(jq(fallbackFilter, [earlierSameHeadFinding], { sha: reviewHead, request_time: request, coderabbit_request_time: request })).toBe(1);
+  });
+  it("blocks earlier same-head findings across every AutoMerge CodeRabbit checkpoint", () => {
+    const finding = {
+      user: { login: "coderabbitai[bot]" },
+      original_commit_id: oldHead,
+      commit_id: reviewHead,
+      created_at: "2026-10-18T20:59:00Z",
+    };
+    for (const [name, variable] of [
+      ["coderabbit_inline_count", "coderabbit_inline_json"],
+      ["final_coderabbit_inline_count", "final_coderabbit_inline_json"],
+      ["near_merge_coderabbit_inline_count", "near_merge_inline_json"],
+    ]) {
+      const marker = name + '="$(jq -r --arg sha "$head_sha" --arg request_time "$coderabbit_request_time" ' + String.fromCharCode(39) + "\n";
+      const closing = String.fromCharCode(39) + ' <<< "$' + variable + '")"';
+      const start = workflow.indexOf(marker);
+      expect(start, name).toBeGreaterThan(0);
+      const end = workflow.indexOf(closing, start);
+      expect(end, name).toBeGreaterThan(start);
+      const filter = workflow.slice(start + marker.length, end);
+      expect(jq(filter, [finding], { sha: reviewHead, request_time: request }), name).toBe(1);
     }
   });
   const qualify = (reviews: unknown[], comments = clean) => {
