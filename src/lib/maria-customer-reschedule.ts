@@ -208,6 +208,7 @@ export async function rescheduleMariaCustomerBooking(input: MariaChangeInput) {
     // Do not deliver Preview notifications to any recipient beyond the QA inbox.
     await sendBookingChangeEmails({
       kind: "rescheduled",
+      branding: "makeup-by-maria",
       customerName: String(booking.customer_name),
       customerEmail: String(booking.customer_email),
       ownerEmail: booking.owner_email && isMariaPreviewTestRecipient(String(booking.owner_email))

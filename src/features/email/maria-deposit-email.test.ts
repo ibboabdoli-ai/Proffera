@@ -36,6 +36,9 @@ describe("Maria-only Swish confirmation and cancellation email", () => {
   it("shows 2000 SEK, the 24h deadline, booking-specific QR and short payment reference", () => {
     const result = buildMariaBookingStatusEmail(booking, "https://qa.vercel.app");
     expect(result.reference).toBe("MBM-000000");
+    expect(result.html).toContain('src="https://qa.vercel.app/demo/makeup-by-maria/assets/maria-client-logo.jpg"');
+    expect(result.html).toContain('alt="Makeup by Maria"');
+    expect(result.html.indexOf("maria-client-logo.jpg")).toBeLessThan(result.html.indexOf("Din bokning är bekräftad"));
     expect(result.text).toContain("2 000 kr");
     expect(result.text).toContain("24 timmar");
     expect(result.text).toContain("123-581 86 53");
@@ -59,6 +62,8 @@ describe("Maria-only Swish confirmation and cancellation email", () => {
     expect(result.text).toContain("MBM-000000");
     expect(result.text).not.toContain("Handpenning");
     expect(result.html).not.toContain("/api/makeup-by-maria/swish-qr/");
+    expect(result.html).toContain('src="https://qa.vercel.app/demo/makeup-by-maria/assets/maria-client-logo.jpg"');
+    expect(result.html.indexOf("maria-client-logo.jpg")).toBeLessThan(result.html.indexOf("Din bokning är avbokad"));
   });
 
   it("rejects a malicious or non-preview QR image origin", () => {

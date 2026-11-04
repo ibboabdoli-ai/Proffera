@@ -239,7 +239,7 @@ async function rescheduleBookingAction(bookingId: string, formData: FormData) {
         if (isMariaPreviewTestRecipient(notification.customerEmail)) {
           await sendBookingRescheduleEmail({
             customerName: notification.customerName, customerEmail: notification.customerEmail,
-            companyName: workspaceAccess.workspaceName, service: notification.service,
+            companyName: workspaceAccess.workspaceName, branding: "makeup-by-maria", service: notification.service,
             previousStartsAt: notification.previousStartsAt, startsAt: notification.startsAt,
             endsAt: notification.endsAt, city: notification.city, timeZone: result.timeZone,
           });

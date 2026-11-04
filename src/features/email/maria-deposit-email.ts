@@ -1,5 +1,7 @@
 import "server-only";
 
+import { mariaEmailLogoHtml } from "@/lib/maria-email-logo";
+
 import { getMariaPreviewPortalBase, isMariaPreviewTestRecipient } from "@/lib/maria-preview-customer-safety";
 import {
   MARIA_DEPOSIT_AMOUNT_SEK, MARIA_SWISH_NUMBER, mariaSwishPaymentPagePath,
@@ -45,6 +47,7 @@ function checkedPreviewOrigin(value: string) {
 /** Pure builder: no email, banking, or database operations. */
 export function buildMariaBookingStatusEmail(input: MariaBookingStatusEmailInput, previewOrigin: string) {
   const origin = checkedPreviewOrigin(previewOrigin);
+  const logo = mariaEmailLogoHtml(origin);
   const reference = mariaBookingNumber(input.bookingId);
   const start = formatTime(input.startsAt, input.timeZone);
   const end = formatTime(input.endsAt, input.timeZone);
@@ -62,6 +65,7 @@ export function buildMariaBookingStatusEmail(input: MariaBookingStatusEmailInput
       "", "Välkommen åter!", input.companyName,
     ].join("\n");
     const html = `<div lang="sv" style="max-width:640px;margin:0 auto;font:16px/1.6 Arial,sans-serif;color:#432a35">
+      ${logo}
       <h1 style="color:#845363">Din bokning är avbokad</h1>
       <p>Hej ${escapeHtml(input.customerName)},</p>
       <p>Din bokning är avbokad. <strong>Du får gärna komma tillbaka med en ny bokning.</strong></p>
@@ -98,6 +102,7 @@ export function buildMariaBookingStatusEmail(input: MariaBookingStatusEmailInput
   ].join("\n");
   const html = `<div lang="sv" style="max-width:640px;margin:0 auto;font:16px/1.6 Arial,sans-serif;color:#432a35">
     <div style="background:#fcfaf8;border:1px solid #ead9df;padding:25px;border-radius:12px">
+      ${logo}
       <h1 style="color:#845363;margin-top:0">Din bokning är bekräftad</h1>
       <p>Hej ${escapeHtml(input.customerName)},</p>
       <p>Maria har bekräftat din bokning hos <strong>${escapeHtml(input.companyName)}</strong>.</p>
