@@ -39,7 +39,7 @@ test.describe("public marketplace smoke", () => {
     await expect(page.getByText("Företag som matchar")).toHaveCount(0);
     await page.getByLabel("Din adress").fill("STOCKHOLM");
     await page.getByRole("button", { name: "Sök", exact: true }).click();
-    await expect(page.getByRole("status")).toContainText("Ange en fullständig adress");
+    await expect(page.locator('p[role="status"]')).toContainText("Ange en fullständig adress");
     const url = new URL(page.url());
     expect(url.searchParams.has("location")).toBe(false);
     expect(url.searchParams.has("nearby")).toBe(false);

@@ -48,10 +48,10 @@ test.describe("on-demand private location search", () => {
   test("shows service and address validation without doing a broad search", async ({ page }) => {
     await page.goto("/");
     await page.getByRole("button", { name: "Nära mig" }).click();
-    await expect(page.getByRole("status")).toContainText("Välj vilken tjänst");
+    await expect(page.locator('p[role="status"]')).toContainText("Välj vilken tjänst");
     await page.getByLabel("Tjänst").fill("Elektriker");
     await page.getByRole("button", { name: "Sök", exact: true }).click();
-    await expect(page.getByRole("status")).toContainText("Ange en adress");
+    await expect(page.locator('p[role="status"]')).toContainText("Ange en adress");
     expect(new URL(page.url()).pathname).toBe("/");
   });
 
@@ -68,7 +68,7 @@ test.describe("on-demand private location search", () => {
     await page.getByLabel("Tjänst").fill("Elektriker");
     await page.getByLabel("Din adress").fill("Storgatan 5, 151 72 Södertälje");
     await page.getByRole("button", { name: "Nära mig" }).click();
-    await expect(page.getByRole("status")).toContainText("Platsåtkomst är blockerad");
+    await expect(page.locator('p[role="status"]')).toContainText("Platsåtkomst är blockerad");
     await expect(page.getByLabel("Din adress")).toHaveValue("Storgatan 5, 151 72 Södertälje");
     expect(new URL(page.url()).pathname).toBe("/");
   });
