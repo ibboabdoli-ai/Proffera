@@ -196,7 +196,7 @@ function compileSql(parts: TemplateStringsArray, values: unknown[]): Query {
     expect(await countEvents()).toBe(0);
 
     await db!.query(
-      "update public_booking_verifications set expires_at=now()-interval '1 minute' where id=$1::uuid",
+      "update public_booking_verifications set created_at=now()-interval '1 hour', expires_at=now()-interval '1 minute' where id=$1::uuid",
       [hold.rows[0]!.id],
     );
     const revived = await updateDashboardBookingStatus(cancelledBookingId, "confirmed");
