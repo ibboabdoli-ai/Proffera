@@ -202,7 +202,7 @@ export async function changeMariaManualCalendar(input: CalendarChange, now = new
           left join workspace_services service
             on service.id=hold.service_id and service.workspace_id=hold.workspace_id::text
           where hold.workspace_id=${workspaceId}::uuid
-            and hold.consumed_at is null and hold.expires_at>now()
+            and hold.consumed_at is null and hold.expires_at>clock_timestamp()
             and hold.starts_at-(coalesce(service.buffer_before_minutes,0)*interval '1 minute')
               < ${future.at(-1)!.endsAt}::timestamptz
             and hold.ends_at+(coalesce(service.buffer_after_minutes,0)*interval '1 minute')
