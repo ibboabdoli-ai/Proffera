@@ -126,3 +126,112 @@ export async function extendInternalWorkspaceTrial(input: {
 
   return { workspaceId: String(rows[0].workspace_id) };
 }
+
+/**
+ * Start Maria's first, internal 14-day trial in isolated Vercel Preview only.
+ * This never creates a Stripe customer, checkout session or subscription.
+ * A distinct try-lock serializes concurrent first-start attempts; if either
+ * the plan or any billing record already exists, the statement writes nothing.
+ */
+export async function startMariaPreviewInternalTrial(input: {
+  workspaceId: string;
+  reason: string;
+}) {
+  if (process.env.VERCEL_ENV !== "preview") {
+    throw new Error("Maria initial trial is Preview-only");
+  }
+
+  const admin = await getPlatformAdmin();
+  if (admin?.role !== "super_admin") {
+    throw new Error("Super admin access required");
+  }
+
+  const workspaceId = input.workspaceId.trim();
+  if (!uuidPattern.test(workspaceId)) {
+    throw new Error("Invalid workspace reference");
+  }
+  const reason = normalizeTrialExtensionReason(input.reason);
+  const sql = getSql();
+  if (!sql) throw new Error("Preview database unavailable");
+
+  const rows = await sql`
+    with trial_lock as materialized (
+      select pg_try_advisory_xact_lock(714, hashtext('makeup-by-maria-initial-trial')) as acquired
+    ),
+    eligible_workspace as materialized (
+      select w.id
+      from workspaces w
+      cross join trial_lock trial_lock_state
+      where trial_lock_state.acquired = true
+        and w.id = ${workspaceId}::uuid
+        and w.slug = 'makeup-by-maria'
+        and w.status in ('active', 'trial')
+        and not exists (
+          select 1 from workspace_plans p where p.workspace_id = w.id
+        )
+        and not exists (
+          select 1 from workspace_billing_subscriptions s where s.workspace_id = w.id
+        )
+        and exists (
+          select 1 from feature_catalog c
+          where c.feature_key = 'online_booking' and c.is_active = true
+        )
+        and not exists (
+          select 1 from workspace_feature_overrides o
+          where o.workspace_id = w.id
+            and o.feature_key = 'online_booking'
+            and o.enabled = false
+        )
+    ),
+    inserted_plan as (
+      insert into workspace_plans (
+        id, workspace_id, plan_key, status,
+        current_period_start, current_period_end, created_at, updated_at
+      )
+      select
+        gen_random_uuid(), e.id, 'starter', 'trialing',
+        now(), now() + interval '14 days', now(), now()
+      from eligible_workspace e
+      returning workspace_id, plan_key, status, current_period_start, current_period_end
+    ),
+    enabled_feature as (
+      insert into workspace_feature_flags (
+        id, workspace_id, feature_key, enabled, created_at, updated_at
+      )
+      select gen_random_uuid(), p.workspace_id, 'online_booking', true, now(), now()
+      from inserted_plan p
+      where true
+      on conflict (workspace_id, feature_key)
+        do update set enabled = true, updated_at = now()
+      returning workspace_id
+    ),
+    audit as (
+      insert into admin_audit_logs (
+        admin_user_id, workspace_id, action, reason, previous_value, new_value
+      )
+      select
+        ${admin.userId}, p.workspace_id, 'billing.maria_preview_trial_started',
+        ${reason},
+        jsonb_build_object('plan', null, 'billing_source', 'internal'),
+        jsonb_build_object(
+          'plan_key', p.plan_key,
+          'status', p.status,
+          'current_period_start', p.current_period_start,
+          'current_period_end', p.current_period_end,
+          'trial_days', 14,
+          'billing_source', 'internal',
+          'preview_only', true
+        )
+      from inserted_plan p
+      join enabled_feature f on f.workspace_id = p.workspace_id
+      returning workspace_id
+    )
+    select workspace_id from audit
+  `;
+
+  if (rows.length !== 1) {
+    throw new Error("Trial not started: workspace, billing, or access state changed");
+  }
+
+  return { workspaceId: String(rows[0].workspace_id) };
+}

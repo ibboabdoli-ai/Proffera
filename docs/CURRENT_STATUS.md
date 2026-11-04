@@ -200,3 +200,20 @@ A Production runtime warning observed on 2026-08-18 concerns PostgreSQL connecti
 Do not create another competing current-status file.
 
 Historical phase plans and handoffs may remain in `docs/` for context, but they are not current truth unless a canonical source explicitly points to them. Git history is the archive for older versions of the canonical files.
+
+## Maria isolated Preview first-trial proposal (2026-11-04, DRAFT PR #967)
+
+- The Preview-only Maria workspace `makeup-by-maria` has been observed in
+  Platform Admin Billing without any `workspace_plans` row; existing trial
+  extension cannot start a first trial.
+- PR #967 stages a narrow audited first 14-day internal Starter trial with
+  `super_admin` plus exact workspace/Preview environment checks, no existing
+  plan or billing subscription, one-time lock, and the booking feature flag.
+  It does **not** create Stripe subscriptions or activate public Maria booking.
+- **No initial trial is active from this PR:** it remains unmerged and requires
+  isolated Preview database and authenticated admin acceptance with current-head
+  checks. Production deployment is not approved.
+- Separate Maria manual booking-start calendar remains unmerged draft PR #960
+  stacked on PR #943. Its add-only `20261103_0072_maria_manual_closed_starts.sql`
+  migration is **not** applied by PR #967. Keep calendar fail-closed until
+  isolated Preview migration, live read/write QA, and security review.
