@@ -252,7 +252,7 @@ describe("canonical Supervisor authorization ownership", () => {
   });
 
   it("exits qualification successfully without proceeding when GitHub cannot return all 3001 files", () => {
-    const workflow = readFileSync(new URL("../.github/workflows/proffera-ci-autofix.yml", import.meta.url), "utf8");
+    const workflow = readFileSync(new URL("../.github/workflows/proffera-ci-autofix.yml", import.meta.url), "utf8").replaceAll("\r\n", "\n");
     const start = workflow.indexOf('          qualification="$(jq -n --arg expected_changed_files');
     const end = workflow.indexOf('          while IFS= read -r file;', start);
     expect(start).toBeGreaterThan(0);

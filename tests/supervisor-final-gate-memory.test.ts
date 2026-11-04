@@ -95,7 +95,9 @@ describe("canonical material evidence", () => {
   it("normalizes the official Codex receipt exactly like a legacy clean result without accepting forged variants", () => {
     const legacy = source();
     const official = { ...legacy, body: "<!-- codex-review-receipt:v1 -->\n\nCodex Review: Didn't find any major issues.\n\n**Reviewed commit:** `aaaaaaaaaa`" };
+    const sameLine = { ...legacy, body: "Codex Review: Didn't find any major issues. Reviewed commit: aaaaaaaaaa" };
     expect(normalizeFinalGateEvidence(official, head)).toEqual(normalizeFinalGateEvidence(legacy, head));
+    expect(normalizeFinalGateEvidence(sameLine, head)).toEqual(normalizeFinalGateEvidence(legacy, head));
     for (const body of [
       official.body.replace("receipt:v1", "receipt:v2"),
       "Untrusted prefix\n" + official.body,

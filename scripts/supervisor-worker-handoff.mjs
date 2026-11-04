@@ -2839,7 +2839,8 @@ export function createWorkerReservationAuthority(io) {
         verifyActivation();
       }
       return { ok: true, reservation_comment_id: id, task_id: packet.task_id, task_run_id: payload.run_id,
-        head_sha: pr.head.sha, reactivated: released || taskState === "CLOSED_UNMERGED", reservation_changed: expectedReservation.body !== own.body };
+        head_sha: pr.head.sha, strategy_start: start,
+        reactivated: released || taskState === "CLOSED_UNMERGED", reservation_changed: expectedReservation.body !== own.body };
     },
   };
 }
@@ -3888,25 +3889,8 @@ async function main() {
   if (mode === "worker-pr-admit") {
     assertControlIdentity(parsed);
     const authority = createWorkerReservationAuthority(workerReservationIO(parsed));
-    const strategy = await import("./supervisor-worker-strategy-memory.mjs");
-    const validateOriginalStrategyStart = ({ packet, payload, comments }) => {
-      const starts = parseWorkerStrategyDispatchStarts(comments)
-        .filter((start) => start.task_id === packet.task_id);
-      const exact = starts.filter((start) => String(start.run_id) === String(payload.run_id));
-      if (exact.length !== 1) {
-        throw new Error("Worker strategy dispatch-start identity is missing or ambiguous; owner reconciliation required");
-      }
-      const descriptor = strategy.workerStrategyDescriptor(packet);
-      if (exact[0].head !== packet.base_sha
-        || exact[0].evidence_fingerprint !== descriptor.evidence_fingerprint
-        || exact[0].strategy_fingerprint !== descriptor.strategy_fingerprint) {
-        throw new Error("Worker strategy dispatch-start provenance conflicts with admitted packet");
-      }
-    };
-    const result = authority.admitPr({
-      ...parsed,
-      beforeAdmissionPersist: validateOriginalStrategyStart,
-    });
+    // admitPr authenticates the original strategy before it writes anything.
+    const result = authority.admitPr(parsed);
     if (result.ok === true) {
       // The original Worker run (not this lifecycle workflow run) owns the
       // strategy start. Record its outcome only after authenticated admission.
@@ -3926,31 +3910,31 @@ async function main() {
         || !sameReservationPacket(own.payload, packet)) {
         throw new Error("Worker strategy success requires exact PUBLISHED reservation provenance");
       }
+      // Re-read the trusted marker after admission and compare with the start
+      // validated by admitPr. A changed/removed marker must never be recorded
+      // as a successful Worker outcome.
+      const admittedStart = result.strategy_start;
+      if (!admittedStart || admittedStart.task_id !== result.task_id
+        || String(admittedStart.run_id) !== String(result.task_run_id)) {
+        throw new Error("Worker strategy admitted dispatch-start provenance is missing");
+      }
       const starts = parseWorkerStrategyDispatchStarts(comments)
         .filter((start) => start.task_id === result.task_id);
       const exactStarts = starts.filter((start) => String(start.run_id) === String(result.task_run_id));
       if (exactStarts.length !== 1) {
-        // Modern Worker dispatch always emits this trusted marker first.
-        // Do not misclassify legacy/missing-marker evidence as success.
         throw new Error("Worker strategy dispatch-start identity is missing or ambiguous; owner reconciliation required");
       }
-      {
-        const start = exactStarts[0];
-        const strategy = await import("./supervisor-worker-strategy-memory.mjs");
-        const descriptor = strategy.workerStrategyDescriptor(packet);
-        if (start.head !== packet.base_sha || start.evidence_fingerprint !== descriptor.evidence_fingerprint
-          || start.strategy_fingerprint !== descriptor.strategy_fingerprint) {
-          throw new Error("Worker strategy dispatch-start provenance conflicts with admitted packet");
-        }
-        const persisted = await recordWorkerStrategyOutcome({
-          ...parsed, packet, outcome: "succeeded", strategy_run_id: start.run_id,
-          run_attempt: start.run_attempt, pr_number: prNumber, observed_at: new Date().toISOString(),
-        });
-        if (persisted.decision !== "RECORDED" && persisted.decision !== "ALREADY_RECORDED") {
-          throw new Error("Worker strategy success did not persist");
-        }
-        result.strategy_outcome = persisted.decision;
+      if (JSON.stringify(exactStarts[0]) !== JSON.stringify(admittedStart)) {
+        throw new Error("Worker strategy dispatch-start changed after authenticated admission");
       }
+      const persisted = await recordWorkerStrategyOutcome({
+        ...parsed, packet, outcome: "succeeded", strategy_run_id: admittedStart.run_id,
+        run_attempt: admittedStart.run_attempt, pr_number: prNumber, observed_at: new Date().toISOString(),
+      });
+      if (persisted.decision !== "RECORDED" && persisted.decision !== "ALREADY_RECORDED") {
+        throw new Error("Worker strategy success did not persist");
+      }
+      result.strategy_outcome = persisted.decision;
       assertReservationMutex(parsed);
     }
     process.stdout.write(`${JSON.stringify(result)}\n`);

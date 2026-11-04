@@ -2,6 +2,8 @@ import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
+// @ts-expect-error Canonical review parser is an untyped .mjs module.
+import { cleanCodexReviewedCommit } from "../scripts/supervisor-final-gate-memory.mjs";
 
 const read = (path: string) => readFileSync(resolve(process.cwd(), path), "utf8").replaceAll("\r\n", "\n");
 const ci = read(".github/workflows/ci.yml");
@@ -80,6 +82,7 @@ describe("exact-head Codex review receipt recognition (#961)", () => {
       expect(runCi([codexComment(body)])).toBe(1);
       expect(runAutomerge([codexComment(body)])).toBe(1);
       expect(runWake(body)).toBe(head.slice(0, 10));
+      expect(cleanCodexReviewedCommit(body)).toBe(head.slice(0, 10));
     }
   });
 

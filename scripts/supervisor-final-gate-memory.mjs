@@ -41,7 +41,7 @@ export function providerUnavailable(body) {
 // inside arbitrary Markdown. Keep the workflow jq predicates behaviorally equivalent.
 export function cleanCodexReviewedCommit(body) {
   if ([...String(body).matchAll(/Reviewed commit:/gi)].length !== 1) return "";
-  const token = String(body).match(/^(?:<!-- codex-review-receipt:v1 -->\r?\n\r?\n)?Codex Review: Didn't find any major issues\.[^<`\r\n]*\r?\n(?:[ \t]*\r?\n)* {0,3}(?:\*\*Reviewed commit:\*\*|Reviewed commit:)[ \t]*(`?[0-9a-fA-F]{10,40}`?)[ \t]*(?:\r?\n|$)/)?.[1] ?? "";
+  const token = String(body).match(/^(?:<!-- codex-review-receipt:v1 -->\r?\n\r?\n)?Codex Review: Didn't find any major issues\.(?:[^<`\r\n]*\r?\n(?:[ \t]*\r?\n)* {0,3}|[ \t]+(?=Reviewed commit:[ \t]*[0-9a-fA-F]{10}(?:\r?\n|$)))(?:\*\*Reviewed commit:\*\*|Reviewed commit:)[ \t]*(`?[0-9a-fA-F]{10,40}`?)[ \t]*(?:\r?\n|$)/)?.[1] ?? "";
   const reviewed = token.replaceAll("`", "").toLowerCase();
   return token.startsWith("`") === token.endsWith("`") && [10, 40].includes(reviewed.length) ? reviewed : "";
 }

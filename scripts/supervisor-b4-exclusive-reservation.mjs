@@ -6,7 +6,7 @@ import {spawnSync} from "node:child_process";
 import {pathToFileURL} from "node:url";
 import {unresolvedCiAutofixStarts} from "./supervisor-ci-autofix-strategy-memory.mjs";
 import {unresolvedReviewRepairStarts} from "./supervisor-review-repair-strategy-memory.mjs";
-import {readOwnerHandoffLedger,reentryAuthorized} from "./supervisor-owner-push-pending.mjs";
+import {admission,readOwnerHandoffLedger} from "./supervisor-owner-push-pending.mjs";
 const REPO="ibboabdoli-ai/Proffera";
 const positive=n=>Number.isSafeInteger(n)&&n>0;
 const sha=v=>typeof v==="string"&&/^[a-f0-9]{40}$/.test(v);
@@ -40,16 +40,17 @@ export function exclusiveReservationDecision({repository,pr_number,comments:rows
    &&x.run_attempt===run_attempt&&x.head===head);
  const allow=phase==="admit"?active.length===0:
    active.length===1&&ownership.length===1;
- const noUnresolvedPending=pending.every(x=>x.resolution?.decision==="push_confirmed");
- const noStagingGap=ledger.staged.every(s=>ledger.retirements.some(r=>r.stage_digest===s.stage_digest)
-  ||pending.some(p=>p.lane===s.lane&&p.run_id===s.run_id&&p.run_attempt===s.run_attempt));
- const authorized=ledger.retirements.length===0||reentryAuthorized(rows,pr_number,
-  {lane,run_id,run_attempt,head});
+ // The canonical owner-push admission decision owns all pending, staging-gap,
+ // and exact-attempt re-entry checks. Local booleans explain denial only.
+ const ownerHandoff=admission(rows,pr_number,{lane,run_id,run_attempt,head});
+ const pendingHold=pending.some(x=>x.resolution?.decision!=="push_confirmed");
+ const stagingGap=ledger.staged.some(s=>!ledger.retirements.some(r=>r.stage_digest===s.stage_digest)
+  &&!pending.some(p=>p.lane===s.lane&&p.run_id===s.run_id&&p.run_attempt===s.run_attempt));
  return {
-   allow:allow&&noUnresolvedPending&&noStagingGap&&authorized,
-   reason:!noUnresolvedPending?"pending_owner_handoff":
-     !noStagingGap?"unresolved_staged_handoff":
-     !authorized?"owner_retired_hold":
+   allow:allow&&ownerHandoff.allow,
+   reason:pendingHold?"pending_owner_handoff":
+     stagingGap?"unresolved_staged_handoff":
+     !ownerHandoff.allow?"owner_retired_hold":
      !allow?"other_or_missing_active_reservation":"exact_reservation",
    ci_unresolved:ci.length,review_unresolved:review.length,
  };

@@ -6,16 +6,13 @@ import { describe, expect, it } from "vitest";
 // Isolate the real authenticated admission branch from the CLI entrypoint.
 // Calls to GitHub and the durable memory adapter are explicitly faked: this
 // tests dispatch identity and failure ordering, not live GitHub persistence.
-function runAdmission(mode: "PUBLISHED" | "RECOVERABLE" | "STALE_HEAD" | "MISSING_START") {
+function runAdmission(mode: "PUBLISHED" | "RECOVERABLE" | "STALE_HEAD" | "MISSING_START" | "CHANGED_START") {
   const source = readFileSync(resolve(process.cwd(), "scripts/supervisor-worker-handoff.mjs"), "utf8");
   const start = source.indexOf('  if (mode === "worker-pr-admit") {');
   const end = source.indexOf('  if (mode === "reservation-acquire" || mode === "retarget-pr-reconcile"', start);
   expect(start).toBeGreaterThan(0);
   expect(end).toBeGreaterThan(start);
-  const branch = source.slice(start, end).replaceAll(
-    'await import("./supervisor-worker-strategy-memory.mjs")',
-    'await Promise.resolve({workerStrategyDescriptor: () => ({evidence_fingerprint: "E", strategy_fingerprint: "S"})})',
-  );
+  const branch = source.slice(start, end);
   const harness = String.raw`
 const mode = "worker-pr-admit";
 const parsed = {repository:"ibboabdoli-ai/Proffera",run_id:777,mutex:"owned",pr_number:941};
@@ -27,14 +24,11 @@ const assertReservationMutex = (input) => {
   if (input.run_id !== 777 || input.mutex !== "owned") throw Error("wrong mutex run identity");
 };
 const workerReservationIO = () => ({});
-const createWorkerReservationAuthority = () => ({admitPr: (input) => {
-  input.beforeAdmissionPersist?.({
-    packet: { task_id: "B4-TEST", base_sha: base },
-    payload: { task_id: "B4-TEST", run_id: "123" },
-    comments: [],
-  });
-  return {ok:true,task_id:"B4-TEST",head_sha:head,task_run_id:123};
-}});
+const originalStart = {task_id:"B4-TEST",run_id:123,run_attempt:2,head:base,
+  dependency_paths:[],evidence_fingerprint:"E",strategy_fingerprint:"S"};
+const createWorkerReservationAuthority = () => ({admitPr: () => ({
+  ok:true,task_id:"B4-TEST",head_sha:head,task_run_id:123,strategy_start:originalStart
+})});
 const retryGitHubRead = (callback) => callback();
 const githubApiJson = () => ({
   state:"open",head:{sha:process.env.TEST_CASE === "STALE_HEAD" ? "c".repeat(40) : head,
@@ -48,8 +42,8 @@ const reservationRecords = () => [{payload:{
 }}];
 const sameReservationPacket = () => true;
 const parseWorkerStrategyDispatchStarts = () => process.env.TEST_CASE === "MISSING_START" ? [] : [{
-  task_id:"B4-TEST",run_id:123,run_attempt:2,head:base,
-  evidence_fingerprint:"E",strategy_fingerprint:"S",
+  ...originalStart,
+  evidence_fingerprint:process.env.TEST_CASE === "CHANGED_START" ? "F" : "E",
 }];
 const recordWorkerStrategyOutcome = async (input) => {
   saved = input;
@@ -85,6 +79,12 @@ describe("authenticated owner-PR success recording", () => {
     const result = runAdmission("MISSING_START");
     expect(result.status).not.toBe(0);
     expect(result.stderr).toContain("dispatch-start identity is missing or ambiguous");
+  });
+
+  it("does not record success when the trusted dispatch-start changes after admission", () => {
+    const result = runAdmission("CHANGED_START");
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toContain("dispatch-start changed after authenticated admission");
   });
 
   it("never records success after the live PR head changes", () => {
