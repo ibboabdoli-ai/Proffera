@@ -1014,7 +1014,6 @@ jobs:
                     .[]
                     | select(.user.login == "chatgpt-codex-connector[bot]")
                     | select(.original_commit_id == $sha or .commit_id == $sha)
-                    | select(.created_at >= $request_time)
                   ]
                   | length
                 ' <<< "$codex_inline_json")"
@@ -1061,7 +1060,7 @@ jobs:
                     [
                       .[]
                       | select(
-                          (.user.login == "chatgpt-codex-connector[bot]" and (.original_commit_id == $sha or .commit_id == $sha) and (.created_at // "") >= $request_time)
+                          (.user.login == "chatgpt-codex-connector[bot]" and (.original_commit_id == $sha or .commit_id == $sha))
                           or
                           (.user.login == "coderabbitai[bot]" and (.original_commit_id == $sha or .commit_id == $sha))
                         )

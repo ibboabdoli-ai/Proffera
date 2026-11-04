@@ -30,6 +30,9 @@ function run(change:string) {
  if(change==="future")clean.created_at=clean.updated_at="2999-01-01T00:00:00Z";
  if(change==="spoofed")clean.user={login:"attacker"};
  if(change==="inline")inline.push({id:9,user:{login:"chatgpt-codex-connector[bot]"},commit_id:head,created_at:time});
+ if(change==="codex-before-request"||change==="near-merge-codex-before-request")
+  inline.push({id:13,user:{login:"chatgpt-codex-connector[bot]"},original_commit_id:head,commit_id:head,
+   created_at:"2025-12-31T23:59:59Z",body:"[P1] Same-head finding from earlier Codex review"});
  if(change==="near-merge-codex-original-head-inline")inline.push({id:12,user:{login:"chatgpt-codex-connector[bot]"},original_commit_id:head,commit_id:"b".repeat(40),created_at:time});
  const currentReply=change.includes("current-reply");
  if(change==="coderabbit-inline"||(change.includes("original-head-inline")&&!change.includes("codex-"))||change==="coderabbit-primary-inline"||currentReply||change==="stale-old-thread"||change==="coderabbit-before-request"||change==="near-merge-coderabbit-before-request")
@@ -103,7 +106,7 @@ describe("AutoMerge post-poll review freshness",()=>{
   expect(run("summary-edited")).toContain("FRESH_EVIDENCE_OK");
   expect(run("stale-old-thread")).toContain("FRESH_EVIDENCE_OK");
  },45_000);
- it.each(["inline","coderabbit-before-request","coderabbit-inline","coderabbit-original-head-inline","coderabbit-current-reply","coderabbit-primary-inline","coderabbit-primary-current-reply","coderabbit-primary-dismissed",
+ it.each(["inline","codex-before-request","coderabbit-before-request","coderabbit-inline","coderabbit-original-head-inline","coderabbit-current-reply","coderabbit-primary-inline","coderabbit-primary-current-reply","coderabbit-primary-dismissed",
   "review-block","coderabbit-block","removed","request-removed","edited","edited-body","stale","head","bad-time","future","spoofed"])("rejects %s during the CI wait",change=>{
   const output=run(change);expect(output).toContain("REFUSED:");expect(output).not.toContain("FRESH_EVIDENCE_OK");
   if(change==="coderabbit-before-request"||change==="coderabbit-inline"||change==="coderabbit-original-head-inline"||change==="coderabbit-current-reply"||change==="coderabbit-primary-inline"||change==="coderabbit-primary-current-reply")
@@ -113,7 +116,7 @@ describe("AutoMerge post-poll review freshness",()=>{
  it.each(["initial-coderabbit-current-reply","initial-coderabbit-original-head-inline"])("rejects %s in the initial review gate",change=>{
   const output=run(change);expect(output).toContain("CodeRabbit posted current-head review findings");expect(output).not.toContain("FRESH_EVIDENCE_OK");
  },30_000);
- it.each(["near-merge-coderabbit-before-request","near-merge-coderabbit-current-reply","near-merge-coderabbit-original-head-inline","near-merge-primary-current-reply","near-merge-primary-original-head-inline","near-merge-codex-original-head-inline","near-merge-primary-dismissed","near-merge-review-block","near-merge-codex-removed"])("rejects %s after owner authorization",change=>{
+ it.each(["near-merge-codex-before-request","near-merge-coderabbit-before-request","near-merge-coderabbit-current-reply","near-merge-coderabbit-original-head-inline","near-merge-primary-current-reply","near-merge-primary-original-head-inline","near-merge-codex-original-head-inline","near-merge-primary-dismissed","near-merge-review-block","near-merge-codex-removed"])("rejects %s after owner authorization",change=>{
   const output=run(change);expect(output).toContain("REFUSED:");expect(output).not.toContain("FRESH_EVIDENCE_OK");
   if(change.includes("current-reply")||change.includes("coderabbit-before-request")||change.includes("coderabbit-original-head-inline")||change.includes("primary-original-head-inline"))expect(output).toContain("CodeRabbit inline findings appeared after final owner authorization");
   if(change.includes("codex-original-head-inline"))expect(output).toContain("Codex fallback posted current-head review findings");

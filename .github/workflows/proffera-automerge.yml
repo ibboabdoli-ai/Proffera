@@ -383,7 +383,6 @@ jobs:
                 .[]
                 | select(.user.login == "chatgpt-codex-connector[bot]")
                 | select(.original_commit_id == $sha or .commit_id == $sha)
-                | select(.created_at >= $request_time)
               ]
               | length
             ' <<< "$codex_inline_json")"
@@ -843,8 +842,7 @@ jobs:
             if [ -n "$codex_accepted_snapshot" ]; then
               near_merge_codex_inline_count="$(jq -r --arg sha "$head_sha" --arg request_time "$codex_request_time" '
                 [.[] | select(.user.login == "chatgpt-codex-connector[bot]")
-                  | select(.original_commit_id == $sha or .commit_id == $sha)
-                  | select((.created_at // "") >= $request_time)] | length
+                  | select(.original_commit_id == $sha or .commit_id == $sha)] | length
               ' <<< "$near_merge_inline_json")"
               [ "$near_merge_codex_inline_count" -eq 0 ] \
                 || refuse "Refused: Codex inline findings appeared after final owner authorization; merge is blocked."

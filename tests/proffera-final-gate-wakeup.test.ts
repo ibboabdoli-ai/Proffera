@@ -1330,6 +1330,31 @@ describe("complete wakeup shell to durable adapter", () => {
       expect(result.posts, body + result.result.stdout + result.result.stderr).toBe(1);
     }
   }, 30000);
+  it("rejects earlier current-head Codex findings after a repeat fallback request", () => {
+    const request = { id: 50, user: { login: "ibboabdoli-ai" },
+      body: "<!-- proffera-codex-fallback-review-request:" + reviewHead + " -->\n@codex review",
+      created_at: "2099-09-05T12:01:00Z" };
+    const body = "Codex Review: Didn't find any major issues.\nReviewed commit: " + reviewHead;
+    for (const createdAt of ["2099-09-05T12:00:30Z", "2099-09-05T12:02:00Z"]) {
+      const result = runWakeupFixture({
+        actor: "chatgpt-codex-connector[bot]", body, comments: [requestComment(), request],
+        inlineComments: [{ id: 91, user: { login: "chatgpt-codex-connector[bot]" },
+          original_commit_id: reviewHead, commit_id: reviewHead, created_at: createdAt,
+          body: "[P1] Unresolved same-head authorization issue" }],
+      }, true);
+      expect(result.result.status, result.result.stdout + result.result.stderr).not.toBe(0);
+      expect(result.result.stderr).toContain("final_gate_live:clean_comment_findings");
+      expect(result.posts).toBe(0);
+    }
+    const unrelatedHead = runWakeupFixture({
+      actor: "chatgpt-codex-connector[bot]", body, comments: [requestComment(), request],
+      inlineComments: [{ id: 91, user: { login: "chatgpt-codex-connector[bot]" },
+        original_commit_id: oldHead, commit_id: oldHead, created_at: "2099-09-05T12:00:30Z",
+        body: "[P1] Finding for a different commit" }],
+    }, true);
+    expect(unrelatedHead.result.status, unrelatedHead.result.stdout + unrelatedHead.result.stderr).toBe(0);
+    expect(unrelatedHead.posts).toBe(1);
+  }, 30000);
   it("does not turn disabled automatic review into an outage, while recognized post-request rate limits reach the adapter", () => {
     const skipped = runWakeupFixture({ body: "Review skipped: automatic reviews are disabled", comments: [requestComment()] });
     expect(skipped.posts).toBe(0); expect(skipped.intents).toEqual([]);
@@ -1397,6 +1422,35 @@ describe("AutoMerge CodeRabbit review provenance (adversarial)", () => {
     'guard_clean_after_review_count="$(jq -r --arg review_time "$guard_review_completion_time" \x27\n',
     '\x27 <<< "$clean_final_comments_json")"',
   );
+  it("counts pre-request current-head Codex inline findings in CI and AutoMerge jq gates", () => {
+    const ci = source(".github/workflows/ci.yml");
+    const initialCi = extract(
+      'codex_inline_count="$(jq -r --arg sha "$HEAD_SHA" --arg request_time "$codex_request_time" \x27\n',
+      '\x27 <<< "$codex_inline_json")"', ci,
+    );
+    const guardCi = extract(
+      'guard_blocking_inline_count="$(jq -r --arg sha "$HEAD_SHA" --arg request_time "$codex_request_time" --arg coderabbit_request_time "$coderabbit_request_time" \x27\n',
+      '\x27 <<< "$guard_inline_json")"', ci,
+    );
+    const initialAutomerge = extract(
+      'codex_inline_count="$(jq -r --arg sha "$head_sha" --arg request_time "$codex_request_time" \x27\n',
+      '\x27 <<< "$codex_inline_json")"',
+    );
+    const nearMergeAutomerge = extract(
+      'near_merge_codex_inline_count="$(jq -r --arg sha "$head_sha" --arg request_time "$codex_request_time" \x27\n',
+      '\x27 <<< "$near_merge_inline_json")"',
+    );
+    const priorFinding = [{
+      user: { login: "chatgpt-codex-connector[bot]" }, original_commit_id: reviewHead,
+      commit_id: oldHead, created_at: "2026-10-18T20:59:59Z", body: "[P1] Pending finding",
+    }];
+    for (const filter of [initialCi, guardCi, initialAutomerge, nearMergeAutomerge]) {
+      expect(jq(filter, priorFinding, {
+        sha: reviewHead, request_time: "2026-10-18T21:00:00Z",
+        coderabbit_request_time: "2026-10-18T21:00:00Z",
+      })).toBe(1);
+    }
+  });
   it("counts both current-head inline ID forms in the actual CI review predicates", () => {
     const ci = source(".github/workflows/ci.yml");
     const initialFilter = extract(
