@@ -86,29 +86,11 @@ function pageHref(baseHref: string, page: number) {
   return `${url.pathname}${url.search}`;
 }
 
-function withoutLocationHref(baseHref: string) {
-  const url = new URL(baseHref, "https://proffera.invalid");
-  for (const key of ["location", "nearby", "radius", "page"]) {
-    url.searchParams.delete(key);
-  }
-  return `${url.pathname}${url.search}`;
-}
-
 function withServiceHref(baseHref: string, service: string) {
   const url = new URL(baseHref, "https://proffera.invalid");
   url.searchParams.set("service", service);
   url.searchParams.delete("page");
   return `${url.pathname}${url.search}`;
-}
-
-function hasLocationConstraint(baseHref: string) {
-  const url = new URL(baseHref, "https://proffera.invalid");
-  return Boolean(url.searchParams.get("location")?.trim()) || url.searchParams.get("nearby") === "1";
-}
-
-function canSearchAllSweden(baseHref: string) {
-  const url = new URL(baseHref, "https://proffera.invalid");
-  return hasLocationConstraint(baseHref) && Boolean(url.searchParams.get("service")?.trim());
 }
 
 function paginationPages(currentPage: number, totalPages: number) {
@@ -341,11 +323,6 @@ export function PublicDirectoryResults({
             <p>{nearbyActive ? t.emptyNearby(search.radiusKm) : t.empty}</p>
             <p>{t.alternativeLead}</p>
             <div className={styles.emptyActions}>
-              {canSearchAllSweden(paginationBaseHref) ? (
-                <Link href={withoutLocationHref(paginationBaseHref)} className={styles.secondaryAction}>
-                  {t.searchAllSweden}
-                </Link>
-              ) : null}
               <Link href={quoteRequestPaths[locale]} className={styles.primaryAction}>
                 {t.getQuotes}<ArrowRight aria-hidden="true" />
               </Link>

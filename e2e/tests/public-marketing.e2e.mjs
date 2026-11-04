@@ -1,123 +1,68 @@
 import { expect, test } from "@playwright/test";
 
 test.describe("public marketplace smoke", () => {
-  test("Swedish root routes manual VVS city search into the unified results experience", async ({ page }) => {
+  test("Swedish root offers service plus private-location discovery without a city lookup", async ({ page, context }) => {
+    await context.grantPermissions(["geolocation"]);
+    await context.setGeolocation({ latitude: 59.329323, longitude: 18.068581 });
     const response = await page.goto("/");
-
     expect(response?.ok()).toBeTruthy();
-    await expect(
-      page.getByRole("heading", {
-        level: 1,
-        name: "Vad behöver du hjälp med?",
-      }),
-    ).toBeVisible();
+    await expect(page.getByRole("heading", { level: 1, name: "Vad behöver du hjälp med?" })).toBeVisible();
     await expect(page.getByText("Hitta företag, boka tid eller få offerter – gratis.")).toBeVisible();
     await expect(page.getByRole("heading", { level: 2, name: "Populära tjänster" })).toBeVisible();
     await expect(page.getByRole("link", { name: /Elektriker/ })).toBeVisible();
-    await expect(page.getByRole("link", { name: /Frisör & barberare/ })).toHaveCount(0);
     await expect(page.getByRole("link", { name: "För företag" }).first()).toBeVisible();
-    await expect(page.locator("#proffera-chat-widget")).toHaveCount(0);
-
-    await page.getByLabel("Tjänst").fill("VVS & rörmokare");
-    await page.getByLabel("Ort").fill("STOCKHOLM");
-    await page.getByRole("button", { name: "Sök" }).click();
-    await expect(page).toHaveURL(/\/foretag\/listad\?/);
-    await expect(page.getByRole("heading", { level: 1, name: "Hitta rätt företag för jobbet" })).toBeVisible();
-    await expect(page.getByRole("link", { name: "Hitta företag", exact: true }).first()).toBeVisible();
-    await expect(page.getByRole("link", { name: "För företag", exact: true }).first()).toBeVisible();
-    await expect(page.getByRole("link", { name: "Byt till engelska" })).toBeVisible();
-    await expect(page.getByText("Ortssökning använder företagets verksamhetsplats när den kan fastställas. Bekräftat serviceområde visas separat.")).toBeVisible();
-    await expect(page.getByText("Ortssökning utgår från företagets registrerade ort. Bekräftat serviceområde visas separat.")).toHaveCount(0);
-    await expect(page.getByText("Positionen kunde inte tolkas. Prova Nära mig igen eller sök med ort.")).toHaveCount(0);
-    await expect(page.getByText("Företag som matchar")).toBeVisible();
-    await expect(page.locator("footer")).toBeVisible();
-    await expect(page.locator("footer").getByRole("link", { name: "Hitta företag", exact: true })).toBeVisible();
-
-    const url = new URL(page.url());
-    expect(url.pathname).toBe("/foretag/listad");
-    expect(url.searchParams.get("service")).toBe("VVS & rörmokare");
-    expect(url.searchParams.get("location")).toBe("STOCKHOLM");
-    expect(url.searchParams.has("latitude")).toBe(false);
-    expect(url.searchParams.has("longitude")).toBe(false);
-
-    // Local public smoke intentionally runs without seeded Directory data.
-    // Result-card content is exercised with deterministic fixtures in the Vitest contract.
-    const profileResponse = await page.goto("/foretag/listad/e2e-standalone-profile-that-does-not-exist");
-    expect(profileResponse?.status()).toBe(404);
-    await expect(page.getByRole("link", { name: "För företag", exact: true })).toHaveCount(0);
-    await expect(page.locator("footer")).toHaveCount(0);
-  });
-
-  test("Nära mig fills Ort, keeps coordinates private and manual location clears nearby mode", async ({ page, context }) => {
-    await context.grantPermissions(["geolocation"]);
-    await context.setGeolocation({ latitude: 59.329323, longitude: 18.068581 });
-
-    const response = await page.goto("/");
-    expect(response?.ok()).toBeTruthy();
+    await expect(page.getByLabel("Din adress")).toBeVisible();
+    await expect(page.getByLabel("Sökradie")).toHaveValue("10");
 
     await page.getByLabel("Tjänst").fill("VVS & rörmokare");
     await page.getByRole("button", { name: "Nära mig" }).click();
     await expect(page).toHaveURL(/\/foretag\/listad\?/);
-    await expect(page.getByLabel("Ort")).toHaveValue("Min plats");
-    await expect(page.getByRole("button", { name: "Nära mig" })).toBeEnabled();
-
-    let url = new URL(page.url());
-    expect(url.pathname).toBe("/foretag/listad");
-    expect(url.searchParams.get("service")).toBe("VVS & rörmokare");
-    expect(url.searchParams.get("nearby")).toBe("1");
-    expect(url.searchParams.get("radius")).toBe("25");
-    expect(url.searchParams.has("latitude")).toBe(false);
-    expect(url.searchParams.has("longitude")).toBe(false);
-    expect(url.searchParams.has("location")).toBe(false);
-    expect(page.url()).not.toContain("59.329323");
-    expect(page.url()).not.toContain("18.068581");
-    await expect(page.getByText("Positionen kunde inte tolkas. Prova Nära mig igen eller sök med ort.")).toHaveCount(0);
-
-    await page.getByLabel("Ort").fill("STOCKHOLM");
-    await page.getByRole("button", { name: "Sök" }).click();
-    await expect(page).toHaveURL(/location=STOCKHOLM/);
-
-    url = new URL(page.url());
-    expect(url.searchParams.get("location")).toBe("STOCKHOLM");
-    expect(url.searchParams.has("nearby")).toBe(false);
-    expect(url.searchParams.has("latitude")).toBe(false);
-    expect(url.searchParams.has("longitude")).toBe(false);
-    expect(url.searchParams.has("radius")).toBe(false);
-  });
-
-  test("English root renders the simplified marketplace home and supports a manual Hairdresser search", async ({ page }) => {
-    const response = await page.goto("/en");
-    expect(response?.ok()).toBeTruthy();
-
-    await expect(
-      page.getByRole("heading", {
-        level: 1,
-        name: "What do you need help with?",
-      }),
-    ).toBeVisible();
-    await expect(page.getByText("Find businesses, book an appointment or request quotes – free.")).toBeVisible();
-    await expect(page.getByRole("heading", { level: 2, name: "Popular services" })).toBeVisible();
-    await expect(page.getByRole("link", { name: /Electrician/ })).toBeVisible();
-    await expect(page.getByRole("link", { name: /Hairdresser & barber/ })).toHaveCount(0);
-    await expect(page.getByRole("link", { name: "For businesses" }).first()).toBeVisible();
-    await expect(page.locator("#proffera-chat-widget")).toHaveCount(0);
-
-    await page.getByLabel("Service").fill("Hairdresser");
-    await page.getByLabel("Location").fill("Södertälje");
-    await page.getByRole("button", { name: "Search" }).click();
-    await expect(page).toHaveURL(/\/en\/companies\?/);
-    await expect(page.getByRole("heading", { level: 1, name: "Find the right company for the job" })).toBeVisible();
-    await expect(page.getByRole("link", { name: "Find businesses", exact: true }).first()).toBeVisible();
-    await expect(page.getByRole("link", { name: "For businesses", exact: true }).first()).toBeVisible();
-    await expect(page.getByRole("link", { name: "Switch to Swedish" })).toBeVisible();
-    await expect(page.getByText("Location search uses the business's operating location when it can be established. Confirmed service area is shown separately.")).toBeVisible();
-    await expect(page.getByText("Location search uses the business's registered location. Confirmed service area is shown separately.")).toHaveCount(0);
-    await expect(page.getByText("The position could not be interpreted. Try Near me again or search by location.")).toHaveCount(0);
+    await expect(page.getByRole("heading", { level: 1, name: "Hitta rätt företag för jobbet" })).toBeVisible();
+    await expect(page.getByRole("link", { name: "Byt till engelska" })).toBeVisible();
+    await expect(page.getByText("Företag som matchar")).toBeVisible();
 
     const url = new URL(page.url());
-    expect(url.pathname).toBe("/en/companies");
+    expect(url.searchParams.get("service")).toBe("VVS & rörmokare");
+    expect(url.searchParams.get("nearby")).toBe("1");
+    expect(url.searchParams.get("radius")).toBe("10");
+    expect(url.searchParams.has("location")).toBe(false);
+    expect(url.searchParams.has("latitude")).toBe(false);
+    expect(url.searchParams.has("longitude")).toBe(false);
+
+    const profileResponse = await page.goto("/foretag/listad/e2e-standalone-profile-that-does-not-exist");
+    expect(profileResponse?.status()).toBe(404);
+  });
+
+  test("service-only links and malformed addresses do not start a country-wide query", async ({ page }) => {
+    await page.goto("/foretag/listad?service=Elektriker");
+    await expect(page.getByLabel("Tjänst")).toHaveValue("Elektriker");
+    await expect(page.getByText("Företag som matchar")).toHaveCount(0);
+    await page.getByLabel("Din adress").fill("STOCKHOLM");
+    await page.getByRole("button", { name: "Sök", exact: true }).click();
+    await expect(page.getByRole("status")).toContainText("Ange en fullständig adress");
+    const url = new URL(page.url());
+    expect(url.searchParams.has("location")).toBe(false);
+    expect(url.searchParams.has("nearby")).toBe(false);
+  });
+
+  test("English root supports localized service search with the same private coordinate boundary", async ({ page, context }) => {
+    await context.grantPermissions(["geolocation"]);
+    await context.setGeolocation({ latitude: 59.329323, longitude: 18.068581 });
+    const response = await page.goto("/en");
+    expect(response?.ok()).toBeTruthy();
+    await expect(page.getByRole("heading", { level: 1, name: "What do you need help with?" })).toBeVisible();
+    await expect(page.getByText("Find businesses, book an appointment or request quotes – free.")).toBeVisible();
+    await expect(page.getByLabel("Your address")).toBeVisible();
+    await page.getByLabel("Service").fill("Hairdresser");
+    await page.getByRole("button", { name: "Near me" }).click();
+    await expect(page).toHaveURL(/\/en\/companies\?/);
+    await expect(page.getByRole("heading", { level: 1, name: "Find the right company for the job" })).toBeVisible();
+    await expect(page.getByRole("link", { name: "Switch to Swedish" })).toBeVisible();
+    const url = new URL(page.url());
     expect(url.searchParams.get("service")).toBe("frisor");
-    expect(url.searchParams.get("location")).toBe("Södertälje");
+    expect(url.searchParams.get("radius")).toBe("10");
+    expect(url.searchParams.get("nearby")).toBe("1");
+    expect(url.searchParams.has("location")).toBe(false);
   });
 
   test("Swedish business route renders the marketplace-aware workspace proposition", async ({ page }) => {
