@@ -5,6 +5,7 @@ import { getStripeCheckoutPlanForPriceId, getStripeClient, getStripeWebhookSecre
 import { isStripeEventModeAllowed } from "@/lib/stripe-runtime-config";
 import { syncWorkspaceSubscription } from "@/lib/workspace-billing";
 import { applyServiceJobCheckoutCompleted } from "@/lib/workspace-service-job-payments";
+import { applyFullSubscriptionRefund } from "@/lib/workspace-subscription-refund";
 
 export const runtime = "nodejs";
 
@@ -26,6 +27,27 @@ export async function POST(request: Request) {
       vercelEnv: process.env.VERCEL_ENV ?? "local",
     });
     return NextResponse.json({ error: "Stripe-läget matchar inte miljön." }, { status: 400 });
+  }
+
+  if (event.type === "charge.refunded" || event.type === "refund.created" || event.type === "refund.updated") {
+    try {
+      let charge: Stripe.Charge;
+      if (event.type === "charge.refunded") {
+        charge = event.data.object as Stripe.Charge;
+      } else {
+        const refund = event.data.object as Stripe.Refund;
+        if (refund.status !== "succeeded") return NextResponse.json({ received: true, applied: false });
+        const chargeId = typeof refund.charge === "string" ? refund.charge : refund.charge?.id;
+        if (!chargeId) return NextResponse.json({ received: true, applied: false });
+        charge = await stripe.charges.retrieve(chargeId);
+      }
+      const result = await applyFullSubscriptionRefund(stripe, charge, event.created);
+      if (!result.ok) return NextResponse.json({ error: "Återbetalningen kunde inte synkroniseras." }, { status: 500 });
+      return NextResponse.json({ received: true, applied: result.applied });
+    } catch (error) {
+      console.error("Failed to reconcile a fully refunded subscription", error);
+      return NextResponse.json({ error: "Återbetalningen kunde inte hanteras." }, { status: 500 });
+    }
   }
 
   if (event.type === "checkout.session.completed") {

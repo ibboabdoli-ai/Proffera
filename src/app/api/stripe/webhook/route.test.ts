@@ -7,6 +7,7 @@ const mocks = vi.hoisted(() => ({
   isStripeEventModeAllowed: vi.fn(),
   syncWorkspaceSubscription: vi.fn(),
   applyServiceJobCheckoutCompleted: vi.fn(),
+  applyFullSubscriptionRefund: vi.fn(),
 }));
 
 vi.mock("@/lib/stripe", () => ({
@@ -22,6 +23,9 @@ vi.mock("@/lib/workspace-billing", () => ({
 }));
 vi.mock("@/lib/workspace-service-job-payments", () => ({
   applyServiceJobCheckoutCompleted: mocks.applyServiceJobCheckoutCompleted,
+}));
+vi.mock("@/lib/workspace-subscription-refund", () => ({
+  applyFullSubscriptionRefund: mocks.applyFullSubscriptionRefund,
 }));
 
 import { POST } from "@/app/api/stripe/webhook/route";
@@ -93,5 +97,87 @@ describe("Stripe webhook environment safety", () => {
     expect(retrieve).toHaveBeenCalledWith("sub_live_ok");
     expect(mocks.syncWorkspaceSubscription).toHaveBeenCalledWith(subscription, 456, "starter", "price_live_starter");
     expect(body).toEqual({ received: true, applied: true });
+  });
+
+  it("routes a valid same-mode fully refunded charge to the guarded entitlement handler", async () => {
+    const charge = { id: "ch_test_refund", amount: 29900, amount_refunded: 29900, refunded: true };
+    mocks.getStripeClient.mockReturnValue({ webhooks: {
+      constructEventAsync: vi.fn().mockResolvedValue({
+        type: "charge.refunded", livemode: false, created: 1000, data: { object: charge },
+      }),
+    } });
+    mocks.isStripeEventModeAllowed.mockReturnValue(true);
+    mocks.applyFullSubscriptionRefund.mockResolvedValue({ ok: true, applied: true });
+    const response = await POST(new Request("https://preview.proffera.test/api/stripe/webhook", {
+      method: "POST", headers: { "stripe-signature": "signed-payload" }, body: '{"signed":true}',
+    }));
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ received: true, applied: true });
+    expect(mocks.applyFullSubscriptionRefund).toHaveBeenCalledWith(expect.anything(), charge, 1000);
+  });
+
+  it("does not act on pending refund.created events", async () => {
+    const retrieve = vi.fn();
+    mocks.getStripeClient.mockReturnValue({
+      webhooks: { constructEventAsync: vi.fn().mockResolvedValue({
+        type: "refund.created", livemode: false, created: 999,
+        data: { object: { id: "re_pending", status: "pending", charge: "ch_pending" } },
+      }) }, charges: { retrieve },
+    });
+    mocks.isStripeEventModeAllowed.mockReturnValue(true);
+    const response = await POST(new Request("https://preview.proffera.test/api/stripe/webhook", {
+      method: "POST", headers: { "stripe-signature": "signed" }, body: "{}",
+    }));
+    expect(response.status).toBe(200);
+    expect(retrieve).not.toHaveBeenCalled();
+    expect(mocks.applyFullSubscriptionRefund).not.toHaveBeenCalled();
+  });
+
+  it("handles a completed refund.updated through the guarded path", async () => {
+    const charge = { id: "ch_refund_succeeded" };
+    const retrieve = vi.fn().mockResolvedValue(charge);
+    mocks.getStripeClient.mockReturnValue({
+      webhooks: { constructEventAsync: vi.fn().mockResolvedValue({
+        type: "refund.updated", livemode: false, created: 1111,
+        data: { object: { id: "re_success", status: "succeeded", charge: "ch_refund_succeeded" } },
+      }) }, charges: { retrieve },
+    });
+    mocks.isStripeEventModeAllowed.mockReturnValue(true);
+    mocks.applyFullSubscriptionRefund.mockResolvedValue({ ok: true, applied: true });
+    const response = await POST(new Request("https://preview.proffera.test/api/stripe/webhook", {
+      method: "POST", headers: { "stripe-signature": "signed" }, body: "{}",
+    }));
+    expect(response.status).toBe(200);
+    expect(retrieve).toHaveBeenCalledWith("ch_refund_succeeded");
+    expect(mocks.applyFullSubscriptionRefund).toHaveBeenCalledWith(expect.anything(), charge, 1111);
+  });
+
+  it("rejects an invalid event mode before applying any refund", async () => {
+    mocks.getStripeClient.mockReturnValue({
+      webhooks: { constructEventAsync: vi.fn().mockResolvedValue({
+        type: "charge.refunded", livemode: true, data: { object: { id: "ch_wrong_mode" } },
+      }) },
+    });
+    mocks.isStripeEventModeAllowed.mockReturnValue(false);
+    const response = await POST(new Request("https://preview.proffera.test/api/stripe/webhook", {
+      method: "POST", headers: { "stripe-signature": "signed" }, body: "{}",
+    }));
+    expect(response.status).toBe(400);
+    expect(mocks.applyFullSubscriptionRefund).not.toHaveBeenCalled();
+  });
+
+  it("returns retryable failure when a verified refund cannot persist access", async () => {
+    mocks.getStripeClient.mockReturnValue({
+      webhooks: { constructEventAsync: vi.fn().mockResolvedValue({
+        type: "charge.refunded", livemode: false, created: 1000,
+        data: { object: { id: "ch_refund_database_error" } },
+      }) },
+    });
+    mocks.isStripeEventModeAllowed.mockReturnValue(true);
+    mocks.applyFullSubscriptionRefund.mockResolvedValue({ ok: false, code: "database" });
+    const response = await POST(new Request("https://preview.proffera.test/api/stripe/webhook", {
+      method: "POST", headers: { "stripe-signature": "signed" }, body: "{}",
+    }));
+    expect(response.status).toBe(500);
   });
 });
