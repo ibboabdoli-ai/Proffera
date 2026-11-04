@@ -334,21 +334,23 @@ export default async function BookingDetailPage({ params, searchParams }: Bookin
     <DashboardMetricGrid items={metrics} />
     {mariaPreview && manualSwish?.ok === false ? (
       <p role="alert" className="rounded-lg bg-[#fff0ee] p-3 text-sm font-semibold text-[#a33b2f]">
-        Swish-betalningsstatus kunde inte läsas. Försök igen.
+        {isEnglish ? "Swish payment status could not be read. Try again." : "Swish-betalningsstatus kunde inte läsas. Försök igen."}
       </p>
     ) : null}
     {mariaPreview && manualSwish?.entries[booking.id] ? (
       <section className="rounded-card border border-[#e8d9dc] bg-[#fff9f8] p-5 shadow-sm sm:p-6">
-        <h2 className="font-serif text-xl font-bold text-[#704858]">Makeup by Maria · Swish-handpenning (Preview)</h2>
+        <h2 className="font-serif text-xl font-bold text-[#704858]">{isEnglish ? "Makeup by Maria · Swish deposit (Preview)" : "Makeup by Maria · Swish-handpenning (Preview)"}</h2>
         <p className="mt-2 text-sm text-[#6a525b]">
-          Vid manuell bekräftelse får den godkända QA-mottagaren ett mejl med
-          handpenning på {MARIA_DEPOSIT_AMOUNT_SEK.toLocaleString("sv-SE")} kr,
-          24 timmars betalningsfrist och unik bokningsreferens.
-          Kontrollera betalningen i Swish själv; utebliven handpenning avbokas
-          endast manuellt av Maria. Ingen automatisk betalningskontroll eller SMS.
+          {isEnglish
+            ? `After manual confirmation, the approved QA inbox receives an email explaining the ${MARIA_DEPOSIT_AMOUNT_SEK.toLocaleString("sv-SE")} SEK deposit, 24-hour deadline and unique booking reference. Check the payment yourself in Swish; Maria alone can cancel an unpaid booking. No automatic bank verification or SMS.`
+            : <>Vid manuell bekräftelse får den godkända QA-mottagaren ett mejl med
+              handpenning på {MARIA_DEPOSIT_AMOUNT_SEK.toLocaleString("sv-SE")} kr,
+              24 timmars betalningsfrist och unik bokningsreferens.
+              Kontrollera betalningen i Swish själv; utebliven handpenning avbokas
+              endast manuellt av Maria. Ingen automatisk betalningskontroll eller SMS.</>}
         </p>
 
-        {value("payment_error") ? <p role="alert" className="mt-3 rounded-lg bg-[#fff0ee] p-3 text-sm font-semibold text-[#a33b2f]">Kunde inte uppdatera Swish-handpenningen. Kontrollera betalningen och försök igen.</p> : null}
+        {value("payment_error") ? <p role="alert" className="mt-3 rounded-lg bg-[#fff0ee] p-3 text-sm font-semibold text-[#a33b2f]">{isEnglish ? "Could not update the Swish deposit. Check the payment and try again." : "Kunde inte uppdatera Swish-handpenningen. Kontrollera betalningen och försök igen."}</p> : null}
         <div className="mt-4">
           <MariaSwishPaymentControl
             bookingId={booking.id}
@@ -359,8 +361,8 @@ export default async function BookingDetailPage({ params, searchParams }: Bookin
             isEnglish={isEnglish}
           />
         </div>
-        <p className="mt-2 text-sm"><strong>Swish företag:</strong> {MARIA_SWISH_NUMBER}</p>
-        <Image src={mariaSwishQrPath(booking.id)} alt="Swish QR med 2 000 kr och bokningsnummer för denna bokning"
+        <p className="mt-2 text-sm"><strong>{isEnglish ? "Swish business:" : "Swish företag:"}</strong> {MARIA_SWISH_NUMBER}</p>
+        <Image src={mariaSwishQrPath(booking.id)} alt={isEnglish ? "Swish QR with 2,000 SEK and this booking reference" : "Swish QR med 2 000 kr och bokningsnummer för denna bokning"}
           width={380} height={380} unoptimized className="mt-4 h-auto max-w-[210px] rounded-lg border border-[#e8d9dc]" />
       </section>
     ) : null}

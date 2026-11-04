@@ -1,6 +1,7 @@
 import "server-only";
 
 import type { WorkspaceTimeZone } from "@/lib/workspace-market";
+import { bookingDateLocale } from "@/lib/booking-date-locale";
 import { mariaEmailLogoHtml } from "@/lib/maria-email-logo";
 import { getMariaPreviewPortalBase } from "@/lib/maria-preview-customer-safety";
 
@@ -27,7 +28,7 @@ function escapeHtml(value: string) {
 }
 
 function formatTime(value: string, timeZone: WorkspaceTimeZone, language: "sv" | "en" | "ar") {
-  return new Intl.DateTimeFormat(language === "ar" ? "ar-SA" : language === "en" ? "en-GB" : "sv-SE", { timeZone, dateStyle: "full", timeStyle: "short" }).format(new Date(value));
+  return new Intl.DateTimeFormat(bookingDateLocale(language), { timeZone, dateStyle: "full", timeStyle: "short" }).format(new Date(value));
 }
 
 function parseSender(value: string) {
