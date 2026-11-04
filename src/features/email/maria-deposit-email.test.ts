@@ -42,7 +42,10 @@ describe("Maria-only Swish confirmation and cancellation email", () => {
     expect(result.text).toContain("senast tisdag 3 november 2026");
     expect(result.text).toContain("Meddelande: MBM-000000");
     expect(result.html).toContain('src="https://qa.vercel.app/api/makeup-by-maria/swish-qr/00000000-0000-0000-0000-000000000001"');
-    expect(result.html).toContain("sw=1235818653&amp;amt=2000&amp;cur=SEK&amp;msg=MBM-000000&amp;src=qr");
+    expect(result.html).toContain('href="https://qa.vercel.app/maria/swish/00000000-0000-0000-0000-000000000001"');
+    expect(result.text).toContain("Visa betalningsuppgifter: https://qa.vercel.app/maria/swish/00000000-0000-0000-0000-000000000001");
+    expect(result.html).not.toContain("app.swish.nu");
+    expect(result.html).toContain("Sidan visar en direkt Swish-knapp");
     expect(result.html).toContain("QR-koden fyller i mottagare");
     expect(result.text).toContain("Avbokning sker inte automatiskt");
     expect(result.html).toContain("QA &lt;Bride&gt;");
@@ -99,6 +102,8 @@ describe("Maria-only Swish confirmation and cancellation email", () => {
     };
     expect(payload.to[0]?.email).toBe("qa@example.invalid");
     expect(payload.htmlContent).toContain("/api/makeup-by-maria/swish-qr/");
+    expect(payload.htmlContent).toContain("/maria/swish/");
+    expect(payload.htmlContent).not.toContain("app.swish.nu");
     expect(payload.textContent).toContain("MBM-000000");
   });
 

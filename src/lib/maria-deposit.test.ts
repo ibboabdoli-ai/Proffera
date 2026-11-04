@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   MARIA_DEPOSIT_AMOUNT_SEK, MARIA_SWISH_LINK, MARIA_SWISH_NUMBER,
   MARIA_SWISH_QR_PATH, mariaBookingNumber, mariaDepositDeadline,
-  mariaSwishPaymentLink, mariaSwishQrPath, mariaSwishQrPayload,
+  mariaSwishPaymentLink, mariaSwishPaymentPagePath, mariaSwishQrPath, mariaSwishQrPayload,
 } from "./maria-deposit";
 
 describe("Maria Swish booking reference and deposit policy", () => {
@@ -27,6 +27,7 @@ describe("Maria Swish booking reference and deposit policy", () => {
     const id = "c0eb47ac-cecf-4bd4-98c3-1b8b6deeb2ff";
     expect(mariaSwishQrPayload(id)).toBe("C1235818653;2000,00;MBM-C0EB47;0");
     expect(mariaSwishQrPath(id)).toBe(`/api/makeup-by-maria/swish-qr/${id}`);
+    expect(mariaSwishPaymentPagePath(id)).toBe(`/maria/swish/${id}`);
     const link = new URL(mariaSwishPaymentLink(id));
     expect(link.searchParams.get("sw")).toBe("1235818653");
     expect(link.searchParams.get("amt")).toBe("2000");

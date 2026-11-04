@@ -2,10 +2,10 @@
 
 import { useState } from "react";
 
-type Props = { reference: string; isEnglish: boolean };
+type Props = { reference: string; isEnglish: boolean; kind?: "booking" | "swish" };
 
-/** Copy only the display reference. Never changes a booking or Swish payment. */
-export function MariaBookingReferenceCopy({ reference, isEnglish }: Props) {
+/** Copies display-only booking or Swish numbers; never changes a payment. */
+export function MariaBookingReferenceCopy({ reference, isEnglish, kind = "booking" }: Props) {
   const [result, setResult] = useState<"copied" | "failed" | null>(null);
 
   async function handleCopy() {
@@ -23,7 +23,9 @@ export function MariaBookingReferenceCopy({ reference, isEnglish }: Props) {
       <button
         type="button"
         onClick={handleCopy}
-        aria-label={isEnglish ? "Copy booking number" : "Kopiera bokningsnummer"}
+        aria-label={kind === "swish"
+          ? isEnglish ? "Copy Swish number" : "Kopiera Swish-nummer"
+          : isEnglish ? "Copy booking number" : "Kopiera bokningsnummer"}
         className="min-h-10 rounded-lg border border-[#845363] bg-white px-3 py-2 text-xs font-bold text-[#704858] hover:bg-[#fcf0f4] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#845363]"
       >
         {isEnglish ? "Copy" : "Kopiera"}

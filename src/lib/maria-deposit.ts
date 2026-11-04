@@ -23,6 +23,12 @@ export function mariaSwishQrPayload(bookingId: string) {
   return `C${payee};${amount};${encodeURIComponent(mariaBookingNumber(bookingId))};0`;
 }
 
+/** First-party payment instructions keep email tracking redirects away from Swish app links. */
+export function mariaSwishPaymentPagePath(bookingId: string) {
+  mariaBookingNumber(bookingId);
+  return `/maria/swish/${bookingId.toLowerCase()}`;
+}
+
 export function mariaSwishQrPath(bookingId: string) {
   mariaBookingNumber(bookingId);
   return `/api/makeup-by-maria/swish-qr/${bookingId.toLowerCase()}`;

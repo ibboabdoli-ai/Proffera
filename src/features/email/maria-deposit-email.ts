@@ -2,7 +2,7 @@ import "server-only";
 
 import { getMariaPreviewPortalBase, isMariaPreviewTestRecipient } from "@/lib/maria-preview-customer-safety";
 import {
-  MARIA_DEPOSIT_AMOUNT_SEK, MARIA_SWISH_NUMBER, mariaSwishPaymentLink,
+  MARIA_DEPOSIT_AMOUNT_SEK, MARIA_SWISH_NUMBER, mariaSwishPaymentPagePath,
   mariaSwishQrPath, mariaBookingNumber, mariaDepositDeadline,
 } from "@/lib/maria-deposit";
 import type { WorkspaceTimeZone } from "@/lib/workspace-market";
@@ -76,7 +76,7 @@ export function buildMariaBookingStatusEmail(input: MariaBookingStatusEmailInput
   const confirmedAt = input.confirmedAt ?? new Date();
   const due = formatTime(mariaDepositDeadline(confirmedAt), input.timeZone);
   const qrUrl = new URL(mariaSwishQrPath(input.bookingId), origin).toString();
-  const swishLink = mariaSwishPaymentLink(input.bookingId);
+  const paymentPageUrl = new URL(mariaSwishPaymentPagePath(input.bookingId), origin).toString();
   const payment = MARIA_DEPOSIT_AMOUNT_SEK.toLocaleString("sv-SE");
   const text = [
     `Hej ${input.customerName},`, "",
@@ -88,7 +88,7 @@ export function buildMariaBookingStatusEmail(input: MariaBookingStatusEmailInput
     `Handpenning: ${payment} kr via Swish.`,
     `Betala inom 24 timmar från bekräftelsen, senast ${due}.`,
     `Swish företag: ${MARIA_SWISH_NUMBER}`,
-    `Swish-länk: ${swishLink}`,
+    `Visa betalningsuppgifter: ${paymentPageUrl}`,
     `QR-kod: ${qrUrl}`,
     `Skriv exakt detta bokningsnummer i Swish-fältet Meddelande: ${reference}`, "",
     "QR-koden fyller i mottagare, 2 000 kr och bokningsnumret. Kontrollera alltid mottagaren i Swish innan du signerar. Ingen automatisk betalningsverifiering sker.",
@@ -110,8 +110,10 @@ export function buildMariaBookingStatusEmail(input: MariaBookingStatusEmailInput
       <p><strong>Swish företag:</strong> ${escapeHtml(MARIA_SWISH_NUMBER)}</p>
       <p><img src="${escapeHtml(qrUrl)}" alt="Swish QR-kod med 2 000 kr och bokningsnummer för Makeup by Maria" width="380"
         style="display:block;max-width:100%;height:auto;border-radius:10px" /></p>
-      <p><a href="${escapeHtml(swishLink)}" style="color:#845363;font-weight:bold">
-        Öppna Swish för betalning</a></p>
+      <p><a href="${escapeHtml(paymentPageUrl)}" style="color:#845363;font-weight:bold">
+        Visa Swish-uppgifter och öppna Swish</a></p>
+      <p style="font-size:13px">Sidan visar en direkt Swish-knapp, QR-kod och kopierbara betalningsuppgifter.
+      Om appen bara visar startsidan kan du använda QR-koden på en annan skärm eller kopiera uppgifterna.</p>
       <p><strong>Meddelande i Swish:</strong><br/><code style="font-size:15px;overflow-wrap:anywhere">${escapeHtml(reference)}</code></p>
       <p style="font-size:13px;background:#f5e9eb;padding:12px">
         QR-koden fyller i mottagare, <strong>2 000 kr</strong> och

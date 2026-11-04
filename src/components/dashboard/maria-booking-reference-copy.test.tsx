@@ -17,6 +17,18 @@ describe("Maria copyable Swish booking reference", () => {
     expect(html).toContain(">Kopiera</button>");
   });
 
+  it("labels the Swish business number separately from the booking reference", () => {
+    const html = renderToStaticMarkup(
+      createElement(MariaBookingReferenceCopy, {
+        reference: "1235818653",
+        isEnglish: false,
+        kind: "swish",
+      }),
+    );
+    expect(html).toContain('aria-label="Kopiera Swish-nummer"');
+    expect(html).toContain(">Kopiera</button>");
+  });
+
   it("labels the copy action in English when the dashboard uses English", () => {
     const html = renderToStaticMarkup(
       createElement(MariaBookingReferenceCopy, {
