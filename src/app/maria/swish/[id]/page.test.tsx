@@ -49,6 +49,8 @@ describe("Maria Preview first-party Swish payment information page", () => {
     expect(html).toContain("123-581 86 53");
     expect(html).toContain("2");
     expect(html).toContain("Öppna Swish");
+    expect(html).toContain('src="/demo/makeup-by-maria/assets/maria-client-logo.jpg"');
+    expect(html).toContain('alt="Makeup by Maria"');
     expect(html).toContain("Endast test");
     expect(html).toContain('aria-label="Kopiera Swish-nummer"');
     expect(html).toContain('aria-label="Kopiera bokningsnummer"');

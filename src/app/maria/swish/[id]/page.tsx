@@ -15,6 +15,7 @@ export const dynamic = "force-dynamic";
 export const metadata: Metadata = {
   title: "Swish-handpenning · Makeup by Maria (Preview)",
   robots: { index: false, follow: false },
+  icons: { icon: "/demo/makeup-by-maria/assets/maria-client-logo.jpg", apple: "/demo/makeup-by-maria/assets/maria-apple-touch-icon.png" },
 };
 
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -73,7 +74,20 @@ export default async function MariaSwishPaymentPage({
   return (
     <main lang="sv" className="min-h-screen bg-[#fcfaf8] px-4 py-10 text-[#352a2c]">
       <article className="mx-auto max-w-lg rounded-2xl border border-[#e9dedc] bg-white p-5 shadow-sm sm:p-8">
-        <p className="text-xs font-bold uppercase tracking-widest text-[#845363]">Makeup by Maria · Preview</p>
+        <header className="flex items-center gap-3 border-b border-[#e9dedc] pb-5">
+          <Image
+            src="/demo/makeup-by-maria/assets/maria-client-logo.jpg"
+            alt="Makeup by Maria"
+            width={76}
+            height={76}
+            unoptimized
+            className="h-[76px] w-[76px] rounded-lg object-cover"
+          />
+          <div>
+            <p className="font-serif text-xl text-[#6d3e4e]">Makeup by Maria</p>
+            <p className="text-xs font-bold uppercase tracking-widest text-[#845363]">Swish · Preview</p>
+          </div>
+        </header>
         <h1 className="mt-3 font-serif text-3xl text-[#6d3e4e]">Swish-handpenning</h1>
         <p role="alert" className="mt-5 rounded-lg border border-[#e6c4cb] bg-[#faefed] p-4 text-sm font-bold text-[#8b2d39]">
           Endast test. Gör ingen riktig Swish-betalning och signera inget med BankID.
