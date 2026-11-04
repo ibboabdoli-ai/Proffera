@@ -32,6 +32,24 @@ describe("Readability and contrast hardening", () => {
     expect(header).toContain("hover:!text-white");
   });
 
+  it("forces accessible white labels on Maria mauve CTA buttons and links, including iOS WebKit", () => {
+    const css = source("src/app/globals.css");
+    const demo = source("public/demo/makeup-by-maria-v2.html");
+    const maria = source("src/app/dashboard/maria/page.tsx");
+    const calendar = source("src/app/dashboard/maria/kalender/maria-calendar-confirm-button.tsx");
+
+    for (const color of ["#845363", "#6d3e4e"]) {
+      expect(css).toContain('[class~="bg-[' + color + ']"]');
+    }
+    expect(css).toContain("-webkit-text-fill-color: #ffffff !important");
+    expect(demo).toContain("background:var(--rose);color:#fff;-webkit-text-fill-color:#fff");
+    expect(maria).toContain("bg-[#845363]");
+    expect(calendar).toContain("bg-[#845363]");
+    // Do not force white on Maria's light secondary buttons.
+    expect(calendar).toContain('kind === "close"');
+    expect(calendar).toContain("bg-white");
+  });
+
   it("prevents light CTAs inside dark cards from inheriting white WebKit text fill", () => {
     const css = source("src/app/globals.css");
     const dashboard = source("src/app/dashboard/page.tsx");
