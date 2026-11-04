@@ -55,6 +55,7 @@ vi.mock("react", async (importOriginal) => {
 
 vi.mock("next/link", () => ({ default: () => null }));
 vi.mock("next/navigation", () => ({
+  useRouter: () => ({ push: vi.fn() }),
   usePathname: () => "/test",
   useSearchParams: () => new URLSearchParams(runtime.routeSearch),
   redirect: (url: string) => {
