@@ -25,7 +25,7 @@ import { BookingRescheduleValidationError, rescheduleDashboardBooking } from "@/
 import { isDashboardBookingStatus, updateDashboardBookingStatus, type DashboardBookingStatus } from "@/lib/dashboard-booking-status";
 import { canManageWorkspaceSettings, getUserWorkspaceAccess } from "@/lib/workspace-access";
 import { hasDashboardModuleAccess } from "@/lib/workspace-module-access";
-import { MARIA_DEPOSIT_AMOUNT_SEK, MARIA_SWISH_NUMBER, MARIA_SWISH_QR_PATH } from "@/lib/maria-deposit";
+import { MARIA_DEPOSIT_AMOUNT_SEK, MARIA_SWISH_NUMBER, mariaSwishQrPath } from "@/lib/maria-deposit";
 import { readMariaManualSwishStatuses } from "@/lib/maria-manual-swish";
 import { getMariaPreviewPortalBase, isMariaPreviewTestRecipient } from "@/lib/maria-preview-customer-safety";
 
@@ -354,8 +354,8 @@ export default async function BookingDetailPage({ params, searchParams }: Bookin
           />
         </div>
         <p className="mt-2 text-sm"><strong>Swish företag:</strong> {MARIA_SWISH_NUMBER}</p>
-        <Image src={MARIA_SWISH_QR_PATH} alt="Makeup by Maria Swish QR för godkänd QA-kontroll"
-          width={210} height={280} unoptimized className="mt-4 h-auto max-w-[210px] rounded-lg border border-[#e8d9dc]" />
+        <Image src={mariaSwishQrPath(booking.id)} alt="Swish QR med 2 000 kr och bokningsnummer för denna bokning"
+          width={380} height={380} unoptimized className="mt-4 h-auto max-w-[210px] rounded-lg border border-[#e8d9dc]" />
       </section>
     ) : null}
 

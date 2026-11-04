@@ -2,8 +2,8 @@ import "server-only";
 
 import { getMariaPreviewPortalBase, isMariaPreviewTestRecipient } from "@/lib/maria-preview-customer-safety";
 import {
-  MARIA_DEPOSIT_AMOUNT_SEK, MARIA_SWISH_LINK, MARIA_SWISH_NUMBER, MARIA_SWISH_QR_PATH,
-  mariaBookingNumber, mariaDepositDeadline,
+  MARIA_DEPOSIT_AMOUNT_SEK, MARIA_SWISH_NUMBER, mariaSwishPaymentLink,
+  mariaSwishQrPath, mariaBookingNumber, mariaDepositDeadline,
 } from "@/lib/maria-deposit";
 import type { WorkspaceTimeZone } from "@/lib/workspace-market";
 
@@ -75,7 +75,8 @@ export function buildMariaBookingStatusEmail(input: MariaBookingStatusEmailInput
 
   const confirmedAt = input.confirmedAt ?? new Date();
   const due = formatTime(mariaDepositDeadline(confirmedAt), input.timeZone);
-  const qrUrl = new URL(MARIA_SWISH_QR_PATH, origin).toString();
+  const qrUrl = new URL(mariaSwishQrPath(input.bookingId), origin).toString();
+  const swishLink = mariaSwishPaymentLink(input.bookingId);
   const payment = MARIA_DEPOSIT_AMOUNT_SEK.toLocaleString("sv-SE");
   const text = [
     `Hej ${input.customerName},`, "",
@@ -83,13 +84,14 @@ export function buildMariaBookingStatusEmail(input: MariaBookingStatusEmailInput
     `Tjänst: ${input.service}`,
     `Tid: ${start} – ${end}`,
     `Bokningsnummer: ${reference}`, "",
+    "Endast Preview-test: gör ingen riktig Swish-betalning.",
     `Handpenning: ${payment} kr via Swish.`,
     `Betala inom 24 timmar från bekräftelsen, senast ${due}.`,
     `Swish företag: ${MARIA_SWISH_NUMBER}`,
-    `Swish-länk: ${MARIA_SWISH_LINK}`,
+    `Swish-länk: ${swishLink}`,
     `QR-kod: ${qrUrl}`,
     `Skriv exakt detta bokningsnummer i Swish-fältet Meddelande: ${reference}`, "",
-    "QR-koden anger endast mottagaren. Du måste själv fylla i beloppet 2 000 kr och bokningsnumret som meddelande.",
+    "QR-koden fyller i mottagare, 2 000 kr och bokningsnumret. Kontrollera alltid mottagaren i Swish innan du signerar. Ingen automatisk betalningsverifiering sker.",
     "Kontrollera alltid mottagaren i Swish innan du betalar.",
     "Om handpenningen inte har registrerats inom 24 timmar kan Maria avboka bokningen manuellt. Avbokning sker inte automatiskt.",
     "", "Vänliga hälsningar", input.companyName,
@@ -102,17 +104,19 @@ export function buildMariaBookingStatusEmail(input: MariaBookingStatusEmailInput
       <p><strong>Tjänst:</strong> ${escapeHtml(input.service)}<br/>
       <strong>Tid:</strong> ${escapeHtml(start)} – ${escapeHtml(end)}<br/>
       <strong>Bokningsnummer:</strong> <code>${escapeHtml(reference)}</code></p>
+      <p style="font-size:14px;color:#8b2d39;font-weight:bold">Endast Preview-test – gör ingen riktig Swish-betalning.</p>
       <h2 style="color:#845363;font-size:21px">Handpenning: ${payment} kr</h2>
       <p><strong>Betala via Swish inom 24 timmar, senast ${escapeHtml(due)}.</strong></p>
       <p><strong>Swish företag:</strong> ${escapeHtml(MARIA_SWISH_NUMBER)}</p>
-      <p><img src="${escapeHtml(qrUrl)}" alt="Swish QR-kod för Makeup by Maria" width="380"
+      <p><img src="${escapeHtml(qrUrl)}" alt="Swish QR-kod med 2 000 kr och bokningsnummer för Makeup by Maria" width="380"
         style="display:block;max-width:100%;height:auto;border-radius:10px" /></p>
-      <p><a href="${escapeHtml(MARIA_SWISH_LINK)}" style="color:#845363;font-weight:bold">
+      <p><a href="${escapeHtml(swishLink)}" style="color:#845363;font-weight:bold">
         Öppna Swish för betalning</a></p>
       <p><strong>Meddelande i Swish:</strong><br/><code style="font-size:15px;overflow-wrap:anywhere">${escapeHtml(reference)}</code></p>
       <p style="font-size:13px;background:#f5e9eb;padding:12px">
-        QR-koden anger bara mottagaren. Ange själv <strong>2 000 kr</strong> och
-        bokningsnumret i meddelandefältet. Kontrollera mottagaren i Swish innan du betalar.
+        QR-koden fyller i mottagare, <strong>2 000 kr</strong> och
+        bokningsnumret. Kontrollera mottagaren i Swish innan du signerar.
+        Ingen automatisk betalningsverifiering sker.
       </p>
       <p style="font-size:13px">Om handpenningen inte registreras inom 24 timmar kan Maria
       avboka bokningen manuellt. Ingen automatisk avbokning sker.</p>

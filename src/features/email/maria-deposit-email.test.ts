@@ -33,17 +33,17 @@ afterEach(() => {
 });
 
 describe("Maria-only Swish confirmation and cancellation email", () => {
-  it("shows 2000 SEK, the 24h deadline, actual static QR and full payment reference", () => {
+  it("shows 2000 SEK, the 24h deadline, booking-specific QR and short payment reference", () => {
     const result = buildMariaBookingStatusEmail(booking, "https://qa.vercel.app");
-    expect(result.reference).toBe("MBM-00000000000000000000000000000001");
+    expect(result.reference).toBe("MBM-000000");
     expect(result.text).toContain("2 000 kr");
     expect(result.text).toContain("24 timmar");
     expect(result.text).toContain("123-581 86 53");
     expect(result.text).toContain("senast tisdag 3 november 2026");
-    expect(result.text).toContain("Meddelande: MBM-00000000000000000000000000000001");
-    expect(result.html).toContain('src="https://qa.vercel.app/demo/makeup-by-maria/assets/maria-swish-qr.jpg"');
-    expect(result.html).toContain('href="https://app.swish.nu/1/p/sw/?sw=1235818653&amp;src=qr"');
-    expect(result.html).toContain("Ange själv");
+    expect(result.text).toContain("Meddelande: MBM-000000");
+    expect(result.html).toContain('src="https://qa.vercel.app/api/makeup-by-maria/swish-qr/00000000-0000-0000-0000-000000000001"');
+    expect(result.html).toContain("sw=1235818653&amp;amt=2000&amp;cur=SEK&amp;msg=MBM-000000&amp;src=qr");
+    expect(result.html).toContain("QR-koden fyller i mottagare");
     expect(result.text).toContain("Avbokning sker inte automatiskt");
     expect(result.html).toContain("QA &lt;Bride&gt;");
     expect(result.html).not.toContain("<Bride>");
@@ -53,9 +53,9 @@ describe("Maria-only Swish confirmation and cancellation email", () => {
     const result = buildMariaBookingStatusEmail({ ...booking, status: "cancelled" }, "https://qa.vercel.app");
     expect(result.subject).toContain("Din bokning är avbokad");
     expect(result.text).toContain("Du får gärna komma tillbaka med en ny bokning.");
-    expect(result.text).toContain("MBM-00000000000000000000000000000001");
+    expect(result.text).toContain("MBM-000000");
     expect(result.text).not.toContain("Handpenning");
-    expect(result.html).not.toContain("maria-swish-qr.jpg");
+    expect(result.html).not.toContain("/api/makeup-by-maria/swish-qr/");
   });
 
   it("rejects a malicious or non-preview QR image origin", () => {
@@ -98,8 +98,8 @@ describe("Maria-only Swish confirmation and cancellation email", () => {
       to: Array<{email: string}>; htmlContent: string; textContent: string;
     };
     expect(payload.to[0]?.email).toBe("qa@example.invalid");
-    expect(payload.htmlContent).toContain("maria-swish-qr.jpg");
-    expect(payload.textContent).toContain("MBM-00000000000000000000000000000001");
+    expect(payload.htmlContent).toContain("/api/makeup-by-maria/swish-qr/");
+    expect(payload.textContent).toContain("MBM-000000");
   });
 
   it("reports provider errors without assuming payment or delivery", async () => {
