@@ -723,10 +723,19 @@ describe("authority transitions and late races", () => {
     };
     expect(f.run().decision).toBe("FAIL_CLOSED_MISMATCH"); expect(f.posts).toBe(0); expect(f.capacity()).toBe(4);
   });
-  it("treats current Codex commit findings as blocking even when original_commit_id differs", () => {
-    const f = liveFixture(source());
-    f.inline = [{ ...findingRecord(), user: { login: "chatgpt-codex-connector[bot]" }, original_commit_id: "b".repeat(40) }];
-    expect(() => f.run()).toThrow("clean_comment_findings"); expect(f.posts).toBe(0);
+  it("ignores carried-forward earlier-head Codex findings but blocks current-original-head findings", () => {
+    const forwarded = liveFixture(source());
+    forwarded.inline = [{ ...findingRecord(), user: { login: "chatgpt-codex-connector[bot]" },
+      original_commit_id: "b".repeat(40), commit_id: head, created_at: "2025-12-31T23:59:59Z" }];
+    expect(forwarded.run().decision).toBe("ALLOW_RERUN"); expect(forwarded.posts).toBe(1);
+    const replied = liveFixture(source());
+    replied.inline = [{ ...findingRecord(), user: { login: "chatgpt-codex-connector[bot]" },
+      original_commit_id: "b".repeat(40), commit_id: head, created_at: "2099-12-31T23:59:59Z" }];
+    expect(() => replied.run()).toThrow("clean_comment_findings"); expect(replied.posts).toBe(0);
+    const current = liveFixture(source());
+    current.inline = [{ ...findingRecord(), user: { login: "chatgpt-codex-connector[bot]" },
+      original_commit_id: head, commit_id: "b".repeat(40) }];
+    expect(() => current.run()).toThrow("clean_comment_findings"); expect(current.posts).toBe(0);
   });
   it("does not correlate a persistent summary to an older/ambiguous review ID", () => {
     const summary = `<!-- recent_review_start -->\nNo actionable comments were generated.\n${head}\n<!-- recent_review_end -->`;

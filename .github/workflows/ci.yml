@@ -379,6 +379,10 @@ jobs:
         if: needs.ci_scope.outputs.unit == 'true'
         run: npm ci --no-audit --no-fund
 
+      - name: Install exact-candidate test Playwright dependencies
+        if: needs.ci_scope.outputs.unit == 'true'
+        run: npm ci --prefix e2e --no-audit --no-fund --ignore-scripts
+
       - name: Preload pinned official PostgreSQL test image with registry fallback
         if: needs.ci_scope.outputs.unit == 'true'
         run: |
@@ -823,7 +827,7 @@ jobs:
               [
                 .[]
                 | select(.user.login == "coderabbitai[bot]")
-                | select(.original_commit_id == $sha or .commit_id == $sha)
+                | select(((.original_commit_id // .commit_id) == $sha or (.commit_id == $sha and ($request_time == "" or (.created_at | type) != "string" or .created_at == "" or .created_at >= $request_time))))
               ]
               | length
             ' <<< "$coderabbit_inline_json")"
@@ -1013,7 +1017,7 @@ jobs:
                   [
                     .[]
                     | select(.user.login == "chatgpt-codex-connector[bot]")
-                    | select(.original_commit_id == $sha or .commit_id == $sha)
+                    | select(((.original_commit_id // .commit_id) == $sha or (.commit_id == $sha and ($request_time == "" or (.created_at | type) != "string" or .created_at == "" or .created_at >= $request_time))))
                   ]
                   | length
                 ' <<< "$codex_inline_json")"
@@ -1060,9 +1064,9 @@ jobs:
                     [
                       .[]
                       | select(
-                          (.user.login == "chatgpt-codex-connector[bot]" and (.original_commit_id == $sha or .commit_id == $sha))
+                          (.user.login == "chatgpt-codex-connector[bot]" and (((.original_commit_id // .commit_id) == $sha or (.commit_id == $sha and ($request_time == "" or (.created_at | type) != "string" or .created_at == "" or .created_at >= $request_time)))))
                           or
-                          (.user.login == "coderabbitai[bot]" and (.original_commit_id == $sha or .commit_id == $sha))
+                          (.user.login == "coderabbitai[bot]" and (((.original_commit_id // .commit_id) == $sha or (.commit_id == $sha and ($coderabbit_request_time == "" or (.created_at | type) != "string" or .created_at == "" or .created_at >= $coderabbit_request_time)))))
                         )
                     ]
                     | length

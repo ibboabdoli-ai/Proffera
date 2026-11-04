@@ -613,6 +613,9 @@ jobs:
       - name: Install repository dependencies
         run: npm ci --no-audit --no-fund
 
+      - name: Install exact-candidate test Playwright dependencies
+        run: npm ci --prefix e2e --no-audit --no-fund --ignore-scripts
+
       - name: Validate one repair batch
         run: |
           set -euo pipefail

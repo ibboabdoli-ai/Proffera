@@ -958,6 +958,16 @@ I found no material findings.`,
     expect(currentHeadReplyToOldThread.stdout).toContain(
       "Refused: CodeRabbit posted current-head review findings; review acceptance is blocked.",
     );
+    // A genuinely old carry-forward (created before this HEAD's request) is not
+    // a new finding and must not trap subsequent fully reviewed commits.
+    const oldCarried = runAutomergeFixture({
+      comments: [requestComment()],
+      firstReviews: [codeRabbitCompletedReview("2099-09-05T12:02:00Z")],
+      inlineComments: [{user:{login:"coderabbitai[bot]"},original_commit_id:oldHead,
+        commit_id:reviewHead,created_at:"2099-09-05T11:59:59Z"}],
+    });
+    expect(oldCarried.status).toBe(0);
+    expect(oldCarried.stdout).toContain("AI_REVIEW_OK");
 
     const preRequestInlineFinding = runAutomergeFixture({
       comments: [requestComment("2099-09-05T12:00:00Z")],
@@ -1354,6 +1364,14 @@ describe("complete wakeup shell to durable adapter", () => {
     }, true);
     expect(unrelatedHead.result.status, unrelatedHead.result.stdout + unrelatedHead.result.stderr).toBe(0);
     expect(unrelatedHead.posts).toBe(1);
+    const carriedForward = runWakeupFixture({
+      actor: "chatgpt-codex-connector[bot]", body, comments: [requestComment(), request],
+      inlineComments: [{ id: 92, user: { login: "chatgpt-codex-connector[bot]" },
+        original_commit_id: oldHead, commit_id: reviewHead, created_at: "2099-09-05T12:00:30Z",
+        body: "[P1] Previous-head finding (already superseded by exact-head review)" }],
+    }, true);
+    expect(carriedForward.result.status, carriedForward.result.stdout + carriedForward.result.stderr).toBe(0);
+    expect(carriedForward.posts).toBe(1);
   }, 30000);
   it("does not turn disabled automatic review into an outage, while recognized post-request rate limits reach the adapter", () => {
     const skipped = runWakeupFixture({ body: "Review skipped: automatic reviews are disabled", comments: [requestComment()] });
@@ -1464,22 +1482,31 @@ describe("AutoMerge CodeRabbit review provenance (adversarial)", () => {
     const entry = (original_commit_id: string, commit_id: string, created_at = summary) => ({
       user: { login: "coderabbitai[bot]" }, original_commit_id, commit_id, created_at,
     });
-    for (const finding of [entry(reviewHead, oldHead), entry(oldHead, reviewHead)]) {
+    for (const finding of [entry(reviewHead, oldHead), entry(reviewHead, reviewHead),
+      {user:{login:"coderabbitai[bot]"},commit_id:reviewHead,created_at:summary}]) {
       expect(jq(initialFilter, [finding], { sha: reviewHead, request_time: request })).toBe(1);
       expect(jq(fallbackFilter, [finding], { sha: reviewHead, request_time: request, coderabbit_request_time: request })).toBe(1);
     }
+    // A comment made on an earlier commit must not become a new-head finding
+    // just because GitHub's commit_id follows an unchanged diff position.
+    const carriedForward = entry(oldHead, reviewHead, "2026-10-18T20:59:00Z");
+    expect(jq(initialFilter, [carriedForward], { sha: reviewHead, request_time: request })).toBe(0);
+    expect(jq(fallbackFilter, [carriedForward], { sha: reviewHead, request_time: request, coderabbit_request_time: request })).toBe(0);
+    const freshReply = entry(oldHead, reviewHead, summary);
+    expect(jq(initialFilter, [freshReply], { sha: reviewHead, request_time: request })).toBe(1);
+    expect(jq(fallbackFilter, [freshReply], { sha: reviewHead, request_time: request, coderabbit_request_time: request })).toBe(1);
     const genuinelyStale = entry(oldHead, oldHead);
     expect(jq(initialFilter, [genuinelyStale], { sha: reviewHead, request_time: request })).toBe(0);
     expect(jq(fallbackFilter, [genuinelyStale], { sha: reviewHead, request_time: request, coderabbit_request_time: request })).toBe(0);
-    const earlierSameHeadFinding = entry(oldHead, reviewHead, "2026-10-18T20:59:00Z");
+    const earlierSameHeadFinding = entry(reviewHead, oldHead, "2026-10-18T20:59:00Z");
     expect(jq(initialFilter, [earlierSameHeadFinding], { sha: reviewHead, request_time: request })).toBe(1);
     expect(jq(fallbackFilter, [earlierSameHeadFinding], { sha: reviewHead, request_time: request, coderabbit_request_time: request })).toBe(1);
   });
   it("blocks earlier same-head findings across every AutoMerge CodeRabbit checkpoint", () => {
     const finding = {
       user: { login: "coderabbitai[bot]" },
-      original_commit_id: oldHead,
-      commit_id: reviewHead,
+      original_commit_id: reviewHead,
+      commit_id: oldHead,
       created_at: "2026-10-18T20:59:00Z",
     };
     for (const [name, variable] of [
@@ -1495,6 +1522,10 @@ describe("AutoMerge CodeRabbit review provenance (adversarial)", () => {
       expect(end, name).toBeGreaterThan(start);
       const filter = workflow.slice(start + marker.length, end);
       expect(jq(filter, [finding], { sha: reviewHead, request_time: request }), name).toBe(1);
+      expect(jq(filter, [{...finding,original_commit_id:oldHead,commit_id:reviewHead}],
+        { sha: reviewHead, request_time: request }), name+" carried forward").toBe(0);
+      expect(jq(filter, [{...finding,original_commit_id:oldHead,commit_id:reviewHead,created_at:summary}],
+        { sha: reviewHead, request_time: request }), name+" fresh reply").toBe(1);
     }
   });
   const qualify = (reviews: unknown[], comments = clean) => {

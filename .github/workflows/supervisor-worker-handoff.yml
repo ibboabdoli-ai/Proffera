@@ -1225,6 +1225,7 @@ jobs:
           set -euo pipefail
           npm run lint
           npm run typecheck
+          npm ci --prefix e2e --no-audit --no-fund --ignore-scripts
           npm test
           npm run build
           git diff --check HEAD

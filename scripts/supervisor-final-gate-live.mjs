@@ -298,8 +298,13 @@ function validatedSource(input, source, execute) {
       const resultTime = source.kind === "issue_comment" ? at(source.created_at) : sourceTime;
       if (!fallback || resultTime < at(fallback.created_at)) throw new Error("final_gate_live:fallback_request_required");
     }
+    // GitHub may carry a prior-head thread onto the new commit. Keep any
+    // original-current-head finding and any genuinely new post-request reply.
+    const reviewRequestTime = source.actor === "chatgpt-codex-connector[bot]"
+      ? at(fallback.created_at) : primaryTime;
     const currentInline = pages(`repos/${input.repository}/pulls/${input.pr_number}/comments`, execute)
-      .filter((c) => c.original_commit_id === head || c.commit_id === head);
+      .filter((c) => (c.original_commit_id ?? c.commit_id) === head
+        || (c.commit_id === head && (reviewRequestTime === null || at(c.created_at) >= reviewRequestTime)));
     const inline = currentInline.filter((c) => c.user?.login === source.actor);
     // A later APPROVED can change authority after a blocking decision. Preserve
     // that material transition without making a new review ID a retry budget.

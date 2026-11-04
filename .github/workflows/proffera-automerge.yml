@@ -382,7 +382,7 @@ jobs:
               [
                 .[]
                 | select(.user.login == "chatgpt-codex-connector[bot]")
-                | select(.original_commit_id == $sha or .commit_id == $sha)
+                | select(((.original_commit_id // .commit_id) == $sha or (.commit_id == $sha and ($request_time == "" or (.created_at | type) != "string" or .created_at == "" or .created_at >= $request_time))))
               ]
               | length
             ' <<< "$codex_inline_json")"
@@ -397,13 +397,18 @@ jobs:
 
             summary "- Current-head Codex fallback decision: clean review after CodeRabbit availability failure or bounded timeout"
             codex_evidence_snapshot="$(jq -Scn --arg sha "$head_sha" --arg request_time "$codex_request_time" --argjson request_id "$codex_request_id" \
-              --argjson comments "$comments_json" --argjson reviews "$codex_reviews_json" --argjson reactions "$codex_reactions_json" --argjson inline "$codex_inline_json" '
+              --slurpfile comments <(printf '%s\n' "$comments_json") --slurpfile reviews <(printf '%s\n' "$codex_reviews_json") \
+              --slurpfile reactions <(printf '%s\n' "$codex_reactions_json") --slurpfile inline <(printf '%s\n' "$codex_inline_json") '
+              ($comments[0] | if type == "array" then . else error("missing Codex comments") end) as $comments |
+              ($reviews[0] | if type == "array" then . else error("missing Codex reviews") end) as $reviews |
+              ($reactions[0] | if type == "array" then . else error("missing Codex reactions") end) as $reactions |
+              ($inline[0] | if type == "array" then . else error("missing Codex inline") end) as $inline |
               {request: [$comments[] | select(.id == $request_id)],
                comments: [$comments[] | select(.user.login == "chatgpt-codex-connector[bot]" and (.created_at >= $request_time))
                  | select((.body // "") | sub("^<!-- codex-review-receipt:v1 -->\\r?\\n\\r?\\n"; "") | startswith("Codex Review: Didn\u0027t find any major issues."))] | sort_by(.id),
                reviews: [$reviews[] | select(.user.login == "chatgpt-codex-connector[bot]" and .commit_id == $sha)] | sort_by(.id),
                reactions: [$reactions[] | select(.user.login == "chatgpt-codex-connector[bot]")] | sort_by(.id),
-                inline: [$inline[] | select(.user.login == "chatgpt-codex-connector[bot]" and (.original_commit_id == $sha or .commit_id == $sha))] | sort_by(.id)}
+                inline: [$inline[] | select(.user.login == "chatgpt-codex-connector[bot]" and (((.original_commit_id // .commit_id) == $sha or (.commit_id == $sha and ($request_time == "" or (.created_at | type) != "string" or .created_at == "" or .created_at >= $request_time)))))] | sort_by(.id)}
             ')"
             jq -e '
               def valid_time:
@@ -485,7 +490,7 @@ jobs:
               [
                 .[]
                 | select(.user.login == "coderabbitai[bot]")
-                | select(.original_commit_id == $sha or .commit_id == $sha)
+                | select(((.original_commit_id // .commit_id) == $sha or (.commit_id == $sha and ($request_time == "" or (.created_at | type) != "string" or .created_at == "" or .created_at >= $request_time))))
               ]
               | length
             ' <<< "$coderabbit_inline_json")"
@@ -703,7 +708,7 @@ jobs:
               [
                 .[]
                 | select(.user.login == "coderabbitai[bot]")
-                | select(.original_commit_id == $sha or .commit_id == $sha)
+                | select(((.original_commit_id // .commit_id) == $sha or (.commit_id == $sha and ($request_time == "" or (.created_at | type) != "string" or .created_at == "" or .created_at >= $request_time))))
               ]
               | length
             ' <<< "$final_coderabbit_inline_json")"
@@ -728,8 +733,9 @@ jobs:
               else
                 # The clean-summary route requires both its unedited comment and
                 # its completed post-request review to remain valid after polling.
-                jq -e --argjson accepted "$clean_final_comments_json" --arg marker "$coderabbit_marker" --arg time "$coderabbit_request_time" '
-                  . as $current
+                jq -e --slurpfile accepted <(printf '%s\n' "$clean_final_comments_json") --arg marker "$coderabbit_marker" --arg time "$coderabbit_request_time" '
+                  ($accepted[0] | if type == "array" then . else error("missing accepted CodeRabbit comments") end) as $accepted
+                  | . as $current
                   | ($accepted | length > 0)
                     and all($accepted[]; . as $prior | any($current[]; . == $prior))
                     and any($current[]; .user.login == "github-actions[bot]"
@@ -806,8 +812,9 @@ jobs:
                 [ "$near_merge_terminal_count" -gt 0 ] \
                   || refuse "Refused: accepted CodeRabbit approval was revoked after final owner authorization."
               else
-                jq -e --argjson accepted "$clean_final_comments_json" --arg marker "$coderabbit_marker" --arg time "$coderabbit_request_time" '
-                  . as $current
+                jq -e --slurpfile accepted <(printf '%s\n' "$clean_final_comments_json") --arg marker "$coderabbit_marker" --arg time "$coderabbit_request_time" '
+                  ($accepted[0] | if type == "array" then . else error("missing accepted CodeRabbit comments") end) as $accepted
+                  | . as $current
                   | ($accepted | length > 0)
                     and all($accepted[]; . as $prior | any($current[]; . == $prior))
                     and any($current[]; .user.login == "github-actions[bot]"
@@ -835,14 +842,14 @@ jobs:
             near_merge_inline_json="$(gh api --paginate "repos/$REPOSITORY/pulls/$pr_number/comments?per_page=100" --jq '.[]' | jq -s '.')"
             near_merge_coderabbit_inline_count="$(jq -r --arg sha "$head_sha" --arg request_time "$coderabbit_request_time" '
               [.[] | select(.user.login == "coderabbitai[bot]")
-                | select(.original_commit_id == $sha or .commit_id == $sha)] | length
+                | select(((.original_commit_id // .commit_id) == $sha or (.commit_id == $sha and ($request_time == "" or (.created_at | type) != "string" or .created_at == "" or .created_at >= $request_time))))] | length
             ' <<< "$near_merge_inline_json")"
             [ "$near_merge_coderabbit_inline_count" -eq 0 ] \
               || refuse "Refused: CodeRabbit inline findings appeared after final owner authorization; merge is blocked."
             if [ -n "$codex_accepted_snapshot" ]; then
               near_merge_codex_inline_count="$(jq -r --arg sha "$head_sha" --arg request_time "$codex_request_time" '
                 [.[] | select(.user.login == "chatgpt-codex-connector[bot]")
-                  | select(.original_commit_id == $sha or .commit_id == $sha)] | length
+                  | select(((.original_commit_id // .commit_id) == $sha or (.commit_id == $sha and ($request_time == "" or (.created_at | type) != "string" or .created_at == "" or .created_at >= $request_time))))] | length
               ' <<< "$near_merge_inline_json")"
               [ "$near_merge_codex_inline_count" -eq 0 ] \
                 || refuse "Refused: Codex inline findings appeared after final owner authorization; merge is blocked."
