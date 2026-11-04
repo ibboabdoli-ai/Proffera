@@ -261,12 +261,18 @@ async function rescheduleBookingAction(bookingId: string, formData: FormData) {
 
 export default async function BookingDetailPage({ params, searchParams }: BookingDetailPageProps) {
   const [{ id }, query] = await Promise.all([params, searchParams ?? Promise.resolve(undefined)]);
+  // Layout and child pages may render concurrently; do not read a booking
+  // until this request has a valid workspace membership.
+  const access = await getUserWorkspaceAccess();
+  if (!access.ok) {
+    if (access.reason === "no_session") redirect("/logga-in");
+    notFound();
+  }
   const detail = await getDashboardBookingDetailInStockholm(id);
   if (!detail) notFound();
 
   const { booking, customer, events } = detail;
-  const access = await getUserWorkspaceAccess();
-  const mariaPreview = access.ok && access.workspaceSlug === "makeup-by-maria"
+  const mariaPreview = access.workspaceSlug === "makeup-by-maria"
     && canManageWorkspaceSettings(access) && process.env.VERCEL_ENV === "preview";
   const manualSwish = mariaPreview ? await readMariaManualSwishStatuses() : null;
   const value = (key: "error" | "updated" | "rescheduled" | "created" | "maria_mail" | "payment_saved" | "payment_error" | "lang") => { const item = query?.[key]; return Array.isArray(item) ? item[0] : item; };
