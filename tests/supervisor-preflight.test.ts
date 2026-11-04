@@ -664,6 +664,7 @@ describe("canonical Supervisor pre-publication gate", () => {
   it("maps all B4 pending, strategy, workflow, and evidence paths to executable suites", () => {
     const mapped: Record<string,string> = {
       "tests/supervisor-review-policy-contract.test.ts":"tests/supervisor-review-policy-contract.test.ts",
+      "tests/codex-review-receipt-gate.test.ts":"tests/codex-review-receipt-gate.test.ts",
       "scripts/supervisor-final-gate-memory.mjs":"tests/supervisor-final-gate-memory.test.ts",
       "tests/helpers/review-receipt-counterexamples.ts":"tests/proffera-final-gate-wakeup.test.ts",
       "scripts/supervisor-owner-push-pending.mjs":"tests/supervisor-owner-push-pending.test.ts",

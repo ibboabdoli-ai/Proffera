@@ -402,6 +402,7 @@ function additionalTargetedSuites(candidate) {
     "scripts/supervisor-final-gate-live.mjs",
     "scripts/supervisor-final-gate-memory.mjs",
     "tests/helpers/review-receipt-counterexamples.ts",
+    "tests/codex-review-receipt-gate.test.ts",
     "tests/supervisor-review-policy-contract.test.ts",
     "scripts/supervisor-worker-handoff.mjs",
     "scripts/supervisor-owner-push-pending.mjs",
@@ -459,6 +460,7 @@ function additionalTargetedSuites(candidate) {
   // Exact behavior-changing paths map to executable tests, not a generic PASS assertion.
   const pathSuites = new Map([
     ["tests/supervisor-review-policy-contract.test.ts", "tests/supervisor-review-policy-contract.test.ts"],
+    ["tests/codex-review-receipt-gate.test.ts", "tests/codex-review-receipt-gate.test.ts"],
     ["scripts/supervisor-final-gate-memory.mjs", ["tests/supervisor-final-gate-memory.test.ts", "tests/proffera-final-gate-wakeup.test.ts", "tests/supervisor-review-policy-contract.test.ts"]],
     ["tests/helpers/review-receipt-counterexamples.ts", ["tests/tooling-safety-contract.test.ts", "tests/proffera-final-gate-wakeup.test.ts"]],
     ["package.json", ["tests/supervisor-preflight.test.ts", "tests/ci-scope-plan.test.ts",
