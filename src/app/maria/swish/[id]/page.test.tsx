@@ -4,6 +4,7 @@ import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("server-only", () => ({}));
 vi.mock("next/image", () => ({ default: "img" }));
+vi.mock("next/link", () => ({ default: "a" }));
 vi.mock("next/navigation", () => ({
   notFound: () => { throw new Error("NEXT_NOT_FOUND"); },
 }));
@@ -60,6 +61,31 @@ describe("Maria Preview first-party Swish payment information page", () => {
     expect(sql).toHaveBeenCalledTimes(1);
   });
 
+  it("renders English in the requested locale and falls back to Swedish for unknown languages", async () => {
+    const sql = vi.fn().mockResolvedValue([{ id }]);
+    vi.mocked(getSql).mockReturnValue(sql as never);
+    const english = renderToStaticMarkup(await MariaSwishPaymentPage({
+      ...props, searchParams: Promise.resolve({ lang: "en" }),
+    }));
+    expect(english).toContain('<main lang="en"');
+    expect(english).toContain("Swish deposit");
+    expect(english).toContain("Test only. Do not make a real Swish payment");
+    expect(english).toContain("Open Swish");
+    expect(english).toContain("Business Swish");
+    expect(english).toContain("Swish QR code");
+    expect(english).toContain('aria-label="Copy Swish number"');
+    expect(english).toContain('aria-label="Copy booking number"');
+    expect(english).toContain('/maria/swish/' + id + '?lang=en');
+    expect(english).toContain('/maria/swish/' + id + '?lang=sv');
+    expect(english).not.toContain("sendibt3.com");
+    const fallback = renderToStaticMarkup(await MariaSwishPaymentPage({
+      ...props, searchParams: Promise.resolve({ lang: "ar" }),
+    }));
+    expect(fallback).toContain('<main lang="sv"');
+    expect(fallback).toContain("Swish-handpenning");
+    expect(fallback).toContain('aria-label="Kopiera bokningsnummer"');
+  });
+
   it("fails closed for production, invalid IDs and mismatching QA inboxes before SQL", async () => {
     const sql = vi.fn();
     vi.mocked(getSql).mockReturnValue(sql as never);
@@ -77,5 +103,12 @@ describe("Maria Preview first-party Swish payment information page", () => {
     vi.mocked(getSql).mockReturnValue(sql as never);
     await expect(MariaSwishPaymentPage(props)).rejects.toThrow("NEXT_NOT_FOUND");
     expect(sql).toHaveBeenCalledTimes(1);
+    // An empty mock result alone would also pass if the reference-collision
+    // guard were accidentally removed. Assert the actual SQL still has it.
+    const strings = sql.mock.calls[0]?.[0] as unknown as TemplateStringsArray;
+    const query = Array.from(strings).join(" ?");
+    expect(query).toMatch(/and not exists\s*\(\s*select 1 from bookings other/);
+    expect(query).toContain("other.workspace_id=b.workspace_id and other.id<>b.id");
+    expect(query).toContain("left(replace(other.id::text, '-', ''), 6)");
   });
 });

@@ -44,6 +44,7 @@ describe("Maria-only Swish confirmation and cancellation email", () => {
     expect(result.text).toContain("123-581 86 53");
     expect(result.text).toContain("senast tisdag 3 november 2026");
     expect(result.text).toContain("Meddelande: MBM-000000");
+    expect(result.text.match(/Kontrollera alltid mottagaren i Swish/g)).toHaveLength(1);
     expect(result.html).toContain('src="https://qa.vercel.app/api/makeup-by-maria/swish-qr/00000000-0000-0000-0000-000000000001"');
     expect(result.html).toContain('href="https://qa.vercel.app/maria/swish/00000000-0000-0000-0000-000000000001"');
     expect(result.text).toContain("Visa betalningsuppgifter: https://qa.vercel.app/maria/swish/00000000-0000-0000-0000-000000000001");

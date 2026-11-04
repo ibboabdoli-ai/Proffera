@@ -38,10 +38,14 @@ describe("Readability and contrast hardening", () => {
     const maria = source("src/app/dashboard/maria/page.tsx");
     const calendar = source("src/app/dashboard/maria/kalender/maria-calendar-confirm-button.tsx");
 
+    // Check the white-fill rule itself, not the disabled-button selector below it.
+    const whiteRule = css.match(
+      /:where\(a, button\)\[class\*="bg-slate-950"\][\s\S]*?\{\s*color: #ffffff !important;\s*-webkit-text-fill-color: #ffffff !important;\s*\}/,
+    )?.[0] ?? "";
+    expect(whiteRule).not.toBe("");
     for (const color of ["#845363", "#6d3e4e"]) {
-      expect(css).toContain('[class~="bg-[' + color + ']"]');
+      expect(whiteRule).toContain('[class~="bg-[' + color + ']"]');
     }
-    expect(css).toContain("-webkit-text-fill-color: #ffffff !important");
     expect(demo).toContain("background:var(--rose);color:#fff;-webkit-text-fill-color:#fff");
     expect(maria).toContain("bg-[#845363]");
     expect(calendar).toContain("bg-[#845363]");

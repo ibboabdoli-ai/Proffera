@@ -96,7 +96,6 @@ export function buildMariaBookingStatusEmail(input: MariaBookingStatusEmailInput
     `QR-kod: ${qrUrl}`,
     `Skriv exakt detta bokningsnummer i Swish-fältet Meddelande: ${reference}`, "",
     "QR-koden fyller i mottagare, 2 000 kr och bokningsnumret. Kontrollera alltid mottagaren i Swish innan du signerar. Ingen automatisk betalningsverifiering sker.",
-    "Kontrollera alltid mottagaren i Swish innan du betalar.",
     "Om handpenningen inte har registrerats inom 24 timmar kan Maria avboka bokningen manuellt. Avbokning sker inte automatiskt.",
     "", "Vänliga hälsningar", input.companyName,
   ].join("\n");

@@ -14,6 +14,9 @@ const access = vi.hoisted(() => ({
   makeSql: undefined as undefined | (() => unknown),
 }));
 vi.mock("server-only", () => ({}));
+vi.mock("@/features/email/booking-change-email", () => ({
+  sendBookingChangeEmails: vi.fn(),
+}));
 vi.mock("@/lib/db/server", () => ({ getSql: () => access.makeSql?.() ?? null }));
 vi.mock("@/lib/workspace-access", () => ({
   getUserWorkspaceAccess: async () => ({
@@ -38,6 +41,9 @@ import {
 import { mariaCalendarIntervals } from "@/lib/maria-manual-calendar-policy";
 import { getMariaAvailability } from "@/lib/maria-booking-availability";
 import { finalizeMariaVerifiedBooking } from "@/lib/maria-verified-booking";
+import { rescheduleMariaDashboardBooking } from "@/lib/maria-dashboard-reschedule";
+import { rescheduleMariaCustomerBooking } from "@/lib/maria-customer-reschedule";
+import { sendBookingChangeEmails } from "@/features/email/booking-change-email";
 
 const RUN = process.env.GITHUB_ACTIONS === "true" || process.env.PROFFERA_POSTGRES_INTEGRATION === "1";
 
@@ -134,6 +140,9 @@ function futureFriday() {
   beforeEach(async()=>{
     vi.stubEnv("VERCEL_ENV","preview");
     vi.stubEnv("PROFFERA_MARIA_PREVIEW_TEST_EMAIL","qa@example.invalid");
+    vi.stubEnv("PROFFERA_PREVIEW_EMAIL_RECIPIENT","qa@example.invalid");
+    vi.stubEnv("VERCEL_URL","qa.vercel.app");
+    vi.clearAllMocks();
     access.workspaceId=workspaceId;access.slug="makeup-by-maria";access.role="owner";access.entitled=true;
     await db!.query("delete from maria_manual_closed_starts where workspace_id=$1::uuid",[workspaceId]);
     // Every test starts with only its one canonical synthetic customer booking.
@@ -162,6 +171,90 @@ function futureFriday() {
     );
     return result.rows[0];
   }
+  async function prepareRescheduleForClosedStart() {
+    // All data lives in the throwaway Docker PostgreSQL database.
+    const year = Number(day.slice(0, 4));
+    const slug = `maria-bridal-trial-${year}`;
+    let service = await db!.query<{id: string; name: string}>(
+      "select id::text,name from workspace_services where workspace_id=$1 and public_slug=$2",
+      [workspaceId,slug],
+    );
+    if (!service.rows.length) {
+      service = await db!.query<{id: string; name: string}>(
+        "insert into workspace_services(workspace_id,name,public_slug,duration_minutes,is_active,public_status) values($1,$2,$3,180,true,'published') returning id::text,name",
+        [workspaceId,`Brudsmink med prov ${year}`,slug],
+      );
+    }
+    const { id: serviceId, name: serviceName } = service.rows[0]!;
+    await db!.query(
+      "update workspace_services set duration_minutes=180,is_active=true,public_status='published',buffer_before_minutes=0,buffer_after_minutes=0 where id=$1::uuid",
+      [serviceId],
+    );
+    // Cancel the shared fixture; a single synthetic appointment remains active.
+    await db!.query("update bookings set status='cancelled' where id=$1::uuid",[bookingId]);
+    const currentId = randomUUID();
+    const currentStart = intervals[0]!.startsAt;
+    const currentEnd = new Date(Date.parse(currentStart)+180*60_000).toISOString();
+    await db!.query(
+      "insert into bookings(id,workspace_id,customer_id,title,service,service_id,status,source,starts_at,ends_at) values($1::uuid,$2,$3::uuid,'Synthetic reschedule',$4,$5::uuid,'requested','public_booking',$6::timestamptz,$7::timestamptz)",
+      [currentId,workspaceId,customerId,serviceName,serviceId,currentStart,currentEnd],
+    );
+    const availabilityRequest = {
+      workspaceId,date:day,year,kind:"trial" as const,
+      timeZone:"Europe/Stockholm" as const,excludeBookingId:currentId,
+      durationOverrideMinutes:180,
+    };
+    // Prove the specific target was bookable before it was manually closed.
+    const beforeClose = await getMariaAvailability(availabilityRequest);
+    expect(beforeClose.ok).toBe(true);
+    if (!beforeClose.ok) throw new Error("Synthetic pre-close availability unavailable");
+    expect(beforeClose.slots).toContain("09:30");
+    const target = intervals.find(slot => slot.clock === "09:30")!;
+    await db!.query(
+      "insert into maria_manual_closed_starts(workspace_id,starts_at,created_by) values($1::uuid,$2::timestamptz,'synthetic-qa')",
+      [workspaceId,target.startsAt],
+    );
+    const afterClose = await getMariaAvailability(availabilityRequest);
+    expect(afterClose.ok).toBe(true);
+    if (!afterClose.ok) throw new Error("Synthetic post-close availability unavailable");
+    expect(afterClose.slots).not.toContain("09:30");
+    return {currentId};
+  }
+
+  async function bookingPosition(id: string) {
+    const rows = await db!.query(
+      "select status,starts_at::text as starts_at,ends_at::text as ends_at from bookings where id=$1::uuid",
+      [id],
+    );
+    expect(rows.rowCount).toBe(1);
+    return rows.rows[0];
+  }
+
+  it("rejects a dashboard move onto a manually closed start without altering the booking", async()=>{
+    const {currentId} = await prepareRescheduleForClosedStart();
+    const prior = await bookingPosition(currentId);
+    const moved = await rescheduleMariaDashboardBooking({
+      bookingId:currentId,workspaceId,localStartsAt:day+"T09:30",
+    });
+    expect(moved).toEqual({ok:false,error:"conflict"});
+    expect(await bookingPosition(currentId)).toEqual(prior);
+    expect(await manualBlocks()).toHaveLength(1);
+    expect(vi.mocked(sendBookingChangeEmails)).not.toHaveBeenCalled();
+  });
+
+  it("rejects a customer move onto a manually closed start without altering the booking", async()=>{
+    const {currentId} = await prepareRescheduleForClosedStart();
+    const prior = await bookingPosition(currentId);
+    const moved = await rescheduleMariaCustomerBooking({
+      bookingId:currentId,workspaceId,customerId,startsAtLocal:day+"T09:30",
+      token:"synthetic-only",language:"sv",
+    });
+    expect(moved).toEqual({ok:false,error:"conflict"});
+    expect(await bookingPosition(currentId)).toEqual(prior);
+    expect(await manualBlocks()).toHaveLength(1);
+    expect(vi.mocked(sendBookingChangeEmails)).not.toHaveBeenCalled();
+  });
+
   it("shows requests separately and closes only the chosen booking start without modifying bookings",async()=>{
     const before=await persistedBooking();
     const original=await readMariaManualCalendar(day);
