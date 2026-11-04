@@ -117,6 +117,41 @@ export async function updateDashboardBookingStatus(
           where c.id=bookings.customer_id and c.workspace_id=bookings.workspace_id
             and lower(trim(c.email))=${mariaRecipient}
         ))
+        -- Reopening a cancelled Maria reservation is an activation, not a
+        -- harmless status label edit. Under lock 713, reject other live
+        -- appointments and unexpired verification holds, including buffers.
+        -- Unrelated workspaces retain their existing status semantics.
+        and (
+          ${!mariaPreview}::boolean or ${status}::text not in ('requested', 'confirmed')
+          or (
+            not exists (
+              select 1 from bookings other
+              left join workspace_services other_service
+                on other_service.id=other.service_id and other_service.workspace_id=other.workspace_id
+              left join workspace_services current_service
+                on current_service.id=bookings.service_id and current_service.workspace_id=bookings.workspace_id
+              where other.workspace_id=bookings.workspace_id and other.id<>bookings.id
+                and other.status not in ('cancelled','no_show')
+                and other.starts_at-(coalesce(other_service.buffer_before_minutes,0)*interval '1 minute')
+                    < bookings.ends_at+(coalesce(current_service.buffer_after_minutes,0)*interval '1 minute')
+                and other.ends_at+(coalesce(other_service.buffer_after_minutes,0)*interval '1 minute')
+                    > bookings.starts_at-(coalesce(current_service.buffer_before_minutes,0)*interval '1 minute')
+            )
+            and not exists (
+              select 1 from public_booking_verifications hold
+              left join workspace_services hold_service
+                on hold_service.id=hold.service_id and hold_service.workspace_id=hold.workspace_id::text
+              left join workspace_services current_service
+                on current_service.id=bookings.service_id and current_service.workspace_id=bookings.workspace_id
+              where hold.workspace_id=bookings.workspace_id::uuid
+                and hold.consumed_at is null and hold.expires_at>clock_timestamp()
+                and hold.starts_at-(coalesce(hold_service.buffer_before_minutes,0)*interval '1 minute')
+                    < bookings.ends_at+(coalesce(current_service.buffer_after_minutes,0)*interval '1 minute')
+                and hold.ends_at+(coalesce(hold_service.buffer_after_minutes,0)*interval '1 minute')
+                    > bookings.starts_at-(coalesce(current_service.buffer_before_minutes,0)*interval '1 minute')
+            )
+          )
+        )
       returning
         id,
         workspace_id,
