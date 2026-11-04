@@ -63,6 +63,22 @@ export async function applyFullSubscriptionRefund(stripe: Stripe, refundedCharge
     return { ok: true as const, applied: false };
   }
 
+  // A fully refunded Charge is not proof that all payments on the parent
+  // subscription invoice were refunded. Fail closed for invoices containing
+  // additional or out-of-band payments; those require explicit reconciliation.
+  const invoicePayments = await stripe.invoicePayments.list({ invoice: invoiceId, limit: 100 });
+  if (invoicePayments.has_more || invoicePayments.data.length !== 1 ||
+      !Number.isSafeInteger(invoice.amount_paid) || invoice.amount_paid <= 0 ||
+      invoice.amount_paid !== charge.amount) {
+    return { ok: true as const, applied: false };
+  }
+  const onlyPayment = invoicePayments.data[0];
+  if (onlyPayment.status !== "paid" || onlyPayment.amount_paid !== charge.amount ||
+      !onlyPayment.payment || onlyPayment.payment.type !== "payment_intent" ||
+      idOf(onlyPayment.payment.payment_intent) !== paymentIntentId) {
+    return { ok: true as const, applied: false };
+  }
+
   const subscription = await stripe.subscriptions.retrieve(subscriptionId);
   const workspaceId = subscription.metadata.workspace_id?.trim() ?? "";
   const priceId = subscription.items.data[0]?.price.id ?? "";
@@ -85,12 +101,34 @@ export async function applyFullSubscriptionRefund(stripe: Stripe, refundedCharge
   `;
   if (rows.length !== 1) return { ok: true as const, applied: false };
 
-  // Stripe can deliver duplicate refund events at the same time. Both may
-  // see "active" before one cancellation finishes; recover the losing request
-  // only after independently verifying the subscription is now canceled.
+  // A renewal/upgrade may happen while we verify the invoice and Workspace.
+  // Re-read immediately before any cancellation, and reject changed periods.
+  // Stripe has no atomic compare-and-cancel primitive; keep this gap narrow.
+  const originalItem = subscription.items.data[0];
+  const originalStart = originalItem?.current_period_start;
+  const originalEnd = originalItem?.current_period_end;
+  if (!Number.isSafeInteger(originalStart) || !Number.isSafeInteger(originalEnd)) {
+    return { ok: true as const, applied: false };
+  }
+  const stillSamePeriod = (current: Stripe.Subscription) =>
+    idOf(current.customer) === customerId &&
+    current.metadata.workspace_id?.trim() === workspaceId &&
+    idOf(current.latest_invoice) === invoiceId &&
+    current.items.data[0]?.price.id === priceId &&
+    current.items.data[0]?.current_period_start === originalStart &&
+    current.items.data[0]?.current_period_end === originalEnd;
+
+  const latest = await stripe.subscriptions.retrieve(subscriptionId);
+  if (!stillSamePeriod(latest) ||
+      !["active", "trialing", "past_due", "canceled"].includes(latest.status)) {
+    return { ok: true as const, applied: false };
+  }
+
+  // Duplicated refund events can both observe an active subscription. Recover
+  // the losing request only after confirming Stripe has already canceled it.
   let canceled: Stripe.Subscription;
-  if (subscription.status === "canceled") {
-    canceled = subscription;
+  if (latest.status === "canceled") {
+    canceled = latest;
   } else {
     try {
       canceled = await stripe.subscriptions.cancel(subscriptionId, {
@@ -100,14 +138,8 @@ export async function applyFullSubscriptionRefund(stripe: Stripe, refundedCharge
     } catch (error) {
       if (!error || typeof error !== "object" ||
           !("code" in error) || error.code !== "resource_missing") throw error;
-
       const current = await stripe.subscriptions.retrieve(subscriptionId);
-      if (current.status !== "canceled" ||
-          idOf(current.customer) !== customerId ||
-          current.metadata.workspace_id?.trim() !== workspaceId ||
-          current.items.data[0]?.price.id !== priceId) {
-        throw error;
-      }
+      if (current.status !== "canceled" || !stillSamePeriod(current)) throw error;
       canceled = current;
     }
   }
