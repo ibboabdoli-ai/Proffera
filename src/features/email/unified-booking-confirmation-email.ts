@@ -1,6 +1,7 @@
 import "server-only";
 
 import type { WorkspaceTimeZone } from "@/lib/workspace-market";
+import { bookingDateLocale } from "@/lib/booking-date-locale";
 import { getMariaPreviewPortalBase, isMariaPreviewTestRecipient } from "@/lib/maria-preview-customer-safety";
 
 type Input = {
@@ -46,7 +47,7 @@ function parseSender(value: string) {
 function formatBookingTime(value: string, timeZone: WorkspaceTimeZone = "Europe/Stockholm", language: "sv" | "en" | "ar" = "sv") {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
-  return new Intl.DateTimeFormat(language === "ar" ? "ar-SA" : language === "en" ? "en-GB" : "sv-SE", {
+  return new Intl.DateTimeFormat(bookingDateLocale(language), {
     timeZone,
     dateStyle: "full",
     timeStyle: "short",

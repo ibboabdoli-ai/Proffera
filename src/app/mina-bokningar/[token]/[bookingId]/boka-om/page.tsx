@@ -7,6 +7,7 @@ import { CalendarClock, Clock3, UserRound } from "lucide-react";
 
 import { readableBookingTextColor } from "@/lib/booking-theme-contract";
 import { localizeMariaPreviewServiceName } from "@/lib/maria-preview-service-copy";
+import { bookingDateLocale } from "@/lib/booking-date-locale";
 import { getRescheduleBooking, rescheduleCustomerBooking } from "@/lib/customer-booking-reschedule";
 import { getCustomerPortalPresentation, resolveCustomerPortalLanguage, type CustomerPortalLanguage } from "@/lib/customer-portal-language";
 import { getAvailableRescheduleSlots, getUpcomingRescheduleDays } from "@/lib/customer-reschedule-slots";
@@ -47,7 +48,7 @@ function first(value: string | string[] | undefined) {
 }
 
 function formatDate(value: string, timeZone: string, language: CustomerPortalLanguage) {
-  return new Intl.DateTimeFormat(language === "ar" ? "ar-SA" : language === "en" ? "en-GB" : "sv-SE", { timeZone, dateStyle: "full", timeStyle: "short" }).format(new Date(value));
+  return new Intl.DateTimeFormat(bookingDateLocale(language), { timeZone, dateStyle: "full", timeStyle: "short" }).format(new Date(value));
 }
 
 function formatDay(date: string, timeZone: string, isEnglish: boolean, short: boolean) {
@@ -123,7 +124,7 @@ export default async function ReschedulePage({ params, searchParams }: PageProps
     : requestedDate ? slotsByDate.get(requestedDate) ?? [] : [];
   const selectedDay = days.find((day) => day.date === requestedDate);
   const selectedDayLabel = isMaria && requestedDate
-    ? new Intl.DateTimeFormat(isArabic ? "ar-SA" : isEnglish ? "en-GB" : "sv-SE", {
+    ? new Intl.DateTimeFormat(bookingDateLocale(language), {
         timeZone: "UTC", weekday: "long", day: "numeric", month: "long", year: "numeric",
       }).format(new Date(`${requestedDate}T12:00:00Z`))
     : selectedDay ? (formatDay(selectedDay.date, booking.timeZone, isEnglish, false) ?? selectedDay.label) : undefined;

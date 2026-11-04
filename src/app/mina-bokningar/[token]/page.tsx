@@ -8,6 +8,7 @@ import { CalendarClock, CalendarDays, Clock3, History, MapPin, XCircle } from "l
 
 import { readableBookingTextColor } from "@/lib/booking-theme-contract";
 import { localizeMariaPreviewServiceName } from "@/lib/maria-preview-service-copy";
+import { bookingDateLocale } from "@/lib/booking-date-locale";
 import { cancelCustomerCalendarBooking, getCustomerCalendar, type CustomerCalendarBooking } from "@/lib/customer-calendar";
 import { getCustomerPortalPresentation, resolveCustomerPortalLanguage, type CustomerPortalLanguage } from "@/lib/customer-portal-language";
 import { isPrimeViewHost } from "@/lib/public-site-domains";
@@ -35,7 +36,7 @@ const statusLabelsAr: Record<string, string> = {
 };
 
 const formatDate = (value: string, timeZone: WorkspaceTimeZone, language: CustomerPortalLanguage) =>
-  new Intl.DateTimeFormat(language === "ar" ? "ar-SA" : language === "en" ? "en-GB" : "sv-SE", {
+  new Intl.DateTimeFormat(bookingDateLocale(language), {
     timeZone, weekday: "short", day: "numeric", month: "long", year: "numeric", hour: "2-digit", minute: "2-digit",
   }).format(new Date(value));
 
