@@ -1,0 +1,43 @@
+name: Company Directory Ready SCB PostgreSQL QA
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, reopened, synchronize, ready_for_review]
+    paths:
+      - "tests/company-directory-ready-scb-pipeline.integration.test.ts"
+      - "src/lib/company-directory-ready-scb-enrichment.ts"
+      - "src/lib/company-directory-ready-auto-publish.ts"
+      - "src/lib/company-directory-publication.ts"
+      - "src/lib/company-directory-scb-enrichment.ts"
+      - ".github/workflows/company-directory-ready-scb-e2e.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: company-directory-ready-scb-e2e-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  postgres:
+    name: Five-company mocked SCB PostgreSQL end-to-end
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - name: Checkout exact PR head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - name: Setup Node 22
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install dependencies
+        run: npm ci --no-audit --no-fund
+      - name: Run isolated PostgreSQL test with mock SCB transport
+        env:
+          PROFFERA_POSTGRES_INTEGRATION: "1"
+          SCB_COMPANY_REGISTRY_ENABLED: "false"
+        run: npx vitest run tests/company-directory-ready-scb-pipeline.integration.test.ts --reporter=verbose

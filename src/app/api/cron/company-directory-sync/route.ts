@@ -9,6 +9,7 @@ import {
 import { syncCompanyDirectory } from "@/lib/company-directory-engine";
 import { revalidatePublishedCompanyDirectoryBatch } from "@/lib/company-directory-published-revalidation";
 import { autoPublishReadyHighConfidenceCompanyDirectoryBatch } from "@/lib/company-directory-ready-auto-publish";
+import { enrichReadyCompanyDirectoryScbBatch } from "@/lib/company-directory-ready-scb-enrichment";
 import { getSql } from "@/lib/db/server";
 
 export const dynamic = "force-dynamic";
@@ -112,6 +113,28 @@ async function revalidatePublishedCompanyDirectorySafely(deadlineAt: number) {
   }
 }
 
+async function enrichReadyScbSafely(deadlineAt: number) {
+  try {
+    return await enrichReadyCompanyDirectoryScbBatch({
+      // Do not let a slow external registry consume the cron's final safety headroom.
+      deadlineAt: Math.min(deadlineAt - 2_000, Date.now() + 15_000),
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Ready SCB enrichment failed";
+    console.error("Company directory Ready SCB enrichment failed inside automatic queue", error);
+    return {
+      skipped: true,
+      reason: "worker_error",
+      scanned: 0,
+      attempted: 0,
+      saved: 0,
+      deferred: 0,
+      errors: 1,
+      errorSummary: message,
+    };
+  }
+}
+
 export async function GET(request: Request) {
   if (!authorizedSchedulerRequest(request)) {
     return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
@@ -151,20 +174,22 @@ export async function GET(request: Request) {
         ? await processCompanyDirectoryDiscoveryQueue(remainingBatchSize)
         : EMPTY_QUEUE_RESULT;
       const publishedRevalidation = await revalidatePublishedCompanyDirectorySafely(revalidationDeadlineAt);
+      const readyScb = await enrichReadyScbSafely(revalidationDeadlineAt);
       const history = {
         scanned: readyAutoPublish.scanned + newCompanies.claimed + result.claimed
-          + publishedRevalidation.selected,
+          + publishedRevalidation.selected + readyScb.attempted,
         upserted: newCompanies.processed + result.processed
-          + publishedRevalidation.revalidated,
+          + publishedRevalidation.revalidated + readyScb.saved,
         published: readyAutoPublish.published + newCompanies.published + result.published,
         blocked: newCompanies.blocked + result.blocked + publishedRevalidation.movedToReview,
         errors: readyAutoPublish.errors + newCompanies.errors + result.errors
-          + publishedRevalidation.errors,
+          + publishedRevalidation.errors + readyScb.errors,
         errorSummary: automaticQueueErrorSummary(
           readyAutoPublish.errorSummary,
           newCompanies.errorSummary,
           result.errorSummary,
           publishedRevalidation.errorSummary,
+          readyScb.errorSummary,
         ),
       };
 
@@ -181,6 +206,7 @@ export async function GET(request: Request) {
         newCompanies,
         readyAutoPublish,
         publishedRevalidation,
+        readyScb,
         historyRecorded,
       });
     }
