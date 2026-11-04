@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 
 import { getSql } from "@/lib/db/server";
 import { getMariaPreviewBookingReadiness } from "@/lib/maria-preview-booking";
+import { isMariaPreviewTestRecipient } from "@/lib/maria-preview-customer-safety";
 import { isValidMariaBookingEmail, isValidMariaBookingPhone } from "@/lib/maria-booking-contact";
 import { getMariaAvailability } from "@/lib/maria-booking-availability";
 import { allowPublicSubmission } from "@/lib/public-form-protection";
@@ -107,8 +108,7 @@ export async function POST(request: Request) {
   // Preview test booking is intentionally restricted to one approved inbox.
   // Without an explicit allowlist, fail closed even if a Preview instance
   // accidentally sets the general Maria booking feature flag.
-  const previewTestEmail = process.env.PROFFERA_MARIA_PREVIEW_TEST_EMAIL?.trim().toLowerCase();
-  if (!previewTestEmail || email !== previewTestEmail) return failure("unavailable", 403);
+  if (!isMariaPreviewTestRecipient(email)) return failure("unavailable", 403);
 
   const localStart = parseLocalDateTime(`${date}T${time}`);
   if (!localStart || localStart.year !== year) return failure("time", 400);

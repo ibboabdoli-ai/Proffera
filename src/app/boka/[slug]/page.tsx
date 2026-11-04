@@ -219,17 +219,18 @@ async function requestPublicBooking(formData: FormData) {
 export default async function PublicBookingPage({ params, searchParams }: PageProps) {
   const { slug } = await params;
   const query = searchParams ? await searchParams : undefined;
-  // Maria's Preview is an isolated, single-operator booking flow.
-  // Never expose the generic multi-operator booking UI for her public slug.
+  const requestedQueryLocale: WorkspaceLanguage = firstParam(query?.lang) === "en" ? "en" : "sv";
+  // Maria's isolated single-operator flow must not fall through to the generic
+  // multi-operator booking form when its dedicated booking gate is disabled.
   if (slug === "makeup-by-maria") {
     const readiness = await getMariaPreviewBookingReadiness();
+    if (!readiness.enabled) return <Unavailable locale={requestedQueryLocale} />;
     if (readiness.enabled) {
-      const locale = firstParam(query?.lang) === "en" ? "en" : "sv";
+      const locale = requestedQueryLocale;
       const completed = firstParam(query?.booked) === "1" ? "&booked=1" : "";
       redirect(`/demo/makeup-by-maria-v2.html?lang=${locale}${completed}`);
     }
   }
-  const requestedQueryLocale: WorkspaceLanguage = firstParam(query?.lang) === "en" ? "en" : "sv";
   const sql = getSql();
   if (!sql) return <Unavailable locale={requestedQueryLocale} />;
 
