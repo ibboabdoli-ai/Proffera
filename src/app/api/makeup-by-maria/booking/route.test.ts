@@ -16,11 +16,17 @@ vi.mock("@/lib/public-booking-verification", () => ({
 }));
 
 import { getSql } from "@/lib/db/server";
+import { getMariaAvailability } from "@/lib/maria-booking-availability";
+import { allowPublicSubmission } from "@/lib/public-form-protection";
 import { getMariaPreviewBookingReadiness } from "@/lib/maria-preview-booking";
 import { beginBookingEmailVerification } from "@/lib/public-booking-verification";
 import { POST } from "./route";
 
 function request(email: string) {
+  // Always choose a future Friday inside the supported bridal-year range.
+  const friday = new Date(Date.now() + 8 * 86_400_000);
+  while (friday.getUTCDay() !== 5) friday.setUTCDate(friday.getUTCDate() + 1);
+  const date = friday.toISOString().slice(0, 10);
   const url = "https://maria-qa.vercel.app/api/makeup-by-maria/booking";
   return new Request(url, {
     method: "POST",
@@ -29,13 +35,13 @@ function request(email: string) {
       Origin: "https://maria-qa.vercel.app",
     },
     body: JSON.stringify({
-      year: 2026,
+      year: Number(date.slice(0, 4)),
       kind: "trial",
       name: "Synthetic QA Bride",
       email,
       phone: "0701234567",
       city: "Södertälje",
-      date: "2026-11-20",
+      date,
       time: "07:00",
       startedAt: Date.now() - 5000,
       lang: "sv",
@@ -62,6 +68,30 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllEnvs());
 
 describe("Maria isolated Preview booking email egress safety", () => {
+  it("keeps the verification link when initial email delivery is uncertain", async () => {
+    const sql = vi.fn()
+      .mockResolvedValueOnce([{ id: "00000000-0000-4000-8000-000000000010", name: "Brudsmink med prov",
+        duration_minutes: 180, buffer_before_minutes: 0, buffer_after_minutes: 0,
+        minimum_notice_minutes: 0, maximum_advance_days: 365 }])
+      .mockResolvedValueOnce([{ opens_at: "06:00", closes_at: "10:00", is_closed: false }]);
+    vi.mocked(getSql).mockReturnValue(sql as unknown as ReturnType<typeof getSql>);
+    vi.mocked(getMariaAvailability).mockResolvedValue({ ok: true, slots: ["07:00"] });
+    vi.mocked(allowPublicSubmission).mockResolvedValue(true);
+    const verificationId = "00000000-0000-4000-8000-000000000099";
+    vi.mocked(beginBookingEmailVerification).mockResolvedValue({
+      ok: false, error: "email", verificationId, delivery: "uncertain",
+    });
+
+    const response = await POST(request("qa@example.invalid"));
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      ok: true, delivery: "uncertain",
+      verificationUrl: `/boka/verifiera/${verificationId}?lang=sv&channel=uncertain`,
+    });
+    expect(response.headers.get("Cache-Control")).toContain("no-store");
+    expect(beginBookingEmailVerification).toHaveBeenCalledTimes(1);
+  });
+
   it("refuses a mismatched effective Preview inbox before DB/OTP hold creation", async () => {
     vi.stubEnv("PROFFERA_PREVIEW_EMAIL_RECIPIENT", "other@example.invalid");
     const result = await POST(request("qa@example.invalid"));
