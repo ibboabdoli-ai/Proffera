@@ -174,7 +174,7 @@ function compileSql(strings: TemplateStringsArray, values: unknown[]): Query {
     expect(paid.rowCount).toBe(1);
     expect(paid.rows[0]?.metadata).toMatchObject({
       state: "paid", amount_minor: 200000,
-      booking_number: "MBM-" + bookingId.replaceAll("-", "").toUpperCase(),
+      booking_number: "MBM-" + bookingId.replaceAll("-", "").slice(0, 6).toUpperCase(),
       actor_user_id: runtime.userId,
     });
     expect(await setMariaManualSwishStatus(bookingId, "unverified")).toEqual({ changed: true });

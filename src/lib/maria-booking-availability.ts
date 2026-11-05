@@ -45,7 +45,7 @@ export async function getMariaAvailability(input: AvailabilityRequest): Promise<
   const after = new Date(Date.parse(`${input.date}T00:00:00Z`) + 259_200_000).toISOString();
 
   try {
-    const [services, hours, busy] = await Promise.all([
+    const [services, hours, busy, closedStarts] = await Promise.all([
       sql`
         select duration_minutes, buffer_before_minutes, buffer_after_minutes,
           minimum_notice_minutes, maximum_advance_days
@@ -86,6 +86,13 @@ export async function getMariaAvailability(input: AvailabilityRequest): Promise<
           and v.starts_at < ${after}::timestamptz
           and v.ends_at > ${before}::timestamptz
       `,
+      sql`
+        select starts_at::text as starts_at
+        from maria_manual_closed_starts
+        where workspace_id=${input.workspaceId}::uuid
+          and starts_at>=${before}::timestamptz
+          and starts_at<${after}::timestamptz
+      `,
     ]);
     const service = services[0];
     if (!service) return { ok: false, error: "service" };
@@ -94,6 +101,7 @@ export async function getMariaAvailability(input: AvailabilityRequest): Promise<
       return { ok: false, error: "hours" };
     }
 
+    // Only real appointments, ordinary blocks and holds occupy a treatment range.
     const occupied: MariaBusyInterval[] = busy.map(row => ({
       startsAt: String(row.starts_at),
       endsAt: String(row.ends_at),
@@ -112,6 +120,7 @@ export async function getMariaAvailability(input: AvailabilityRequest): Promise<
         minimumNoticeMinutes: Number(service.minimum_notice_minutes) || 0,
         maximumAdvanceDays: Number(service.maximum_advance_days) || 730,
         busy: occupied,
+        manuallyClosedStartsAt: closedStarts.map(row => String(row.starts_at)),
         now: new Date(),
         timeZone: input.timeZone,
         stepMinutes: 30,

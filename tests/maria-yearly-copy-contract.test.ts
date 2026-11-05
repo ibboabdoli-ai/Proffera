@@ -59,6 +59,8 @@ describe("Maria per-year copy and manual booking controls", () => {
     expect(design).not.toContain('title:"Tack! Din e-post är verifierad."');
     expect(list).not.toContain('params?.payment_saved === "paid"');
     expect(detail).not.toContain('value("payment_saved") === "paid"');
+    expect(detail).toContain("readMariaSwishQrEligibility(booking.id)");
+    expect(detail).toContain('mariaQrEligibility === "eligible"');
   });
 
   it("lets Maria select a readable duration manually and lists reschedule slots using the saved length", () => {
@@ -72,6 +74,44 @@ describe("Maria per-year copy and manual booking controls", () => {
     expect(picker).toContain("Number.isInteger(bookedDurationMinutes)");
     expect(picker).toContain("durationOverrideMinutes: bookedDurationMinutes");
     expect(picker).toContain("excludeBookingId: bookingId");
+  });
+
+  it("fails closed if a manual calendar action has not been explicitly confirmed", () => {
+    const button = read("src/app/dashboard/maria/kalender/maria-calendar-confirm-button.tsx");
+    const calendar = read("src/app/dashboard/maria/kalender/page.tsx");
+    const engine = read("src/lib/maria-manual-calendar.ts");
+    expect(button).toContain('name="confirmed" defaultValue="no"');
+    expect(button).toContain('input.value = "yes"');
+    expect(calendar).toContain('formData.get("confirmed") !== "yes"');
+    expect(calendar).not.toContain("const now = Date.now()");
+    expect(engine).toContain("snapshotAtEpoch: now.getTime()");
+    expect(engine).toContain("clock_timestamp() < ${slot.startsAt}::timestamptz");
+  });
+
+  it("applies Maria's manual calendar to individual starts at every booking safety boundary", () => {
+    const availability = read("src/lib/maria-booking-availability.ts");
+    const starts = read("src/lib/maria-booking-slots.ts");
+    expect(availability).toContain("from maria_manual_closed_starts");
+    expect(availability).toContain("manuallyClosedStartsAt:");
+    expect(starts).toContain("manuallyClosedStarts.has(start)");
+    for(const path of [
+      "src/lib/public-booking-verification.ts",
+      "src/lib/maria-verified-booking.ts",
+      "src/lib/maria-resend-hold.ts",
+      "src/lib/maria-customer-reschedule.ts",
+      "src/lib/maria-dashboard-reschedule.ts",
+    ]) {
+      const code=read(path);
+      expect(code).toContain("from maria_manual_closed_starts closed");
+      expect(code).toContain("closed.workspace_id=");
+      expect(code).toContain("closed.starts_at=");
+    }
+    const calendar = read("src/app/dashboard/maria/kalender/page.tsx");
+    expect(calendar).toContain("Inget stängs automatiskt.");
+    expect(read("src/lib/maria-manual-calendar.ts")).not.toContain("insert into bookings(");
+    expect(read("db/migrations/20261103_0072_maria_manual_closed_starts.sql"))
+      .toContain("maria_manual_closed_starts_pk PRIMARY KEY (workspace_id, starts_at)");
+    expect(calendar).toContain("Befintliga bokningar och pågående verifieringar");
   });
 
   it("retains existing booking lengths after Maria changes a service duration", () => {
@@ -99,6 +139,17 @@ describe("Maria per-year copy and manual booking controls", () => {
     expect(status).toContain("pg_advisory_xact_lock(hashtextextended(");
     expect(status).toContain("const rows = mariaPreview");
     expect(reschedule).toContain("pg_advisory_xact_lock(hashtextextended(");
+  });
+
+  it("keeps generic calendar moves blocked with a specific bilingual Maria message", () => {
+    const writer = read("src/lib/dashboard-calendar-move.ts");
+    const ui = read("src/components/dashboard/business-calendar.tsx");
+    const page = read("src/app/dashboard/kalender/page.tsx");
+    expect(writer).toContain('new CalendarMoveValidationError("maria_preview")');
+    expect(ui).toContain('code === "maria_preview"');
+    expect(ui).toContain("Öppna bokningen och välj en ny tid.");
+    expect(ui).toContain("open its booking details and choose a new time.");
+    expect(page).toContain("isEnglish={isEnglish}");
   });
 
   it("keeps writes scoped, logged and publication state intact", () => {

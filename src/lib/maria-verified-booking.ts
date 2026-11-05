@@ -70,6 +70,11 @@ export async function finalizeMariaVerifiedBooking(input: FinalizeMariaInput) {
                   > v.starts_at - (s.buffer_before_minutes*interval '1 minute')
             )
             and not exists (
+              select 1 from maria_manual_closed_starts closed
+              where closed.workspace_id=w.id
+                and closed.starts_at=v.starts_at
+            )
+            and not exists (
               select 1 from public_booking_verifications hold
               left join workspace_services hs
                 on hs.id=hold.service_id and hs.workspace_id=hold.workspace_id::text

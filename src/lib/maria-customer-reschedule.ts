@@ -144,6 +144,11 @@ export async function rescheduleMariaCustomerBooking(input: MariaChangeInput) {
                     > ${start}::timestamptz-(s.buffer_before_minutes*interval '1 minute')
             )
             and not exists (
+              select 1 from maria_manual_closed_starts closed
+              where closed.workspace_id=w.id
+                and closed.starts_at=${start}::timestamptz
+            )
+            and not exists (
               select 1 from public_booking_verifications hold
               left join workspace_services hs on hs.id=hold.service_id
                 and hs.workspace_id=hold.workspace_id::text
@@ -203,6 +208,7 @@ export async function rescheduleMariaCustomerBooking(input: MariaChangeInput) {
     // Do not deliver Preview notifications to any recipient beyond the QA inbox.
     await sendBookingChangeEmails({
       kind: "rescheduled",
+      branding: "makeup-by-maria",
       customerName: String(booking.customer_name),
       customerEmail: String(booking.customer_email),
       ownerEmail: booking.owner_email && isMariaPreviewTestRecipient(String(booking.owner_email))
