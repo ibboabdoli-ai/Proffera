@@ -35,7 +35,7 @@ export const dynamic = "force-dynamic";
 
 const bookingStatusOptions = ["requested", "confirmed", "completed", "cancelled"] as const;
 type Locale = "sv" | "en";
-type ErrorKey = "access" | "status" | "save" | "maria_preview" | "maria_email_setup" | "reschedule_time" | "reschedule_past" | "reschedule_conflict" | "reschedule_status";
+type ErrorKey = "access" | "status" | "save" | "maria_preview" | "maria_email_setup" | "reschedule_time" | "reschedule_past" | "reschedule_conflict" | "reschedule_status" | "maria_activation_conflict";
 type BookingDetailPageProps = {
   params: Promise<{ id: string }>;
   searchParams?: Promise<{ error?: string | string[]; updated?: string | string[]; rescheduled?: string | string[]; created?: string | string[]; maria_mail?: string | string[]; payment_saved?: string | string[]; payment_error?: string | string[]; lang?: string | string[] }>;
@@ -66,10 +66,10 @@ const eventTypeLabels = {
 };
 const errorMessages: Record<Locale, Record<ErrorKey, string>> = {
   sv: {
-    access: "Du saknar behörighet att ändra bokningen.", status: "Vald status är ogiltig.", save: "Ändringen kunde inte sparas. Försök igen eller kontrollera konfigurationen.", maria_preview: "Maria-bokningar kan endast uppdateras med en godkänd testmottagare i isolerad Preview.", maria_email_setup: "Bokningen ändrades inte: Preview-e-post måste vara konfigurerad för bekräftelse och avbokning.", reschedule_time: "Välj ett giltigt datum och klockslag.", reschedule_past: "Den nya tiden måste ligga i framtiden.", reschedule_conflict: "Den nya tiden krockar med en annan aktiv bokning.", reschedule_status: "En avbokad eller utebliven bokning kan inte flyttas.",
+    access: "Du saknar behörighet att ändra bokningen.", status: "Vald status är ogiltig.", save: "Ändringen kunde inte sparas. Försök igen eller kontrollera konfigurationen.", maria_preview: "Maria-bokningar kan endast uppdateras med en godkänd testmottagare i isolerad Preview.", maria_email_setup: "Bokningen ändrades inte: Preview-e-post måste vara konfigurerad för bekräftelse och avbokning.", reschedule_time: "Välj ett giltigt datum och klockslag.", reschedule_past: "Den nya tiden måste ligga i framtiden.", reschedule_conflict: "Den nya tiden krockar med en annan aktiv bokning.", reschedule_status: "En avbokad eller utebliven bokning kan inte flyttas.", maria_activation_conflict: "Bokningen kunde inte återaktiveras eftersom tiden är stängd eller upptagen.",
   },
   en: {
-    access: "You do not have permission to change this booking.", status: "The selected status is invalid.", save: "The change could not be saved. Try again or check the configuration.", maria_preview: "Maria booking changes are limited to the approved QA recipient in isolated Preview.", maria_email_setup: "Booking unchanged: Preview email must be configured for confirmation and cancellation.", reschedule_time: "Select a valid date and time.", reschedule_past: "The new time must be in the future.", reschedule_conflict: "The new time conflicts with another active booking.", reschedule_status: "A cancelled or no-show booking cannot be rescheduled.",
+    access: "You do not have permission to change this booking.", status: "The selected status is invalid.", save: "The change could not be saved. Try again or check the configuration.", maria_preview: "Maria booking changes are limited to the approved QA recipient in isolated Preview.", maria_email_setup: "Booking unchanged: Preview email must be configured for confirmation and cancellation.", reschedule_time: "Select a valid date and time.", reschedule_past: "The new time must be in the future.", reschedule_conflict: "The new time conflicts with another active booking.", reschedule_status: "A cancelled or no-show booking cannot be rescheduled.", maria_activation_conflict: "This booking cannot be reactivated because the time is closed or occupied.",
   },
 };
 
@@ -188,8 +188,10 @@ async function updateBookingStatusAction(bookingId: string, formData: FormData) 
   }
 
   let mariaMailFailed = false;
+  let statusChanged = false;
   try {
     const result = await updateDashboardBookingStatus(bookingId, status);
+    statusChanged = result.changed;
     if (result.changed && result.notification && (status === "confirmed" || status === "cancelled")) {
       const notification = result.notification;
       if (isMaria) {
@@ -201,6 +203,7 @@ async function updateBookingStatusAction(bookingId: string, formData: FormData) 
               service: notification.service, startsAt: notification.startsAt,
               endsAt: notification.endsAt, city: notification.city, timeZone: result.timeZone,
               language: notification.language,
+              confirmedAt: notification.confirmedAt ? new Date(notification.confirmedAt) : undefined,
             })
           : { ok: false as const };
         mariaMailFailed = !delivery.ok;
@@ -214,6 +217,9 @@ async function updateBookingStatusAction(bookingId: string, formData: FormData) 
   } catch (error) {
     console.error("Failed to update dashboard booking status", error);
     redirectWithError(bookingId, "save", locale);
+  }
+  if (isMaria && (status === "requested" || status === "confirmed") && !statusChanged) {
+    redirectWithError(bookingId, "maria_activation_conflict", locale);
   }
   redirect(withLang(`/dashboard/bokningar/${bookingId}?updated=1${mariaMailFailed ? "&maria_mail=failed" : ""}`, locale));
 }
