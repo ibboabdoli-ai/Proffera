@@ -27,7 +27,7 @@ export type DashboardBookingStatusUpdateResult = {
     city: string;
     startsAt: string;
     endsAt: string;
-    language: "sv" | "en" | "ar";
+    language?: "sv" | "en" | "ar";
   } | null;
   reviewInvitationDelivery: "sent" | "failed" | "skipped" | null;
 };
