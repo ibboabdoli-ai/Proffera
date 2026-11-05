@@ -89,7 +89,8 @@ export function buildMariaBookingStatusEmail(input: MariaBookingStatusEmailInput
     };
     const due = isConfirmation ? formatTime(mariaDepositDeadline(input.confirmedAt ?? new Date()), input.timeZone, language) : "";
     const qrUrl = isConfirmation ? new URL(mariaSwishQrPath(input.bookingId), origin).toString() : "";
-    const paymentPageUrl = isConfirmation ? new URL(mariaSwishPaymentPagePath(input.bookingId), origin).toString() : "";
+    const paymentPageUrl = isConfirmation
+      ? new URL(mariaSwishPaymentPagePath(input.bookingId) + (language === "en" ? "?lang=en" : ""), origin).toString() : "";
     const payment = MARIA_DEPOSIT_AMOUNT_SEK.toLocaleString("sv-SE");
     const subject = isConfirmation
       ? `${copy.confirmed} – ${copy.deposit} ${payment} SEK – ${reference}`
