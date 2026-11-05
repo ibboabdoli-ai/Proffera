@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("server-only", () => ({}));
+const dbQuery = vi.hoisted(() => vi.fn());
+vi.mock("@/lib/db/server", () => ({ getSql: () => (...args: unknown[]) => dbQuery(...args) }));
 
 import { buildMariaBookingStatusEmail, sendMariaBookingStatusEmail } from "./maria-deposit-email";
 
@@ -19,6 +21,7 @@ const booking = {
 };
 
 beforeEach(() => {
+  dbQuery.mockReset().mockResolvedValue([{ deposit_state: "unverified" }]);
   vi.stubEnv("VERCEL_ENV", "preview");
   vi.stubEnv("VERCEL_URL", "qa.vercel.app");
   vi.stubEnv("PROFFERA_MARIA_PREVIEW_TEST_EMAIL", "qa@example.invalid");
@@ -93,6 +96,38 @@ describe("Maria-only Swish confirmation and cancellation email", () => {
     const cancelled = buildMariaBookingStatusEmail({ ...booking, status: "cancelled", language: "ar" }, "https://qa.vercel.app");
     expect(cancelled.subject).toContain("تم إلغاء حجزك");
     expect(cancelled.html).not.toContain("/api/makeup-by-maria/swish-qr/");
+  });
+
+  it.each(["sv", "en", "ar"] as const)("does not request Swish again after a manually paid booking (%s)", (language) => {
+    const output = buildMariaBookingStatusEmail({ ...booking, language, depositAlreadyPaid: true }, "https://qa.vercel.app");
+    expect(output.html).not.toContain("/api/makeup-by-maria/swish-qr/");
+    expect(output.html).not.toContain("/maria/swish/");
+    expect(output.text).not.toContain("123-581 86 53");
+    expect(output.text).not.toContain("24 timmar");
+    expect(output.text).not.toContain("Pay within 24 hours");
+    expect(output.text).not.toContain("يُدفع خلال");
+    expect(output.text).toContain("MBM-000000");
+  });
+
+  it("reads the latest booking-scoped manual payment state before sending a confirmation", async () => {
+    dbQuery.mockResolvedValueOnce([{ deposit_state: "paid" }]);
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true });
+    vi.stubGlobal("fetch", fetchMock);
+    expect(await sendMariaBookingStatusEmail(booking)).toEqual({ ok: true });
+    const sent = JSON.parse(fetchMock.mock.calls[0]![1].body as string) as {
+      htmlContent: string; textContent: string;
+    };
+    expect(dbQuery).toHaveBeenCalledOnce();
+    expect(sent.htmlContent).not.toContain("/api/makeup-by-maria/swish-qr/");
+    expect(sent.textContent).toContain("handpenningen som mottagen");
+  });
+
+  it("fails closed if the manual Swish state cannot be read", async () => {
+    dbQuery.mockResolvedValueOnce([]);
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    expect(await sendMariaBookingStatusEmail(booking)).toEqual({ ok: false, error: "invalid_booking" });
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it("rejects a malicious or non-preview QR image origin", () => {
