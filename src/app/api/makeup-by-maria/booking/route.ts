@@ -215,6 +215,14 @@ export async function POST(request: Request) {
       verificationSms: false,
     });
 
+    if (!result.ok && "verificationId" in result && result.delivery === "uncertain") {
+      // The provider might have accepted this OTP. Do not discard the hold or
+      // strand the customer: offer verification without claiming delivery.
+      return NextResponse.json({
+        ok: true, delivery: "uncertain",
+        verificationUrl: `/boka/verifiera/${result.verificationId}?lang=${requestedLang}&channel=uncertain`,
+      }, { headers: privateHeaders });
+    }
     if (!result.ok) return failure(result.error === "email" ? "email" : "conflict", 409);
     return NextResponse.json({
       ok: true,
