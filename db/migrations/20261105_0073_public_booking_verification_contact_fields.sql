@@ -29,5 +29,17 @@ ALTER TABLE public_booking_verifications
   ADD COLUMN IF NOT EXISTS postcode text,
   ADD COLUMN IF NOT EXISTS booking_details text;
 
+-- Record only after the nullable columns were successfully added.
+-- A failed runner must never infer application from this source file alone.
+INSERT INTO proffera_schema_migrations (
+  migration_key, filename, checksum, git_sha, applied_by, execution_mode, notes
+) VALUES (
+  '20261105_0073',
+  '20261105_0073_public_booking_verification_contact_fields.sql',
+  null, null, 'migration-0073', 'canonical-migration',
+  'Adds nullable verification contact/detail fields; dependent writers require this migration first.'
+)
+ON CONFLICT (migration_key) DO NOTHING;
+
 RESET lock_timeout;
 RESET statement_timeout;
