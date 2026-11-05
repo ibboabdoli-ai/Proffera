@@ -90,6 +90,8 @@ export async function rescheduleMariaCustomerBooking(input: MariaChangeInput) {
 
   const start = policy.start.toISOString();
   const end = policy.end.toISOString();
+  // Choosing the existing start is a no-op, not an occupied-slot conflict.
+  if (Date.parse(bookedStart) === Date.parse(start)) return { ok: true as const };
   try {
     const [, changed] = await sql.transaction([
       sql`select pg_advisory_xact_lock(hashtextextended(${input.workspaceId}::text, 713))`,
@@ -206,7 +208,7 @@ export async function rescheduleMariaCustomerBooking(input: MariaChangeInput) {
     const booking = changed?.[0];
     if (!booking) return { ok: false as const, error: "conflict" as const };
     // Do not deliver Preview notifications to any recipient beyond the QA inbox.
-    await sendBookingChangeEmails({
+    const notices = await sendBookingChangeEmails({
       kind: "rescheduled",
       branding: "makeup-by-maria",
       customerName: String(booking.customer_name),
@@ -224,6 +226,15 @@ export async function rescheduleMariaCustomerBooking(input: MariaChangeInput) {
       timeZone: "Europe/Stockholm",
       language: input.language,
     });
+    for (const [index, result] of notices.entries()) {
+      if (result.status === "rejected" || (result.status === "fulfilled"
+        && (!result.value || typeof result.value !== "object" || !("ok" in result.value) || result.value.ok !== true))) {
+        console.error("Maria Preview reschedule email was not delivered", {
+          target: index === 0 ? "customer" : "owner",
+          outcome: result.status === "rejected" ? "rejected" : "provider_failure",
+        });
+      }
+    }
     return { ok: true as const };
   } catch (error) {
     console.error("Maria preview reschedule failed closed", error);
