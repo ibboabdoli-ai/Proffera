@@ -16,6 +16,11 @@ function toMinutes(value: string) { const [hours, minutes] = value.split(":").ma
 export async function updateWorkspaceBookingHoursAction(formData: FormData) {
   const access = await getUserWorkspaceAccess();
   if (!access.ok || !canManageWorkspaceSettings(access)) redirectWithError("access", formData);
+  // Maria Preview working hours must use /dashboard/maria's locked writer.
+  // This generic seven-day writer does not acquire Maria advisory lock 713.
+  if (process.env.VERCEL_ENV === "preview" && access.workspaceSlug === "makeup-by-maria") {
+    redirectWithError("access", formData);
+  }
   const hours = bookingWeekdays.map(({ value }) => {
     const isClosed = formData.get(`closed_${value}`) === "on";
     const opensAt = text(formData, `opens_at_${value}`);
