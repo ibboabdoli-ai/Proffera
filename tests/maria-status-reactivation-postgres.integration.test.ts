@@ -36,6 +36,7 @@ vi.mock("@/lib/verified-review-email-delivery", () => ({
 }));
 
 import { updateDashboardBookingStatus } from "@/lib/dashboard-booking-status";
+import { createDashboardAvailabilityBlock } from "@/lib/dashboard-availability-blocks";
 
 const RUN = process.env.GITHUB_ACTIONS === "true" ||
   process.env.PROFFERA_POSTGRES_INTEGRATION === "1";
@@ -227,4 +228,56 @@ function compileSql(parts: TemplateStringsArray, values: unknown[]): Query {
     expect(await readStatus()).toBe("confirmed");
     expect(await countEvents()).toBe(1);
   });
+  it("rejects a single Maria block when a confirmed appointment appears after preflight", async () => {
+    // Simulate a stale initial preflight: a booking is already committed by
+    // the time the insert runs under Maria's workspace advisory lock.
+    const originalFactory = runtime.makeSql;
+    if (!originalFactory) throw new Error("Synthetic PostgreSQL client not ready");
+    let stalePreflights = 0;
+    runtime.makeSql = () => {
+      const base = originalFactory() as {
+        (parts: TemplateStringsArray, ...values: unknown[]): unknown;
+        transaction: (queries: Query[]) => Promise<Rows[]>;
+      };
+      const tagged = (parts: TemplateStringsArray, ...values: unknown[]) => {
+        const query = compileSql(parts, values);
+        if (/select\s+id\s+from\s+bookings/u.test(query.text)
+          && /status\s+not\s+in/u.test(query.text)) {
+          stalePreflights += 1;
+          return Promise.resolve([] as Rows);
+        }
+        return base(parts, ...values);
+      };
+      return Object.assign(tagged, { transaction: base.transaction });
+    };
+
+    const toStockholmLocal = (value: Date) => {
+      const parts = Object.fromEntries(
+        new Intl.DateTimeFormat("sv-SE", {
+          timeZone: "Europe/Stockholm", year: "numeric", month: "2-digit", day: "2-digit",
+          hour: "2-digit", minute: "2-digit", hourCycle: "h23",
+        }).formatToParts(value).filter(part => part.type !== "literal")
+          .map(part => [part.type, part.value]),
+      );
+      return `${parts.year}-${parts.month}-${parts.day}T${parts.hour}:${parts.minute}`;
+    };
+
+    const count = async () => Number((await db!.query<{ count: number }>(
+      "select count(*)::int as count from bookings where workspace_id=$1 and source='dashboard_availability_block'",
+      [workspaceId],
+    )).rows[0]?.count ?? 0);
+    const beforeCount = await count();
+    try {
+      await expect(createDashboardAvailabilityBlock({
+        localStartsAt: toStockholmLocal(start),
+        localEndsAt: toStockholmLocal(end),
+        reason: "Synthetic concurrent booking guard",
+      })).rejects.toMatchObject({ code: "conflict" });
+      expect(stalePreflights).toBe(1);
+      expect(await count()).toBe(beforeCount);
+    } finally {
+      runtime.makeSql = originalFactory;
+    }
+  });
+
 });
