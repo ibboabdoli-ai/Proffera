@@ -190,6 +190,9 @@ export default async function MariaSiteDashboardPage({ searchParams }: { searchP
               Hur lång tid tar sminkningen?
               <select name="duration_minutes" defaultValue={String(savedDuration)}
                 className="min-h-11 w-full rounded-lg border border-[#d8c4cb] bg-white px-3 text-[#352a2c]" required>
+                {(!Number.isInteger(savedDuration) || savedDuration < 30 || savedDuration > 720 || savedDuration % 30 !== 0) && (
+                  <option value={String(savedDuration)}>{savedDuration} min (sparat värde – välj giltig tid)</option>
+                )}
                 {Array.from({ length: 24 }, (_, i) => (i + 1) * 30).map(n => (
                   <option key={n} value={n}>
                     {n < 60 ? `${n} min` : `${Math.floor(n / 60)} tim${n % 60 ? ` ${n % 60} min` : ""}`}
@@ -201,6 +204,9 @@ export default async function MariaSiteDashboardPage({ searchParams }: { searchP
               Paus efter bokning (minuter)
               <select name="buffer_after_minutes" defaultValue={String(savedBuffer)}
                 className="min-h-11 w-full rounded-lg border border-[#d8c4cb] px-3 text-[#352a2c]">
+                {(!Number.isInteger(savedBuffer) || savedBuffer < 0 || savedBuffer > 120 || savedBuffer % 15 !== 0) && (
+                  <option value={String(savedBuffer)}>{savedBuffer} min (sparat värde – välj giltig paus)</option>
+                )}
                 {[0,15,30,45,60,75,90,105,120].map(n=><option key={n} value={n}>{n} min</option>)}
               </select>
             </label>
