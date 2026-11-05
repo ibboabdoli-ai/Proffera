@@ -309,9 +309,30 @@ function compileSql(strings: TemplateStringsArray, values: unknown[]): Query {
   });
 
   it("reschedules one Maria QA booking with the workspace lock and rejects overlapping verification holds", async () => {
+    const day = (await db!.query<{ day: string }>(
+      "select to_char(current_date + (((5 - extract(dow from current_date)::int + 7) % 7) + 7), 'YYYY-MM-DD') as day",
+    )).rows[0]!.day;
+    const year = day.slice(0, 4);
+    if (year !== "2026") {
+      // Reschedule availability is tied to the selected wedding year. Clone
+      // the synthetic published service when the next Friday is in a new year.
+      await db!.query(
+        `insert into workspace_services (
+          workspace_id, name, public_slug, duration_minutes,
+          buffer_before_minutes, buffer_after_minutes,
+          minimum_notice_minutes, maximum_advance_days, is_active, public_status
+        )
+        select workspace_id, $2::text, $3::text, duration_minutes,
+          buffer_before_minutes, buffer_after_minutes,
+          minimum_notice_minutes, maximum_advance_days, is_active, 'published'
+        from workspace_services
+        where workspace_id=$1 and public_slug='maria-bridal-trial-2026' and public_status='published'`,
+        [workspaceId, `Maria QA reschedule ${year}`, `maria-bridal-trial-${year}`],
+      );
+    }
     const service = await db!.query<{ id: string }>(
-      "select id::text from workspace_services where workspace_id=$1 and public_slug='maria-bridal-trial-2026' and public_status='published'",
-      [workspaceId],
+      "select id::text from workspace_services where workspace_id=$1 and public_slug=$2 and public_status='published'",
+      [workspaceId, `maria-bridal-trial-${year}`],
     );
     expect(service.rowCount).toBe(1);
     await db!.query(
@@ -322,10 +343,6 @@ function compileSql(strings: TemplateStringsArray, values: unknown[]): Query {
       "insert into workspace_booking_hours (workspace_id,weekday,opens_at,closes_at,is_closed) values ($1,5,'06:00','10:00',false) on conflict (workspace_id,weekday) do update set opens_at='06:00',closes_at='10:00',is_closed=false",
       [workspaceId],
     );
-    const day = (await db!.query<{ day: string }>(
-      "select to_char(current_date + (((5 - extract(dow from current_date)::int + 7) % 7) + 7), 'YYYY-MM-DD') as day",
-    )).rows[0]!.day;
-    expect(day.slice(0, 4)).toBe("2026");
     const changed = await rescheduleMariaDashboardBooking({
       bookingId, workspaceId, localStartsAt: day + "T06:00",
     });
