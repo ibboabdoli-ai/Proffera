@@ -79,9 +79,9 @@ export default async function MariaSiteDashboardPage({ searchParams }: { searchP
             className="inline-flex min-h-11 items-center gap-2 rounded-lg border border-[#bfa1a9] px-4 py-2 text-sm font-bold text-[#754b5a]">
             Hantera bokningar <CalendarDays size={16} />
           </Link>
-          <Link href="/dashboard/bokningar/blockera"
+          <Link href="/dashboard/maria/kalender"
             className="inline-flex min-h-11 items-center gap-2 rounded-lg border border-[#bfa1a9] px-4 py-2 text-sm font-bold text-[#754b5a]">
-            Blockera tider manuellt <CalendarOff size={16} />
+            Hantera dagens tider <CalendarOff size={16} />
           </Link>
           <Link href="#priser"
             className="inline-flex min-h-11 items-center gap-2 rounded-lg border border-[#bfa1a9] px-4 py-2 text-sm font-bold text-[#754b5a]">
@@ -227,7 +227,7 @@ export default async function MariaSiteDashboardPage({ searchParams }: { searchP
               </fieldset>
             ))}
           </div>
-          <p className="text-xs text-[#705f65]">Starttider visas varje halvtimme. Välj 0 minuters paus om du själv vill blockera extra tid före eller efter via &quot;Blockera tider manuellt&quot;. Redan bokad behandlingstid blockeras alltid.</p>
+          <p className="text-xs text-[#705f65]">Starttider visas varje halvtimme. Välj 0 minuters paus om du själv vill blockera extra tid före eller efter via &quot;Hantera dagens tider&quot;. Redan bokad behandlingstid blockeras alltid.</p>
           <button type="submit" className="min-h-11 rounded-lg bg-[#845363] px-5 text-sm font-bold text-white hover:bg-[#6d3e4e]">
             Spara bokningstider
           </button>
@@ -239,7 +239,8 @@ export default async function MariaSiteDashboardPage({ searchParams }: { searchP
         <p className="mt-2 text-sm leading-6 text-[#705f65]">Maria kan själv granska bokningsförfrågningar, bekräfta, avboka eller flytta tider från bokningsprofilen. Blockera eller frigör ledig tid före eller efter en bokning separat. Ingen handpenning registreras eller begärs automatiskt.</p>
         <div className="mt-4 flex flex-wrap gap-3">
           <Link href="/dashboard/bokningar" className="inline-flex min-h-11 items-center rounded-lg bg-[#845363] px-5 text-sm font-bold text-white">Öppna bokningar</Link>
-          <Link href="/dashboard/bokningar/blockera" className="inline-flex min-h-11 items-center rounded-lg border border-[#bfa1a9] px-5 text-sm font-bold text-[#754b5a]">Blockera / frigör tider</Link>
+          <Link href="/dashboard/maria/kalender" className="inline-flex min-h-11 items-center rounded-lg border border-[#bfa1a9] px-5 text-sm font-bold text-[#754b5a]">Hantera dagens tider</Link>
+          <Link href="/dashboard/bokningar/blockera" className="inline-flex min-h-11 items-center rounded-lg border border-[#e8d9dc] px-4 text-xs text-[#705f65]">Avancerad tidsblockering</Link>
         </div>
       </section>
 

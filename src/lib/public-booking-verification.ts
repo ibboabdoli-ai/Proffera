@@ -185,6 +185,11 @@ export async function beginBookingEmailVerification(input: BeginBookingVerificat
                        from workspace_services where id=${input.serviceId}::uuid)
           )
           and not exists (
+            select 1 from maria_manual_closed_starts closed
+            where closed.workspace_id=${input.workspaceId}::uuid
+              and closed.starts_at=${input.startsAt}::timestamptz
+          )
+          and not exists (
             select 1 from public_booking_verifications v
             left join workspace_services vs on vs.id=v.service_id and vs.workspace_id=v.workspace_id::text
             where v.workspace_id=${input.workspaceId}::uuid

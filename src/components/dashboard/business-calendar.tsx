@@ -17,6 +17,11 @@ const statusLabels: Record<string, string> = {
   break: "Rast", other: "Ej tillgänglig",
 };
 
+const mariaPreviewMoveMessage = {
+  sv: "Marias bokningar flyttas via bokningsdetaljerna. Öppna bokningen och välj en ny tid.",
+  en: "To reschedule a Maria booking, open its booking details and choose a new time.",
+};
+
 const moveErrorLabels: Record<string, string> = {
   time: "Tiden kunde inte tolkas.",
   past: "Bokningen kan inte flyttas till en tid som redan passerat.",
@@ -90,7 +95,7 @@ function EventCard({ event, timeZone, compact = false, draggable = false, onDrag
   );
 }
 
-export function BusinessCalendar({ events, timeZone }: { events: DashboardCalendarEvent[]; timeZone: WorkspaceTimeZone }) {
+export function BusinessCalendar({ events, timeZone, isEnglish = false }: { events: DashboardCalendarEvent[]; timeZone: WorkspaceTimeZone; isEnglish?: boolean }) {
   const router = useRouter();
   const todayKey = localParts(new Date(), timeZone).date;
   const [view, setView] = useState<ViewMode>("month");
@@ -146,7 +151,10 @@ export function BusinessCalendar({ events, timeZone }: { events: DashboardCalend
       router.refresh();
     } catch (error) {
       const code = error instanceof Error ? error.message : "save";
-      setMoveState({ pending: false, message: moveErrorLabels[code] ?? moveErrorLabels.save, error: true });
+      const message = code === "maria_preview"
+        ? mariaPreviewMoveMessage[isEnglish ? "en" : "sv"]
+        : moveErrorLabels[code] ?? moveErrorLabels.save;
+      setMoveState({ pending: false, message, error: true });
       setDraggedBooking(null);
     }
   }

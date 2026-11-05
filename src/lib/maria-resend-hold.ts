@@ -65,6 +65,11 @@ export async function renewMariaPreviewHoldForResend(input: {
                       > v.starts_at - (coalesce(s.buffer_before_minutes,0) * interval '1 minute')
               )
               and not exists (
+                select 1 from maria_manual_closed_starts closed
+                where closed.workspace_id=w.id
+                  and closed.starts_at=v.starts_at
+              )
+              and not exists (
                 select 1 from public_booking_verifications other
                 left join workspace_services os on os.id = other.service_id
                   and os.workspace_id = other.workspace_id::text

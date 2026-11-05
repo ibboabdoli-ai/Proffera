@@ -294,6 +294,7 @@ export async function cancelCustomerCalendarBooking(
   const base = previewBase ?? (process.env.NEXT_PUBLIC_APP_URL ?? process.env.APP_URL ?? "https://www.proffera.se").replace(/\/$/, "");
   await sendBookingChangeEmails({
     kind: "cancelled",
+    branding: isMaria ? "makeup-by-maria" : undefined,
     customerName: String(booking.customer_name),
     customerEmail: String(booking.customer_email),
     ownerEmail: booking.owner_email && (!isMaria || isMariaPreviewTestRecipient(String(booking.owner_email)))

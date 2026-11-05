@@ -1,4 +1,5 @@
 import { mariaBookingNumber } from "@/lib/maria-deposit";
+import { MariaBookingReferenceCopy } from "@/components/dashboard/maria-booking-reference-copy";
 import type { ManualSwishEntry } from "@/lib/maria-manual-swish";
 import { recordMariaSwishPaymentAction } from "@/app/dashboard/maria/payment-actions";
 
@@ -18,9 +19,12 @@ export function MariaSwishPaymentControl({ bookingId, bookingStatus, readOk, ent
   return (
     <section className="min-w-0 rounded-xl border border-[#e9d6df] bg-[#fff9f8] p-3 sm:p-4">
       <p className="text-sm font-semibold text-[#704858]">{isEnglish ? "Booking number · Swish" : "Bokningsnummer · Swish"}</p>
-      <code className="mt-2 block select-all break-all font-mono text-sm font-semibold text-[#49313c]">
-        {mariaBookingNumber(bookingId)}
-      </code>
+      <div className="mt-2 flex flex-wrap items-center gap-2">
+        <code className="select-all break-all font-mono text-sm font-semibold text-[#49313c]">
+          {mariaBookingNumber(bookingId)}
+        </code>
+        <MariaBookingReferenceCopy key={bookingId} reference={mariaBookingNumber(bookingId)} isEnglish={isEnglish} />
+      </div>
       <p className="mt-2 text-xs leading-5 text-[#76545f]">
         {isEnglish
           ? "Compare this booking number with the Swish payment message."
