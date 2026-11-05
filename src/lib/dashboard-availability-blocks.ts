@@ -99,7 +99,17 @@ async function insertBlock(
       ${endsAt.toISOString()}::timestamptz,
       ${source},
       ${reason}
-    where ${!mariaPreview}::boolean or not exists (
+    -- The earlier preflight is for UX only. Under Maria's workspace lock,
+    -- recheck BOTH real bookings and unexpired holds before inserting a block.
+    where ${!mariaPreview}::boolean or (
+      not exists (
+        select 1 from bookings existing
+        where existing.workspace_id=${workspaceId}
+          and existing.status not in ('cancelled','no_show')
+          and existing.starts_at < ${endsAt.toISOString()}::timestamptz
+          and existing.ends_at > ${startsAt.toISOString()}::timestamptz
+      )
+      and not exists (
       select 1 from public_booking_verifications hold
       left join workspace_services hold_service
         on hold_service.id=hold.service_id and hold_service.workspace_id=hold.workspace_id::text
@@ -109,6 +119,7 @@ async function insertBlock(
           < ${endsAt.toISOString()}::timestamptz
         and hold.ends_at+(coalesce(hold_service.buffer_after_minutes,0)*interval '1 minute')
           > ${startsAt.toISOString()}::timestamptz
+      )
     )
     returning id
   `;
