@@ -16,6 +16,7 @@ import {
 import { DashboardActionFeedback } from "@/components/dashboard/dashboard-action-feedback";
 import { DashboardMetricGrid, DashboardPageHeader } from "@/components/dashboard/dashboard-page-ui";
 import { MariaSwishPaymentControl } from "@/components/dashboard/maria-swish-payment-control";
+import { MariaStatusEmailRetryButton } from "@/components/dashboard/maria-status-email-retry-button";
 import { sendBookingRescheduleEmail } from "@/features/email/booking-reschedule-email";
 import { sendBookingStatusEmail } from "@/features/email/lead-email";
 import { sendMariaBookingStatusEmail } from "@/features/email/maria-deposit-email";
@@ -517,9 +518,7 @@ export default async function BookingDetailPage({ params, searchParams }: Bookin
             </p>
             <form action={resendStatusAction} className="mt-4">
               <input type="hidden" name="lang" value={locale} />
-              <button type="submit" className="rounded-control border border-[#bfa1a9] bg-white px-4 py-2.5 text-sm font-semibold text-[#754b5a]">
-                {isEnglish ? "Resend to approved QA inbox" : "Skicka om till godkänd QA-inkorg"}
-              </button>
+              <MariaStatusEmailRetryButton isEnglish={isEnglish} />
             </form>
           </article>
         ) : null}
