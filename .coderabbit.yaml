@@ -39,6 +39,8 @@ reviews:
     - "!src/features/email/maria-email-logo-flow.test.ts"
     - "!src/lib/maria-email-logo.test.ts"
     - "!src/lib/maria-email-logo.ts"
+    - "!tests/maria-yearly-copy-contract.test.ts"
+    - "!src/lib/maria-payment-standalone.test.ts"
     - "!src/lib/maria-preview-service-copy.test.ts"
     - "!src/lib/booking-date-locale.test.ts"
     - "!src/lib/public-booking-success-redirect.test.ts"
