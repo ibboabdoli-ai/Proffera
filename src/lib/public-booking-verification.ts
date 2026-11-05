@@ -234,6 +234,11 @@ export async function beginBookingEmailVerification(input: BeginBookingVerificat
       : Promise.resolve({ ok: false as const, skipped: true as const, message: "SMS verification not requested." }),
   ]);
   if (!emailSent.ok && !smsSent.ok) {
+    // Brevo may have accepted a message despite a timeout / 5xx response.
+    // Preserve the hold until expiry so a delivered OTP is still verifiable.
+    if (!emailSent.ok && emailSent.deliveryOutcome === "uncertain") {
+      return { ok: false as const, error: "email", verificationId: id, delivery: "uncertain" as const };
+    }
     await sql`delete from public_booking_verifications where id = ${id}::uuid`;
     return { ok: false as const, error: "email" };
   }
