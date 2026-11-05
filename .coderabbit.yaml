@@ -25,6 +25,31 @@ reviews:
     - "!**/package-lock.json"
     - "!**/pnpm-lock.yaml"
     - "!**/yarn.lock"
+    # TEMPORARY review scope for unified Maria Preview PR #971,
+    # subject to CodeRabbit's 100-reviewable-file cap.
+    # These files REMAIN in GitHub and in all CI tests; none are deleted.
+    # Exclude only low-priority presentation / already-tested source-contract tests.
+    # REMOVE this temporary block before any merge into main.
+    - "!docs/CURRENT_STATUS.md"
+    - "!public/demo/makeup-by-maria.html"
+    - "!tests/posthog-analytics-final-review.test.ts"
+    - "!tests/posthog-analytics-privacy.test.ts"
+    - "!tests/readability-contrast-hardening.test.ts"
+    - "!tests/maria-client-logo-contract.test.ts"
+    - "!src/features/email/maria-email-logo-flow.test.ts"
+    - "!src/lib/maria-email-logo.test.ts"
+    - "!src/lib/maria-preview-service-copy.test.ts"
+    - "!src/lib/booking-date-locale.test.ts"
+    - "!src/lib/public-booking-success-redirect.test.ts"
+    - "!src/lib/dashboard-booking-detail-db.test.ts"
+    - "!src/features/email/maria-booking-confirmation-email.test.ts"
+    - "!src/features/email/maria-arabic-booking-emails.test.ts"
+    - "!src/components/dashboard/maria-booking-reference-copy.test.tsx"
+    - "!src/lib/maria-booking-contact.test.ts"
+    - "!src/lib/maria-year-editor.test.ts"
+    - "!tests/maria-fractional-prices.test.ts"
+    - "!src/lib/customer-portal-shell.test.ts"
+    - "!src/features/email/unified-booking-confirmation-email.test.ts"
   path_instructions:
     - path: "src/**/*.{ts,tsx,js,jsx}"
       instructions: |
