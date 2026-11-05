@@ -241,6 +241,10 @@ function compileSql(parts: TemplateStringsArray, values: unknown[]): Query {
       - new Date(persisted.rows[0]!.created_at).getTime())).toBeLessThan(1_000);
     expect(await readStatus()).toBe("confirmed");
     expect(await countEvents()).toBe(1);
+    const noOp = await updateDashboardBookingStatus(cancelledBookingId, "confirmed");
+    expect(noOp.changed).toBe(false);
+    expect(noOp.previousStatus).toBe("confirmed");
+    expect(await countEvents()).toBe(1);
   });
   it("rejects a single Maria block when a confirmed appointment appears after preflight", async () => {
     // Simulate a stale initial preflight: a booking is already committed by
