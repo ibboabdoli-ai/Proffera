@@ -199,6 +199,7 @@ async function updateBookingStatusAction(bookingId: string, formData: FormData) 
               customerEmail: notification.customerEmail, companyName: workspaceAccess.workspaceName,
               service: notification.service, startsAt: notification.startsAt,
               endsAt: notification.endsAt, city: notification.city, timeZone: result.timeZone,
+              language: notification.language,
             })
           : { ok: false as const };
         mariaMailFailed = !delivery.ok;
