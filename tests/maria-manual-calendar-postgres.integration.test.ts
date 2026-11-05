@@ -17,6 +17,9 @@ vi.mock("server-only", () => ({}));
 vi.mock("@/features/email/booking-change-email", () => ({
   sendBookingChangeEmails: vi.fn(),
 }));
+vi.mock("@/features/email/booking-verification-email", () => ({
+  sendBookingVerificationEmail: vi.fn(async () => ({ ok: true })),
+}));
 vi.mock("@/lib/db/server", () => ({ getSql: () => access.makeSql?.() ?? null }));
 vi.mock("@/lib/workspace-access", () => ({
   getUserWorkspaceAccess: async () => ({
@@ -41,6 +44,9 @@ import {
 import { mariaCalendarIntervals } from "@/lib/maria-manual-calendar-policy";
 import { getMariaAvailability } from "@/lib/maria-booking-availability";
 import { finalizeMariaVerifiedBooking } from "@/lib/maria-verified-booking";
+import { beginBookingEmailVerification } from "@/lib/public-booking-verification";
+import { renewMariaPreviewHoldForResend } from "@/lib/maria-resend-hold";
+import { sendBookingVerificationEmail } from "@/features/email/booking-verification-email";
 import { GET as getMariaBookingSwishQr } from "@/app/api/makeup-by-maria/swish-qr/[id]/route";
 import { rescheduleMariaDashboardBooking } from "@/lib/maria-dashboard-reschedule";
 import { rescheduleMariaCustomerBooking } from "@/lib/maria-customer-reschedule";
@@ -255,6 +261,106 @@ function futureFriday() {
     expect(await bookingPosition(currentId)).toEqual(prior);
     expect(await manualBlocks()).toHaveLength(1);
     expect(vi.mocked(sendBookingChangeEmails)).not.toHaveBeenCalled();
+  });
+
+
+  // Reproduce three independent public booking writers against the same
+  // real PostgreSQL manual-closure row. No emails leave these synthetic tests.
+  async function prepareClosedStartForWriters() {
+    await prepareRescheduleForClosedStart();
+    const slug = `maria-bridal-trial-${day.slice(0, 4)}`;
+    const service = await db!.query<{id: string; name: string}>(
+      "select id::text,name from workspace_services where workspace_id=$1 and public_slug=$2",
+      [workspaceId, slug],
+    );
+    expect(service.rowCount).toBe(1);
+    const start = intervals.find(slot => slot.clock === "09:30")!.startsAt;
+    return {
+      serviceId: service.rows[0]!.id,
+      serviceName: service.rows[0]!.name,
+      startsAt: start,
+      endsAt: new Date(Date.parse(start) + 180 * 60_000).toISOString(),
+    };
+  }
+
+  it("does not create an OTP hold on a manually closed start", async () => {
+    const closed = await prepareClosedStartForWriters();
+    const before = await db!.query(
+      "select count(*)::int as count from bookings where workspace_id=$1",
+      [workspaceId],
+    );
+    const created = await beginBookingEmailVerification({
+      workspaceId, slug: "makeup-by-maria", companyName: "Maria synthetic QA",
+      customerName: "Synthetic bride", customerEmail: "qa@example.invalid",
+      serviceId: closed.serviceId, serviceName: closed.serviceName,
+      startsAt: closed.startsAt, endsAt: closed.endsAt,
+      timeZone: "Europe/Stockholm",
+    });
+    expect(created).toEqual({ ok: false, error: "conflict" });
+    const holds = await db!.query(
+      "select count(*)::int as count from public_booking_verifications where workspace_id=$1::uuid",
+      [workspaceId],
+    );
+    expect(holds.rows[0]?.count).toBe(0);
+    const after = await db!.query(
+      "select count(*)::int as count from bookings where workspace_id=$1",
+      [workspaceId],
+    );
+    expect(after.rows).toEqual(before.rows);
+    expect(await manualBlocks()).toHaveLength(1);
+    expect(vi.mocked(sendBookingVerificationEmail)).not.toHaveBeenCalled();
+  });
+
+  it("does not finalize or consume an OTP hold when its start is closed", async () => {
+    const closed = await prepareClosedStartForWriters();
+    const holdId = randomUUID();
+    await db!.query(
+      "insert into public_booking_verifications(id,workspace_id,public_booking_slug,customer_name,customer_email,service_id,service_name,starts_at,ends_at,code_hash,expires_at) values($1::uuid,$2::uuid,'makeup-by-maria','Synthetic bride','qa@example.invalid',$3::uuid,$4,$5::timestamptz,$6::timestamptz,'closed-final',now()+interval '10 minutes')",
+      [holdId, workspaceId, closed.serviceId, closed.serviceName, closed.startsAt, closed.endsAt],
+    );
+    const before = await db!.query(
+      "select count(*)::int as count from bookings where workspace_id=$1",
+      [workspaceId],
+    );
+    const finalized = await finalizeMariaVerifiedBooking({
+      verificationId: holdId, expectedCodeHash: "closed-final", bookingNote: "synthetic-only",
+    });
+    expect(finalized).toEqual({ ok: false, error: "conflict" });
+    const hold = await db!.query(
+      "select consumed_at,verified_at,code_hash from public_booking_verifications where id=$1::uuid",
+      [holdId],
+    );
+    expect(hold.rows[0]).toMatchObject({ consumed_at: null, verified_at: null, code_hash: "closed-final" });
+    const after = await db!.query(
+      "select count(*)::int as count from bookings where workspace_id=$1",
+      [workspaceId],
+    );
+    expect(after.rows).toEqual(before.rows);
+    expect(await manualBlocks()).toHaveLength(1);
+  });
+
+  it("does not renew an expired OTP hold when its start is closed", async () => {
+    const closed = await prepareClosedStartForWriters();
+    const holdId = randomUUID();
+    await db!.query(
+      "insert into public_booking_verifications(id,workspace_id,public_booking_slug,customer_name,customer_email,service_id,service_name,starts_at,ends_at,code_hash,expires_at,created_at,updated_at) values($1::uuid,$2::uuid,'makeup-by-maria','Synthetic bride','qa@example.invalid',$3::uuid,$4,$5::timestamptz,$6::timestamptz,'old-hash',now()-interval '1 minute',now()-interval '2 minutes',now()-interval '2 minutes')",
+      [holdId, workspaceId, closed.serviceId, closed.serviceName, closed.startsAt, closed.endsAt],
+    );
+    const before = await db!.query(
+      "select code_hash,expires_at::text as expires_at,updated_at::text as updated_at,attempts,consumed_at from public_booking_verifications where id=$1::uuid",
+      [holdId],
+    );
+    const renewed = await renewMariaPreviewHoldForResend({
+      workspaceId, verificationId: holdId, expectedCodeHash: "new-hash",
+      expiresAt: new Date(Date.now() + 10 * 60_000).toISOString(),
+    });
+    expect(renewed).toEqual({ ok: false, error: "conflict" });
+    const after = await db!.query(
+      "select code_hash,expires_at::text as expires_at,updated_at::text as updated_at,attempts,consumed_at from public_booking_verifications where id=$1::uuid",
+      [holdId],
+    );
+    expect(after.rows).toEqual(before.rows);
+    expect(await manualBlocks()).toHaveLength(1);
   });
 
   const requestQr = (id: string) => getMariaBookingSwishQr(

@@ -39,7 +39,7 @@ describe("Maria Preview calendar drag-and-drop safety", () => {
       bookingId: "00000000-0000-4000-8000-000000000002",
       localStartsAt: "2026-11-13T07:00",
       staffId: "",
-    })).rejects.toMatchObject({ code: "conflict" });
+    })).rejects.toMatchObject({ code: "maria_preview" });
     expect(fixture.sqlCalls).toBe(0);
   });
 

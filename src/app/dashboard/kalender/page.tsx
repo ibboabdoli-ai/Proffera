@@ -113,7 +113,7 @@ export default async function CalendarPage({ searchParams }: CalendarPageProps) 
         <DashboardMetricGrid items={metrics} />
 
         <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_320px]">
-          <BusinessCalendar events={events} timeZone={timeZone} />
+          <BusinessCalendar events={events} timeZone={timeZone} isEnglish={isEnglish} />
 
           <aside className="h-fit rounded-card border border-line bg-surface p-4 shadow-card xl:sticky xl:top-24">
             <div className="flex items-center justify-between gap-3 border-b border-line pb-3">

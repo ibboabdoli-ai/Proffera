@@ -1,9 +1,8 @@
 import { NextResponse } from "next/server";
 import QRCode from "qrcode";
 
-import { getSql } from "@/lib/db/server";
-import { mariaBookingNumber, mariaSwishQrPayload } from "@/lib/maria-deposit";
-import { isMariaPreviewTestRecipient } from "@/lib/maria-preview-customer-safety";
+import { mariaSwishQrPayload } from "@/lib/maria-deposit";
+import { readMariaSwishQrEligibility } from "@/lib/maria-swish-qr-eligibility";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -26,38 +25,10 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
   }
   const { id } = await params;
   if (!uuid.test(id)) return unavailable();
-  const approved = process.env.PROFFERA_MARIA_PREVIEW_TEST_EMAIL?.trim().toLowerCase();
-  if (!approved || !isMariaPreviewTestRecipient(approved)) return unavailable();
-  const sql = getSql();
-  if (!sql) return unavailable();
-
   try {
-    const eligible = await sql`
-      select b.id::text as id
-      from bookings b
-      join workspaces w on w.id::text=b.workspace_id
-      join customers c on c.id=b.customer_id and c.workspace_id=b.workspace_id
-      where w.slug='makeup-by-maria'
-        and w.status in ('active','trial')
-        and b.id=${id}::uuid
-        and b.status in ('confirmed','completed')
-        and b.source='public_booking'
-        and lower(trim(c.email))=${approved}
-      limit 1
-    `;
-    if (eligible.length !== 1) return unavailable();
-
-    // The six-character format is shorter than a UUID: refuse an ambiguous
-    // reference instead of showing a QR that might reconcile to two bookings.
-    const duplicate = await sql`
-      select count(*)::int as count
-      from bookings b
-      join workspaces w on w.id::text=b.workspace_id
-      where w.slug='makeup-by-maria'
-        and b.id<>${id}::uuid
-        and left(replace(b.id::text, '-', ''), 6)=${mariaBookingNumber(id).slice(4).toLowerCase()}
-    `;
-    if (Number(duplicate[0]?.count ?? 0) !== 0) {
+    const eligibility = await readMariaSwishQrEligibility(id);
+    if (eligibility === "unavailable") return unavailable();
+    if (eligibility === "ambiguous") {
       return new NextResponse(null, { status: 409, headers });
     }
 

@@ -59,6 +59,8 @@ describe("Maria per-year copy and manual booking controls", () => {
     expect(design).not.toContain('title:"Tack! Din e-post är verifierad."');
     expect(list).not.toContain('params?.payment_saved === "paid"');
     expect(detail).not.toContain('value("payment_saved") === "paid"');
+    expect(detail).toContain("readMariaSwishQrEligibility(booking.id)");
+    expect(detail).toContain('mariaQrEligibility === "eligible"');
   });
 
   it("lets Maria select a readable duration manually and lists reschedule slots using the saved length", () => {
@@ -137,6 +139,17 @@ describe("Maria per-year copy and manual booking controls", () => {
     expect(status).toContain("pg_advisory_xact_lock(hashtextextended(");
     expect(status).toContain("const rows = mariaPreview");
     expect(reschedule).toContain("pg_advisory_xact_lock(hashtextextended(");
+  });
+
+  it("keeps generic calendar moves blocked with a specific bilingual Maria message", () => {
+    const writer = read("src/lib/dashboard-calendar-move.ts");
+    const ui = read("src/components/dashboard/business-calendar.tsx");
+    const page = read("src/app/dashboard/kalender/page.tsx");
+    expect(writer).toContain('new CalendarMoveValidationError("maria_preview")');
+    expect(ui).toContain('code === "maria_preview"');
+    expect(ui).toContain("Öppna bokningen och välj en ny tid.");
+    expect(ui).toContain("open its booking details and choose a new time.");
+    expect(page).toContain("isEnglish={isEnglish}");
   });
 
   it("keeps writes scoped, logged and publication state intact", () => {

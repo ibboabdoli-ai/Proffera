@@ -27,6 +27,7 @@ import { canManageWorkspaceSettings, getUserWorkspaceAccess } from "@/lib/worksp
 import { hasDashboardModuleAccess } from "@/lib/workspace-module-access";
 import { MARIA_DEPOSIT_AMOUNT_SEK, MARIA_SWISH_NUMBER, mariaSwishQrPath } from "@/lib/maria-deposit";
 import { readMariaManualSwishStatuses } from "@/lib/maria-manual-swish";
+import { readMariaSwishQrEligibility } from "@/lib/maria-swish-qr-eligibility";
 import { getMariaPreviewPortalBase, isMariaPreviewTestRecipient } from "@/lib/maria-preview-customer-safety";
 
 export const dynamic = "force-dynamic";
@@ -275,6 +276,12 @@ export default async function BookingDetailPage({ params, searchParams }: Bookin
   const mariaPreview = access.workspaceSlug === "makeup-by-maria"
     && canManageWorkspaceSettings(access) && process.env.VERCEL_ENV === "preview";
   const manualSwish = mariaPreview ? await readMariaManualSwishStatuses() : null;
+  const mariaQrEligibility = mariaPreview && manualSwish?.ok === true && manualSwish.entries[booking.id]
+    ? await readMariaSwishQrEligibility(booking.id).catch((error) => {
+        console.error("Maria Preview Swish QR eligibility could not be read", error);
+        return "unavailable" as const;
+      })
+    : "unavailable";
   const value = (key: "error" | "updated" | "rescheduled" | "created" | "maria_mail" | "payment_saved" | "payment_error" | "lang") => { const item = query?.[key]; return Array.isArray(item) ? item[0] : item; };
   const locale: Locale = value("lang") === "en" ? "en" : "sv";
   const isEnglish = locale === "en";
@@ -362,8 +369,14 @@ export default async function BookingDetailPage({ params, searchParams }: Bookin
           />
         </div>
         <p className="mt-2 text-sm"><strong>{isEnglish ? "Swish business:" : "Swish företag:"}</strong> {MARIA_SWISH_NUMBER}</p>
-        <Image src={mariaSwishQrPath(booking.id)} alt={isEnglish ? "Swish QR with 2,000 SEK and this booking reference" : "Swish QR med 2 000 kr och bokningsnummer för denna bokning"}
-          width={380} height={380} unoptimized className="mt-4 h-auto max-w-[210px] rounded-lg border border-[#e8d9dc]" />
+        {mariaQrEligibility === "eligible" ? (
+          <Image src={mariaSwishQrPath(booking.id)} alt={isEnglish ? "Swish QR with 2,000 SEK and this booking reference" : "Swish QR med 2 000 kr och bokningsnummer för denna bokning"}
+            width={380} height={380} unoptimized className="mt-4 h-auto max-w-[210px] rounded-lg border border-[#e8d9dc]" />
+        ) : (
+          <p className="mt-3 text-sm text-[#754b5a]">
+            {isEnglish ? "The QR code is available only for an eligible confirmed or completed QA booking with a unique reference." : "QR-koden visas bara för en godkänd bekräftad eller avslutad QA-bokning med unik referens."}
+          </p>
+        )}
       </section>
     ) : null}
 

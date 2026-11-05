@@ -1,5 +1,9 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+
+import { MariaCalendarConfirmButton } from "@/app/dashboard/maria/kalender/maria-calendar-confirm-button";
 
 import { describe, expect, it } from "vitest";
 
@@ -59,6 +63,30 @@ describe("Readability and contrast hardening", () => {
     // Do not force white on Maria's light secondary buttons.
     expect(calendar).toContain('kind === "close"');
     expect(calendar).toContain("bg-white");
+  });
+
+  it("renders Maria's light reopen button with a dark, readable foreground", () => {
+    const markup = renderToStaticMarkup(createElement(MariaCalendarConfirmButton, {
+      kind: "open", label: "Öppna", confirmation: "Öppna denna tid?",
+    }));
+    const buttonClasses = markup.match(/<button[^>]*class="([^"]+)"/)?.[1]?.split(/\\s+/) ?? [];
+    expect(buttonClasses).toContain("bg-white");
+    expect(buttonClasses).toContain("text-[#754b5a]");
+    expect(buttonClasses).not.toContain("text-white");
+
+    // WCAG contrast of the actual foreground utility value against white.
+    const linear = [0x75, 0x4b, 0x5a].map(channel => {
+      const value = channel / 255;
+      return value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4;
+    });
+    const luminance = 0.2126 * linear[0]! + 0.7152 * linear[1]! + 0.0722 * linear[2]!;
+    expect(1.05 / (luminance + 0.05)).toBeGreaterThanOrEqual(4.5);
+
+    const closeMarkup = renderToStaticMarkup(createElement(MariaCalendarConfirmButton, {
+      kind: "close", label: "Stäng", confirmation: "Stäng denna tid?",
+    }));
+    expect(closeMarkup).toContain("bg-[#845363]");
+    expect(closeMarkup).toContain("text-white");
   });
 
   it("prevents light CTAs inside dark cards from inheriting white WebKit text fill", () => {
