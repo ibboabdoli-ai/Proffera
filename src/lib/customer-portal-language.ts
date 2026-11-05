@@ -59,8 +59,9 @@ export function resolveCustomerPortalLanguage(
   presentation: CustomerPortalPresentation | null,
 ): CustomerPortalLanguage {
   // Arabic is enabled only for Maria's isolated Preview, not other tenants.
-  if (requested === "ar" && presentation?.publicBookingSlug === "makeup-by-maria"
-    && process.env.VERCEL_ENV === "preview") return "ar";
+  if (presentation?.publicBookingSlug === "makeup-by-maria"
+    && process.env.VERCEL_ENV === "preview"
+    && (requested === "ar" || requested === "sv" || requested === "en")) return requested;
   if (requested === "en" && presentation?.englishEnabled) return "en";
   if (requested === "sv" && presentation?.swedishEnabled) return "sv";
   if (presentation?.defaultLanguage === "en" && presentation.englishEnabled) return "en";
