@@ -28,6 +28,7 @@ export type DashboardBookingStatusUpdateResult = {
     startsAt: string;
     endsAt: string;
     language?: "sv" | "en" | "ar";
+    confirmedAt?: string;
   } | null;
   reviewInvitationDelivery: "sent" | "failed" | "skipped" | null;
 };
@@ -131,6 +132,7 @@ export async function updateDashboardBookingStatus(
         -- Unrelated workspaces retain their existing status semantics.
         and (
           ${!mariaPreview}::boolean or ${status}::text not in ('requested', 'confirmed')
+          or bookings.status <> 'cancelled'
           or (
             not exists (
               select 1 from bookings other
@@ -157,6 +159,19 @@ export async function updateDashboardBookingStatus(
                     < bookings.ends_at+(coalesce(current_service.buffer_after_minutes,0)*interval '1 minute')
                 and hold.ends_at+(coalesce(hold_service.buffer_after_minutes,0)*interval '1 minute')
                     > bookings.starts_at-(coalesce(current_service.buffer_before_minutes,0)*interval '1 minute')
+            )
+            and not exists (
+              select 1 from maria_manual_closed_starts manual
+              where manual.workspace_id = bookings.workspace_id::uuid
+                and manual.starts_at = bookings.starts_at
+            )
+            and exists (
+              select 1 from workspace_booking_hours hours
+              where hours.workspace_id = bookings.workspace_id
+                and hours.weekday = extract(dow from bookings.starts_at at time zone 'Europe/Stockholm')::int
+                and hours.is_closed = false
+                and (bookings.starts_at at time zone 'Europe/Stockholm')::time >= hours.opens_at
+                and (bookings.starts_at at time zone 'Europe/Stockholm')::time <= hours.closes_at
             )
           )
         )
@@ -305,7 +320,7 @@ export async function updateDashboardBookingStatus(
         )
       from updated_booking
       join existing_booking on existing_booking.id = updated_booking.id
-      returning id
+      returning id, created_at
     )
     select
       (select id from existing_booking limit 1) as booking_id,
@@ -318,7 +333,8 @@ export async function updateDashboardBookingStatus(
       (select city from existing_booking limit 1) as city,
       (select starts_at from existing_booking limit 1) as starts_at,
       (select ends_at from existing_booking limit 1) as ends_at,
-      (select booking_language from existing_booking limit 1) as booking_language
+      (select booking_language from existing_booking limit 1) as booking_language,
+      (select created_at from inserted_event limit 1) as confirmed_at
   `;
 
   // Lock the entire Maria status mutation (including job creation) against
@@ -349,6 +365,8 @@ export async function updateDashboardBookingStatus(
         endsAt: new Date(String(result.ends_at)).toISOString(),
         language: result.booking_language === "ar" ? "ar" as const
           : result.booking_language === "en" ? "en" as const : "sv" as const,
+        confirmedAt: status === "confirmed" && result.confirmed_at
+          ? new Date(String(result.confirmed_at)).toISOString() : undefined,
       }
     : null;
 
