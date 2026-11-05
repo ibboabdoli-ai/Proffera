@@ -304,13 +304,20 @@ function compileSql(parts: TemplateStringsArray, values: unknown[]): Query {
       [workspaceId],
     );
     const serviceId = services.rows[0]!.id;
+    // Canonical public-booking triggers reject overlaps, even in synthetic fixtures.
+    // Use two other future weeks on the already-configured weekday.
+    const cancelledStart = new Date(start.getTime() + 7 * 86_400_000);
+    const cancelledEnd = new Date(end.getTime() + 7 * 86_400_000);
+    const confirmedStart = new Date(start.getTime() + 14 * 86_400_000);
+    const confirmedEnd = new Date(end.getTime() + 14 * 86_400_000);
     const rows = await db!.query<{ id: string; status: string }>(
       `insert into bookings(workspace_id,customer_id,service_id,title,service,status,source,starts_at,ends_at)
        values
         ($1,$2::uuid,$3::uuid,'Synthetic stale cancelled','Brudsmink med prov 2026','cancelled','public_booking',$4::timestamptz,$5::timestamptz),
-        ($1,$2::uuid,$3::uuid,'Synthetic stale confirmed','Brudsmink med prov 2026','confirmed','public_booking',$4::timestamptz,$5::timestamptz)
+        ($1,$2::uuid,$3::uuid,'Synthetic stale confirmed','Brudsmink med prov 2026','confirmed','public_booking',$6::timestamptz,$7::timestamptz)
        returning id::text,status`,
-      [workspaceId, customerId, serviceId, start.toISOString(), end.toISOString()],
+      [workspaceId, customerId, serviceId, cancelledStart.toISOString(), cancelledEnd.toISOString(),
+        confirmedStart.toISOString(), confirmedEnd.toISOString()],
     );
     const cancelledId = rows.rows.find(row => row.status === "cancelled")!.id;
     const confirmedId = rows.rows.find(row => row.status === "confirmed")!.id;
@@ -323,8 +330,8 @@ function compileSql(parts: TemplateStringsArray, values: unknown[]): Query {
       customerEmail,
       companyName: "Synthetic Maria",
       service: "Brudsmink med prov 2026",
-      startsAt: start.toISOString(),
-      endsAt: end.toISOString(),
+      startsAt: cancelledStart.toISOString(),
+      endsAt: cancelledEnd.toISOString(),
       city: "Södertälje",
       timeZone: "Europe/Stockholm" as const,
     };
@@ -339,6 +346,7 @@ function compileSql(parts: TemplateStringsArray, values: unknown[]): Query {
       )).rows[0]?.status).toBe("confirmed");
       expect(await sendMariaBookingStatusEmail({
         ...input, bookingId: confirmedId, status: "cancelled",
+        startsAt: confirmedStart.toISOString(), endsAt: confirmedEnd.toISOString(),
       })).toEqual({ ok: false, error: "invalid_booking" });
       expect(fetchMock).not.toHaveBeenCalled();
     } finally {
