@@ -7,6 +7,7 @@ type FinalizeMariaInput = {
   verificationId: string;
   expectedCodeHash: string;
   bookingNote: string;
+  bookingLanguage: "sv" | "en" | "ar";
 };
 
 /**
@@ -119,7 +120,8 @@ export async function finalizeMariaVerifiedBooking(input: FinalizeMariaInput) {
           insert into customer_events(workspace_id,customer_id,booking_id,event_type,title,description,metadata)
           select ${readiness.workspaceId},b.customer_id,b.id,'booking',
             'Booking created','Maria appointment created after verified email.',
-            jsonb_build_object('source','public_booking','service','Makeup by Maria')
+            jsonb_build_object('source','public_booking','service','Makeup by Maria',
+              'language',${input.bookingLanguage}::text)
           from booking b returning id
         ),
         consumed as (
