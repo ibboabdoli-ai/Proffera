@@ -161,6 +161,30 @@ describe("Maria-only Swish confirmation and cancellation email", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it("does not send a stale deposit request if the booking was cancelled", async () => {
+    dbQuery.mockResolvedValueOnce([]);
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    expect(await sendMariaBookingStatusEmail(booking))
+      .toEqual({ ok: false, error: "invalid_booking" });
+    expect(fetchMock).not.toHaveBeenCalled();
+    const [parts, ...args] = dbQuery.mock.calls[0] as [TemplateStringsArray, ...unknown[]];
+    expect(parts.join("?")).toContain("and b.status=?");
+    expect(args).toContain("confirmed");
+  });
+
+  it("does not resend a stale cancellation email to a reactivated booking", async () => {
+    dbQuery.mockResolvedValueOnce([]);
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    expect(await sendMariaBookingStatusEmail({ ...booking, status: "cancelled" }))
+      .toEqual({ ok: false, error: "invalid_booking" });
+    expect(fetchMock).not.toHaveBeenCalled();
+    const [parts, ...args] = dbQuery.mock.calls[0] as [TemplateStringsArray, ...unknown[]];
+    expect(parts.join("?")).toContain("and b.status=?");
+    expect(args).toContain("cancelled");
+  });
+
   it("sends only to the allowed QA inbox with correct booking reference", async () => {
     const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: vi.fn().mockResolvedValue({}) });
     vi.stubGlobal("fetch", fetchMock);
