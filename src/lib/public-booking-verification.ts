@@ -11,7 +11,7 @@ import { getSql } from "@/lib/db/server";
 import { finalizeMariaVerifiedBooking } from "@/lib/maria-verified-booking";
 import { getMariaPreviewBookingReadiness } from "@/lib/maria-preview-booking";
 import { renewMariaPreviewHoldForResend } from "@/lib/maria-resend-hold";
-import { isMariaPreviewTestRecipient } from "@/lib/maria-preview-customer-safety";
+import { getMariaPreviewPortalBase, isMariaPreviewTestRecipient } from "@/lib/maria-preview-customer-safety";
 import type { WorkspaceTimeZone } from "@/lib/workspace-market";
 
 const EXPIRY_MINUTES = 10;
