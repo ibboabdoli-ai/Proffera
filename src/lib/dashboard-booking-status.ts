@@ -18,6 +18,7 @@ export type DashboardBookingStatus = (typeof allowedBookingStatuses)[number];
 
 export type DashboardBookingStatusUpdateResult = {
   changed: boolean;
+  previousStatus: string | null;
   timeZone: ReturnType<typeof resolveBookingTimeZone>;
   notification: {
     customerName: string;
@@ -324,6 +325,7 @@ export async function updateDashboardBookingStatus(
     )
     select
       (select id from existing_booking limit 1) as booking_id,
+      (select old_status from existing_booking limit 1) as previous_status,
       (select count(*)::int from updated_booking) as updated_count,
       (select count(*)::int from inserted_event) as event_count,
       (select customer_name from existing_booking limit 1) as customer_name,
@@ -391,6 +393,7 @@ export async function updateDashboardBookingStatus(
 
   return {
     changed,
+    previousStatus: result.previous_status ? String(result.previous_status) : null,
     timeZone,
     notification,
     reviewInvitationDelivery,
