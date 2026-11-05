@@ -29,6 +29,7 @@ export type BookingRescheduleResult = {
     previousStartsAt: string;
     startsAt: string;
     endsAt: string;
+    language?: "sv" | "en" | "ar";
   } | null;
 };
 
