@@ -260,12 +260,11 @@ export async function sendMariaBookingStatusEmail(input: MariaBookingStatusEmail
   if (!apiKey || !from) return { ok: false as const, error: "email_not_configured" as const };
   let content: ReturnType<typeof buildMariaBookingStatusEmail>;
   try {
-    let depositAlreadyPaid = false;
-    if (input.status === "confirmed") {
-      const sql = getSql();
-      if (!sql) return { ok: false as const, error: "payment_state_unavailable" as const };
-      // A fresh scoped read prevents another deposit demand after a manual paid mark.
-      const rows = await sql`
+    // Read the current booking status on every send. An old confirmation
+    // must not request payment after a manager has cancelled the booking.
+    const sql = getSql();
+    if (!sql) return { ok: false as const, error: "booking_state_unavailable" as const };
+    const rows = await sql`
         select coalesce((
           select e.metadata->>'state' from customer_events e
           where e.workspace_id=b.workspace_id and e.booking_id=b.id
@@ -280,12 +279,12 @@ export async function sendMariaBookingStatusEmail(input: MariaBookingStatusEmail
         where b.id=${input.bookingId}::uuid and w.slug='makeup-by-maria'
           and w.status in ('active','trial')
           and b.source='public_booking'
+          and b.status=${input.status}
           and lower(trim(c.email))=${input.customerEmail.trim().toLowerCase()}
         limit 1
       `;
-      if (!rows[0]) return { ok: false as const, error: "invalid_booking" as const };
-      depositAlreadyPaid = rows[0].deposit_state === "paid";
-    }
+    if (!rows[0]) return { ok: false as const, error: "invalid_booking" as const };
+    const depositAlreadyPaid = input.status === "confirmed" && rows[0].deposit_state === "paid";
     content = buildMariaBookingStatusEmail({ ...input, depositAlreadyPaid }, base);
   } catch {
     return { ok: false as const, error: "invalid_booking" as const };
