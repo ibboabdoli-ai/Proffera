@@ -20,6 +20,7 @@ vi.mock("@neondatabase/serverless", () => ({
 vi.mock("@/lib/db/database-url", () => ({
   resolveDatabaseUrl: () => "postgresql://synthetic-test-only.invalid",
 }));
+vi.mock("@/lib/db/server", () => ({ getSql: () => runtime.makeSql?.() ?? null }));
 vi.mock("@/lib/workspace-access", () => ({
   getUserWorkspaceAccess: async () => ({
     ok: true,
@@ -36,6 +37,7 @@ vi.mock("@/lib/verified-review-email-delivery", () => ({
 }));
 
 import { updateDashboardBookingStatus } from "@/lib/dashboard-booking-status";
+import { sendMariaBookingStatusEmail } from "@/features/email/maria-deposit-email";
 import { createDashboardAvailabilityBlock } from "@/lib/dashboard-availability-blocks";
 
 const RUN = process.env.GITHUB_ACTIONS === "true" ||
@@ -61,7 +63,9 @@ function compileSql(parts: TemplateStringsArray, values: unknown[]): Query {
   const cancelledBookingId = randomUUID();
   const competingBookingId = randomUUID();
   const customerEmail = "qa@example.invalid";
-  const start = new Date(Date.now() + 21 * 86_400_000);
+  // Fixed daytime UTC avoids being later than the Stockholm 23:59 close.
+  const future = new Date(Date.now() + 21 * 86_400_000);
+  const start = new Date(Date.UTC(future.getUTCFullYear(), future.getUTCMonth(), future.getUTCDate(), 10));
   const end = new Date(start.getTime() + 180 * 60_000);
   const overlappingStart = new Date(start.getTime() + 30 * 60_000);
   const overlappingEnd = new Date(end.getTime() + 30 * 60_000);
@@ -71,6 +75,9 @@ function compileSql(parts: TemplateStringsArray, values: unknown[]): Query {
     vi.stubEnv("VERCEL_ENV", "preview");
     vi.stubEnv("PROFFERA_MARIA_PREVIEW_TEST_EMAIL", customerEmail);
     vi.stubEnv("PROFFERA_PREVIEW_EMAIL_RECIPIENT", customerEmail);
+    vi.stubEnv("VERCEL_URL", "maria-synthetic-qa.vercel.app");
+    vi.stubEnv("BREVO_API_KEY", "synthetic-brevo-key");
+    vi.stubEnv("LEAD_FROM_EMAIL", "Maria Test <noreply@example.invalid>");
 
     container = "proffera-maria-reactivation-" + process.pid + "-" + Date.now();
     docker(["run", "--rm", "-d", "--name", container,
@@ -165,6 +172,7 @@ function compileSql(parts: TemplateStringsArray, values: unknown[]): Query {
   afterAll(async () => {
     runtime.makeSql = undefined;
     vi.unstubAllEnvs();
+    vi.unstubAllGlobals();
     await db?.end().catch(() => undefined);
     if (container) {
       try { docker(["stop", container]); } catch { /* already stopped */ }
@@ -224,7 +232,13 @@ function compileSql(parts: TemplateStringsArray, values: unknown[]): Query {
     const revived = await updateDashboardBookingStatus(cancelledBookingId, "confirmed");
     expect(revived.changed).toBe(true);
     expect(revived.notification?.customerEmail).toBe(customerEmail);
-    expect(new Date(revived.notification?.confirmedAt ?? "").getTime()).toBeGreaterThan(0);
+    const persisted = await db!.query<{ created_at: Date }>(
+      "select created_at from customer_events where workspace_id=$1 and booking_id=$2::uuid and event_type='status_change' and metadata->>'new_status'='confirmed' order by created_at desc,id desc limit 1",
+      [workspaceId, cancelledBookingId],
+    );
+    expect(persisted.rows).toHaveLength(1);
+    expect(Math.abs(new Date(revived.notification?.confirmedAt ?? "").getTime()
+      - new Date(persisted.rows[0]!.created_at).getTime())).toBeLessThan(1_000);
     expect(await readStatus()).toBe("confirmed");
     expect(await countEvents()).toBe(1);
   });
