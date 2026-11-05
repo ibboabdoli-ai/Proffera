@@ -387,7 +387,7 @@ export async function verifyPublicBookingCode(id: string, code: string, language
   if (String(challenge.public_booking_slug) === "makeup-by-maria") {
     // A preview booking must never be created if its customer links cannot
     // be generated on the same isolated Preview deployment.
-    if (process.env.VERCEL_ENV !== "preview" || !process.env.VERCEL_URL) {
+    if (!getMariaPreviewPortalBase()) {
       return { ok: false as const, error: "unavailable" };
     }
     // Revalidates the code and the latest start window, service duration,
