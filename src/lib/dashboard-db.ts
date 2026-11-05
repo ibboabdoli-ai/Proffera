@@ -407,7 +407,10 @@ export async function createDashboardBooking(input: CreateDashboardBookingInput)
     throw new Error("Missing database connection for dashboard booking creation");
   }
 
-  const workspaceId = await getActiveWorkspaceId();
+  const workspaceAccess = await getUserWorkspaceAccess();
+  if (!workspaceAccess.ok) throw new Error("Workspace membership is required for booking creation");
+  const workspaceId = workspaceAccess.workspaceId;
+  const mariaPreview = process.env.VERCEL_ENV === "preview" && workspaceAccess.workspaceSlug === "makeup-by-maria";
 
   const customerRows = await sql`
     select id
@@ -439,7 +442,7 @@ export async function createDashboardBooking(input: CreateDashboardBookingInput)
     throw new BookingTimeConflictError();
   }
 
-  const rows = await sql`
+  const bookingInsert = sql`
     insert into bookings (
       workspace_id,
       customer_id,
@@ -454,7 +457,7 @@ export async function createDashboardBooking(input: CreateDashboardBookingInput)
       source,
       notes
     )
-    values (
+    select
       ${workspaceId},
       ${customerId},
       ${input.title.trim()},
@@ -467,13 +470,31 @@ export async function createDashboardBooking(input: CreateDashboardBookingInput)
       ${input.endsAt}::timestamptz,
       'dashboard_manual',
       ${toNullableText(input.notes)}
+    where ${!mariaPreview}::boolean or not exists (
+      select 1 from public_booking_verifications hold
+      left join workspace_services hold_service
+        on hold_service.id=hold.service_id and hold_service.workspace_id=hold.workspace_id::text
+      where hold.workspace_id=${workspaceId}::uuid
+        and hold.consumed_at is null and hold.expires_at>clock_timestamp()
+        and hold.starts_at-(coalesce(hold_service.buffer_before_minutes,0)*interval '1 minute')
+          < ${input.endsAt}::timestamptz
+        and hold.ends_at+(coalesce(hold_service.buffer_after_minutes,0)*interval '1 minute')
+          > ${input.startsAt}::timestamptz
     )
     returning id
   `;
 
+  // Manager bookings cannot displace an outstanding Maria verification hold.
+  const rows = mariaPreview
+    ? (await sql.transaction([
+        sql`select pg_advisory_xact_lock(hashtextextended(${workspaceId}::text, 713))`,
+        bookingInsert,
+      ]))[1]
+    : await bookingInsert;
   const bookingId = toText(rows[0]?.id);
 
   if (!bookingId) {
+    if (mariaPreview) throw new BookingTimeConflictError();
     throw new Error("Booking creation did not return an id");
   }
 
