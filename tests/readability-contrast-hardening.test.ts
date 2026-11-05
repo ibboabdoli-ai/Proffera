@@ -69,7 +69,7 @@ describe("Readability and contrast hardening", () => {
     const markup = renderToStaticMarkup(createElement(MariaCalendarConfirmButton, {
       kind: "open", label: "Öppna", confirmation: "Öppna denna tid?",
     }));
-    const buttonClasses = markup.match(/<button[^>]*class="([^"]+)"/)?.[1]?.split(/\\s+/) ?? [];
+    const buttonClasses = markup.match(/<button[^>]*class="([^"]+)"/)?.[1]?.split(/\s+/) ?? [];
     expect(buttonClasses).toContain("bg-white");
     expect(buttonClasses).toContain("text-[#754b5a]");
     expect(buttonClasses).not.toContain("text-white");
