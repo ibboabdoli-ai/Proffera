@@ -4,7 +4,7 @@ import { setTimeout as delay } from "node:timers/promises";
 
 import { Client } from "pg";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { applyCanonicalProfferaMigrations } from "./helpers/postgres-canonical-schema";
+import { applyCanonicalProfferaMigrations, applyMariaPreviewMigrations } from "./helpers/postgres-canonical-schema";
 
 type Query = { text: string; values: unknown[] };
 type Rows = Record<string, unknown>[];
@@ -99,6 +99,7 @@ function futureFriday() {
     db=new Client({connectionString});
     await db.connect();
     await applyCanonicalProfferaMigrations(db);
+    await applyMariaPreviewMigrations(db);
 
     access.makeSql=()=>Object.assign(
       (parts:TemplateStringsArray,...values:unknown[])=>{

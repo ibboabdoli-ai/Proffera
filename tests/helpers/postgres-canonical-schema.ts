@@ -231,3 +231,35 @@ export async function applyCanonicalProfferaMigrations(client: Client) {
     }
   }
 }
+
+/**
+ * Opt-in Maria Preview schema only, applied after canonical Production schema
+ * to synthetic isolated PostgreSQL. This directory is intentionally NOT part
+ * of the Production migration ledger and is never used by Production runners.
+ * Keep both files in one Client session to preserve SET/RESET timeout semantics.
+ */
+export async function applyMariaPreviewMigrations(client: Client) {
+  const previewDir = join(process.cwd(), "db/preview-migrations");
+  const filenames = [
+    "20261103_0072_maria_manual_closed_starts.sql",
+    "20261105_0073_public_booking_verification_contact_fields.sql",
+  ];
+  for (const filename of filenames) {
+    const sql = readFileSync(join(previewDir, filename), "utf8");
+    try {
+      await client.query("BEGIN");
+      for (const statement of splitSqlStatements(sql)) {
+        await client.query(statement);
+      }
+      await client.query("COMMIT");
+    } catch (error) {
+      await client.query("ROLLBACK").catch(() => undefined);
+      const reason = error instanceof Error ? error.message : String(error);
+      throw new Error(`Maria Preview migration ${filename} failed: ${reason}`, { cause: error });
+    } finally {
+      // Also clear any session-level settings on failure before reuse.
+      await client.query("RESET lock_timeout");
+      await client.query("RESET statement_timeout");
+    }
+  }
+}

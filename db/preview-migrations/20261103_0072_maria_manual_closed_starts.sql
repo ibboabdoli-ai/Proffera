@@ -1,3 +1,6 @@
+-- Isolated Maria QA migration. Not a Production-ledger migration.
+-- Do NOT apply to a hosted or Production database without separately approved
+-- release sequencing and a tracked Production migration / health contract.
 -- Maria-only booking start closures. Schema-only: no existing booking or customer rows are modified.
 -- Apply this additive migration to the isolated Preview database BEFORE deploying
 -- code that reads or writes maria_manual_closed_starts. Without the table,

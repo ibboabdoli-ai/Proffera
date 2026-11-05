@@ -109,7 +109,7 @@ describe("Maria per-year copy and manual booking controls", () => {
     const calendar = read("src/app/dashboard/maria/kalender/page.tsx");
     expect(calendar).toContain("Inget stängs automatiskt.");
     expect(read("src/lib/maria-manual-calendar.ts")).not.toContain("insert into bookings(");
-    expect(read("db/migrations/20261103_0072_maria_manual_closed_starts.sql"))
+    expect(read("db/preview-migrations/20261103_0072_maria_manual_closed_starts.sql"))
       .toContain("maria_manual_closed_starts_pk PRIMARY KEY (workspace_id, starts_at)");
     expect(calendar).toContain("Befintliga bokningar och pågående verifieringar");
   });

@@ -4,7 +4,7 @@ import { setTimeout as delay } from "node:timers/promises";
 
 import { Client } from "pg";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { applyCanonicalProfferaMigrations } from "./helpers/postgres-canonical-schema";
+import { applyCanonicalProfferaMigrations, applyMariaPreviewMigrations } from "./helpers/postgres-canonical-schema";
 
 type Query = { text: string; values: unknown[] };
 type QueryResponse = Record<string, unknown>[];
@@ -90,6 +90,7 @@ function compileSql(strings: TemplateStringsArray, values: unknown[]): Query {
     db = new Client({ connectionString });
     await db.connect();
     await applyCanonicalProfferaMigrations(db);
+    await applyMariaPreviewMigrations(db);
 
     runtime.makeSql = () => Object.assign(
       (parts: TemplateStringsArray, ...values: unknown[]) => {

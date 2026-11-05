@@ -1,3 +1,6 @@
+-- Isolated Maria QA migration. Not a Production-ledger migration.
+-- Do NOT apply to a hosted or Production database without separately approved
+-- release sequencing and a tracked Production migration / health contract.
 -- The public-booking verification writer stores address, postcode and
 -- booking details, but the canonical table migration lacked these columns.
 -- Rollout: apply this additive, idempotent migration and verify success in an

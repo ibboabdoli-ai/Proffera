@@ -4,7 +4,7 @@ import { setTimeout as delay } from "node:timers/promises";
 
 import { Client } from "pg";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { applyCanonicalProfferaMigrations } from "./helpers/postgres-canonical-schema";
+import { applyCanonicalProfferaMigrations, applyMariaPreviewMigrations } from "./helpers/postgres-canonical-schema";
 
 // Do not mock getSql() or the booking query. Only bridge Neon's HTTP transport
 // to real PostgreSQL, preserving the same single-session transaction semantics.
@@ -68,6 +68,7 @@ function compileSql(strings: TemplateStringsArray, values: unknown[]): Query {
     if (!ready) throw new Error("PostgreSQL never became ready");
     db = new Client({ connectionString: url }); await db.connect();
     await applyCanonicalProfferaMigrations(db);
+    await applyMariaPreviewMigrations(db);
 
     bridge.makeSql = () => Object.assign(
       (parts: TemplateStringsArray, ...values: unknown[]) => compileSql(parts, values),
