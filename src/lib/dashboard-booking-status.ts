@@ -27,6 +27,7 @@ export type DashboardBookingStatusUpdateResult = {
     city: string;
     startsAt: string;
     endsAt: string;
+    language: "sv" | "en" | "ar";
   } | null;
   reviewInvitationDelivery: "sent" | "failed" | "skipped" | null;
 };
@@ -95,7 +96,14 @@ export async function updateDashboardBookingStatus(
         b.staff_id,
         c.name as customer_name,
         c.email as customer_email,
-        c.phone as customer_phone
+        c.phone as customer_phone,
+        case when ${mariaPreview}::boolean then coalesce((
+          select e.metadata->>'language' from customer_events e
+          where e.workspace_id=b.workspace_id and e.booking_id=b.id
+            and e.event_type='booking' and e.metadata->>'source'='public_booking'
+            and e.metadata->>'language' in ('sv','en','ar')
+          order by e.created_at desc,e.id desc limit 1
+        ),'sv') else 'sv' end as booking_language
       from bookings b
       left join customers c
         on c.id = b.customer_id
@@ -309,7 +317,8 @@ export async function updateDashboardBookingStatus(
       (select service from existing_booking limit 1) as service,
       (select city from existing_booking limit 1) as city,
       (select starts_at from existing_booking limit 1) as starts_at,
-      (select ends_at from existing_booking limit 1) as ends_at
+      (select ends_at from existing_booking limit 1) as ends_at,
+      (select booking_language from existing_booking limit 1) as booking_language
   `;
 
   // Lock the entire Maria status mutation (including job creation) against
@@ -338,6 +347,8 @@ export async function updateDashboardBookingStatus(
         city: String(result.city ?? ""),
         startsAt: new Date(String(result.starts_at)).toISOString(),
         endsAt: new Date(String(result.ends_at)).toISOString(),
+        language: result.booking_language === "ar" ? "ar" as const
+          : result.booking_language === "en" ? "en" as const : "sv" as const,
       }
     : null;
 
