@@ -10,6 +10,8 @@
 -- ON DELETE CASCADE intentionally removes closure rows when their owning
 -- workspace is deleted; ordinary booking and payment rows are not touched.
 -- Deployment/application remains Preview-only until separately approved.
+BEGIN;
+
 CREATE TABLE IF NOT EXISTS maria_manual_closed_starts (
   workspace_id uuid NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
   starts_at timestamptz NOT NULL,
@@ -17,3 +19,15 @@ CREATE TABLE IF NOT EXISTS maria_manual_closed_starts (
   created_at timestamptz NOT NULL DEFAULT now(),
   CONSTRAINT maria_manual_closed_starts_pk PRIMARY KEY (workspace_id, starts_at)
 );
+
+INSERT INTO proffera_schema_migrations (
+  migration_key, filename, checksum, git_sha, applied_by, execution_mode, notes
+) VALUES (
+  '20261103_0072',
+  '20261103_0072_maria_manual_closed_starts.sql',
+  null, null, 'migration-0072', 'canonical-migration',
+  'Adds isolated Maria manual closed-start table; code rollout requires this table before Preview activation.'
+)
+ON CONFLICT (migration_key) DO NOTHING;
+
+COMMIT;
