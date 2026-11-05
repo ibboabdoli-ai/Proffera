@@ -2,6 +2,7 @@ import "server-only";
 
 import { mariaEmailLogoHtml } from "@/lib/maria-email-logo";
 import { bookingDateLocale } from "@/lib/booking-date-locale";
+import { getSql } from "@/lib/db/server";
 
 import { getMariaPreviewPortalBase, isMariaPreviewTestRecipient } from "@/lib/maria-preview-customer-safety";
 import {
@@ -23,6 +24,8 @@ export type MariaBookingStatusEmailInput = {
   timeZone?: WorkspaceTimeZone;
   confirmedAt?: Date;
   language?: "sv" | "en" | "ar";
+  /** Caller-provided only for pure render tests; sender always reads DB state. */
+  depositAlreadyPaid?: boolean;
 };
 
 function escapeHtml(value: string) {
@@ -55,6 +58,31 @@ export function buildMariaBookingStatusEmail(input: MariaBookingStatusEmailInput
   const start = formatTime(input.startsAt, input.timeZone, language);
   const end = formatTime(input.endsAt, input.timeZone, language);
   const isConfirmation = input.status === "confirmed";
+  // An already-recorded manual Swish deposit must never be requested again.
+  // This is a manager-recorded state, NOT a bank integration.
+  if (isConfirmation && input.depositAlreadyPaid) {
+    const paidTitle = language === "en" ? "Your booking is confirmed"
+      : language === "ar" ? "تم تأكيد حجزك" : "Din bokning är bekräftad";
+    const paidMessage = language === "en" ? "The deposit is already marked as received by Maria. No further deposit payment is requested."
+      : language === "ar" ? "سجّلت ماريا استلام العربون بالفعل. لا حاجة إلى دفع عربون آخر."
+      : "Maria har redan markerat handpenningen som mottagen. Ingen ny betalning behövs.";
+    const dateLabel = language === "en" ? "Appointment" : language === "ar" ? "الموعد" : "Tid";
+    const referenceLabel = language === "en" ? "Booking number" : language === "ar" ? "رقم الحجز" : "Bokningsnummer";
+    const previewWarning = language === "en" ? "Preview test only – do not make a real Swish payment."
+      : language === "ar" ? "بيئة تجريبية فقط – لا تقومي بأي دفع حقيقي عبر Swish."
+      : "Endast Preview-test – gör ingen riktig Swish-betalning.";
+    const subject = `${paidTitle} – ${reference}`;
+    const text = [paidTitle, "", `${dateLabel}: ${start} – ${end}`,
+      `${referenceLabel}: ${reference}`, paidMessage, previewWarning, input.companyName].join("\n");
+    const html = `<div lang="${language}" dir="${language === "ar" ? "rtl" : "ltr"}"
+      style="max-width:640px;margin:0 auto;font:16px/1.7 Arial,sans-serif;color:#432a35">
+      ${logo}<h1 style="color:#845363">${escapeHtml(paidTitle)}</h1>
+      <p><strong>${escapeHtml(dateLabel)}:</strong> ${escapeHtml(start)} – ${escapeHtml(end)}</p>
+      <p><strong>${escapeHtml(referenceLabel)}:</strong> ${escapeHtml(reference)}</p>
+      <p>${escapeHtml(paidMessage)}</p><p>${escapeHtml(previewWarning)}</p>
+      <p>${escapeHtml(input.companyName)}</p></div>`;
+    return { subject, text, html, reference };
+  }
   // The Swedish copy below is the unchanged default. The customer's saved
   // booking language selects explicit English or Arabic transactional copy.
   if (language !== "sv") {
@@ -232,7 +260,33 @@ export async function sendMariaBookingStatusEmail(input: MariaBookingStatusEmail
   if (!apiKey || !from) return { ok: false as const, error: "email_not_configured" as const };
   let content: ReturnType<typeof buildMariaBookingStatusEmail>;
   try {
-    content = buildMariaBookingStatusEmail(input, base);
+    let depositAlreadyPaid = false;
+    if (input.status === "confirmed") {
+      const sql = getSql();
+      if (!sql) return { ok: false as const, error: "payment_state_unavailable" as const };
+      // A fresh scoped read prevents another deposit demand after a manual paid mark.
+      const rows = await sql`
+        select coalesce((
+          select e.metadata->>'state' from customer_events e
+          where e.workspace_id=b.workspace_id and e.booking_id=b.id
+            and e.event_type='note'
+            and e.metadata->>'source'='maria_swish_manual_deposit_v1'
+            and e.metadata->>'state' in ('paid','unverified')
+          order by e.created_at desc,e.id desc limit 1
+        ),'unverified') as deposit_state
+        from bookings b
+        join customers c on c.id=b.customer_id and c.workspace_id=b.workspace_id
+        join workspaces w on w.id::text=b.workspace_id
+        where b.id=${input.bookingId}::uuid and w.slug='makeup-by-maria'
+          and w.status in ('active','trial')
+          and b.source='public_booking'
+          and lower(trim(c.email))=${input.customerEmail.trim().toLowerCase()}
+        limit 1
+      `;
+      if (!rows[0]) return { ok: false as const, error: "invalid_booking" as const };
+      depositAlreadyPaid = rows[0].deposit_state === "paid";
+    }
+    content = buildMariaBookingStatusEmail({ ...input, depositAlreadyPaid }, base);
   } catch {
     return { ok: false as const, error: "invalid_booking" as const };
   }
