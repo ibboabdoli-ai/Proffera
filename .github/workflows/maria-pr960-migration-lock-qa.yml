@@ -1,0 +1,39 @@
+# One-off isolated verification of Maria migration lock timeout and closed-starts.
+# Remove after validated; not a release gate or authorization.
+name: Maria PR960 bounded migration isolated QA
+on:
+  push:
+    branches: [work/proffera-maria-manual-calendar-957]
+    paths:
+      - .github/workflows/maria-pr960-migration-lock-qa.yml
+permissions:
+  contents: read
+jobs:
+  postgres-qa:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - name: Confirm bounded, transaction-local lock wait in migration
+        run: |
+          node --input-type=module <<'JS'
+          import { readFileSync } from 'node:fs';
+          import assert from 'node:assert/strict';
+          const sql=readFileSync('db/migrations/20261105_0073_public_booking_verification_contact_fields.sql','utf8');
+          assert.match(sql, /set_config\('lock_timeout', '5s', true\)/);
+          assert.match(sql, /set_config\('statement_timeout', '30s', true\)/);
+          assert.match(sql, /EXECUTE 'ALTER TABLE public_booking_verifications/);
+          assert.ok(sql.indexOf("set_config('lock_timeout'") < sql.indexOf("EXECUTE 'ALTER TABLE"));
+          console.log('Local lock and statement timeout contracts PASS');
+          JS
+      - name: Run genuine isolated PostgreSQL migrations and Maria calendar regressions
+        env:
+          PROFFERA_POSTGRES_INTEGRATION: "1"
+        run: ./node_modules/.bin/vitest run tests/maria-manual-calendar-postgres.integration.test.ts --reporter=dot
