@@ -71,7 +71,7 @@ describe("Makeup by Maria Preview deposit flow contract", () => {
     expect(action).toContain('revalidatePath("/dashboard/bokningar")');
   });
 
-  it("does not add a payment gateway, automatic cancellation, migration or production flag", () => {
+  it("does not add a payment gateway, automatic cancellation or production flag", () => {
     const policy = file("src/lib/maria-deposit.ts");
     const email = file("src/features/email/maria-deposit-email.ts");
     expect(policy).toContain("MARIA_DEPOSIT_DEADLINE_HOURS = 24");
@@ -80,7 +80,7 @@ describe("Makeup by Maria Preview deposit flow contract", () => {
     expect(email).toContain("isMariaPreviewTestRecipient(input.customerEmail)");
     expect(email).toContain("Avbokning sker inte automatiskt");
     expect(policy).toContain('MARIA_SWISH_QR_PATH = "/demo/makeup-by-maria/assets/maria-swish-qr.jpg"');
-    expect(email).toContain("new URL(MARIA_SWISH_QR_PATH, origin)");
+    expect(email).toContain("new URL(mariaSwishQrPath(input.bookingId), origin)");
     expect(email).not.toContain("STRIPE_SECRET_KEY");
   });
 });
