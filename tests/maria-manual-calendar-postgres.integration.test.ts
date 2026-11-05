@@ -41,6 +41,7 @@ import {
 import { mariaCalendarIntervals } from "@/lib/maria-manual-calendar-policy";
 import { getMariaAvailability } from "@/lib/maria-booking-availability";
 import { finalizeMariaVerifiedBooking } from "@/lib/maria-verified-booking";
+import { GET as getMariaBookingSwishQr } from "@/app/api/makeup-by-maria/swish-qr/[id]/route";
 import { rescheduleMariaDashboardBooking } from "@/lib/maria-dashboard-reschedule";
 import { rescheduleMariaCustomerBooking } from "@/lib/maria-customer-reschedule";
 import { sendBookingChangeEmails } from "@/features/email/booking-change-email";
@@ -140,6 +141,7 @@ function futureFriday() {
   beforeEach(async()=>{
     vi.stubEnv("VERCEL_ENV","preview");
     vi.stubEnv("PROFFERA_MARIA_PREVIEW_TEST_EMAIL","qa@example.invalid");
+    vi.stubEnv("PROFFERA_MARIA_PREVIEW_BOOKING_ENABLED","true");
     vi.stubEnv("PROFFERA_PREVIEW_EMAIL_RECIPIENT","qa@example.invalid");
     vi.stubEnv("VERCEL_URL","qa.vercel.app");
     vi.clearAllMocks();
@@ -253,6 +255,70 @@ function futureFriday() {
     expect(await bookingPosition(currentId)).toEqual(prior);
     expect(await manualBlocks()).toHaveLength(1);
     expect(vi.mocked(sendBookingChangeEmails)).not.toHaveBeenCalled();
+  });
+
+  const requestQr = (id: string) => getMariaBookingSwishQr(
+    new Request("https://qa.vercel.app/api/makeup-by-maria/swish-qr/" + id),
+    { params: Promise.resolve({ id }) },
+  );
+
+  it("enforces the QR route's real SQL for booking status, source and QA customer email", async()=>{
+    // The existing synthetic Maria booking is requested, not confirmed.
+    expect((await requestQr(bookingId)).status).toBe(404);
+    try {
+      await db!.query("update bookings set status='confirmed' where id=$1::uuid",[bookingId]);
+      const allowed = await requestQr(bookingId);
+      expect(allowed.status).toBe(200);
+      expect(allowed.headers.get("content-type")).toBe("image/png");
+
+      // Even a confirmed dashboard-created record cannot receive a public QR.
+      await db!.query("update bookings set source='dashboard_manual' where id=$1::uuid",[bookingId]);
+      expect((await requestQr(bookingId)).status).toBe(404);
+      await db!.query("update bookings set source='public_booking' where id=$1::uuid",[bookingId]);
+
+      // Maria membership alone is not sufficient: customer email must
+      // match the one explicitly approved Preview QA recipient.
+      await db!.query("update customers set email='not-approved@example.invalid' where id=$1::uuid",[customerId]);
+      expect((await requestQr(bookingId)).status).toBe(404);
+    } finally {
+      // Keep the shared fixture intact even if a negative assertion fails.
+      await db!.query("update customers set email='qa@example.invalid' where id=$1::uuid",[customerId]);
+      await db!.query("update bookings set source='public_booking',status='requested' where id=$1::uuid",[bookingId]);
+    }
+  });
+
+  it("never returns a Swish QR for a confirmed QA-email booking in another workspace", async()=>{
+    const foreignWorkspaceId=randomUUID();
+    const foreignCustomerId=randomUUID();
+    const foreignBookingId=randomUUID();
+    const foreignServiceName="Synthetic foreign QR service";
+    await db!.query(
+      "insert into workspaces(id,slug,name,status,public_booking_slug) values($1::uuid,$2,'Foreign synthetic QA','active',$2)",
+      [foreignWorkspaceId,"foreign-qr-qa-"+foreignWorkspaceId.slice(0,8)],
+    );
+    try {
+      await db!.query(
+        "insert into customers(id,workspace_id,name,email,status,source) values($1::uuid,$2,'Foreign synthetic customer','qa@example.invalid','active','dashboard_manual')",
+        [foreignCustomerId,foreignWorkspaceId],
+      );
+      const service=await db!.query<{id:string}>(
+        "insert into workspace_services(workspace_id,name,public_slug,duration_minutes,is_active,public_status) values($1,$2,'foreign-synthetic-qr',180,true,'published') returning id::text",
+        [foreignWorkspaceId,foreignServiceName],
+      );
+      await db!.query(
+        "insert into bookings(id,workspace_id,customer_id,title,service,service_id,status,source,starts_at,ends_at) values($1::uuid,$2,$3::uuid,'Foreign confirmed synthetic QR',$4,$5::uuid,'confirmed','public_booking',$6::timestamptz,$7::timestamptz)",
+        [foreignBookingId,foreignWorkspaceId,foreignCustomerId,foreignServiceName,service.rows[0]!.id,bookingStart,bookingEnd],
+      );
+      const foreignResponse=await requestQr(foreignBookingId);
+      expect(foreignResponse.status).toBe(404);
+      expect(foreignResponse.headers.get("content-type")).not.toBe("image/png");
+    } finally {
+      // Destroy only the newly created foreign synthetic data.
+      await db!.query("delete from bookings where id=$1::uuid and workspace_id=$2",[foreignBookingId,foreignWorkspaceId]);
+      await db!.query("delete from customers where id=$1::uuid and workspace_id=$2",[foreignCustomerId,foreignWorkspaceId]);
+      await db!.query("delete from workspace_services where workspace_id=$1",[foreignWorkspaceId]);
+      await db!.query("delete from workspaces where id=$1::uuid",[foreignWorkspaceId]);
+    }
   });
 
   it("shows requests separately and closes only the chosen booking start without modifying bookings",async()=>{
@@ -375,7 +441,7 @@ function futureFriday() {
 
   it("does not invalidate an active OTP hold, including when the hold writer owns the same lock",async()=>{
     const service=await db!.query<{id:string}>(
-      "insert into workspace_services(workspace_id,name,public_slug,duration_minutes,is_active,public_status) values($1,'Synthetic calendar service','maria-bridal-trial-2027',180,true,'published') returning id::text",
+      "insert into workspace_services(workspace_id,name,public_slug,duration_minutes,is_active,public_status) values($1,'Synthetic calendar service','synthetic-maria-hold-only-service',180,true,'published') returning id::text",
       [workspaceId],
     );
     const holdId=randomUUID();

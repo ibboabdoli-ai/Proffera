@@ -32,6 +32,28 @@ describe("Maria Preview booking-specific Swish QR", () => {
     expect(sql).toHaveBeenCalledTimes(2);
   });
 
+  it("keeps tenant, booking-state, source, and QA-email constraints in the actual eligibility query", async () => {
+    const sql = vi.fn().mockResolvedValue([]);
+    vi.mocked(getSql).mockReturnValue(sql as never);
+    expect((await GET(request, params)).status).toBe(404);
+    expect(sql).toHaveBeenCalledTimes(1);
+    const call = sql.mock.calls[0]!;
+    const parts = call[0] as unknown as TemplateStringsArray;
+    const bound = call.slice(1);
+    const text = Array.from(parts)
+      .map((part, index) => part + (index < bound.length ? "$" + (index + 1) : ""))
+      .join("");
+    expect(text).toContain("join workspaces w on w.id::text=b.workspace_id");
+    expect(text).toContain("join customers c on c.id=b.customer_id and c.workspace_id=b.workspace_id");
+    expect(text).toContain("where w.slug='makeup-by-maria'");
+    expect(text).toContain("w.status in ('active','trial')");
+    expect(text).toContain("b.id=$1::uuid");
+    expect(text).toContain("b.status in ('confirmed','completed')");
+    expect(text).toContain("b.source='public_booking'");
+    expect(text).toContain("lower(trim(c.email))=$2");
+    expect(bound).toEqual([id, "qa@example.invalid"]);
+  });
+
   it("fails closed in Production, for malformed IDs, or with a disabled Preview switch", async () => {
     const sql = vi.fn();
     vi.mocked(getSql).mockReturnValue(sql as never);
