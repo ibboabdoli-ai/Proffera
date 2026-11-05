@@ -112,8 +112,9 @@ async function resend(formData: FormData) {
   const wanted = String(formData.get("lang") ?? "");
   const locale: Locale = experience.mariaPreview && wanted === "ar"
     ? "ar" : resolvePublicBusinessLocale(experience, wanted);
+  const currentChannel = String(formData.get("channel") ?? "");
   const result = await resendPublicBookingCode(id, locale);
-  if (!result.ok) redirect(`/boka/verifiera/${id}?error=${result.error}&lang=${locale}`);
+  if (!result.ok) redirect(`/boka/verifiera/${id}?error=${result.error}&lang=${locale}${channelSuffix(currentChannel)}`);
   redirect(`/boka/verifiera/${id}?resent=1&lang=${locale}&channel=${encodeURIComponent(result.delivery)}`);
 }
 
@@ -198,6 +199,7 @@ export default async function VerifyBookingPage({ params, searchParams }: PagePr
           <form action={resend} className="mt-3">
             <input type="hidden" name="id" value={id} />
             <input type="hidden" name="lang" value={locale} />
+            <input type="hidden" name="channel" value={channel} />
             <button type="submit" className={styles.verifySecondary}>
               {locale === "ar" ? "لم يصلك الرمز؟ أرسل رمزًا جديدًا" : isEnglish ? "Didn't receive it? Send a new code" : "Fick du ingen kod? Skicka en ny"}
             </button>
