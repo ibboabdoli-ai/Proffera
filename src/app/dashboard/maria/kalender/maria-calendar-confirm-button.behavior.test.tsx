@@ -16,7 +16,7 @@ function renderButton() {
   const fragment = MariaCalendarConfirmButton({
     label: "Save Maria calendar", confirmation: "Are you sure?", kind: "close",
   }) as ReactElement<{ children: unknown }>;
-  const children = Children.toArray(fragment.props.children);
+  const children = Children.toArray(fragment.props.children as import("react").ReactNode);
   const input = children.find((item) => isValidElement(item) && item.type === "input");
   const button = children.find((item) => isValidElement(item) && item.type === "button");
   expect(input && isValidElement(input) ? input.props : null).toMatchObject({
