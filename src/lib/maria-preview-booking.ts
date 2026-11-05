@@ -54,7 +54,8 @@ export async function getMariaPreviewBookingReadiness(): Promise<MariaPreviewBoo
       limit 1
     `;
     const row = rows[0];
-    if (!row || !row.owner_email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(row.owner_email))) {
+    if (!row || String(row.time_zone) !== "Europe/Stockholm"
+      || !row.owner_email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(row.owner_email))) {
       return { enabled: false };
     }
 
