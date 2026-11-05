@@ -13,8 +13,14 @@
 -- Rollback: revert dependent application code first. Keep these nullable
 -- columns in place; dropping them may discard booking details.
 -- Existing verification holds, bookings and payments remain untouched.
--- On failure the migration runner must roll back or discard its connection:
--- session-level timeouts are otherwise intentionally left restrictive.
+-- Failure cleanup: if ALTER fails inside a transaction, ROLLBACK the
+-- transaction. But if a runner splits statements under autocommit, both SET
+-- commands may already have committed: ROLLBACK alone does NOT undo the
+-- session-level timeouts. After any failure, explicitly RESET lock_timeout and
+-- RESET statement_timeout on the same connection (once usable), OR discard
+-- that connection and reconnect before running other work. Never return a
+-- failed migration connection to a pool with these timeouts still set.
+-- The successful path's RESET statements below must run on that same session.
 SET statement_timeout = '30s';
 SET lock_timeout = '5s';
 
