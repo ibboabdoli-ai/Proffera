@@ -190,9 +190,11 @@ async function updateBookingStatusAction(bookingId: string, formData: FormData) 
 
   let mariaMailFailed = false;
   let statusChanged = false;
+  let previousStatus: string | null = null;
   try {
     const result = await updateDashboardBookingStatus(bookingId, status);
     statusChanged = result.changed;
+    previousStatus = result.previousStatus;
     if (result.changed && result.notification && (status === "confirmed" || status === "cancelled")) {
       const notification = result.notification;
       if (isMaria) {
@@ -219,8 +221,10 @@ async function updateBookingStatusAction(bookingId: string, formData: FormData) 
     console.error("Failed to update dashboard booking status", error);
     redirectWithError(bookingId, "save", locale);
   }
-  if (isMaria && (status === "requested" || status === "confirmed") && !statusChanged) {
-    redirectWithError(bookingId, "maria_activation_conflict", locale);
+  if (isMaria && !statusChanged && (status === "requested" || status === "confirmed")) {
+    if (previousStatus === "cancelled") redirectWithError(bookingId, "maria_activation_conflict", locale);
+    // Already at the requested status: no change occurred; do not claim an update.
+    redirect(withLang(`/dashboard/bokningar/${bookingId}`, locale));
   }
   redirect(withLang(`/dashboard/bokningar/${bookingId}?updated=1${mariaMailFailed ? "&maria_mail=failed" : ""}`, locale));
 }
