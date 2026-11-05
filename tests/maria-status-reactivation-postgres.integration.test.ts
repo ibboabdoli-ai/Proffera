@@ -141,6 +141,14 @@ function compileSql(parts: TemplateStringsArray, values: unknown[]): Query {
       [workspaceId],
     );
     const serviceId = services.rows[0]!.id;
+    const stockholmDay = new Intl.DateTimeFormat("en-US", {
+      timeZone: "Europe/Stockholm", weekday: "short",
+    }).format(start);
+    const weekday = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].indexOf(stockholmDay);
+    await db.query(
+      "insert into workspace_booking_hours(workspace_id,weekday,opens_at,closes_at,is_closed) values($1,$2,'00:00','23:59',false)",
+      [workspaceId,weekday],
+    );
     // A cancelled appointment does not reserve its old slot; another customer
     // can take an overlapping real appointment after cancellation.
     await db.query(
@@ -199,9 +207,23 @@ function compileSql(parts: TemplateStringsArray, values: unknown[]): Query {
       "update public_booking_verifications set created_at=now()-interval '1 hour', expires_at=now()-interval '1 minute' where id=$1::uuid",
       [hold.rows[0]!.id],
     );
+    // A manually closed start must not be resurrected by the manager.
+    await db!.query(
+      "insert into maria_manual_closed_starts(workspace_id,starts_at,created_by) values($1::uuid,$2::timestamptz,'synthetic-test')",
+      [workspaceId,start.toISOString()],
+    );
+    expect((await updateDashboardBookingStatus(cancelledBookingId, "confirmed")).changed).toBe(false);
+    expect(await readStatus()).toBe("cancelled");
+    await db!.query("delete from maria_manual_closed_starts where workspace_id=$1::uuid", [workspaceId]);
+    await db!.query("update workspace_booking_hours set is_closed=true where workspace_id=$1", [workspaceId]);
+    expect((await updateDashboardBookingStatus(cancelledBookingId, "requested")).changed).toBe(false);
+    expect(await readStatus()).toBe("cancelled");
+    await db!.query("update workspace_booking_hours set is_closed=false where workspace_id=$1", [workspaceId]);
+
     const revived = await updateDashboardBookingStatus(cancelledBookingId, "confirmed");
     expect(revived.changed).toBe(true);
     expect(revived.notification?.customerEmail).toBe(customerEmail);
+    expect(new Date(revived.notification?.confirmedAt ?? "").getTime()).toBeGreaterThan(0);
     expect(await readStatus()).toBe("confirmed");
     expect(await countEvents()).toBe(1);
   });
