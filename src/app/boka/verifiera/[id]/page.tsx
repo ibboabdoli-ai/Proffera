@@ -128,7 +128,13 @@ export default async function VerifyBookingPage({ params, searchParams }: PagePr
   const error = messages[locale][first(query?.error) ?? ""];
   const resent = first(query?.resent) === "1";
   const channel = first(query?.channel) ?? "email";
-  const deliveryText = locale === "ar"
+  const deliveryText = channel === "uncertain"
+    ? locale === "ar"
+      ? "تعذّر التأكد من وصول الرمز. تحقّق من البريد الإلكتروني والرسائل غير المرغوب فيها. إذا وصل الرمز، أدخله هنا. انتظر 30 ثانية قبل طلب رمز جديد. صلاحية الرمز 10 دقائق."
+      : isEnglish
+        ? "We could not confirm delivery of the code. Check your email and spam folder, and enter it here if it arrived. Wait 30 seconds before requesting another code. The code is valid for 10 minutes."
+        : "Vi kunde inte bekräfta att koden levererades. Kontrollera din e-post och skräppost och ange koden här om den kom fram. Vänta 30 sekunder innan du begär en ny kod. Koden gäller i 10 minuter."
+    : locale === "ar"
     ? "أرسلنا رمزًا مكوّنًا من ستة أرقام إلى بريدك الإلكتروني. الرمز صالح لمدة 10 دقائق."
     : isEnglish
     ? channel === "sms"
