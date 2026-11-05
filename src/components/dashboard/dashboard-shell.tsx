@@ -203,7 +203,7 @@ function NavigationLinks({ pathname, locale, searchParams, moduleAccess, enabled
   return (
     <nav className="grid gap-1.5" aria-label={text.navigation}>
       {mariaEnabled ? (
-        <NavigationPrefetchLink href={localizedHref("/dashboard/maria", locale, searchParams)} onClick={onNavigate}
+        <NavigationPrefetchLink href={localizedHref("/dashboard/maria", locale, "")} onClick={onNavigate}
           aria-current={isActivePath(pathname, "/dashboard/maria") ? "page" : undefined}
           className="flex min-h-11 items-center gap-3 rounded-xl bg-white/10 px-3 py-2.5 text-sm font-semibold !text-white hover:bg-white/20">
           <Sparkles className="h-[18px] w-[18px]" aria-hidden="true" />
