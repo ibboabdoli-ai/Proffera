@@ -16,6 +16,24 @@ describe("Maria per-year copy and manual booking controls", () => {
     expect(page).toContain('id="tider"');
     expect(page).toContain('id="priser"');
   });
+  it("keeps uncertain OTP holds actionable across all public booking entry points", () => {
+    for (const path of [
+      "src/app/boka/[slug]/page.tsx",
+      "src/app/boka/primeview/page.tsx",
+      "src/app/primeview-booking/page.tsx",
+      "src/app/api/makeup-by-maria/booking/route.ts",
+    ]) {
+      const source = read(path);
+      expect(source, path).toContain('result.delivery === "uncertain"');
+      expect(source, path).toContain("channel=uncertain");
+      expect(source, path).toContain("result.verificationId");
+    }
+    const verification = read("src/app/boka/verifiera/[id]/page.tsx");
+    expect(verification).toContain('channel === "uncertain"');
+    expect(verification).toContain("We could not confirm delivery of the code.");
+    expect(verification).not.toContain("result.verificationId");
+  });
+
   it("scopes public copy to Maria services and does not expose customer data", () => {
     const api = read("src/app/api/makeup-by-maria/config/route.ts");
     expect(api).toContain("short_description");
