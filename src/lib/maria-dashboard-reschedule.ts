@@ -98,7 +98,12 @@ export async function rescheduleMariaDashboardBooking(input: {
         with eligible as (
           select b.id,b.workspace_id,b.customer_id,b.starts_at as previous_starts_at,
             b.ends_at as previous_ends_at,c.name as customer_name,c.email as customer_email,
-            c.phone as customer_phone,b.service as service_name,b.city
+            c.phone as customer_phone,b.service as service_name,b.city,
+            coalesce((select e.metadata->>'language' from customer_events e
+              where e.workspace_id=b.workspace_id and e.booking_id=b.id
+                and e.event_type='booking' and e.metadata->>'source'='public_booking'
+                and e.metadata->>'language' in ('sv','en','ar')
+              order by e.created_at desc,e.id desc limit 1),'sv') as booking_language
           from bookings b
           join workspaces w on w.id::text=b.workspace_id
           join customers c on c.id=b.customer_id and c.workspace_id=b.workspace_id
@@ -162,7 +167,7 @@ export async function rescheduleMariaDashboardBooking(input: {
             and b.status in ('requested','confirmed')
           returning b.id,b.workspace_id,b.customer_id,eligible.customer_name,
             eligible.customer_email,eligible.customer_phone,eligible.service_name,
-            eligible.city,eligible.previous_starts_at,eligible.previous_ends_at
+            eligible.city,eligible.booking_language,eligible.previous_starts_at,eligible.previous_ends_at
         ),
         updated_job as (
           update workspace_service_jobs j
@@ -206,6 +211,8 @@ export async function rescheduleMariaDashboardBooking(input: {
           previousStartsAt: oldStart.toISOString(),
           startsAt: newStartIso,
           endsAt: newEndIso,
+          language: updated.booking_language === "ar" ? "ar" as const
+            : updated.booking_language === "en" ? "en" as const : "sv" as const,
         },
       },
     };
