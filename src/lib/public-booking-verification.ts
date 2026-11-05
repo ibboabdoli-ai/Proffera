@@ -397,6 +397,7 @@ export async function verifyPublicBookingCode(id: string, code: string, language
       verificationId: id,
       expectedCodeHash: hashCode(id, code),
       bookingNote,
+      bookingLanguage: language === "en" || language === "ar" ? language : "sv",
     });
     if (!confirmed.ok) return { ok: false as const, error: confirmed.error };
     bookingId = confirmed.bookingId;
