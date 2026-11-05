@@ -7,6 +7,7 @@ on:
       - work/proffera-maria-manual-calendar-957
     paths:
       - .github/workflows/maria-pr960-isolated-qa.yml
+      - db/migrations/20261105_0073_public_booking_verification_contact_fields.sql
 
 permissions:
   contents: read
