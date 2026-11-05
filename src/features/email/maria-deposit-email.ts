@@ -1,6 +1,7 @@
 import "server-only";
 
 import { mariaEmailLogoHtml } from "@/lib/maria-email-logo";
+import { bookingDateLocale } from "@/lib/booking-date-locale";
 
 import { getMariaPreviewPortalBase, isMariaPreviewTestRecipient } from "@/lib/maria-preview-customer-safety";
 import {
@@ -21,6 +22,7 @@ export type MariaBookingStatusEmailInput = {
   city: string;
   timeZone?: WorkspaceTimeZone;
   confirmedAt?: Date;
+  language?: "sv" | "en" | "ar";
 };
 
 function escapeHtml(value: string) {
@@ -29,10 +31,10 @@ function escapeHtml(value: string) {
     .replaceAll("'", "&#039;");
 }
 
-function formatTime(value: string | Date, timeZone: WorkspaceTimeZone = "Europe/Stockholm") {
+function formatTime(value: string | Date, timeZone: WorkspaceTimeZone = "Europe/Stockholm", language: "sv" | "en" | "ar" = "sv") {
   const date = value instanceof Date ? value : new Date(value);
   if (!Number.isFinite(date.getTime())) throw new Error("INVALID_MARIA_BOOKING_TIME");
-  return new Intl.DateTimeFormat("sv-SE", { timeZone, dateStyle: "full", timeStyle: "short" }).format(date);
+  return new Intl.DateTimeFormat(bookingDateLocale(language), { timeZone, dateStyle: "full", timeStyle: "short" }).format(date);
 }
 
 function checkedPreviewOrigin(value: string) {
@@ -49,9 +51,92 @@ export function buildMariaBookingStatusEmail(input: MariaBookingStatusEmailInput
   const origin = checkedPreviewOrigin(previewOrigin);
   const logo = mariaEmailLogoHtml(origin);
   const reference = mariaBookingNumber(input.bookingId);
-  const start = formatTime(input.startsAt, input.timeZone);
-  const end = formatTime(input.endsAt, input.timeZone);
+  const language = input.language === "en" || input.language === "ar" ? input.language : "sv";
+  const start = formatTime(input.startsAt, input.timeZone, language);
+  const end = formatTime(input.endsAt, input.timeZone, language);
   const isConfirmation = input.status === "confirmed";
+  // The Swedish copy below is the unchanged default. The customer's saved
+  // booking language selects explicit English or Arabic transactional copy.
+  if (language !== "sv") {
+    const copy = language === "en" ? {
+      greeting: "Hello", confirmed: "Your booking is confirmed",
+      cancelled: "Your booking has been cancelled",
+      confirmedIntro: "Maria has confirmed your booking with",
+      cancelledIntro: "Your booking has been cancelled. You are welcome to book again.",
+      number: "Booking number", service: "Service", time: "Time",
+      preview: "Preview test only – do not make a real Swish payment.",
+      deposit: "Deposit", deadline: "Pay within 24 hours of confirmation, no later than",
+      payee: "Swish business", details: "View payment details",
+      qr: "Booking-specific QR code",
+      reference: "Enter this exact booking number in the Swish message field",
+      safety: "The QR code contains the recipient, 2,000 SEK and the booking reference. Always check the recipient in Swish before approving. Payment is not verified automatically.",
+      cancelPolicy: "If the deposit is not registered within 24 hours, Maria may cancel manually. There is no automatic cancellation.",
+      signoff: "Kind regards",
+    } : {
+      greeting: "مرحبًا", confirmed: "تم تأكيد حجزك",
+      cancelled: "تم إلغاء حجزك",
+      confirmedIntro: "أكدت ماريا حجزك لدى",
+      cancelledIntro: "تم إلغاء حجزك. يسعدنا استقبال حجز جديد منك.",
+      number: "رقم الحجز", service: "الخدمة", time: "الموعد",
+      preview: "بيئة تجريبية فقط – لا تقومي بأي دفع حقيقي عبر Swish.",
+      deposit: "العربون", deadline: "يُدفع خلال ٢٤ ساعة من التأكيد، وبحد أقصى",
+      payee: "رقم Swish للشركة", details: "عرض تفاصيل الدفع",
+      qr: "رمز QR خاص بهذا الحجز",
+      reference: "اكتبي رقم الحجز نفسه في خانة الرسالة في Swish",
+      safety: "يتضمن رمز QR المستلم ومبلغ ٢٬٠٠٠ كرونة ورقم الحجز. تحققي من المستلم قبل التأكيد في Swish. لا يوجد تحقق آلي من الدفع.",
+      cancelPolicy: "إذا لم يُسجل العربون خلال ٢٤ ساعة، يمكن لماريا إلغاء الحجز يدويًا. لن يُلغى تلقائيًا.",
+      signoff: "مع أطيب التحيات",
+    };
+    const due = isConfirmation ? formatTime(mariaDepositDeadline(input.confirmedAt ?? new Date()), input.timeZone, language) : "";
+    const qrUrl = isConfirmation ? new URL(mariaSwishQrPath(input.bookingId), origin).toString() : "";
+    const paymentPageUrl = isConfirmation ? new URL(mariaSwishPaymentPagePath(input.bookingId), origin).toString() : "";
+    const payment = MARIA_DEPOSIT_AMOUNT_SEK.toLocaleString("sv-SE");
+    const subject = isConfirmation
+      ? `${copy.confirmed} – ${copy.deposit} ${payment} SEK – ${reference}`
+      : `${copy.cancelled} – ${input.companyName}`;
+    const text = [
+      `${copy.greeting} ${input.customerName},`, "",
+      isConfirmation ? `${copy.confirmedIntro} ${input.companyName}.` : copy.cancelledIntro,
+      `${copy.number}: ${reference}`,
+      `${copy.service}: ${input.service}`,
+      `${copy.time}: ${start} – ${end}`,
+      ...(isConfirmation ? [
+        "", copy.preview,
+        `${copy.deposit}: ${payment} SEK`,
+        `${copy.deadline} ${due}.`,
+        `${copy.payee}: ${MARIA_SWISH_NUMBER}`,
+        `${copy.details}: ${paymentPageUrl}`,
+        `${copy.qr}: ${qrUrl}`,
+        `${copy.reference}: ${reference}`,
+        copy.safety, copy.cancelPolicy,
+      ] : []),
+      "", copy.signoff, input.companyName,
+    ].join("\n");
+    const html = `<div lang="${language}" dir="${language === "ar" ? "rtl" : "ltr"}"
+      style="max-width:640px;margin:0 auto;font:16px/1.7 Arial,sans-serif;color:#432a35;text-align:${language === "ar" ? "right" : "left"}">
+      ${logo}
+      <h1 style="color:#845363">${escapeHtml(isConfirmation ? copy.confirmed : copy.cancelled)}</h1>
+      <p>${escapeHtml(copy.greeting)} ${escapeHtml(input.customerName)},</p>
+      <p>${escapeHtml(isConfirmation ? copy.confirmedIntro : copy.cancelledIntro)}
+        ${isConfirmation ? `<strong>${escapeHtml(input.companyName)}</strong>.` : ""}</p>
+      <p><strong>${escapeHtml(copy.number)}:</strong> ${escapeHtml(reference)}<br/>
+      <strong>${escapeHtml(copy.service)}:</strong> ${escapeHtml(input.service)}<br/>
+      <strong>${escapeHtml(copy.time)}:</strong> ${escapeHtml(start)} – ${escapeHtml(end)}</p>
+      ${isConfirmation ? `
+        <p style="color:#8b2d39;font-weight:bold">${escapeHtml(copy.preview)}</p>
+        <h2 style="color:#845363">${escapeHtml(copy.deposit)}: ${payment} SEK</h2>
+        <p>${escapeHtml(copy.deadline)} ${escapeHtml(due)}.</p>
+        <p><strong>${escapeHtml(copy.payee)}:</strong> ${escapeHtml(MARIA_SWISH_NUMBER)}</p>
+        <p><img src="${escapeHtml(qrUrl)}" width="380" alt="${escapeHtml(copy.qr)}" style="max-width:100%;height:auto"/></p>
+        <p><a href="${escapeHtml(paymentPageUrl)}">${escapeHtml(copy.details)}</a></p>
+        <p><strong>${escapeHtml(copy.reference)}:</strong> ${escapeHtml(reference)}</p>
+        <p>${escapeHtml(copy.safety)}</p>
+        <p>${escapeHtml(copy.cancelPolicy)}</p>
+      ` : ""}
+      <p>${escapeHtml(copy.signoff)}<br/>${escapeHtml(input.companyName)}</p>
+    </div>`;
+    return { subject, text, html, reference };
+  }
   const subject = isConfirmation
     ? `Din bokning är bekräftad – handpenning ${MARIA_DEPOSIT_AMOUNT_SEK.toLocaleString("sv-SE")} kr – ${reference}`
     : `Din bokning är avbokad – ${input.companyName}`;
