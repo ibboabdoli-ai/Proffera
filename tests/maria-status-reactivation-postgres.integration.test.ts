@@ -225,7 +225,9 @@ function compileSql(parts: TemplateStringsArray, values: unknown[]): Query {
     expect(await readStatus()).toBe("cancelled");
     await db!.query("delete from maria_manual_closed_starts where workspace_id=$1::uuid", [workspaceId]);
     await db!.query("update workspace_booking_hours set is_closed=true where workspace_id=$1", [workspaceId]);
-    expect((await updateDashboardBookingStatus(cancelledBookingId, "requested")).changed).toBe(false);
+    const blockedReactivation = await updateDashboardBookingStatus(cancelledBookingId, "requested");
+    expect(blockedReactivation.changed).toBe(false);
+    expect(blockedReactivation.previousStatus).toBe("cancelled");
     expect(await readStatus()).toBe("cancelled");
     await db!.query("update workspace_booking_hours set is_closed=false where workspace_id=$1", [workspaceId]);
 
@@ -349,6 +351,22 @@ function compileSql(parts: TemplateStringsArray, values: unknown[]): Query {
         startsAt: confirmedStart.toISOString(), endsAt: confirmedEnd.toISOString(),
       })).toEqual({ ok: false, error: "invalid_booking" });
       expect(fetchMock).not.toHaveBeenCalled();
+      // A matching stored status MUST reach the sender. This positive control
+      // proves the two negative cases above failed because of status mismatch,
+      // not an unrelated SQL error or missing workspace state.
+      fetchMock.mockResolvedValue({ ok: true });
+      expect(await sendMariaBookingStatusEmail({
+        ...input, bookingId: confirmedId, status: "confirmed",
+        startsAt: confirmedStart.toISOString(), endsAt: confirmedEnd.toISOString(),
+      })).toEqual({ ok: true });
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      const request = fetchMock.mock.calls[0] as [string, RequestInit];
+      expect(request[0]).toBe("https://api.brevo.com/v3/smtp/email");
+      const sent = JSON.parse(String(request[1].body)) as {
+        to: Array<{email: string}>; textContent: string;
+      };
+      expect(sent.to[0]?.email).toBe(customerEmail);
+      expect(sent.textContent).toContain("MBM-");
     } finally {
       vi.unstubAllGlobals();
     }
