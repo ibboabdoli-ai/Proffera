@@ -294,4 +294,121 @@ function compileSql(parts: TemplateStringsArray, values: unknown[]): Query {
     }
   });
 
+  it("rejects stale confirmed/cancelled emails using actual saved booking status", async () => {
+    const services = await db!.query<{ id: string }>(
+      "select id::text from workspace_services where workspace_id=$1 and public_slug='maria-bridal-trial-2026' limit 1",
+      [workspaceId],
+    );
+    const serviceId = services.rows[0]!.id;
+    const rows = await db!.query<{ id: string; status: string }>(
+      `insert into bookings(workspace_id,customer_id,service_id,title,service,status,source,starts_at,ends_at)
+       values
+        ($1,$2::uuid,$3::uuid,'Synthetic stale cancelled','Brudsmink med prov 2026','cancelled','public_booking',$4::timestamptz,$5::timestamptz),
+        ($1,$2::uuid,$3::uuid,'Synthetic stale confirmed','Brudsmink med prov 2026','confirmed','public_booking',$4::timestamptz,$5::timestamptz)
+       returning id::text,status`,
+      [workspaceId, customerId, serviceId, start.toISOString(), end.toISOString()],
+    );
+    const cancelledId = rows.rows.find(row => row.status === "cancelled")!.id;
+    const confirmedId = rows.rows.find(row => row.status === "confirmed")!.id;
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    const input = {
+      bookingId: cancelledId,
+      status: "confirmed" as const,
+      customerName: "Synthetic QA Customer",
+      customerEmail,
+      companyName: "Synthetic Maria",
+      service: "Brudsmink med prov 2026",
+      startsAt: start.toISOString(),
+      endsAt: end.toISOString(),
+      city: "Södertälje",
+      timeZone: "Europe/Stockholm" as const,
+    };
+    try {
+      expect((await db!.query<{ status: string }>(
+        "select status from bookings where id=$1::uuid", [cancelledId],
+      )).rows[0]?.status).toBe("cancelled");
+      expect(await sendMariaBookingStatusEmail(input))
+        .toEqual({ ok: false, error: "invalid_booking" });
+      expect((await db!.query<{ status: string }>(
+        "select status from bookings where id=$1::uuid", [confirmedId],
+      )).rows[0]?.status).toBe("confirmed");
+      expect(await sendMariaBookingStatusEmail({
+        ...input, bookingId: confirmedId, status: "cancelled",
+      })).toEqual({ ok: false, error: "invalid_booking" });
+      expect(fetchMock).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("waits for Maria's advisory lock before a single-block insert and rejects a newly committed booking", async () => {
+    const service = await db!.query<{ id: string }>(
+      "select id::text from workspace_services where workspace_id=$1 and public_slug='maria-bridal-trial-2026' limit 1",
+      [workspaceId],
+    );
+    const serviceId = service.rows[0]!.id;
+    const blockStart = new Date(start.getTime() + 3 * 86_400_000);
+    const blockEnd = new Date(blockStart.getTime() + 60 * 60_000);
+    const stockholmLocal = (value: Date) => {
+      const parts = Object.fromEntries(
+        new Intl.DateTimeFormat("en-GB", {
+          timeZone: "Europe/Stockholm", year: "numeric", month: "2-digit",
+          day: "2-digit", hour: "2-digit", minute: "2-digit", hourCycle: "h23",
+        }).formatToParts(value).filter(part => part.type !== "literal")
+          .map(part => [part.type, part.value]),
+      );
+      return `${parts.year}-${parts.month}-${parts.day}T${parts.hour}:${parts.minute}`;
+    };
+    const countBlocks = async () => Number((await db!.query<{ count: number }>(
+      "select count(*)::int as count from bookings where workspace_id=$1 and source='dashboard_availability_block'",
+      [workspaceId],
+    )).rows[0]?.count ?? 0);
+
+    const original = await countBlocks();
+    const holder = new Client({ connectionString });
+    await holder.connect();
+    let committed = false;
+    let attempted: Promise<{ ok: boolean; error?: unknown }> | undefined;
+    let observedWait = false;
+    try {
+      await holder.query("begin");
+      await holder.query("select pg_advisory_xact_lock(hashtextextended($1::text,713))", [workspaceId]);
+      await holder.query(
+        `insert into bookings(workspace_id,customer_id,service_id,title,service,status,source,starts_at,ends_at)
+         values($1,$2::uuid,$3::uuid,'Synthetic competing pending booking','Brudsmink med prov 2026','confirmed','dashboard_manual',$4::timestamptz,$5::timestamptz)`,
+        [workspaceId, customerId, serviceId, blockStart.toISOString(), blockEnd.toISOString()],
+      );
+      // Its preflight cannot see the uncommitted booking, but the write must
+      // queue on lock 713 instead of racing past the pending confirmation.
+      attempted = createDashboardAvailabilityBlock({
+        localStartsAt: stockholmLocal(blockStart),
+        localEndsAt: stockholmLocal(blockEnd),
+        reason: "Concurrent confirmed booking in flight",
+      }).then(() => ({ ok: true }), (error: unknown) => ({ ok: false, error }));
+      for (let attempt = 0; attempt < 60; attempt++) {
+        const activity = await db!.query<{ waiting: number }>(
+          `select count(*)::int as waiting from pg_stat_activity
+           where datname=current_database() and pid<>pg_backend_pid()
+             and wait_event_type='Lock' and wait_event='advisory'`,
+        );
+        if (Number(activity.rows[0]?.waiting ?? 0) > 0) {
+          observedWait = true;
+          break;
+        }
+        await delay(100);
+      }
+      await holder.query("commit");
+      committed = true;
+      const result = await attempted;
+      expect(observedWait).toBe(true);
+      expect(result).toMatchObject({ ok: false, error: { code: "conflict" } });
+      expect(await countBlocks()).toBe(original);
+    } finally {
+      if (!committed) await holder.query("rollback").catch(() => undefined);
+      await holder.end();
+      if (attempted) await attempted.catch(() => undefined);
+    }
+  });
+
 });
