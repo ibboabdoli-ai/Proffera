@@ -31,6 +31,9 @@ describe("Maria per-year copy and manual booking controls", () => {
     const verification = read("src/app/boka/verifiera/[id]/page.tsx");
     expect(verification).toContain('channel === "uncertain"');
     expect(verification).toContain("We could not confirm delivery of the code.");
+    // Waiting through a resend cooldown must NOT falsely claim an email was sent.
+    expect(verification).toContain('name="channel" value={channel}');
+    expect(verification).toContain('channelSuffix(currentChannel)');
     expect(verification).not.toContain("result.verificationId");
   });
 
