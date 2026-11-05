@@ -49,7 +49,7 @@ export async function getAvailableRescheduleSlots(token: string, bookingId: stri
 
   const sql = neon(connectionString);
   const rows = await sql`
-    select b.id, b.service, b.staff_id, sv.public_slug, w.slug as workspace_slug,
+    select b.id, b.service, b.staff_id, b.source, sv.public_slug, w.slug as workspace_slug,
       coalesce(nullif(ws.time_zone, ''), 'Europe/Stockholm') as time_zone,
       sv.duration_minutes,
       extract(epoch from (b.ends_at - b.starts_at)) / 60 as booked_duration_minutes,
@@ -71,7 +71,9 @@ export async function getAvailableRescheduleSlots(token: string, bookingId: stri
 
   if (String(booking.workspace_slug) === "makeup-by-maria") {
     const readiness = await getMariaPreviewBookingReadiness();
-    if (!readiness.enabled || readiness.workspaceId !== payload.workspaceId || booking.staff_id) return [];
+    if (!readiness.enabled || readiness.workspaceId !== payload.workspaceId
+      || String(booking.time_zone) !== "Europe/Stockholm"
+      || booking.staff_id || booking.source !== "public_booking") return [];
     // The manager can change the duration for future appointments at any time.
     // For rescheduling this already-booked appointment, keep its recorded length.
     // Reject malformed/absent historical durations rather than use today's default.
