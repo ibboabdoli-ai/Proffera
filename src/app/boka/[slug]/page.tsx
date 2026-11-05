@@ -212,6 +212,9 @@ async function requestPublicBooking(formData: FormData) {
     serviceId, serviceName, staffId: staffId || undefined, city: String(workspace.primary_city ?? ""), address: address || undefined, postcode: postcode || undefined,
     bookingDetails: bookingDetails || undefined, startsAt: start.toISOString(), endsAt: end.toISOString(), timeZone, language: lang,
   });
+  if (!result.ok && "verificationId" in result && result.delivery === "uncertain") {
+    redirect(`/boka/verifiera/${result.verificationId}?lang=${lang}&channel=uncertain`);
+  }
   if (!result.ok) redirect(withLang(slug, lang, `error=${result.error === "email" ? "email" : result.error === "service" ? "service" : "conflict"}`));
   redirect(`/boka/verifiera/${result.verificationId}?lang=${lang}`);
 }
