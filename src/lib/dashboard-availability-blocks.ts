@@ -73,8 +73,9 @@ async function insertBlock(
   endsAt: Date,
   reason: string,
   source: "dashboard_availability_block" | "dashboard_availability_recurring_block",
+  mariaPreview = false,
 ) {
-  const rows = await sql`
+  const query = sql`
     insert into bookings (
       workspace_id,
       customer_id,
@@ -87,7 +88,7 @@ async function insertBlock(
       source,
       notes
     )
-    values (
+    select
       ${workspaceId},
       null,
       ${reason},
@@ -98,10 +99,28 @@ async function insertBlock(
       ${endsAt.toISOString()}::timestamptz,
       ${source},
       ${reason}
+    where ${!mariaPreview}::boolean or not exists (
+      select 1 from public_booking_verifications hold
+      left join workspace_services hold_service
+        on hold_service.id=hold.service_id and hold_service.workspace_id=hold.workspace_id::text
+      where hold.workspace_id=${workspaceId}::uuid
+        and hold.consumed_at is null and hold.expires_at>clock_timestamp()
+        and hold.starts_at-(coalesce(hold_service.buffer_before_minutes,0)*interval '1 minute')
+          < ${endsAt.toISOString()}::timestamptz
+        and hold.ends_at+(coalesce(hold_service.buffer_after_minutes,0)*interval '1 minute')
+          > ${startsAt.toISOString()}::timestamptz
     )
     returning id
   `;
-  return String(rows[0]?.id ?? "");
+  const rows = mariaPreview
+    ? (await sql.transaction([
+        sql`select pg_advisory_xact_lock(hashtextextended(${workspaceId}::text, 713))`,
+        query,
+      ]))[1]
+    : await query;
+  const id = String(rows[0]?.id ?? "");
+  if (!id) throw new AvailabilityBlockValidationError("conflict");
+  return id;
 }
 
 export async function createDashboardAvailabilityBlock(input: {
@@ -133,11 +152,12 @@ export async function createDashboardAvailabilityBlock(input: {
   }
 
   const reason = normalizeReason(input.reason);
+  const mariaPreview = process.env.VERCEL_ENV === "preview" && access.workspaceSlug === "makeup-by-maria";
   if (await hasConflict(sql, access.workspaceId, startsAt, endsAt)) {
     throw new AvailabilityBlockValidationError("conflict");
   }
 
-  const id = await insertBlock(sql, access.workspaceId, startsAt, endsAt, reason, "dashboard_availability_block");
+  const id = await insertBlock(sql, access.workspaceId, startsAt, endsAt, reason, "dashboard_availability_block", mariaPreview);
   return { id, startsAt: startsAt.toISOString(), endsAt: endsAt.toISOString() };
 }
 
@@ -200,7 +220,8 @@ export async function createDashboardRecurringAvailabilityBlocks(input: {
   if (occurrences.length > 366) throw new AvailabilityBlockValidationError("range");
 
   const reason = normalizeReason(input.reason);
-  const rows = await sql`
+  const mariaPreview = process.env.VERCEL_ENV === "preview" && access.workspaceSlug === "makeup-by-maria";
+  const batchInsert = sql`
     with requested as (
       select
         value->>'startsAt' as starts_at_text,
@@ -221,6 +242,17 @@ export async function createDashboardRecurringAvailabilityBlocks(input: {
        and b.status not in ('cancelled', 'no_show')
        and b.starts_at < n.ends_at
        and b.ends_at > n.starts_at
+      limit 1
+    ),
+    hold_conflicts as (
+      select 1 from normalized n
+      join public_booking_verifications hold on hold.workspace_id=${access.workspaceId}::uuid
+        and hold.consumed_at is null and hold.expires_at>clock_timestamp()
+      left join workspace_services hold_service
+        on hold_service.id=hold.service_id and hold_service.workspace_id=hold.workspace_id::text
+      where ${mariaPreview}::boolean
+        and hold.starts_at-(coalesce(hold_service.buffer_before_minutes,0)*interval '1 minute')<n.ends_at
+        and hold.ends_at+(coalesce(hold_service.buffer_after_minutes,0)*interval '1 minute')>n.starts_at
       limit 1
     ),
     inserted as (
@@ -249,12 +281,19 @@ export async function createDashboardRecurringAvailabilityBlocks(input: {
         ${reason}
       from normalized n
       where not exists (select 1 from conflicts)
+        and not exists (select 1 from hold_conflicts)
       returning id
     )
     select
-      exists(select 1 from conflicts) as has_conflict,
+      (exists(select 1 from conflicts) or exists(select 1 from hold_conflicts)) as has_conflict,
       coalesce((select json_agg(id) from inserted), '[]'::json) as ids
   `;
+  const rows = mariaPreview
+    ? (await sql.transaction([
+        sql`select pg_advisory_xact_lock(hashtextextended(${access.workspaceId}::text, 713))`,
+        batchInsert,
+      ]))[1]
+    : await batchInsert;
 
   if (Boolean(rows[0]?.has_conflict)) {
     throw new AvailabilityBlockValidationError("conflict");
