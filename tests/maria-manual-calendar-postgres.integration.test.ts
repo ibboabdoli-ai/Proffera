@@ -514,10 +514,15 @@ function futureFriday() {
     );
     const saved=await finalizeMariaVerifiedBooking({
       verificationId:hold.rows[0]!.id,expectedCodeHash:"synthetic-hash",
-      bookingNote:"synthetic QA only",
+      bookingNote:"synthetic QA only", bookingLanguage:"ar",
     });
     expect(saved.ok).toBe(true);
     if(!saved.ok) throw new Error("Canonical finalization unexpectedly failed");
+    const savedLocale = await db!.query<{ language: string }>(
+      "select metadata->>'language' as language from customer_events where booking_id=$1::uuid and event_type='booking' and metadata->>'source'='public_booking' limit 1",
+      [saved.bookingId],
+    );
+    expect(savedLocale.rows[0]?.language).toBe("ar");
     expect((await manualBlocks())).toHaveLength(intervals.length-1);
 
     // Physical appointments still cannot overlap. The canonical exclusion
