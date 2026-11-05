@@ -67,6 +67,34 @@ describe("Maria-only Swish confirmation and cancellation email", () => {
     expect(result.html.indexOf("maria-client-logo.jpg")).toBeLessThan(result.html.indexOf("Din bokning är avbokad"));
   });
 
+  it("uses the customer's English language for both manual status emails", () => {
+    const confirmed = buildMariaBookingStatusEmail({ ...booking, language: "en" }, "https://qa.vercel.app");
+    expect(confirmed.subject).toContain("Your booking is confirmed");
+    expect(confirmed.text).toContain("Pay within 24 hours");
+    expect(confirmed.text).toContain("Preview test only");
+    expect(confirmed.html).toContain('lang="en"');
+    expect(confirmed.html).toContain("QA &lt;Bride&gt;");
+    expect(confirmed.html).toContain("/api/makeup-by-maria/swish-qr/");
+    expect(confirmed.html).not.toContain("app.swish.nu");
+    const cancelled = buildMariaBookingStatusEmail({ ...booking, status: "cancelled", language: "en" }, "https://qa.vercel.app");
+    expect(cancelled.subject).toContain("Your booking has been cancelled");
+    expect(cancelled.html).not.toContain("/api/makeup-by-maria/swish-qr/");
+    expect(cancelled.text).not.toContain("Deposit:");
+  });
+
+  it("uses Gregorian Arabic dates and RTL copy for both manual status emails", () => {
+    const confirmed = buildMariaBookingStatusEmail({ ...booking, language: "ar" }, "https://qa.vercel.app");
+    expect(confirmed.subject).toContain("تم تأكيد حجزك");
+    expect(confirmed.text).toContain("٢٤ ساعة");
+    expect(confirmed.html).toContain('lang="ar" dir="rtl"');
+    expect(confirmed.text).toMatch(/٢٠٢٧|2027/);
+    expect(confirmed.html).toContain("/maria/swish/");
+    expect(confirmed.html).not.toContain("app.swish.nu");
+    const cancelled = buildMariaBookingStatusEmail({ ...booking, status: "cancelled", language: "ar" }, "https://qa.vercel.app");
+    expect(cancelled.subject).toContain("تم إلغاء حجزك");
+    expect(cancelled.html).not.toContain("/api/makeup-by-maria/swish-qr/");
+  });
+
   it("rejects a malicious or non-preview QR image origin", () => {
     expect(() => buildMariaBookingStatusEmail(booking, "https://qa.vercel.app.evil.test")).toThrow("INVALID_MARIA_PREVIEW_ORIGIN");
     expect(() => buildMariaBookingStatusEmail(booking, "http://qa.vercel.app")).toThrow("INVALID_MARIA_PREVIEW_ORIGIN");
