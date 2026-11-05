@@ -6,7 +6,6 @@ import { neon } from "@neondatabase/serverless";
 import { sendBookingChangeEmails } from "@/features/email/booking-change-email";
 import { resolveCustomerPortalSecret } from "@/lib/auth-secret";
 import { resolveDatabaseUrl } from "@/lib/db/database-url";
-import { getMariaPreviewBookingReadiness } from "@/lib/maria-preview-booking";
 import { getMariaPreviewPortalBase, isMariaPreviewTestRecipient } from "@/lib/maria-preview-customer-safety";
 import { resolveBookingTimeZone } from "@/lib/public-booking-policy";
 import type { WorkspaceTimeZone } from "@/lib/workspace-market";
@@ -160,8 +159,8 @@ export async function cancelCustomerCalendarBooking(
   const isMaria = String(workspace[0]?.slug ?? "") === "makeup-by-maria";
   const previewBase = isMaria ? getMariaPreviewPortalBase() : null;
   if (isMaria) {
-    const readiness = await getMariaPreviewBookingReadiness();
-    if (!readiness.enabled || readiness.workspaceId !== payload.workspaceId || !previewBase) {
+    // Existing QA bookings remain cancellable if new Maria bookings are disabled.
+    if (!previewBase) {
       return { ok: false as const, error: "not_allowed" };
     }
     const recipient = await sql`
