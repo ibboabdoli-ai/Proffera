@@ -35,6 +35,7 @@ vi.mock("next/navigation", () => ({
 }));
 
 import { readMariaManualSwishStatuses, setMariaManualSwishStatus } from "@/lib/maria-manual-swish";
+import { mariaBookingNumber } from "@/lib/maria-deposit";
 import { saveMariaYearAction } from "@/app/dashboard/maria/actions";
 import { saveMariaScheduleAction } from "@/app/dashboard/maria/schedule-actions";
 import { rescheduleMariaDashboardBooking } from "@/lib/maria-dashboard-reschedule";
@@ -174,7 +175,7 @@ function compileSql(strings: TemplateStringsArray, values: unknown[]): Query {
     expect(paid.rowCount).toBe(1);
     expect(paid.rows[0]?.metadata).toMatchObject({
       state: "paid", amount_minor: 200000,
-      booking_number: "MBM-" + bookingId.replaceAll("-", "").toUpperCase(),
+      booking_number: mariaBookingNumber(bookingId),
       actor_user_id: runtime.userId,
     });
     expect(await setMariaManualSwishStatus(bookingId, "unverified")).toEqual({ changed: true });
