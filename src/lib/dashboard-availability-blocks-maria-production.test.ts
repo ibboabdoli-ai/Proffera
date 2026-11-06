@@ -23,6 +23,7 @@ import {
   createDashboardAvailabilityBlock,
   createDashboardRecurringAvailabilityBlocks,
 } from "./dashboard-availability-blocks";
+import { deleteDashboardAvailabilityBlock } from "./dashboard-availability-management";
 
 const single = { localStartsAt: "2026-11-20T08:00", localEndsAt: "2026-11-20T09:00", reason: "QA" };
 const recurring = {
@@ -54,6 +55,24 @@ describe("Maria Production availability block safety", () => {
       await expect(createDashboardAvailabilityBlock(single)).rejects.toThrow("Synthetic SQL must not open");
       await expect(createDashboardRecurringAvailabilityBlocks(recurring)).rejects.toThrow("Synthetic SQL must not open");
       expect(fixture.sqlClients).toBe(2);
+    },
+  );
+
+  it("refuses Maria Production block deletion before opening SQL", async () => {
+    vi.stubEnv("VERCEL_ENV", "production");
+    await expect(deleteDashboardAvailabilityBlock("synthetic-block"))
+      .rejects.toThrow("Maria availability block deletion is disabled in Production");
+    expect(fixture.sqlClients).toBe(0);
+  });
+
+  it.each(["preview", "production"])(
+    "preserves generic block deletion for unrelated workspaces in %s",
+    async (env) => {
+      vi.stubEnv("VERCEL_ENV", env);
+      fixture.slug = "unrelated-workspace";
+      await expect(deleteDashboardAvailabilityBlock("synthetic-block"))
+        .rejects.toThrow("Synthetic SQL must not open");
+      expect(fixture.sqlClients).toBe(1);
     },
   );
 
