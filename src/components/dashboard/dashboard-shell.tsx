@@ -203,14 +203,17 @@ function NavigationLinks({ pathname, locale, searchParams, moduleAccess, enabled
   return (
     <nav className="grid gap-1.5" aria-label={text.navigation}>
       {mariaEnabled ? (
-        <NavigationPrefetchLink href={localizedHref("/dashboard/maria", locale, "")} onClick={onNavigate}
-          aria-current={isActivePath(pathname, "/dashboard/maria") ? "page" : undefined}
+        <NavigationPrefetchLink href={localizedHref("/dashboard", locale, "")} onClick={onNavigate}
+          aria-current={pathname === "/dashboard" ? "page" : undefined}
           className="flex min-h-11 items-center gap-3 rounded-xl bg-white/10 px-3 py-2.5 text-sm font-semibold !text-white hover:bg-white/20">
           <Sparkles className="h-[18px] w-[18px]" aria-hidden="true" />
-          <span>{locale === "en" ? "Maria website" : "Marias webbplats"}</span>
+          <span>{locale === "en" ? "Maria overview" : "Marias översikt"}</span>
         </NavigationPrefetchLink>
       ) : null}
       {dashboardNavigation.map((item) => {
+        // Maria managers get a focused workspace menu instead of unrelated
+        // Proffera modules marked "locked". Standard tenants remain unchanged.
+        if (mariaEnabled && item.href !== "/dashboard/installningar" && item.href !== "/dashboard/bokningar") return null;
         if ((item.href === "/dashboard/installningar" || item.href === "/dashboard/marknadsplats") && !canManageSettings) return null;
         if (item.href === "/dashboard/restaurang" && (!restaurantEnabled || !canManageSettings)) return null;
 
@@ -219,6 +222,7 @@ function NavigationLinks({ pathname, locale, searchParams, moduleAccess, enabled
         const moduleState = "moduleId" in item ? moduleAccessById.get(item.moduleId) : undefined;
         const featureIsLocked = "featureKey" in item && !enabledFeatures?.includes(item.featureKey);
         const isLocked = moduleState?.accessState === "locked" || featureIsLocked;
+        if (mariaEnabled && isLocked) return null;
         const isPlanned = moduleState?.accessState === "planned" || (!moduleAccess && item.href === "/dashboard/ai-assistent");
         const label = locale === "en" ? englishNavigationLabels[item.href] ?? item.label : item.label;
         const content = <><Icon className="h-[18px] w-[18px] shrink-0" aria-hidden="true" /><span className="flex-1">{label}</span>{isLocked || isPlanned ? <span className={isActive ? "text-[10px] font-bold uppercase tracking-wide text-[#315b8e]" : "text-[10px] font-bold uppercase tracking-wide text-[#9fb8d8]"}>{isLocked ? text.locked : text.planned}</span> : null}</>;
@@ -255,7 +259,9 @@ export function DashboardShell({ children, workspaceName = "Proffera", workspace
   const mobileMenuPanelRef = useRef<HTMLElement>(null);
   const mobileMenuCloseButtonRef = useRef<HTMLButtonElement>(null);
   const currentPage = dashboardNavigation.find((item) => isActivePath(pathname, item.href));
-  const currentPageLabel = currentPage ? (locale === "en" ? englishNavigationLabels[currentPage.href] ?? currentPage.label : currentPage.label) : text.workspace;
+  const currentPageLabel = mariaEnabled && pathname === "/dashboard"
+    ? (locale === "en" ? "Maria overview" : "Marias översikt")
+    : currentPage ? (locale === "en" ? englishNavigationLabels[currentPage.href] ?? currentPage.label : currentPage.label) : text.workspace;
   const languageHref = localizedHref(pathname, locale === "en" ? "sv" : "en", searchParamsString);
 
   useEffect(() => {
