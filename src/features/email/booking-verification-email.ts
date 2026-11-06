@@ -1,3 +1,5 @@
+import { resolveBrevoApiKey } from "@/lib/email-runtime-config";
+
 type BookingVerificationEmailInput = {
   customerName: string;
   customerEmail: string;
@@ -42,7 +44,7 @@ function resolveBookingReplyTo() {
  * Failed or ambiguous provider responses are distinguished for safe retry flows.
  */
 export async function sendBookingVerificationEmail(input: BookingVerificationEmailInput) {
-  const apiKey = process.env.BREVO_API_KEY;
+  const apiKey = resolveBrevoApiKey();
   if (!apiKey) return { ok: false as const, message: "Email provider is not configured.", deliveryOutcome: "not_sent" as const };
 
   const expiresMinutes = input.expiresMinutes ?? 10;
