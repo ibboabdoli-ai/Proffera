@@ -88,10 +88,23 @@ afterEach(() => {
 });
 
 describe("Maria Preview email credentials stay isolated", () => {
-  it.each(senders)("delivers $name using the dedicated key alone", async ({ send }) => {
-    await send();
+  it.each(senders)("delivers $name using the dedicated key alone", async ({ name, send }) => {
+    const result = await send();
     const calls = vi.mocked(fetch).mock.calls;
-    expect(calls.length).toBeGreaterThanOrEqual(1);
+    if (name === "customer change notice") {
+      // One message must go to the customer and another to the owner.
+      expect(calls).toHaveLength(2);
+      expect(Array.isArray(result)).toBe(true);
+      if (!Array.isArray(result)) throw new Error("Expected two booking-change delivery results");
+      expect(result).toHaveLength(2);
+      for (const delivery of result) {
+        expect(delivery.status).toBe("fulfilled");
+        if (delivery.status === "fulfilled") expect(delivery.value).toMatchObject({ ok: true });
+      }
+    } else {
+      expect(calls).toHaveLength(1);
+      expect(result).toMatchObject({ ok: true });
+    }
     for (const [url, init] of calls) {
       expect(url).toBe("https://api.brevo.com/v3/smtp/email");
       expect(init?.headers).toMatchObject({
