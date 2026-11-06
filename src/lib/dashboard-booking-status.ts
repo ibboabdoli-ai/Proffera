@@ -67,6 +67,11 @@ export async function updateDashboardBookingStatus(
   }
 
   const access = await getActiveWorkspaceAccess();
+  // Maria Production bookings remain read-only until separately approved.
+  // Guard the shared server writer, including direct status-action submissions.
+  if (access.workspaceSlug === "makeup-by-maria" && process.env.VERCEL_ENV === "production") {
+    throw new Error("Maria booking status changes are disabled in Production");
+  }
   const workspaceId = access.workspaceId;
   const mariaPreview = access.workspaceSlug === "makeup-by-maria";
   const mariaRecipient = process.env.PROFFERA_MARIA_PREVIEW_TEST_EMAIL?.trim().toLowerCase() ?? "";
