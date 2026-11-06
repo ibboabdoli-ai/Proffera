@@ -46,6 +46,7 @@ import { saveMariaYearAction } from "@/app/dashboard/maria/actions";
 import { saveMariaScheduleAction } from "@/app/dashboard/maria/schedule-actions";
 import { rescheduleMariaDashboardBooking } from "@/lib/maria-dashboard-reschedule";
 import { BookingTimeConflictError, createDashboardBooking } from "@/lib/dashboard-db";
+import { createDashboardAvailabilityBlock, createDashboardRecurringAvailabilityBlocks } from "@/lib/dashboard-availability-blocks";
 
 const RUN = process.env.GITHUB_ACTIONS === "true"
   || process.env.PROFFERA_POSTGRES_INTEGRATION === "1";
@@ -403,6 +404,90 @@ function compileSql(strings: TemplateStringsArray, values: unknown[]): Query {
     await expect(saveMariaYearAction(form)).rejects.toThrow("TEST_REDIRECT:/dashboard");
     await expect(saveMariaScheduleAction(form)).rejects.toThrow("TEST_REDIRECT:/dashboard");
     vi.stubEnv("VERCEL_ENV", "preview");
+  });
+
+
+  it("preserves a finalized Maria service buffer for manual bookings and availability blocks", async () => {
+    const future = new Date(Date.now() + 75 * 86_400_000);
+    const start = new Date(Date.UTC(future.getUTCFullYear(), future.getUTCMonth(), future.getUTCDate(), 10));
+    const end = new Date(start.getTime() + 180 * 60_000);
+    const withinBufferEnd = new Date(end.getTime() + 15 * 60_000);
+    const afterBuffer = new Date(end.getTime() + 30 * 60_000);
+    const service = await db!.query<{ id: string }>(
+      "insert into workspace_services(workspace_id,name,public_slug,duration_minutes,buffer_before_minutes,buffer_after_minutes,is_active,public_status) values($1,'Synthetic buffered Maria service',$2,180,0,30,true,'published') returning id::text",
+      [workspaceId, "maria-buffer-qa-" + randomUUID().slice(0, 8)],
+    );
+    await db!.query(
+      "insert into bookings(workspace_id,customer_id,service_id,title,service,status,source,starts_at,ends_at) values($1,$2::uuid,$3::uuid,'Synthetic buffered public appointment','Maria QA','confirmed','public_booking',$4::timestamptz,$5::timestamptz)",
+      [workspaceId, customerId, service.rows[0]!.id, start.toISOString(), end.toISOString()],
+    );
+    const overlappingInput = {
+      customerId, title: "Should be blocked by service buffer", status: "confirmed" as const,
+      startsAt: end.toISOString(), endsAt: withinBufferEnd.toISOString(),
+      city: "Södertälje", service: "QA manual booking",
+      serviceCategorySlug: "", serviceSlug: "", notes: "synthetic only",
+    };
+
+    // The optimistic preflight must include the finalized appointment's buffer.
+    await expect(createDashboardBooking(overlappingInput)).rejects.toBeInstanceOf(BookingTimeConflictError);
+
+    // A stale preflight must not bypass the buffer check under advisory lock 713.
+    const originalFactory = runtime.makeSql;
+    if (!originalFactory) throw new Error("Synthetic SQL client not initialized");
+    let bypasses = 0;
+    runtime.makeSql = () => {
+      const base = originalFactory() as {
+        (parts: TemplateStringsArray, ...values: unknown[]): unknown;
+        transaction: (queries: Query[]) => Promise<QueryResponse[]>;
+      };
+      const tagged = (parts: TemplateStringsArray, ...values: unknown[]) => {
+        const query = compileSql(parts, values);
+        if (query.text.includes("from bookings b") && query.text.includes("occupied_service.buffer_after_minutes")) {
+          bypasses += 1;
+          return Promise.resolve([] as QueryResponse);
+        }
+        return base(parts, ...values);
+      };
+      return Object.assign(tagged, { transaction: base.transaction });
+    };
+    try {
+      await expect(createDashboardBooking(overlappingInput)).rejects.toBeInstanceOf(BookingTimeConflictError);
+      expect(bypasses).toBe(1);
+    } finally {
+      runtime.makeSql = originalFactory;
+    }
+
+    const localClock = (value: Date) => {
+      const parts = new Intl.DateTimeFormat("sv-SE", {
+        timeZone: "Europe/Stockholm", year: "numeric", month: "2-digit", day: "2-digit",
+        hour: "2-digit", minute: "2-digit", hourCycle: "h23",
+      }).formatToParts(value);
+      const part = (kind: string) => parts.find(item => item.type === kind)?.value ?? "";
+      return part("year") + "-" + part("month") + "-" + part("day") + "T" + part("hour") + ":" + part("minute");
+    };
+    const localStart = localClock(end);
+    const localEnd = localClock(withinBufferEnd);
+    expect(localStart.slice(0, 10)).toBe(localEnd.slice(0, 10));
+    await expect(createDashboardAvailabilityBlock({
+      localStartsAt: localStart, localEndsAt: localEnd, reason: "Buffered QA block",
+    })).rejects.toMatchObject({ code: "conflict" });
+
+    const day = localStart.slice(0, 10);
+    const weekday = new Date(day + "T12:00:00Z").getUTCDay();
+    await expect(createDashboardRecurringAvailabilityBlocks({
+      startDate: day, endDate: day,
+      startTime: localStart.slice(11), endTime: localEnd.slice(11),
+      weekdays: [weekday], reason: "Buffered recurring QA block",
+    })).rejects.toMatchObject({ code: "conflict" });
+
+    // The buffer boundary itself is available when no other booking overlaps.
+    const permittedId = await createDashboardBooking({
+      ...overlappingInput,
+      title: "After buffered treatment",
+      startsAt: afterBuffer.toISOString(),
+      endsAt: new Date(afterBuffer.getTime() + 15 * 60_000).toISOString(),
+    });
+    expect(permittedId).toMatch(/^[0-9a-f-]{36}$/i);
   });
 
   it("reports Maria manager booking conflict after a concurrent confirmation commits under lock 713", async () => {

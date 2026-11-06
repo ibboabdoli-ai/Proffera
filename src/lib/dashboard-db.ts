@@ -428,13 +428,19 @@ export async function createDashboardBooking(input: CreateDashboardBookingInput)
 
   const conflictingBooking = await sql`
     select id
-    from bookings
-    where workspace_id = ${workspaceId}
-      and status not in ('cancelled', 'no_show')
-      and starts_at is not null
-      and ends_at is not null
-      and starts_at < ${input.endsAt}::timestamptz
-      and ends_at > ${input.startsAt}::timestamptz
+    from bookings b
+    left join workspace_services occupied_service
+      on occupied_service.id=b.service_id and occupied_service.workspace_id=b.workspace_id
+    where b.workspace_id = ${workspaceId}
+      and b.status not in ('cancelled', 'no_show')
+      and b.starts_at is not null
+      and b.ends_at is not null
+      and b.starts_at - (case when ${mariaPreview}::boolean
+        then coalesce(occupied_service.buffer_before_minutes,0) else 0 end * interval '1 minute')
+        < ${input.endsAt}::timestamptz
+      and b.ends_at + (case when ${mariaPreview}::boolean
+        then coalesce(occupied_service.buffer_after_minutes,0) else 0 end * interval '1 minute')
+        > ${input.startsAt}::timestamptz
     limit 1
   `;
 
@@ -475,10 +481,15 @@ export async function createDashboardBooking(input: CreateDashboardBookingInput)
       -- Under lock 713, reject existing bookings as well as pending holds.
       not exists (
         select 1 from bookings active_booking
+        left join workspace_services active_service
+          on active_service.id=active_booking.service_id
+          and active_service.workspace_id=active_booking.workspace_id
         where active_booking.workspace_id=${workspaceId}
           and active_booking.status not in ('cancelled', 'no_show')
-          and active_booking.starts_at < ${input.endsAt}::timestamptz
-          and active_booking.ends_at > ${input.startsAt}::timestamptz
+          and active_booking.starts_at-(coalesce(active_service.buffer_before_minutes,0)*interval '1 minute')
+            < ${input.endsAt}::timestamptz
+          and active_booking.ends_at+(coalesce(active_service.buffer_after_minutes,0)*interval '1 minute')
+            > ${input.startsAt}::timestamptz
       )
       and not exists (
       select 1 from public_booking_verifications hold

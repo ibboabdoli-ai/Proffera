@@ -222,8 +222,8 @@ async function updateBookingStatusAction(bookingId: string, formData: FormData) 
     console.error("Failed to update dashboard booking status", error);
     redirectWithError(bookingId, "save", locale);
   }
-  if (isMaria && !statusChanged && (status === "requested" || status === "confirmed")) {
-    if (previousStatus === "cancelled") redirectWithError(bookingId, "maria_activation_conflict", locale);
+  if (isMaria && !statusChanged && status !== "cancelled") {
+    if (previousStatus === "cancelled" || previousStatus === "no_show") redirectWithError(bookingId, "maria_activation_conflict", locale);
     // Already at the requested status: no change occurred; do not claim an update.
     redirect(withLang(`/dashboard/bokningar/${bookingId}`, locale));
   }

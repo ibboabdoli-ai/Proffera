@@ -127,13 +127,13 @@ export async function updateDashboardBookingStatus(
           where c.id=bookings.customer_id and c.workspace_id=bookings.workspace_id
             and lower(trim(c.email))=${mariaRecipient}
         ))
-        -- Reopening a cancelled Maria reservation is an activation, not a
-        -- harmless status label edit. Under lock 713, reject other live
-        -- appointments and unexpired verification holds, including buffers.
+        -- Reopening an inactive Maria booking (cancelled/no_show) into any
+        -- occupying status is an activation. Under lock 713, reject live
+        -- appointments, holds and closed starts before changing its status.
         -- Unrelated workspaces retain their existing status semantics.
         and (
-          ${!mariaPreview}::boolean or ${status}::text not in ('requested', 'confirmed')
-          or bookings.status <> 'cancelled'
+          ${!mariaPreview}::boolean or ${status}::text = 'cancelled'
+          or bookings.status not in ('cancelled','no_show')
           or (
             not exists (
               select 1 from bookings other

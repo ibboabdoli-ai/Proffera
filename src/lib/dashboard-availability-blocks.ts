@@ -53,14 +53,21 @@ async function hasConflict(
   workspaceId: string,
   startsAt: Date,
   endsAt: Date,
+  mariaPreview = false,
 ) {
   const conflicts = await sql`
-    select id
-    from bookings
-    where workspace_id = ${workspaceId}
-      and status not in ('cancelled', 'no_show')
-      and starts_at < ${endsAt.toISOString()}::timestamptz
-      and ends_at > ${startsAt.toISOString()}::timestamptz
+    select b.id
+    from bookings b
+    left join workspace_services occupied_service
+      on occupied_service.id=b.service_id and occupied_service.workspace_id=b.workspace_id
+    where b.workspace_id = ${workspaceId}
+      and b.status not in ('cancelled', 'no_show')
+      and b.starts_at-(case when ${mariaPreview}::boolean
+        then coalesce(occupied_service.buffer_before_minutes,0) else 0 end * interval '1 minute')
+        < ${endsAt.toISOString()}::timestamptz
+      and b.ends_at+(case when ${mariaPreview}::boolean
+        then coalesce(occupied_service.buffer_after_minutes,0) else 0 end * interval '1 minute')
+        > ${startsAt.toISOString()}::timestamptz
     limit 1
   `;
   return Boolean(conflicts[0]);
@@ -104,10 +111,14 @@ async function insertBlock(
     where ${!mariaPreview}::boolean or (
       not exists (
         select 1 from bookings existing
+        left join workspace_services existing_service
+          on existing_service.id=existing.service_id and existing_service.workspace_id=existing.workspace_id
         where existing.workspace_id=${workspaceId}
           and existing.status not in ('cancelled','no_show')
-          and existing.starts_at < ${endsAt.toISOString()}::timestamptz
-          and existing.ends_at > ${startsAt.toISOString()}::timestamptz
+          and existing.starts_at-(coalesce(existing_service.buffer_before_minutes,0)*interval '1 minute')
+            < ${endsAt.toISOString()}::timestamptz
+          and existing.ends_at+(coalesce(existing_service.buffer_after_minutes,0)*interval '1 minute')
+            > ${startsAt.toISOString()}::timestamptz
       )
       and not exists (
       select 1 from public_booking_verifications hold
@@ -164,7 +175,7 @@ export async function createDashboardAvailabilityBlock(input: {
 
   const reason = normalizeReason(input.reason);
   const mariaPreview = process.env.VERCEL_ENV === "preview" && access.workspaceSlug === "makeup-by-maria";
-  if (await hasConflict(sql, access.workspaceId, startsAt, endsAt)) {
+  if (await hasConflict(sql, access.workspaceId, startsAt, endsAt, mariaPreview)) {
     throw new AvailabilityBlockValidationError("conflict");
   }
 
@@ -251,8 +262,14 @@ export async function createDashboardRecurringAvailabilityBlocks(input: {
       join bookings b
         on b.workspace_id = ${access.workspaceId}
        and b.status not in ('cancelled', 'no_show')
-       and b.starts_at < n.ends_at
-       and b.ends_at > n.starts_at
+      left join workspace_services occupied_service
+        on occupied_service.id=b.service_id and occupied_service.workspace_id=b.workspace_id
+      where b.starts_at-(case when ${mariaPreview}::boolean
+        then coalesce(occupied_service.buffer_before_minutes,0) else 0 end * interval '1 minute')
+        < n.ends_at
+        and b.ends_at+(case when ${mariaPreview}::boolean
+        then coalesce(occupied_service.buffer_after_minutes,0) else 0 end * interval '1 minute')
+        > n.starts_at
       limit 1
     ),
     hold_conflicts as (

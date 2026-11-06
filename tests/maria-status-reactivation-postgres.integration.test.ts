@@ -77,6 +77,7 @@ function compileSql(parts: TemplateStringsArray, values: unknown[]): Query {
     vi.stubEnv("PROFFERA_PREVIEW_EMAIL_RECIPIENT", customerEmail);
     vi.stubEnv("VERCEL_URL", "maria-synthetic-qa.vercel.app");
     vi.stubEnv("BREVO_API_KEY", "synthetic-brevo-key");
+    vi.stubEnv("PROFFERA_PREVIEW_BREVO_API_KEY", "synthetic-isolated-brevo-key");
     vi.stubEnv("LEAD_FROM_EMAIL", "Maria Test <noreply@example.invalid>");
 
     container = "proffera-maria-reactivation-" + process.pid + "-" + Date.now();
@@ -195,6 +196,8 @@ function compileSql(parts: TemplateStringsArray, values: unknown[]): Query {
       return Number(result.rows[0]?.count);
     };
     expect((await updateDashboardBookingStatus(cancelledBookingId, "confirmed")).changed).toBe(false);
+    // Completed is also treated as occupied, and must not bypass reactivation protection.
+    expect((await updateDashboardBookingStatus(cancelledBookingId, "completed")).changed).toBe(false);
     expect(await readStatus()).toBe("cancelled");
     expect(await countEvents()).toBe(0);
 
@@ -209,6 +212,7 @@ function compileSql(parts: TemplateStringsArray, values: unknown[]): Query {
       [workspaceId, customerEmail, service.rows[0]!.id, start.toISOString(), end.toISOString()],
     );
     expect((await updateDashboardBookingStatus(cancelledBookingId, "requested")).changed).toBe(false);
+    expect((await updateDashboardBookingStatus(cancelledBookingId, "completed")).changed).toBe(false);
     expect(await readStatus()).toBe("cancelled");
     expect(await countEvents()).toBe(0);
 
@@ -222,10 +226,17 @@ function compileSql(parts: TemplateStringsArray, values: unknown[]): Query {
       [workspaceId,start.toISOString()],
     );
     expect((await updateDashboardBookingStatus(cancelledBookingId, "confirmed")).changed).toBe(false);
+    expect((await updateDashboardBookingStatus(cancelledBookingId, "completed")).changed).toBe(false);
     expect(await readStatus()).toBe("cancelled");
+    // Even an existing no-show booking cannot be marked completed over a closed start.
+    await db!.query("update bookings set status='no_show' where id=$1::uuid", [cancelledBookingId]);
+    expect((await updateDashboardBookingStatus(cancelledBookingId, "completed")).changed).toBe(false);
+    expect(await readStatus()).toBe("no_show");
+    await db!.query("update bookings set status='cancelled' where id=$1::uuid", [cancelledBookingId]);
     await db!.query("delete from maria_manual_closed_starts where workspace_id=$1::uuid", [workspaceId]);
     await db!.query("update workspace_booking_hours set is_closed=true where workspace_id=$1", [workspaceId]);
     const blockedReactivation = await updateDashboardBookingStatus(cancelledBookingId, "requested");
+    expect((await updateDashboardBookingStatus(cancelledBookingId, "completed")).changed).toBe(false);
     expect(blockedReactivation.changed).toBe(false);
     expect(blockedReactivation.previousStatus).toBe("cancelled");
     expect(await readStatus()).toBe("cancelled");
