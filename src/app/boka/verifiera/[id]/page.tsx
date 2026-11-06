@@ -76,13 +76,14 @@ async function getVerificationExperience(id: string): Promise<VerificationExperi
     if (
       typeof experience.swedishEnabled !== "boolean"
       || typeof experience.englishEnabled !== "boolean"
-      || (!experience.swedishEnabled && !experience.englishEnabled)
+      || (!experience.swedishEnabled && !experience.englishEnabled && !mariaPreview)
     ) return safeVerificationExperience;
 
     return {
       defaultLanguage: experience.defaultLanguage === "en" ? "en" : "sv",
       swedishEnabled: experience.swedishEnabled,
-      englishEnabled: experience.englishEnabled,
+      // Maria's Preview booking entry offers English even when the workspace toggle is off.
+      englishEnabled: mariaPreview || experience.englishEnabled,
       primaryColor: /^#[0-9a-f]{6}$/i.test(experience.primaryColor) ? experience.primaryColor : safeVerificationExperience.primaryColor,
       mariaPreview,
     };
