@@ -112,6 +112,31 @@ describe("Booking confirmation language consistency", () => {
     expect(message.text).toContain("Start:");
     expect(message.html).not.toContain('dir="rtl"');
     expect(message.text).not.toContain("Bokningsförfrågan");
+    expect(message.html).not.toContain("primeview-window-care-logo.jpeg");
+    expect(message.html).not.toContain("PrimeView will confirm");
+    expect(message.html).not.toContain("PrimeView Window Care · Powered by Proffera");
+    expect(message.html).toContain("Other synthetic company will confirm");
+    expect(message.html).toContain("Other synthetic company · Powered by Proffera");
+  });
+
+  it("escapes unbranded tenant identity in English email HTML", () => {
+    const message = buildUnifiedBookingConfirmationEmail({
+      ...booking, branding: undefined, companyName: 'Other & <company>', language: "en",
+    });
+    expect(message.html).not.toContain("primeview-window-care-logo.jpeg");
+    expect(message.html).not.toContain("PrimeView will confirm");
+    expect(message.html).toContain("Other &amp; &lt;company&gt; will confirm");
+    expect(message.html).toContain("Other &amp; &lt;company&gt; · Powered by Proffera");
+    expect(message.html).not.toContain("Other & <company>");
+  });
+
+  it("preserves PrimeView branding only for the PrimeView tenant", () => {
+    const message = buildUnifiedBookingConfirmationEmail({
+      ...booking, branding: undefined, companyName: "PrimeView Window Care", language: "en",
+    });
+    expect(message.html).toContain("primeview-window-care-logo.jpeg");
+    expect(message.html).toContain("PrimeView will confirm the appointment separately.");
+    expect(message.html).toContain("PrimeView Window Care · Powered by Proffera");
   });
 
   it("preserves Arabic copy and RTL markup for Maria", () => {
