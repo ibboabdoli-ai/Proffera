@@ -123,9 +123,9 @@ export async function applyFullSubscriptionRefund(stripe: Stripe, refundedCharge
     return { ok: false as const, code: "binding_pending" as const };
   }
   if (boundSubscription !== subscriptionId ||
-      rows[0].stripe_customer_id !== customerId ||
-      rows[0].stripe_price_id !== priceId) {
-    // Superseded subscription must never overwrite a newer Workspace binding.
+      rows[0].stripe_customer_id !== customerId) {
+    // Stripe can update the Price before the local billing row catches up.
+    // Identity is the subscription/customer/workspace tuple, not the Price.
     return { ok: true as const, applied: false };
   }
 
@@ -152,24 +152,48 @@ export async function applyFullSubscriptionRefund(stripe: Stripe, refundedCharge
     return { ok: true as const, applied: false };
   }
 
-  // Duplicated refund events can both observe an active subscription. Recover
-  // the losing request only after confirming Stripe has already canceled it.
+  // Stripe has no conditional cancel. Freeze automatic renewal first; inspect
+  // the returned subscription before any irreversible immediate cancellation.
+  // If a renewal beat the freeze, preserve that paid period and leave its
+  // cancellation scheduled at the newly established period end.
   let canceled: Stripe.Subscription;
   if (latest.status === "canceled") {
     canceled = latest;
   } else {
-    try {
-      canceled = await stripe.subscriptions.cancel(subscriptionId, {
-        invoice_now: false,
-        prorate: false,
-      });
-    } catch (error) {
-      if (!error || typeof error !== "object" ||
-          !("code" in error) || error.code !== "resource_missing") throw error;
-      const current = await stripe.subscriptions.retrieve(subscriptionId);
-      if (current.status !== "canceled" || !stillSamePeriod(current)) throw error;
-      canceled = current;
+    const frozen = latest.cancel_at_period_end
+      ? latest
+      : await stripe.subscriptions.update(subscriptionId, {
+          cancel_at_period_end: true,
+        });
+    if (!stillSamePeriod(frozen) || frozen.pending_update ||
+        !["active", "trialing", "past_due", "canceled"].includes(frozen.status)) {
+      return { ok: true as const, applied: false };
     }
+    if (frozen.status === "canceled") {
+      canceled = frozen;
+    } else {
+      try {
+        canceled = await stripe.subscriptions.cancel(subscriptionId, {
+          invoice_now: false,
+          prorate: false,
+        });
+      } catch (error) {
+        if (!error || typeof error !== "object" ||
+            !("code" in error) || error.code !== "resource_missing") throw error;
+        const current = await stripe.subscriptions.retrieve(subscriptionId);
+        if (current.status !== "canceled" || !stillSamePeriod(current)) throw error;
+        canceled = current;
+      }
+    }
+  }
+  // A paid renewal/upgrade can still win a provider-side race, so never
+  // revoke entitlement from a cancellation response for another period.
+  // Report retryable failure for recovery rather than silently corrupting DB.
+  if (canceled.status !== "canceled" || !stillSamePeriod(canceled)) {
+    console.error("Stripe cancellation raced a new paid period; manual recovery required", {
+      subscriptionId, invoiceId, workspaceId,
+    });
+    return { ok: false as const, code: "reconciliation" as const };
   }
   const synced = await syncCancelledWorkspaceSubscription(
     canceled, Math.max(eventCreated, canceled.canceled_at ?? 0), priceId,

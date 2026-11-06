@@ -50,7 +50,9 @@ describe("atomic refund cancellation projection", () => {
     expect(query).toContain("update workspace_billing_subscriptions");
     expect(query).toContain("b.stripe_subscription_id =");
     expect(query).toContain("b.stripe_customer_id =");
-    expect(query).toContain("b.stripe_price_id =");
+    expect(query).toContain("stripe_price_id =");
+    expect(query).not.toContain("and b.stripe_price_id =");
+    expect(parameters).toContain("price_old");
     expect(query).toContain("from changed_billing b");
     expect(query).toContain("greatest(coalesce(b.last_event_created, 0)");
     expect(parameters).toContain("sub_test");
@@ -58,6 +60,22 @@ describe("atomic refund cancellation projection", () => {
     expect(mocks.syncWorkspaceAiChat).toHaveBeenCalledWith({
       workspaceId: ws, enabled: false,
     });
+  });
+
+  it("reconciles cancellation after same-subscription Price upgrade was not persisted", async () => {
+    const newestPrice = "price_upgraded_not_yet_synced";
+    const newer = { ...sub, items: { data: [{
+      ...sub.items.data[0], price: { id: newestPrice },
+    }] } } as Stripe.Subscription;
+    expect(await syncCancelledWorkspaceSubscription(newer, 1793900000, newestPrice))
+      .toEqual({ ok: true });
+    const [fragments, ...parameters] = mocks.sql.mock.calls[0];
+    const query = fragments.join("?").toLowerCase();
+    expect(query).toContain("stripe_price_id =");
+    expect(query).not.toContain("and b.stripe_price_id =");
+    expect(parameters).toContain("sub_test");
+    expect(parameters).toContain("cus_test");
+    expect(parameters).toContain(newestPrice);
   });
 
   it("cannot change a new binding that replaced the refunded subscription", async () => {

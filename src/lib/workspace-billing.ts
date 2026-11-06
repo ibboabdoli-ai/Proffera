@@ -110,6 +110,7 @@ export async function syncCancelledWorkspaceSubscription(
         update workspace_billing_subscriptions b
         set status = 'cancelled',
             cancel_at_period_end = false,
+            stripe_price_id = ${priceId},
             current_period_start = coalesce(${periodStart}::timestamptz, b.current_period_start),
             current_period_end = coalesce(${periodEnd}::timestamptz, b.current_period_end),
             last_event_created = greatest(coalesce(b.last_event_created, 0), ${eventCreated}),
@@ -117,7 +118,6 @@ export async function syncCancelledWorkspaceSubscription(
         where b.workspace_id = ${workspaceId}::uuid
           and b.stripe_subscription_id = ${subscription.id}
           and b.stripe_customer_id = ${customerId}
-          and b.stripe_price_id = ${priceId}
         returning b.workspace_id, b.workspace_plan_id
       ),
       changed_plan as (

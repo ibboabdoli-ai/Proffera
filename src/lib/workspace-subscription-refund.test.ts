@@ -50,6 +50,7 @@ function fixture() {
     invoices: { retrieve: vi.fn().mockResolvedValue(invoice) },
     subscriptions: {
       retrieve: vi.fn().mockResolvedValue(subscription),
+      update: vi.fn().mockResolvedValue({ ...subscription, cancel_at_period_end: true }),
       cancel: vi.fn().mockResolvedValue(canceled),
     },
   } as unknown as Stripe;
@@ -78,6 +79,67 @@ describe("full subscription refund entitlement reconciliation", () => {
     });
     expect(mocks.syncCancelledWorkspaceSubscription).toHaveBeenCalledWith(
       f.canceled, 1793800000, PRICE_ID,
+    );
+  });
+
+  it("freezes future renewal before immediate cancellation", async () => {
+    const f = fixture();
+    expect(await applyFullSubscriptionRefund(f.stripe, f.charge, 123))
+      .toEqual({ ok: true, applied: true });
+    expect(f.stripe.subscriptions.update).toHaveBeenCalledWith(SUBSCRIPTION_ID, {
+      cancel_at_period_end: true,
+    });
+    expect(vi.mocked(f.stripe.subscriptions.update).mock.invocationCallOrder[0])
+      .toBeLessThan(vi.mocked(f.stripe.subscriptions.cancel).mock.invocationCallOrder[0]);
+  });
+
+  it("preserves a newly paid renewal if it happens before Stripe freezes future billing", async () => {
+    const f = fixture();
+    vi.mocked(f.stripe.subscriptions.update).mockResolvedValue({
+      ...f.subscription, latest_invoice: "in_new_paid", cancel_at_period_end: true,
+      items: { data: [{
+        price: { id: PRICE_ID }, current_period_start: 1796392000,
+        current_period_end: 1799070400,
+      }] },
+    } as never);
+    expect(await applyFullSubscriptionRefund(f.stripe, f.charge, 123))
+      .toEqual({ ok: true, applied: false });
+    expect(f.stripe.subscriptions.cancel).not.toHaveBeenCalled();
+    expect(mocks.syncCancelledWorkspaceSubscription).not.toHaveBeenCalled();
+  });
+
+  it("flags a new period discovered in the cancellation response without revoking paid access", async () => {
+    const f = fixture();
+    vi.mocked(f.stripe.subscriptions.cancel).mockResolvedValue({
+      ...f.canceled, latest_invoice: "in_new_paid",
+      items: { data: [{
+        price: { id: PRICE_ID }, current_period_start: 1796392000,
+        current_period_end: 1799070400,
+      }] },
+    } as never);
+    expect(await applyFullSubscriptionRefund(f.stripe, f.charge, 123))
+      .toEqual({ ok: false, code: "reconciliation" });
+    expect(mocks.syncCancelledWorkspaceSubscription).not.toHaveBeenCalled();
+  });
+
+  it("permits an unpersisted Price upgrade on the same Stripe subscription and Customer", async () => {
+    const f = fixture();
+    const changed = { ...f.subscription, items: { data: [{
+      ...f.subscription.items.data[0], price: { id: "price_new_professional" },
+    }] } } as Stripe.Subscription;
+    vi.mocked(f.stripe.subscriptions.retrieve).mockResolvedValue(changed as never);
+    vi.mocked(f.stripe.subscriptions.update).mockResolvedValue({
+      ...changed, cancel_at_period_end: true,
+    } as never);
+    vi.mocked(f.stripe.subscriptions.cancel).mockResolvedValue({
+      ...f.canceled, items: { data: [{
+        ...f.subscription.items.data[0], price: { id: "price_new_professional" },
+      }] },
+    } as never);
+    expect(await applyFullSubscriptionRefund(f.stripe, f.charge, 123))
+      .toEqual({ ok: true, applied: true });
+    expect(mocks.syncCancelledWorkspaceSubscription).toHaveBeenCalledWith(
+      expect.anything(), 123, "price_new_professional",
     );
   });
 
@@ -371,8 +433,14 @@ describe("full subscription refund entitlement reconciliation", () => {
     const priceId = "price_retired_starter";
     const oldPrice = { ...f.subscription, items: { data: [{
       ...f.subscription.items.data[0], price: { id: priceId },
-    }] } } as never;
-    vi.mocked(f.stripe.subscriptions.retrieve).mockResolvedValue(oldPrice);
+    }] } } as Stripe.Subscription;
+    vi.mocked(f.stripe.subscriptions.retrieve).mockResolvedValue(oldPrice as never);
+    vi.mocked(f.stripe.subscriptions.update).mockResolvedValue({
+      ...oldPrice, cancel_at_period_end: true,
+    } as never);
+    vi.mocked(f.stripe.subscriptions.cancel).mockResolvedValue({
+      ...f.canceled, items: oldPrice.items,
+    } as never);
     mocks.getSql.mockReturnValue(vi.fn().mockResolvedValue([{
       stripe_subscription_id: SUBSCRIPTION_ID,
       stripe_customer_id: CUSTOMER_ID, stripe_price_id: priceId,
@@ -380,7 +448,7 @@ describe("full subscription refund entitlement reconciliation", () => {
     expect(await applyFullSubscriptionRefund(f.stripe, f.charge, 1))
       .toEqual({ ok: true, applied: true });
     expect(mocks.syncCancelledWorkspaceSubscription).toHaveBeenCalledWith(
-      f.canceled, 1, priceId,
+      expect.anything(), 1, priceId,
     );
   });
 });
