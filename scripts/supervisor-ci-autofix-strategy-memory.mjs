@@ -604,6 +604,11 @@ export function classifyCiAutofixOutcome(input) {
         return {persist:false,reason:"staged_handoff_evidence_incomplete"};
       if (upload.status!=="completed" || !["failure","skipped"].includes(upload.conclusion))
         fail("unverified_handoff_upload");
+      // A failed upload action may have finalized an artifact before failing to
+      // receive the response. Without independent artifact absence proof, keep
+      // this run's reservation unresolved rather than release another model lane.
+      if (upload.conclusion==="failure")
+        return {persist:false,reason:"staged_handoff_evidence_incomplete"};
     }
   }
   if (launch.recoverable) return {persist: false, reason: launch.reason};

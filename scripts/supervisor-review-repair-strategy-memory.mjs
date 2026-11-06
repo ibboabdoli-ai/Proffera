@@ -587,7 +587,9 @@ export function reviewRepairStagedUploadEvidence(input) {
     return {uploaded:false,uncertain:true};
   if (upload.status!=="completed" || !["failure","skipped"].includes(upload.conclusion))
     fail("upload_step_evidence");
-  return {uploaded:false};
+  // A failed response does not prove the artifact was not finalized by GitHub.
+  return upload.conclusion==="failure"
+    ? {uploaded:false,uncertain:true} : {uploaded:false};
 }
 
 export function reviewRepairMemoryState({repository: repo, pr_number, comments}) {

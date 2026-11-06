@@ -1428,6 +1428,33 @@ describe("AutoMerge CodeRabbit review provenance (adversarial)", () => {
     'clean_final_comments_json="$(jq -c --arg sha "$head_sha" --arg request_time "$coderabbit_request_time" \x27\n',
     '\x27 <<< "$comments_json")"',
   );
+  it("accepts only authenticated current-head persistent clean summaries across CI and AutoMerge", () => {
+    const ci = source(".github/workflows/ci.yml");
+    const ciFilter = extract(
+      'clean_final_comments_json="$(jq -c --arg sha "$HEAD_SHA" --arg request_time "$coderabbit_request_time" \x27\n',
+      '\x27 <<< "$comments_json")"', ci,
+    );
+    const body = `<!-- recent_review_start -->\nNo actionable comments were generated in the recent review.\n${reviewHead}\n<!-- recent_review_end -->`;
+    const valid = {...clean[0],body};
+    for (const filter of [ciFilter,cleanFilter]) {
+      const count = (rows: unknown[]) => (jq(filter,rows,{sha:reviewHead,request_time:request}) as unknown[]).length;
+      expect(count([valid])).toBe(1);
+      expect(count([{...valid,body:body.replace(reviewHead,oldHead)}])).toBe(0);
+      expect(count([{...valid,body:"> "+body}])).toBe(0);
+      expect(count([{...valid,user:{login:"attacker"}}])).toBe(0);
+      expect(count([{...valid,updated_at:"2026-10-18T21:04:00Z"}])).toBe(0);
+      expect(count([{...valid,created_at:"2026-10-18T20:59:00Z"}])).toBe(0);
+    }
+    const accepted=runAutomergeFixture({
+      comments:[requestComment(),cleanIssueComment({body})],
+      firstReviews:[{...codeRabbitCompletedReview(),state:"COMMENTED"}],
+    });
+    expect(accepted.stdout,accepted.stdout+accepted.stderr).toContain("AI_REVIEW_OK");
+    const noWitness=runAutomergeFixture({
+      comments:[requestComment(),cleanIssueComment({body})],firstReviews:[],
+    });
+    expect(noWitness.stdout).not.toContain("AI_REVIEW_OK");
+  },45000);
   const reviewFilter = extract(
     'guard_review_completion_time="$(jq -r --arg request_time "$coderabbit_request_time" \x27\n',
     '\x27 <<< "$guard_current_reviews")"',

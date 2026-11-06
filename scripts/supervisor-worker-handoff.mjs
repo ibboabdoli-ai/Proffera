@@ -3243,14 +3243,43 @@ export async function recordWorkerStrategyOutcome(input) {
       && record.observations.some((entry) => entry.source?.kind === "actions"
         && Number(entry.source.run_id) === runId && Number(entry.source.attempt) === attempt));
     if (matches.length > 0) {
-      if (matches.length !== 1 || matches[0].outcome !== "succeeded"
-        || matches[0].pr_number !== Number(input.pr_number)
-        || matches[0].evidence_fingerprint !== descriptor.evidence_fingerprint
-        || matches[0].strategy_fingerprint !== descriptor.strategy_fingerprint
-        || !matches[0].observations.some((entry) => entry.source?.kind === "actions"
+      const prior = matches[0];
+      if (matches.length !== 1 || prior.outcome !== "succeeded"
+        || prior.evidence_fingerprint !== descriptor.evidence_fingerprint
+        || prior.strategy_fingerprint !== descriptor.strategy_fingerprint
+        || !prior.observations.some((entry) => entry.source?.kind === "actions"
           && Number(entry.source.run_id) === runId && Number(entry.source.attempt) === attempt
           && entry.head === packet.base_sha)) {
         throw new Error("Worker strategy success conflicts with a durable outcome for this attempt");
+      }
+      if (prior.pr_number !== Number(input.pr_number)) {
+        // Historical RECOVERABLE model successes had no PR number. Reuse their
+        // exact outcome only after independently authenticating the now-published
+        // Worker PR, original dispatch, and durable reservation under the mutex.
+        const prNumber = Number(input.pr_number);
+        if (prior.pr_number !== null || !Number.isSafeInteger(prNumber) || prNumber <= 0) {
+          throw new Error("Worker strategy success conflicts with a durable outcome for this attempt");
+        }
+        const pr = retryGitHubRead(() => githubApiJson([`repos/${input.repository}/pulls/${prNumber}`]));
+        const owned = reservationRecords(comments).filter((entry) => entry.payload.task_id === packet.task_id);
+        const starts = parseWorkerStrategyDispatchStarts(comments)
+          .filter((entry) => entry.task_id === packet.task_id && Number(entry.run_id) === runId);
+        if (pr?.number !== prNumber || pr.state !== "open" || pr.merged !== false
+          || pr.base?.ref !== "main" || pr.user?.login !== TRUSTED_SUPERVISOR_ACTOR
+          || pr.head?.repo?.full_name !== EXPECTED_REPOSITORY
+          || pr.head?.ref !== packet.branch || !SHA_RE.test(pr.head?.sha ?? "")
+          || !sameReservationPacket(owned[0]?.payload ?? {}, packet)
+          || owned.length !== 1 || owned[0].payload.state !== "PUBLISHED"
+          || owned[0].payload.pr_number !== prNumber
+          || owned[0].payload.head_sha !== pr.head.sha
+          || Number(owned[0].payload.run_id) !== runId
+          || starts.length !== 1 || starts[0].run_attempt !== attempt
+          || starts[0].head !== packet.base_sha
+          || starts[0].evidence_fingerprint !== descriptor.evidence_fingerprint
+          || starts[0].strategy_fingerprint !== descriptor.strategy_fingerprint
+          || JSON.stringify(parseTaskPacketComment(pr.body)) !== JSON.stringify(packet)) {
+          throw new Error("Worker strategy historical PR publication provenance is missing or inconsistent");
+        }
       }
       assertReservationMutex(input);
       return {

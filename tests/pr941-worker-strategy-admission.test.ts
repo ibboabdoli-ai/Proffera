@@ -96,7 +96,7 @@ describe("authenticated owner-PR success recording", () => {
 
 // Exercise the real recordWorkerStrategyOutcome function body with durable fake
 // memory I/O; unlike the admission test, this tracks actual write count.
-function runIdempotentMemoryFixture(mode: "repeat" | "conflict") {
+function runIdempotentMemoryFixture(mode: "repeat" | "conflict" | "legacy" | "legacy-wrong-pr" | "legacy-wrong-start") {
   const source = readFileSync(resolve(process.cwd(), "scripts/supervisor-worker-handoff.mjs"), "utf8");
   const start = source.indexOf("export async function recordWorkerStrategyOutcome(input) {");
   const end = source.indexOf("export function reconcileUnboundTasks(input)", start);
@@ -115,6 +115,21 @@ let writes = 0;
 const normalizeTaskPacket = p => p;
 const assertReservationMutex = x => { if(x.mutex !== "owned") throw Error("lost mutex"); };
 const githubAllIssueComments = () => [];
+const retryGitHubRead = (read) => read();
+const EXPECTED_REPOSITORY = "ibboabdoli-ai/Proffera";
+const TRUSTED_SUPERVISOR_ACTOR = "ibboabdoli-ai";
+const SHA_RE = /^[0-9a-f]{40}$/;
+const reservationRecords = () => [{payload:{
+  task_id:"B4-TEST",state:"PUBLISHED",pr_number:process.env.TEST_CASE==="legacy-wrong-pr"?942:941,
+  head_sha:"a".repeat(40),run_id:123,
+}}];
+const sameReservationPacket = (payload, packet) => payload.task_id===packet.task_id && packet.branch==="work/proffera-legacy";
+const parseWorkerStrategyDispatchStarts = () => [{
+  task_id:"B4-TEST",run_id:123,run_attempt:2,
+  head:process.env.TEST_CASE==="legacy-wrong-start"?"c".repeat(40):"b".repeat(40),
+  evidence_fingerprint:"e",strategy_fingerprint:"s",
+}];
+const parseTaskPacketComment = () => packet;
 const workerFailureMemorySnapshots = async () => ({
   failure: {
     memoryIdentity:x => JSON.stringify(x.memory),
@@ -129,11 +144,32 @@ const workerFailureMemorySnapshots = async () => ({
   current:{comment_id:8,memory:{records}},
 });
 const patchControlRecord = (input,id,body) => { writes++; records=JSON.parse(body).records; };
-const githubApiJson = () => {throw Error("unexpected create");};
+const githubApiJson = () => ({
+  number:941,state:"open",merged:false,base:{ref:"main"},
+  user:{login:TRUSTED_SUPERVISOR_ACTOR},
+  head:{sha:"a".repeat(40),ref:"work/proffera-legacy",repo:{full_name:EXPECTED_REPOSITORY}},
+  body:"trusted packet",
+});
 ${fn}
-const packet={task_id:"B4-TEST",base_sha:"b".repeat(40)};
+const packet={task_id:"B4-TEST",base_sha:"b".repeat(40),branch:"work/proffera-legacy"};
 const base={repository:"ibboabdoli-ai/Proffera",packet,outcome:"succeeded",run_id:777,
   strategy_run_id:123,run_attempt:2,pr_number:941,mutex:"owned"};
+if(process.env.TEST_CASE.startsWith("legacy")){
+  records=[{action_id:"worker_codex_attempt",outcome:"succeeded",pr_number:null,
+    evidence_fingerprint:"e",strategy_fingerprint:"s",observations:[
+      {head:packet.base_sha,source:{kind:"actions",run_id:123,attempt:2}}
+    ]}];
+  let decision="";
+  try {decision=(await recordWorkerStrategyOutcome({...base,observed_at:"2099-01-01T00:00:00.000Z"})).decision;}
+  catch(e) {decision="REFUSED:"+String(e.message);}
+  if(process.env.TEST_CASE==="legacy" && decision!=="ALREADY_RECORDED")
+    throw Error("verified historical success was not reconciled: "+decision);
+  if(process.env.TEST_CASE!=="legacy" && !decision.startsWith("REFUSED:"))
+    throw Error("untrusted historical publication was accepted: "+decision);
+  if(writes!==0)throw Error("historical reconciliation created a second model outcome");
+  console.log(JSON.stringify({writes,decision}));
+  process.exit(0);
+}
 const first=await recordWorkerStrategyOutcome({...base,observed_at:"2099-01-01T00:00:00.000Z"});
 const next=await recordWorkerStrategyOutcome({...base,observed_at:"2099-01-02T00:00:00.000Z"});
 const third=await recordWorkerStrategyOutcome({...base,observed_at:"2099-01-03T00:00:00.000Z"});
@@ -157,4 +193,13 @@ describe("durable Worker strategy memory idempotency", () => {
     expect(result.status, result.stderr).toBe(0);
     expect(JSON.parse(result.stdout).writes).toBe(1);
   });
+  it.each(["legacy", "legacy-wrong-pr", "legacy-wrong-start"] as const)(
+    "reconciles %s historical success only with authenticated published provenance", mode => {
+      const result = runIdempotentMemoryFixture(mode);
+      expect(result.status, result.stderr).toBe(0);
+      const evidence = JSON.parse(result.stdout);
+      expect(evidence.writes).toBe(0);
+      if (mode === "legacy") expect(evidence.decision).toBe("ALREADY_RECORDED");
+      else expect(evidence.decision).toContain("REFUSED:");
+    });
 });

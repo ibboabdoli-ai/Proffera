@@ -1009,10 +1009,10 @@ describe("Review Repair authenticated owner-handoff upload evidence", () => {
       expect(cli.status,cli.stderr).toBe(0);
       expect(JSON.parse(cli.stdout)).toEqual({uploaded:true});
     });
-  it("keeps harmless failed or cancelled uploads distinct from an authenticated upload",()=>{
+  it("keeps failed uploads ambiguous even when the enclosing job is terminal",()=>{
     for (const result of ["failure","cancelled"]) {
       expect(reviewRepairStagedUploadEvidence({jobs:[staged(result,"failure")]}))
-        .toEqual({uploaded:false});
+        .toEqual({uploaded:false,uncertain:true});
     }
     // An absent staging job is incomplete GitHub inventory, not a proof of no upload.
     expect(reviewRepairStagedUploadEvidence({jobs:[]})).toEqual({uploaded:false,uncertain:true});
@@ -1023,6 +1023,8 @@ describe("Review Repair authenticated owner-handoff upload evidence", () => {
     "holds incomplete stage jobs and %s upload steps instead of concluding no handoff",conclusion=>{
       expect(reviewRepairStagedUploadEvidence({jobs:[]})).toEqual({uploaded:false,uncertain:true});
       expect(reviewRepairStagedUploadEvidence({jobs:[staged(conclusion,"cancelled")]}))
+        .toEqual({uploaded:false,uncertain:true});
+      expect(reviewRepairStagedUploadEvidence({jobs:[staged(conclusion,"failure")]}))
         .toEqual({uploaded:false,uncertain:true});
       expect(reviewRepairStagedUploadEvidence({jobs:[{...staged(conclusion),steps:[]}]}))
         .toEqual({uploaded:false,uncertain:true});

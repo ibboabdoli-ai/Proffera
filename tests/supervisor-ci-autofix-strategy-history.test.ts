@@ -281,7 +281,7 @@ describe("CI Autofix durable admission and outcomes", () => {
     const staged={name:"Stage CI Autofix owner-push handoff (no publication)",
       status:"completed",conclusion:"failure",steps:[completed("Upload CI Autofix owner handoff","failure")]};
     expect(classifyCiAutofixOutcome({jobs:[model,staged],pending_result:"failure"}))
-      .toEqual({persist:true,outcome:"unknown"});
+      .toEqual({persist:false,reason:"staged_handoff_evidence_incomplete"});
     expect(()=>classifyCiAutofixOutcome({jobs:[model,{...staged,conclusion:"success"}]}))
       .toThrow("unverified_handoff_upload");
   });
@@ -1093,7 +1093,7 @@ describe("CI Autofix truthful terminal outcomes", () => {
     expect(classifyCiAutofixOutcome({jobs:[...launched,{
       ...staged,conclusion:"failure",steps:[step("Upload CI Autofix owner handoff","failure")]
     }],pending_result:"failure"}))
-      .toEqual({persist:true,outcome:"unknown"});
+      .toEqual({persist:false,reason:"staged_handoff_evidence_incomplete"});
   });
 
   it("recognizes current no-change capture and rejects contradictory downstream execution before model launch", () => {
