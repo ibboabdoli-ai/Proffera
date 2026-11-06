@@ -7,6 +7,7 @@ import { DashboardMetricGrid, DashboardPageHeader } from "@/components/dashboard
 import { getDashboardCalendarEvents, type DashboardCalendarEvent } from "@/lib/dashboard-calendar";
 import { getDashboardWorkspaceSettings } from "@/lib/workspace-settings-db";
 import type { WorkspaceTimeZone } from "@/lib/workspace-market";
+import { getUserWorkspaceAccess } from "@/lib/workspace-access";
 
 export const dynamic = "force-dynamic";
 
@@ -41,8 +42,11 @@ export default async function CalendarPage({ searchParams }: CalendarPageProps) 
   const params = searchParams ? await searchParams : undefined;
   const lang = Array.isArray(params?.lang) ? params.lang[0] : params?.lang;
   const isEnglish = lang === "en";
-  const [events, workspaceSettings] = await Promise.all([getDashboardCalendarEvents(), getDashboardWorkspaceSettings()]);
+  const [events, workspaceSettings, access] = await Promise.all([getDashboardCalendarEvents(), getDashboardWorkspaceSettings(), getUserWorkspaceAccess()]);
   const timeZone = workspaceSettings.timeZone;
+  // Shared calendar mutations are deliberately unavailable for Maria until launch approval.
+  const mariaCalendarProtected = access.ok && access.workspaceSlug === "makeup-by-maria" &&
+    (process.env.VERCEL_ENV === "preview" || process.env.VERCEL_ENV === "production");
 
   const bookingEvents = events.filter((event) => event.type === "booking");
   const bookingCount = bookingEvents.length;
@@ -100,12 +104,12 @@ export default async function CalendarPage({ searchParams }: CalendarPageProps) 
               <Link href={localizedHref("/api/dashboard/calendar/export", isEnglish)} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-control border border-line bg-surface px-4 py-2.5 text-sm font-bold text-brand-deep hover:bg-surface-subtle">
                 <Download className="h-4 w-4" aria-hidden="true" />{isEnglish ? "Export" : "Exportera"}
               </Link>
-              <Link href={localizedHref("/dashboard/bokningar/blockera", isEnglish)} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-control border border-line bg-surface px-4 py-2.5 text-sm font-bold text-brand-deep hover:bg-surface-subtle">
+              {!mariaCalendarProtected ? <Link href={localizedHref("/dashboard/bokningar/blockera", isEnglish)} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-control border border-line bg-surface px-4 py-2.5 text-sm font-bold text-brand-deep hover:bg-surface-subtle">
                 <Clock3 className="h-4 w-4" aria-hidden="true" />{isEnglish ? "Block time" : "Blockera tid"}
-              </Link>
-              <Link href={localizedHref("/dashboard/bokningar/ny", isEnglish)} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-control bg-brand-deep px-4 py-2.5 text-sm font-bold text-white hover:bg-brand-hover">
+              </Link> : null}
+              {!mariaCalendarProtected ? <Link href={localizedHref("/dashboard/bokningar/ny", isEnglish)} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-control bg-brand-deep px-4 py-2.5 text-sm font-bold text-white hover:bg-brand-hover">
                 <CalendarPlus className="h-4 w-4" aria-hidden="true" />{isEnglish ? "New booking" : "Ny bokning"}
-              </Link>
+              </Link> : null}
             </div>
           }
         />
@@ -113,7 +117,7 @@ export default async function CalendarPage({ searchParams }: CalendarPageProps) 
         <DashboardMetricGrid items={metrics} />
 
         <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_320px]">
-          <BusinessCalendar events={events} timeZone={timeZone} isEnglish={isEnglish} />
+          <BusinessCalendar events={events} timeZone={timeZone} isEnglish={isEnglish} allowDragAndDrop={!mariaCalendarProtected} />
 
           <aside className="h-fit rounded-card border border-line bg-surface p-4 shadow-card xl:sticky xl:top-24">
             <div className="flex items-center justify-between gap-3 border-b border-line pb-3">
