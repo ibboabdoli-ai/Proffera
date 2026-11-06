@@ -1,5 +1,7 @@
 import "server-only";
 
+import { resolveBrevoApiKey } from "@/lib/email-runtime-config";
+
 import type { WorkspaceTimeZone } from "@/lib/workspace-market";
 import { bookingDateLocale } from "@/lib/booking-date-locale";
 import { getMariaPreviewPortalBase, isMariaPreviewTestRecipient } from "@/lib/maria-preview-customer-safety";
@@ -249,7 +251,7 @@ export async function sendUnifiedBookingConfirmationEmail(input: Input) {
     && (!getMariaPreviewPortalBase() || !isMariaPreviewTestRecipient(input.customerEmail))) {
     return { ok: false as const, message: "Maria Preview recipient not approved." };
   }
-  const apiKey = process.env.BREVO_API_KEY;
+  const apiKey = resolveBrevoApiKey();
   const from = process.env.LEAD_FROM_EMAIL;
   if (!apiKey || !from) return { ok: false as const, message: "Brevo är inte konfigurerat." };
 
