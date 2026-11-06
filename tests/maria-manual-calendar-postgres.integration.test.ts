@@ -588,6 +588,19 @@ function futureFriday() {
       await lockClient.query("select pg_advisory_xact_lock(hashtextextended($1::text,713))",[workspaceId]);
       const pending=expect(changeMariaManualCalendar({date:day,mode:"close",clock:"06:00"}))
         .rejects.toMatchObject({code:"conflict"});
+      // Prove that the close reached the advisory lock before the hold commits.
+      // Otherwise the test can pass without testing serialization at all.
+      let queued=false;
+      for(let attempt=0;attempt<60;attempt++){
+        const state=await db!.query<{waiting:number}>(`
+          select count(*)::int as waiting from pg_stat_activity
+          where state='active' and wait_event_type='Lock'
+            and wait_event='advisory' and query like '%pg_advisory_xact_lock%'
+        `);
+        if(Number(state.rows[0]?.waiting)>0){queued=true;break;}
+        await delay(50);
+      }
+      expect(queued).toBe(true);
       await lockClient.query(
         "insert into public_booking_verifications(workspace_id,public_booking_slug,customer_name,customer_email,service_id,service_name,starts_at,ends_at,code_hash,expires_at) values($1::uuid,'makeup-by-maria','QA 2','qa@example.invalid',$2::uuid,'Synthetic',$3::timestamptz,$4::timestamptz,'synthetic-concurrent',now()+interval '30 minutes')",
         [workspaceId,service.rows[0]!.id,intervals[0]!.startsAt,
