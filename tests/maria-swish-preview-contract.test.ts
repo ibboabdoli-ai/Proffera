@@ -1,86 +1,138 @@
 import { readFileSync, statSync } from "node:fs";
 import { resolve } from "node:path";
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const file = (path: string) => readFileSync(resolve(process.cwd(), path), "utf8");
+// Exercise the actual payment writer rather than checking text in its source.
+// Email delivery and SMS Preview gates have separate behavioral tests in
+// maria-deposit-email.test.ts and booking-sms.test.ts.
+const guards = vi.hoisted(() => ({
+  access: vi.fn(),
+  canManage: vi.fn(),
+  moduleAccess: vi.fn(),
+  approvedRecipient: vi.fn(),
+  getSql: vi.fn(),
+  transaction: vi.fn(),
+}));
+
+vi.mock("server-only", () => ({}));
+vi.mock("@/lib/workspace-access", () => ({
+  getUserWorkspaceAccess: guards.access,
+  canManageWorkspaceSettings: guards.canManage,
+}));
+vi.mock("@/lib/workspace-module-access", () => ({
+  hasDashboardModuleAccess: guards.moduleAccess,
+}));
+vi.mock("@/lib/maria-preview-customer-safety", () => ({
+  isMariaPreviewTestRecipient: guards.approvedRecipient,
+}));
+vi.mock("@/lib/db/server", () => ({ getSql: guards.getSql }));
+
+import { setMariaManualSwishStatus } from "@/lib/maria-manual-swish";
+
 const assetPath = "public/demo/makeup-by-maria/assets/maria-swish-qr.jpg";
+const bookingId = "00000000-0000-4000-8000-000000000123";
+const workspaceId = "11111111-1111-4111-8111-111111111111";
+const sql = Object.assign(
+  vi.fn((strings: TemplateStringsArray, ...values: unknown[]) => ({
+    strings: Array.from(strings),
+    values,
+  })),
+  { transaction: guards.transaction },
+);
 
-describe("Makeup by Maria Preview deposit flow contract", () => {
-  it("ships a static customer-supplied QR asset without an external image host", () => {
+beforeEach(() => {
+  vi.clearAllMocks();
+  vi.stubEnv("VERCEL_ENV", "preview");
+  vi.stubEnv("PROFFERA_MARIA_PREVIEW_TEST_EMAIL", "qa@example.invalid");
+  guards.access.mockResolvedValue({
+    ok: true, workspaceSlug: "makeup-by-maria", workspaceId, userId: "qa-manager",
+  });
+  guards.canManage.mockReturnValue(true);
+  guards.moduleAccess.mockResolvedValue(true);
+  guards.approvedRecipient.mockReturnValue(true);
+  guards.getSql.mockReturnValue(sql);
+  guards.transaction.mockResolvedValue([[], [{ eligible_count: 1, inserted_count: 1 }]]);
+});
+
+afterEach(() => { vi.unstubAllEnvs(); });
+
+describe("Makeup by Maria Preview deposit safety", () => {
+  it("ships the customer-supplied QR asset as a local JPEG", () => {
     const image = readFileSync(resolve(process.cwd(), assetPath));
     expect(statSync(resolve(process.cwd(), assetPath)).size).toBeGreaterThan(100_000);
-    expect(image[0]).toBe(0xff);
-    expect(image[1]).toBe(0xd8);
-    expect(image[2]).toBe(0xff);
+    expect(Array.from(image.subarray(0, 3))).toEqual([0xff, 0xd8, 0xff]);
   });
 
-  it("keeps Maria email separate from normal tenant status notifications", () => {
-    const action = file("src/app/dashboard/bokningar/[id]/page.tsx");
-    expect(action).toContain('workspaceAccess.workspaceSlug === "makeup-by-maria"');
-    expect(action).toContain('if (!getMariaPreviewPortalBase() || !current?.customer');
-    expect(action).toContain('isMariaPreviewTestRecipient(current.customer.email)');
-    expect(action).toContain("await sendMariaBookingStatusEmail({");
-    expect(action).toContain("result.changed && result.notification");
-    expect(action).toContain("} else {\n        await Promise.allSettled([");
-    expect(action).toContain("sendBookingCustomerSms({");
-    expect(action).toContain("maria_mail=failed");
-    expect(action).toContain("Maria Preview reschedules never send an SMS to a real phone");
-    expect(action).toContain("if (isMariaPreviewTestRecipient(notification.customerEmail))");
+  it("never attempts a payment write in Production", async () => {
+    vi.stubEnv("VERCEL_ENV", "production");
+    await expect(setMariaManualSwishStatus(bookingId, "paid"))
+      .rejects.toThrow("MARIA_MANUAL_SWISH_FORBIDDEN");
+    expect(guards.getSql).not.toHaveBeenCalled();
+    expect(guards.transaction).not.toHaveBeenCalled();
   });
 
-  it("shows one shared Swish booking number and a manual paid control in Maria Preview", () => {
-    const list = file("src/app/dashboard/bokningar/page.tsx");
-    const detail = file("src/app/dashboard/bokningar/[id]/page.tsx");
-    const control = file("src/components/dashboard/maria-swish-payment-control.tsx");
-    expect(list).toContain('access.workspaceSlug === "makeup-by-maria"');
-    expect(list).toContain('canManageWorkspaceSettings(access)');
-    expect(list).toContain('process.env.VERCEL_ENV === "preview"');
-    expect(list).toContain('readMariaManualSwishStatuses()');
-    expect(list).toContain("mariaPreview && manualSwish?.entries[booking.id]");
-    expect(list).toContain("<MariaSwishPaymentControl");
-    expect(detail).toContain("<MariaSwishPaymentControl");
-    expect(detail).toContain("mariaPreview && manualSwish?.entries[booking.id]");
-    expect(control).toContain("mariaBookingNumber(bookingId)");
-    expect(control).toContain('name="swish_checked" required');
-    expect(control).toContain("Jag har kontrollerat betalningen i Swish.");
-    expect(control).toContain("Markera som betald");
-    expect(control).toContain("Ångra betalningsmarkering");
-    expect(control).toContain("Betalningsstatus kunde inte läsas.");
+  it("never writes for another workspace", async () => {
+    guards.access.mockResolvedValue({
+      ok: true, workspaceSlug: "another-business", workspaceId, userId: "qa-manager",
+    });
+    await expect(setMariaManualSwishStatus(bookingId, "paid"))
+      .rejects.toThrow("MARIA_MANUAL_SWISH_FORBIDDEN");
+    expect(guards.getSql).not.toHaveBeenCalled();
   });
 
-  it("persists manual Swish marks in scoped, append-only events, without a payment gateway", () => {
-    const db = file("src/lib/maria-manual-swish.ts");
-    const action = file("src/app/dashboard/maria/payment-actions.ts");
-    expect(db).toContain('process.env.VERCEL_ENV !== "preview"');
-    expect(db).toContain('access.workspaceSlug !== "makeup-by-maria"');
-    expect(db).toContain('canManageWorkspaceSettings(access)');
-    expect(db).toContain('hasDashboardModuleAccess("online_booking")');
-    expect(db).toContain('const source = "maria_swish_manual_deposit_v1"');
-    expect(db).toContain("left join lateral (");
-    expect(db).toContain("b.customer_id is not null");
-    expect(db).toContain("b.source not in ('dashboard_availability_block', 'dashboard_availability_recurring_block')");
-    expect(db).toContain("join workspaces w on w.id::text = b.workspace_id");
-    expect(db).toContain("pg_advisory_xact_lock");
-    expect(db).toContain("insert into customer_events");
-    expect(db).toContain("where coalesce((select state from latest), 'unverified') <> ${state}");
-    expect(db).toContain("'actor_user_id', ${access.userId}");
-    expect(db).toContain("b.status in ('confirmed', 'completed')");
-    expect(db).not.toContain("workspace_service_job_payments");
-    expect(db).not.toContain("fetch(");
-    expect(action).toContain('data.get("swish_checked") !== "on"');
-    expect(action).toContain('revalidatePath("/dashboard/bokningar")');
+  it("never writes when the signed-in user is not a manager", async () => {
+    guards.canManage.mockReturnValue(false);
+    await expect(setMariaManualSwishStatus(bookingId, "paid"))
+      .rejects.toThrow("MARIA_MANUAL_SWISH_FORBIDDEN");
+    expect(guards.getSql).not.toHaveBeenCalled();
   });
 
-  it("does not add a payment gateway, automatic cancellation or production flag", () => {
-    const policy = file("src/lib/maria-deposit.ts");
-    const email = file("src/features/email/maria-deposit-email.ts");
-    expect(policy).toContain("MARIA_DEPOSIT_DEADLINE_HOURS = 24");
-    expect(policy).toContain("MARIA_DEPOSIT_AMOUNT_SEK = 2_000");
-    expect(email).toContain("getMariaPreviewPortalBase()");
-    expect(email).toContain("isMariaPreviewTestRecipient(input.customerEmail)");
-    expect(email).toContain("Avbokning sker inte automatiskt");
-    expect(policy).toContain('MARIA_SWISH_QR_PATH = "/demo/makeup-by-maria/assets/maria-swish-qr.jpg"');
-    expect(email).toContain("new URL(mariaSwishQrPath(input.bookingId), origin)");
-    expect(email).not.toContain("STRIPE_SECRET_KEY");
+  it("never writes without booking module access", async () => {
+    guards.moduleAccess.mockResolvedValue(false);
+    await expect(setMariaManualSwishStatus(bookingId, "paid"))
+      .rejects.toThrow("MARIA_MANUAL_SWISH_FORBIDDEN");
+    expect(guards.getSql).not.toHaveBeenCalled();
+  });
+
+  it("never writes when the QA recipient is not approved", async () => {
+    guards.approvedRecipient.mockReturnValue(false);
+    await expect(setMariaManualSwishStatus(bookingId, "paid"))
+      .rejects.toThrow("MARIA_MANUAL_SWISH_FORBIDDEN");
+    expect(guards.getSql).not.toHaveBeenCalled();
+  });
+
+  it("never writes for a malformed booking ID", async () => {
+    await expect(setMariaManualSwishStatus("../another-booking", "paid"))
+      .rejects.toThrow("MARIA_MANUAL_SWISH_INVALID");
+    expect(guards.access).not.toHaveBeenCalled();
+    expect(guards.transaction).not.toHaveBeenCalled();
+  });
+
+  it("uses one booking-locked, scoped transaction for an authorized manual mark", async () => {
+    await expect(setMariaManualSwishStatus(bookingId, "paid"))
+      .resolves.toEqual({ changed: true });
+    expect(guards.transaction).toHaveBeenCalledTimes(1);
+    const statements = guards.transaction.mock.calls[0]?.[0] as
+      Array<{ strings: string[]; values: unknown[] }>;
+    expect(statements).toHaveLength(2);
+    const query = statements.map((part) => part.strings.join("?")).join("\n");
+    expect(query).toContain("pg_advisory_xact_lock");
+    expect(query).toContain("insert into customer_events");
+    expect(query).toContain("join workspaces w");
+    expect(query).toContain("lower(trim(c.email))");
+    expect(statements[1]?.values).toContain(workspaceId);
+    expect(statements[1]?.values).toContain("qa@example.invalid");
+  });
+
+  it("does not claim an additional payment on an unchanged manual status", async () => {
+    guards.transaction.mockResolvedValue([[], [{ eligible_count: 1, inserted_count: 0 }]]);
+    await expect(setMariaManualSwishStatus(bookingId, "paid"))
+      .resolves.toEqual({ changed: false });
+  });
+
+  it("rejects an ineligible booking instead of reporting payment recorded", async () => {
+    guards.transaction.mockResolvedValue([[], [{ eligible_count: 0, inserted_count: 0 }]]);
+    await expect(setMariaManualSwishStatus(bookingId, "paid"))
+      .rejects.toThrow("MARIA_MANUAL_SWISH_INELIGIBLE");
   });
 });
