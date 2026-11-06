@@ -2,6 +2,7 @@ import "server-only";
 
 import type { WorkspaceTimeZone } from "@/lib/workspace-market";
 import { bookingDateLocale } from "@/lib/booking-date-locale";
+import { resolveBrevoApiKey } from "@/lib/email-runtime-config";
 import { mariaEmailLogoHtml } from "@/lib/maria-email-logo";
 import { getMariaPreviewPortalBase } from "@/lib/maria-preview-customer-safety";
 
@@ -37,7 +38,7 @@ function parseSender(value: string) {
 }
 
 async function send(to: { email: string; name: string }, subject: string, text: string, html: string) {
-  const apiKey = process.env.BREVO_API_KEY;
+  const apiKey = resolveBrevoApiKey();
   const from = process.env.LEAD_FROM_EMAIL;
   if (!apiKey || !from) return { ok: false as const, message: "Brevo är inte konfigurerat." };
   try {
