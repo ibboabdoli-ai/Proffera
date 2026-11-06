@@ -15,6 +15,7 @@ let sent: EmailPayload[];
 beforeEach(() => {
   sent = [];
   vi.stubEnv("BREVO_API_KEY", "fake-test-key");
+  vi.stubEnv("PROFFERA_PREVIEW_BREVO_API_KEY", "dedicated-qa-only");
   vi.stubEnv("VERCEL_ENV", "preview");
   vi.stubEnv("VERCEL_URL", "qa.vercel.app");
   vi.stubGlobal("fetch", vi.fn(async (_url: string, options: RequestInit) => {
