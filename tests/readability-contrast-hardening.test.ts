@@ -38,7 +38,6 @@ describe("Readability and contrast hardening", () => {
 
   it("forces accessible white labels on Maria mauve CTA buttons and links, including iOS WebKit", () => {
     const css = source("src/app/globals.css");
-    const demo = source("public/demo/makeup-by-maria-v2.html");
     const maria = source("src/app/dashboard/maria/page.tsx");
     const calendar = source("src/app/dashboard/maria/kalender/maria-calendar-confirm-button.tsx");
 
@@ -50,14 +49,9 @@ describe("Readability and contrast hardening", () => {
     for (const color of ["#845363", "#6d3e4e"]) {
       expect(whiteRule).toContain('[class~="bg-[' + color + ']"]');
     }
-    // Both real demo actions must retain their own accessible WebKit text fill.
-    // An assertion on the entire HTML could pass if only ONE rule survives.
-    for (const selector of [".booking-complete a", ".confirm"]) {
-      const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-      const declaration = demo.match(new RegExp(escaped + "\\s*\\{[^}]*\\}"))?.[0] ?? "";
-      expect(declaration, selector).not.toBe("");
-      expect(declaration, selector).toContain("background:var(--rose);color:#fff;-webkit-text-fill-color:#fff");
-    }
+    // Real browser computed colors for the booking and completion actions
+    // are covered in e2e/tests/maria-cta-computed-contrast.e2e.mjs.
+    // Parsing one CSS rule here could miss a later cascade override.
     expect(maria).toContain("bg-[#845363]");
     expect(calendar).toContain("bg-[#845363]");
     // Do not force white on Maria's light secondary buttons.
