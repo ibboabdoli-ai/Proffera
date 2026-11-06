@@ -46,9 +46,9 @@ describe("exact candidate Playwright boundary",()=>{
     try {
       const config=join(root,"playwright.config.mjs");
       writeFileSync(config,`import original from ${JSON.stringify(pathToFileURL(configPath).href)};export default {...original,testDir:${JSON.stringify(root)},reporter:"line"};`);
-      const testModule=pathToFileURL(resolve("e2e/node_modules/@playwright/test/index.mjs")).href;
+      const testModule=pathToFileURL(resolve("node_modules/@playwright/test/index.mjs")).href;
       writeFileSync(join(root,"binding.e2e.mjs"),`import {test} from ${JSON.stringify(testModule)};test("must never run",()=>{throw new Error("STALE_SERVER_ACCEPTED")});`);
-      const result=await run([resolve("e2e/node_modules/playwright/cli.js"),"test","--config",config],environment(`http://127.0.0.1:${address.port}`));
+      const result=await run([resolve("node_modules/playwright/cli.js"),"test","--config",config],environment(`http://127.0.0.1:${address.port}`));
       expect(result.status).not.toBe(0);
       expect(result.output).toContain("already used");
       expect(result.output).not.toContain("STALE_SERVER_ACCEPTED");
