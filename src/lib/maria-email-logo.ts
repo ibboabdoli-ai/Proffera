@@ -6,6 +6,11 @@ import { getMariaPreviewPortalBase } from "@/lib/maria-preview-customer-safety";
  */
 const logoPath = "/demo/makeup-by-maria/assets/maria-client-logo.jpg";
 
+/**
+ * Render the customer-approved Maria logo in transactional email markup.
+ * Only the configured HTTPS Preview deployment may supply the image origin;
+ * untrusted URLs or non-Preview execution produce an empty string.
+ */
 export function mariaEmailLogoHtml(previewUrl: string | null | undefined) {
   if (!previewUrl) return "";
   let logoUrl: string;

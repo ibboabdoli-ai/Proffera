@@ -2,6 +2,10 @@
 export const MARIA_MAX_PRICE_SEK = 250_000;
 export const MARIA_MAX_DESCRIPTION_LENGTH = 280;
 
+/**
+ * Parse a Maria package price in SEK with up to two decimal places.
+ * Blank input means quote-on-request (null); malformed or oversized values throw.
+ */
 export function readMariaYearPrice(value: FormDataEntryValue | null): number | null {
   if (value === null) return null;
   if (typeof value !== "string") throw new Error("INVALID_PRICE");
@@ -16,6 +20,10 @@ export function readMariaYearPrice(value: FormDataEntryValue | null): number | n
   return minor / 100;
 }
 
+/**
+ * Normalize an editable package description without accepting control bytes.
+ * Empty input restores the provided default; text exceeding the limit throws.
+ */
 export function readMariaYearDescription(value: FormDataEntryValue | null, fallback: string): string {
   if (value === null) return fallback;
   if (typeof value !== "string") throw new Error("INVALID_DESCRIPTION");

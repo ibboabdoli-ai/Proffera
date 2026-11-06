@@ -54,6 +54,7 @@ function formatBookingTime(value: string, timeZone: WorkspaceTimeZone = "Europe/
   }).format(date);
 }
 
+/** Build localized booking-confirmation email content without sending messages. */
 export function buildUnifiedBookingConfirmationEmail(input: Input) {
   const language = input.language ?? (input.companyName.trim().toLowerCase() === "primeview window care" ? "en" : "sv");
   const isEnglish = language === "en";
@@ -237,6 +238,10 @@ export function buildUnifiedBookingConfirmationEmail(input: Input) {
   return { subject, text, html };
 }
 
+/**
+ * Send a booking confirmation through Brevo after enforcing Maria's QA-only
+ * Preview recipient gate. Ordinary tenants retain their existing delivery path.
+ */
 export async function sendUnifiedBookingConfirmationEmail(input: Input) {
   // Maria branding and its contact links are strictly for the approved QA inbox.
   // A generic Production caller must never be able to bypass that boundary.

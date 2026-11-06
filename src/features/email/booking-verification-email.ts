@@ -37,6 +37,10 @@ function resolveBookingReplyTo() {
   return parseSender(process.env.BOOKING_REPLY_TO_EMAIL?.trim() || DEFAULT_BOOKING_REPLY_TO_EMAIL);
 }
 
+/**
+ * Deliver a time-limited booking verification code and report provider outcome.
+ * Failed or ambiguous provider responses are distinguished for safe retry flows.
+ */
 export async function sendBookingVerificationEmail(input: BookingVerificationEmailInput) {
   const apiKey = process.env.BREVO_API_KEY;
   if (!apiKey) return { ok: false as const, message: "Email provider is not configured.", deliveryOutcome: "not_sent" as const };

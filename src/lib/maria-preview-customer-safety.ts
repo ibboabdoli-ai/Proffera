@@ -15,6 +15,11 @@ export function isMariaPreviewTestRecipient(email: string, env: NodeJS.ProcessEn
     && email.trim().toLowerCase() === approved;
 }
 
+/**
+ * Resolve the managed Vercel Preview origin used by Maria's QA-only links.
+ * Returns null outside Preview or when the deployment hostname is invalid.
+ * The deployment-provided VERCEL_URL is the trust anchor, not user input.
+ */
 export function getMariaPreviewPortalBase(env: NodeJS.ProcessEnv = process.env) {
   const host = env.VERCEL_URL?.trim();
   if (env.VERCEL_ENV !== "preview" || !host
