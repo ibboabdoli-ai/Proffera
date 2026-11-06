@@ -78,6 +78,96 @@ export async function getWorkspaceBillingSummary(workspaceId: string): Promise<W
   }
 }
 
+/**
+ * Atomic, current-subscription-only entitlement revocation. A stale refund
+ * must never alter the plan/features of a newly linked subscription.
+ */
+export async function syncCancelledWorkspaceSubscription(
+  subscription: Stripe.Subscription,
+  eventCreated: number,
+  expectedPriceId: string,
+) {
+  const workspaceId = subscription.metadata.workspace_id?.trim() ?? "";
+  const item = subscription.items.data[0];
+  const priceId = item?.price.id ?? "";
+  const customerId = stripeId(subscription.customer);
+  if (!uuidPattern.test(workspaceId) || !customerId || !priceId ||
+      priceId !== expectedPriceId || subscription.status !== "canceled" ||
+      !Number.isSafeInteger(eventCreated)) {
+    return { ok: false as const, code: "ignored" as const };
+  }
+  const sql = getSql();
+  if (!sql) return { ok: false as const, code: "database" as const };
+  const periodStart = item?.current_period_start
+    ? new Date(item.current_period_start * 1000).toISOString() : null;
+  const periodEnd = item?.current_period_end
+    ? new Date(item.current_period_end * 1000).toISOString() : null;
+  try {
+    // One PostgreSQL statement: updating the bound billing row is the gate for
+    // both dependent writes. Concurrent reassignment wins without leakage.
+    const rows = await sql`
+      with changed_billing as (
+        update workspace_billing_subscriptions b
+        set status = 'cancelled',
+            cancel_at_period_end = false,
+            current_period_start = coalesce(${periodStart}::timestamptz, b.current_period_start),
+            current_period_end = coalesce(${periodEnd}::timestamptz, b.current_period_end),
+            last_event_created = greatest(coalesce(b.last_event_created, 0), ${eventCreated}),
+            updated_at = now()
+        where b.workspace_id = ${workspaceId}::uuid
+          and b.stripe_subscription_id = ${subscription.id}
+          and b.stripe_customer_id = ${customerId}
+          and b.stripe_price_id = ${priceId}
+        returning b.workspace_id, b.workspace_plan_id
+      ),
+      changed_plan as (
+        update workspace_plans p
+        set status = 'cancelled',
+            current_period_start = coalesce(${periodStart}::timestamptz, p.current_period_start),
+            current_period_end = coalesce(${periodEnd}::timestamptz, p.current_period_end),
+            updated_at = now()
+        from changed_billing b
+        where p.id = b.workspace_plan_id
+        returning p.id
+      ),
+      changed_flags as (
+        insert into workspace_feature_flags (
+          id, workspace_id, feature_key, enabled, created_at, updated_at
+        )
+        select gen_random_uuid(), b.workspace_id, f.feature_key, false, now(), now()
+        from changed_billing b
+        cross join (values
+          ('booking_demo'), ('crm_customers'), ('lead_inbox'), ('ai_assistant')
+        ) as f(feature_key)
+        on conflict (workspace_id, feature_key)
+        do update set enabled = false, updated_at = now()
+        returning workspace_id
+      )
+      select
+        (select count(*) from changed_billing)::int as billing_count,
+        (select count(*) from changed_plan)::int as plan_count,
+        (select count(*) from changed_flags)::int as flag_count
+    `;
+    if (Number(rows[0]?.billing_count ?? 0) === 0) {
+      return { ok: false as const, code: "stale" as const };
+    }
+    if (Number(rows[0]?.plan_count ?? 0) !== 1 ||
+        Number(rows[0]?.flag_count ?? 0) !== 4) {
+      return { ok: false as const, code: "database" as const };
+    }
+    try {
+      const aiChat = await syncWorkspaceAiChat({ workspaceId, enabled: false });
+      if (!aiChat.ok) console.error("Cancelled AI Chat sync failed", { workspaceId, code: aiChat.code });
+    } catch (error) {
+      console.error("Cancelled AI Chat sync crashed", { workspaceId, error });
+    }
+    return { ok: true as const };
+  } catch (error) {
+    console.error("Failed to sync guarded Stripe cancellation", error);
+    return { ok: false as const, code: "database" as const };
+  }
+}
+
 export async function syncWorkspaceSubscription(
   subscription: Stripe.Subscription,
   eventCreated: number,
@@ -95,6 +185,10 @@ export async function syncWorkspaceSubscription(
 
   if (!sql || !uuidPattern.test(workspaceId) || stripePriceId !== expectedPriceId) {
     return { ok: false as const, code: "ignored" as const };
+  }
+
+  if (subscription.status === "canceled") {
+    return syncCancelledWorkspaceSubscription(subscription, eventCreated, expectedPriceId);
   }
 
   const status = normalizeStripeStatus(subscription.status);

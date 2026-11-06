@@ -6,6 +6,7 @@ const mocks = vi.hoisted(() => ({
   getStripeWebhookSecret: vi.fn(),
   isStripeEventModeAllowed: vi.fn(),
   syncWorkspaceSubscription: vi.fn(),
+  syncCancelledWorkspaceSubscription: vi.fn(),
   applyServiceJobCheckoutCompleted: vi.fn(),
   applyFullSubscriptionRefund: vi.fn(),
 }));
@@ -20,6 +21,7 @@ vi.mock("@/lib/stripe-runtime-config", () => ({
 }));
 vi.mock("@/lib/workspace-billing", () => ({
   syncWorkspaceSubscription: mocks.syncWorkspaceSubscription,
+  syncCancelledWorkspaceSubscription: mocks.syncCancelledWorkspaceSubscription,
 }));
 vi.mock("@/lib/workspace-service-job-payments", () => ({
   applyServiceJobCheckoutCompleted: mocks.applyServiceJobCheckoutCompleted,
@@ -180,4 +182,32 @@ describe("Stripe webhook environment safety", () => {
     }));
     expect(response.status).toBe(500);
   });
+  it("revokes a canceled historical-Price subscription through guarded binding without current Price mapping", async () => {
+    const subscription = {
+      id: "sub_retired",
+      status: "canceled",
+      customer: "cus_old",
+      metadata: { workspace_id: "f0000000-0000-4000-8000-000000000045" },
+      items: { data: [{ price: { id: "price_retired" } }] },
+    };
+    mocks.getStripeClient.mockReturnValue({
+      webhooks: { constructEventAsync: vi.fn().mockResolvedValue({
+        type: "customer.subscription.deleted", livemode: false, created: 1793900000,
+        data: { object: subscription },
+      }) },
+      subscriptions: { retrieve: vi.fn().mockResolvedValue(subscription) },
+    });
+    mocks.isStripeEventModeAllowed.mockReturnValue(true);
+    mocks.getStripeCheckoutPlanForPriceId.mockReturnValue(null);
+    mocks.syncCancelledWorkspaceSubscription.mockResolvedValue({ ok: true });
+    const response = await POST(new Request("https://preview.proffera.test/api/stripe/webhook", {
+      method: "POST", headers: { "stripe-signature": "signed" }, body: "{}",
+    }));
+    expect(response.status).toBe(200);
+    expect(mocks.syncCancelledWorkspaceSubscription).toHaveBeenCalledWith(
+      subscription, 1793900000, "price_retired",
+    );
+    expect(mocks.syncWorkspaceSubscription).not.toHaveBeenCalled();
+  });
+
 });

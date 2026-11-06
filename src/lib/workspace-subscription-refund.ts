@@ -3,8 +3,7 @@ import "server-only";
 import type Stripe from "stripe";
 
 import { getSql } from "@/lib/db/server";
-import { getStripeCheckoutPlanForPriceId } from "@/lib/stripe";
-import { syncWorkspaceSubscription } from "@/lib/workspace-billing";
+import { syncCancelledWorkspaceSubscription } from "@/lib/workspace-billing";
 
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -32,12 +31,29 @@ export async function applyFullSubscriptionRefund(stripe: Stripe, refundedCharge
 
   // A requested refund can still be pending or later fail. Never revoke paid
   // access until successful refunds cover the entire charge.
-  const refunds = await stripe.refunds.list({ charge: charge.id, limit: 100 });
-  if (refunds.has_more ||
-      refunds.data.filter((refund) => refund.status === "succeeded")
-        .reduce((total, refund) => total + refund.amount, 0) !== charge.amount) {
-    return { ok: true as const, applied: false };
+  let succeededAmount = 0;
+  let after: string | undefined;
+  const seenPages = new Set<string>();
+  while (true) {
+    const page = await stripe.refunds.list({
+      charge: charge.id, limit: 100,
+      ...(after ? { starting_after: after } : {}),
+    });
+    for (const refund of page.data) {
+      if (refund.status === "succeeded") succeededAmount += refund.amount;
+    }
+    if (!Number.isSafeInteger(succeededAmount) || succeededAmount > charge.amount) {
+      return { ok: true as const, applied: false };
+    }
+    if (!page.has_more) break;
+    const cursor = page.data[page.data.length - 1]?.id;
+    if (!cursor || seenPages.has(cursor)) {
+      return { ok: false as const, code: "database" as const };
+    }
+    seenPages.add(cursor);
+    after = cursor;
   }
+  if (succeededAmount !== charge.amount) return { ok: true as const, applied: false };
 
   const paymentIntentId = idOf(charge.payment_intent);
   const customerId = idOf(charge.customer);
@@ -69,7 +85,7 @@ export async function applyFullSubscriptionRefund(stripe: Stripe, refundedCharge
   const invoicePayments = await stripe.invoicePayments.list({ invoice: invoiceId, limit: 100 });
   if (invoicePayments.has_more || invoicePayments.data.length !== 1 ||
       !Number.isSafeInteger(invoice.amount_paid) || invoice.amount_paid <= 0 ||
-      invoice.amount_paid !== charge.amount) {
+      invoice.amount_paid !== charge.amount || invoice.total !== charge.amount) {
     return { ok: true as const, applied: false };
   }
   const onlyPayment = invoicePayments.data[0];
@@ -82,8 +98,9 @@ export async function applyFullSubscriptionRefund(stripe: Stripe, refundedCharge
   const subscription = await stripe.subscriptions.retrieve(subscriptionId);
   const workspaceId = subscription.metadata.workspace_id?.trim() ?? "";
   const priceId = subscription.items.data[0]?.price.id ?? "";
-  const planKey = getStripeCheckoutPlanForPriceId(priceId);
-  if (!uuidPattern.test(workspaceId) || !planKey ||
+  // Pending upgrades and older paid invoices require manual reconciliation.
+  // A stored subscription/Price binding permits historical rotated Price IDs.
+  if (!uuidPattern.test(workspaceId) || !priceId || subscription.pending_update ||
       idOf(subscription.customer) !== customerId ||
       idOf(subscription.latest_invoice) !== invoiceId) {
     return { ok: true as const, applied: false };
@@ -92,14 +109,25 @@ export async function applyFullSubscriptionRefund(stripe: Stripe, refundedCharge
   const sql = getSql();
   if (!sql) return { ok: false as const, code: "database" as const };
   const rows = await sql`
-    select 1 from workspace_billing_subscriptions
-    where workspace_id = ${workspaceId}::uuid
-      and stripe_subscription_id = ${subscriptionId}
-      and stripe_customer_id = ${customerId}
-      and stripe_price_id = ${priceId}
+    select w.id as workspace_id, b.stripe_subscription_id,
+           b.stripe_customer_id, b.stripe_price_id
+    from workspaces w
+    left join workspace_billing_subscriptions b on b.workspace_id = w.id
+    where w.id = ${workspaceId}::uuid
     limit 1
   `;
   if (rows.length !== 1) return { ok: true as const, applied: false };
+  const boundSubscription = String(rows[0].stripe_subscription_id ?? "");
+  if (!boundSubscription) {
+    // Stripe retries until subscription.created completes binding.
+    return { ok: false as const, code: "binding_pending" as const };
+  }
+  if (boundSubscription !== subscriptionId ||
+      rows[0].stripe_customer_id !== customerId ||
+      rows[0].stripe_price_id !== priceId) {
+    // Superseded subscription must never overwrite a newer Workspace binding.
+    return { ok: true as const, applied: false };
+  }
 
   // A renewal/upgrade may happen while we verify the invoice and Workspace.
   // Re-read immediately before any cancellation, and reject changed periods.
@@ -119,7 +147,7 @@ export async function applyFullSubscriptionRefund(stripe: Stripe, refundedCharge
     current.items.data[0]?.current_period_end === originalEnd;
 
   const latest = await stripe.subscriptions.retrieve(subscriptionId);
-  if (!stillSamePeriod(latest) ||
+  if (!stillSamePeriod(latest) || latest.pending_update ||
       !["active", "trialing", "past_due", "canceled"].includes(latest.status)) {
     return { ok: true as const, applied: false };
   }
@@ -143,7 +171,9 @@ export async function applyFullSubscriptionRefund(stripe: Stripe, refundedCharge
       canceled = current;
     }
   }
-  const synced = await syncWorkspaceSubscription(canceled, eventCreated, planKey, priceId);
+  const synced = await syncCancelledWorkspaceSubscription(
+    canceled, Math.max(eventCreated, canceled.canceled_at ?? 0), priceId,
+  );
   if (!synced.ok && synced.code === "database") return { ok: false as const, code: "database" as const };
   return { ok: true as const, applied: synced.ok };
 }

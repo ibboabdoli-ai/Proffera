@@ -3,7 +3,7 @@ import type Stripe from "stripe";
 
 import { getStripeCheckoutPlanForPriceId, getStripeClient, getStripeWebhookSecret } from "@/lib/stripe";
 import { isStripeEventModeAllowed } from "@/lib/stripe-runtime-config";
-import { syncWorkspaceSubscription } from "@/lib/workspace-billing";
+import { syncWorkspaceSubscription, syncCancelledWorkspaceSubscription } from "@/lib/workspace-billing";
 import { applyServiceJobCheckoutCompleted } from "@/lib/workspace-service-job-payments";
 import { applyFullSubscriptionRefund } from "@/lib/workspace-subscription-refund";
 
@@ -68,6 +68,15 @@ export async function POST(request: Request) {
   catch (error) { console.error("Failed to retrieve current Stripe subscription state", error); return NextResponse.json({ error: "Stripe-abonnemanget kunde inte läsas." }, { status: 502 }); }
 
   const priceId = subscription.items.data[0]?.price.id ?? "";
+  if (subscription.status === "canceled") {
+    // A retired Stripe Price must still revoke access when the persisted
+    // subscription binding matches the exact Workspace and Customer.
+    const result = await syncCancelledWorkspaceSubscription(subscription, event.created, priceId);
+    if (!result.ok && result.code === "database") {
+      return NextResponse.json({ error: "Databasen kunde inte uppdateras." }, { status: 500 });
+    }
+    return NextResponse.json({ received: true, applied: result.ok });
+  }
   const planKey = getStripeCheckoutPlanForPriceId(priceId);
   if (!planKey) return NextResponse.json({ received: true, applied: false });
   const result = await syncWorkspaceSubscription(subscription, event.created, planKey, priceId);
