@@ -104,11 +104,21 @@ describe("Maria verification language keeps the Preview booking locale", () => {
     data.set("code", "123456");
     data.set("lang", "en");
 
-    await actions[0](data);
+    // next/navigation redirect() throws and must stop the server action. A no-op
+    // mock lets execution fall through into the success redirect after an error.
+    vi.mocked(redirect).mockImplementation((destination) => {
+      throw new Error(`NEXT_REDIRECT: ${destination}`);
+    });
+
+    await expect(actions[0](data)).rejects.toThrow(
+      `NEXT_REDIRECT: /boka/verifiera/${id}?error=code&lang=en`,
+    );
     expect(verifyPublicBookingCode).toHaveBeenCalledWith(id, "123456", "en");
     expect(redirect).toHaveBeenLastCalledWith(`/boka/verifiera/${id}?error=code&lang=en`);
 
-    await actions[1](data);
+    await expect(actions[1](data)).rejects.toThrow(
+      `NEXT_REDIRECT: /boka/verifiera/${id}?error=wait&lang=en`,
+    );
     expect(resendPublicBookingCode).toHaveBeenCalledWith(id, "en");
     expect(redirect).toHaveBeenLastCalledWith(`/boka/verifiera/${id}?error=wait&lang=en`);
   });
