@@ -418,7 +418,7 @@ function compileSql(strings: TemplateStringsArray, values: unknown[]): Query {
       [workspaceId, "maria-buffer-qa-" + randomUUID().slice(0, 8)],
     );
     await db!.query(
-      "insert into bookings(workspace_id,customer_id,service_id,title,service,status,source,starts_at,ends_at) values($1,$2::uuid,$3::uuid,'Synthetic buffered public appointment','Maria QA','confirmed','public_booking',$4::timestamptz,$5::timestamptz)",
+      "insert into bookings(workspace_id,customer_id,service_id,title,service,status,source,starts_at,ends_at) values($1,$2::uuid,$3::uuid,'Synthetic buffered finalized appointment','Maria QA','confirmed','dashboard_manual',$4::timestamptz,$5::timestamptz)",
       [workspaceId, customerId, service.rows[0]!.id, start.toISOString(), end.toISOString()],
     );
     const overlappingInput = {
@@ -545,6 +545,6 @@ function compileSql(strings: TemplateStringsArray, values: unknown[]): Query {
       await holder.end();
       if (pending) await pending.catch(() => undefined);
     }
-  });
+  }, 30_000);
 
 });

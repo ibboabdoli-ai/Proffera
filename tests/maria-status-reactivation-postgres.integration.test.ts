@@ -272,7 +272,7 @@ function compileSql(parts: TemplateStringsArray, values: unknown[]): Query {
       };
       const tagged = (parts: TemplateStringsArray, ...values: unknown[]) => {
         const query = compileSql(parts, values);
-        if (/select\s+id\s+from\s+bookings/u.test(query.text)
+        if (/select\s+b\.id\s+from\s+bookings\s+b/u.test(query.text)
           && /status\s+not\s+in/u.test(query.text)) {
           stalePreflights += 1;
           return Promise.resolve([] as Rows);
