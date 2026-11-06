@@ -1,5 +1,6 @@
 import type { WorkspaceTimeZone } from "@/lib/workspace-market";
 import { bookingDateLocale } from "@/lib/booking-date-locale";
+import { resolveBrevoApiKey } from "@/lib/email-runtime-config";
 import { mariaEmailLogoHtml } from "@/lib/maria-email-logo";
 import { getMariaPreviewPortalBase } from "@/lib/maria-preview-customer-safety";
 
@@ -49,7 +50,7 @@ function formatBookingDate(value: string, timeZone: WorkspaceTimeZone = "Europe/
 }
 
 export async function sendBookingRescheduleEmail(input: SendBookingRescheduleEmailInput) {
-  const apiKey = process.env.BREVO_API_KEY;
+  const apiKey = resolveBrevoApiKey();
   const from = process.env.LEAD_FROM_EMAIL;
   if (!apiKey || !from) return { ok: false as const, message: "Brevo är inte konfigurerat." };
 
