@@ -21,7 +21,10 @@ vi.mock("@/components/dashboard/business-calendar",()=>({
 }));
 vi.mock("@/lib/dashboard-calendar",()=>({getDashboardCalendarEvents:async()=>[]}));
 vi.mock("@/lib/workspace-settings-db",()=>({getDashboardWorkspaceSettings:async()=>({timeZone:"Europe/Stockholm"})}));
+vi.mock("@/lib/dashboard-bookings-db",()=>({getDashboardBookingsInStockholm:async()=>[]}));
+vi.mock("@/lib/maria-manual-swish",()=>({readMariaManualSwishStatuses:async()=>({ok:true,entries:{}})}));
 vi.mock("@/lib/dashboard-db",()=>({
+  getDashboardCustomerOptions:async()=>[],
   getDashboardStats:async()=>({
     customersCount:0,activeCustomersCount:0,bookingsCount:0,
     confirmedBookingsCount:0,customerEventsCount:0,
@@ -33,6 +36,8 @@ vi.mock("./schedule-actions",()=>({saveMariaScheduleAction:async()=>{}}));
 import MariaSiteDashboardPage from "./page";
 import DashboardPage from "../page";
 import CalendarPage from "../kalender/page";
+import BookingsPage from "../bokningar/page";
+import NewBookingPage from "../bokningar/ny/page";
 
 afterEach(()=>{vi.unstubAllEnvs();state.slug="makeup-by-maria";state.role="owner"});
 describe("Maria preview calendar visible without paid booking",()=>{
@@ -110,5 +115,22 @@ describe("Maria generic calendar controls remain isolated",()=>{
     expect(html).toContain(`data-calendar-drag="${enabled}"`);
     expect(html.includes('href="/dashboard/bokningar/ny"')).toBe(enabled);
     expect(html.includes('href="/dashboard/bokningar/blockera"')).toBe(enabled);
+  });
+});
+
+
+describe("Maria Production generic booking creation UI",()=>{
+  it("hides new-booking actions and denies the direct form for Maria Production",async()=>{
+    vi.stubEnv("VERCEL_ENV","production");
+    const html=renderToStaticMarkup(await BookingsPage({searchParams:Promise.resolve({})}));
+    expect(html).not.toContain('href="/dashboard/bokningar/ny"');
+    await expect(NewBookingPage({searchParams:Promise.resolve({})}))
+      .rejects.toThrow("REDIRECT /dashboard/bokningar");
+  });
+  it("keeps the existing new-booking link for unrelated Production workspaces",async()=>{
+    vi.stubEnv("VERCEL_ENV","production");
+    state.slug="unrelated-company";
+    const html=renderToStaticMarkup(await BookingsPage({searchParams:Promise.resolve({})}));
+    expect(html).toContain('href="/dashboard/bokningar/ny"');
   });
 });
