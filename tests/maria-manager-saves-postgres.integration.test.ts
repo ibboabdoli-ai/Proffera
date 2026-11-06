@@ -490,6 +490,86 @@ function compileSql(strings: TemplateStringsArray, values: unknown[]): Query {
     expect(permittedId).toMatch(/^[0-9a-f-]{36}$/i);
   });
 
+  it("rejects finalized before-buffers and live hold buffers across all manager writers", async () => {
+    // These attempted intervals touch only a buffer, never the booking/hold
+    // itself. Removing either buffer from an overlap query must fail this test.
+    const service = await db!.query<{ id: string }>(
+      "insert into workspace_services(workspace_id,name,public_slug,duration_minutes,buffer_before_minutes,buffer_after_minutes,is_active,public_status) values($1,'Synthetic two-sided buffer service',$2,180,30,45,true,'published') returning id::text",
+      [workspaceId, "maria-buffer-both-" + randomUUID().slice(0, 8)],
+    );
+    expect(service.rowCount).toBe(1);
+    const serviceId = service.rows[0]!.id;
+    const futureStart = (offsetDays: number) => {
+      const future = new Date(Date.now() + offsetDays * 86_400_000);
+      return new Date(Date.UTC(future.getUTCFullYear(), future.getUTCMonth(), future.getUTCDate(), 10));
+    };
+    const toLocal = (instant: Date) => {
+      const parts = new Intl.DateTimeFormat("sv-SE", {
+        timeZone: "Europe/Stockholm", year: "numeric", month: "2-digit", day: "2-digit",
+        hour: "2-digit", minute: "2-digit", hourCycle: "h23",
+      }).formatToParts(instant);
+      const part = (kind: string) => parts.find(item => item.type === kind)?.value ?? "";
+      return part("year") + "-" + part("month") + "-" + part("day") + "T" + part("hour") + ":" + part("minute");
+    };
+
+    const assertRejectedForEveryManagerWriter = async (
+      label: string, attemptedStart: Date, attemptedEnd: Date,
+    ) => {
+      await expect(createDashboardBooking({
+        customerId, title: "Rejected " + label, status: "confirmed",
+        startsAt: attemptedStart.toISOString(), endsAt: attemptedEnd.toISOString(),
+        city: "Södertälje", service: "Synthetic Maria booking",
+        serviceCategorySlug: "", serviceSlug: "", notes: "synthetic only",
+      })).rejects.toBeInstanceOf(BookingTimeConflictError);
+
+      const localStart = toLocal(attemptedStart);
+      const localEnd = toLocal(attemptedEnd);
+      expect(localStart.slice(0, 10)).toBe(localEnd.slice(0, 10));
+      await expect(createDashboardAvailabilityBlock({
+        localStartsAt: localStart, localEndsAt: localEnd,
+        reason: "Rejected single " + label,
+      })).rejects.toMatchObject({ code: "conflict" });
+
+      const day = localStart.slice(0, 10);
+      const weekday = new Date(day + "T12:00:00Z").getUTCDay();
+      await expect(createDashboardRecurringAvailabilityBlocks({
+        startDate: day, endDate: day,
+        startTime: localStart.slice(11), endTime: localEnd.slice(11),
+        weekdays: [weekday], reason: "Rejected recurring " + label,
+      })).rejects.toMatchObject({ code: "conflict" });
+
+      // A failed guard must not leave a persisted booking or availability block.
+      const persisted = await db!.query<{ count: number }>(
+        "select count(*)::int as count from bookings where workspace_id=$1 and starts_at=$2::timestamptz and ends_at=$3::timestamptz",
+        [workspaceId, attemptedStart.toISOString(), attemptedEnd.toISOString()],
+      );
+      expect(Number(persisted.rows[0]?.count ?? -1)).toBe(0);
+    };
+
+    const finalizedStart = futureStart(125);
+    const finalizedEnd = new Date(finalizedStart.getTime() + 180 * 60_000);
+    await db!.query(
+      "insert into bookings(workspace_id,customer_id,service_id,title,service,status,source,starts_at,ends_at) values($1,$2::uuid,$3::uuid,'Synthetic finalized before-buffer','Maria QA','confirmed','dashboard_manual',$4::timestamptz,$5::timestamptz)",
+      [workspaceId, customerId, serviceId, finalizedStart.toISOString(), finalizedEnd.toISOString()],
+    );
+    const beforeStart = new Date(finalizedStart.getTime() - 15 * 60_000);
+    // The candidate ends exactly where the appointment starts; only its
+    // 30-minute before-buffer can block the three attempted manager writes.
+    await assertRejectedForEveryManagerWriter("finalized before-buffer", beforeStart, finalizedStart);
+
+    const holdStart = futureStart(145);
+    const holdEnd = new Date(holdStart.getTime() + 180 * 60_000);
+    const hold = await db!.query<{ id: string }>(
+      "insert into public_booking_verifications(workspace_id,public_booking_slug,customer_name,customer_email,service_id,service_name,starts_at,ends_at,code_hash,expires_at) values($1::uuid,'makeup-by-maria','Synthetic pending customer','qa@example.invalid',$2::uuid,'Synthetic buffered hold',$3::timestamptz,$4::timestamptz,'synthetic-only',now()+interval '30 minutes') returning id::text",
+      [workspaceId, serviceId, holdStart.toISOString(), holdEnd.toISOString()],
+    );
+    expect(hold.rowCount).toBe(1);
+    // The candidate begins exactly where the pending verification ends; only
+    // the hold service's 45-minute after-buffer protects this interval.
+    const afterEnd = new Date(holdEnd.getTime() + 15 * 60_000);
+    await assertRejectedForEveryManagerWriter("active hold after-buffer", holdEnd, afterEnd);
+  });
+
   it("reports Maria manager booking conflict after a concurrent confirmation commits under lock 713", async () => {
     const future = new Date(Date.now() + 45 * 86_400_000);
     const start = new Date(Date.UTC(future.getUTCFullYear(), future.getUTCMonth(), future.getUTCDate(), 10));
