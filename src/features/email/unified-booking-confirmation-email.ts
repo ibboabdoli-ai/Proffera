@@ -176,7 +176,7 @@ export function buildUnifiedBookingConfirmationEmail(input: Input) {
         ${mariaEmailLogo}
          <div style="background:${isMaria ? "#845363" : "#06183b"};color:#ffffff;padding:22px 28px;">
           <table role="presentation" style="width:100%;border-collapse:collapse;"><tr>
-            ${isPrimeView ? `<td style="width:58px;vertical-align:middle;"><img src="${primeViewLogo}" width="48" height="48" alt="PrimeView Window Care" style="display:block;width:48px;height:48px;border-radius:11px;object-fit:cover;border:1px solid rgba(255,255,255,.25);" /></td>`}
+            ${isPrimeView ? `<td style="width:58px;vertical-align:middle;"><img src="${primeViewLogo}" width="48" height="48" alt="PrimeView Window Care" style="display:block;width:48px;height:48px;border-radius:11px;object-fit:cover;border:1px solid rgba(255,255,255,.25);" /></td>` : ""}
             <td style="vertical-align:middle;"><p style="margin:0;font-size:12px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:#b8ceff;">Booking request</p><h1 style="margin:5px 0 0;font-size:24px;line-height:1.25;color:#ffffff;">${escapeHtml(input.companyName)}</h1></td>
           </tr></table>
         </div>
