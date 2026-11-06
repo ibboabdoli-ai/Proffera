@@ -27,6 +27,7 @@ describe("Maria Preview year editor and booking behavior", () => {
 
   it("rejects unauthorized recipients and all non-Preview environments", () => {
     const env = {
+      NODE_ENV: "test",
       VERCEL_ENV: "preview",
       VERCEL_URL: "qa.vercel.app",
       PROFFERA_MARIA_PREVIEW_TEST_EMAIL: "qa@example.invalid",
