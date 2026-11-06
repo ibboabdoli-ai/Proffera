@@ -3,6 +3,7 @@ import "server-only";
 import { mariaEmailLogoHtml } from "@/lib/maria-email-logo";
 import { bookingDateLocale } from "@/lib/booking-date-locale";
 import { getSql } from "@/lib/db/server";
+import { resolveBrevoApiKey } from "@/lib/email-runtime-config";
 
 import { getMariaPreviewPortalBase, isMariaPreviewTestRecipient } from "@/lib/maria-preview-customer-safety";
 import {
@@ -255,7 +256,7 @@ export async function sendMariaBookingStatusEmail(input: MariaBookingStatusEmail
   if (!base || !isMariaPreviewTestRecipient(input.customerEmail)) {
     return { ok: false as const, error: "preview_recipient_not_approved" as const };
   }
-  const apiKey = process.env.BREVO_API_KEY;
+  const apiKey = resolveBrevoApiKey();
   const from = process.env.LEAD_FROM_EMAIL;
   if (!apiKey || !from) return { ok: false as const, error: "email_not_configured" as const };
   let content: ReturnType<typeof buildMariaBookingStatusEmail>;

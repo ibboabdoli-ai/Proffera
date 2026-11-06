@@ -23,6 +23,7 @@ import { sendMariaBookingStatusEmail } from "@/features/email/maria-deposit-emai
 import { sendBookingCustomerSms } from "@/features/sms/booking-sms";
 import { getDashboardBookingDetailInStockholm } from "@/lib/dashboard-booking-detail-db";
 import { getSql } from "@/lib/db/server";
+import { resolveBrevoApiKey } from "@/lib/email-runtime-config";
 import { BookingRescheduleValidationError, rescheduleDashboardBooking } from "@/lib/dashboard-booking-reschedule";
 import { isDashboardBookingStatus, updateDashboardBookingStatus, type DashboardBookingStatus } from "@/lib/dashboard-booking-status";
 import { canManageWorkspaceSettings, getUserWorkspaceAccess } from "@/lib/workspace-access";
@@ -183,7 +184,7 @@ async function updateBookingStatusAction(bookingId: string, formData: FormData) 
       || !isMariaPreviewTestRecipient(current.customer.email)) {
       redirectWithError(bookingId, "maria_preview", locale);
     }
-    if (!process.env.BREVO_API_KEY || !process.env.LEAD_FROM_EMAIL) {
+    if (!resolveBrevoApiKey() || !process.env.LEAD_FROM_EMAIL) {
       redirectWithError(bookingId, "maria_email_setup", locale);
     }
   }
@@ -237,7 +238,7 @@ async function resendMariaStatusEmailAction(bookingId: string, formData: FormDat
   const access = await requireBookingManager(bookingId, locale);
   if (process.env.VERCEL_ENV !== "preview" || access.workspaceSlug !== "makeup-by-maria"
     || !getMariaPreviewPortalBase()) redirectWithError(bookingId, "maria_preview", locale);
-  if (!process.env.BREVO_API_KEY || !process.env.LEAD_FROM_EMAIL) {
+  if (!resolveBrevoApiKey() || !process.env.LEAD_FROM_EMAIL) {
     redirectWithError(bookingId, "maria_email_setup", locale);
   }
   const approved = process.env.PROFFERA_MARIA_PREVIEW_TEST_EMAIL?.trim().toLowerCase() ?? "";

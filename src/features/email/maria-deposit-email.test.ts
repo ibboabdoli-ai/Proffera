@@ -27,6 +27,7 @@ beforeEach(() => {
   vi.stubEnv("PROFFERA_MARIA_PREVIEW_TEST_EMAIL", "qa@example.invalid");
   vi.stubEnv("PROFFERA_PREVIEW_EMAIL_RECIPIENT", "qa@example.invalid");
   vi.stubEnv("BREVO_API_KEY", "qa-fake-test-only");
+  vi.stubEnv("PROFFERA_PREVIEW_BREVO_API_KEY", "qa-isolated-stub-only");
   vi.stubEnv("LEAD_FROM_EMAIL", "Makeup by Maria <noreply@example.invalid>");
 });
 
@@ -121,6 +122,36 @@ describe("Maria-only Swish confirmation and cancellation email", () => {
     expect(dbQuery).toHaveBeenCalledOnce();
     expect(sent.htmlContent).not.toContain("/api/makeup-by-maria/swish-qr/");
     expect(sent.textContent).toContain("handpenningen som mottagen");
+  });
+
+  it("sends with only the dedicated Preview Brevo credential", async () => {
+    vi.stubEnv("BREVO_API_KEY", "shared-production-credential");
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true });
+    vi.stubGlobal("fetch", fetchMock);
+    expect(await sendMariaBookingStatusEmail(booking)).toEqual({ ok: true });
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(fetchMock.mock.calls[0]![1].headers["api-key"]).toBe("qa-isolated-stub-only");
+  });
+
+  it("does not fall back to the shared key when the Preview key is missing or reused", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    vi.stubEnv("PROFFERA_PREVIEW_BREVO_API_KEY", "");
+    expect(await sendMariaBookingStatusEmail(booking))
+      .toEqual({ ok: false, error: "email_not_configured" });
+    vi.stubEnv("PROFFERA_PREVIEW_BREVO_API_KEY", "qa-fake-test-only");
+    expect(await sendMariaBookingStatusEmail(booking))
+      .toEqual({ ok: false, error: "email_not_configured" });
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(dbQuery).not.toHaveBeenCalled();
+  });
+
+  it("allows an isolated Preview key even without a shared Production credential", async () => {
+    vi.stubEnv("BREVO_API_KEY", "");
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true });
+    vi.stubGlobal("fetch", fetchMock);
+    expect(await sendMariaBookingStatusEmail(booking)).toEqual({ ok: true });
+    expect(fetchMock.mock.calls[0]![1].headers["api-key"]).toBe("qa-isolated-stub-only");
   });
 
   it("fails closed if the manual Swish state cannot be read", async () => {
