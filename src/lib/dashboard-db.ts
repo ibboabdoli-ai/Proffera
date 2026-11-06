@@ -470,7 +470,17 @@ export async function createDashboardBooking(input: CreateDashboardBookingInput)
       ${input.endsAt}::timestamptz,
       'dashboard_manual',
       ${toNullableText(input.notes)}
-    where ${!mariaPreview}::boolean or not exists (
+    where ${!mariaPreview}::boolean or (
+      -- The optimistic preflight can race with verification finalization.
+      -- Under lock 713, reject existing bookings as well as pending holds.
+      not exists (
+        select 1 from bookings active_booking
+        where active_booking.workspace_id=${workspaceId}
+          and active_booking.status not in ('cancelled', 'no_show')
+          and active_booking.starts_at < ${input.endsAt}::timestamptz
+          and active_booking.ends_at > ${input.startsAt}::timestamptz
+      )
+      and not exists (
       select 1 from public_booking_verifications hold
       left join workspace_services hold_service
         on hold_service.id=hold.service_id and hold_service.workspace_id=hold.workspace_id::text
@@ -480,6 +490,7 @@ export async function createDashboardBooking(input: CreateDashboardBookingInput)
           < ${input.endsAt}::timestamptz
         and hold.ends_at+(coalesce(hold_service.buffer_after_minutes,0)*interval '1 minute')
           > ${input.startsAt}::timestamptz
+      )
     )
     returning id
   `;
