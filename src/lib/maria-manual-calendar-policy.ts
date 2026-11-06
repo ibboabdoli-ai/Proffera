@@ -11,6 +11,7 @@ export type MariaCalendarInterval = {
   endsAt: string;
 };
 
+/** Return today's ISO date in Stockholm time, independent of the server clock's timezone. */
 export function stockholmCalendarToday(now = new Date()) {
   const parts = new Intl.DateTimeFormat("en-GB", {
     timeZone: MARIA_CALENDAR_ZONE, year: "numeric", month: "2-digit", day: "2-digit",
@@ -19,6 +20,7 @@ export function stockholmCalendarToday(now = new Date()) {
   return `${find("year")}-${find("month")}-${find("day")}`;
 }
 
+/** Accept only real Friday-Sunday dates in the configured 2026-2036 booking horizon. */
 export function parseMariaCalendarDay(date: string) {
   const parsed = parseLocalDateTime(`${date}T00:00`);
   if (!parsed || parsed.year < 2026 || parsed.year > 2036) return null;
@@ -26,6 +28,7 @@ export function parseMariaCalendarDay(date: string) {
   return [0, 5, 6].includes(weekday) ? { ...parsed, weekday } : null;
 }
 
+/** Find the next permitted Maria calendar day, including today when eligible. */
 export function nextMariaCalendarDay(now = new Date()) {
   const today = stockholmCalendarToday(now);
   for (let offset = 0; offset < 8; offset++) {
@@ -36,12 +39,14 @@ export function nextMariaCalendarDay(now = new Date()) {
   return today;
 }
 
+/** Parse a half-hour-aligned HH:mm clock value; reject any other minute step. */
 function clockMinutes(value: string) {
   const match = /^([01][0-9]|2[0-3]):(00|30)$/.exec(value);
   if (!match) return null;
   return Number(match[1]) * 60 + Number(match[2]);
 }
 
+/** Convert Stockholm wall time to UTC, rejecting nonexistent local times around DST changes. */
 function convert(date: string, minute: number) {
   const hour = Math.floor(minute / 60);
   const minutes = minute % 60;
@@ -54,6 +59,7 @@ function convert(date: string, minute: number) {
     ? instant.toISOString() : null;
 }
 
+/** List inclusive half-hour booking starts, skipping invalid local times on DST transitions. */
 export function mariaCalendarIntervals(date: string, firstStart: string, lastStart: string): MariaCalendarInterval[] | null {
   if (!parseMariaCalendarDay(date)) return null;
   const first = clockMinutes(firstStart);
@@ -77,6 +83,7 @@ export function mariaCalendarIntervals(date: string, firstStart: string, lastSta
   return result;
 }
 
+/** Return actual UTC midnight bounds of a permitted Stockholm day, including DST length changes. */
 export function mariaCalendarDayBounds(date: string) {
   const day = parseMariaCalendarDay(date);
   if (!day) return null;
@@ -87,6 +94,7 @@ export function mariaCalendarDayBounds(date: string) {
   return { startsAt: midnight, endsAt: nextMidnight };
 }
 
+/** Disallow past dates and days outside Maria's Friday-Sunday calendar. */
 export function mariaCalendarDateAllowed(date: string, now = new Date()) {
   return Boolean(parseMariaCalendarDay(date)) && date >= stockholmCalendarToday(now);
 }

@@ -21,6 +21,12 @@ export type MariaAvailabilityResult =
   | { ok: true; slots: string[] }
   | { ok: false; error: "invalid" | "service" | "hours" | "database" };
 
+/**
+ * Return start times for one published Maria service, subtracting all bookings,
+ * active verification holds, buffer intervals and manually closed starts.
+ * A caller excluding a booking or overriding its duration must first authorize
+ * that customer's rescheduling; this function validates only the input shape.
+ */
 export async function getMariaAvailability(input: AvailabilityRequest): Promise<MariaAvailabilityResult> {
   const parsed = parseLocalDateTime(`${input.date}T00:00`);
   if (!parsed || parsed.year !== input.year || input.year < 2026 || input.year > 2036) {

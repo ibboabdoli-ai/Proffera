@@ -16,6 +16,7 @@ export type ManualSwishStatusRead = {
   entries: Record<string, ManualSwishEntry>;
 };
 
+/** Require Maria Preview manager permissions and online-booking module access. */
 async function requireMariaPreviewManager() {
   const access = await getUserWorkspaceAccess();
   if (process.env.VERCEL_ENV !== "preview"

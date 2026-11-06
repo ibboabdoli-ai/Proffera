@@ -25,10 +25,16 @@ type MariaStartWindow = {
   now: Date;
 };
 
+/** Normalize invalid or out-of-range appointment buffers to zero minutes. */
 function safeBuffer(value: number | undefined) {
   return Number.isInteger(value) && value! >= 0 && value! <= 1440 ? value! : 0;
 }
 
+/**
+ * Compute allowed Friday-Sunday appointment starts in Stockholm time, applying
+ * notice, advance-window, duration and overlap rules. Manual closures apply
+ * only to exact start instants and never occupy a full treatment interval.
+ */
 export function availableMariaStartSlots(input: MariaStartWindow): string[] {
   const parsedDate = parseLocalDateTime(`${input.date}T00:00`);
   const opening = timeToMinutes(input.earliestStart);

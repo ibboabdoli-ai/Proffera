@@ -20,6 +20,7 @@ export function isValidMariaBookingEmail(value: string): boolean {
   return true;
 }
 
+/** Validate phone-number shape only; this does not prove possession of the number. */
 export function isValidMariaBookingPhone(value: string): boolean {
   const phone = value.trim();
   if (!/^\+?[0-9 ()-]+$/.test(phone) || phone.startsWith("-")) return false;

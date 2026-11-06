@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { setMariaManualSwishStatus, type ManualSwishState } from "@/lib/maria-manual-swish";
 
+/** Build only a known booking-list or booking-detail redirect with a safe locale. */
 function safeTarget(bookingId: string, data: FormData) {
   const isDetail = data.get("return_to") === "detail";
   const locale = data.get("lang") === "en" ? "?lang=en" : "";
@@ -12,6 +13,10 @@ function safeTarget(bookingId: string, data: FormData) {
     : `/dashboard/bokningar${locale ? locale + "&" : "?"}`;
 }
 
+/**
+ * Record a manager-confirmed manual Swish status, without contacting Swish or
+ * treating a browser checkbox as independent proof of payment.
+ */
 export async function recordMariaSwishPaymentAction(bookingId: string, data: FormData) {
   if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(bookingId)) {
     redirect("/dashboard/bokningar?payment_error=save");

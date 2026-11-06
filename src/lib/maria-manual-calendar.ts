@@ -22,12 +22,14 @@ export type MariaCalendarView = {
   snapshotAtEpoch: number;
 };
 
+/** Stable error codes for Preview-only manager calendar operations. */
 export class MariaCalendarError extends Error {
   constructor(public readonly code: "access" | "date" | "schedule" | "time" | "conflict" | "database") {
     super(code);
   }
 }
 
+/** Require a Maria workspace manager in Preview; fail closed for Production and other tenants. */
 async function requireMariaCalendarManager() {
   if (process.env.VERCEL_ENV !== "preview") throw new MariaCalendarError("access");
   const access = await getUserWorkspaceAccess();
@@ -40,6 +42,7 @@ async function requireMariaCalendarManager() {
   return { sql, workspaceId: access.workspaceId, userId: access.userId };
 }
 
+/** Read the active Maria workspace's working hours or report a missing schedule. */
 async function loadCalendarHours(sql: NonNullable<ReturnType<typeof getSql>>, workspaceId: string, weekday: number) {
   const rows = await sql`
     select h.opens_at::text as opens_at,h.closes_at::text as closes_at,h.is_closed
@@ -58,6 +61,10 @@ async function loadCalendarHours(sql: NonNullable<ReturnType<typeof getSql>>, wo
   };
 }
 
+/**
+ * Read a manager-only calendar snapshot, keeping bookings, pending verification
+ * holds and manually closed start times distinct; reject truncated database reads.
+ */
 export async function readMariaManualCalendar(date: string, now = new Date()): Promise<MariaCalendarView> {
   const { sql, workspaceId } = await requireMariaCalendarManager();
   if (!mariaCalendarDateAllowed(date, now)) throw new MariaCalendarError("date");
@@ -152,6 +159,11 @@ export async function readMariaManualCalendar(date: string, now = new Date()): P
 
 type CalendarChange = { date: string; mode: "close" | "open" | "close_day" | "open_day"; clock?: string };
 
+/**
+ * Open or close individual future starts (or a full day) under Maria's shared
+ * advisory lock, refusing schedule changes and overlaps with live OTP holds.
+ * Never creates or alters actual customer bookings.
+ */
 export async function changeMariaManualCalendar(input: CalendarChange, now = new Date()) {
   const { sql, workspaceId, userId } = await requireMariaCalendarManager();
   if (!mariaCalendarDateAllowed(input.date, now)) throw new MariaCalendarError("date");

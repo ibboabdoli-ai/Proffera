@@ -10,6 +10,7 @@ export const MARIA_DEPOSIT_DEADLINE_HOURS = 24;
 
 const uuidPattern = /^[a-f\d]{8}-[a-f\d]{4}-[a-f\d]{4}-[a-f\d]{4}-[a-f\d]{12}$/i;
 
+/** Build a short customer reference from a validated booking UUID; not globally unique. */
 export function mariaBookingNumber(bookingId: string) {
   if (!uuidPattern.test(bookingId)) throw new Error("INVALID_MARIA_BOOKING_ID");
   // Six readable characters. Preview QR retrieval refuses an ambiguous match.
@@ -29,6 +30,7 @@ export function mariaSwishPaymentPagePath(bookingId: string) {
   return `/maria/swish/${bookingId.toLowerCase()}`;
 }
 
+/** Return the booking-specific QR endpoint after validating the booking UUID. */
 export function mariaSwishQrPath(bookingId: string) {
   mariaBookingNumber(bookingId);
   return `/api/makeup-by-maria/swish-qr/${bookingId.toLowerCase()}`;
@@ -45,6 +47,7 @@ export function mariaSwishPaymentLink(bookingId: string) {
   return url.toString();
 }
 
+/** Return the fixed deposit deadline after confirmation; reject invalid dates. */
 export function mariaDepositDeadline(confirmedAt: Date) {
   const time = confirmedAt.getTime();
   if (!Number.isFinite(time)) throw new Error("INVALID_MARIA_CONFIRMATION_TIME");

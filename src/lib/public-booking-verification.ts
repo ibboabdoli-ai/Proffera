@@ -19,10 +19,12 @@ const DAY_SECONDS = 60 * 60 * 24;
 const UK_POSTCODE = /^[A-Z]{1,2}\d[A-Z\d]?\s?\d[A-Z]{2}$/i;
 const LEGACY_PRIMEVIEW_PROPERTY_TYPES = new Set(["House", "Flat", "Commercial"]);
 
+/** Trim an address field and collapse repeated whitespace. */
 function cleanAddressPart(value: string) {
   return value.trim().replace(/\s+/g, " ");
 }
 
+/** Read one labelled value from a newline-separated booking-details field. */
 function bookingDetailValue(bookingDetails: string, label: string) {
   const prefix = `${label.toLowerCase()}:`;
   const line = bookingDetails
@@ -32,6 +34,7 @@ function bookingDetailValue(bookingDetails: string, label: string) {
   return line ? cleanAddressPart(line.slice(prefix.length)) : "";
 }
 
+/** Require expected address parts for a PrimeView property type before verification. */
 export function validatePrimeViewServiceAddress(input: { address?: string; postcode?: string; bookingDetails?: string }) {
   const propertyType = bookingDetailValue(input.bookingDetails ?? "", "Property type");
   if (!propertyType) return false;
@@ -57,17 +60,20 @@ export function validatePrimeViewServiceAddress(input: { address?: string; postc
   return parts.length === 2 && Boolean(parts[0] && parts[1]);
 }
 
+/** Hash the code with its verification ID and auth secret (or configured fallback). */
 function hashCode(id: string, code: string) {
   const secret = process.env.BETTER_AUTH_SECRET ?? process.env.AUTH_SECRET ?? "proffera-booking-verification";
   return createHash("sha256").update(`${id}:${code}:${secret}`).digest("hex");
 }
 
+/** Normalize a database timestamp to UTC ISO text or reject an invalid value. */
 function toIsoTimestamp(value: unknown) {
   const date = value instanceof Date ? value : new Date(String(value));
   if (Number.isNaN(date.getTime())) throw new Error("Invalid booking verification timestamp");
   return date.toISOString();
 }
 
+/** Keep a customer portal token valid at least 30 days, capped at 400 days. */
 function portalTokenLifetimeSeconds(bookingEndsAt: string) {
   const bookingEndMs = new Date(bookingEndsAt).getTime();
   const minimumMs = Date.now() + 30 * DAY_SECONDS * 1000;
@@ -76,6 +82,7 @@ function portalTokenLifetimeSeconds(bookingEndsAt: string) {
   return Math.max(30 * DAY_SECONDS, Math.ceil((cappedMs - Date.now()) / 1000));
 }
 
+/** Include address and postcode once while preserving other booking details. */
 function buildBookingNote(address: string, postcode: string, bookingDetails: string) {
   const detailLines = bookingDetails.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
   const hasAddress = detailLines.some((line) => /^address\s*:/i.test(line));
@@ -110,6 +117,11 @@ export type BeginBookingVerificationInput = {
   verificationSms?: boolean;
 };
 
+/**
+ * Create and deliver a short-lived booking challenge, not a confirmed booking.
+ * Maria starts are held transactionally under the workspace-wide booking lock;
+ * delivery and recipient safeguards remain Preview-only for that workspace.
+ */
 export async function beginBookingEmailVerification(input: BeginBookingVerificationInput) {
   if (input.slug === "primeview" && !validatePrimeViewServiceAddress(input)) {
     return { ok: false as const, error: "address" };
@@ -246,6 +258,10 @@ export async function beginBookingEmailVerification(input: BeginBookingVerificat
   return { ok: true as const, verificationId: id, delivery };
 }
 
+/**
+ * Resend an unconsumed challenge with cooldown and expiry checks. Maria holds
+ * must be renewed against current booking availability before another code is sent.
+ */
 export async function resendPublicBookingCode(id: string, language: "sv" | "en" | "ar" = "sv") {
   const sql = getSql();
   if (!sql || !/^[0-9a-f-]{36}$/i.test(id)) return { ok: false as const, error: "invalid" };
@@ -332,6 +348,11 @@ export async function resendPublicBookingCode(id: string, language: "sv" | "en" 
   return { ok: true as const, delivery };
 }
 
+/**
+ * Validate a six-digit challenge and finalize its booking. Wrong codes count
+ * against attempt limits; Maria booking creation rechecks the current schedule
+ * atomically rather than trusting the earlier availability preview.
+ */
 export async function verifyPublicBookingCode(id: string, code: string, language?: "sv" | "en" | "ar") {
   const sql = getSql();
   if (!sql || !/^[0-9a-f-]{36}$/i.test(id) || !/^\d{6}$/.test(code)) return { ok: false as const, error: "invalid" };

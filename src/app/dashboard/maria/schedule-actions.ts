@@ -5,16 +5,22 @@ import { redirect } from "next/navigation";
 import { getSql } from "@/lib/db/server";
 import { canManageWorkspaceSettings, getUserWorkspaceAccess } from "@/lib/workspace-access";
 
+/** Parse a 30-minute-aligned schedule clock or return null for invalid input. */
 function minutes(value: FormDataEntryValue | null) {
   const match = /^(\d{2}):(\d{2})$/.exec(String(value ?? "").trim());
   if (!match) return null;
   const h=Number(match[1]),m=Number(match[2]);
   return h<=23 && m<=59 && m%30===0 ? h*60+m : null;
 }
+/** Format a number of minutes after midnight as HH:mm. */
 function clock(n: number) {
   return `${String(Math.floor(n/60)).padStart(2,"0")}:${String(n%60).padStart(2,"0")}`;
 }
 
+/**
+ * Save Maria's Preview-only duration, buffer and Fri-Sun opening hours after
+ * manager authorization; serialize the edit against in-flight bookings.
+ */
 export async function saveMariaScheduleAction(formData: FormData) {
   const access = await getUserWorkspaceAccess();
   if (process.env.VERCEL_ENV !== "preview" || !access.ok || access.workspaceSlug !== "makeup-by-maria"
