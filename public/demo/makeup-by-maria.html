@@ -595,7 +595,10 @@ function setupMariaGallery(trackId,prevId,nextId,countId,progressId,interval){
  };
  const go=(i)=>{
   active=(i+panels.length)%panels.length;
-  panels[active].scrollIntoView({block:"nearest",inline:trackId==="mariaFeaturedTrack"?"center":"start",behavior:reduced.matches?"instant":"smooth"});
+  // Avoid moving the document during portfolio autoplay and navigation.
+  const t=track.getBoundingClientRect(),p=panels[active].getBoundingClientRect();
+  const delta=trackId==="mariaFeaturedTrack"?(p.left+p.right)/2-(t.left+t.right)/2:p.left-t.left-24;
+  track.scrollBy({left:delta,behavior:reduced.matches?"auto":"smooth"});
   paint();
  };
  prev.addEventListener("click",()=>go(active-1));
