@@ -98,8 +98,8 @@ async function verify(formData: FormData) {
   const code = String(formData.get("code") ?? "").trim();
   const experience = await getVerificationExperience(id);
   const wanted = String(formData.get("lang") ?? "");
-  const locale: Locale = experience.mariaPreview && wanted === "ar"
-    ? "ar" : resolvePublicBusinessLocale(experience, wanted);
+  const locale: Locale = experience.mariaPreview && (wanted === "ar" || wanted === "en")
+    ? wanted : resolvePublicBusinessLocale(experience, wanted);
   const channel = String(formData.get("channel") ?? "");
   const result = await verifyPublicBookingCode(id, code, locale);
   if (!result.ok) redirect(`/boka/verifiera/${id}?error=${result.error}&lang=${locale}${channelSuffix(channel)}`);
@@ -111,8 +111,8 @@ async function resend(formData: FormData) {
   const id = String(formData.get("id") ?? "");
   const experience = await getVerificationExperience(id);
   const wanted = String(formData.get("lang") ?? "");
-  const locale: Locale = experience.mariaPreview && wanted === "ar"
-    ? "ar" : resolvePublicBusinessLocale(experience, wanted);
+  const locale: Locale = experience.mariaPreview && (wanted === "ar" || wanted === "en")
+    ? wanted : resolvePublicBusinessLocale(experience, wanted);
   const currentChannel = String(formData.get("channel") ?? "");
   const result = await resendPublicBookingCode(id, locale);
   if (!result.ok) redirect(`/boka/verifiera/${id}?error=${result.error}&lang=${locale}${channelSuffix(currentChannel)}`);
@@ -124,8 +124,8 @@ export default async function VerifyBookingPage({ params, searchParams }: PagePr
   const query = searchParams ? await searchParams : undefined;
   const experience = await getVerificationExperience(id);
   const wanted = first(query?.lang);
-  const locale: Locale = experience.mariaPreview && wanted === "ar"
-    ? "ar" : resolvePublicBusinessLocale(experience, wanted);
+  const locale: Locale = experience.mariaPreview && (wanted === "ar" || wanted === "en")
+    ? wanted : resolvePublicBusinessLocale(experience, wanted);
   const isEnglish = locale === "en";
   const error = messages[locale][first(query?.error) ?? ""];
   const resent = first(query?.resent) === "1";
@@ -160,7 +160,7 @@ export default async function VerifyBookingPage({ params, searchParams }: PagePr
       <div className={styles.verifyShell}>
         <nav className={styles.languageNav} aria-label={locale === "ar" ? "اللغة" : isEnglish ? "Language" : "Språk"}>
           {experience.swedishEnabled ? <a href={verificationHref(id, "sv", channel)} className={locale === "sv" ? styles.languageActive : styles.languageLink}>SV</a> : null}
-          {experience.englishEnabled ? <a href={verificationHref(id, "en", channel)} className={locale === "en" ? styles.languageActive : styles.languageLink}>EN</a> : null}
+          {(experience.englishEnabled || experience.mariaPreview) ? <a href={verificationHref(id, "en", channel)} className={locale === "en" ? styles.languageActive : styles.languageLink}>EN</a> : null}
           {experience.mariaPreview ? <a href={verificationHref(id, "ar", channel)} className={locale === "ar" ? styles.languageActive : styles.languageLink}>AR</a> : null}
         </nav>
 
