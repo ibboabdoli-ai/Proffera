@@ -16,6 +16,11 @@ vi.mock("@/lib/workspace-module-access",()=>({
   getDashboardModuleAccess:async()=>[],
   getDashboardEnabledFeatureKeys:async()=>[],
 }));
+vi.mock("@/components/dashboard/business-calendar",()=>({
+  BusinessCalendar:({allowDragAndDrop}:{allowDragAndDrop?:boolean})=><div data-calendar-drag={String(allowDragAndDrop)}/>,
+}));
+vi.mock("@/lib/dashboard-calendar",()=>({getDashboardCalendarEvents:async()=>[]}));
+vi.mock("@/lib/workspace-settings-db",()=>({getDashboardWorkspaceSettings:async()=>({timeZone:"Europe/Stockholm"})}));
 vi.mock("@/lib/dashboard-db",()=>({
   getDashboardStats:async()=>({
     customersCount:0,activeCustomersCount:0,bookingsCount:0,
@@ -27,6 +32,7 @@ vi.mock("./schedule-actions",()=>({saveMariaScheduleAction:async()=>{}}));
 
 import MariaSiteDashboardPage from "./page";
 import DashboardPage from "../page";
+import CalendarPage from "../kalender/page";
 
 afterEach(()=>{vi.unstubAllEnvs();state.slug="makeup-by-maria";state.role="owner"});
 describe("Maria preview calendar visible without paid booking",()=>{
@@ -86,5 +92,23 @@ describe("Maria preview calendar visible without paid booking",()=>{
     await expect(MariaSiteDashboardPage({searchParams:Promise.resolve({})})).rejects.toThrow("REDIRECT /dashboard");
     state.slug="makeup-by-maria";state.role="member";
     await expect(MariaSiteDashboardPage({searchParams:Promise.resolve({})})).rejects.toThrow("REDIRECT /dashboard");
+  });
+});
+
+
+describe("Maria generic calendar controls remain isolated",()=>{
+  it.each([
+    ["preview","makeup-by-maria",false],
+    ["production","makeup-by-maria",false],
+    ["preview","another-workspace",true],
+    ["production","another-workspace",true],
+    ["development","makeup-by-maria",true],
+  ] as const)("calendar in %s for %s permits generic moves: %s",async(env,slug,enabled)=>{
+    vi.stubEnv("VERCEL_ENV",env);
+    state.slug=slug;
+    const html=renderToStaticMarkup(await CalendarPage({searchParams:Promise.resolve({})}));
+    expect(html).toContain(`data-calendar-drag="${enabled}"`);
+    expect(html.includes('href="/dashboard/bokningar/ny"')).toBe(enabled);
+    expect(html.includes('href="/dashboard/bokningar/blockera"')).toBe(enabled);
   });
 });
