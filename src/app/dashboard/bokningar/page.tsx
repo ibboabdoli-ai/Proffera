@@ -61,6 +61,8 @@ export default async function BookingsPage({ searchParams }: BookingsPageProps) 
     && access.workspaceSlug === "makeup-by-maria"
     && canManageWorkspaceSettings(access)
     && process.env.VERCEL_ENV === "preview";
+  const mariaProductionReadOnly = access.ok && access.workspaceSlug === "makeup-by-maria" &&
+    process.env.VERCEL_ENV === "production";
   const manualSwish = mariaPreview ? await readMariaManualSwishStatuses() : null;
   const confirmedBookings = bookings.filter((booking) => booking.status === "confirmed").length;
   const requestedBookings = bookings.filter((booking) => booking.status === "requested").length;
@@ -90,7 +92,7 @@ export default async function BookingsPage({ searchParams }: BookingsPageProps) 
         title={isEnglish ? "Plan and manage bookings" : "Planera och följ bokningar"}
         description={isEnglish ? "View current bookings with time, customer, service, location and next step. Use this overview to see what needs confirmation, completion or follow-up." : "Se aktuella bokningar med tid, kund, tjänst, ort och nästa steg. Använd vyn för att snabbt se vad som behöver bekräftas, utföras eller följas upp."}
         icon={CalendarClock}
-        actions={<Link href={withLang("/dashboard/bokningar/ny", isEnglish)} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-control bg-brand-deep px-4 py-2.5 text-sm font-bold text-white transition hover:-translate-y-0.5 hover:bg-brand-hover"><CalendarPlus className="h-4 w-4" aria-hidden="true" />{isEnglish ? "New booking" : "Ny bokning"}</Link>}
+        actions={mariaProductionReadOnly ? undefined : <Link href={withLang("/dashboard/bokningar/ny", isEnglish)} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-control bg-brand-deep px-4 py-2.5 text-sm font-bold text-white transition hover:-translate-y-0.5 hover:bg-brand-hover"><CalendarPlus className="h-4 w-4" aria-hidden="true" />{isEnglish ? "New booking" : "Ny bokning"}</Link>}
       />
 
       <DashboardMetricGrid items={summary} />
@@ -107,7 +109,7 @@ export default async function BookingsPage({ searchParams }: BookingsPageProps) 
           </p>
         ) : null}
         {bookings.length === 0 ? (
-          <div className="p-5 sm:p-6"><div className="rounded-2xl border border-dashed border-[#ced8cc] bg-[#f7f9f6] p-6 text-center text-sm text-ink-muted"><h4 className="font-bold text-ink">{isEnglish ? "No bookings yet" : "Inga bokningar ännu"}</h4><p className="mt-2 leading-7">{isEnglish ? "New bookings will appear here with time, customer, status and a link to the booking profile." : "När bokningar skapas visas de här med tid, kund, status och länk till bokningsprofilen."}</p><Link href={withLang("/dashboard/bokningar/ny", isEnglish)} className="mt-4 inline-flex min-h-10 items-center justify-center rounded-control bg-brand-deep px-4 py-2 text-sm font-bold text-white transition hover:bg-brand-hover">{isEnglish ? "Create first booking" : "Skapa första bokningen"}</Link></div></div>
+          <div className="p-5 sm:p-6"><div className="rounded-2xl border border-dashed border-[#ced8cc] bg-[#f7f9f6] p-6 text-center text-sm text-ink-muted"><h4 className="font-bold text-ink">{isEnglish ? "No bookings yet" : "Inga bokningar ännu"}</h4><p className="mt-2 leading-7">{isEnglish ? "New bookings will appear here with time, customer, status and a link to the booking profile." : "När bokningar skapas visas de här med tid, kund, status och länk till bokningsprofilen."}</p>{!mariaProductionReadOnly ? <Link href={withLang("/dashboard/bokningar/ny", isEnglish)} className="mt-4 inline-flex min-h-10 items-center justify-center rounded-control bg-brand-deep px-4 py-2 text-sm font-bold text-white transition hover:bg-brand-hover">{isEnglish ? "Create first booking" : "Skapa första bokningen"}</Link> : null}</div></div>
         ) : (
           <>
             <div className="hidden grid-cols-[1.15fr_1.15fr_1fr_0.8fr_0.8fr_1fr_1fr] gap-4 border-b border-line bg-surface-subtle px-6 py-3 text-[10px] font-bold uppercase tracking-[0.1em] text-ink-muted lg:grid">{columnLabels.map((label) => <span key={label}>{label}</span>)}</div>
