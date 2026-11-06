@@ -58,7 +58,11 @@ function formatBookingTime(value: string, timeZone: WorkspaceTimeZone = "Europe/
 
 /** Build localized booking-confirmation email content without sending messages. */
 export function buildUnifiedBookingConfirmationEmail(input: Input) {
-  const language = input.language ?? (input.companyName.trim().toLowerCase() === "primeview window care" ? "en" : "sv");
+  // Arabic confirmation copy is available for Maria; other brands use the
+  // English fallback so message text and formatted dates share one locale.
+  const language = input.language === "ar" && input.branding !== "makeup-by-maria"
+    ? "en"
+    : input.language ?? (input.companyName.trim().toLowerCase() === "primeview window care" ? "en" : "sv");
   const isEnglish = language === "en";
   const isArabic = language === "ar" && input.branding === "makeup-by-maria";
   const isMaria = input.branding === "makeup-by-maria";
