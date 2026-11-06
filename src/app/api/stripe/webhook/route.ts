@@ -71,7 +71,7 @@ export async function POST(request: Request) {
   if (subscription.status === "canceled") {
     // A retired Stripe Price must still revoke access when the persisted
     // subscription binding matches the exact Workspace and Customer.
-    const result = await syncCancelledWorkspaceSubscription(subscription, event.created, priceId);
+    const result = await syncCancelledWorkspaceSubscription(subscription, event.created, priceId, stripe);
     if (!result.ok && result.code === "database") {
       return NextResponse.json({ error: "Databasen kunde inte uppdateras." }, { status: 500 });
     }

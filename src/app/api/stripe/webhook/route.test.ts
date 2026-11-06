@@ -182,6 +182,31 @@ describe("Stripe webhook environment safety", () => {
     }));
     expect(response.status).toBe(500);
   });
+  it("retries a signed cancellation webhook when Checkout verification fails", async () => {
+    const subscription = {
+      id: "sub_initial_pending", status: "canceled",
+      customer: "cus_initial",
+      metadata: { workspace_id: "f0000000-0000-4000-8000-000000000045" },
+      items: { data: [{ price: { id: "price_starter" } }] },
+    };
+    mocks.getStripeClient.mockReturnValue({
+      webhooks: { constructEventAsync: vi.fn().mockResolvedValue({
+        type: "customer.subscription.deleted", livemode: false, created: 1793900000,
+        data: { object: subscription },
+      }) },
+      subscriptions: { retrieve: vi.fn().mockResolvedValue(subscription) },
+    });
+    mocks.isStripeEventModeAllowed.mockReturnValue(true);
+    mocks.syncCancelledWorkspaceSubscription.mockResolvedValue({ ok: false, code: "database" });
+    const response = await POST(new Request("https://preview.proffera.test/api/stripe/webhook", {
+      method: "POST", headers: { "stripe-signature": "signed" }, body: "{}",
+    }));
+    expect(response.status).toBe(500);
+    expect(mocks.syncCancelledWorkspaceSubscription).toHaveBeenCalledWith(
+      subscription, 1793900000, "price_starter", expect.anything(),
+    );
+  });
+
   it("revokes a canceled historical-Price subscription through guarded binding without current Price mapping", async () => {
     const subscription = {
       id: "sub_retired",
@@ -205,7 +230,7 @@ describe("Stripe webhook environment safety", () => {
     }));
     expect(response.status).toBe(200);
     expect(mocks.syncCancelledWorkspaceSubscription).toHaveBeenCalledWith(
-      subscription, 1793900000, "price_retired",
+      subscription, 1793900000, "price_retired", expect.anything(),
     );
     expect(mocks.syncWorkspaceSubscription).not.toHaveBeenCalled();
   });
