@@ -11,6 +11,10 @@
 -- workspace is deleted; ordinary booking and payment rows are not touched.
 -- Deployment/application remains Preview-only until separately approved.
 BEGIN;
+-- Avoid indefinite waits behind concurrent workspace writes. SET LOCAL
+-- automatically restores the connection's prior values on COMMIT/ROLLBACK.
+SET LOCAL lock_timeout = '5s';
+SET LOCAL statement_timeout = '30s';
 
 CREATE TABLE IF NOT EXISTS maria_manual_closed_starts (
   workspace_id uuid NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
