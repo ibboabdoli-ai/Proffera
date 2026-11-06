@@ -427,7 +427,7 @@ export async function createDashboardBooking(input: CreateDashboardBookingInput)
   }
 
   const conflictingBooking = await sql`
-    select id
+    select b.id
     from bookings b
     left join workspace_services occupied_service
       on occupied_service.id=b.service_id and occupied_service.workspace_id=b.workspace_id
