@@ -20,17 +20,26 @@ vi.mock("@/lib/public-booking-verification", () => ({
 import VerifyBookingPage from "./page";
 
 const id = "11111111-2222-4333-8444-555555555555";
+const otherId = "66666666-7777-4888-8999-000000000000";
 const workspaceId = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee";
-let slug = "makeup-by-maria";
+const otherWorkspaceId = "bbbbbbbb-cccc-4ddd-8eee-ffffffffffff";
 
 beforeEach(() => {
   vi.resetAllMocks();
-  slug = "makeup-by-maria";
   vi.stubEnv("VERCEL_ENV", "preview");
-  mocks.getSql.mockReturnValue(async () => [{
-    workspace_id: workspaceId,
-    workspace_slug: slug,
-  }]);
+  // Model the SQL tag at the request boundary rather than returning a Maria
+  // row for every verification. The WHERE predicate and bound UUID matter.
+  mocks.getSql.mockReturnValue(async (parts: TemplateStringsArray, ...values: unknown[]) => {
+    expect(parts.join("?")).toMatch(/\bwhere\s+v\.id\s*=\s*\?::uuid\b/i);
+    expect(values).toHaveLength(1);
+    if (values[0] === id) {
+      return [{ workspace_id: workspaceId, workspace_slug: "makeup-by-maria" }];
+    }
+    if (values[0] === otherId) {
+      return [{ workspace_id: otherWorkspaceId, workspace_slug: "another-business" }];
+    }
+    return [];
+  });
   mocks.experience.mockResolvedValue({
     defaultLanguage: "sv",
     swedishEnabled: true,
@@ -41,9 +50,9 @@ beforeEach(() => {
 
 afterEach(() => { vi.unstubAllEnvs(); });
 
-async function markup(lang: string) {
+async function markup(lang: string, verificationId = id) {
   const element = await VerifyBookingPage({
-    params: Promise.resolve({ id }),
+    params: Promise.resolve({ id: verificationId }),
     searchParams: Promise.resolve({ lang }),
   });
   return renderToStaticMarkup(element);
@@ -59,12 +68,20 @@ describe("Maria verification language keeps the Preview booking locale", () => {
     expect(mocks.experience).toHaveBeenCalledWith(workspaceId);
   });
 
-  it("does not bypass another workspace's disabled English setting", async () => {
-    slug = "another-business";
-    const html = await markup("en");
-    expect(html).toMatch(/<main[^>]*lang="sv"/);
-    expect(html).not.toContain(">EN</a>");
-    expect(html).toContain("Ange din verifieringskod");
+  it("binds the verification ID to its own workspace before granting Preview languages", async () => {
+    const mariaArabic = await markup("ar", id);
+    const otherArabic = await markup("ar", otherId);
+    const otherEnglish = await markup("en", otherId);
+
+    expect(mariaArabic).toMatch(/<main[^>]*lang="ar"[^>]*dir="rtl"/);
+    expect(otherArabic).toMatch(/<main[^>]*lang="sv"/);
+    expect(otherEnglish).toMatch(/<main[^>]*lang="sv"/);
+    expect(otherArabic).not.toContain(">AR</a>");
+    expect(otherEnglish).not.toContain(">EN</a>");
+    expect(otherEnglish).toContain("Ange din verifieringskod");
+    expect(mocks.experience).toHaveBeenNthCalledWith(1, workspaceId);
+    expect(mocks.experience).toHaveBeenNthCalledWith(2, otherWorkspaceId);
+    expect(mocks.experience).toHaveBeenNthCalledWith(3, otherWorkspaceId);
   });
 
   it("keeps Maria Production gated by workspace language settings", async () => {
@@ -74,8 +91,15 @@ describe("Maria verification language keeps the Preview booking locale", () => {
     expect(html).not.toContain(">EN</a>");
   });
 
-  it("continues to support Arabic only in Maria Preview", async () => {
-    expect(await markup("ar")).toMatch(/<main[^>]*lang="ar"[^>]*dir="rtl"/);
+  it("continues to support Arabic in both verification forms only in Maria Preview", async () => {
+    const html = await markup("ar");
+    expect(html).toMatch(/<main[^>]*lang="ar"[^>]*dir="rtl"/);
+    expect(html).toMatch(/<h1\b[^>]*>أدخل رمز التحقق<\/h1>/);
+    const forms = html.match(/<form\b[^>]*>[\s\S]*?<\/form>/g) ?? [];
+    expect(forms).toHaveLength(2);
+    for (const form of forms) {
+      expect(form).toMatch(/<input\b[^>]*type="hidden"[^>]*name="lang"[^>]*value="ar"/);
+    }
     vi.stubEnv("VERCEL_ENV", "production");
     expect(await markup("ar")).toMatch(/<main[^>]*lang="sv"/);
   });

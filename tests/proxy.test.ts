@@ -1,5 +1,6 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { NextRequest } from "next/server";
+import { MARIA_PAYMENT_SHELL_HEADER } from "../src/lib/maria-payment-standalone";
 
 vi.mock("../src/lib/public-site-domain-routing", () => ({
   resolvePublicCustomDomain: vi.fn(async () => null),
@@ -28,6 +29,38 @@ describe("proxy request boundary", () => {
     resolvePublicCustomDomainMock.mockReset();
     resolvePublicCustomDomainMock.mockResolvedValue(null);
   });
+
+  afterEach(() => vi.unstubAllEnvs());
+
+  it("removes a forged standalone payment marker on unrelated routes", async () => {
+    vi.stubEnv("VERCEL_ENV", "preview");
+    const forged = { [MARIA_PAYMENT_SHELL_HEADER]: "1" };
+    const forwarded = "x-middleware-request-" + MARIA_PAYMENT_SHELL_HEADER;
+    for (const path of ["/dashboard", "/en/pricing", "/maria/swish/not-a-uuid"]) {
+      const response = await proxy(request(path, forged));
+      expect(response.status, path).toBe(200);
+      expect(response.headers.get(forwarded), path).toBeNull();
+      expect(response.headers.get("x-middleware-override-headers")?.split(","), path)
+        .not.toContain(MARIA_PAYMENT_SHELL_HEADER);
+    }
+  });
+
+  it("adds the payment shell marker only for an exact Swish booking in Preview", async () => {
+    const validPath = "/maria/swish/3dd71085-9f11-49d1-8996-663e3135d115";
+    const forwarded = "x-middleware-request-" + MARIA_PAYMENT_SHELL_HEADER;
+    vi.stubEnv("VERCEL_ENV", "preview");
+    const preview = await proxy(request(validPath));
+    expect(preview.status).toBe(200);
+    expect(preview.headers.get(forwarded)).toBe("1");
+
+    vi.stubEnv("VERCEL_ENV", "production");
+    const production = await proxy(request(validPath, {
+      [MARIA_PAYMENT_SHELL_HEADER]: "1",
+    }));
+    expect(production.status).toBe(200);
+    expect(production.headers.get(forwarded)).toBeNull();
+  });
+
   it("passes the exact admin path to session and role authorization", async () => {
     const response = await proxy(request("/admin/billing/alerts"));
 

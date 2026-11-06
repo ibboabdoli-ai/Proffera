@@ -25,11 +25,12 @@ reviews:
     - "!**/package-lock.json"
     - "!**/pnpm-lock.yaml"
     - "!**/yarn.lock"
-    # TEMPORARY Stage C: audit three test files absent from Stage A/B reviews.
-    # Remove these inclusions after independent review; never merge with them.
+    # TEMPORARY Stage C: three previously missed tests plus the proxy boundary
+    # regression added in response to Stage C. Remove after independent review.
     - "e2e/tests/maria-cta-computed-contrast.e2e.mjs"
     - "src/app/boka/verifiera/**/page.test.tsx"
     - "tests/maria-payment-layout-analytics.behavior.test.tsx"
+    - "tests/proxy.test.ts"
   path_instructions:
     - path: "src/**/*.{ts,tsx,js,jsx}"
       instructions: |
