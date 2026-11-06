@@ -68,10 +68,10 @@ describe("Maria verification language keeps the Preview booking locale", () => {
     expect(html).toContain("Enter your verification code");
     expect(html).toContain(`/boka/verifiera/${id}?lang=en`);
     expect(html).toContain(">EN</a>");
-    const forms = html.match(/<form\\b[^>]*>[\\s\\S]*?<\\/form>/g) ?? [];
+    const forms = html.match(/<form\b[^>]*>[\s\S]*?<\/form>/g) ?? [];
     expect(forms).toHaveLength(2);
     for (const form of forms) {
-      expect(form).toMatch(/<input\\b[^>]*type="hidden"[^>]*name="lang"[^>]*value="en"/);
+      expect(form).toMatch(/<input\b[^>]*type="hidden"[^>]*name="lang"[^>]*value="en"/);
     }
     expect(mocks.experience).toHaveBeenCalledWith(workspaceId);
   });
