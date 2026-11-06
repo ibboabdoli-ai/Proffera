@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
+import { isValidElement, type ReactNode } from "react";
 
 const mocks = vi.hoisted(() => ({
   getSql: vi.fn(),
@@ -18,6 +19,8 @@ vi.mock("@/lib/public-booking-verification", () => ({
 }));
 
 import VerifyBookingPage from "./page";
+import { redirect } from "next/navigation";
+import { resendPublicBookingCode, verifyPublicBookingCode } from "@/lib/public-booking-verification";
 
 const id = "11111111-2222-4333-8444-555555555555";
 const otherId = "66666666-7777-4888-8999-000000000000";
@@ -65,7 +68,49 @@ describe("Maria verification language keeps the Preview booking locale", () => {
     expect(html).toContain("Enter your verification code");
     expect(html).toContain(`/boka/verifiera/${id}?lang=en`);
     expect(html).toContain(">EN</a>");
+    const forms = html.match(/<form\\b[^>]*>[\\s\\S]*?<\\/form>/g) ?? [];
+    expect(forms).toHaveLength(2);
+    for (const form of forms) {
+      expect(form).toMatch(/<input\\b[^>]*type="hidden"[^>]*name="lang"[^>]*value="en"/);
+    }
     expect(mocks.experience).toHaveBeenCalledWith(workspaceId);
+  });
+
+  it("passes English to both verification actions and preserves it in redirects", async () => {
+    const page = await VerifyBookingPage({
+      params: Promise.resolve({ id }),
+      searchParams: Promise.resolve({ lang: "en" }),
+    });
+    const actions: Array<(data: FormData) => Promise<void>> = [];
+    function collectForms(node: ReactNode): void {
+      if (Array.isArray(node)) {
+        node.forEach(collectForms);
+        return;
+      }
+      if (!isValidElement(node)) return;
+      const props = node.props as { action?: unknown; children?: ReactNode };
+      if (node.type === "form" && typeof props.action === "function") {
+        actions.push(props.action as (data: FormData) => Promise<void>);
+      }
+      collectForms(props.children);
+    }
+    collectForms(page);
+    expect(actions).toHaveLength(2);
+
+    vi.mocked(verifyPublicBookingCode).mockResolvedValue({ ok: false, error: "code" });
+    vi.mocked(resendPublicBookingCode).mockResolvedValue({ ok: false, error: "wait" });
+    const data = new FormData();
+    data.set("id", id);
+    data.set("code", "123456");
+    data.set("lang", "en");
+
+    await actions[0](data);
+    expect(verifyPublicBookingCode).toHaveBeenCalledWith(id, "123456", "en");
+    expect(redirect).toHaveBeenLastCalledWith(`/boka/verifiera/${id}?error=code&lang=en`);
+
+    await actions[1](data);
+    expect(resendPublicBookingCode).toHaveBeenCalledWith(id, "en");
+    expect(redirect).toHaveBeenLastCalledWith(`/boka/verifiera/${id}?error=wait&lang=en`);
   });
 
   it("binds the verification ID to its own workspace before granting Preview languages", async () => {
