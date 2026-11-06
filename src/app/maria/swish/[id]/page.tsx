@@ -4,7 +4,7 @@ import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 
 import { MariaBookingReferenceCopy } from "@/components/dashboard/maria-booking-reference-copy";
-import { getSql } from "@/lib/db/server";
+import { readMariaSwishQrEligibility } from "@/lib/maria-swish-qr-eligibility";
 import {
   MARIA_DEPOSIT_AMOUNT_SEK, MARIA_SWISH_NUMBER,
   mariaBookingNumber, mariaSwishPaymentLink, mariaSwishQrPath,
@@ -75,28 +75,11 @@ export default async function MariaSwishPaymentPage({
   const readiness = await getMariaPreviewBookingReadiness();
   if (!readiness.enabled) notFound();
 
-  const sql = getSql();
-  if (!sql) notFound();
-
+  // Use the same eligibility rules as the QR endpoint; never show
+  // payment details that the QR endpoint would reject.
   let eligible = false;
   try {
-    const rows = await sql`
-      select b.id
-      from bookings b
-      join customers c on c.id=b.customer_id and c.workspace_id=b.workspace_id
-      where b.id=${id}::uuid
-        and b.workspace_id=${readiness.workspaceId}
-        and b.status in ('confirmed','completed')
-        and b.source='public_booking'
-        and lower(trim(c.email))=${approved}
-        and not exists (
-          select 1 from bookings other
-          where other.workspace_id=b.workspace_id and other.id<>b.id
-            and left(replace(other.id::text, '-', ''), 6)=${mariaBookingNumber(id).slice(4).toLowerCase()}
-        )
-      limit 1
-    `;
-    eligible = rows.length === 1;
+    eligible = await readMariaSwishQrEligibility(id, readiness.workspaceId) === "eligible";
   } catch (error) {
     console.error("Maria Preview Swish payment page unavailable", error);
   }

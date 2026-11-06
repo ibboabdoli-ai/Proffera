@@ -43,7 +43,7 @@ afterEach(() => { vi.unstubAllEnvs(); vi.clearAllMocks(); });
 
 describe("Maria Preview first-party Swish payment information page", () => {
   it("shows a direct untracked Swish action and two accessible copy controls", async () => {
-    const sql = vi.fn().mockResolvedValue([{ id }]);
+    const sql = vi.fn().mockResolvedValueOnce([{ id }]).mockResolvedValueOnce([{ count: 0 }]);
     vi.mocked(getSql).mockReturnValue(sql as never);
     const html = renderToStaticMarkup(await MariaSwishPaymentPage(props));
     expect(html).toContain("MBM-111111");
@@ -58,11 +58,13 @@ describe("Maria Preview first-party Swish payment information page", () => {
     expect(html).toContain("https://app.swish.nu/1/p/sw/?sw=1235818653&amp;amt=2000&amp;cur=SEK&amp;msg=MBM-111111&amp;src=qr");
     expect(html).toContain(`/api/makeup-by-maria/swish-qr/${id}`);
     expect(html).not.toContain("sendibt3.com");
-    expect(sql).toHaveBeenCalledTimes(1);
+    expect(sql).toHaveBeenCalledTimes(2);
   });
 
   it("renders English in the requested locale and falls back to Swedish for unknown languages", async () => {
-    const sql = vi.fn().mockResolvedValue([{ id }]);
+    const sql = vi.fn()
+      .mockResolvedValueOnce([{ id }]).mockResolvedValueOnce([{ count: 0 }])
+      .mockResolvedValueOnce([{ id }]).mockResolvedValueOnce([{ count: 0 }]);
     vi.mocked(getSql).mockReturnValue(sql as never);
     const english = renderToStaticMarkup(await MariaSwishPaymentPage({
       ...props, searchParams: Promise.resolve({ lang: "en" }),
@@ -98,17 +100,22 @@ describe("Maria Preview first-party Swish payment information page", () => {
     expect(sql).not.toHaveBeenCalled();
   });
 
-  it("never displays payment details for missing or ambiguous bookings", async () => {
-    const sql = vi.fn().mockResolvedValue([]);
-    vi.mocked(getSql).mockReturnValue(sql as never);
+  it("fails closed for missing bookings and reference collisions, using the shared QR rules", async () => {
+    const missing = vi.fn().mockResolvedValueOnce([]);
+    vi.mocked(getSql).mockReturnValue(missing as never);
     await expect(MariaSwishPaymentPage(props)).rejects.toThrow("NEXT_NOT_FOUND");
-    expect(sql).toHaveBeenCalledTimes(1);
-    // An empty mock result alone would also pass if the reference-collision
-    // guard were accidentally removed. Assert the actual SQL still has it.
-    const strings = sql.mock.calls[0]?.[0] as unknown as TemplateStringsArray;
-    const query = Array.from(strings).join(" ?");
-    expect(query).toMatch(/and not exists\s*\(\s*select 1 from bookings other/);
-    expect(query).toContain("other.workspace_id=b.workspace_id and other.id<>b.id");
-    expect(query).toContain("left(replace(other.id::text, '-', ''), 6)");
+    expect(missing).toHaveBeenCalledTimes(1);
+
+    const ambiguous = vi.fn()
+      .mockResolvedValueOnce([{ id }])
+      .mockResolvedValueOnce([{ count: 1 }]);
+    vi.mocked(getSql).mockReturnValue(ambiguous as never);
+    await expect(MariaSwishPaymentPage(props)).rejects.toThrow("NEXT_NOT_FOUND");
+    expect(ambiguous).toHaveBeenCalledTimes(2);
+    const scopedQuery = Array.from(ambiguous.mock.calls[0][0] as TemplateStringsArray).join(" ?");
+    expect(scopedQuery).toContain("b.workspace_id=coalesce(");
+    expect(ambiguous.mock.calls[0].slice(1)).toContain("aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee");
+    const collisionQuery = Array.from(ambiguous.mock.calls[1][0] as TemplateStringsArray).join(" ?");
+    expect(collisionQuery).toContain("left(replace(b.id::text, '-', ''), 6)");
   });
 });

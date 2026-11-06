@@ -9,7 +9,7 @@ const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 export type MariaSwishQrEligibility = "eligible" | "unavailable" | "ambiguous";
 
 /** Shared fail-closed eligibility for the Preview QR response and its dashboard image. */
-export async function readMariaSwishQrEligibility(bookingId: string): Promise<MariaSwishQrEligibility> {
+export async function readMariaSwishQrEligibility(bookingId: string, expectedWorkspaceId?: string): Promise<MariaSwishQrEligibility> {
   if (process.env.VERCEL_ENV !== "preview"
     || process.env.PROFFERA_MARIA_PREVIEW_BOOKING_ENABLED !== "true"
     || !uuid.test(bookingId)) return "unavailable";
@@ -30,6 +30,7 @@ export async function readMariaSwishQrEligibility(bookingId: string): Promise<Ma
       and b.status in ('confirmed','completed')
       and b.source='public_booking'
       and lower(trim(c.email))=${approved}
+      and b.workspace_id=coalesce(${expectedWorkspaceId ?? null}::text, b.workspace_id)
     limit 1
   `;
   if (eligible.length !== 1) return "unavailable";

@@ -51,7 +51,8 @@ describe("Maria Preview booking-specific Swish QR", () => {
     expect(text).toContain("b.status in ('confirmed','completed')");
     expect(text).toContain("b.source='public_booking'");
     expect(text).toContain("lower(trim(c.email))=$2");
-    expect(bound).toEqual([id, "qa@example.invalid"]);
+    expect(text).toContain("b.workspace_id=coalesce($3::text, b.workspace_id)");
+    expect(bound).toEqual([id, "qa@example.invalid", null]);
   });
 
   it("fails closed in Production, for malformed IDs, or with a disabled Preview switch", async () => {
