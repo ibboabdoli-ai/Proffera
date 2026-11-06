@@ -672,6 +672,19 @@ describe("CI Autofix workflow accounting boundary", () => {
     expect(admit.indexOf("indeterminate-proof")).toBeLessThan(admit.lastIndexOf("apply_terminal_backfill"));
   });
 
+  it("refreshes authoritative owner re-entry claims before any CI Autofix strategy admission", () => {
+    const admit = run("admit", "Recover proven pre-model starts and admit exact-head CI evidence");
+    const gate = admit.indexOf('pending_gate="$(node scripts/supervisor-owner-push-pending.mjs gate)"');
+    expect(gate).toBeGreaterThanOrEqual(0);
+    const refresh = admit.indexOf('gh api --paginate "repos/$REPOSITORY/issues/548/comments?per_page=100"',gate);
+    const backfill = admit.indexOf("apply_terminal_backfill",gate);
+    const admission = admit.indexOf('input_json="$(build_input)"',gate);
+    expect(refresh).toBeGreaterThan(gate);
+    expect(refresh).toBeLessThan(backfill);
+    expect(refresh).toBeLessThan(admission);
+    expect(admit.slice(refresh,admission)).toContain('jq -e \'type == "array"\' "$comments_file"');
+  });
+
   it("backfills terminal-only accounting before admission and classifies pre-model startup failures without charging history", () => {
     const admit = run("admit", "Recover proven pre-model starts and admit exact-head CI evidence");
     const classify = run("record", "Classify the started CI Autofix model attempt");

@@ -337,6 +337,10 @@ jobs:
             echo "Authenticated unresolved owner-push handoff blocks CI Autofix admission."
             exit 0
           fi
+          # The gate can persist a trusted owner re-entry claim. Never pass the
+          # older, pre-gate comment snapshot to strategy admission.
+          gh api --paginate "repos/$REPOSITORY/issues/548/comments?per_page=100" --jq '.[]' | jq -s '.' > "$comments_file"
+          jq -e 'type == "array"' "$comments_file" >/dev/null
 
           backfill_terminal_memory() {
             local comments_path="$1"
