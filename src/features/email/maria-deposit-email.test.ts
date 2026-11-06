@@ -91,7 +91,8 @@ describe("Maria-only Swish confirmation and cancellation email", () => {
     expect(confirmed.text).toContain("٢٤ ساعة");
     expect(confirmed.html).toContain('lang="ar" dir="rtl"');
     expect(confirmed.text).toMatch(/٢٠٢٧|2027/);
-    expect(confirmed.html).toContain("/maria/swish/");
+    expect(confirmed.html).toContain("https://qa.vercel.app/maria/swish/00000000-0000-0000-0000-000000000001?lang=en");
+    expect(confirmed.text).toContain("https://qa.vercel.app/maria/swish/00000000-0000-0000-0000-000000000001?lang=en");
     expect(confirmed.html).not.toContain("app.swish.nu");
     const cancelled = buildMariaBookingStatusEmail({ ...booking, status: "cancelled", language: "ar" }, "https://qa.vercel.app");
     expect(cancelled.subject).toContain("تم إلغاء حجزك");
