@@ -15,6 +15,12 @@ const runtime = vi.hoisted(() => ({
   role: "owner",
 }));
 vi.mock("server-only", () => ({}));
+vi.mock("@neondatabase/serverless", () => ({
+  neon: () => runtime.makeSql?.() ?? null,
+}));
+vi.mock("@/lib/db/database-url", () => ({
+  resolveDatabaseUrl: () => "postgresql://synthetic-manager-test-only.invalid",
+}));
 vi.mock("@/lib/db/server", () => ({
   getSql: () => runtime.makeSql?.() ?? null,
 }));
@@ -39,6 +45,7 @@ import { mariaBookingNumber } from "@/lib/maria-deposit";
 import { saveMariaYearAction } from "@/app/dashboard/maria/actions";
 import { saveMariaScheduleAction } from "@/app/dashboard/maria/schedule-actions";
 import { rescheduleMariaDashboardBooking } from "@/lib/maria-dashboard-reschedule";
+import { BookingTimeConflictError, createDashboardBooking } from "@/lib/dashboard-db";
 
 const RUN = process.env.GITHUB_ACTIONS === "true"
   || process.env.PROFFERA_POSTGRES_INTEGRATION === "1";
@@ -396,6 +403,63 @@ function compileSql(strings: TemplateStringsArray, values: unknown[]): Query {
     await expect(saveMariaYearAction(form)).rejects.toThrow("TEST_REDIRECT:/dashboard");
     await expect(saveMariaScheduleAction(form)).rejects.toThrow("TEST_REDIRECT:/dashboard");
     vi.stubEnv("VERCEL_ENV", "preview");
+  });
+
+  it("reports Maria manager booking conflict after a concurrent confirmation commits under lock 713", async () => {
+    const future = new Date(Date.now() + 45 * 86_400_000);
+    const start = new Date(Date.UTC(future.getUTCFullYear(), future.getUTCMonth(), future.getUTCDate(), 10));
+    const end = new Date(start.getTime() + 180 * 60_000);
+    const count = async () => Number((await db!.query<{ total: number }>(
+      "select count(*)::int as total from bookings where workspace_id=$1 and starts_at < $3::timestamptz and ends_at > $2::timestamptz and status not in ('cancelled','no_show')",
+      [workspaceId, start.toISOString(), end.toISOString()],
+    )).rows[0]?.total ?? 0);
+    expect(await count()).toBe(0);
+
+    const holder = new Client({ connectionString });
+    await holder.connect();
+    let committed = false;
+    let pending: Promise<{ ok: boolean; error?: unknown }> | undefined;
+    try {
+      await holder.query("BEGIN");
+      await holder.query("select pg_advisory_xact_lock(hashtextextended($1::text,713))", [workspaceId]);
+      await holder.query(
+        `insert into bookings(workspace_id,customer_id,title,service,status,source,starts_at,ends_at)
+         values($1,$2::uuid,'Synthetic concurrent confirmation','QA service','confirmed','dashboard_manual',$3::timestamptz,$4::timestamptz)`,
+        [workspaceId, customerId, start.toISOString(), end.toISOString()],
+      );
+      // The preflight cannot see the holder's uncommitted booking. It must
+      // wait for the advisory lock before the final overlap check.
+      pending = createDashboardBooking({
+        customerId, title: "Blocked concurrent manager booking", status: "confirmed",
+        startsAt: start.toISOString(), endsAt: end.toISOString(), city: "Södertälje",
+        service: "QA service", serviceCategorySlug: "", serviceSlug: "", notes: "synthetic-only",
+      }).then(() => ({ ok: true }), (error: unknown) => ({ ok: false, error }));
+
+      let waiting = false;
+      for (let attempt = 0; attempt < 80; attempt++) {
+        const state = await db!.query<{ count: number }>(
+          `select count(*)::int as count from pg_stat_activity
+           where datname=current_database() and pid<>pg_backend_pid()
+             and wait_event_type='Lock' and wait_event='advisory'`,
+        );
+        if (Number(state.rows[0]?.count ?? 0) > 0) {
+          waiting = true;
+          break;
+        }
+        await delay(100);
+      }
+      await holder.query("COMMIT");
+      committed = true;
+      const result = await pending;
+      expect(waiting).toBe(true);
+      expect(result.ok).toBe(false);
+      expect(result.error).toBeInstanceOf(BookingTimeConflictError);
+      expect(await count()).toBe(1);
+    } finally {
+      if (!committed) await holder.query("ROLLBACK").catch(() => undefined);
+      await holder.end();
+      if (pending) await pending.catch(() => undefined);
+    }
   });
 
 });
