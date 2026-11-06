@@ -564,6 +564,11 @@ function compileSql(strings: TemplateStringsArray, values: unknown[]): Query {
       [workspaceId, serviceId, holdStart.toISOString(), holdEnd.toISOString()],
     );
     expect(hold.rowCount).toBe(1);
+    // The candidate ends at the pending verification's start; only the hold
+    // service's 30-minute before-buffer protects this interval.
+    const holdBeforeStart = new Date(holdStart.getTime() - 15 * 60_000);
+    await assertRejectedForEveryManagerWriter("active hold before-buffer", holdBeforeStart, holdStart);
+
     // The candidate begins exactly where the pending verification ends; only
     // the hold service's 45-minute after-buffer protects this interval.
     const afterEnd = new Date(holdEnd.getTime() + 15 * 60_000);
