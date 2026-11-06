@@ -139,10 +139,9 @@ describe("PostHog privacy-safe analytics", () => {
   });
 
   it("provides a neutral user-facing way to set and later change analytics consent", () => {
-    const layout = source("src/app/layout.tsx");
+    // Actual RootLayout rendering (including the standalone payment shell)
+    // is covered by maria-payment-layout-analytics.behavior.test.tsx.
     const control = source("src/components/analytics/analytics-consent-control.tsx");
-
-    expect(layout).toContain("{!mariaPaymentStandalone && isPlatformSite && <AnalyticsConsentControl />}");
     expect(control).toContain("Analysinställningar");
     expect(control).toContain("Inget skickas innan");
     expect(control).toContain("reklamspårning");
