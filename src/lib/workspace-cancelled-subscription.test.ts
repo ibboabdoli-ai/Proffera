@@ -97,4 +97,3 @@ describe("atomic refund cancellation projection", () => {
     expect(mocks.sql).toHaveBeenCalledTimes(1);
   });
 });
-
