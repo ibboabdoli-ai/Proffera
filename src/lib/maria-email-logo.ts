@@ -1,3 +1,5 @@
+import { getMariaPreviewPortalBase } from "@/lib/maria-preview-customer-safety";
+
 /** Approved Maria client logo for transactional booking email HTML.
  * Keep this table-based and inline-styled for Gmail/iOS mail clients.
  * An untrusted origin must never be interpolated into the image HTML.
@@ -9,8 +11,11 @@ export function mariaEmailLogoHtml(previewUrl: string | null | undefined) {
   let logoUrl: string;
   try {
     const url = new URL(previewUrl);
-    if (url.protocol !== "https:"
-      || !/^[a-z0-9][a-z0-9.-]*\.vercel\.app$/i.test(url.hostname)
+    // The environment-derived Preview origin is trusted; an arbitrary
+    // vercel.app subdomain supplied by a caller is not.
+    const approvedOrigin = getMariaPreviewPortalBase();
+    if (!approvedOrigin || url.origin !== approvedOrigin
+      || url.protocol !== "https:"
       || url.username || url.password || url.port) return "";
     logoUrl = new URL(logoPath, url.origin).toString();
   } catch {
