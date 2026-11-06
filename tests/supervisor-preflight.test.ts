@@ -797,6 +797,27 @@ describe("canonical Supervisor pre-publication gate", () => {
     }})).toThrow(/no mapped targeted tests/);
   });
 
+  it("maps package-lock updates into the mandatory targeted validation suites",()=>{
+    const f=fixture({baseFiles:{"package-lock.json":"{}\n"}});
+    write(join(f.repo,"package-lock.json"),'{"lockfileVersion":3,"packages":{}}\n');
+    git(f.repo,["add","."]);git(f.repo,["commit","-qm","update lockfile"]);
+    const candidate=inspectFixture({cwd:f.repo,baseSha:f.base,prBody:body(f.base)});
+    expect(candidate.required_validation_checks).toContain("targeted");
+    let invoked=false;
+    const receipt=executeLocalValidation(candidate,f.repo,["targeted"],{
+      runner:(_bin:string,args:string[])=>{
+        invoked=true;
+        for(const suite of ["tests/supervisor-preflight.test.ts",
+          "tests/ci-scope-plan.test.ts","tests/tooling-safety-contract.test.ts"]){
+          expect(args).toContain(suite);
+        }
+        return {status:0,signal:null,stdout:"",stderr:""};
+      },
+    });
+    expect(invoked).toBe(true);
+    expect(receipt.ok).toBe(true);
+  });
+
   it("traces sequential typegen and tsc with fail-fast receipt under one typecheck ID",()=>{
     const f=fixture({baseFiles:{"AGENTS.md":"base\n"}});
     write(join(f.repo,"AGENTS.md"),"changed\n");

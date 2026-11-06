@@ -392,7 +392,7 @@ function additionalTargetedSuites(candidate) {
     ".github/workflows/supervisor-worker-handoff.yml",
     ".github/workflows/supervisor-review-repair.yml",
     // Verified Next generated-output contract is covered by supervisor-preflight tests.
-    ".gitignore", "next-env.d.ts", "tsconfig.json", "package.json",
+    ".gitignore", "next-env.d.ts", "tsconfig.json", "package.json", "package-lock.json",
     "AGENTS.md", "WORKER_BOOTSTRAP.md", "README.md",
     "scripts/ci-scope-plan.mjs", "tests/ci-scope-plan.test.ts",
     "tests/github-workflow-yaml.test.ts",
@@ -458,13 +458,15 @@ function additionalTargetedSuites(candidate) {
     "tests/supervisor-ci-autofix-candidate.test.ts",
   ]);
   // Exact behavior-changing paths map to executable tests, not a generic PASS assertion.
+  const packageSuites = ["tests/supervisor-preflight.test.ts", "tests/ci-scope-plan.test.ts",
+    "tests/tooling-safety-contract.test.ts"];
   const pathSuites = new Map([
     ["tests/supervisor-review-policy-contract.test.ts", "tests/supervisor-review-policy-contract.test.ts"],
     ["tests/codex-review-receipt-gate.test.ts", "tests/codex-review-receipt-gate.test.ts"],
     ["scripts/supervisor-final-gate-memory.mjs", ["tests/supervisor-final-gate-memory.test.ts", "tests/proffera-final-gate-wakeup.test.ts", "tests/supervisor-review-policy-contract.test.ts"]],
     ["tests/helpers/review-receipt-counterexamples.ts", ["tests/tooling-safety-contract.test.ts", "tests/proffera-final-gate-wakeup.test.ts"]],
-    ["package.json", ["tests/supervisor-preflight.test.ts", "tests/ci-scope-plan.test.ts",
-      "tests/tooling-safety-contract.test.ts"]],
+    ["package.json", packageSuites],
+    ["package-lock.json", packageSuites],
     [".github/workflows/proffera-ci-autofix.yml", [
       "tests/supervisor-owner-handoff.test.ts",
       "tests/supervisor-owner-push-pending.test.ts",

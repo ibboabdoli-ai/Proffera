@@ -111,34 +111,51 @@ describe("CI Autofix isolated candidate reconstruction", () => {
     expect(git(f.publication, "rev-parse", commit + "^{tree}")).toBe(validated.tree);
   });
 
-  it("accepts an unchanged index-only deletion but rejects modified or unrelated checkout files", () => {
-    const f = fixture();
-    const deletedFile = join(f.publication, "tests", "allowed.ts");
-    git(f.publication, "rm", "--cached", "tests/allowed.ts");
-    const tree = git(f.publication, "write-tree");
-    const newHead = git(f.publication, "-c", "user.name=Fixture", "-c",
-      "user.email=fixture@example.invalid", "commit-tree", tree, "-p", f.head, "-m", "delete allowed test");
-    git(f.publication, "update-ref", "HEAD", newHead, f.head);
-    const handoff = run("publish", "Stage CI Autofix commit for owner push");
-    const start = handoff.indexOf('git diff --cached --quiet "$NEW_HEAD"');
-    const end = handoff.indexOf('bundle="$RUNNER_TEMP/proffera-ci-autofix-owner-handoff.bundle"', start);
-    expect(start).toBeGreaterThanOrEqual(0);
-    expect(end).toBeGreaterThan(start);
-    const guard = "set -euo pipefail\n" + handoff.slice(start, end);
-    const check = () => spawnSync("bash", ["-c", guard], {
-      cwd: f.publication, encoding: "utf8",
-      env: {...process.env, EXPECTED_HEAD: f.head, NEW_HEAD: newHead},
-    });
-    expect(check().status).toBe(0);
-    writeFileSync(deletedFile, "tampered\n");
-    expect(check().status).not.toBe(0);
-    writeFileSync(deletedFile, "expected\n");
-    writeFileSync(join(f.publication, "extra.txt"), "untrusted\n");
-    expect(check().status).not.toBe(0);
-    rmSync(join(f.publication, "extra.txt"));
-    writeFileSync(join(f.publication, "unrelated.txt"), "modified tracked file\n");
-    expect(check().status).not.toBe(0);
-  });
+  it.each(["delete", "modify", "add"] as const)(
+    "accepts a clean index-only %s and rejects worktree mutation before owner handoff", operation => {
+      const f = fixture();
+      const tracked = join(f.publication, "tests", "allowed.ts");
+      const added = join(f.publication, "tests", "added.ts");
+      if (operation === "delete") {
+        git(f.publication, "rm", "--cached", "tests/allowed.ts");
+      } else if (operation === "modify") {
+        writeFileSync(tracked, "candidate\n");
+        git(f.publication, "add", "tests/allowed.ts");
+        writeFileSync(tracked, "expected\n");
+      } else {
+        writeFileSync(added, "candidate\n");
+        git(f.publication, "add", "tests/added.ts");
+        rmSync(added);
+      }
+      const tree = git(f.publication, "write-tree");
+      const newHead = git(f.publication, "-c", "user.name=Fixture", "-c",
+        "user.email=fixture@example.invalid", "commit-tree", tree, "-p", f.head, "-m", "index-only test");
+      git(f.publication, "update-ref", "HEAD", newHead, f.head);
+      const handoff = run("publish", "Stage CI Autofix commit for owner push");
+      const start = handoff.indexOf('git diff --cached --quiet "$NEW_HEAD"');
+      const end = handoff.indexOf('bundle="$RUNNER_TEMP/proffera-ci-autofix-owner-handoff.bundle"', start);
+      expect(start).toBeGreaterThanOrEqual(0);
+      expect(end).toBeGreaterThan(start);
+      const guard = "set -euo pipefail\n" + handoff.slice(start, end);
+      const check = () => spawnSync("bash", ["-c", guard], {
+        cwd: f.publication, encoding: "utf8",
+        env: {...process.env, EXPECTED_HEAD: f.head, NEW_HEAD: newHead,
+          RUNNER_TEMP: f.root.replaceAll("\\", "/")},
+      });
+      const accepted = check();
+      expect(accepted.status, accepted.stderr).toBe(0);
+      if (operation === "add") writeFileSync(added, "candidate\n");
+      else writeFileSync(tracked, "tampered\n");
+      expect(check().status).not.toBe(0);
+      if (operation === "add") rmSync(added);
+      else writeFileSync(tracked, "expected\n");
+      writeFileSync(join(f.publication, "extra.txt"), "untrusted\n");
+      expect(check().status).not.toBe(0);
+      rmSync(join(f.publication, "extra.txt"));
+      writeFileSync(join(f.publication, "unrelated.txt"), "modified tracked file\n");
+      expect(check().status).not.toBe(0);
+    },
+  );
 
   it("never transfers model-controlled config, hooks, filters, refs or Git objects to publication", () => {
     const f = fixture();

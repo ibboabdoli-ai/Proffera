@@ -981,22 +981,15 @@ jobs:
           # Only the detached ephemeral checkout is moved; no remote ref.
           git update-ref HEAD "$NEW_HEAD" "$EXPECTED_HEAD"
           git diff --cached --quiet "$NEW_HEAD"
-          # Index-only deletion leaves the original tracked file on disk as
-          # untracked. Verify the complete tracked worktree and allow only
-          # unchanged copies of paths deliberately deleted by the validated tree.
-          git diff --quiet
-          declare -A deleted_from_index=()
-          while IFS= read -r -d '' deleted_path; do
-            deleted_from_index["$deleted_path"]=1
-          done < <(git diff --cached --name-only --diff-filter=D -z "$EXPECTED_HEAD")
-          while IFS= read -r -d '' untracked_path; do
-            if [ -z "${deleted_from_index[$untracked_path]+present}" ] ||
-               [ ! -f "$untracked_path" ] || [ -L "$untracked_path" ] ||
-               ! cmp -s -- "$untracked_path" <(git show "$EXPECTED_HEAD:$untracked_path"); then
-              echo "Refused: unexpected or modified untracked file after index-only candidate reconstruction." >&2
-              exit 1
-            fi
-          done < <(git ls-files --others --exclude-standard -z)
+          # Candidate reconstruction is index-only: the original checkout is
+          # unchanged for additions, modifications and deletions. Compare the
+          # worktree against the authenticated original tree through a separate
+          # temporary index; do not replace or reset the candidate index.
+          original_index_dir="$(mktemp -d "$RUNNER_TEMP/ci-autofix-original.XXXXXX")"
+          original_index="$original_index_dir/index"
+          GIT_INDEX_FILE="$original_index" git read-tree "$EXPECTED_HEAD"
+          GIT_INDEX_FILE="$original_index" git diff --quiet
+          test -z "$(GIT_INDEX_FILE="$original_index" git ls-files --others --exclude-standard)"
           bundle="$RUNNER_TEMP/proffera-ci-autofix-owner-handoff.bundle"
           git bundle create "$bundle" HEAD "^${EXPECTED_HEAD}"
           git bundle verify "$bundle"
