@@ -43,8 +43,18 @@ describe("Maria Preview calendar drag-and-drop safety", () => {
     expect(fixture.sqlCalls).toBe(0);
   });
 
-  it("does not change the generic calendar move behavior of unrelated workspaces", async () => {
-    vi.stubEnv("VERCEL_ENV", "preview");
+  it("rejects Maria Production calendar moves before SQL, preventing route-level notifications", async () => {
+    vi.stubEnv("VERCEL_ENV", "production");
+    await expect(moveDashboardCalendarBooking({
+      bookingId: "00000000-0000-4000-8000-000000000002",
+      localStartsAt: "2026-11-13T07:00",
+      staffId: "",
+    })).rejects.toMatchObject({ code: "maria_preview" });
+    expect(fixture.sqlCalls).toBe(0);
+  });
+
+  it.each(["preview", "production"])("does not change generic calendar move for unrelated workspaces in %s", async (env) => {
+    vi.stubEnv("VERCEL_ENV", env);
     fixture.workspaceSlug = "unrelated-company";
     await expect(moveDashboardCalendarBooking({
       bookingId: "00000000-0000-4000-8000-000000000002",

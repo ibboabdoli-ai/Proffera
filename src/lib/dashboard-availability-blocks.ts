@@ -30,6 +30,11 @@ async function requireWorkspaceAccess() {
   if (!access.ok || !canManageWorkspaceSettings(access)) {
     throw new Error("An owner or admin workspace membership is required for availability blocks");
   }
+  // The generic single and recurring writers must not mutate Maria Production.
+  // Preview continues to use Maria collision/hold protection below.
+  if (access.workspaceSlug === "makeup-by-maria" && process.env.VERCEL_ENV === "production") {
+    throw new Error("Maria availability blocks are disabled in Production");
+  }
 
   return access;
 }

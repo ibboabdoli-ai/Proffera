@@ -43,8 +43,17 @@ describe("Maria Preview booking-hours ownership", () => {
     expect(fixture.sqlOpened).toBe(0);
   });
 
-  it("leaves unrelated workspaces on their existing generic writer", async () => {
-    vi.stubEnv("VERCEL_ENV", "preview");
+  it("rejects Maria Production settings writes before SQL", async () => {
+    vi.stubEnv("VERCEL_ENV", "production");
+    const form = new FormData();
+    form.set("lang", "en");
+    await expect(updateWorkspaceBookingHoursAction(form))
+      .rejects.toThrow("Redirect: /dashboard/installningar?hours_error=access&lang=en");
+    expect(fixture.sqlOpened).toBe(0);
+  });
+
+  it.each(["preview", "production"])("leaves unrelated workspaces on their generic writer in %s", async (env) => {
+    vi.stubEnv("VERCEL_ENV", env);
     fixture.slug = "unrelated-workspace";
     const form = new FormData();
     for (const day of [5, 6, 0]) form.set("closed_" + day, "on");

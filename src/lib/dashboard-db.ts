@@ -409,6 +409,11 @@ export async function createDashboardBooking(input: CreateDashboardBookingInput)
 
   const workspaceAccess = await getUserWorkspaceAccess();
   if (!workspaceAccess.ok) throw new Error("Workspace membership is required for booking creation");
+  // Maria Production booking remains read-only until a separate launch approval.
+  // This shared writer is also reachable from a direct generic booking form POST.
+  if (workspaceAccess.workspaceSlug === "makeup-by-maria" && process.env.VERCEL_ENV === "production") {
+    throw new Error("Maria manual booking creation is disabled in Production");
+  }
   const workspaceId = workspaceAccess.workspaceId;
   const mariaPreview = process.env.VERCEL_ENV === "preview" && workspaceAccess.workspaceSlug === "makeup-by-maria";
 
