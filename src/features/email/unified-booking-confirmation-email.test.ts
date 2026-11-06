@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("server-only", () => ({}));
 
-import { sendUnifiedBookingConfirmationEmail } from "./unified-booking-confirmation-email";
+import { buildUnifiedBookingConfirmationEmail, sendUnifiedBookingConfirmationEmail } from "./unified-booking-confirmation-email";
 
 const booking = {
   customerName: "QA Maria",
@@ -99,5 +99,31 @@ describe("Unified email Maria Preview recipient boundary", () => {
     });
     expect(result.ok).toBe(true);
     expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("Booking confirmation language consistency", () => {
+  it("uses English copy and date formatting for Arabic without Maria branding", () => {
+    const message = buildUnifiedBookingConfirmationEmail({
+      ...booking, branding: undefined, companyName: "Other synthetic company", language: "ar",
+    });
+    expect(message.subject).toContain("Booking request received");
+    expect(message.text).toContain("Hello QA Maria");
+    expect(message.text).toContain("Start:");
+    expect(message.html).not.toContain('dir="rtl"');
+    expect(message.text).not.toContain("Bokningsförfrågan");
+  });
+
+  it("preserves Arabic copy and RTL markup for Maria", () => {
+    const message = buildUnifiedBookingConfirmationEmail({ ...booking, language: "ar" });
+    expect(message.text).toContain("مرحبًا QA Maria");
+    expect(message.html).toContain('dir="rtl"');
+  });
+
+  it("preserves Swedish fallback for unbranded bookings without a language", () => {
+    const message = buildUnifiedBookingConfirmationEmail({
+      ...booking, branding: undefined, companyName: "Other synthetic company",
+    });
+    expect(message.subject).toContain("Bokningsförfrågan mottagen");
   });
 });
