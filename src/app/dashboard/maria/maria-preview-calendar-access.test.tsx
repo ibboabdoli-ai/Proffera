@@ -18,9 +18,17 @@ vi.mock("./actions",()=>({saveMariaYearAction:async()=>{}}));
 vi.mock("./schedule-actions",()=>({saveMariaScheduleAction:async()=>{}}));
 
 import MariaSiteDashboardPage from "./page";
+import DashboardPage from "../page";
 
 afterEach(()=>{vi.unstubAllEnvs();state.slug="makeup-by-maria";state.role="owner"});
 describe("Maria preview calendar visible without paid booking",()=>{
+  it("routes the Maria manager workspace directly from /dashboard in Preview and Production",async()=>{
+    for (const env of ["preview","production"]) {
+      vi.stubEnv("VERCEL_ENV",env);
+      const result=await DashboardPage({searchParams:Promise.resolve({})});
+      expect(result.type).toBe(MariaSiteDashboardPage);
+    }
+  });
   it("shows manager calendar link twice but keeps public booking disabled",async()=>{
     vi.stubEnv("VERCEL_ENV","preview");
     const html=renderToStaticMarkup(await MariaSiteDashboardPage({searchParams:Promise.resolve({})}));
