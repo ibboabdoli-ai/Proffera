@@ -18,6 +18,7 @@ beforeEach(() => {
   vi.stubEnv("VERCEL_ENV", "preview");
   vi.stubEnv("VERCEL_URL", "qa.vercel.app");
   vi.stubEnv("BREVO_API_KEY", "qa-stub-only");
+  vi.stubEnv("PROFFERA_PREVIEW_BREVO_API_KEY", "dedicated-qa-only");
   vi.stubEnv("LEAD_FROM_EMAIL", "Makeup by Maria <noreply@example.invalid>");
   vi.stubGlobal("fetch", vi.fn().mockResolvedValue(
     new Response(JSON.stringify({ messageId: "qa-only" }), { status: 201 }),
