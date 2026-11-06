@@ -66,6 +66,7 @@ export function buildUnifiedBookingConfirmationEmail(input: Input) {
   const isEnglish = language === "en";
   const isArabic = language === "ar" && input.branding === "makeup-by-maria";
   const isMaria = input.branding === "makeup-by-maria";
+  const isPrimeView = !isMaria && input.companyName.trim().toLowerCase() === "primeview window care";
   const mariaLogoUrl = isMaria ? new URL("/demo/makeup-by-maria/assets/maria-client-logo.jpg", input.portalUrl).toString() : "";
   const mariaEmailLogo = isMaria
     ? `<div style="background:#fcfaf8;text-align:center;padding:18px 20px;border-bottom:1px solid #e9dedc;"><img src="${escapeHtml(mariaLogoUrl)}" alt="Makeup by Maria" width="215" height="215" style="display:block;width:215px;max-width:100%;height:auto;margin:auto;border-radius:9px;" /></div>`
@@ -175,13 +176,13 @@ export function buildUnifiedBookingConfirmationEmail(input: Input) {
         ${mariaEmailLogo}
          <div style="background:${isMaria ? "#845363" : "#06183b"};color:#ffffff;padding:22px 28px;">
           <table role="presentation" style="width:100%;border-collapse:collapse;"><tr>
-            ${isMaria ? "" : `<td style="width:58px;vertical-align:middle;"><img src="${primeViewLogo}" width="48" height="48" alt="PrimeView Window Care" style="display:block;width:48px;height:48px;border-radius:11px;object-fit:cover;border:1px solid rgba(255,255,255,.25);" /></td>`}
+            ${isPrimeView ? `<td style="width:58px;vertical-align:middle;"><img src="${primeViewLogo}" width="48" height="48" alt="PrimeView Window Care" style="display:block;width:48px;height:48px;border-radius:11px;object-fit:cover;border:1px solid rgba(255,255,255,.25);" /></td>`}
             <td style="vertical-align:middle;"><p style="margin:0;font-size:12px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:#b8ceff;">Booking request</p><h1 style="margin:5px 0 0;font-size:24px;line-height:1.25;color:#ffffff;">${escapeHtml(input.companyName)}</h1></td>
           </tr></table>
         </div>
         <div style="padding:26px 28px;">
           <p>Hello ${escapeHtml(input.customerName)},</p>
-          <p>We have received your booking request. ${isMaria ? escapeHtml(input.companyName) : "PrimeView"} will confirm the appointment separately.</p>
+          <p>We have received your booking request. ${isPrimeView ? "PrimeView" : escapeHtml(input.companyName)} will confirm the appointment separately.</p>
           <table role="presentation" style="width:100%;border-collapse:collapse;margin:22px 0;background:#f4f7fb;border-radius:14px;">
             <tr><td style="padding:14px 16px 6px;font-weight:700;width:110px;color:#183e63;">Service</td><td style="padding:14px 16px 6px;">${escapeHtml(input.service)}</td></tr>
             ${input.address ? `<tr><td style="padding:6px 16px;font-weight:700;color:#183e63;">Address</td><td style="padding:6px 16px;">${escapeHtml(input.address)}</td></tr>` : ""}
@@ -203,7 +204,7 @@ export function buildUnifiedBookingConfirmationEmail(input: Input) {
           <p style="margin-top:26px;">Kind regards<br /><strong>${escapeHtml(input.companyName)}</strong></p>
         </div>
       </div>
-      <p style="text-align:center;font-size:12px;color:#8a98aa;margin-top:14px;">${isMaria ? escapeHtml(input.companyName) : "PrimeView Window Care"} · Powered by Proffera</p>
+      <p style="text-align:center;font-size:12px;color:#8a98aa;margin-top:14px;">${isPrimeView ? "PrimeView Window Care" : escapeHtml(input.companyName)} · Powered by Proffera</p>
     </div>
   ` : `
     <div style="font-family:Arial,sans-serif;line-height:1.6;color:#17201a;max-width:640px;margin:0 auto;">
