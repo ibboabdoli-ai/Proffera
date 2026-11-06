@@ -48,7 +48,7 @@ describe("Maria Preview first-party Swish payment information page", () => {
     const html = renderToStaticMarkup(await MariaSwishPaymentPage(props));
     expect(html).toContain("MBM-111111");
     expect(html).toContain("123-581 86 53");
-    expect(html).toContain("2");
+    expect(html).toContain(`${(2000).toLocaleString("sv-SE")} kr`);
     expect(html).toContain("Öppna Swish");
     expect(html).toContain('src="/demo/makeup-by-maria/assets/maria-client-logo.jpg"');
     expect(html).toContain('alt="Makeup by Maria"');
