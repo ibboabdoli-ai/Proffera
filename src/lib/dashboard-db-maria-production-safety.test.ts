@@ -18,9 +18,11 @@ vi.mock("@/lib/workspace-access", () => ({
     ok: true, workspaceSlug: fixture.slug,
     workspaceId: "00000000-0000-4000-8000-000000000001", role: "owner",
   }),
+  canManageWorkspaceSettings: () => true,
 }));
 
 import { createDashboardBooking, type CreateDashboardBookingInput } from "./dashboard-db";
+import { updateDashboardBookingStatus } from "./dashboard-booking-status";
 
 const input: CreateDashboardBookingInput = {
   customerId: "00000000-0000-4000-8000-000000000002",
@@ -52,6 +54,21 @@ describe("Maria Production manual booking safety", () => {
       expect(fixture.sqlCalls).toBe(1);
     },
   );
+
+  it("rejects Maria Production booking status changes before any SQL query", async () => {
+    vi.stubEnv("VERCEL_ENV", "production");
+    await expect(updateDashboardBookingStatus("synthetic-booking", "confirmed"))
+      .rejects.toThrow("Maria booking status changes are disabled in Production");
+    expect(fixture.sqlCalls).toBe(0);
+  });
+
+  it("preserves unrelated tenants' Production status writer", async () => {
+    vi.stubEnv("VERCEL_ENV", "production");
+    fixture.slug = "unrelated-workspace";
+    await expect(updateDashboardBookingStatus("synthetic-booking", "confirmed"))
+      .rejects.toThrow("Synthetic SQL must not execute");
+    expect(fixture.sqlCalls).toBe(1);
+  });
 
   it("preserves the locked Maria Preview writer", async () => {
     vi.stubEnv("VERCEL_ENV", "preview");
