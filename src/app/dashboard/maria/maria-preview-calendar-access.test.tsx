@@ -13,6 +13,14 @@ vi.mock("@/lib/workspace-booking-hours-db",()=>({getDashboardWorkspaceBookingHou
 vi.mock("@/lib/maria-preview-booking",()=>({getMariaPreviewBookingReadiness:async()=>({enabled:false})}));
 vi.mock("@/lib/workspace-module-access",()=>({
   hasDashboardModuleAccess:()=>{throw Error("No paid booking entitlement may be queried for this preview-only Maria editor")},
+  getDashboardModuleAccess:async()=>[],
+  getDashboardEnabledFeatureKeys:async()=>[],
+}));
+vi.mock("@/lib/dashboard-db",()=>({
+  getDashboardStats:async()=>({
+    customersCount:0,activeCustomersCount:0,bookingsCount:0,
+    confirmedBookingsCount:0,customerEventsCount:0,
+  }),
 }));
 vi.mock("./actions",()=>({saveMariaYearAction:async()=>{}}));
 vi.mock("./schedule-actions",()=>({saveMariaScheduleAction:async()=>{}}));
@@ -29,6 +37,26 @@ describe("Maria preview calendar visible without paid booking",()=>{
       expect(result.type).toBe(MariaSiteDashboardPage);
     }
   });
+  it.each([
+    ["preview","other-workspace","owner"],
+    ["production","other-workspace","staff"],
+    ["preview","makeup-by-maria","viewer"],
+    ["production","makeup-by-maria","staff"],
+    ["development","makeup-by-maria","owner"],
+    ["unset","makeup-by-maria","owner"],
+  ] as const)(
+    "keeps normal /dashboard for %s environment, workspace %s, role %s",
+    async (env,slug,role)=>{
+      state.slug=slug;
+      state.role=role;
+      vi.stubEnv("VERCEL_ENV",env==="unset"?undefined:env);
+      const page=await DashboardPage({searchParams:Promise.resolve({})});
+      expect(page.type).not.toBe(MariaSiteDashboardPage);
+      const html=renderToStaticMarkup(page);
+      expect(html).toContain("Din arbetsyta är redo när modulerna aktiveras.");
+      expect(html).not.toContain("Min bokningsöversikt");
+    },
+  );
   it("shows manager calendar link twice but keeps public booking disabled",async()=>{
     vi.stubEnv("VERCEL_ENV","preview");
     const html=renderToStaticMarkup(await MariaSiteDashboardPage({searchParams:Promise.resolve({})}));
