@@ -28,8 +28,20 @@ describe("Maria preview calendar visible without paid booking",()=>{
     expect(html).toContain("Hantera dagens tider");
     expect(html).toContain("Den publika bokningen är inte aktiverad.");
   });
-  it("never exposes Maria Preview dashboard outside Preview",async()=>{
+  it("shows a read-only Maria overview in Production without Preview booking controls",async()=>{
     vi.stubEnv("VERCEL_ENV","production");
+    const html=renderToStaticMarkup(await MariaSiteDashboardPage({searchParams:Promise.resolve({})}));
+    expect(html).toContain("Min bokningsöversikt");
+    expect(html).toContain("Onlinebokningen är ännu inte aktiverad.");
+    expect(html).not.toContain("Spara bokningstider");
+    expect(html).not.toContain("<form");
+    expect(html).not.toContain('href="/dashboard/maria/kalender"');
+  });
+  it("never exposes the production Maria view to another workspace or non-manager",async()=>{
+    vi.stubEnv("VERCEL_ENV","production");
+    state.slug="another-company";
+    await expect(MariaSiteDashboardPage({searchParams:Promise.resolve({})})).rejects.toThrow("REDIRECT /dashboard");
+    state.slug="makeup-by-maria";state.role="staff";
     await expect(MariaSiteDashboardPage({searchParams:Promise.resolve({})})).rejects.toThrow("REDIRECT /dashboard");
   });
   it("never exposes Maria calendar controls to another tenant or nonmanager",async()=>{
