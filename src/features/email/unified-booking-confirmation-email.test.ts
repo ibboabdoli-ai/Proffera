@@ -19,6 +19,7 @@ const booking = {
 
 beforeEach(() => {
   vi.stubEnv("BREVO_API_KEY", "fake-test-key");
+  vi.stubEnv("PROFFERA_PREVIEW_BREVO_API_KEY", "dedicated-qa-only");
   vi.stubEnv("LEAD_FROM_EMAIL", "noreply@example.invalid");
   vi.stubEnv("VERCEL_ENV", "preview");
   vi.stubEnv("VERCEL_URL", "qa.vercel.app");
