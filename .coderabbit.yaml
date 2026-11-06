@@ -55,6 +55,7 @@ reviews:
     - "!src/features/email/unified-booking-confirmation-email.test.ts"
     - "!src/app/globals.css"
     - "!src/components/dashboard/dashboard-shell.tsx"
+    - "!src/lib/maria-deposit.test.ts"
   path_instructions:
     - path: "src/**/*.{ts,tsx,js,jsx}"
       instructions: |
