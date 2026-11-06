@@ -46,6 +46,7 @@ describe("Makeup by Maria client-approved logo in Preview", () => {
 
   it("sends verification markup with a Maria logo only when Maria Preview branding is active", async () => {
     vi.stubEnv("BREVO_API_KEY", "synthetic-test-key");
+    vi.stubEnv("PROFFERA_PREVIEW_BREVO_API_KEY", "synthetic-preview-test-key");
     vi.stubEnv("VERCEL_URL", "qa.vercel.app");
     vi.stubEnv("VERCEL_ENV", "preview");
     const fetchMock = vi.fn().mockResolvedValue({
