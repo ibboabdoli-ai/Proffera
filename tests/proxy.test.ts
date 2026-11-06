@@ -36,7 +36,13 @@ describe("proxy request boundary", () => {
     vi.stubEnv("VERCEL_ENV", "preview");
     const forged = { [MARIA_PAYMENT_SHELL_HEADER]: "1" };
     const forwarded = "x-middleware-request-" + MARIA_PAYMENT_SHELL_HEADER;
-    for (const path of ["/dashboard", "/en/pricing", "/maria/swish/not-a-uuid"]) {
+    for (const path of [
+      "/dashboard",
+      "/en/pricing",
+      "/maria/swish/not-a-uuid",
+      // A valid booking UUID with a descendant must never activate the payment shell.
+      "/maria/swish/3dd71085-9f11-49d1-8996-663e3135d115/extra",
+    ]) {
       const response = await proxy(request(path, forged));
       expect(response.status, path).toBe(200);
       expect(response.headers.get(forwarded), path).toBeNull();
