@@ -15,14 +15,12 @@ const headers = {
 const unavailable = () => new NextResponse(null, { status: 404, headers });
 
 /**
- * Preview-only image for an approved, confirmed Maria booking.
+ * Image for a confirmed Maria booking in an approved deployment.
  * The QR pre-fills Swish; it does not start or verify a bank transaction.
  */
 export async function GET(_request: Request, { params }: { params: Promise<{ id: string }> }) {
-  if (process.env.VERCEL_ENV !== "preview"
-    || process.env.PROFFERA_MARIA_PREVIEW_BOOKING_ENABLED !== "true") {
-    return unavailable();
-  }
+  // The shared eligibility reader verifies Preview QA or fully gated
+  // Production readiness before returning an image.
   const { id } = await params;
   if (!uuid.test(id)) return unavailable();
   try {
@@ -39,7 +37,7 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
       headers: { ...headers, "Content-Type": "image/png" },
     });
   } catch (error) {
-    console.error("Maria Preview Swish QR unavailable", error);
+    console.error("Maria Swish QR unavailable", error);
     return new NextResponse(null, { status: 503, headers });
   }
 }
