@@ -3,6 +3,7 @@ import type { CSSProperties } from "react";
 
 import { readableBookingTextColor } from "@/lib/booking-theme-contract";
 import { getSql } from "@/lib/db/server";
+import { getMariaBookingPortalBase } from "@/lib/maria-preview-customer-safety";
 import { resolvePublicBusinessLocale } from "@/lib/public-business-locale";
 import { resendPublicBookingCode, verifyPublicBookingCode } from "@/lib/public-booking-verification";
 import { publicBookingSuccessRedirect } from "@/lib/public-booking-success-redirect";
@@ -71,8 +72,9 @@ async function getVerificationExperience(id: string): Promise<VerificationExperi
     if (!/^[0-9a-f-]{36}$/i.test(workspaceId)) return safeVerificationExperience;
 
     const experience = await getPublicWorkspaceExperienceSettings(workspaceId);
-    const mariaPreview = process.env.VERCEL_ENV === "preview"
-      && String(rows[0]?.workspace_slug) === "makeup-by-maria";
+    const mariaPreview = String(rows[0]?.workspace_slug) === "makeup-by-maria"
+      && (process.env.VERCEL_ENV === "preview"
+        || (process.env.VERCEL_ENV === "production" && Boolean(getMariaBookingPortalBase())));
     if (
       typeof experience.swedishEnabled !== "boolean"
       || typeof experience.englishEnabled !== "boolean"
@@ -82,7 +84,7 @@ async function getVerificationExperience(id: string): Promise<VerificationExperi
     return {
       defaultLanguage: experience.defaultLanguage === "en" ? "en" : "sv",
       swedishEnabled: experience.swedishEnabled,
-      // Maria's Preview booking entry offers English even when the workspace toggle is off.
+      // Maria's three-language booking entry offers English even when the workspace toggle is off.
       englishEnabled: mariaPreview || experience.englishEnabled,
       primaryColor: /^#[0-9a-f]{6}$/i.test(experience.primaryColor) ? experience.primaryColor : safeVerificationExperience.primaryColor,
       mariaPreview,
