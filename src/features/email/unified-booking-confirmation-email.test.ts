@@ -80,6 +80,35 @@ describe("Unified email Maria Preview recipient boundary", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it("permits a real Maria receipt only with every Production flag and canonical customer links", async () => {
+    vi.stubEnv("VERCEL_ENV", "production");
+    vi.stubEnv("PROFFERA_MARIA_PUBLIC_SITE_ENABLED", "true");
+    vi.stubEnv("PROFFERA_MARIA_PRODUCTION_BOOKING_ENABLED", "true");
+    vi.stubEnv("PROFFERA_MARIA_PRODUCTION_MANAGER_ENABLED", "true");
+    vi.stubEnv("PROFFERA_MARIA_PRODUCTION_CUSTOMER_EMAIL_ENABLED", "true");
+    vi.stubEnv("PROFFERA_MARIA_PRODUCTION_YEAR_EDITOR_ENABLED", "true");
+    vi.stubEnv("PROFFERA_MARIA_PRODUCTION_ORIGIN", "https://makeupbymaria.se");
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true, json: async () => ({ messageId: "production-synthetic" }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const productionBooking = {
+      ...booking,
+      customerEmail: "customer@example.com",
+      portalUrl: "https://makeupbymaria.se/mina-bokningar/example",
+      rescheduleUrl: "https://makeupbymaria.se/mina-bokningar/example/booking/boka-om",
+    };
+    expect((await sendUnifiedBookingConfirmationEmail(productionBooking)).ok).toBe(true);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect((await sendUnifiedBookingConfirmationEmail({
+      ...productionBooking, portalUrl: "https://attacker.example/mina-bokningar/example",
+    })).ok).toBe(false);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    vi.stubEnv("PROFFERA_MARIA_PRODUCTION_CUSTOMER_EMAIL_ENABLED", "false");
+    expect((await sendUnifiedBookingConfirmationEmail(productionBooking)).ok).toBe(false);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
   it("fails closed if the approved QA inbox changes or is removed", async () => {
     const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);
