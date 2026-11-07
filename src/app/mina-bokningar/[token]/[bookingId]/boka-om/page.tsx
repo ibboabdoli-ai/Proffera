@@ -7,6 +7,7 @@ import { CalendarClock, Clock3, UserRound } from "lucide-react";
 
 import { readableBookingTextColor } from "@/lib/booking-theme-contract";
 import { localizeMariaPreviewServiceName } from "@/lib/maria-preview-service-copy";
+import { getMariaBookingPortalBase } from "@/lib/maria-preview-customer-safety";
 import { bookingDateLocale } from "@/lib/booking-date-locale";
 import { getRescheduleBooking, rescheduleCustomerBooking } from "@/lib/customer-booking-reschedule";
 import { getCustomerPortalPresentation, resolveCustomerPortalLanguage, type CustomerPortalLanguage } from "@/lib/customer-portal-language";
@@ -94,7 +95,7 @@ export default async function ReschedulePage({ params, searchParams }: PageProps
   if (!booking) notFound();
 
   const isMaria = presentation?.publicBookingSlug === "makeup-by-maria"
-    && process.env.VERCEL_ENV === "preview";
+    && Boolean(getMariaBookingPortalBase());
   const days = isMaria ? [] : getUpcomingRescheduleDays(booking.timeZone, 7);
   const slotEntries = await Promise.all(
     days.map(async (day) => [day.date, await getAvailableRescheduleSlots(token, bookingId, day.date)] as const),
