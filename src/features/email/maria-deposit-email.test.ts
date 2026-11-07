@@ -163,17 +163,17 @@ describe("Maria-only Swish confirmation and cancellation email", () => {
   });
 
   it("rejects a malicious or non-preview QR image origin", () => {
-    expect(() => buildMariaBookingStatusEmail(booking, "https://qa.vercel.app.evil.test")).toThrow("INVALID_MARIA_PREVIEW_ORIGIN");
-    expect(() => buildMariaBookingStatusEmail(booking, "http://qa.vercel.app")).toThrow("INVALID_MARIA_PREVIEW_ORIGIN");
+    expect(() => buildMariaBookingStatusEmail(booking, "https://qa.vercel.app.evil.test")).toThrow("INVALID_MARIA_BOOKING_ORIGIN");
+    expect(() => buildMariaBookingStatusEmail(booking, "http://qa.vercel.app")).toThrow("INVALID_MARIA_BOOKING_ORIGIN");
   });
 
   it("never contacts Brevo when the approved QA recipient changes or is disabled", async () => {
     const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);
     vi.stubEnv("PROFFERA_MARIA_PREVIEW_TEST_EMAIL", "new@example.invalid");
-    expect(await sendMariaBookingStatusEmail(booking)).toEqual({ ok: false, error: "preview_recipient_not_approved" });
+    expect(await sendMariaBookingStatusEmail(booking)).toEqual({ ok: false, error: "recipient_not_approved" });
     vi.stubEnv("PROFFERA_MARIA_PREVIEW_TEST_EMAIL", "");
-    expect(await sendMariaBookingStatusEmail(booking)).toEqual({ ok: false, error: "preview_recipient_not_approved" });
+    expect(await sendMariaBookingStatusEmail(booking)).toEqual({ ok: false, error: "recipient_not_approved" });
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
@@ -181,7 +181,7 @@ describe("Maria-only Swish confirmation and cancellation email", () => {
     const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);
     vi.stubEnv("PROFFERA_PREVIEW_EMAIL_RECIPIENT", "different@example.invalid");
-    expect(await sendMariaBookingStatusEmail(booking)).toEqual({ ok: false, error: "preview_recipient_not_approved" });
+    expect(await sendMariaBookingStatusEmail(booking)).toEqual({ ok: false, error: "recipient_not_approved" });
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
@@ -189,7 +189,7 @@ describe("Maria-only Swish confirmation and cancellation email", () => {
     const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);
     vi.stubEnv("VERCEL_ENV", "production");
-    expect(await sendMariaBookingStatusEmail(booking)).toEqual({ ok: false, error: "preview_recipient_not_approved" });
+    expect(await sendMariaBookingStatusEmail(booking)).toEqual({ ok: false, error: "recipient_not_approved" });
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
