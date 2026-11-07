@@ -403,6 +403,7 @@ function additionalTargetedSuites(candidate) {
     "scripts/supervisor-final-gate-memory.mjs",
     "tests/helpers/review-receipt-counterexamples.ts",
     "tests/codex-review-receipt-gate.test.ts",
+    "tests/ci-coderabbit-clean-summary-evidence.test.ts",
     "tests/supervisor-review-policy-contract.test.ts",
     "scripts/supervisor-worker-handoff.mjs",
     "scripts/supervisor-owner-push-pending.mjs",
@@ -463,6 +464,7 @@ function additionalTargetedSuites(candidate) {
   const pathSuites = new Map([
     ["tests/supervisor-review-policy-contract.test.ts", "tests/supervisor-review-policy-contract.test.ts"],
     ["tests/codex-review-receipt-gate.test.ts", "tests/codex-review-receipt-gate.test.ts"],
+    ["tests/ci-coderabbit-clean-summary-evidence.test.ts", "tests/ci-coderabbit-clean-summary-evidence.test.ts"],
     ["scripts/supervisor-final-gate-memory.mjs", ["tests/supervisor-final-gate-memory.test.ts", "tests/proffera-final-gate-wakeup.test.ts", "tests/supervisor-review-policy-contract.test.ts"]],
     ["tests/helpers/review-receipt-counterexamples.ts", ["tests/tooling-safety-contract.test.ts", "tests/proffera-final-gate-wakeup.test.ts"]],
     ["package.json", packageSuites],
@@ -487,6 +489,7 @@ function additionalTargetedSuites(candidate) {
     [".github/workflows/ci.yml", [
       "tests/github-workflow-yaml.test.ts",
       "tests/ci-postgres-image-preload.test.ts",
+      "tests/ci-coderabbit-clean-summary-evidence.test.ts",
       "tests/tooling-safety-contract.test.ts",
     ]],
     [".github/workflows/proffera-automerge.yml", ["tests/proffera-standing-automerge.test.ts", "tests/supervisor-control-plane-v2.test.ts"]],

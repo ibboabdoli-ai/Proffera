@@ -707,6 +707,40 @@ describe("canonical Supervisor pre-publication gate", () => {
       expect(result.ok).toBe(true);
     }
   });
+
+  it.each([
+    ["CI workflow", [".github/workflows/ci.yml"]],
+    ["CI review-witness regression", ["tests/ci-coderabbit-clean-summary-evidence.test.ts"]],
+    ["CI workflow and review-witness regression", [
+      ".github/workflows/ci.yml", "tests/ci-coderabbit-clean-summary-evidence.test.ts",
+    ]],
+  ] as [string, string[]][])("maps %s to the executable review-witness regression", (_name, paths) => {
+    const { repo, base } = fixture();
+    for (const path of paths) {
+      write(join(repo, ...path.split("/")), "export const candidate = 1;\n");
+    }
+    git(repo, ["add", "."]);
+    git(repo, ["commit", "-qm", "CI witness mapping candidate"]);
+    const candidate = inspectFixture({ cwd: repo, baseSha: base, prBody: body(base) });
+    const ids = ["targeted", "workflow-semantics"]
+      .filter(id => candidate.required_validation_checks.includes(id));
+    expect(ids).toContain("targeted");
+    if (paths.includes(".github/workflows/ci.yml")) expect(ids).toContain("workflow-semantics");
+    for (const id of ids) {
+      let ran = false;
+      const result = executeLocalValidation(candidate, repo, [id], {
+        runner: (_command: string, args: string[]) => {
+          ran = true;
+          expect(args.filter(arg => arg === "tests/ci-coderabbit-clean-summary-evidence.test.ts"))
+            .toHaveLength(1);
+          return { status: 0, signal: null, stdout: "", stderr: "" };
+        },
+      });
+      expect(ran).toBe(true);
+      expect(result.ok).toBe(true);
+    }
+  });
+
   it.each([
     [".github/workflows/supervisor-event-router.yml", ["tests/supervisor-review-policy-contract.test.ts", "tests/proffera-final-gate-wakeup.test.ts", "tests/supervisor-control-plane-v2.test.ts", "tests/github-workflow-yaml.test.ts"]],
     [".github/workflows/proffera-ci-autofix.yml", [
