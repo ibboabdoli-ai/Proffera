@@ -31,7 +31,7 @@ import { hasDashboardModuleAccess } from "@/lib/workspace-module-access";
 import { MARIA_DEPOSIT_AMOUNT_SEK, MARIA_SWISH_NUMBER, mariaSwishQrPath } from "@/lib/maria-deposit";
 import { readMariaManualSwishStatuses } from "@/lib/maria-manual-swish";
 import { readMariaSwishQrEligibility } from "@/lib/maria-swish-qr-eligibility";
-import { getMariaPreviewPortalBase, isMariaPreviewTestRecipient } from "@/lib/maria-preview-customer-safety";
+import { getMariaPreviewPortalBase, isMariaPreviewTestRecipient, mariaPreviewStatusChangePreflight } from "@/lib/maria-preview-customer-safety";
 
 export const dynamic = "force-dynamic";
 
@@ -176,17 +176,14 @@ async function updateBookingStatusAction(bookingId: string, formData: FormData) 
   if (!isDashboardBookingStatus(status)) redirectWithError(bookingId, "status", locale);
 
   const isMaria = workspaceAccess.workspaceSlug === "makeup-by-maria";
-  // The Maria deposit instructions are strictly Preview-only. Validate the
-  // live, workspace-scoped booking BEFORE any status mutation or email attempt.
-  if (isMaria && (status === "confirmed" || status === "cancelled")) {
+  // Validate the workspace-scoped QA recipient for ALL Maria status changes
+  // before the writer runs. Email-sending statuses also require email setup.
+  if (isMaria) {
     const current = await getDashboardBookingDetailInStockholm(bookingId);
-    if (!getMariaPreviewPortalBase() || !current?.customer
-      || !isMariaPreviewTestRecipient(current.customer.email)) {
-      redirectWithError(bookingId, "maria_preview", locale);
-    }
-    if (!resolveBrevoApiKey() || !process.env.LEAD_FROM_EMAIL) {
-      redirectWithError(bookingId, "maria_email_setup", locale);
-    }
+    const preflightError = mariaPreviewStatusChangePreflight(
+      status, current?.customer?.email, Boolean(resolveBrevoApiKey() && process.env.LEAD_FROM_EMAIL),
+    );
+    if (preflightError) redirectWithError(bookingId, preflightError, locale);
   }
 
   let mariaMailFailed = false;

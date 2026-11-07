@@ -26,3 +26,23 @@ export function getMariaPreviewPortalBase(env: NodeJS.ProcessEnv = process.env) 
     || !/^[a-z0-9][a-z0-9.-]*\.vercel\.app$/i.test(host)) return null;
   return `https://${host}`;
 }
+
+/**
+ * Return a user-facing reason before any Maria Preview booking status write.
+ * All status changes require a valid QA recipient; only email-sending statuses
+ * additionally require provider credentials.
+ */
+export function mariaPreviewStatusChangePreflight(
+  status: "requested" | "confirmed" | "completed" | "cancelled",
+  customerEmail: string | null | undefined,
+  deliveryConfigured: boolean,
+  env: NodeJS.ProcessEnv = process.env,
+): "maria_preview" | "maria_email_setup" | null {
+  if (!getMariaPreviewPortalBase(env) || !isMariaPreviewTestRecipient(customerEmail ?? "", env)) {
+    return "maria_preview";
+  }
+  if ((status === "confirmed" || status === "cancelled") && !deliveryConfigured) {
+    return "maria_email_setup";
+  }
+  return null;
+}
