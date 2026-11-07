@@ -251,13 +251,17 @@ async function resendMariaStatusEmailAction(bookingId: string, formData: FormDat
   "use server";
   const locale: Locale = getFormText(formData, "lang") === "en" ? "en" : "sv";
   const access = await requireBookingManager(bookingId, locale);
-  if (process.env.VERCEL_ENV !== "preview" || access.workspaceSlug !== "makeup-by-maria"
-    || !getMariaPreviewPortalBase()) redirectWithError(bookingId, "maria_preview", locale);
+  if (access.workspaceSlug !== "makeup-by-maria"
+    || !getMariaBookingPortalBase()) redirectWithError(bookingId, "maria_preview", locale);
+  const readiness = await getMariaBookingReadiness();
+  if (!readiness.enabled || readiness.workspaceId !== access.workspaceId) {
+    redirectWithError(bookingId, "maria_preview", locale);
+  }
   if (!resolveBrevoApiKey() || !process.env.LEAD_FROM_EMAIL) {
     redirectWithError(bookingId, "maria_email_setup", locale);
   }
   const approved = process.env.PROFFERA_MARIA_PREVIEW_TEST_EMAIL?.trim().toLowerCase() ?? "";
-  if (!approved || !isMariaPreviewTestRecipient(approved)) {
+  if (process.env.VERCEL_ENV === "preview" && (!approved || !isMariaPreviewTestRecipient(approved))) {
     redirectWithError(bookingId, "maria_preview", locale);
   }
   const sql = getSql();
@@ -280,15 +284,15 @@ async function resendMariaStatusEmailAction(bookingId: string, formData: FormDat
       join customers c on c.id=b.customer_id and c.workspace_id=b.workspace_id
       where b.workspace_id=${access.workspaceId} and b.id=${bookingId}::uuid
         and b.source='public_booking' and b.status in ('confirmed','cancelled')
-        and lower(trim(c.email))=${approved}
+        and (${process.env.VERCEL_ENV !== "preview"}::boolean or lower(trim(c.email))=${approved})
       limit 1
     `;
     row = rows[0] as Record<string, unknown> | undefined;
   } catch (error) {
-    console.error("Maria Preview email retry lookup failed", error);
+    console.error("Maria email retry lookup failed", error);
     redirectWithError(bookingId, "save", locale);
   }
-  if (!row || !isMariaPreviewTestRecipient(String(row.customer_email ?? ""))) {
+  if (!row || !isMariaBookingRecipientAllowed(String(row.customer_email ?? ""))) {
     redirectWithError(bookingId, "maria_preview", locale);
   }
   // Resending must not reset the customer's original 24-hour deposit deadline.
@@ -322,8 +326,10 @@ async function rescheduleBookingAction(bookingId: string, formData: FormData) {
   const isMaria = workspaceAccess.workspaceSlug === "makeup-by-maria";
   if (isMaria) {
     const current = await getDashboardBookingDetailInStockholm(bookingId);
-    if (!getMariaPreviewPortalBase() || !current?.customer
-      || !isMariaPreviewTestRecipient(current.customer.email)) {
+    const readiness = await getMariaBookingReadiness();
+    if (!readiness.enabled || readiness.workspaceId !== workspaceAccess.workspaceId
+      || !getMariaBookingPortalBase() || !current?.customer
+      || !isMariaBookingRecipientAllowed(current.customer.email)) {
       redirectWithError(bookingId, "maria_preview", locale);
     }
   }
@@ -333,8 +339,8 @@ async function rescheduleBookingAction(bookingId: string, formData: FormData) {
     if (result.changed && result.notification) {
       const notification = result.notification;
       if (isMaria) {
-        // Maria Preview reschedules never send an SMS to a real phone.
-        if (isMariaPreviewTestRecipient(notification.customerEmail)) {
+        // Maria reschedules send authorized email only; never send SMS.
+        if (isMariaBookingRecipientAllowed(notification.customerEmail)) {
           await sendBookingRescheduleEmail({
             customerName: notification.customerName, customerEmail: notification.customerEmail,
             companyName: workspaceAccess.workspaceName, branding: "makeup-by-maria", service: notification.service,
