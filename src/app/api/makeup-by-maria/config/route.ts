@@ -59,7 +59,12 @@ export async function GET() {
         order by weekday
       `,
       getMariaPreviewBookingReadiness(),
-      readMariaCardTranslations(workspaceId),
+      readMariaCardTranslations(workspaceId).catch((error) => {
+        // Public display may use default translations, but the manager editor
+        // still fails closed so unreadable saved copy is never overwritten.
+        console.error("Maria public card translations unavailable", error);
+        return new Map<string, { en: string; ar: string }>();
+      }),
     ]);
 
     // This endpoint exposes only the approved Maria demo's year/price values,

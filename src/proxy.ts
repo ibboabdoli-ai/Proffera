@@ -6,6 +6,7 @@ import { resolvePublicRequestLocale } from "./lib/public-locale";
 import { resolvePublicCustomDomain } from "./lib/public-site-domain-routing";
 import {
   isPlatformHost,
+  isMariaHost,
   isPrimeViewHost,
   isPublicPageRouteAllowedForHost,
 } from "./lib/public-site-domains";
@@ -156,6 +157,18 @@ export async function proxy(request: NextRequest) {
 
   if (!isPublicPageRouteAllowedForHost(host, pathname)) {
     return notFound(requestId);
+  }
+
+  // Branded landing is explicitly gated and independent of real bookings.
+  // Never redirect the existing holding-page domain during preparation.
+  if (isMariaHost(host) && pathname === "/") {
+    if (process.env.VERCEL_ENV !== "production"
+      || process.env.PROFFERA_MARIA_PUBLIC_SITE_ENABLED !== "true") {
+      return notFound(requestId);
+    }
+    const url = request.nextUrl.clone();
+    url.pathname = "/demo/makeup-by-maria-v2.html";
+    return rewriteWithRequestId(request, url, requestId);
   }
 
   // PrimeView keeps its bespoke public site while generic customer domains use

@@ -128,6 +128,30 @@ describe("proxy request boundary", () => {
     );
   });
 
+  it("keeps Maria's public host disabled until the Production site switch is enabled", async () => {
+    for (const host of ["makeupbymaria.se", "www.makeupbymaria.se"]) {
+      vi.stubEnv("VERCEL_ENV", "preview");
+      vi.stubEnv("PROFFERA_MARIA_PUBLIC_SITE_ENABLED", "true");
+      expect((await proxy(hostRequest(host, "/"))).status).toBe(404);
+
+      vi.stubEnv("VERCEL_ENV", "production");
+      vi.stubEnv("PROFFERA_MARIA_PUBLIC_SITE_ENABLED", "false");
+      expect((await proxy(hostRequest(host, "/"))).status).toBe(404);
+
+      vi.stubEnv("PROFFERA_MARIA_PUBLIC_SITE_ENABLED", "true");
+      const live = await proxy(hostRequest(host, "/"));
+      expect(live.status).toBe(200);
+      expect(live.headers.get("x-middleware-rewrite")).toBe(
+        "https://" + host + "/demo/makeup-by-maria-v2.html",
+      );
+      for (const pathname of ["/dashboard", "/admin", "/boka/primeview", "/boka/other", "/tjanster", "/booking"]) {
+        expect((await proxy(hostRequest(host, pathname))).status, pathname).toBe(404);
+      }
+      expect((await proxy(hostRequest(host, "/boka/verifiera/00000000-0000-4000-8000-000000000010"))).status).toBe(200);
+    }
+    expect(resolvePublicCustomDomainMock).not.toHaveBeenCalled();
+  });
+
   it("rewrites the PrimeView root without changing the customer-facing URL", async () => {
     const response = await proxy(
       new NextRequest("https://primeviewwindowcare.co.uk/", {

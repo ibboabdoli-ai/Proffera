@@ -197,6 +197,17 @@ footer a{color:#875565}
 </div></main>
 <footer><div class="footer-brand"><img src="/demo/makeup-by-maria/assets/maria-client-logo.jpg" alt="Makeup by Maria — Bridal & Event Makeup" width="950" height="950" loading="lazy"></div><small data-i="footer">En förhandsvisning · Stockholm, Sverige</small><small>Instagram <a href="https://www.instagram.com/makeupbymaria998/" target="_blank" rel="noopener noreferrer">@makeupbymaria998</a></small></footer>
 <script>
+const mariaPublicHost=/^(?:www\.)?makeupbymaria\.se$/i.test(window.location.hostname);
+const mariaPublicCopy={
+ sv:{closed:"Onlinebokningen öppnar snart",info:"Onlinebokningen är inte öppen ännu. Kontakta Maria via Instagram för frågor.",open:"Din förfrågan skickas efter e-postverifiering. Maria bekräftar tiden separat."},
+ en:{closed:"Online booking opens soon",info:"Online booking is not open yet. Contact Maria through Instagram for enquiries.",open:"Your request is sent after email verification. Maria confirms the appointment separately."},
+ ar:{closed:"سيُفتح الحجز الإلكتروني قريبًا",info:"الحجز الإلكتروني غير متاح بعد. يمكنك التواصل مع ماريا عبر إنستغرام للاستفسار.",open:"يُرسل طلبك بعد تأكيد البريد الإلكتروني، وتؤكد ماريا الموعد بشكل منفصل."}
+};
+if(mariaPublicHost){
+ document.title="Makeup by Maria · Brudmakeup i Södertälje";
+ const description=document.querySelector('meta[name="description"]');
+ if(description)description.content="Makeup by Maria — professionell brudmakeup med eller utan provsminkning i Södertälje.";
+}
 const dict={
 sv:{
 designOne:"Design 01 ↗",eyebrow:"PERSONLIG BRUDMAKEUP · SVERIGE",hero:"Din dag. <em>Din glöd.</em>",lead:"En makeup som känns som du. Välj bröllopsår och hitta din favoritlook inför din stora dag.",notice:"Designförslag – endast förhandsvisning, ingen riktig bokning",
@@ -384,7 +395,7 @@ function translate(){
   for(const id of ["customerEmail","customerPhone"]){
    const input=$(id);if(input.validity.customError)input.setCustomValidity(localizedBookingError(lastBookingError));
   }
- }else if($("bookingForm").querySelector('button[type="submit"]').disabled){
+ }else if(workspaceConfig.bookingEnabled && $("bookingForm").querySelector('button[type="submit"]').disabled){
   $("message").textContent=(liveBookingCopy[state.lang]||liveBookingCopy.sv).sending;
  }
  if(workspaceConfig.bookingEnabled){
@@ -398,6 +409,18 @@ function translate(){
   };
   document.querySelector('[data-i="notice"]').textContent=testNotice[state.lang]||testNotice.sv;
   document.querySelector(".first-design").hidden=true;
+ }
+ if(mariaPublicHost){
+  const publicCopy=mariaPublicCopy[state.lang]||mariaPublicCopy.sv;
+  document.querySelector(".first-design").hidden=true;
+  document.querySelector(".first-design").style.display="none";
+  document.querySelector('[data-i="notice"]').textContent=workspaceConfig.bookingEnabled?publicCopy.open:publicCopy.closed;
+  if(!workspaceConfig.bookingEnabled){
+   const submit=document.querySelector('#bookingForm button[type="submit"]');
+   submit.disabled=true;
+   submit.textContent=publicCopy.closed;
+   document.querySelector('[data-i="safety"]').textContent=publicCopy.info;
+  }
  }
  document.querySelector('[data-i="detailsPrompt"]').textContent=displayedBookingHours();
  if(state.year){

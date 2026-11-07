@@ -135,14 +135,14 @@ export default async function MariaSiteDashboardPage({ searchParams }: { searchP
                   <input type="number" name="trial" min="0" max="250000" step="0.01" inputMode="decimal"
                     defaultValue={savedPrice(year, "trial")}
                     placeholder="Pris på förfrågan"
-                    className="min-h-11 w-full rounded-lg border border-[#d8c4cb] bg-white px-3 text-sm text-[#352a2c]" />
+                    className="min-h-11 w-full rounded-lg border border-[#d8c4cb] bg-white px-3 text-base text-[#352a2c] sm:text-sm" />
                 </label>
                 <label className="grid gap-1.5 text-xs font-semibold text-[#634853]">
                   Brudsmink utan prov · SEK
                   <input type="number" name="without" min="0" max="250000" step="0.01" inputMode="decimal"
                     defaultValue={savedPrice(year, "without-trial")}
                     placeholder="Pris på förfrågan"
-                    className="min-h-11 w-full rounded-lg border border-[#d8c4cb] bg-white px-3 text-sm text-[#352a2c]" />
+                    className="min-h-11 w-full rounded-lg border border-[#d8c4cb] bg-white px-3 text-base text-[#352a2c] sm:text-sm" />
                 </label>
               </div>
               <div className="mt-4 grid gap-3 sm:grid-cols-2">
@@ -162,7 +162,7 @@ export default async function MariaSiteDashboardPage({ searchParams }: { searchP
                           lang={locale} dir={locale === "ar" ? "rtl" : "ltr"} maxLength={280} rows={3}
                           defaultValue={savedCopy(year, kind, locale) || mariaDefaultCardCopy[kind][locale]}
                           placeholder="Lämna tomt och spara för standardtext"
-                          className="w-full rounded-lg border border-[#d8c4cb] bg-white px-3 py-2 text-sm text-[#352a2c]" />
+                          className="w-full rounded-lg border border-[#d8c4cb] bg-white px-3 py-2 text-base text-[#352a2c] sm:text-sm" />
                       </label>
                     ))}
                   </div>

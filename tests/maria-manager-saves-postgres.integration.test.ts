@@ -463,8 +463,9 @@ function compileSql(strings: TemplateStringsArray, values: unknown[]): Query {
     ]) form.set(field, "Should never save");
     try {
       runtime.workspaceId = otherId;
-      runtime.workspaceSlug = otherSlug;
-      await expect(saveMariaYearAction(form)).rejects.toThrow("TEST_REDIRECT:/dashboard");
+      // Keep the authenticated Maria slug while changing only the tenant ID.
+      // This reaches the SQL-level workspace.slug protection and must roll back.
+      await expect(saveMariaYearAction(form)).rejects.toThrow("TEST_REDIRECT:/dashboard/maria?error=save");
       expect(await readMariaCardTranslations(otherId)).toEqual(new Map());
     } finally {
       runtime.workspaceId = workspaceId;
@@ -475,6 +476,19 @@ function compileSql(strings: TemplateStringsArray, values: unknown[]): Query {
       [otherId],
     );
     expect(unchanged.rows[0]?.count).toBe(0);
+    const otherCopy = await db!.query<{public_slug:string; short_description:string}>(
+      "select public_slug, short_description from workspace_services where workspace_id=$1 order by public_slug",
+      [otherId],
+    );
+    expect(otherCopy.rows).toEqual([
+      { public_slug: "maria-bridal-trial-2026", short_description: "Keep other tenant copy" },
+      { public_slug: "maria-bridal-without-trial-2026", short_description: "Other copy" },
+    ]);
+    const otherAudits = await db!.query<{count:number}>(
+      "select count(*)::int as count from admin_audit_logs where workspace_id=$1::uuid and action='maria.booking_year_content.updated'",
+      [otherId],
+    );
+    expect(otherAudits.rows[0]?.count).toBe(0);
   });
 
   it("fails closed on unexpected translation read errors rather than exposing editable defaults", async () => {
