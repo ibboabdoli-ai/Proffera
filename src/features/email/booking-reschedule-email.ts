@@ -2,7 +2,8 @@ import type { WorkspaceTimeZone } from "@/lib/workspace-market";
 import { bookingDateLocale } from "@/lib/booking-date-locale";
 import { resolveBrevoApiKey } from "@/lib/email-runtime-config";
 import { mariaEmailLogoHtml } from "@/lib/maria-email-logo";
-import { getMariaPreviewPortalBase } from "@/lib/maria-preview-customer-safety";
+import { getMariaBookingPortalBase, isMariaBookingRecipientAllowed } from "@/lib/maria-preview-customer-safety";
+import { getMariaBookingReadiness } from "@/lib/maria-booking-runtime";
 
 type SendBookingRescheduleEmailInput = {
   customerName: string;
@@ -50,12 +51,20 @@ function formatBookingDate(value: string, timeZone: WorkspaceTimeZone = "Europe/
 }
 
 export async function sendBookingRescheduleEmail(input: SendBookingRescheduleEmailInput) {
+  if (input.branding === "makeup-by-maria") {
+    if (!getMariaBookingPortalBase() || !isMariaBookingRecipientAllowed(input.customerEmail)) {
+      return { ok: false as const, message: "Maria booking recipient is not allowed." };
+    }
+    if (process.env.VERCEL_ENV === "production" && !(await getMariaBookingReadiness()).enabled) {
+      return { ok: false as const, message: "Maria booking is not ready." };
+    }
+  }
   const apiKey = resolveBrevoApiKey();
   const from = process.env.LEAD_FROM_EMAIL;
   if (!apiKey || !from) return { ok: false as const, message: "Brevo är inte konfigurerat." };
 
   const logo = input.branding === "makeup-by-maria"
-    ? mariaEmailLogoHtml(getMariaPreviewPortalBase()) : "";
+    ? mariaEmailLogoHtml(getMariaBookingPortalBase()) : "";
   const language = input.branding === "makeup-by-maria" && (input.language === "en" || input.language === "ar")
     ? input.language : "sv";
   const previousStart = formatBookingDate(input.previousStartsAt, input.timeZone, language);
