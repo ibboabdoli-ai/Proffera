@@ -7,7 +7,7 @@ vi.mock("../src/lib/public-site-domain-routing", () => ({
 }));
 
 import { resolvePublicCustomDomain } from "../src/lib/public-site-domain-routing";
-import { proxy } from "../src/proxy";
+import { config, proxy } from "../src/proxy";
 
 const resolvePublicCustomDomainMock = vi.mocked(resolvePublicCustomDomain);
 const requestId = "123e4567-e89b-42d3-a456-426614174000";
@@ -150,6 +150,24 @@ describe("proxy request boundary", () => {
       expect((await proxy(hostRequest(host, "/boka/verifiera/00000000-0000-4000-8000-000000000010"))).status).toBe(200);
     }
     expect(resolvePublicCustomDomainMock).not.toHaveBeenCalled();
+  });
+
+  it("enforces Maria host restrictions for direct dotted demo HTML requests", async () => {
+    const htmlPaths = ["/demo/makeup-by-maria.html", "/demo/makeup-by-maria-v2.html"];
+    for (const path of htmlPaths) {
+      // These exact paths would otherwise be excluded by the generic dotted-file matcher.
+      expect(config.matcher).toContain(path);
+      for (const host of ["makeupbymaria.se", "www.makeupbymaria.se"]) {
+        for (const flag of ["false", "true"]) {
+          vi.stubEnv("VERCEL_ENV", "production");
+          vi.stubEnv("PROFFERA_MARIA_PUBLIC_SITE_ENABLED", flag);
+          const response = await proxy(hostRequest(host, path));
+          expect(response.status, host + path).toBe(404);
+        }
+      }
+      // Keep existing public Preview/demo URL available on Proffera hosts.
+      expect((await proxy(hostRequest("www.proffera.se", path))).status).toBe(200);
+    }
   });
 
   it("rewrites the PrimeView root without changing the customer-facing URL", async () => {

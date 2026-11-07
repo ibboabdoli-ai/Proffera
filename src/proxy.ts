@@ -249,5 +249,9 @@ export const config = {
   matcher: [
     "/((?!api|_next/static|_next/image|favicon.ico|.*\\..*).*)",
     "/api/widget-config",
+    // Explicit HTML matcher entries prevent dotted static demo paths bypassing
+    // the Maria branded-host allowlist (other static assets remain excluded).
+    "/demo/makeup-by-maria.html",
+    "/demo/makeup-by-maria-v2.html",
   ],
 };

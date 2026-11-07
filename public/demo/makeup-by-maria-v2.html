@@ -325,9 +325,10 @@ function isBookablePackage(year,kind){
  return !workspaceConfig.bookingEnabled || Number.isSafeInteger(workspaceConfig.bookableDurations[String(year)]?.[kind]);
 }
 function isBookableYear(year){return isBookablePackage(year,"trial")||isBookablePackage(year,"without")}
+function brandedBookingClosed(){return mariaPublicHost&&!workspaceConfig.bookingEnabled;}
 function renderPackageAvailability(){
  for(const button of document.querySelectorAll("[data-package]")){
-  const enabled=!state.year||isBookablePackage(state.year,button.dataset.package);
+  const enabled=(!state.year||isBookablePackage(state.year,button.dataset.package))&&!brandedBookingClosed();
   button.disabled=!enabled;
   button.querySelector(".choose").textContent=enabled?copy().choose:uiCopy().closed;
  }
@@ -449,7 +450,7 @@ function translate(){
  buildTimes();
 }
 function showStep(step){
- if(successfulBookingReturn)return;
+ if(successfulBookingReturn||(step==="details"&&brandedBookingClosed()))return;
  if(step==="details"&&state.step!=="details")formStartedAt=Date.now();
  state.step=step;
  $("backHome").hidden=step==="year";
@@ -458,7 +459,7 @@ function showStep(step){
  document.querySelectorAll("[data-step-marker]").forEach(el=>{const n=order.indexOf(el.dataset.stepMarker),current=order.indexOf(step);el.classList.toggle("active",n===current);el.classList.toggle("done",n<current)});
 }
 function selectYear(year){if(!isBookableYear(year))return;state.year=year;state.kind=null;$("selectedYear").textContent=year;translate();showStep("service")}
-function choosePackage(kind){if(!state.year||!isBookablePackage(state.year,kind))return;state.kind=kind;translate();showStep("details");$("message").style.display="none";$("message").textContent=""}
+function choosePackage(kind){if(brandedBookingClosed()||!state.year||!isBookablePackage(state.year,kind))return;state.kind=kind;translate();showStep("details");$("message").style.display="none";$("message").textContent=""}
 function renderSummary(){
  const c=copy();const label=state.kind==="trial"?c.trialTitle:c.withoutTitle;
  const price=displayYearPrice(state.kind);
@@ -472,7 +473,7 @@ function stockholmDate(){
 function buildDates(){
  const sel=$("weddingDate"),prior=sel.value,c=copy();sel.innerHTML="";
  sel.add(new Option(c.dateEmpty,""));
- if(!state.year)return;
+ if(brandedBookingClosed()||!state.year)return;
  const today=stockholmDate();let n=0;
  const advance=workspaceConfig.bookingEnabled?(workspaceConfig.bookableAdvanceDays[String(state.year)]?.[state.kind]??730):null;
  const latest=advance===null?null:new Date(Date.parse(today+"T00:00:00Z")+advance*86400000).toISOString().slice(0,10);
@@ -492,6 +493,7 @@ async function buildTimes(preserveSelection=true){
  const seq=++availabilitySequence;
  const s=$("weddingTime"),old=preserveSelection?s.value:"";s.replaceChildren();
  s.add(new Option(copy().timeEmpty,""));
+ if(brandedBookingClosed())return;
  const chosen=$("weddingDate").value;
  if(!chosen||!state.year||!state.kind)return;
  const day=new Date(chosen+"T12:00:00Z").getUTCDay();
