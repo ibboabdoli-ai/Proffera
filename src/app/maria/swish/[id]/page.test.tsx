@@ -113,7 +113,7 @@ describe("Maria Preview first-party Swish payment information page", () => {
     await expect(MariaSwishPaymentPage(props)).rejects.toThrow("NEXT_NOT_FOUND");
     expect(ambiguous).toHaveBeenCalledTimes(2);
     const scopedQuery = Array.from(ambiguous.mock.calls[0][0] as TemplateStringsArray).join(" ?");
-    expect(scopedQuery).toContain("b.workspace_id=coalesce(");
+    expect(scopedQuery).toMatch(/b\.workspace_id=\s*\?/);
     expect(ambiguous.mock.calls[0].slice(1)).toContain("aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee");
     const collisionQuery = Array.from(ambiguous.mock.calls[1][0] as TemplateStringsArray).join(" ?");
     expect(collisionQuery).toContain("left(replace(b.id::text, '-', ''), 6)");
