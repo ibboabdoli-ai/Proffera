@@ -62,6 +62,7 @@ reviews:
     - "src/features/email/maria-email-logo-flow.test.ts"
     - "src/features/email/unified-booking-confirmation-email.test.ts"
     - "src/features/email/unified-booking-confirmation-email.ts"
+    - "src/lib/customer-booking-reschedule.ts"
     - "src/lib/customer-calendar.ts"
     - "src/lib/customer-portal-language.test.ts"
     - "src/lib/customer-portal-language.ts"

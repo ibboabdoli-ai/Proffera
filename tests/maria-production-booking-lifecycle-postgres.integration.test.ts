@@ -222,6 +222,30 @@ function compileSql(strings: TemplateStringsArray, values: unknown[]): Query {
     const confirmed=await updateDashboardBookingStatus(bookingId,"confirmed");
     expect(confirmed.changed).toBe(true);
     expect(confirmed.notification?.customerEmail).toBe("bride@example.invalid");
+
+    // Reactivation must also bring the *same* linked service job back from
+    // cancelled, clearing its stale cancellation marker atomically.
+    const linkedJobBefore = await db!.query<{id:string;status:string}>(
+      "select id::text,status from workspace_service_jobs where booking_id=$1::uuid",[bookingId]);
+    expect(linkedJobBefore.rowCount).toBe(1);
+    const originalJobId=linkedJobBefore.rows[0]!.id;
+    expect(["new","assigned"]).toContain(linkedJobBefore.rows[0]?.status);
+    const cancelled=await updateDashboardBookingStatus(bookingId,"cancelled");
+    expect(cancelled.changed).toBe(true);
+    const cancelledJob=await db!.query<{status:string;cancelled_at:string|null}>(
+      "select status,cancelled_at::text from workspace_service_jobs where id=$1::uuid",[originalJobId]);
+    expect(cancelledJob.rows[0]?.status).toBe("cancelled");
+    expect(cancelledJob.rows[0]?.cancelled_at).not.toBeNull();
+    const reactivated=await updateDashboardBookingStatus(bookingId,"confirmed");
+    expect(reactivated.changed).toBe(true);
+    const revivedJob=await db!.query<{id:string;status:string;cancelled_at:string|null;completed_at:string|null}>(
+      "select id::text,status,cancelled_at::text,completed_at::text from workspace_service_jobs where booking_id=$1::uuid",[bookingId]);
+    expect(revivedJob.rowCount).toBe(1);
+    expect(revivedJob.rows[0]?.id).toBe(originalJobId);
+    expect(["new","assigned"]).toContain(revivedJob.rows[0]?.status);
+    expect(revivedJob.rows[0]?.cancelled_at).toBeNull();
+    expect(revivedJob.rows[0]?.completed_at).toBeNull();
+
     expect(await setMariaManualSwishStatus(bookingId,"paid")).toEqual({changed:true});
     const paid=await readMariaManualSwishStatuses();
     expect(paid.entries[bookingId]?.state).toBe("paid");
