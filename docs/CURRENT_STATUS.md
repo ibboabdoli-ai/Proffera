@@ -1,6 +1,6 @@
 # Proffera Current Status
 
-Last updated: 2026-09-27
+Last updated: 2026-11-07
 
 This is the canonical factual status document for Proffera. For worker rules, live task state, current `main` SHA, roadmap order, and the stable V1 completion evidence requirements, also read `AGENTS.md`, `WORKER_BOOTSTRAP.md`, GitHub issue #548, GitHub issue #276, `docs/README.md`, and `docs/V1_LAUNCH_EVIDENCE_CONTRACT.json`.
 
@@ -185,6 +185,18 @@ SCB location semantics distinguish the company-level registered seat from the ph
 
 A Production runtime warning observed on 2026-08-18 concerns PostgreSQL connection-string SSL semantics. It is a forward-compatibility/security warning rather than an observed request failure and should be handled deliberately before the relevant `pg`/`pg-connection-string` major upgrade.
 
+## Makeup by Maria — isolated Preview booking controls
+
+The customer-specific `makeup-by-maria` workspace has a Preview-only owner/admin dashboard at `/dashboard/maria`. Its year-specific bridal package prices and Swedish descriptions, and its Friday/Saturday/Sunday appointment start windows, are managed within the existing workspace and read by the Preview booking/config paths. This is not a Production booking launch and is not proof that customer-owner access has been delivered.
+
+In the isolated Preview only, the owner/admin can compare the existing `MBM-` booking reference against the business Swish transaction message and **manually mark the 2,000 SEK deposit as paid** in the booking list or booking detail. The control requires an explicit human confirmation of checking Swish. An incorrect mark can be reversed; both actions are append-only, workspace-scoped, actor-attributed `customer_events` records and the latest status is read dynamically when the dashboard is opened. No bank transaction, Stripe integration, automatic payment validation, cancellation, customer notification, or Production write is performed by this control. A confirmed booking alone never implies a paid deposit.
+
+A separately review-gated follow-up for issue #957 proposes a minimal mobile manual calendar at `/dashboard/maria/kalender`: authenticated Preview-only owner/admin (without requiring a paid `online_booking` entitlement for this manual calendar) can inspect requests and active email holds, and manually close/reopen individual appointment START times in 30-minute increments or all remaining starts of a day. Under canonical PostgreSQL, the existing `bookings_active_time_no_overlap` exclusion constraint correctly protects customer appointments but cannot represent independently closed starts as confirmed `bookings` rows. The draft now proposes a **separate, tightly scoped** `maria_manual_closed_starts` table, with unique `(workspace_id,starts_at)` and a Workspace foreign key. This keeps every real booking and generic availability block under the unchanged database overlap constraint while manual closures only suppress the exact selected start. Booking creation, OTP finalization/renewal and rescheduling all recheck the closed-start table under Maria's existing workspace advisory lock. No appointment is changed or time closed automatically after a customer confirms/pays; no Swish payment, email, or SMS is sent by the calendar.
+
+The additive migration `20261103_0072_maria_manual_closed_starts.sql` is included in unified Draft PR #971, which consolidates the earlier booking PR #943 and calendar PR #960. Neither earlier PR was merged to `main`. It was applied only in the separately isolated Preview QA database, **not Production**; a Production schema rollout needs its own explicit authorization before dependent code is deployed. If the table is missing, Maria booking and manual-calendar operations fail closed. The two canonical isolated PostgreSQL 18.6 integration suites have been executed and reported **23/23 passing** for the November 4 review-fix head, covering independent starts, booking overlap, verification holds, manually closed starts, rescheduling and manager writes. These developer-run tests do not replace independent latest-head CI/review and authenticated Preview acceptance. PR #971 remains Draft and unmerged, with no Production booking activation, schema migration or release. Both previous PRs (#943 and #960) remain unmerged; their changes are reviewed together on the isolated #971 branch. The latest-head CI and independent CodeRabbit review must be checked separately before any merge.
+
+The Preview UI/code change is not a verified end-to-end money flow: validate the authenticated manager action and status persistence against the permitted isolated environment before customer use. Production changes, migrations, release approval, domain activation and PR merge remain separately gated.
+
 ## Current priorities
 
 1. Use `docs/V1_LAUNCH_EVIDENCE_CONTRACT.json` to audit all 18 V1 exit criteria against fresh `main`, Preview/runtime evidence and fresh read-only Production evidence; classify gaps rather than assuming completion from source code.
@@ -201,3 +213,17 @@ A Production runtime warning observed on 2026-08-18 concerns PostgreSQL connecti
 Do not create another competing current-status file.
 
 Historical phase plans and handoffs may remain in `docs/` for context, but they are not current truth unless a canonical source explicitly points to them. Git history is the archive for older versions of the canonical files.
+
+
+## Maria Production booking preflight — read-only, not launched (2026-11-07)
+
+- `scripts/maria-production-booking-preflight.mjs` checks Production database schema and migration ledger for Maria 0072/0073/0074, owner workspace settings, the two published active 2026 services at the owner-approved first release prices (6,900/5,800 SEK), and at least one configured Friday–Sunday opening window. Its queries run inside `BEGIN READ ONLY` and `ROLLBACK`; no bookings, schema migrations or messages are created.
+- Invocation after independently confirming an authorized **read-only** Proffera Production database connection: `node scripts/maria-production-booking-preflight.mjs --read-only` with a privately provided `DATABASE_URL`. Do not publish the URL or execute against an unverified database. The current connected Neon integration does not expose Proffera Production, so a live database check has **not** been performed in this task.
+- This preflight does **not** implement or enable real customer booking. Public/OTP/customer-contact flows, manager status and manual calendar writes are still Preview-gated; Production entitlement, real-recipient email, verified same-origin domain/SSL routing, manual Swish truthfulness and rollback remain separate release blockers. Draft PR #971 must not be merged, migrated or publicly activated without distinct owner approval.
+
+
+## Maria branded-domain safe handoff (2026-11-07; unmerged Draft)
+
+- `makeupbymaria.se` / `www.makeupbymaria.se` have an explicit host namespace. Their root serves Maria's Design 02 only when `VERCEL_ENV=production` and `PROFFERA_MARIA_PUBLIC_SITE_ENABLED=true`; otherwise that root fails closed (404). Customer pages are limited to Maria booking verification, Maria booking entry, customer booking management and Maria Swish information. Generic tenant, Admin and Dashboard pages are not served on the Maria hostname.
+- On Maria's verified public host, the static design hides demo navigation and labels online booking as closed when the backend `bookingEnabled` flag is false, disabling submit. Preview domain behavior is preserved. The controlled Production booking/OTP/manager/payment release remains a distinct separately reviewed step.
+- No Vercel domain, DNS, Production environment or database change is performed by this commit. Existing `makeupbymaria-site` holding page remains the live project; the new host route is inert until a later authorized domain move + Production feature flag.

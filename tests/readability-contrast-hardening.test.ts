@@ -1,5 +1,9 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+
+import { MariaCalendarConfirmButton } from "@/app/dashboard/maria/kalender/maria-calendar-confirm-button";
 
 import { describe, expect, it } from "vitest";
 
@@ -30,6 +34,53 @@ describe("Readability and contrast hardening", () => {
     expect(css).toContain('[class~="bg-[#2f80ed]"]');
     expect(header).toContain('bg-[#0a2e63] px-4 text-sm font-black !text-white');
     expect(header).toContain("hover:!text-white");
+  });
+
+  it("forces accessible white labels on Maria mauve CTA buttons and links, including iOS WebKit", () => {
+    const css = source("src/app/globals.css");
+    const maria = source("src/app/dashboard/maria/page.tsx");
+    const calendar = source("src/app/dashboard/maria/kalender/maria-calendar-confirm-button.tsx");
+
+    // Check the white-fill rule itself, not the disabled-button selector below it.
+    const whiteRule = css.match(
+      /:where\(a, button\)\[class\*="bg-slate-950"\][\s\S]*?\{\s*color: #ffffff !important;\s*-webkit-text-fill-color: #ffffff !important;\s*\}/,
+    )?.[0] ?? "";
+    expect(whiteRule).not.toBe("");
+    for (const color of ["#845363", "#6d3e4e"]) {
+      expect(whiteRule).toContain('[class~="bg-[' + color + ']"]');
+    }
+    // Real browser computed colors for the booking and completion actions
+    // are covered in e2e/tests/maria-cta-computed-contrast.e2e.mjs.
+    // Parsing one CSS rule here could miss a later cascade override.
+    expect(maria).toContain("bg-[#845363]");
+    expect(calendar).toContain("bg-[#845363]");
+    // Do not force white on Maria's light secondary buttons.
+    expect(calendar).toContain('kind === "close"');
+    expect(calendar).toContain("bg-white");
+  });
+
+  it("renders Maria's light reopen button with a dark, readable foreground", () => {
+    const markup = renderToStaticMarkup(createElement(MariaCalendarConfirmButton, {
+      kind: "open", label: "Öppna", confirmation: "Öppna denna tid?",
+    }));
+    const buttonClasses = markup.match(/<button[^>]*class="([^"]+)"/)?.[1]?.split(/\s+/) ?? [];
+    expect(buttonClasses).toContain("bg-white");
+    expect(buttonClasses).toContain("text-[#754b5a]");
+    expect(buttonClasses).not.toContain("text-white");
+
+    // WCAG contrast of the actual foreground utility value against white.
+    const linear = [0x75, 0x4b, 0x5a].map(channel => {
+      const value = channel / 255;
+      return value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4;
+    });
+    const luminance = 0.2126 * linear[0]! + 0.7152 * linear[1]! + 0.0722 * linear[2]!;
+    expect(1.05 / (luminance + 0.05)).toBeGreaterThanOrEqual(4.5);
+
+    const closeMarkup = renderToStaticMarkup(createElement(MariaCalendarConfirmButton, {
+      kind: "close", label: "Stäng", confirmation: "Stäng denna tid?",
+    }));
+    expect(closeMarkup).toContain("bg-[#845363]");
+    expect(closeMarkup).toContain("text-white");
   });
 
   it("prevents light CTAs inside dark cards from inheriting white WebKit text fill", () => {

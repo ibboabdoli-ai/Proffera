@@ -10,6 +10,11 @@ export const REQUIRED_PRODUCTION_MIGRATIONS = [
   "20260919_0069",
   "20260927_0070",
   "20260929_0071",
+  "20261103_0072",
+  "20261105_0073",
+  // Additive localized-card schema must be applied in a controlled release
+  // before this PR can be promoted; Preview preparation is not proof for Prod.
+  "20261107_0074",
 ] as const;
 
 type QueryExecutor = (

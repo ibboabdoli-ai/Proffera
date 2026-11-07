@@ -1,10 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { resolveAdminArea } from "./lib/admin-navigation";
+import { isMariaPaymentStandalonePath, MARIA_PAYMENT_SHELL_HEADER } from "./lib/maria-payment-standalone";
 import { resolvePublicRequestLocale } from "./lib/public-locale";
 import { resolvePublicCustomDomain } from "./lib/public-site-domain-routing";
 import {
   isPlatformHost,
+  isMariaHost,
   isPrimeViewHost,
   isPublicPageRouteAllowedForHost,
 } from "./lib/public-site-domains";
@@ -82,6 +84,8 @@ function resolveRequestId(request: NextRequest) {
 
 function requestHeadersWithRequestId(request: NextRequest, requestId: string) {
   const requestHeaders = new Headers(request.headers);
+  // Never trust a client-supplied shell override on dashboards or other routes.
+  requestHeaders.delete(MARIA_PAYMENT_SHELL_HEADER);
   requestHeaders.set(REQUEST_ID_HEADER, requestId);
   return requestHeaders;
 }
@@ -128,6 +132,10 @@ function allowAdminWithPath(request: NextRequest, requestId: string) {
 function allowPublicPath(request: NextRequest, requestId: string) {
   const requestHeaders = requestHeadersWithRequestId(request, requestId);
   requestHeaders.delete("x-proffera-locale");
+  // Only the exact Maria Preview payment URL gets a standalone brand shell.
+  if (process.env.VERCEL_ENV === "preview" && isMariaPaymentStandalonePath(request.nextUrl.pathname)) {
+    requestHeaders.set(MARIA_PAYMENT_SHELL_HEADER, "1");
+  }
 
   const locale = resolvePublicRequestLocale(
     request.nextUrl.pathname,
@@ -149,6 +157,18 @@ export async function proxy(request: NextRequest) {
 
   if (!isPublicPageRouteAllowedForHost(host, pathname)) {
     return notFound(requestId);
+  }
+
+  // Branded landing is explicitly gated and independent of real bookings.
+  // Never redirect the existing holding-page domain during preparation.
+  if (isMariaHost(host) && pathname === "/") {
+    if (process.env.VERCEL_ENV !== "production"
+      || process.env.PROFFERA_MARIA_PUBLIC_SITE_ENABLED !== "true") {
+      return notFound(requestId);
+    }
+    const url = request.nextUrl.clone();
+    url.pathname = "/demo/makeup-by-maria-v2.html";
+    return rewriteWithRequestId(request, url, requestId);
   }
 
   // PrimeView keeps its bespoke public site while generic customer domains use
@@ -229,5 +249,9 @@ export const config = {
   matcher: [
     "/((?!api|_next/static|_next/image|favicon.ico|.*\\..*).*)",
     "/api/widget-config",
+    // Explicit HTML matcher entries prevent dotted static demo paths bypassing
+    // the Maria branded-host allowlist (other static assets remain excluded).
+    "/demo/makeup-by-maria.html",
+    "/demo/makeup-by-maria-v2.html",
   ],
 };

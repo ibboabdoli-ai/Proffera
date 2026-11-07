@@ -1,0 +1,144 @@
+import { pathToFileURL } from "node:url";
+
+const migrations = ["20261103_0072", "20261105_0073", "20261107_0074"];
+const prices = { "maria-bridal-trial-2026": 690000, "maria-bridal-without-trial-2026": 580000 };
+
+/** SELECT-only Maria database preflight. Does not authorize public booking. */
+export async function inspectMariaProductionBookingDatabase(query) {
+  const blockers = [];
+  const schemaSql = [
+    "select to_regclass('public.proffera_schema_migrations') is not null as ledger,",
+    "to_regclass('public.workspaces') is not null as workspaces,",
+    "to_regclass('public.workspace_settings') is not null as workspace_settings,",
+    "to_regclass('public.workspace_services') is not null as workspace_services,",
+    "to_regclass('public.workspace_booking_hours') is not null as booking_hours,",
+    "to_regclass('public.public_booking_verifications') is not null as verifications,",
+    "to_regclass('public.maria_manual_closed_starts') is not null as manual_closed_starts,",
+    "to_regclass('public.maria_service_card_translations') is not null as card_translations,",
+    "(select count(*) from information_schema.columns where table_schema='public'",
+    "and table_name='public_booking_verifications'",
+    "and column_name in ('address','postcode','booking_details')) = 3 as verification_contact_columns",
+  ].join(" ");
+  const schema = (await query(schemaSql)).rows?.[0];
+  if (!schema) return { databaseReady: false, blockers: ["schema_unreadable"], appliedMigrations: [] };
+  const tables = ["ledger", "workspaces", "workspace_settings", "workspace_services", "booking_hours", "verifications", "manual_closed_starts", "card_translations"];
+  for (const table of tables) if (schema[table] !== true) blockers.push("missing_" + table);
+  if (schema.verification_contact_columns !== true) blockers.push("missing_verification_contact_columns");
+
+  // Existing relation names and migration receipts do not prove that the
+  // IF NOT EXISTS tables have their required columns or constraints.
+  if (schema.manual_closed_starts === true && schema.card_translations === true) {
+    const integritySql = [
+      "select",
+      "(select count(*) from information_schema.columns where table_schema='public'",
+      "and table_name='maria_manual_closed_starts' and (",
+      "(column_name='workspace_id' and udt_name='uuid' and is_nullable='NO') or",
+      "(column_name='starts_at' and udt_name='timestamptz' and is_nullable='NO') or",
+      "(column_name='created_by' and udt_name='text' and is_nullable='NO') or",
+      "(column_name='created_at' and udt_name='timestamptz' and is_nullable='NO')",
+      ")) = 4 as manual_closed_columns,",
+      "(select count(*) from information_schema.columns where table_schema='public'",
+      "and table_name='maria_service_card_translations' and (",
+      "(column_name='service_id' and udt_name='uuid' and is_nullable='NO') or",
+      "(column_name='locale' and udt_name='text' and is_nullable='NO') or",
+      "(column_name='description' and udt_name='text' and is_nullable='NO') or",
+      "(column_name='updated_at' and udt_name='timestamptz' and is_nullable='NO')",
+      ")) = 4 as card_translations_columns,",
+      "exists (select 1 from pg_constraint c",
+      "where c.conrelid=to_regclass('public.maria_manual_closed_starts')",
+      "and c.contype='p' and c.conname='maria_manual_closed_starts_pk'",
+      "and pg_get_constraintdef(c.oid)='PRIMARY KEY (workspace_id, starts_at)') as manual_closed_pk,",
+      "exists (select 1 from pg_constraint c",
+      "where c.conrelid=to_regclass('public.maria_service_card_translations')",
+      "and c.contype='p' and c.conname='maria_service_card_translations_pk'",
+      "and pg_get_constraintdef(c.oid)='PRIMARY KEY (service_id, locale)') as card_translations_pk,",
+      "exists (select 1 from pg_constraint c",
+      "where c.conrelid=to_regclass('public.maria_manual_closed_starts')",
+      "and c.contype='f' and c.confrelid=to_regclass('public.workspaces')",
+      "and c.confdeltype='c' and pg_get_constraintdef(c.oid)",
+      "like 'FOREIGN KEY (workspace_id) REFERENCES %') as manual_closed_fk,",
+      "exists (select 1 from pg_constraint c",
+      "where c.conrelid=to_regclass('public.maria_service_card_translations')",
+      "and c.contype='f' and c.confrelid=to_regclass('public.workspace_services')",
+      "and c.confdeltype='c' and pg_get_constraintdef(c.oid)",
+      "like 'FOREIGN KEY (service_id) REFERENCES %') as card_translations_fk",
+    ].join(" ");
+    const integrity = (await query(integritySql)).rows?.[0];
+    for (const key of ["manual_closed_columns", "card_translations_columns",
+      "manual_closed_pk", "card_translations_pk", "manual_closed_fk", "card_translations_fk"]) {
+      if (integrity?.[key] !== true) blockers.push("invalid_" + key);
+    }
+  }
+
+  let appliedMigrations = [];
+  if (schema.ledger === true) {
+    const rows = await query("select migration_key from proffera_schema_migrations where migration_key in ('20261103_0072','20261105_0073','20261107_0074')");
+    appliedMigrations = rows.rows.map(row => String(row.migration_key));
+    for (const key of migrations) if (!appliedMigrations.includes(key)) blockers.push("missing_migration_" + key);
+  }
+
+  if (["workspaces", "workspace_settings", "workspace_services", "booking_hours"].every(table => schema[table] === true)) {
+    const rows = await query([
+      "select w.id::text as id, w.status, w.public_booking_slug,",
+      "coalesce(nullif(ws.contact_email,''),'') as owner_email,",
+      "coalesce(nullif(ws.time_zone,''),'Europe/Stockholm') as time_zone,",
+      "ws.billing_currency as billing_currency",
+      "from workspaces w left join workspace_settings ws on ws.workspace_id = w.id::text",
+      "where w.slug = 'makeup-by-maria' limit 2",
+    ].join(" "));
+    const w = rows.rows.length === 1 ? rows.rows[0] : null;
+    if (!w || !["active", "trial"].includes(String(w.status)) || w.public_booking_slug !== "makeup-by-maria"
+      || w.time_zone !== "Europe/Stockholm" || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(w.owner_email ?? ""))) {
+      blockers.push("maria_workspace_not_ready");
+    } else {
+      if (w.billing_currency !== "SEK") blockers.push("maria_billing_currency_not_sek");
+      const services = await query([
+        "select public_slug, price_amount_minor, price_type, is_active, public_status, duration_minutes",
+        "from workspace_services where workspace_id=$1 and public_slug in",
+        "('maria-bridal-trial-2026','maria-bridal-without-trial-2026')",
+      ].join(" "), [w.id]);
+      const serviceRows = services.rows;
+      const bySlug = new Map(serviceRows.map(service => [String(service.public_slug), service]));
+      if (serviceRows.length !== 2 || bySlug.size !== 2) blockers.push("maria_services_ambiguous");
+      for (const [slug, initialPriceMinor] of Object.entries(prices)) {
+        const s = bySlug.get(slug);
+        if (!s || s.is_active !== true || s.public_status !== "published" || s.price_type !== "fixed"
+          || Number(s.price_amount_minor) !== initialPriceMinor
+          || !Number.isInteger(Number(s.duration_minutes)) || Number(s.duration_minutes) < 1
+          || Number(s.duration_minutes) > 1440) blockers.push("service_not_ready_" + slug);
+      }
+      const hours = await query("select weekday, opens_at::text as opens_at, closes_at::text as closes_at, is_closed from workspace_booking_hours where workspace_id=$1 and weekday in (0,5,6)", [w.id]);
+      if (!hours.rows.some(h => [0,5,6].includes(Number(h.weekday)) && h.is_closed === false
+        && /^\d{2}:\d{2}/.test(String(h.opens_at)) && /^\d{2}:\d{2}/.test(String(h.closes_at))
+        && String(h.opens_at) < String(h.closes_at))) blockers.push("maria_weekend_hours_not_ready");
+    }
+  }
+  return { databaseReady: blockers.length === 0, blockers, appliedMigrations };
+}
+
+async function main() {
+  if (!process.argv.includes("--read-only")) throw Error("Read-only confirmation required");
+  if (!process.env.DATABASE_URL) throw Error("Authorized Proffera Production DATABASE_URL required");
+  const { Client } = await import("pg");
+  const client = new Client({ connectionString: process.env.DATABASE_URL, connectionTimeoutMillis: 5000 });
+  await client.connect();
+  try {
+    await client.query("BEGIN READ ONLY");
+    await client.query("SET LOCAL statement_timeout = '10s'");
+    const result = await inspectMariaProductionBookingDatabase((sql, params) => client.query(sql, params));
+    process.stdout.write(JSON.stringify({ ...result, requiredMigrations: migrations,
+      productionBookingEnabled: false,
+      note: "Read-only data check. Booking, OTP recipient policy and Maria manager writes are still Preview-only; separate release approval is required.",
+    }, null, 2) + "\n");
+    if (!result.databaseReady) process.exitCode = 2;
+  } finally {
+    await client.query("ROLLBACK").catch(() => undefined);
+    await client.end();
+  }
+}
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  main().catch(() => {
+    process.stderr.write("Maria preflight unavailable: check authorization, connectivity and schema.\n");
+    process.exitCode = 1;
+  });
+}

@@ -1,4 +1,5 @@
 import type { WorkspaceTimeZone } from "@/lib/workspace-market";
+import { resolveBrevoApiKey } from "@/lib/email-runtime-config";
 
 type SendLeadEmailInput = {
   leadRef: string;
@@ -517,7 +518,7 @@ export async function sendBookingConfirmationEmail(input: SendBookingConfirmatio
 }
 
 export async function sendBookingOwnerNotificationEmail(input: SendBookingOwnerNotificationEmailInput) {
-  const apiKey = process.env.BREVO_API_KEY;
+  const apiKey = resolveBrevoApiKey();
   const from = process.env.LEAD_FROM_EMAIL;
   if (!apiKey || !from) return { ok: false as const, message: "Brevo är inte konfigurerat." };
 
