@@ -1,8 +1,9 @@
 import { NextResponse } from "next/server";
 
 import { getSql } from "@/lib/db/server";
-import { getMariaPreviewBookingReadiness } from "@/lib/maria-preview-booking";
-import { isMariaPreviewTestRecipient } from "@/lib/maria-preview-customer-safety";
+import { getMariaBookingReadiness } from "@/lib/maria-booking-runtime";
+import { MARIA_CANONICAL_PRODUCTION_ORIGIN } from "@/lib/maria-production-activation-policy";
+import { isMariaBookingRecipientAllowed } from "@/lib/maria-preview-customer-safety";
 import { isValidMariaBookingEmail, isValidMariaBookingPhone } from "@/lib/maria-booking-contact";
 import { getMariaAvailability } from "@/lib/maria-booking-availability";
 import { allowPublicSubmission } from "@/lib/public-form-protection";
@@ -27,16 +28,19 @@ function field(value: unknown, max = 250) {
 }
 
 /**
- * Preview-only bridge to the existing email-verified booking flow.
+ * Guarded bridge to Maria's email-verified booking flow.
  * The admin must explicitly enable booking and satisfy normal Proffera
  * entitlements before any visitor data is sent or stored.
  */
 export async function POST(request: Request) {
-  const readiness = await getMariaPreviewBookingReadiness();
+  const readiness = await getMariaBookingReadiness();
   if (!readiness.enabled) return failure("unavailable", 403);
 
   const origin = request.headers.get("origin");
   if (!origin || origin !== new URL(request.url).origin) return failure("origin", 403);
+  if (process.env.VERCEL_ENV === "production" && origin !== MARIA_CANONICAL_PRODUCTION_ORIGIN) {
+    return failure("origin", 403);
+  }
 
   const contentLength = Number(request.headers.get("content-length") ?? "0");
   if (!Number.isFinite(contentLength) || contentLength > 8192) return failure("invalid", 413);
@@ -105,10 +109,9 @@ export async function POST(request: Request) {
   if (!isValidMariaBookingEmail(email)) return failure("invalid_email", 400);
   if (!isValidMariaBookingPhone(phone)) return failure("invalid_phone", 400);
 
-  // Preview test booking is intentionally restricted to one approved inbox.
-  // Without an explicit allowlist, fail closed even if a Preview instance
-  // accidentally sets the general Maria booking feature flag.
-  if (!isMariaPreviewTestRecipient(email)) return failure("unavailable", 403);
+  // Preview uses a single approved QA inbox; Production requires its own
+  // independently enabled, canonical-domain real-recipient policy.
+  if (!isMariaBookingRecipientAllowed(email)) return failure("unavailable", 403);
 
   const localStart = parseLocalDateTime(`${date}T${time}`);
   if (!localStart || localStart.year !== year) return failure("time", 400);
@@ -170,7 +173,8 @@ export async function POST(request: Request) {
     || startMinute > permittedLastStart) return failure("hours", 409);
 
   const allowed = await allowPublicSubmission({
-    scope: "maria_preview_booking_verification",
+    scope: process.env.VERCEL_ENV === "production"
+      ? "maria_production_booking_verification" : "maria_preview_booking_verification",
     requestHeaders: request.headers,
     identity: `makeup-by-maria:${email}`,
     maxAttempts: 4,
@@ -229,7 +233,7 @@ export async function POST(request: Request) {
       verificationUrl: `/boka/verifiera/${result.verificationId}?lang=${requestedLang}`,
     }, { headers: privateHeaders });
   } catch (error) {
-    console.error("Maria preview booking preparation failed", error);
+    console.error("Maria booking preparation failed", error);
     return failure("unavailable", 503);
   }
 }
