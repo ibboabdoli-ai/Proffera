@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import { mariaDefaultCardCopy } from "@/lib/maria-default-card-copy";
 
-const state=vi.hoisted(()=>({slug:"makeup-by-maria",role:"owner"}));
+const state=vi.hoisted(()=>({slug:"makeup-by-maria",role:"owner",productionEditorReady:false}));
 vi.mock("server-only",()=>({}));
 vi.mock("next/navigation",()=>({redirect:(url:string)=>{throw Error("REDIRECT "+url)}}));
 vi.mock("@/lib/workspace-access",()=>({
@@ -12,6 +12,9 @@ vi.mock("@/lib/workspace-access",()=>({
 vi.mock("@/lib/workspace-services-db",()=>({getDashboardWorkspaceServices:async()=>[]}));
 vi.mock("@/lib/workspace-booking-hours-db",()=>({getDashboardWorkspaceBookingHours:async()=>({hours:[]})}));
 vi.mock("@/lib/maria-preview-booking",()=>({getMariaPreviewBookingReadiness:async()=>({enabled:false})}));
+vi.mock("@/lib/maria-production-year-editor",()=>({
+  isMariaProductionYearEditorReady:async()=>state.productionEditorReady,
+}));
 vi.mock("@/lib/maria-card-translations-db",()=>({
   readMariaCardTranslations:async()=>new Map([
     ["maria-bridal-trial-2026",{en:"Synthetic English card",ar:"نص تجريبي عربي"}],
@@ -37,6 +40,7 @@ vi.mock("@/lib/dashboard-db",()=>({
   }),
 }));
 vi.mock("./actions",()=>({saveMariaYearAction:async()=>{}}));
+vi.mock("./production-year-actions",()=>({saveMariaProductionYearAction:async()=>{}}));
 vi.mock("./schedule-actions",()=>({saveMariaScheduleAction:async()=>{}}));
 
 import MariaSiteDashboardPage from "./page";
@@ -45,7 +49,7 @@ import CalendarPage from "../kalender/page";
 import BookingsPage from "../bokningar/page";
 import NewBookingPage from "../bokningar/ny/page";
 
-afterEach(()=>{vi.unstubAllEnvs();state.slug="makeup-by-maria";state.role="owner"});
+afterEach(()=>{vi.unstubAllEnvs();state.slug="makeup-by-maria";state.role="owner";state.productionEditorReady=false});
 describe("Maria preview calendar visible without paid booking",()=>{
   it("routes the Maria manager workspace directly from /dashboard in Preview and Production",async()=>{
     for (const env of ["preview","production"]) {
@@ -104,6 +108,31 @@ describe("Maria preview calendar visible without paid booking",()=>{
     expect(html).not.toContain("Spara bokningstider");
     expect(html).not.toContain("<form");
     expect(html).not.toContain('href="/dashboard/maria/kalender"');
+  });
+  it("renders the exact year-by-year three-language price editor in Production only after schema gate",async()=>{
+    vi.stubEnv("VERCEL_ENV","production");
+    state.productionEditorReady=true;
+    const html=renderToStaticMarkup(await MariaSiteDashboardPage({searchParams:Promise.resolve({year:"2030"})}));
+    expect(html).toContain('name="year" value="2030"');
+    for(const name of [
+      "trial", "without",
+      "trial_description", "trial_description_en", "trial_description_ar",
+      "without_description", "without_description_en", "without_description_ar",
+    ])expect(html).toContain(`name="${name}"`);
+    expect(html).toContain("Spara 2030");
+    expect(html).toContain('lang="ar" dir="rtl"');
+    expect(html).not.toContain('name="enabled"');
+    expect(html).not.toContain("Spara bokningstider");
+    expect(html).not.toContain('href="/dashboard/maria/kalender"');
+    expect(html).not.toContain("Hantera bokningar");
+  });
+  it("keeps Production year editor locked even if the workspace is authorized while migration/flag is off",async()=>{
+    vi.stubEnv("VERCEL_ENV","production");
+    state.productionEditorReady=false;
+    const html=renderToStaticMarkup(await MariaSiteDashboardPage({searchParams:Promise.resolve({year:"2030"})}));
+    expect(html).not.toContain('name="trial_description_en"');
+    expect(html).not.toContain('name="trial"');
+    expect(html).toContain("Årsredigering öppnas efter godkänd databasmigrering");
   });
   it("never exposes the production Maria view to another workspace or non-manager",async()=>{
     vi.stubEnv("VERCEL_ENV","production");
