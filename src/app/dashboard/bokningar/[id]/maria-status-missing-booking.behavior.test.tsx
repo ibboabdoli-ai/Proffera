@@ -138,6 +138,16 @@ describe("Maria Preview booking status action on a deleted booking", () => {
     );
     expect(runtime.updateStatus).toHaveBeenCalledExactlyOnceWith(id, "requested");
   });
+  it("does not claim an update when an already cancelled booking is cancelled again", async () => {
+    const action = await getStatusAction();
+    runtime.updateStatus.mockResolvedValue({ changed: false, previousStatus: "cancelled" });
+    await expect(action(statusForm("cancelled"))).rejects.toThrow(
+      `REDIRECT:/dashboard/bokningar/${id}?lang=en`,
+    );
+    expect(runtime.updateStatus).toHaveBeenCalledExactlyOnceWith(id, "cancelled");
+    expect(runtime.sendStatusEmail).not.toHaveBeenCalled();
+  });
+
   it.each(["cancelled", "no_show"])(
     "rejects reactivation from %s when the writer returns unchanged",
     async (previousStatus) => {
