@@ -5,7 +5,9 @@ import { bookingDateLocale } from "@/lib/booking-date-locale";
 import { getSql } from "@/lib/db/server";
 import { resolveBrevoApiKey } from "@/lib/email-runtime-config";
 
-import { getMariaPreviewPortalBase, isMariaPreviewTestRecipient } from "@/lib/maria-preview-customer-safety";
+import { getMariaBookingPortalBase, isMariaBookingRecipientAllowed } from "@/lib/maria-preview-customer-safety";
+import { getMariaBookingReadiness } from "@/lib/maria-booking-runtime";
+import { MARIA_CANONICAL_PRODUCTION_ORIGIN } from "@/lib/maria-production-activation-policy";
 import {
   MARIA_DEPOSIT_AMOUNT_SEK, MARIA_SWISH_NUMBER, mariaSwishPaymentPagePath,
   mariaSwishQrPath, mariaBookingNumber, mariaDepositDeadline,
@@ -41,18 +43,21 @@ function formatTime(value: string | Date, timeZone: WorkspaceTimeZone = "Europe/
   return new Intl.DateTimeFormat(bookingDateLocale(language), { timeZone, dateStyle: "full", timeStyle: "short" }).format(date);
 }
 
-function checkedPreviewOrigin(value: string) {
+function checkedMariaOrigin(value: string, production: boolean) {
   const url = new URL(value);
-  if (url.protocol !== "https:" || !/^[a-z0-9][a-z0-9.-]*\.vercel\.app$/i.test(url.hostname)
+  const approvedHost = production
+    ? url.origin === MARIA_CANONICAL_PRODUCTION_ORIGIN
+    : /^[a-z0-9][a-z0-9.-]*\.vercel\.app$/i.test(url.hostname);
+  if (url.protocol !== "https:" || !approvedHost
     || url.username || url.password || url.port || url.pathname !== "/" || url.search || url.hash) {
-    throw new Error("INVALID_MARIA_PREVIEW_ORIGIN");
+    throw new Error("INVALID_MARIA_BOOKING_ORIGIN");
   }
   return url.origin;
 }
 
 /** Pure builder: no email, banking, or database operations. */
-export function buildMariaBookingStatusEmail(input: MariaBookingStatusEmailInput, previewOrigin: string) {
-  const origin = checkedPreviewOrigin(previewOrigin);
+export function buildMariaBookingStatusEmail(input: MariaBookingStatusEmailInput, bookingOrigin: string, production = false) {
+  const origin = checkedMariaOrigin(bookingOrigin, production);
   const logo = mariaEmailLogoHtml(origin);
   const reference = mariaBookingNumber(input.bookingId);
   const language = input.language === "en" || input.language === "ar" ? input.language : "sv";
@@ -69,7 +74,7 @@ export function buildMariaBookingStatusEmail(input: MariaBookingStatusEmailInput
       : "Maria har redan markerat handpenningen som mottagen. Ingen ny betalning behövs.";
     const dateLabel = language === "en" ? "Appointment" : language === "ar" ? "الموعد" : "Tid";
     const referenceLabel = language === "en" ? "Booking number" : language === "ar" ? "رقم الحجز" : "Bokningsnummer";
-    const previewWarning = language === "en" ? "Preview test only – do not make a real Swish payment."
+    const previewWarning = production ? "" : language === "en" ? "Preview test only – do not make a real Swish payment."
       : language === "ar" ? "بيئة تجريبية فقط – لا تقومي بأي دفع حقيقي عبر Swish."
       : "Endast Preview-test – gör ingen riktig Swish-betalning.";
     const subject = `${paidTitle} – ${reference}`;
@@ -80,7 +85,7 @@ export function buildMariaBookingStatusEmail(input: MariaBookingStatusEmailInput
       ${logo}<h1 style="color:#845363">${escapeHtml(paidTitle)}</h1>
       <p><strong>${escapeHtml(dateLabel)}:</strong> ${escapeHtml(start)} – ${escapeHtml(end)}</p>
       <p><strong>${escapeHtml(referenceLabel)}:</strong> ${escapeHtml(reference)}</p>
-      <p>${escapeHtml(paidMessage)}</p><p>${escapeHtml(previewWarning)}</p>
+      <p>${escapeHtml(paidMessage)}</p>${production ? "" : `<p>${escapeHtml(previewWarning)}</p>`}
       <p>${escapeHtml(input.companyName)}</p></div>`;
     return { subject, text, html, reference };
   }
@@ -93,7 +98,7 @@ export function buildMariaBookingStatusEmail(input: MariaBookingStatusEmailInput
       confirmedIntro: "Maria has confirmed your booking with",
       cancelledIntro: "Your booking has been cancelled. You are welcome to book again.",
       number: "Booking number", service: "Service", time: "Time",
-      preview: "Preview test only – do not make a real Swish payment.",
+      preview: production ? "" : "Preview test only – do not make a real Swish payment.",
       deposit: "Deposit", deadline: "Pay within 24 hours of confirmation, no later than",
       payee: "Swish business", details: "View payment details",
       qr: "Booking-specific QR code",
@@ -107,7 +112,7 @@ export function buildMariaBookingStatusEmail(input: MariaBookingStatusEmailInput
       confirmedIntro: "أكدت ماريا حجزك لدى",
       cancelledIntro: "تم إلغاء حجزك. يسعدنا استقبال حجز جديد منك.",
       number: "رقم الحجز", service: "الخدمة", time: "الموعد",
-      preview: "بيئة تجريبية فقط – لا تقومي بأي دفع حقيقي عبر Swish.",
+      preview: production ? "" : "بيئة تجريبية فقط – لا تقومي بأي دفع حقيقي عبر Swish.",
       deposit: "العربون", deadline: "يُدفع خلال ٢٤ ساعة من التأكيد، وبحد أقصى",
       payee: "رقم Swish للشركة", details: "عرض تفاصيل الدفع",
       qr: "رمز QR خاص بهذا الحجز",
@@ -153,7 +158,7 @@ export function buildMariaBookingStatusEmail(input: MariaBookingStatusEmailInput
       <strong>${escapeHtml(copy.service)}:</strong> ${escapeHtml(input.service)}<br/>
       <strong>${escapeHtml(copy.time)}:</strong> ${escapeHtml(start)} – ${escapeHtml(end)}</p>
       ${isConfirmation ? `
-        <p style="color:#8b2d39;font-weight:bold">${escapeHtml(copy.preview)}</p>
+        ${production ? "" : `<p style="color:#8b2d39;font-weight:bold">${escapeHtml(copy.preview)}</p>`}
         <h2 style="color:#845363">${escapeHtml(copy.deposit)}: ${payment} SEK</h2>
         <p>${escapeHtml(copy.deadline)} ${escapeHtml(due)}.</p>
         <p><strong>${escapeHtml(copy.payee)}:</strong> ${escapeHtml(MARIA_SWISH_NUMBER)}</p>
@@ -203,7 +208,7 @@ export function buildMariaBookingStatusEmail(input: MariaBookingStatusEmailInput
     `Tjänst: ${input.service}`,
     `Tid: ${start} – ${end}`,
     `Bokningsnummer: ${reference}`, "",
-    "Endast Preview-test: gör ingen riktig Swish-betalning.",
+    ...(production ? [] : ["Endast Preview-test: gör ingen riktig Swish-betalning."]),
     `Handpenning: ${payment} kr via Swish.`,
     `Betala inom 24 timmar från bekräftelsen, senast ${due}.`,
     `Swish företag: ${MARIA_SWISH_NUMBER}`,
@@ -223,7 +228,7 @@ export function buildMariaBookingStatusEmail(input: MariaBookingStatusEmailInput
       <p><strong>Tjänst:</strong> ${escapeHtml(input.service)}<br/>
       <strong>Tid:</strong> ${escapeHtml(start)} – ${escapeHtml(end)}<br/>
       <strong>Bokningsnummer:</strong> <code>${escapeHtml(reference)}</code></p>
-      <p style="font-size:14px;color:#8b2d39;font-weight:bold">Endast Preview-test – gör ingen riktig Swish-betalning.</p>
+      ${production ? "" : `<p style="font-size:14px;color:#8b2d39;font-weight:bold">Endast Preview-test – gör ingen riktig Swish-betalning.</p>`}
       <h2 style="color:#845363;font-size:21px">Handpenning: ${payment} kr</h2>
       <p><strong>Betala via Swish inom 24 timmar, senast ${escapeHtml(due)}.</strong></p>
       <p><strong>Swish företag:</strong> ${escapeHtml(MARIA_SWISH_NUMBER)}</p>
@@ -252,9 +257,14 @@ export function buildMariaBookingStatusEmail(input: MariaBookingStatusEmailInput
  * This does not initiate a transaction, validate payments or send SMS.
  */
 export async function sendMariaBookingStatusEmail(input: MariaBookingStatusEmailInput) {
-  const base = getMariaPreviewPortalBase();
-  if (!base || !isMariaPreviewTestRecipient(input.customerEmail)) {
-    return { ok: false as const, error: "preview_recipient_not_approved" as const };
+  const base = getMariaBookingPortalBase();
+  if (!base || !isMariaBookingRecipientAllowed(input.customerEmail)) {
+    return { ok: false as const, error: "recipient_not_approved" as const };
+  }
+  // A direct status-email request cannot bypass Production workspace, schema,
+  // booking entitlement and lifecycle readiness. Preview retains its QA gate.
+  if (process.env.VERCEL_ENV === "production" && !(await getMariaBookingReadiness()).enabled) {
+    return { ok: false as const, error: "recipient_not_approved" as const };
   }
   const apiKey = resolveBrevoApiKey();
   const from = process.env.LEAD_FROM_EMAIL;
@@ -286,7 +296,7 @@ export async function sendMariaBookingStatusEmail(input: MariaBookingStatusEmail
       `;
     if (!rows[0]) return { ok: false as const, error: "invalid_booking" as const };
     const depositAlreadyPaid = input.status === "confirmed" && rows[0].deposit_state === "paid";
-    content = buildMariaBookingStatusEmail({ ...input, depositAlreadyPaid }, base);
+    content = buildMariaBookingStatusEmail({ ...input, depositAlreadyPaid }, base, process.env.VERCEL_ENV === "production");
   } catch {
     return { ok: false as const, error: "invalid_booking" as const };
   }
