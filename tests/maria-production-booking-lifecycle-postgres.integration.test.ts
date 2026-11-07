@@ -13,6 +13,8 @@ const runtime = vi.hoisted(() => ({
   userId: "synthetic-maria-manager",
 }));
 vi.mock("server-only", () => ({}));
+vi.mock("@neondatabase/serverless", () => ({ neon: () => runtime.makeSql?.() ?? null }));
+vi.mock("@/lib/db/database-url", () => ({ resolveDatabaseUrl: () => "postgresql://synthetic-isolated-pg-test.invalid" }));
 vi.mock("@/lib/db/server", () => ({ getSql: () => runtime.makeSql?.() ?? null }));
 vi.mock("@/lib/workspace-feature-entitlement-db", () => ({
   hasWorkspaceFeatureAccessForWorkspace: async (id: string) => id === runtime.workspaceId,
