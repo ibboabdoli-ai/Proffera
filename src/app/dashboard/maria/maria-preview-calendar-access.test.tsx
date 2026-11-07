@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
+import { mariaDefaultCardCopy } from "@/lib/maria-default-card-copy";
 
 const state=vi.hoisted(()=>({slug:"makeup-by-maria",role:"owner"}));
 vi.mock("server-only",()=>({}));
@@ -81,8 +82,12 @@ describe("Maria preview calendar visible without paid booking",()=>{
       "without_description", "without_description_en", "without_description_ar",
     ])expect(html).toContain(`name="${name}"`);
     expect(html).toContain('lang="ar" dir="rtl"');
+    // Persisted custom text takes priority; unedited languages display the
+    // real customer-facing default instead of an empty textarea placeholder.
     expect(html).toContain("Synthetic English card");
     expect(html).toContain("نص تجريبي عربي");
+    expect(html).toContain(mariaDefaultCardCopy["without-trial"].en);
+    expect(html).toContain(mariaDefaultCardCopy["without-trial"].ar);
   });
   it("shows manager calendar link twice but keeps public booking disabled",async()=>{
     vi.stubEnv("VERCEL_ENV","preview");
