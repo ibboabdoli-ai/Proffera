@@ -3,8 +3,8 @@ import "server-only";
 import { sendBookingChangeEmails } from "@/features/email/booking-change-email";
 import { getSql } from "@/lib/db/server";
 import { getMariaAvailability } from "@/lib/maria-booking-availability";
-import { getMariaPreviewBookingReadiness } from "@/lib/maria-preview-booking";
-import { getMariaPreviewPortalBase, isMariaPreviewTestRecipient } from "@/lib/maria-preview-customer-safety";
+import { getMariaBookingReadiness } from "@/lib/maria-booking-runtime";
+import { getMariaBookingPortalBase, isMariaBookingRecipientAllowed } from "@/lib/maria-preview-customer-safety";
 import { parseLocalDateTime, validatePublicBookingPolicy } from "@/lib/public-booking-policy";
 
 type MariaChangeInput = {
@@ -23,8 +23,8 @@ type MariaChangeInput = {
  */
 export async function rescheduleMariaCustomerBooking(input: MariaChangeInput) {
   const denied = { ok: false as const, error: "not_allowed" as const };
-  const readiness = await getMariaPreviewBookingReadiness();
-  const base = getMariaPreviewPortalBase();
+  const readiness = await getMariaBookingReadiness();
+  const base = getMariaBookingPortalBase();
   if (!readiness.enabled || readiness.workspaceId !== input.workspaceId || !base) return denied;
   const local = parseLocalDateTime(input.startsAtLocal);
   if (!local || local.minutes % 30 !== 0) return { ok: false as const, error: "time" as const };
@@ -46,7 +46,7 @@ export async function rescheduleMariaCustomerBooking(input: MariaChangeInput) {
     limit 1
   `;
   const service = before[0];
-  if (!service || !isMariaPreviewTestRecipient(String(service.customer_email))) return denied;
+  if (!service || !isMariaBookingRecipientAllowed(String(service.customer_email))) return denied;
   const bookedStart = String(service.booked_starts_at);
   const bookedEnd = String(service.booked_ends_at);
   const originalDurationMinutes = (Date.parse(bookedEnd)-Date.parse(bookedStart))/60_000;
@@ -122,7 +122,7 @@ export async function rescheduleMariaCustomerBooking(input: MariaChangeInput) {
             and b.starts_at<>${start}::timestamptz
             and w.slug='makeup-by-maria' and w.public_booking_slug='makeup-by-maria'
             and w.status in ('active','trial')
-            and lower(c.email)=lower(${process.env.PROFFERA_MARIA_PREVIEW_TEST_EMAIL?.trim() ?? ""})
+            and (${process.env.VERCEL_ENV !== "preview"}::boolean or lower(trim(c.email))=lower(${process.env.PROFFERA_MARIA_PREVIEW_TEST_EMAIL?.trim() ?? ""}))
             and coalesce(ps.customer_reschedule_enabled,true)=true
             and s.public_slug=${slug} and s.is_active=true and s.public_status='published'
             and s.duration_minutes between 1 and 1440
@@ -213,7 +213,7 @@ export async function rescheduleMariaCustomerBooking(input: MariaChangeInput) {
       branding: "makeup-by-maria",
       customerName: String(booking.customer_name),
       customerEmail: String(booking.customer_email),
-      ownerEmail: booking.owner_email && isMariaPreviewTestRecipient(String(booking.owner_email))
+      ownerEmail: booking.owner_email && isMariaBookingRecipientAllowed(String(booking.owner_email))
         ? String(booking.owner_email) : undefined,
       companyName: String(booking.company_name),
       service: String(booking.service_name),
@@ -229,7 +229,7 @@ export async function rescheduleMariaCustomerBooking(input: MariaChangeInput) {
     for (const [index, result] of notices.entries()) {
       if (result.status === "rejected" || (result.status === "fulfilled"
         && (!result.value || typeof result.value !== "object" || !("ok" in result.value) || result.value.ok !== true))) {
-        console.error("Maria Preview reschedule email was not delivered", {
+        console.error("Maria reschedule email was not delivered", {
           target: index === 0 ? "customer" : "owner",
           outcome: result.status === "rejected" ? "rejected" : "provider_failure",
         });
@@ -237,7 +237,7 @@ export async function rescheduleMariaCustomerBooking(input: MariaChangeInput) {
     }
     return { ok: true as const };
   } catch (error) {
-    console.error("Maria preview reschedule failed closed", error);
+    console.error("Maria customer reschedule failed closed", error);
     return { ok: false as const, error: "conflict" as const };
   }
 }
