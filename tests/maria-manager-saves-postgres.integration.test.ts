@@ -344,6 +344,39 @@ function compileSql(strings: TemplateStringsArray, values: unknown[]): Query {
     expect(afterAudit.rows[0]?.count).toBe(beforeAudit.rows[0]?.count);
   });
 
+  it("rejects incomplete Swedish fields atomically before overwriting multilingual card copy", async () => {
+    const names = [
+      "trial_description", "without_description",
+      "trial_description_en", "trial_description_ar",
+      "without_description_en", "without_description_ar",
+    ] as const;
+    const beforeAudit = await db!.query<{ count: number }>(
+      "select count(*)::int as count from admin_audit_logs where workspace_id=$1::uuid and action='maria.booking_year_content.updated'",
+      [workspaceId],
+    );
+    for (const missing of ["trial_description", "without_description"]) {
+      const form = new FormData();
+      form.set("year", "2034");
+      form.set("enabled", "on");
+      form.set("trial", "6900");
+      form.set("without", "5800");
+      for (const name of names) form.set(name, "Synthetic QA description " + name);
+      form.delete(missing);
+      await expect(saveMariaYearAction(form))
+        .rejects.toThrow("TEST_REDIRECT:/dashboard/maria?error=description");
+      const services = await db!.query<{ count: number }>(
+        "select count(*)::int as count from workspace_services where workspace_id=$1 and public_slug in ('maria-bridal-trial-2034','maria-bridal-without-trial-2034')",
+        [workspaceId],
+      );
+      expect(services.rows[0]?.count).toBe(0);
+      const afterAudit = await db!.query<{ count: number }>(
+        "select count(*)::int as count from admin_audit_logs where workspace_id=$1::uuid and action='maria.booking_year_content.updated'",
+        [workspaceId],
+      );
+      expect(afterAudit.rows[0]?.count).toBe(beforeAudit.rows[0]?.count);
+    }
+  });
+
   it("reschedules one Maria QA booking with the workspace lock and rejects overlapping verification holds", async () => {
     const day = (await db!.query<{ day: string }>(
       "select to_char(current_date + (((5 - extract(dow from current_date)::int + 7) % 7) + 7), 'YYYY-MM-DD') as day",
