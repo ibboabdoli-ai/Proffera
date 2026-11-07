@@ -199,9 +199,9 @@ footer a{color:#875565}
 <script>
 const mariaPublicHost=/^(?:www\.)?makeupbymaria\.se$/i.test(window.location.hostname);
 const mariaPublicCopy={
- sv:{closed:"Onlinebokningen öppnar snart",info:"Onlinebokningen är inte öppen ännu. Kontakta Maria via Instagram för frågor.",open:"Din förfrågan skickas efter e-postverifiering. Maria bekräftar tiden separat."},
- en:{closed:"Online booking opens soon",info:"Online booking is not open yet. Contact Maria through Instagram for enquiries.",open:"Your request is sent after email verification. Maria confirms the appointment separately."},
- ar:{closed:"سيُفتح الحجز الإلكتروني قريبًا",info:"الحجز الإلكتروني غير متاح بعد. يمكنك التواصل مع ماريا عبر إنستغرام للاستفسار.",open:"يُرسل طلبك بعد تأكيد البريد الإلكتروني، وتؤكد ماريا الموعد بشكل منفصل."}
+ sv:{closed:"Onlinebokningen öppnar snart",info:"Onlinebokningen är inte öppen ännu. Kontakta Maria via Instagram för frågor.",open:"Din förfrågan skickas efter e-postverifiering. Maria bekräftar tiden separat.",footer:"Makeup by Maria · Södertälje, Sverige"},
+ en:{closed:"Online booking opens soon",info:"Online booking is not open yet. Contact Maria through Instagram for enquiries.",open:"Your request is sent after email verification. Maria confirms the appointment separately.",footer:"Makeup by Maria · Södertälje, Sweden"},
+ ar:{closed:"سيُفتح الحجز الإلكتروني قريبًا",info:"الحجز الإلكتروني غير متاح بعد. يمكنك التواصل مع ماريا عبر إنستغرام للاستفسار.",open:"يُرسل طلبك بعد تأكيد البريد الإلكتروني، وتؤكد ماريا الموعد بشكل منفصل.",footer:"ميك أب باي ماريا · سودرتاليا، السويد"}
 };
 if(mariaPublicHost){
  document.title="Makeup by Maria · Brudmakeup i Södertälje";
@@ -412,6 +412,7 @@ function translate(){
  }
  if(mariaPublicHost){
   const publicCopy=mariaPublicCopy[state.lang]||mariaPublicCopy.sv;
+  document.querySelector('[data-i="footer"]').textContent=publicCopy.footer;
   document.querySelector(".first-design").hidden=true;
   document.querySelector(".first-design").style.display="none";
   document.querySelector('[data-i="notice"]').textContent=workspaceConfig.bookingEnabled?publicCopy.open:publicCopy.closed;
