@@ -9,9 +9,9 @@ import { sendBookingOwnerSms, sendBookingVerificationSms } from "@/features/sms/
 import { createCustomerCalendarToken } from "@/lib/customer-calendar";
 import { getSql } from "@/lib/db/server";
 import { finalizeMariaVerifiedBooking } from "@/lib/maria-verified-booking";
-import { getMariaPreviewBookingReadiness } from "@/lib/maria-preview-booking";
+import { getMariaBookingReadiness } from "@/lib/maria-booking-runtime";
 import { renewMariaPreviewHoldForResend } from "@/lib/maria-resend-hold";
-import { getMariaPreviewPortalBase, isMariaPreviewTestRecipient } from "@/lib/maria-preview-customer-safety";
+import { getMariaBookingPortalBase, isMariaBookingRecipientAllowed, isMariaPreviewTestRecipient } from "@/lib/maria-preview-customer-safety";
 import type { WorkspaceTimeZone } from "@/lib/workspace-market";
 
 const EXPIRY_MINUTES = 10;
@@ -120,7 +120,7 @@ export type BeginBookingVerificationInput = {
 /**
  * Create and deliver a short-lived booking challenge, not a confirmed booking.
  * Maria starts are held transactionally under the workspace-wide booking lock;
- * delivery and recipient safeguards remain Preview-only for that workspace.
+ * delivery and recipient safeguards are enforced for the active environment.
  */
 export async function beginBookingEmailVerification(input: BeginBookingVerificationInput) {
   if (input.slug === "primeview" && !validatePrimeViewServiceAddress(input)) {
@@ -237,7 +237,7 @@ export async function beginBookingEmailVerification(input: BeginBookingVerificat
   await sql`update public_booking_verifications set code_hash = ${hashCode(id, code)} where id = ${id}::uuid`;
 
   const effectiveInitialLanguage = input.language === "ar"
-    && !(input.slug === "makeup-by-maria" && process.env.VERCEL_ENV === "preview")
+    && input.slug !== "makeup-by-maria"
     ? "en" : input.language;
   const [emailSent, smsSent] = await Promise.all([
     sendBookingVerificationEmail({ customerName: input.customerName, customerEmail: input.customerEmail, companyName: input.companyName, code, expiresMinutes: EXPIRY_MINUTES, language: effectiveInitialLanguage, branding: input.slug === "makeup-by-maria" ? "makeup-by-maria" : undefined }),
@@ -289,9 +289,9 @@ export async function resendPublicBookingCode(id: string, language: "sv" | "en" 
   const customerPhone = challenge.customer_phone ? String(challenge.customer_phone) : "";
   const useSms = String(challenge.public_booking_slug) === "primeview" && Boolean(customerPhone);
   if (String(challenge.public_booking_slug) === "makeup-by-maria") {
-    const readiness = await getMariaPreviewBookingReadiness();
+    const readiness = await getMariaBookingReadiness();
     if (!readiness.enabled || readiness.workspaceId !== String(challenge.workspace_id)
-      || !isMariaPreviewTestRecipient(customerEmail)) {
+      || !isMariaBookingRecipientAllowed(customerEmail)) {
       return { ok: false as const, error: "invalid" };
     }
 
@@ -369,10 +369,15 @@ export async function verifyPublicBookingCode(id: string, code: string, language
   `;
   const challenge = rows[0];
   if (!challenge || challenge.consumed_at || challenge.verified_at) return { ok: false as const, error: "invalid" };
-  // The approved Preview inbox may have changed since the OTP was issued.
-  if (String(challenge.public_booking_slug) === "makeup-by-maria"
-    && !isMariaPreviewTestRecipient(String(challenge.customer_email))) {
-    return { ok: false as const, error: "invalid" };
+  // Revalidate both the Maria workspace and current recipient policy when
+  // verifying (not just when issuing). Preview revocation and Production flags
+  // must prevent any previously issued challenge from being consumed.
+  if (String(challenge.public_booking_slug) === "makeup-by-maria") {
+    const readiness = await getMariaBookingReadiness();
+    if (!readiness.enabled || readiness.workspaceId !== String(challenge.workspace_id)
+      || !isMariaBookingRecipientAllowed(String(challenge.customer_email))) {
+      return { ok: false as const, error: "invalid" };
+    }
   }
   if (new Date(String(challenge.expires_at)) <= new Date()) return { ok: false as const, error: "expired" };
   if (Number(challenge.attempts) >= Number(challenge.max_attempts)) return { ok: false as const, error: "attempts" };
@@ -411,9 +416,9 @@ export async function verifyPublicBookingCode(id: string, code: string, language
   let customerId: string;
 
   if (String(challenge.public_booking_slug) === "makeup-by-maria") {
-    // A preview booking must never be created if its customer links cannot
-    // be generated on the same isolated Preview deployment.
-    if (!getMariaPreviewPortalBase()) {
+    // Refuse the write if the current environment has no trusted customer
+    // portal origin (isolated Preview or canonical Production).
+    if (!getMariaBookingPortalBase()) {
       return { ok: false as const, error: "unavailable" };
     }
     // Revalidates the code and the latest start window, service duration,
@@ -502,19 +507,15 @@ export async function verifyPublicBookingCode(id: string, code: string, language
 
   const timeZone = String(challenge.time_zone) as WorkspaceTimeZone;
   const requestedConfirmationLanguage = language ?? (String(challenge.public_booking_slug) === "primeview" ? "en" : "sv");
-  const mariaArabicPreview = String(challenge.public_booking_slug) === "makeup-by-maria"
-    && process.env.VERCEL_ENV === "preview";
-  // An Arabic locale must not be trusted for another tenant.
-  const confirmationLanguage: "sv" | "en" | "ar" = requestedConfirmationLanguage === "ar" && !mariaArabicPreview
+  const isMaria = String(challenge.public_booking_slug) === "makeup-by-maria";
+  // Arabic is supported for Maria in both deployments, never for other tenants.
+  const confirmationLanguage: "sv" | "en" | "ar" = requestedConfirmationLanguage === "ar" && !isMaria
     ? "en" : requestedConfirmationLanguage;
   const portalToken = createCustomerCalendarToken({ workspaceId: String(challenge.workspace_id), customerId, expiresInSeconds: portalTokenLifetimeSeconds(endsAt) });
   // Never direct Preview-only Maria customers to Production portal links.
-  const mariaPreview = String(challenge.public_booking_slug) === "makeup-by-maria"
-    && process.env.VERCEL_ENV === "preview";
-  const appUrl = mariaPreview
-    ? process.env.VERCEL_URL
-      ? `https://${process.env.VERCEL_URL}`
-      : ""
+  const mariaPreview = isMaria && process.env.VERCEL_ENV === "preview";
+  const appUrl = isMaria
+    ? (getMariaBookingPortalBase() ?? "")
     : (process.env.NEXT_PUBLIC_APP_URL ?? process.env.APP_URL ?? "https://www.proffera.se").replace(/\/$/, "");
   if (!appUrl) return { ok: false as const, error: "unavailable" };
   const encodedToken = encodeURIComponent(portalToken);
@@ -526,9 +527,9 @@ export async function verifyPublicBookingCode(id: string, code: string, language
   const ownerEmailAllowed = challenge.owner_email
     && (!mariaPreview || isMariaPreviewTestRecipient(String(challenge.owner_email)));
   await Promise.allSettled([
-    sendUnifiedBookingConfirmationEmail({ customerName: String(challenge.customer_name), customerEmail: String(challenge.customer_email), companyName: String(challenge.company_name), service: String(challenge.service_name), startsAt, endsAt, city: String(challenge.city ?? ""), address, postcode, timeZone, portalUrl, rescheduleUrl, language: confirmationLanguage, branding: mariaPreview ? "makeup-by-maria" : undefined }),
+    sendUnifiedBookingConfirmationEmail({ customerName: String(challenge.customer_name), customerEmail: String(challenge.customer_email), companyName: String(challenge.company_name), service: String(challenge.service_name), startsAt, endsAt, city: String(challenge.city ?? ""), address, postcode, timeZone, portalUrl, rescheduleUrl, language: confirmationLanguage, branding: isMaria ? "makeup-by-maria" : undefined }),
     ownerEmailAllowed ? sendBookingOwnerNotificationEmail({ ownerEmail: String(challenge.owner_email), companyName: String(challenge.company_name), customerName: String(challenge.customer_name), customerEmail: String(challenge.customer_email), customerPhone: String(challenge.customer_phone ?? ""), service: String(challenge.service_name), startsAt, endsAt, city: String(challenge.city ?? ""), address, postcode, timeZone, language: String(challenge.public_booking_slug) === "primeview" ? "en" : undefined }) : Promise.resolve(),
-    challenge.owner_phone ? sendBookingOwnerSms({ ownerPhone: String(challenge.owner_phone), companyName: String(challenge.company_name), customerName: String(challenge.customer_name), customerPhone: String(challenge.customer_phone ?? ""), service: String(challenge.service_name), startsAt, timeZone }) : Promise.resolve(),
+    !isMaria && challenge.owner_phone ? sendBookingOwnerSms({ ownerPhone: String(challenge.owner_phone), companyName: String(challenge.company_name), customerName: String(challenge.customer_name), customerPhone: String(challenge.customer_phone ?? ""), service: String(challenge.service_name), startsAt, timeZone }) : Promise.resolve(),
   ]);
 
   return { ok: true as const, slug: String(challenge.public_booking_slug) };
