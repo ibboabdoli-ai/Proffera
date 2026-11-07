@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 
 import { getSql } from "@/lib/db/server";
 import { getMariaPreviewBookingReadiness } from "@/lib/maria-preview-booking";
+import { readMariaCardTranslations } from "@/lib/maria-card-translations-db";
 import { canManageWorkspaceSettings, getUserWorkspaceAccess } from "@/lib/workspace-access";
 
 // Read-only, scoped to this one customer's approved preview.
@@ -37,7 +38,7 @@ export async function GET() {
       && access.workspaceId === workspaceId
       && canManageWorkspaceSettings(access);
 
-    const [services, hours, bookingReadiness] = await Promise.all([
+    const [services, hours, bookingReadiness, cardTranslations] = await Promise.all([
       sql`
         select public_slug, price_type, price_amount_minor, short_description, is_active,
           public_status, duration_minutes, maximum_advance_days
@@ -58,16 +59,18 @@ export async function GET() {
         order by weekday
       `,
       getMariaPreviewBookingReadiness(),
+      readMariaCardTranslations(workspaceId),
     ]);
 
     // This endpoint exposes only the approved Maria demo's year/price values,
     // never customer data. Draft values may be viewed publicly on Preview only.
-    const defaults = new Map<number, {year: number; enabled: boolean; trial: number | null; without: number | null; trialDescription?: string; withoutDescription?: string}>([
+    type CardDescriptions = {sv: string; en: string; ar: string};
+    const defaults = new Map<number, {year: number; enabled: boolean; trial: number | null; without: number | null; trialDescription?: string; withoutDescription?: string; trialDescriptions?: CardDescriptions; withoutDescriptions?: CardDescriptions}>([
       [2026, {year:2026, enabled:true, trial:6900, without:5800}],
       [2027, {year:2027, enabled:true, trial:null, without:null}],
       [2028, {year:2028, enabled:true, trial:null, without:null}],
     ]);
-    const saved = new Map<number, {trial?: {enabled: boolean; value: number | null; description: string}; without?: {enabled: boolean; value: number | null; description: string}}>();
+    const saved = new Map<number, {trial?: {enabled: boolean; value: number | null; description: string; translations: {en: string; ar: string}}; without?: {enabled: boolean; value: number | null; description: string; translations: {en: string; ar: string}}}>();
     for (const row of services) {
       const match = /^maria-bridal-(trial|without-trial)-(202[6-9]|203[0-6])$/.exec(String(row.public_slug));
       if (!match) continue;
@@ -81,7 +84,10 @@ export async function GET() {
       const item = saved.get(year) ?? {};
       const description = typeof row.short_description === "string" && row.short_description.length <= 280
         ? row.short_description.trim() : "";
-      item[kind] = {enabled: row.is_active === true, value, description};
+      item[kind] = {
+        enabled: row.is_active === true, value, description,
+        translations: cardTranslations.get(String(row.public_slug)) ?? {en: "", ar: ""},
+      };
       saved.set(year, item);
     }
     for (const [year, items] of saved) {
@@ -93,6 +99,12 @@ export async function GET() {
         without: items.without ? items.without.value : (original?.without ?? null),
         trialDescription: items.trial?.description ?? original?.trialDescription,
         withoutDescription: items.without?.description ?? original?.withoutDescription,
+        trialDescriptions: items.trial
+          ? {sv: items.trial.description, ...items.trial.translations}
+          : original?.trialDescriptions,
+        withoutDescriptions: items.without
+          ? {sv: items.without.description, ...items.without.translations}
+          : original?.withoutDescriptions,
       });
     }
     const years = [...defaults.values()].sort((a,b)=>a.year-b.year).filter(v=>v.enabled);
