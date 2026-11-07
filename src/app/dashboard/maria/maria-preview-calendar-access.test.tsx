@@ -11,6 +11,11 @@ vi.mock("@/lib/workspace-access",()=>({
 vi.mock("@/lib/workspace-services-db",()=>({getDashboardWorkspaceServices:async()=>[]}));
 vi.mock("@/lib/workspace-booking-hours-db",()=>({getDashboardWorkspaceBookingHours:async()=>({hours:[]})}));
 vi.mock("@/lib/maria-preview-booking",()=>({getMariaPreviewBookingReadiness:async()=>({enabled:false})}));
+vi.mock("@/lib/maria-card-translations-db",()=>({
+  readMariaCardTranslations:async()=>new Map([
+    ["maria-bridal-trial-2026",{en:"Synthetic English card",ar:"نص تجريبي عربي"}],
+  ]),
+}));
 vi.mock("@/lib/workspace-module-access",()=>({
   hasDashboardModuleAccess:()=>{throw Error("No paid booking entitlement may be queried for this preview-only Maria editor")},
   getDashboardModuleAccess:async()=>[],
@@ -68,6 +73,17 @@ describe("Maria preview calendar visible without paid booking",()=>{
       expect(html).not.toContain("Min bokningsöversikt");
     },
   );
+  it("shows all three independently editable card-copy languages in Preview only",async()=>{
+    vi.stubEnv("VERCEL_ENV","preview");
+    const html=renderToStaticMarkup(await MariaSiteDashboardPage({searchParams:Promise.resolve({year:"2026"})}));
+    for(const name of [
+      "trial_description", "trial_description_en", "trial_description_ar",
+      "without_description", "without_description_en", "without_description_ar",
+    ])expect(html).toContain(`name="${name}"`);
+    expect(html).toContain('lang="ar" dir="rtl"');
+    expect(html).toContain("Synthetic English card");
+    expect(html).toContain("نص تجريبي عربي");
+  });
   it("shows manager calendar link twice but keeps public booking disabled",async()=>{
     vi.stubEnv("VERCEL_ENV","preview");
     const html=renderToStaticMarkup(await MariaSiteDashboardPage({searchParams:Promise.resolve({})}));
