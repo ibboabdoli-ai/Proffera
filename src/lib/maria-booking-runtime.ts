@@ -40,6 +40,55 @@ export async function getMariaBookingReadiness(): Promise<MariaBookingReadiness>
     if (!s || ![s.ledger, s.closed_starts, s.translations, s.verifications, s.contact_columns]
       .every(value => value === true)) return { enabled: false };
 
+    // A migration receipt and relation name do not prove CREATE TABLE IF NOT
+    // EXISTS installed the expected columns and keys. Recheck the canonical
+    // 0072/0074 contract in the live runtime gate, not only in the CLI preflight.
+    const integrity = await sql`
+      select
+        (select count(*) from information_schema.columns
+         where table_schema='public' and table_name='maria_manual_closed_starts' and (
+           (column_name='workspace_id' and udt_name='uuid' and is_nullable='NO') or
+           (column_name='starts_at' and udt_name='timestamptz' and is_nullable='NO') or
+           (column_name='created_by' and udt_name='text' and is_nullable='NO') or
+           (column_name='created_at' and udt_name='timestamptz' and is_nullable='NO')
+         )) = 4 as manual_closed_columns,
+        (select count(*) from information_schema.columns
+         where table_schema='public' and table_name='maria_service_card_translations' and (
+           (column_name='service_id' and udt_name='uuid' and is_nullable='NO') or
+           (column_name='locale' and udt_name='text' and is_nullable='NO') or
+           (column_name='description' and udt_name='text' and is_nullable='NO') or
+           (column_name='updated_at' and udt_name='timestamptz' and is_nullable='NO')
+         )) = 4 as card_translations_columns,
+        exists (select 1 from pg_constraint c
+          where c.conrelid=to_regclass('public.maria_manual_closed_starts')
+            and c.contype='p' and c.conname='maria_manual_closed_starts_pk'
+            and pg_get_constraintdef(c.oid)='PRIMARY KEY (workspace_id, starts_at)')
+          as manual_closed_pk,
+        exists (select 1 from pg_constraint c
+          where c.conrelid=to_regclass('public.maria_service_card_translations')
+            and c.contype='p' and c.conname='maria_service_card_translations_pk'
+            and pg_get_constraintdef(c.oid)='PRIMARY KEY (service_id, locale)')
+          as card_translations_pk,
+        exists (select 1 from pg_constraint c
+          where c.conrelid=to_regclass('public.maria_manual_closed_starts')
+            and c.contype='f' and c.confrelid=to_regclass('public.workspaces')
+            and c.confdeltype='c' and pg_get_constraintdef(c.oid)
+              like 'FOREIGN KEY (workspace_id) REFERENCES %')
+          as manual_closed_fk,
+        exists (select 1 from pg_constraint c
+          where c.conrelid=to_regclass('public.maria_service_card_translations')
+            and c.contype='f' and c.confrelid=to_regclass('public.workspace_services')
+            and c.confdeltype='c' and pg_get_constraintdef(c.oid)
+              like 'FOREIGN KEY (service_id) REFERENCES %')
+          as card_translations_fk
+    `;
+    const contract = integrity[0];
+    if (!contract || ![
+      contract.manual_closed_columns, contract.card_translations_columns,
+      contract.manual_closed_pk, contract.card_translations_pk,
+      contract.manual_closed_fk, contract.card_translations_fk,
+    ].every(value => value === true)) return { enabled: false };
+
     const ledger = await sql`
       select count(distinct migration_key)::int as count
       from proffera_schema_migrations
@@ -79,6 +128,14 @@ export async function getMariaBookingReadiness(): Promise<MariaBookingReadiness>
     if (!await hasWorkspaceFeatureAccessForWorkspace(workspaceId, "online_booking")) {
       return { enabled: false };
     }
+
+    // Critical P1: Production OTP resend/verify/finalization, manager status,
+    // manual calendar, and Swish recording remain Preview-only. No combination
+    // of environment flags or healthy schema may open public booking until
+    // those real customer/manager handlers have been implemented and tested.
+    const productionBookingLifecycleComplete = false;
+    if (!productionBookingLifecycleComplete) return { enabled: false };
+
     return {
       enabled: true,
       workspaceId,
