@@ -4,7 +4,7 @@ import { CalendarDays, CalendarOff, ExternalLink, Settings2, ShieldCheck } from 
 
 import { getDashboardWorkspaceServices } from "@/lib/workspace-services-db";
 import { getDashboardWorkspaceBookingHours } from "@/lib/workspace-booking-hours-db";
-import { getMariaPreviewBookingReadiness } from "@/lib/maria-preview-booking";
+import { getMariaBookingReadiness } from "@/lib/maria-booking-runtime";
 import { readMariaCardTranslations } from "@/lib/maria-card-translations-db";
 import { mariaDefaultCardCopy } from "@/lib/maria-default-card-copy";
 import { isMariaProductionYearEditorReady } from "@/lib/maria-production-year-editor";
@@ -35,7 +35,7 @@ export default async function MariaSiteDashboardPage({ searchParams }: { searchP
       strict: isProduction && process.env.PROFFERA_MARIA_PRODUCTION_YEAR_EDITOR_ENABLED === "true",
     }),
     getDashboardWorkspaceBookingHours(),
-    getMariaPreviewBookingReadiness(),
+    getMariaBookingReadiness(),
     readMariaCardTranslations(access.workspaceId),
   ]);
   const packages = expectedKeys.map((slug) =>
@@ -182,8 +182,8 @@ export default async function MariaSiteDashboardPage({ searchParams }: { searchP
       </section>
   );
 
-  if (isProduction) {
-    // The dedicated Maria Production view remains booking/calendar read-only.
+  if (isProduction && !bookingReadiness.enabled) {
+    // Keep the Production overview read-only until the entire lifecycle is ready.
     // Price and three-language card copy become editable only after an
     // explicitly enabled, migration-verified Production content gate.
     const packagePrice = (service: (typeof packages)[number]) =>
@@ -271,13 +271,13 @@ export default async function MariaSiteDashboardPage({ searchParams }: { searchP
           Hantera bokningar, arbetstider och priser här. Den anslutna förhandsvisningen
           läser de sparade ändringarna direkt från arbetsytan.
           {bookingReadiness.enabled
-            ? "Endast isolerade QA-bokningar är aktiverade i denna Preview."
+            ? (isProduction ? "Riktiga kundbokningar är aktiverade. Granska och bekräfta dem här i din arbetsyta." : "Endast isolerade QA-bokningar är aktiverade i denna Preview.")
             : "Den publika bokningen är inte aktiverad."}
         </p>
         <div className="mt-5 flex flex-wrap gap-3">
-          <Link href="/demo/makeup-by-maria-v2.html" target="_blank" rel="noopener noreferrer"
+          <Link href={isProduction ? "https://makeupbymaria.se" : "/demo/makeup-by-maria-v2.html"} target="_blank" rel="noopener noreferrer"
             className="inline-flex min-h-11 items-center gap-2 rounded-lg bg-[#845363] px-4 py-2 text-sm font-bold text-white">
-            Öppna design 02 <ExternalLink size={16} />
+            {isProduction ? "Öppna min webbplats" : "Öppna design 02"} <ExternalLink size={16} />
           </Link>
           <Link href="/dashboard/bokningar"
             className="inline-flex min-h-11 items-center gap-2 rounded-lg border border-[#bfa1a9] px-4 py-2 text-sm font-bold text-[#754b5a]">
@@ -297,7 +297,11 @@ export default async function MariaSiteDashboardPage({ searchParams }: { searchP
         </div>
       </div>
 
-{renderYearEditor(false)}
+{!isProduction || productionEditorReady ? renderYearEditor(isProduction) : (
+  <p role="status" className="rounded-xl border border-[#dec6cd] bg-[#fbf0ef] p-4 text-sm text-[#684956]">
+    Pris- och textredigering väntar på verifierad databasmigrering.
+  </p>
+)}
 
       <section id="tider" className="scroll-mt-6 rounded-2xl border border-[#e8d9dc] bg-white p-4 sm:p-8">
         <h2 className="font-serif text-2xl text-[#352a2c]">Mina arbetstider</h2>
@@ -368,19 +372,20 @@ export default async function MariaSiteDashboardPage({ searchParams }: { searchP
         <div className="mt-4 flex flex-wrap gap-3">
           <Link href="/dashboard/bokningar" className="inline-flex min-h-11 items-center rounded-lg bg-[#845363] px-5 text-sm font-bold text-white">Öppna bokningar</Link>
           <Link href="/dashboard/maria/kalender" className="inline-flex min-h-11 items-center rounded-lg border border-[#bfa1a9] px-5 text-sm font-bold text-[#754b5a]">Hantera dagens tider</Link>
-          <Link href="/dashboard/bokningar/blockera" className="inline-flex min-h-11 items-center rounded-lg border border-[#e8d9dc] px-4 text-xs text-[#705f65]">Avancerad tidsblockering</Link>
+          {!isProduction ? <Link href="/dashboard/bokningar/blockera" className="inline-flex min-h-11 items-center rounded-lg border border-[#e8d9dc] px-4 text-xs text-[#705f65]">Avancerad tidsblockering</Link> : null}
         </div>
       </section>
 
       <section className="flex items-start gap-3 rounded-xl border border-[#dec6cd] bg-[#fbf0ef] p-5 text-sm text-[#684956]">
         <ShieldCheck className="mt-1 shrink-0" size={20} />
         <div>
-          <strong>Endast intern förhandsvisning.</strong>
+          <strong>{isProduction ? "Marias arbetsyta" : "Endast intern förhandsvisning."}</strong>
           <p className="mt-1 leading-6">
-            {bookingReadiness.enabled
-              ? "Endast bokningar till den godkända QA-testadressen tillåts i denna Preview."
-              : "Designen skickar inte bokningar eller kunduppgifter."} Priser för kommande år, tjänsternas längd och Marias framtida ägaråtkomst behöver bekräftas innan lansering.
-            Domän och riktiga kundnotiser är inte aktiverade.
+            {isProduction
+              ? "Bokningar, arbetstider och manuellt kontrollerad Swish-handpenning hanteras här av Maria. Swish-betalningen verifieras aldrig automatiskt."
+              : bookingReadiness.enabled
+                ? "Endast bokningar till den godkända QA-testadressen tillåts i denna Preview."
+                : "Designen skickar inte bokningar eller kunduppgifter. Domän och riktiga kundnotiser är inte aktiverade."}
           </p>
         </div>
       </section>
