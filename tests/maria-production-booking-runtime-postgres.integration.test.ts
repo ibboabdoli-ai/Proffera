@@ -124,8 +124,8 @@ function compileSql(strings: TemplateStringsArray, values: unknown[]) {
     await db?.query("ROLLBACK").catch(() => undefined);
   });
 
-  it("executes canonical catalog/ledger/tenant checks but never opens an incomplete Production lifecycle", async () => {
-    expect(await getMariaBookingReadiness()).toEqual({ enabled: false });
+  it("accepts fully prepared Maria Production schema, owner and feature entitlement", async () => {
+    expect(await getMariaBookingReadiness()).toMatchObject({ enabled: true, workspaceId });
     expect(runtime.queries).toHaveLength(4);
     expect(runtime.queries[1]).toContain("pg_constraint");
     expect(runtime.queries[1]).toContain("maria_manual_closed_starts");
