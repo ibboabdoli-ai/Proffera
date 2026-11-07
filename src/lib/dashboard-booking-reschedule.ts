@@ -53,17 +53,14 @@ export async function rescheduleDashboardBooking(
     where workspace_id = ${access.workspaceId}
     limit 1
   `;
-  const timeZone = access.workspaceSlug === "makeup-by-maria" && process.env.VERCEL_ENV === "preview"
+  const timeZone = access.workspaceSlug === "makeup-by-maria"
     ? "Europe/Stockholm" as const
     : resolveBookingTimeZone(marketRows[0]?.time_zone);
   const localStart = parseLocalDateTime(localStartsAt);
   if (!localStart) throw new BookingRescheduleValidationError("time");
-  // Maria Preview is a single-operator system. The generic preflight/update is not
-  // atomic with booking verification holds; delegate to its lock-protected writer.
+  // Both Maria environments use the same workspace transaction lock.
+  // The dedicated writer independently checks Preview or Production readiness.
   if (access.workspaceSlug === "makeup-by-maria") {
-    if (process.env.VERCEL_ENV !== "preview") {
-      throw new BookingRescheduleValidationError("status");
-    }
     const maria = await rescheduleMariaDashboardBooking({
       bookingId, workspaceId: access.workspaceId, localStartsAt,
     });
