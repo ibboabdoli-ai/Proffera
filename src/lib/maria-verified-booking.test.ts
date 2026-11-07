@@ -9,8 +9,8 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("server-only", () => ({}));
 vi.mock("@/lib/db/server", () => ({ getSql: mocks.getSql }));
-vi.mock("@/lib/maria-preview-booking", () => ({
-  getMariaPreviewBookingReadiness: mocks.readiness,
+vi.mock("@/lib/maria-booking-runtime", () => ({
+  getMariaBookingReadiness: mocks.readiness,
 }));
 
 import { finalizeMariaVerifiedBooking } from "./maria-verified-booking";
@@ -83,6 +83,25 @@ describe("Maria verified booking keeps the current Preview recipient boundary", 
     expect(statements[1]!.sql).toContain("lower(trim(v.customer_email))=?");
     expect(statements[1]!.values).toContain("new-qa@example.invalid");
     expect(statements[1]!.values).not.toContain("qa@example.invalid");
+  });
+
+  it("does not reuse the Preview-only QA recipient in gated Production", async () => {
+    vi.stubEnv("VERCEL_ENV", "production");
+    vi.stubEnv("PROFFERA_MARIA_PREVIEW_TEST_EMAIL", "");
+    const result = await finalizeMariaVerifiedBooking(input);
+    expect(result.ok).toBe(true);
+    const [statements] = mocks.transaction.mock.calls[0] as
+      [{ sql: string; values: unknown[] }[]];
+    expect(statements[1]!.sql).toContain("lower(trim(v.customer_email))=?");
+    expect(statements[1]!.values).toContain(false);
+    expect(statements[1]!.values).not.toContain("qa@example.invalid");
+  });
+
+  it("rejects Production when runtime booking readiness is false", async () => {
+    vi.stubEnv("VERCEL_ENV", "production");
+    mocks.readiness.mockResolvedValue({ enabled: false });
+    expect(await finalizeMariaVerifiedBooking(input)).toEqual({ ok: false, error: "unavailable" });
+    expect(mocks.transaction).not.toHaveBeenCalled();
   });
 
   it("does not commit a booking when eligibility fails", async () => {
