@@ -177,8 +177,19 @@ function compileSql(strings: TemplateStringsArray, values: unknown[]): Query {
     expect(resent).toMatchObject({ok:true,delivery:"email"});
     const resendBody=JSON.parse(String(vi.mocked(fetch).mock.calls.at(-1)?.[1]?.body)) as {subject:string;to:{email:string}[]};
     expect(resendBody.to[0]?.email).toBe("bride@example.invalid");
-    const resentCode=resendBody.subject.match(/\b\d{6}\b/)?.[0];
+    let resentCode=resendBody.subject.match(/\b\d{6}\b/)?.[0];
     expect(resentCode).toMatch(/^\d{6}$/);
+    // In the extremely rare case of a repeated random code, issue one more
+    // synthetic resend so the replaced-code security assertion is deterministic.
+    if (resentCode===firstCode) {
+      await db!.query("update public_booking_verifications set updated_at=now()-interval '45 seconds' where id=$1::uuid",[id]);
+      expect((await resendPublicBookingCode(id,"ar")).ok).toBe(true);
+      const third=JSON.parse(String(vi.mocked(fetch).mock.calls.at(-1)?.[1]?.body)) as {subject:string};
+      resentCode=third.subject.match(/\b\d{6}\b/)?.[0];
+    }
+    expect(resentCode).not.toBe(firstCode);
+    expect(await verifyPublicBookingCode(id,firstCode!,"ar")).toMatchObject({ok:false,error:"code"});
+    expect((await db!.query("select id from bookings where workspace_id=$1 and source='public_booking'",[workspaceId])).rowCount).toBe(0);
 
     const verified=await verifyPublicBookingCode(id,resentCode!,"ar");
     expect(verified).toMatchObject({ok:true,slug:"makeup-by-maria"});

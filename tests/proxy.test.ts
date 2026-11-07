@@ -140,10 +140,17 @@ describe("proxy request boundary", () => {
 
       vi.stubEnv("PROFFERA_MARIA_PUBLIC_SITE_ENABLED", "true");
       const live = await proxy(hostRequest(host, "/"));
-      expect(live.status).toBe(200);
-      expect(live.headers.get("x-middleware-rewrite")).toBe(
-        "https://" + host + "/demo/makeup-by-maria-v2.html",
-      );
+      if (host.startsWith("www.")) {
+        expect(live.status).toBe(307);
+        expect(live.headers.get("location")).toBe("https://makeupbymaria.se/");
+        expect(live.headers.get("x-middleware-rewrite")).toBeNull();
+      } else {
+        expect(live.status).toBe(200);
+        expect(live.headers.get("x-middleware-rewrite")).toBe(
+          "https://" + host + "/demo/makeup-by-maria-v2.html",
+        );
+        expect(live.headers.get("x-robots-tag")).toBeNull();
+      }
       for (const pathname of ["/dashboard", "/admin", "/boka/primeview", "/boka/other", "/tjanster", "/booking"]) {
         expect((await proxy(hostRequest(host, pathname))).status, pathname).toBe(404);
       }
@@ -165,8 +172,10 @@ describe("proxy request boundary", () => {
           expect(response.status, host + path).toBe(404);
         }
       }
-      // Keep existing public Preview/demo URL available on Proffera hosts.
-      expect((await proxy(hostRequest("www.proffera.se", path))).status).toBe(200);
+      // Direct demo URLs remain accessible for testing but must not be indexed.
+      const demoResponse = await proxy(hostRequest("www.proffera.se", path));
+      expect(demoResponse.status).toBe(200);
+      expect(demoResponse.headers.get("x-robots-tag")).toBe("noindex, nofollow");
     }
   });
 

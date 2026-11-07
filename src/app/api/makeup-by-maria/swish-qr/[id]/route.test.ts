@@ -3,8 +3,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 vi.mock("server-only", () => ({}));
 vi.mock("@/lib/db/server", () => ({ getSql: vi.fn() }));
 vi.mock("@/lib/maria-booking-runtime", () => ({
-  // Exercise the QR eligibility SQL directly with a scoped synthetic manager
-  // workspace. Production always fails closed in this endpoint fixture.
+  // Exercise the QR eligibility SQL directly with synthetic, scoped bookings.
+  // Existing confirmed unpaid Production bookings can pay when intake is paused.
   getMariaBookingReadiness: async () =>
     process.env.VERCEL_ENV === "preview" &&
     process.env.PROFFERA_MARIA_PREVIEW_BOOKING_ENABLED === "true"
@@ -60,15 +60,30 @@ describe("Maria Preview booking-specific Swish QR", () => {
     expect(text).toContain("b.status in ('confirmed','completed')");
     expect(text).toContain("b.source='public_booking'");
     expect(text).toContain("lower(trim(c.email))=$3");
-    expect(text).toContain("b.workspace_id=$4");
-    expect(bound).toEqual([id, false, "qa@example.invalid", "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee"]);
+    expect(text).toContain("b.workspace_id=$5");
+    expect(text).toContain("maria_swish_manual_deposit_v1");
+    expect(text).toContain("<> 'paid'");
+    expect(bound).toEqual([id, false, "qa@example.invalid", false, "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee"]);
   });
 
-  it("fails closed in Production, for malformed IDs, or with a disabled Preview switch", async () => {
-    const sql = vi.fn();
+  it("supports a Production PNG for an existing confirmed unpaid booking with a unique reference", async () => {
+    vi.stubEnv("VERCEL_ENV", "production");
+    const sql = vi.fn().mockResolvedValueOnce([{ id }]).mockResolvedValueOnce([{ count: 0 }]);
+    vi.mocked(getSql).mockReturnValue(sql as never);
+    const response = await GET(request, params);
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-type")).toBe("image/png");
+    expect([...new Uint8Array(await response.arrayBuffer()).slice(0, 8)]).toEqual([137, 80, 78, 71, 13, 10, 26, 10]);
+    expect(sql).toHaveBeenCalledTimes(2);
+  });
+
+  it("refuses missing or paid Production bookings, malformed IDs, and disabled Preview intake", async () => {
+    const sql = vi.fn().mockResolvedValue([]);
     vi.mocked(getSql).mockReturnValue(sql as never);
     vi.stubEnv("VERCEL_ENV", "production");
     expect((await GET(request, params)).status).toBe(404);
+    expect(sql).toHaveBeenCalledOnce();
+    sql.mockClear();
     vi.stubEnv("VERCEL_ENV", "preview");
     expect((await GET(request, { params: Promise.resolve({ id: "not-a-uuid" }) })).status).toBe(404);
     vi.stubEnv("PROFFERA_MARIA_PREVIEW_BOOKING_ENABLED", "false");

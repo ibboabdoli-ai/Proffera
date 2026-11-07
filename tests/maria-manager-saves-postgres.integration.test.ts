@@ -453,12 +453,18 @@ function compileSql(strings: TemplateStringsArray, values: unknown[]): Query {
       "insert into workspace_services(workspace_id,name,public_slug,short_description,is_active,public_status) values ($1,'Other QA trial','maria-bridal-trial-2026','Keep other tenant copy',true,'draft'),($1,'Other QA without','maria-bridal-without-trial-2026','Other copy',true,'draft')",
       [otherId],
     );
+    const otherSeed = await db!.query(
+      "insert into maria_service_card_translations(service_id,locale,description) select id,'en','Other tenant translation' from workspace_services where workspace_id=$1 and public_slug='maria-bridal-trial-2026' returning service_id",
+      [otherId],
+    );
+    expect(otherSeed.rowCount).toBe(1);
+    // Existing foreign-tenant copy must not leak into Maria's reader.
     expect(await readMariaCardTranslations(otherId)).toEqual(new Map());
     const otherRows = await db!.query<{count:number}>(
       "select count(*)::int as count from maria_service_card_translations t join workspace_services s on s.id=t.service_id where s.workspace_id=$1",
       [otherId],
     );
-    expect(otherRows.rows[0]?.count).toBe(0);
+    expect(otherRows.rows[0]?.count).toBe(1);
     const otherServices = await db!.query<{count:number}>(
       "select count(*)::int as count from workspace_services where workspace_id=$1 and public_slug like 'maria-bridal-%'",
       [otherId],
@@ -484,7 +490,7 @@ function compileSql(strings: TemplateStringsArray, values: unknown[]): Query {
       "select count(*)::int as count from maria_service_card_translations t join workspace_services s on s.id=t.service_id where s.workspace_id=$1",
       [otherId],
     );
-    expect(unchanged.rows[0]?.count).toBe(0);
+    expect(unchanged.rows[0]?.count).toBe(1);
     const otherCopy = await db!.query<{public_slug:string; short_description:string}>(
       "select public_slug, short_description from workspace_services where workspace_id=$1 order by public_slug",
       [otherId],
@@ -535,11 +541,53 @@ function compileSql(strings: TemplateStringsArray, values: unknown[]): Query {
     expect(result.rows[0]?.count).toBe(0);
   });
 
+  it("refuses Production content writes when 0074 translation table is missing even with the editor enabled", async () => {
+    vi.stubEnv("VERCEL_ENV", "production");
+    vi.stubEnv("PROFFERA_MARIA_PRODUCTION_YEAR_EDITOR_ENABLED", "true");
+    const beforeAudit = await db!.query(
+      "select count(*)::int as count from admin_audit_logs where workspace_id=$1::uuid and action='maria.booking_year_content.updated'",
+      [workspaceId],
+    );
+    const table = "maria_service_card_translations";
+    const backup = "maria_service_card_translations_production_schema_hidden";
+    await db!.query(`alter table ${table} rename to ${backup}`);
+    try {
+      const form = new FormData();
+      form.set("year", "2032");form.set("trial", "6900");form.set("without", "5800");
+      for (const field of ["trial_description","without_description","trial_description_en",
+        "trial_description_ar","without_description_en","without_description_ar"]) form.set(field,"Synthetic editor copy");
+      await expect(saveMariaProductionYearAction(form))
+        .rejects.toThrow("TEST_REDIRECT:/dashboard/maria?error=translation_setup");
+      const services = await db!.query(
+        "select count(*)::int as count from workspace_services where workspace_id=$1 and public_slug in ('maria-bridal-trial-2032','maria-bridal-without-trial-2032')",
+        [workspaceId],
+      );
+      expect(Number(services.rows[0]?.count)).toBe(0);
+      const afterAudit = await db!.query(
+        "select count(*)::int as count from admin_audit_logs where workspace_id=$1::uuid and action='maria.booking_year_content.updated'",
+        [workspaceId],
+      );
+      expect(afterAudit.rows).toEqual(beforeAudit.rows);
+    } finally {
+      await db!.query(`alter table ${backup} rename to ${table}`);
+    }
+  });
+
   it("Production owner saves yearly SV/EN/AR prices without changing publication, schedules or bookings", async () => {
     vi.stubEnv("VERCEL_ENV", "production");
     vi.stubEnv("PROFFERA_MARIA_PRODUCTION_YEAR_EDITOR_ENABLED", "true");
-    const bookingsBefore = await db!.query<{count:number}>(
-      "select count(*)::int as count from bookings where workspace_id=$1",
+    // Compare complete appointment slots and the actual weekend schedule,
+    // not only booking counts: price edits may never mutate calendar data.
+    await db!.query(
+      "insert into workspace_booking_hours(workspace_id,weekday,opens_at,closes_at,is_closed) values($1,5,'08:00','16:00',false) on conflict(workspace_id,weekday) do nothing",
+      [workspaceId],
+    );
+    const bookingsBefore = await db!.query(
+      "select id::text,customer_id::text,service_id::text,status,starts_at::text,ends_at::text from bookings where workspace_id=$1 order by id",
+      [workspaceId],
+    );
+    const hoursBefore = await db!.query(
+      "select weekday,opens_at::text,closes_at::text,is_closed from workspace_booking_hours where workspace_id=$1 order by weekday",
       [workspaceId],
     );
     const form = new FormData();
@@ -589,11 +637,16 @@ function compileSql(strings: TemplateStringsArray, values: unknown[]): Query {
     expect(state.rows[0]?.public_status).toBe("published");
     expect(state.rows[0]?.is_active).toBe(true);
     expect(Number(state.rows[0]?.price_amount_minor)).toBe(699975);
-    const bookingsAfter = await db!.query<{count:number}>(
-      "select count(*)::int as count from bookings where workspace_id=$1",
+    const bookingsAfter = await db!.query(
+      "select id::text,customer_id::text,service_id::text,status,starts_at::text,ends_at::text from bookings where workspace_id=$1 order by id",
       [workspaceId],
     );
-    expect(bookingsAfter.rows[0]?.count).toBe(bookingsBefore.rows[0]?.count);
+    const hoursAfter = await db!.query(
+      "select weekday,opens_at::text,closes_at::text,is_closed from workspace_booking_hours where workspace_id=$1 order by weekday",
+      [workspaceId],
+    );
+    expect(bookingsAfter.rows).toEqual(bookingsBefore.rows);
+    expect(hoursAfter.rows).toEqual(hoursBefore.rows);
   });
 
   it("Production writer refuses another tenant or staff even when the environment flag is on", async () => {
@@ -607,11 +660,11 @@ function compileSql(strings: TemplateStringsArray, values: unknown[]): Query {
       "without_description_en","without_description_ar",
     ])form.set(field, "Forbidden");
     runtime.workspaceSlug = "unrelated-tenant";
-    await expect(saveMariaProductionYearAction(form)).rejects.toThrow("TEST_REDIRECT:/dashboard");
+    await expect(saveMariaProductionYearAction(form)).rejects.toThrow(/^TEST_REDIRECT:\/dashboard$/);
     runtime.workspaceSlug = "makeup-by-maria";
     runtime.role = "staff";
     try {
-      await expect(saveMariaProductionYearAction(form)).rejects.toThrow("TEST_REDIRECT:/dashboard");
+      await expect(saveMariaProductionYearAction(form)).rejects.toThrow(/^TEST_REDIRECT:\/dashboard$/);
     } finally {
       runtime.role = "owner";
       runtime.workspaceSlug = "makeup-by-maria";
