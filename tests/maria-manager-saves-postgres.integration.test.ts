@@ -11,6 +11,7 @@ type QueryResponse = Record<string, unknown>[];
 const runtime = vi.hoisted(() => ({
   makeSql: undefined as undefined | (() => unknown),
   workspaceId: "",
+  workspaceSlug: "makeup-by-maria",
   userId: "maria-qa-manager",
   role: "owner",
 }));
@@ -26,7 +27,7 @@ vi.mock("@/lib/db/server", () => ({
 }));
 vi.mock("@/lib/workspace-access", () => ({
   getUserWorkspaceAccess: async () => ({
-    ok: true, workspaceId: runtime.workspaceId, workspaceSlug: "makeup-by-maria",
+    ok: true, workspaceId: runtime.workspaceId, workspaceSlug: runtime.workspaceSlug,
     userId: runtime.userId, role: runtime.role,
   }),
   canManageWorkspaceSettings: (access: { ok: boolean; role: string }) =>
@@ -162,6 +163,8 @@ function compileSql(strings: TemplateStringsArray, values: unknown[]): Query {
   // A failing negative assertion must not leave a revoked QA inbox or
   // Production environment active for the next real-PostgreSQL test.
   beforeEach(() => {
+    runtime.workspaceId = workspaceId;
+    runtime.workspaceSlug = "makeup-by-maria";
     vi.stubEnv("VERCEL_ENV", "preview");
     vi.stubEnv("VERCEL_URL", "qa.vercel.app");
     vi.stubEnv("PROFFERA_MARIA_PREVIEW_TEST_EMAIL", "qa@example.invalid");
@@ -392,6 +395,99 @@ function compileSql(strings: TemplateStringsArray, values: unknown[]): Query {
         [workspaceId],
       );
       expect(afterAudit.rows[0]?.count).toBe(beforeAudit.rows[0]?.count);
+    }
+  });
+
+  it("blocks all settings writes if translation storage is missing", async () => {
+    const name = "maria_service_card_translations";
+    const backupName = "maria_service_card_translations_qa_hidden";
+    const before = await db!.query<{count:number}>(
+      "select count(*)::int as count from admin_audit_logs where workspace_id=$1::uuid and action='maria.booking_year_content.updated'",
+      [workspaceId],
+    );
+    await db!.query(`alter table ${name} rename to ${backupName}`);
+    try {
+      const form = new FormData();
+      form.set("year", "2035"); form.set("enabled", "on");
+      form.set("trial", "7000"); form.set("without", "6000");
+      for (const field of [
+        "trial_description", "without_description", "trial_description_en",
+        "trial_description_ar", "without_description_en", "without_description_ar",
+      ]) form.set(field, "Synthetic QA text");
+      await expect(saveMariaYearAction(form))
+        .rejects.toThrow("TEST_REDIRECT:/dashboard/maria?error=translation_setup");
+      expect(await readMariaCardTranslations(workspaceId)).toEqual(new Map());
+      const created = await db!.query<{count:number}>(
+        "select count(*)::int as count from workspace_services where workspace_id=$1 and public_slug in ('maria-bridal-trial-2035','maria-bridal-without-trial-2035')",
+        [workspaceId],
+      );
+      expect(created.rows[0]?.count).toBe(0);
+      const audit = await db!.query<{count:number}>(
+        "select count(*)::int as count from admin_audit_logs where workspace_id=$1::uuid and action='maria.booking_year_content.updated'",
+        [workspaceId],
+      );
+      expect(audit.rows[0]?.count).toBe(before.rows[0]?.count);
+    } finally {
+      await db!.query(`alter table ${backupName} rename to ${name}`);
+    }
+  });
+
+  it("never reads or writes another workspace's matching bridal slugs", async () => {
+    const otherId = randomUUID();
+    const otherSlug = "unrelated-qa-" + otherId.slice(0, 8);
+    await db!.query(
+      "insert into workspaces (id,slug,public_booking_slug,name,status) values ($1::uuid,$2,$2,'Unrelated QA Workspace','active')",
+      [otherId, otherSlug],
+    );
+    await db!.query(
+      "insert into workspace_services(workspace_id,name,public_slug,short_description,is_active,public_status) values ($1,'Other QA trial','maria-bridal-trial-2026','Keep other tenant copy',true,'draft'),($1,'Other QA without','maria-bridal-without-trial-2026','Other copy',true,'draft')",
+      [otherId],
+    );
+    expect(await readMariaCardTranslations(otherId)).toEqual(new Map());
+    const otherRows = await db!.query<{count:number}>(
+      "select count(*)::int as count from maria_service_card_translations t join workspace_services s on s.id=t.service_id where s.workspace_id=$1",
+      [otherId],
+    );
+    expect(otherRows.rows[0]?.count).toBe(0);
+    const otherServices = await db!.query<{count:number}>(
+      "select count(*)::int as count from workspace_services where workspace_id=$1 and public_slug like 'maria-bridal-%'",
+      [otherId],
+    );
+    expect(otherServices.rows[0]?.count).toBe(2);
+    const form = new FormData();
+    form.set("year", "2026"); form.set("trial", "9500"); form.set("without", "9000");
+    for (const field of [
+      "trial_description", "without_description", "trial_description_en",
+      "trial_description_ar", "without_description_en", "without_description_ar",
+    ]) form.set(field, "Should never save");
+    try {
+      runtime.workspaceId = otherId;
+      runtime.workspaceSlug = otherSlug;
+      await expect(saveMariaYearAction(form)).rejects.toThrow("TEST_REDIRECT:/dashboard");
+      expect(await readMariaCardTranslations(otherId)).toEqual(new Map());
+    } finally {
+      runtime.workspaceId = workspaceId;
+      runtime.workspaceSlug = "makeup-by-maria";
+    }
+    const unchanged = await db!.query<{count:number}>(
+      "select count(*)::int as count from maria_service_card_translations t join workspace_services s on s.id=t.service_id where s.workspace_id=$1",
+      [otherId],
+    );
+    expect(unchanged.rows[0]?.count).toBe(0);
+  });
+
+  it("fails closed on unexpected translation read errors rather than exposing editable defaults", async () => {
+    const factory = runtime.makeSql;
+    const logging = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    try {
+      runtime.makeSql = () => (() =>
+        Promise.reject(Object.assign(new Error("Synthetic transient read error"), {code: "08006"})));
+      await expect(readMariaCardTranslations(workspaceId))
+        .rejects.toThrow("Synthetic transient read error");
+      expect(logging).toHaveBeenCalled();
+    } finally {
+      runtime.makeSql = factory;
+      logging.mockRestore();
     }
   });
 
