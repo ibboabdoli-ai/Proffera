@@ -9,12 +9,11 @@ import {
   MARIA_DEPOSIT_AMOUNT_SEK, MARIA_SWISH_NUMBER,
   mariaBookingNumber, mariaSwishPaymentLink, mariaSwishQrPath,
 } from "@/lib/maria-deposit";
-import { getMariaPreviewBookingReadiness } from "@/lib/maria-preview-booking";
-import { isMariaPreviewTestRecipient } from "@/lib/maria-preview-customer-safety";
+import { getMariaBookingReadiness } from "@/lib/maria-booking-runtime";
 
 export const dynamic = "force-dynamic";
 export const metadata: Metadata = {
-  title: "Swish-handpenning · Makeup by Maria (Preview)",
+  title: "Swish-handpenning · Makeup by Maria",
   robots: { index: false, follow: false },
   icons: { icon: "/demo/makeup-by-maria/assets/maria-client-logo.jpg", apple: "/demo/makeup-by-maria/assets/maria-apple-touch-icon.png" },
 };
@@ -53,7 +52,7 @@ const paymentText = {
 } as const;
 
 /**
- * Preview-only first-party landing page. Brevo's email click tracker may
+ * First-party landing page guarded by Maria booking readiness. Brevo's email click tracker may
  * redirect users to this page, but the Swish universal link itself is a
  * direct user-activated navigation, not an email-service redirect.
  * Never marks payment as received or initiates a Swish Commerce request.
@@ -66,13 +65,9 @@ export default async function MariaSwishPaymentPage({
   searchParams?: Promise<{ lang?: string | string[] }>;
 }) {
   const { id } = await params;
-  if (process.env.VERCEL_ENV !== "preview"
-    || process.env.PROFFERA_MARIA_PREVIEW_BOOKING_ENABLED !== "true"
-    || !uuid.test(id)) notFound();
-
-  const approved = process.env.PROFFERA_MARIA_PREVIEW_TEST_EMAIL?.trim().toLowerCase();
-  if (!approved || !isMariaPreviewTestRecipient(approved)) notFound();
-  const readiness = await getMariaPreviewBookingReadiness();
+  if (!uuid.test(id)) notFound();
+  const preview = process.env.VERCEL_ENV === "preview";
+  const readiness = await getMariaBookingReadiness();
   if (!readiness.enabled) notFound();
 
   // Use the same eligibility rules as the QR endpoint; never show
@@ -81,7 +76,7 @@ export default async function MariaSwishPaymentPage({
   try {
     eligible = await readMariaSwishQrEligibility(id, readiness.workspaceId) === "eligible";
   } catch (error) {
-    console.error("Maria Preview Swish payment page unavailable", error);
+    console.error("Maria Swish payment page unavailable", error);
   }
   if (!eligible) notFound();
 
@@ -106,7 +101,7 @@ export default async function MariaSwishPaymentPage({
           />
           <div>
             <p className="font-serif text-xl text-[#6d3e4e]">Makeup by Maria</p>
-            <p className="text-xs font-bold uppercase tracking-widest text-[#845363]">{words.previewLabel}</p>
+            <p className="text-xs font-bold uppercase tracking-widest text-[#845363]">{preview ? words.previewLabel : "Swish"}</p>
           </div>
         </header>
         <nav aria-label={words.languageLabel} className="mt-4 flex justify-end gap-3 text-sm font-semibold">
@@ -118,9 +113,9 @@ export default async function MariaSwishPaymentPage({
             className={isEnglish ? "text-[#6d3e4e] underline" : "text-[#76545f] hover:underline"}>English</Link>
         </nav>
         <h1 className="mt-3 font-serif text-3xl text-[#6d3e4e]">{words.heading}</h1>
-        <p role="alert" className="mt-5 rounded-lg border border-[#e6c4cb] bg-[#faefed] p-4 text-sm font-bold text-[#8b2d39]">
+        {preview ? <p role="alert" className="mt-5 rounded-lg border border-[#e6c4cb] bg-[#faefed] p-4 text-sm font-bold text-[#8b2d39]">
           {words.testWarning}
-        </p>
+        </p> : null}
 
         <div className="mt-6 space-y-5">
           <div>
