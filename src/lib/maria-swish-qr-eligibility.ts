@@ -1,6 +1,7 @@
 import "server-only";
 
 import { getSql } from "@/lib/db/server";
+import { getMariaBookingReadiness } from "@/lib/maria-booking-runtime";
 import { mariaBookingNumber } from "@/lib/maria-deposit";
 import { isMariaPreviewTestRecipient } from "@/lib/maria-preview-customer-safety";
 
@@ -8,14 +9,18 @@ const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export type MariaSwishQrEligibility = "eligible" | "unavailable" | "ambiguous";
 
-/** Shared fail-closed eligibility for the Preview QR response and its dashboard image. */
+/** Shared fail-closed eligibility for Maria QR and its dashboard image. */
 export async function readMariaSwishQrEligibility(bookingId: string, expectedWorkspaceId?: string): Promise<MariaSwishQrEligibility> {
-  if (process.env.VERCEL_ENV !== "preview"
-    || process.env.PROFFERA_MARIA_PREVIEW_BOOKING_ENABLED !== "true"
-    || !uuid.test(bookingId)) return "unavailable";
-
-  const approved = process.env.PROFFERA_MARIA_PREVIEW_TEST_EMAIL?.trim().toLowerCase();
-  if (!approved || !isMariaPreviewTestRecipient(approved)) return "unavailable";
+  if (!uuid.test(bookingId)) return "unavailable";
+  const readiness = await getMariaBookingReadiness();
+  if (!readiness.enabled || (expectedWorkspaceId && readiness.workspaceId !== expectedWorkspaceId)) {
+    return "unavailable";
+  }
+  const preview = process.env.VERCEL_ENV === "preview";
+  const approved = preview
+    ? process.env.PROFFERA_MARIA_PREVIEW_TEST_EMAIL?.trim().toLowerCase()
+    : null;
+  if (preview && (!approved || !isMariaPreviewTestRecipient(approved))) return "unavailable";
   const sql = getSql();
   if (!sql) return "unavailable";
 
@@ -29,8 +34,8 @@ export async function readMariaSwishQrEligibility(bookingId: string, expectedWor
       and b.id=${bookingId}::uuid
       and b.status in ('confirmed','completed')
       and b.source='public_booking'
-      and lower(trim(c.email))=${approved}
-      and b.workspace_id=coalesce(${expectedWorkspaceId ?? null}::text, b.workspace_id)
+      and (${!preview}::boolean or lower(trim(c.email))=${approved ?? ""})
+      and b.workspace_id=${readiness.workspaceId}
     limit 1
   `;
   if (eligible.length !== 1) return "unavailable";
