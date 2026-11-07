@@ -1,6 +1,7 @@
 import "server-only";
 
 import { getSql } from "@/lib/db/server";
+import { getMariaBookingReadiness } from "@/lib/maria-booking-runtime";
 import { MARIA_DEPOSIT_AMOUNT_SEK, mariaBookingNumber } from "@/lib/maria-deposit";
 import { isMariaPreviewTestRecipient } from "@/lib/maria-preview-customer-safety";
 import { canManageWorkspaceSettings, getUserWorkspaceAccess } from "@/lib/workspace-access";
@@ -16,14 +17,22 @@ export type ManualSwishStatusRead = {
   entries: Record<string, ManualSwishEntry>;
 };
 
-/** Require Maria Preview manager permissions and online-booking module access. */
-async function requireMariaPreviewManager() {
+/** Require Maria manager permissions and ready Production lifecycle, if live. */
+async function requireMariaManager() {
   const access = await getUserWorkspaceAccess();
-  if (process.env.VERCEL_ENV !== "preview"
+  const preview = process.env.VERCEL_ENV === "preview";
+  const production = process.env.VERCEL_ENV === "production";
+  if ((!preview && !production)
     || !access.ok || access.workspaceSlug !== "makeup-by-maria"
     || !canManageWorkspaceSettings(access)
     || !(await hasDashboardModuleAccess("online_booking"))) {
     throw new Error("MARIA_MANUAL_SWISH_FORBIDDEN");
+  }
+  if (production) {
+    const ready = await getMariaBookingReadiness();
+    if (!ready.enabled || ready.workspaceId !== access.workspaceId) {
+      throw new Error("MARIA_MANUAL_SWISH_FORBIDDEN");
+    }
   }
   return access;
 }
@@ -31,9 +40,9 @@ async function requireMariaPreviewManager() {
 /** Dashboard only: a manual record, never a bank-confirmed payment. */
 export async function readMariaManualSwishStatuses(): Promise<ManualSwishStatusRead> {
   try {
-    const access = await requireMariaPreviewManager();
+    const access = await requireMariaManager();
     const approvedRecipient = process.env.PROFFERA_MARIA_PREVIEW_TEST_EMAIL?.trim().toLowerCase();
-    if (!approvedRecipient || !isMariaPreviewTestRecipient(approvedRecipient)) return { ok: false, entries: {} };
+    if (process.env.VERCEL_ENV === "preview" && (!approvedRecipient || !isMariaPreviewTestRecipient(approvedRecipient))) return { ok: false, entries: {} };
     const sql = getSql();
     if (!sql) return { ok: false, entries: {} };
     const rows = await sql`
@@ -42,7 +51,7 @@ export async function readMariaManualSwishStatuses(): Promise<ManualSwishStatusR
         latest.created_at::text as marked_at
       from bookings b
       join customers c on c.id=b.customer_id and c.workspace_id=b.workspace_id
-        and lower(trim(c.email))=${approvedRecipient}
+        and (${process.env.VERCEL_ENV !== "preview"}::boolean or lower(trim(c.email))=${approvedRecipient ?? ""})
       left join lateral (
         select e.metadata, e.created_at
         from customer_events e
@@ -80,9 +89,9 @@ export async function setMariaManualSwishStatus(bookingId: string, state: Manual
   if (!uuid.test(bookingId) || (state !== "paid" && state !== "unverified")) {
     throw new Error("MARIA_MANUAL_SWISH_INVALID");
   }
-  const access = await requireMariaPreviewManager();
+  const access = await requireMariaManager();
   const approvedRecipient = process.env.PROFFERA_MARIA_PREVIEW_TEST_EMAIL?.trim().toLowerCase();
-  if (!approvedRecipient || !isMariaPreviewTestRecipient(approvedRecipient)) {
+  if (process.env.VERCEL_ENV === "preview" && (!approvedRecipient || !isMariaPreviewTestRecipient(approvedRecipient))) {
     throw new Error("MARIA_MANUAL_SWISH_FORBIDDEN");
   }
   const normalizedBookingId = bookingId.toLowerCase();
@@ -104,7 +113,7 @@ export async function setMariaManualSwishStatus(bookingId: string, state: Manual
         join workspaces w on w.id::text = b.workspace_id
         join customers c on c.id=b.customer_id and c.workspace_id=b.workspace_id
         where b.workspace_id = ${access.workspaceId}
-          and lower(trim(c.email))=${approvedRecipient}
+          and (${process.env.VERCEL_ENV !== "preview"}::boolean or lower(trim(c.email))=${approvedRecipient ?? ""})
           and w.slug = 'makeup-by-maria'
           and w.status in ('active', 'trial')
           and b.id = ${normalizedBookingId}::uuid
