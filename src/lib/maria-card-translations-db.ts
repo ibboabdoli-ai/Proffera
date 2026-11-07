@@ -5,13 +5,17 @@ import { getSql } from "@/lib/db/server";
 export type MariaCardTranslations = Map<string, { en: string; ar: string }>;
 
 /**
- * Read only the Preview Maria bridal-card copy for the given workspace.
+ * Read only Maria bridal-card copy for the selected workspace in Preview,
+ * or in Production after the separate owner-editor feature gate is enabled.
  * Missing schema stays on the site's established language-specific defaults;
  * only an authenticated Maria manager can save new translations.
  */
 export async function readMariaCardTranslations(workspaceId: string): Promise<MariaCardTranslations> {
   const translations: MariaCardTranslations = new Map();
-  if (process.env.VERCEL_ENV !== "preview") return translations;
+  const preview = process.env.VERCEL_ENV === "preview";
+  const productionEditor = process.env.VERCEL_ENV === "production"
+    && process.env.PROFFERA_MARIA_PRODUCTION_YEAR_EDITOR_ENABLED === "true";
+  if (!preview && !productionEditor) return translations;
   const sql = getSql();
   if (!sql) return translations;
   try {
@@ -38,7 +42,8 @@ export async function readMariaCardTranslations(workspaceId: string): Promise<Ma
       translations.set(slug, entry);
     }
   } catch (error) {
-    // A missing 0074 table is expected on older Previews. All other read
+    // Missing 0074 is expected on older Previews and pre-release Production.
+    // All other read
     // failures must stop the editor: returning defaults could overwrite
     // existing translations on the manager's next save.
     if ((error as { code?: string } | null)?.code === "42P01") return new Map();
