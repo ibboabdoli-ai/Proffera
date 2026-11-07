@@ -28,6 +28,11 @@ const schema = {
   ledger: true, closed_starts: true, translations: true,
   verifications: true, contact_columns: true,
 };
+const schemaContract = {
+  manual_closed_columns: true, card_translations_columns: true,
+  manual_closed_pk: true, card_translations_pk: true,
+  manual_closed_fk: true, card_translations_fk: true,
+};
 const workspace = {
   workspace_id: "11111111-2222-4333-8444-555555555555",
   public_booking_slug: "makeup-by-maria", company_name: "Makeup by Maria",
@@ -77,30 +82,44 @@ describe("Maria Production readiness is independent and disabled by default", ()
     const missing = stubSql([{...schema, closed_starts:false}]);
     expect(await getMariaBookingReadiness()).toEqual({enabled:false});
     expect(missing).toHaveBeenCalledTimes(1);
-    stubSql([schema], [{count:2}]);
+    stubSql([schema], [schemaContract], [{count:2}]);
     expect(await getMariaBookingReadiness()).toEqual({enabled:false});
   });
 
   it("refuses missing published Maria workspace, non-SEK currency, or no entitlement", async () => {
     enableProduction();
-    stubSql([schema], [{count:3}], []);
+    stubSql([schema], [schemaContract], [{count:3}], []);
     expect(await getMariaBookingReadiness()).toEqual({enabled:false});
-    stubSql([schema], [{count:3}], [{...workspace,billing_currency:"EUR"}]);
+    stubSql([schema], [schemaContract], [{count:3}], [{...workspace,billing_currency:"EUR"}]);
     expect(await getMariaBookingReadiness()).toEqual({enabled:false});
-    stubSql([schema], [{count:3}], [workspace]);
+    stubSql([schema], [schemaContract], [{count:3}], [workspace]);
     vi.mocked(hasWorkspaceFeatureAccessForWorkspace).mockResolvedValue(false);
     expect(await getMariaBookingReadiness()).toEqual({enabled:false});
   });
 
-  it("reports Production readiness only after schema, provider, workspace and entitlement agree", async () => {
+  it("rejects partial canonical 0072/0074 schema despite migration receipts", async () => {
     enableProduction();
-    const query=stubSql([schema], [{count:3}], [workspace]);
+    for (const failed of [
+      "manual_closed_columns", "card_translations_columns", "manual_closed_pk",
+      "card_translations_pk", "manual_closed_fk", "card_translations_fk",
+    ] as const) {
+      const query = stubSql([schema], [{ ...schemaContract, [failed]: false }]);
+      expect(await getMariaBookingReadiness()).toEqual({ enabled: false });
+      expect(query).toHaveBeenCalledTimes(2);
+      expect(query.mock.calls[1]?.[0]?.join(" ")).toContain("pg_constraint");
+    }
+  });
+
+  it("keeps Production booking closed even with valid schema, provider, workspace and entitlement", async () => {
+    enableProduction();
+    const query=stubSql([schema], [schemaContract], [{count:3}], [workspace]);
     vi.mocked(hasWorkspaceFeatureAccessForWorkspace).mockResolvedValue(true);
     const result=await getMariaBookingReadiness();
-    expect(result.enabled).toBe(true);
-    if (result.enabled) expect(result.ownerEmail).toBe("manager@example.com");
-    expect(query).toHaveBeenCalledTimes(3);
+    expect(result).toEqual({enabled:false});
+    expect(query).toHaveBeenCalledTimes(4);
     expect(hasWorkspaceFeatureAccessForWorkspace)
       .toHaveBeenCalledWith(workspace.workspace_id,"online_booking");
+    // There is no Production OTP/manager acceptance path yet; configuration
+    // flags must not falsely advertise a usable public booking lifecycle.
   });
 });
