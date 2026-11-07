@@ -6,6 +6,7 @@ import { getDashboardWorkspaceServices } from "@/lib/workspace-services-db";
 import { getDashboardWorkspaceBookingHours } from "@/lib/workspace-booking-hours-db";
 import { getMariaPreviewBookingReadiness } from "@/lib/maria-preview-booking";
 import { readMariaCardTranslations } from "@/lib/maria-card-translations-db";
+import { mariaDefaultCardCopy } from "@/lib/maria-default-card-copy";
 import { canManageWorkspaceSettings, getUserWorkspaceAccess } from "@/lib/workspace-access";
 import { saveMariaYearAction } from "./actions";
 import { saveMariaScheduleAction } from "./schedule-actions";
@@ -175,7 +176,8 @@ export default async function MariaSiteDashboardPage({ searchParams }: { searchP
         <h2 className="font-serif text-2xl text-[#352a2c]">Bröllopsår och paketpriser</h2>
         <p className="mt-2 max-w-2xl text-sm leading-6 text-[#705f65]">
           Välj år och ändra pris och kortbeskrivningar på svenska, engelska och arabiska.
-          Tomma språkfält visar standardtext på respektive språk. Spara ett år i taget.
+          Varje fält visar den aktuella texten på bokningssidan. Radera ett språkfält och spara för att återställa standardtexten.
+          Spara ett år i taget.
           Publicering kräver separat godkännande.
         </p>
         {q.updated ? (
@@ -247,8 +249,8 @@ export default async function MariaSiteDashboardPage({ searchParams }: { searchP
                         {languageLabel}
                         <textarea name={`${kind === "trial" ? "trial" : "without"}_description${locale === "sv" ? "" : `_${locale}`}`}
                           lang={locale} dir={locale === "ar" ? "rtl" : "ltr"} maxLength={280} rows={3}
-                          defaultValue={savedCopy(year, kind, locale)}
-                          placeholder="Tomt fält använder standardtext"
+                          defaultValue={savedCopy(year, kind, locale) || mariaDefaultCardCopy[kind][locale]}
+                          placeholder="Lämna tomt och spara för standardtext"
                           className="w-full rounded-lg border border-[#d8c4cb] bg-white px-3 py-2 text-sm text-[#352a2c]" />
                       </label>
                     ))}
