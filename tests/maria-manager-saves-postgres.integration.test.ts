@@ -43,6 +43,7 @@ vi.mock("next/navigation", () => ({
 import { readMariaManualSwishStatuses, setMariaManualSwishStatus } from "@/lib/maria-manual-swish";
 import { mariaBookingNumber } from "@/lib/maria-deposit";
 import { saveMariaYearAction } from "@/app/dashboard/maria/actions";
+import { mariaDefaultCardCopy } from "@/lib/maria-default-card-copy";
 import { readMariaCardTranslations } from "@/lib/maria-card-translations-db";
 import { saveMariaScheduleAction } from "@/app/dashboard/maria/schedule-actions";
 import { rescheduleMariaDashboardBooking } from "@/lib/maria-dashboard-reschedule";
@@ -266,6 +267,23 @@ function compileSql(strings: TemplateStringsArray, values: unknown[]): Query {
     expect(updated.rows[0]?.base_price_sek).toBeNull();
     expect(updated.rows[0]?.public_status).toBe("published");
     // Blank Arabic restores the default; English remains as saved.
+    expect((await readMariaCardTranslations(workspaceId)).get("maria-bridal-trial-2026"))
+      .toEqual({ en: "Bridal makeup with trial QA", ar: "" });
+
+    // Clearing the Swedish fields restores exactly what the public Design 02
+    // already displays, not the older abbreviated fallback text.
+    form.set("trial_description", "");
+    form.set("without_description", "");
+    await expect(saveMariaYearAction(form))
+      .rejects.toThrow("TEST_REDIRECT:/dashboard/maria?updated=2026&year=2026#priser");
+    const reset = await db!.query<{public_slug:string;short_description:string}>(
+      "select public_slug,short_description from workspace_services where workspace_id=$1 and public_slug in ('maria-bridal-trial-2026','maria-bridal-without-trial-2026')",
+      [workspaceId],
+    );
+    expect(reset.rows.find(row => row.public_slug === "maria-bridal-trial-2026")?.short_description)
+      .toBe(mariaDefaultCardCopy.trial.sv);
+    expect(reset.rows.find(row => row.public_slug === "maria-bridal-without-trial-2026")?.short_description)
+      .toBe(mariaDefaultCardCopy["without-trial"].sv);
     expect((await readMariaCardTranslations(workspaceId)).get("maria-bridal-trial-2026"))
       .toEqual({ en: "Bridal makeup with trial QA", ar: "" });
   });
