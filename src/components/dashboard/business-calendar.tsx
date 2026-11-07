@@ -17,9 +17,17 @@ const statusLabels: Record<string, string> = {
   break: "Rast", other: "Ej tillgänglig",
 };
 
-const mariaPreviewMoveMessage = {
-  sv: "Marias bokningar flyttas via bokningsdetaljerna. Öppna bokningen och välj en ny tid.",
-  en: "To reschedule a Maria booking, open its booking details and choose a new time.",
+type MoveDisabledReason = "maria_preview_details" | "maria_production_readonly";
+
+const mariaMoveDisabledMessage: Record<MoveDisabledReason, { sv: string; en: string }> = {
+  maria_preview_details: {
+    sv: "Marias bokningar flyttas via bokningsdetaljerna. Öppna bokningen och välj en ny tid.",
+    en: "To reschedule a Maria booking, open its booking details and choose a new time.",
+  },
+  maria_production_readonly: {
+    sv: "Marias bokningar är skrivskyddade. Tider kan inte flyttas innan bokningen aktiveras.",
+    en: "Maria bookings are read-only. Rescheduling is unavailable until booking is activated.",
+  },
 };
 
 const moveErrorLabels: Record<string, string> = {
@@ -95,7 +103,7 @@ function EventCard({ event, timeZone, compact = false, draggable = false, onDrag
   );
 }
 
-export function BusinessCalendar({ events, timeZone, isEnglish = false, allowDragAndDrop = true }: { events: DashboardCalendarEvent[]; timeZone: WorkspaceTimeZone; isEnglish?: boolean; allowDragAndDrop?: boolean }) {
+export function BusinessCalendar({ events, timeZone, isEnglish = false, allowDragAndDrop = true, moveDisabledReason }: { events: DashboardCalendarEvent[]; timeZone: WorkspaceTimeZone; isEnglish?: boolean; allowDragAndDrop?: boolean; moveDisabledReason?: MoveDisabledReason }) {
   const router = useRouter();
   const todayKey = localParts(new Date(), timeZone).date;
   const [view, setView] = useState<ViewMode>("month");
@@ -104,6 +112,7 @@ export function BusinessCalendar({ events, timeZone, isEnglish = false, allowDra
   const [staffId, setStaffId] = useState("all");
   const [draggedBooking, setDraggedBooking] = useState<DashboardCalendarEvent | null>(null);
   const [moveState, setMoveState] = useState<{ pending: boolean; message: string; error: boolean }>({ pending: false, message: "", error: false });
+  const disabledMoveMessage = mariaMoveDisabledMessage[moveDisabledReason ?? "maria_preview_details"][isEnglish ? "en" : "sv"];
 
   const staffOptions = useMemo(() => {
     const map = new Map<string, string>();
@@ -152,7 +161,7 @@ export function BusinessCalendar({ events, timeZone, isEnglish = false, allowDra
     } catch (error) {
       const code = error instanceof Error ? error.message : "save";
       const message = code === "maria_preview"
-        ? mariaPreviewMoveMessage[isEnglish ? "en" : "sv"]
+        ? disabledMoveMessage
         : moveErrorLabels[code] ?? moveErrorLabels.save;
       setMoveState({ pending: false, message, error: true });
       setDraggedBooking(null);
@@ -177,7 +186,7 @@ export function BusinessCalendar({ events, timeZone, isEnglish = false, allowDra
         </div>
       </div>
 
-      {view === "staff" ? <p className="rounded-xl border border-[#dfe5dc] bg-[#f7f9f6] px-4 py-3 text-sm text-[#536158]">{allowDragAndDrop ? "Dra en aktiv bokning till rätt dag och medarbetare. Starttiden och bokningens längd behålls." : mariaPreviewMoveMessage[isEnglish ? "en" : "sv"]}</p> : null}
+      {view === "staff" ? <p className="rounded-xl border border-[#dfe5dc] bg-[#f7f9f6] px-4 py-3 text-sm text-[#536158]">{allowDragAndDrop ? "Dra en aktiv bokning till rätt dag och medarbetare. Starttiden och bokningens längd behålls." : disabledMoveMessage}</p> : null}
       {moveState.message ? <p role={moveState.error ? "alert" : "status"} className={`rounded-xl px-4 py-3 text-sm font-semibold ${moveState.error ? "bg-[#fff5f2] text-[#8f2f1b] ring-1 ring-[#f4c7ba]" : "bg-[#eef8f1] text-[#17452f] ring-1 ring-[#cfe8d6]"}`}>{moveState.message}</p> : null}
 
       {view === "staff" ? (
