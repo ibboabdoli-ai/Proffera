@@ -2,8 +2,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("server-only", () => ({}));
 vi.mock("@/lib/db/server", () => ({ getSql: vi.fn() }));
-vi.mock("@/lib/maria-preview-booking", () => ({
-  getMariaPreviewBookingReadiness: vi.fn(),
+vi.mock("@/lib/maria-booking-runtime", () => ({
+  getMariaBookingReadiness: vi.fn(),
 }));
 vi.mock("@/lib/maria-booking-availability", () => ({
   getMariaAvailability: vi.fn(),
@@ -18,7 +18,7 @@ vi.mock("@/lib/public-booking-verification", () => ({
 import { getSql } from "@/lib/db/server";
 import { getMariaAvailability } from "@/lib/maria-booking-availability";
 import { allowPublicSubmission } from "@/lib/public-form-protection";
-import { getMariaPreviewBookingReadiness } from "@/lib/maria-preview-booking";
+import { getMariaBookingReadiness } from "@/lib/maria-booking-runtime";
 import { beginBookingEmailVerification } from "@/lib/public-booking-verification";
 import { POST } from "./route";
 
@@ -54,7 +54,7 @@ beforeEach(() => {
   vi.stubEnv("VERCEL_ENV", "preview");
   vi.stubEnv("PROFFERA_MARIA_PREVIEW_TEST_EMAIL", "qa@example.invalid");
   vi.stubEnv("PROFFERA_PREVIEW_EMAIL_RECIPIENT", "qa@example.invalid");
-  vi.mocked(getMariaPreviewBookingReadiness).mockResolvedValue({
+  vi.mocked(getMariaBookingReadiness).mockResolvedValue({
     enabled: true,
     workspaceId: "11111111-2222-4333-8444-555555555555",
     publicSlug: "makeup-by-maria",
