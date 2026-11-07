@@ -42,7 +42,7 @@ function runBookingNavigation(mariaPublicHost: boolean, bookingEnabled: boolean)
     showStep: (step:string) => steps.push(step), translate: () => {},
   };
   const source = [
-    segment("function brandedBookingClosed(){", "function renderYears(){"),
+    segment("function isBookablePackage(year,kind){", "function renderYears(){"),
     segment("function choosePackage(kind){", "function renderSummary(){"),
     segment("function buildDates(){", "document.querySelectorAll(\"[data-package]\").forEach("),
     "({renderPackageAvailability,choosePackage,buildDates,buildTimes})",
