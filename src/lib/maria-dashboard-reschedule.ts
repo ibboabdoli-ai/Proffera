@@ -3,7 +3,8 @@ import "server-only";
 import { getSql } from "@/lib/db/server";
 import type { BookingRescheduleResult } from "@/lib/dashboard-booking-reschedule";
 import { getMariaAvailability } from "@/lib/maria-booking-availability";
-import { getMariaPreviewPortalBase, isMariaPreviewTestRecipient } from "@/lib/maria-preview-customer-safety";
+import { getMariaBookingPortalBase, isMariaBookingRecipientAllowed, isMariaPreviewTestRecipient } from "@/lib/maria-preview-customer-safety";
+import { getMariaBookingReadiness } from "@/lib/maria-booking-runtime";
 import { isValidLocalTime, localDateTimeToUtc, parseLocalDateTime } from "@/lib/public-booking-policy";
 import { canManageWorkspaceSettings, getUserWorkspaceAccess } from "@/lib/workspace-access";
 import { hasDashboardModuleAccess } from "@/lib/workspace-module-access";
@@ -24,13 +25,18 @@ export async function rescheduleMariaDashboardBooking(input: {
 }): Promise<MariaDashboardRescheduleResult> {
   const denied = { ok: false as const, error: "status" as const };
   const access = await getUserWorkspaceAccess();
-  if (process.env.VERCEL_ENV !== "preview" || !getMariaPreviewPortalBase()
+  if (!getMariaBookingPortalBase()
     || !access.ok || !canManageWorkspaceSettings(access)
     || access.workspaceSlug !== "makeup-by-maria" || access.workspaceId !== input.workspaceId
     || !validUuid.test(input.bookingId)
     || !(await hasDashboardModuleAccess("online_booking"))) return denied;
-  const approvedRecipient = process.env.PROFFERA_MARIA_PREVIEW_TEST_EMAIL?.trim().toLowerCase();
-  if (!approvedRecipient || !isMariaPreviewTestRecipient(approvedRecipient)) return denied;
+  const readiness = await getMariaBookingReadiness();
+  if (!readiness.enabled || readiness.workspaceId !== input.workspaceId) return denied;
+  const preview = process.env.VERCEL_ENV === "preview";
+  const approvedRecipient = preview
+    ? process.env.PROFFERA_MARIA_PREVIEW_TEST_EMAIL?.trim().toLowerCase()
+    : null;
+  if (preview && (!approvedRecipient || !isMariaPreviewTestRecipient(approvedRecipient))) return denied;
 
   const local = parseLocalDateTime(input.localStartsAt);
   if (!local || local.minutes % 30 !== 0) return { ok: false, error: "time" };
@@ -57,7 +63,7 @@ export async function rescheduleMariaDashboardBooking(input: {
     limit 1
   `;
   const booking = before[0];
-  if (!booking || !isMariaPreviewTestRecipient(String(booking.customer_email))) return denied;
+  if (!booking || !isMariaBookingRecipientAllowed(String(booking.customer_email))) return denied;
   const match = /^maria-bridal-(trial|without-trial)-(202[6-9]|203[0-6])$/.exec(String(booking.public_slug ?? ""));
   if (!match || Number(match[2]) !== local.year) return { ok: false, error: "time" };
   const oldStart = new Date(String(booking.starts_at));
@@ -115,7 +121,7 @@ export async function rescheduleMariaDashboardBooking(input: {
             and b.ends_at=${previousEnd}::timestamptz
             and b.status in ('requested','confirmed') and b.starts_at>now()
             and b.staff_id is null and b.source='public_booking'
-            and lower(trim(c.email))=${approvedRecipient}
+            and (${!preview}::boolean or lower(trim(c.email))=${approvedRecipient ?? ""})
             and w.slug='makeup-by-maria' and w.status in ('active','trial')
             and s.public_slug=${String(booking.public_slug)}
             and s.is_active=true and s.public_status='published'
@@ -181,14 +187,14 @@ export async function rescheduleMariaDashboardBooking(input: {
         job_event as (
           insert into public.workspace_service_job_events(workspace_id,service_job_id,event_type,summary,metadata)
           select workspace_id,id,'status_changed','Maria dashboard booking time rescheduled.',
-            jsonb_build_object('source','maria_preview_dashboard_reschedule','booking_id',${input.bookingId}::text)
+            jsonb_build_object('source','maria_manager_dashboard_reschedule','booking_id',${input.bookingId}::text)
           from updated_job returning id
         ),
         customer_event as (
           insert into customer_events(workspace_id,customer_id,booking_id,event_type,title,description,metadata)
           select workspace_id,customer_id,id,'booking',
             'Bokning ombokad','Maria dashboard changed the booking time.',
-            jsonb_build_object('source','maria_preview_dashboard_reschedule',
+            jsonb_build_object('source','maria_manager_dashboard_reschedule',
               'starts_at',${newStartIso}::text,'ends_at',${newEndIso}::text)
           from moved returning id
         )
