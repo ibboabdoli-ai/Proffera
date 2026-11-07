@@ -42,7 +42,7 @@ type Locale = "sv" | "en";
 type ErrorKey = "access" | "status" | "save" | "maria_preview" | "maria_email_setup" | "reschedule_time" | "reschedule_past" | "reschedule_conflict" | "reschedule_status" | "maria_activation_conflict";
 type BookingDetailPageProps = {
   params: Promise<{ id: string }>;
-  searchParams?: Promise<{ error?: string | string[]; updated?: string | string[]; rescheduled?: string | string[]; created?: string | string[]; maria_mail?: string | string[]; payment_saved?: string | string[]; payment_error?: string | string[]; lang?: string | string[] }>;
+  searchParams?: Promise<{ error?: string | string[]; updated?: string | string[]; rescheduled?: string | string[]; created?: string | string[]; maria_mail?: string | string[]; payment_saved?: string | string[]; payment_error?: string | string[]; maria_reschedule_mail?: string | string[]; lang?: string | string[] }>;
 };
 
 type ParsedBookingNotes = {
