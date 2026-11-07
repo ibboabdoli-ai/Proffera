@@ -10,7 +10,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "next typegen && tsc --noEmit",
     "test": "vitest run"
   },
   "dependencies": {
@@ -32,6 +32,7 @@
   },
   "devDependencies": {
     "@eslint/eslintrc": "3.3.6",
+    "@playwright/test": "1.62.1",
     "@types/node": "26.2.0",
     "@types/pg": "8.23.1",
     "@types/qrcode": "1.5.6",

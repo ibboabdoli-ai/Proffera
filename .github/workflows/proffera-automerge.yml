@@ -309,6 +309,122 @@ jobs:
             refuse "Refused: PR changes blocked sensitive paths and requires the normal controlled merge path."
           fi
 
+          validate_codex_fallback() {
+            local live_codex_head
+            live_codex_head="$(gh api "repos/$REPOSITORY/pulls/$pr_number" --jq '.head.sha')"
+            [ "$live_codex_head" = "$head_sha" ] || refuse "Refused: PR head changed during Codex validation."
+            comments_json="$(gh api --paginate "repos/$REPOSITORY/issues/$pr_number/comments?per_page=100" --jq '.[]' | jq -s '.')"
+            jq -e --arg marker "$coderabbit_marker" --arg time "$coderabbit_request_time" '
+              any(.[]; .user.login == "github-actions[bot]" and .body == ($marker + "\n@coderabbitai review")
+                and .created_at == $time and .updated_at == .created_at)
+            ' <<< "$comments_json" >/dev/null || refuse "Refused: primary review request was removed or edited."
+            codex_marker="<!-- proffera-codex-fallback-review-request:${head_sha} -->"
+            codex_request_id="$(jq -r --arg marker "$codex_marker" --arg requester "$HUMAN_APPROVER" --arg request_time "$coderabbit_request_time" '[.[] | select(.user.login == $requester and ((.body // "") | contains($marker)) and ((.body // "") | contains("@codex review")) and .created_at >= $request_time)] | sort_by(.created_at) | last | .id // empty' <<< "$comments_json")"
+            codex_request_time="$(jq -r --arg marker "$codex_marker" --arg requester "$HUMAN_APPROVER" --arg request_time "$coderabbit_request_time" '[.[] | select(.user.login == $requester and ((.body // "") | contains($marker)) and ((.body // "") | contains("@codex review")) and .created_at >= $request_time)] | sort_by(.created_at) | last | .created_at // empty' <<< "$comments_json")"
+
+            if [ -z "$codex_request_id" ] || [ -z "$codex_request_time" ]; then
+              refuse "Refused: no trusted exact-current-head Codex fallback request from $HUMAN_APPROVER exists after the primary CodeRabbit request."
+            fi
+
+            # API timestamps must be canonical UTC instants, not lexical lookalikes.
+            jq -e --arg request_time "$codex_request_time" --arg primary_time "$coderabbit_request_time" --argjson request_id "$codex_request_id" '
+              def valid_time:
+                . as $s | type == "string" and (try (($s | fromdateiso8601 | todateiso8601) == $s and ($s | fromdateiso8601) <= now) catch false);
+              ($request_time | valid_time) and ($primary_time | valid_time)
+              and ($request_time >= $primary_time)
+              and ([.[] | select(.id == $request_id)] | length == 1)
+              and all(.[] | select(.id == $request_id);
+                (.created_at | valid_time) and (.updated_at == .created_at))
+            ' <<< "$comments_json" >/dev/null || refuse "Refused: Codex request timestamp is invalid or the request was edited."
+            codex_reactions_json="$(gh api --paginate "repos/$REPOSITORY/issues/comments/${codex_request_id}/reactions?per_page=100" --jq '.[]' | jq -s '.')"
+            codex_clean_count="$(jq -r --arg request_time "$codex_request_time" '
+              [
+                .[]
+                | select(.user.login == "chatgpt-codex-connector[bot]")
+                | select(.content == "+1")
+                | select(.created_at >= $request_time)
+              ]
+              | length
+            ' <<< "$codex_reactions_json")"
+
+            codex_reviews_json="$(gh api --paginate "repos/$REPOSITORY/pulls/$pr_number/reviews?per_page=100" --jq '.[]' | jq -s '.')"
+            codex_approval_count="$(jq -r --arg sha "$head_sha" --arg request_time "$codex_request_time" '
+              [
+                .[]
+                | select(.user.login == "chatgpt-codex-connector[bot]")
+                | select(.commit_id == $sha)
+                | select(.state == "APPROVED")
+                | select(.submitted_at >= $request_time)
+              ]
+              | length
+            ' <<< "$codex_reviews_json")"
+
+            codex_clean_comment_count="$(jq -r --arg sha "$head_sha" --arg request_time "$codex_request_time" '
+              [
+                .[]
+                | select(.user.login == "chatgpt-codex-connector[bot]")
+                | select(.created_at >= $request_time)
+                | select(.updated_at == .created_at)
+                | select((.body // "") | sub("^<!-- codex-review-receipt:v1 -->\\r?\\n\\r?\\n"; "") | startswith("Codex Review: Didn\u0027t find any major issues."))
+                | (.body // "") as $body
+                | select(($body | [match("Reviewed commit:"; "gi")] | length) == 1)
+                | ($body | capture("^(?:<!-- codex-review-receipt:v1 -->\\r?\\n\\r?\\n)?Codex Review: Didn\u0027t find any major issues\\.(?:[^<`\\r\\n]*\\r?\\n(?:[ \\t]*\\r?\\n)* {0,3}|[ \\t]+(?=Reviewed commit:[ \\t]*[0-9a-fA-F]{10}(?:\\r?\\n|$)))(?:\\*\\*Reviewed commit:\\*\\*|Reviewed commit:)[ \\t]*(?<token>`?[0-9a-fA-F]{10,40}`?)[ \\t]*(?:\\r?\\n|$)").token) as $token
+                | select(($token | startswith("`")) == ($token | endswith("`")))
+                | ($token | gsub("`"; "") | ascii_downcase) as $reviewed
+                | select(($reviewed | length) == 10 or ($reviewed | length) == 40)
+                | select($sha | startswith($reviewed))
+              ]
+              | length
+            ' <<< "$comments_json")"
+
+            codex_inline_json="$(gh api --paginate "repos/$REPOSITORY/pulls/$pr_number/comments?per_page=100" --jq '.[]' | jq -s '.')"
+            codex_inline_count="$(jq -r --arg sha "$head_sha" --arg request_time "$codex_request_time" '
+              [
+                .[]
+                | select(.user.login == "chatgpt-codex-connector[bot]")
+                | select(((.original_commit_id // .commit_id) == $sha or (.commit_id == $sha and ($request_time == "" or (.created_at | type) != "string" or .created_at == "" or .created_at >= $request_time))))
+              ]
+              | length
+            ' <<< "$codex_inline_json")"
+
+            if [ "$codex_inline_count" -gt 0 ]; then
+              refuse "Refused: Codex fallback posted current-head review findings."
+            fi
+
+            if [ "$codex_clean_count" -eq 0 ] && [ "$codex_approval_count" -eq 0 ] && [ "$codex_clean_comment_count" -eq 0 ]; then
+              refuse "Refused: no clean exact-current-head Codex fallback result exists."
+            fi
+
+            summary "- Current-head Codex fallback decision: clean review after CodeRabbit availability failure or bounded timeout"
+            codex_evidence_snapshot="$(jq -Scn --arg sha "$head_sha" --arg request_time "$codex_request_time" --argjson request_id "$codex_request_id" \
+              --slurpfile comments <(printf '%s\n' "$comments_json") --slurpfile reviews <(printf '%s\n' "$codex_reviews_json") \
+              --slurpfile reactions <(printf '%s\n' "$codex_reactions_json") --slurpfile inline <(printf '%s\n' "$codex_inline_json") '
+              def ev_comment: {id, login: .user.login, body, created_at, updated_at};
+              def ev_review: {id, login: .user.login, body, commit_id, state, submitted_at};
+              def ev_reaction: {id, login: .user.login, content, created_at};
+              def ev_inline: {id, login: .user.login, body, commit_id, original_commit_id, created_at, updated_at, path, line, original_line, side, in_reply_to_id};
+              ($comments[0] | if type == "array" then . else error("missing Codex comments") end) as $comments |
+              ($reviews[0] | if type == "array" then . else error("missing Codex reviews") end) as $reviews |
+              ($reactions[0] | if type == "array" then . else error("missing Codex reactions") end) as $reactions |
+              ($inline[0] | if type == "array" then . else error("missing Codex inline") end) as $inline |
+              {request: [$comments[] | select(.id == $request_id) | ev_comment],
+               comments: [$comments[] | select(.user.login == "chatgpt-codex-connector[bot]" and (.created_at >= $request_time))
+                 | select((.body // "") | sub("^<!-- codex-review-receipt:v1 -->\\r?\\n\\r?\\n"; "") | startswith("Codex Review: Didn\u0027t find any major issues.")) | ev_comment] | sort_by(.id),
+               reviews: [$reviews[] | select(.user.login == "chatgpt-codex-connector[bot]" and .commit_id == $sha) | ev_review] | sort_by(.id),
+               reactions: [$reactions[] | select(.user.login == "chatgpt-codex-connector[bot]") | ev_reaction] | sort_by(.id),
+                inline: [$inline[] | select(.user.login == "chatgpt-codex-connector[bot]" and (((.original_commit_id // .commit_id) == $sha or (.commit_id == $sha and ($request_time == "" or (.created_at | type) != "string" or .created_at == "" or .created_at >= $request_time))))) | ev_inline] | sort_by(.id)}
+            ')"
+            jq -e '
+              def valid_time:
+                . as $s | type == "string" and (try (($s | fromdateiso8601 | todateiso8601) == $s and ($s | fromdateiso8601) <= now) catch false);
+              all((.comments[], .reactions[], .inline[]); (.created_at | valid_time))
+              and all(.comments[]; .updated_at == .created_at)
+              and all(.reviews[]; (.submitted_at | valid_time))
+              and all(.reviews[]; .state != "CHANGES_REQUESTED" and .state != "DISMISSED")
+            ' <<< "$codex_evidence_snapshot" >/dev/null || refuse "Refused: Codex evidence has invalid timestamps, edits, or blocking reviews."
+          }
+
+          codex_accepted_snapshot=""
           file_count="$(grep -c . <<< "$changed_files" || true)"
           needs_ai_review=false
           fallback_eligible=false
@@ -356,9 +472,7 @@ jobs:
 
             reviews_json="$(gh api --paginate "repos/$REPOSITORY/pulls/$pr_number/reviews?per_page=100" --jq '.[]' | jq -s '.')"
             current_reviews="$(jq -c --arg sha "$head_sha" '[.[] | select(.user.login == "coderabbitai[bot]" and .commit_id == $sha)]' <<< "$reviews_json")"
-            latest_changes="$(jq -r '[.[] | select(.state == "CHANGES_REQUESTED") | .submitted_at] | max // empty' <<< "$current_reviews")"
-            latest_approval="$(jq -r '[.[] | select(.state == "APPROVED") | .submitted_at] | max // empty' <<< "$current_reviews")"
-            terminal_count="$(jq -r '[.[] | select(.state == "APPROVED" or .state == "COMMENTED")] | length' <<< "$current_reviews")"
+            latest_changes="$(jq -r '[.[] | select(.state == "CHANGES_REQUESTED" or .state == "DISMISSED") | .submitted_at] | max // empty' <<< "$current_reviews")"
 
             comments_json="$(gh api --paginate "repos/$REPOSITORY/issues/$pr_number/comments?per_page=100" --jq '.[]' | jq -s '.')"
             coderabbit_marker="<!-- proffera-coderabbit-final-review-request:${head_sha} -->"
@@ -370,34 +484,33 @@ jobs:
               ]
               | sort_by(.created_at)
               | last
+              | select(.updated_at == .created_at and (try (.created_at | fromdateiso8601) catch null) != null)
               | .created_at // empty
             ' <<< "$comments_json")"
+            latest_approval="$(jq -r --arg request_time "$coderabbit_request_time" '[.[] | select(.state == "APPROVED" and $request_time != "" and (.submitted_at // "") >= $request_time) | .submitted_at] | max // empty' <<< "$current_reviews")"
+            terminal_count="$(jq -r --arg request_time "$coderabbit_request_time" '[.[] | select(.state == "APPROVED" and $request_time != "" and (.submitted_at // "") >= $request_time)] | length' <<< "$current_reviews")"
             coderabbit_inline_json="$(gh api --paginate "repos/$REPOSITORY/pulls/$pr_number/comments?per_page=100" --jq '.[]' | jq -s '.')"
             coderabbit_inline_count="$(jq -r --arg sha "$head_sha" --arg request_time "$coderabbit_request_time" '
               [
                 .[]
                 | select(.user.login == "coderabbitai[bot]")
-                | select((.original_commit_id // .commit_id) == $sha)
-                | select(($request_time == "") or ((.created_at // "") >= $request_time))
+                | select(((.original_commit_id // .commit_id) == $sha or (.commit_id == $sha and ($request_time == "" or (.created_at | type) != "string" or .created_at == "" or .created_at >= $request_time))))
               ]
               | length
             ' <<< "$coderabbit_inline_json")"
-            clean_final_comment_count="$(jq -r --arg sha "$head_sha" --arg request_time "$coderabbit_request_time" '
+            clean_final_comments_json="$(jq -c --arg sha "$head_sha" --arg request_time "$coderabbit_request_time" '
               [
                 .[]
                 | select(.user.login == "coderabbitai[bot]")
                 | select($request_time != "")
                 | select((.created_at // "") >= $request_time)
+                | select(.updated_at == .created_at)
                 | (.body // "") as $body
-                | select(
-                    ($body | test("(^|[\\r\\n])<!-- CodeRabbit review command invocation: v2:[0-9a-f]{64} -->($|[\\r\\n])"))
-                    and ($body | test("(^|[\\r\\n])[[:space:]]*(@[A-Za-z0-9-]+[[:space:]]+)?Final exact-head review is complete for[[:space:]]+`?" + $sha + "`?\\.[[:space:]]*($|[\\r\\n])"))
-                    and ($body | test("(^|[\\r\\n])[[:space:]]*I found no issues\\.[[:space:]]*($|[\\r\\n])"))
-                    and (($body | test("Review limit reached|Review rate[ -]?limited|rate[ -]?limit|Action not completed|Review skipped|temporarily unavailable|service unavailable|incomplete|did not complete"; "i")) | not)
-                  )
+                | select((($body | test("^<!-- CodeRabbit review command invocation: v2:[0-9a-f]{64} -->[ \\t]*\\r?\\n(?:[ \\t]*\\r?\\n)* {0,3}(?:@[A-Za-z0-9-]+[ \\t]+)?Final exact-head review is complete for[ \\t]+(?:`" + $sha + "`|" + $sha + ")\\.[ \\t]*\\r?\\n(?:[ \\t]*\\r?\\n)* {0,3}I found no issues\\.[ \\t]*(?:\\r?\\n|$)")) or ($body | test("^ {0,3}(?:@[A-Za-z0-9-]+[ \\t]+)?Review completed for exact HEAD[ \\t]+(?:`" + $sha + "`|" + $sha + ")\\.[ \\t]*\\r?\\n(?:[ \\t]*\\r?\\n)* {0,3}I found no material findings\\.[ \\t]*(?:\\r?\\n|$)")) or ($body | test("^<!-- recent_review_start -->[ \\t]*\\r?\\n(?:[ \\t]*\\r?\\n)* {0,3}No actionable comments were generated(?: in the recent review)?\\.[ \\t]*\\r?\\n(?:[ \\t]*\\r?\\n)* {0,3}" + $sha + "[ \\t]*\\r?\\n(?:[ \\t]*\\r?\\n)*<!-- recent_review_end -->[ \\t]*(?:\\r?\\n|$)"))) and (($body | test("Review limit reached|Review rate[ -]?limited|rate[ -]?limit|Action not completed|Review skipped|temporarily unavailable|service unavailable|incomplete|did not complete"; "i")) | not))
               ]
-              | length
             ' <<< "$comments_json")"
+
+            clean_final_comment_count="$(jq -r 'length' <<< "$clean_final_comments_json")"
 
             if [ "$coderabbit_inline_count" -gt 0 ]; then
               refuse "Refused: CodeRabbit posted current-head review findings; review acceptance is blocked."
@@ -418,10 +531,32 @@ jobs:
 
               guard_reviews_json="$(gh api --paginate "repos/$REPOSITORY/pulls/$pr_number/reviews?per_page=100" --jq '.[]' | jq -s '.')"
               guard_current_reviews="$(jq -c --arg sha "$head_sha" '[.[] | select(.user.login == "coderabbitai[bot]" and .commit_id == $sha)]' <<< "$guard_reviews_json")"
-              guard_latest_changes="$(jq -r '[.[] | select(.state == "CHANGES_REQUESTED") | .submitted_at] | max // empty' <<< "$guard_current_reviews")"
-              guard_latest_approval="$(jq -r '[.[] | select(.state == "APPROVED") | .submitted_at] | max // empty' <<< "$guard_current_reviews")"
+              guard_latest_changes="$(jq -r '[.[] | select(.state == "CHANGES_REQUESTED" or .state == "DISMISSED") | .submitted_at] | max // empty' <<< "$guard_current_reviews")"
+              guard_latest_approval="$(jq -r --arg request_time "$coderabbit_request_time" '[.[] | select(.state == "APPROVED" and $request_time != "" and (.submitted_at // "") >= $request_time) | .submitted_at] | max // empty' <<< "$guard_current_reviews")"
               if [ -n "$guard_latest_changes" ] && { [ -z "$guard_latest_approval" ] || [[ ! "$guard_latest_approval" > "$guard_latest_changes" ]]; }; then
                 refuse "Refused: CodeRabbit changes were recorded before clean-comment automerge acceptance; clean comments cannot clear them."
+              fi
+
+              # A bot-authored issue comment alone is not a completed PR review.
+              # Bind the clean summary to a real, exact-HEAD, post-request
+              # APPROVED/COMMENTED CodeRabbit review, then recheck its timestamp.
+              guard_review_completion_time="$(jq -r --arg request_time "$coderabbit_request_time" '
+                [
+                  .[]
+                  | select((.state == "APPROVED") or (.state == "COMMENTED"))
+                  | select($request_time != "" and (.submitted_at // "") >= $request_time)
+                  | .submitted_at
+                ]
+                | min // empty
+              ' <<< "$guard_current_reviews")"
+              if [ -z "$guard_review_completion_time" ]; then
+                refuse "Refused: clean comment has no completed current-head CodeRabbit PR review after the exact-head request."
+              fi
+              guard_clean_after_review_count="$(jq -r --arg review_time "$guard_review_completion_time" '
+                [.[] | select(.updated_at == .created_at and (.created_at // "") >= $review_time)] | length
+              ' <<< "$clean_final_comments_json")"
+              if [ "$guard_clean_after_review_count" -eq 0 ]; then
+                refuse "Refused: clean comment predates the completed current-head CodeRabbit review."
               fi
 
               summary "- Current-head CodeRabbit decision: clean exact-head completion comment"
@@ -434,7 +569,9 @@ jobs:
                     .[]
                     | select(.user.login == "coderabbitai[bot]")
                     | select((.created_at // "") >= $request_time)
-                    | select((.body // "") | test("Review limit reached|Review rate limited|Action not completed: Review rate limited|Review skipped|temporarily unavailable|service unavailable"; "i"))
+                  | select(.updated_at == .created_at)
+                    | select((.body // "") | test("^(?:(?:<!-- This is an auto-generated reply by CodeRabbit -->\\r?\\n)?<!-- CodeRabbit review command invocation: v2:[0-9a-f]{64} -->\\r?\\n<details>\\r?\\n<summary>⚠️ Action not completed</summary>\\r?\\n(?:[ \\t]*\\r?\\n)*|Action not completed:[ \\t]*)?(Review limit reached|Review rate limited|Temporarily unavailable|Service unavailable)(?:\\.(?:[ \\t][^\\r\\n]*)?)?(?:\\r?\\n|$)"; "i"))
+                    | select((.body // "") | test("automatic reviews? (are |is )?disabled|auto(matic)?[ _-]?review[^\\n]*disabled"; "i") | not)
                   ]
                   | length
                 ' <<< "$comments_json")"
@@ -455,75 +592,8 @@ jobs:
                 refuse "Refused: no completed CodeRabbit review exists for the current PR head and the bounded Codex fallback is not active."
               fi
 
-              codex_marker="<!-- proffera-codex-fallback-review-request:${head_sha} -->"
-              codex_request_id="$(jq -r --arg marker "$codex_marker" --arg requester "$HUMAN_APPROVER" --arg request_time "$coderabbit_request_time" '[.[] | select(.user.login == $requester and ((.body // "") | contains($marker)) and ((.body // "") | contains("@codex review")) and .created_at >= $request_time)] | sort_by(.created_at) | last | .id // empty' <<< "$comments_json")"
-              codex_request_time="$(jq -r --arg marker "$codex_marker" --arg requester "$HUMAN_APPROVER" --arg request_time "$coderabbit_request_time" '[.[] | select(.user.login == $requester and ((.body // "") | contains($marker)) and ((.body // "") | contains("@codex review")) and .created_at >= $request_time)] | sort_by(.created_at) | last | .created_at // empty' <<< "$comments_json")"
-
-              if [ -z "$codex_request_id" ] || [ -z "$codex_request_time" ]; then
-                refuse "Refused: no trusted exact-current-head Codex fallback request from $HUMAN_APPROVER exists after the primary CodeRabbit request."
-              fi
-
-              codex_reactions_json="$(gh api --paginate "repos/$REPOSITORY/issues/comments/${codex_request_id}/reactions?per_page=100" --jq '.[]' | jq -s '.')"
-              codex_clean_count="$(jq -r --arg request_time "$codex_request_time" '
-                [
-                  .[]
-                  | select(.user.login == "chatgpt-codex-connector[bot]")
-                  | select(.content == "+1")
-                  | select(.created_at >= $request_time)
-                ]
-                | length
-              ' <<< "$codex_reactions_json")"
-
-              codex_reviews_json="$(gh api --paginate "repos/$REPOSITORY/pulls/$pr_number/reviews?per_page=100" --jq '.[]' | jq -s '.')"
-              codex_approval_count="$(jq -r --arg sha "$head_sha" --arg request_time "$codex_request_time" '
-                [
-                  .[]
-                  | select(.user.login == "chatgpt-codex-connector[bot]")
-                  | select(.commit_id == $sha)
-                  | select(.state == "APPROVED")
-                  | select(.submitted_at >= $request_time)
-                ]
-                | length
-              ' <<< "$codex_reviews_json")"
-
-              codex_clean_comment_count="$(jq -r --arg sha "$head_sha" --arg request_time "$codex_request_time" '
-                [
-                  .[]
-                  | select(.user.login == "chatgpt-codex-connector[bot]")
-                  | select(.created_at >= $request_time)
-                  | select(.updated_at == .created_at)
-                  | select((.body // "") | (
-                      startswith("Codex Review: Didn\u0027t find any major issues.")
-                      or startswith("<!-- codex-review-receipt:v1 -->\n\nCodex Review: Didn\u0027t find any major issues.")
-                    ))
-                  | select(([(.body // "") | match("Reviewed commit:"; "g")] | length) == 1)
-                  | select(([(.body // "") | match("Reviewed commit:\\*{0,2}[[:space:]]*`?(?<reviewed>[0-9a-fA-F]{7,40})(?![0-9a-fA-F])`?"; "g")] | length) == 1)
-                  | ((.body // "") | capture("Reviewed commit:\\*{0,2}[[:space:]]*`?(?<reviewed>[0-9a-fA-F]{7,40})(?![0-9a-fA-F])`?").reviewed | ascii_downcase) as $reviewed
-                  | select($sha | startswith($reviewed))
-                ]
-                | length
-              ' <<< "$comments_json")"
-
-              codex_inline_json="$(gh api --paginate "repos/$REPOSITORY/pulls/$pr_number/comments?per_page=100" --jq '.[]' | jq -s '.')"
-              codex_inline_count="$(jq -r --arg sha "$head_sha" --arg request_time "$codex_request_time" '
-                [
-                  .[]
-                  | select(.user.login == "chatgpt-codex-connector[bot]")
-                  | select(.commit_id == $sha)
-                  | select(.created_at >= $request_time)
-                ]
-                | length
-              ' <<< "$codex_inline_json")"
-
-              if [ "$codex_inline_count" -gt 0 ]; then
-                refuse "Refused: Codex fallback posted current-head review findings."
-              fi
-
-              if [ "$codex_clean_count" -eq 0 ] && [ "$codex_approval_count" -eq 0 ] && [ "$codex_clean_comment_count" -eq 0 ]; then
-                refuse "Refused: no clean exact-current-head Codex fallback result exists."
-              fi
-
-              summary "- Current-head Codex fallback decision: clean review after CodeRabbit availability failure or bounded timeout"
+              validate_codex_fallback
+              codex_accepted_snapshot="$codex_evidence_snapshot"
             fi
           else
             summary "### AI review gate"
@@ -621,14 +691,76 @@ jobs:
             refuse "Refused: the exact-head E2E public smoke Final Gate is missing or not successful."
           fi
 
+          # Revalidate Codex fallback evidence after the CI wait before the final
+          # CodeRabbit and owner checks. A new current-head finding must block merge.
+          if [ -n "$codex_accepted_snapshot" ]; then
+            validate_codex_fallback
+            [ "$codex_evidence_snapshot" = "$codex_accepted_snapshot" ] \
+              || refuse "Refused: Codex evidence changed during CI polling; fresh evaluation is required."
+          fi
+
           if [ "$needs_ai_review" = "true" ]; then
+            final_comments_json="$(gh api --paginate "repos/$REPOSITORY/issues/$pr_number/comments?per_page=100" --jq '.[]' | jq -s '.')"
+            jq -e --arg marker "$coderabbit_marker" --arg time "$coderabbit_request_time" '
+              [.[] | select(.user.login == "github-actions[bot]" and .body == ($marker + "\n@coderabbitai review"))]
+              | sort_by(.created_at) | last
+              | .created_at == $time and .updated_at == .created_at and (try (.created_at | fromdateiso8601) catch null) != null
+            ' <<< "$final_comments_json" >/dev/null \
+              || refuse "Refused: exact-head CodeRabbit request changed during CI polling."
+            final_coderabbit_inline_json="$(gh api --paginate "repos/$REPOSITORY/pulls/$pr_number/comments?per_page=100" --jq '.[]' | jq -s '.')"
+            final_coderabbit_inline_count="$(jq -r --arg sha "$head_sha" --arg request_time "$coderabbit_request_time" '
+              [
+                .[]
+                | select(.user.login == "coderabbitai[bot]")
+                | select(((.original_commit_id // .commit_id) == $sha or (.commit_id == $sha and ($request_time == "" or (.created_at | type) != "string" or .created_at == "" or .created_at >= $request_time))))
+              ]
+              | length
+            ' <<< "$final_coderabbit_inline_json")"
+            if [ "$final_coderabbit_inline_count" -gt 0 ]; then
+              refuse "Refused: CodeRabbit posted current-head inline findings after the earlier review gate; merge is blocked."
+            fi
+
             final_reviews_json="$(gh api --paginate "repos/$REPOSITORY/pulls/$pr_number/reviews?per_page=100" --jq '.[]' | jq -s '.')"
             final_current_reviews="$(jq -c --arg sha "$head_sha" '[.[] | select(.user.login == "coderabbitai[bot]" and .commit_id == $sha)]' <<< "$final_reviews_json")"
-            final_latest_changes="$(jq -r '[.[] | select(.state == "CHANGES_REQUESTED") | .submitted_at] | max // empty' <<< "$final_current_reviews")"
-            final_latest_approval="$(jq -r '[.[] | select(.state == "APPROVED") | .submitted_at] | max // empty' <<< "$final_current_reviews")"
+            final_latest_changes="$(jq -r '[.[] | select(.state == "CHANGES_REQUESTED" or .state == "DISMISSED") | .submitted_at] | max // empty' <<< "$final_current_reviews")"
+            final_latest_approval="$(jq -r --arg request_time "$coderabbit_request_time" '[.[] | select(.state == "APPROVED" and $request_time != "" and (.submitted_at // "") >= $request_time) | .submitted_at] | max // empty' <<< "$final_current_reviews")"
 
             if [ -n "$final_latest_changes" ] && { [ -z "$final_latest_approval" ] || [[ ! "$final_latest_approval" > "$final_latest_changes" ]]; }; then
               refuse "Refused: CodeRabbit changes were requested on the current PR head after the earlier review gate; merge is blocked."
+            fi
+
+            if [ -z "$codex_accepted_snapshot" ]; then
+              if [ "$terminal_count" -gt 0 ]; then
+                final_terminal_count="$(jq -r --arg request_time "$coderabbit_request_time" '[.[] | select(.state == "APPROVED" and $request_time != "" and (.submitted_at // "") >= $request_time)] | length' <<< "$final_current_reviews")"
+                [ "$final_terminal_count" -gt 0 ] \
+                  || refuse "Refused: the accepted current-head CodeRabbit approval is no longer present."
+              else
+                # The clean-summary route requires both its unedited comment and
+                # its completed post-request review to remain valid after polling.
+                jq -e --slurpfile accepted <(printf '%s\n' "$clean_final_comments_json") --arg marker "$coderabbit_marker" --arg time "$coderabbit_request_time" '
+                  def ev_comment: {id, login: .user.login, body, created_at, updated_at};
+                  ($accepted[0] | if type == "array" then . else error("missing accepted CodeRabbit comments") end | map(ev_comment)) as $accepted
+                  | map(ev_comment) as $current
+                  | ($accepted | length > 0)
+                    and all($accepted[]; . as $prior | any($current[]; . == $prior))
+                    and any($current[]; .login == "github-actions[bot]"
+                      and .body == ($marker + "\n@coderabbitai review")
+                      and .created_at == $time and .updated_at == .created_at)
+                ' <<< "$final_comments_json" >/dev/null \
+                  || refuse "Refused: accepted CodeRabbit clean-summary or review request changed during CI polling."
+                final_review_completion_time="$(jq -r --arg request_time "$coderabbit_request_time" '
+                  [.[] | select((.state == "APPROVED") or (.state == "COMMENTED"))
+                    | select($request_time != "" and (.submitted_at // "") >= $request_time)
+                    | .submitted_at] | min // empty
+                ' <<< "$final_current_reviews")"
+                [ -n "$final_review_completion_time" ] \
+                  || refuse "Refused: CodeRabbit clean-summary no longer has a completed current-head review."
+                final_clean_after_review_count="$(jq -r --arg review_time "$final_review_completion_time" '
+                  [.[] | select(.updated_at == .created_at and (.created_at // "") >= $review_time)] | length
+                ' <<< "$clean_final_comments_json")"
+                [ "$final_clean_after_review_count" -gt 0 ] \
+                  || refuse "Refused: CodeRabbit clean-summary predates the final completed review."
+              fi
             fi
           fi
 
@@ -652,8 +784,83 @@ jobs:
             refuse "Refused: fresh exact-head owner authorization was removed, edited, or otherwise invalid before merge."
           fi
 
-          summary "- Fresh exact-head owner authorization revalidated immediately before merge"
+          summary "- Fresh exact-head owner authorization revalidated before near-merge review checks"
           summary ""
+
+          # Review evidence can change while owner authorization is checked.
+          # Re-read it after those calls, with the inline findings read last.
+          if [ -n "$codex_accepted_snapshot" ]; then
+            validate_codex_fallback
+            [ "$codex_evidence_snapshot" = "$codex_accepted_snapshot" ] \
+              || refuse "Refused: Codex evidence changed during final owner authorization; fresh evaluation is required."
+          fi
+
+          if [ "$needs_ai_review" = "true" ]; then
+            near_merge_comments_json="$(gh api --paginate "repos/$REPOSITORY/issues/$pr_number/comments?per_page=100" --jq '.[]' | jq -s '.')"
+            jq -e --arg marker "$coderabbit_marker" --arg time "$coderabbit_request_time" '
+              [.[] | select(.user.login == "github-actions[bot]" and .body == ($marker + "\n@coderabbitai review"))]
+              | sort_by(.created_at) | last
+              | .created_at == $time and .updated_at == .created_at and (try (.created_at | fromdateiso8601) catch null) != null
+            ' <<< "$near_merge_comments_json" >/dev/null \
+              || refuse "Refused: exact-head CodeRabbit request changed after final owner authorization."
+            near_merge_reviews_json="$(gh api --paginate "repos/$REPOSITORY/pulls/$pr_number/reviews?per_page=100" --jq '.[]' | jq -s '.')"
+            near_merge_current_reviews="$(jq -c --arg sha "$head_sha" '[.[] | select(.user.login == "coderabbitai[bot]" and .commit_id == $sha)]' <<< "$near_merge_reviews_json")"
+            near_merge_latest_changes="$(jq -r '[.[] | select(.state == "CHANGES_REQUESTED" or .state == "DISMISSED") | .submitted_at] | max // empty' <<< "$near_merge_current_reviews")"
+            near_merge_latest_approval="$(jq -r --arg request_time "$coderabbit_request_time" '[.[] | select(.state == "APPROVED" and $request_time != "" and (.submitted_at // "") >= $request_time) | .submitted_at] | max // empty' <<< "$near_merge_current_reviews")"
+            if [ -n "$near_merge_latest_changes" ] && { [ -z "$near_merge_latest_approval" ] || [[ ! "$near_merge_latest_approval" > "$near_merge_latest_changes" ]]; }; then
+              refuse "Refused: CodeRabbit changes were requested after final owner authorization; merge is blocked."
+            fi
+
+            if [ -z "$codex_accepted_snapshot" ]; then
+              if [ "$terminal_count" -gt 0 ]; then
+                near_merge_terminal_count="$(jq -r --arg request_time "$coderabbit_request_time" '[.[] | select(.state == "APPROVED" and $request_time != "" and (.submitted_at // "") >= $request_time)] | length' <<< "$near_merge_current_reviews")"
+                [ "$near_merge_terminal_count" -gt 0 ] \
+                  || refuse "Refused: accepted CodeRabbit approval was revoked after final owner authorization."
+              else
+                jq -e --slurpfile accepted <(printf '%s\n' "$clean_final_comments_json") --arg marker "$coderabbit_marker" --arg time "$coderabbit_request_time" '
+                  def ev_comment: {id, login: .user.login, body, created_at, updated_at};
+                  ($accepted[0] | if type == "array" then . else error("missing accepted CodeRabbit comments") end | map(ev_comment)) as $accepted
+                  | map(ev_comment) as $current
+                  | ($accepted | length > 0)
+                    and all($accepted[]; . as $prior | any($current[]; . == $prior))
+                    and any($current[]; .login == "github-actions[bot]"
+                      and .body == ($marker + "\n@coderabbitai review")
+                      and .created_at == $time and .updated_at == .created_at)
+                ' <<< "$near_merge_comments_json" >/dev/null \
+                  || refuse "Refused: CodeRabbit clean-summary or request changed after final owner authorization."
+                near_merge_review_completion_time="$(jq -r --arg request_time "$coderabbit_request_time" '
+                  [.[] | select((.state == "APPROVED") or (.state == "COMMENTED"))
+                    | select($request_time != "" and (.submitted_at // "") >= $request_time)
+                    | .submitted_at] | min // empty
+                ' <<< "$near_merge_current_reviews")"
+                [ -n "$near_merge_review_completion_time" ] \
+                  || refuse "Refused: CodeRabbit clean-summary review was revoked after final owner authorization."
+                near_merge_clean_after_review_count="$(jq -r --arg review_time "$near_merge_review_completion_time" '
+                  [.[] | select(.updated_at == .created_at and (.created_at // "") >= $review_time)] | length
+                ' <<< "$clean_final_comments_json")"
+                [ "$near_merge_clean_after_review_count" -gt 0 ] \
+                  || refuse "Refused: CodeRabbit clean-summary predates the near-merge completed review."
+              fi
+            fi
+
+            # One last comments API read covers both providers. This separate
+            # read is not atomic with the following merge operation.
+            near_merge_inline_json="$(gh api --paginate "repos/$REPOSITORY/pulls/$pr_number/comments?per_page=100" --jq '.[]' | jq -s '.')"
+            near_merge_coderabbit_inline_count="$(jq -r --arg sha "$head_sha" --arg request_time "$coderabbit_request_time" '
+              [.[] | select(.user.login == "coderabbitai[bot]")
+                | select(((.original_commit_id // .commit_id) == $sha or (.commit_id == $sha and ($request_time == "" or (.created_at | type) != "string" or .created_at == "" or .created_at >= $request_time))))] | length
+            ' <<< "$near_merge_inline_json")"
+            [ "$near_merge_coderabbit_inline_count" -eq 0 ] \
+              || refuse "Refused: CodeRabbit inline findings appeared after final owner authorization; merge is blocked."
+            if [ -n "$codex_accepted_snapshot" ]; then
+              near_merge_codex_inline_count="$(jq -r --arg sha "$head_sha" --arg request_time "$codex_request_time" '
+                [.[] | select(.user.login == "chatgpt-codex-connector[bot]")
+                  | select(((.original_commit_id // .commit_id) == $sha or (.commit_id == $sha and ($request_time == "" or (.created_at | type) != "string" or .created_at == "" or .created_at >= $request_time))))] | length
+              ' <<< "$near_merge_inline_json")"
+              [ "$near_merge_codex_inline_count" -eq 0 ] \
+                || refuse "Refused: Codex inline findings appeared after final owner authorization; merge is blocked."
+            fi
+          fi
 
           merge_output="$(gh pr merge "$pr_number" --repo "$REPOSITORY" --squash --delete-branch --match-head-commit "$head_sha" 2>&1)"
 

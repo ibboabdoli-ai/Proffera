@@ -22,7 +22,7 @@ function baseInput(comments: Array<Record<string, unknown>>) {
 }
 function source(
   id = 9001,
-  body = "Codex Review: Didn't find any major issues. Reviewed commit: aaaaaaa",
+  body = "Codex Review: Didn't find any major issues.\nReviewed commit: aaaaaaaaaa",
   reviewGenerationId = 7001,
 ) {
   return {
@@ -95,7 +95,9 @@ describe("canonical material evidence", () => {
   it("normalizes the official Codex receipt exactly like a legacy clean result without accepting forged variants", () => {
     const legacy = source();
     const official = { ...legacy, body: "<!-- codex-review-receipt:v1 -->\n\nCodex Review: Didn't find any major issues.\n\n**Reviewed commit:** `aaaaaaaaaa`" };
+    const sameLine = { ...legacy, body: "Codex Review: Didn't find any major issues. Reviewed commit: aaaaaaaaaa" };
     expect(normalizeFinalGateEvidence(official, head)).toEqual(normalizeFinalGateEvidence(legacy, head));
+    expect(normalizeFinalGateEvidence(sameLine, head)).toEqual(normalizeFinalGateEvidence(legacy, head));
     for (const body of [
       official.body.replace("receipt:v1", "receipt:v2"),
       "Untrusted prefix\n" + official.body,
@@ -166,7 +168,7 @@ describe("final-gate retry decisions", () => {
     const newTarget = target();
     newTarget.head = "b".repeat(40);
     newTarget.job.head = newTarget.head;
-    const fresh = prepare([bot(first.persistence.body)], source(9999, "Codex Review: Didn't find any major issues. Reviewed commit: bbbbbbb", 7002), recovery(), newTarget);
+    const fresh = prepare([bot(first.persistence.body)], source(9999, `Codex Review: Didn't find any major issues.\nReviewed commit: ${"b".repeat(10)}`, 7002), recovery(), newTarget);
     expect(fresh.decision).toBe("ALLOW_RERUN");
     expect(fresh.intent_id).not.toBe(first.intent_id);
   });
@@ -416,9 +418,9 @@ type Hooks = { before?: (op: Operation) => void; post?: () => string; persist?: 
 const fallbackBody = `<!-- proffera-codex-fallback-review-request:${head} -->\n@codex review`;
 const cleanBody = `<!-- CodeRabbit review command invocation: v2:${"c".repeat(64)} -->\nFinal exact-head review is complete for ${head}.\nI found no issues.`;
 const otherCleanBody = `Review completed for exact HEAD ${head}.\nI found no material findings.`;
-const liveReview = (id = 7001, state = "commented"): LiveSource => ({ ...source(id, "Review completed.", id), actor: "coderabbitai[bot]", observed_at: at(12), kind: "pull_request_review", review_commit: head, review_state: state });
+const liveReview = (id = 7001, state = "approved"): LiveSource => ({ ...source(id, "Review completed.", id), actor: "coderabbitai[bot]", observed_at: at(12), kind: "pull_request_review", review_commit: head, review_state: state });
 const rawJob = (attempt = 1): RawJob => ({ ...target(attempt, 76 + attempt).job, head_sha: head, started_at: at(attempt * 10), completed_at: at(attempt * 10 + 1) });
-const reviewRecord = (id = 7001, state = "COMMENTED", time = at(12)): ReviewRecord => ({ id, user: { login: "coderabbitai[bot]" }, commit_id: head, state, submitted_at: time, body: "Review completed." });
+const reviewRecord = (id = 7001, state = "APPROVED", time = at(12)): ReviewRecord => ({ id, user: { login: "coderabbitai[bot]" }, commit_id: head, state, submitted_at: time, body: "Review completed." });
 const findingRecord = (id = 8001, reviewId = 7001, body = "Validate the returned HEAD"): FindingRecord => ({ id, user: { login: "coderabbitai[bot]" }, commit_id: head, original_commit_id: head, pull_request_review_id: reviewId, path: "scripts/example.mjs", line: 7, body, created_at: at(12) });
 
 function liveFixture(src: LiveSource = { ...source(9001, fallbackBody), actor: "ibboabdoli-ai" }, binding = { head, runId: 500 }) {
@@ -433,7 +435,7 @@ function liveFixture(src: LiveSource = { ...source(9001, fallbackBody), actor: "
     prHead: liveHead, draft: false,
     runMeta: { id: liveRunId, head_sha: liveHead, run_attempt: 1, path: ".github/workflows/ci.yml", event: "pull_request", repository: { full_name: repo }, pull_requests: [{ number: pr }] },
     prComments: [
-      { id: 101, user: { login: "github-actions[bot]" }, body: `<!-- proffera-coderabbit-final-review-request:${liveHead} -->\n@coderabbitai review`, created_at: at(3) },
+      { id: 101, user: { login: "github-actions[bot]" }, body: `<!-- proffera-coderabbit-final-review-request:${liveHead} -->\n@coderabbitai review`, created_at: at(3), updated_at: at(3) },
       { id: 102, user: { login: "ibboabdoli-ai" }, body: boundFallback, created_at: at(5) },
     ],
   };
@@ -502,13 +504,20 @@ describe("real adapter identity and event ordering", () => {
     expect(f.run().decision).toBe("SUPPRESS_DUPLICATE");
     expect(f.posts).toBe(1); expect(f.memory()!.intents[0].id).toBe(id); expect(f.capacity()).toBe(4);
   });
-  it.each(["review_first", "comment_first", "older_review_visible", "other_comment_format", "edited_comment"])("clean semantic evidence converges: %s", (mode) => {
+  it.each(["review_first", "comment_first", "older_review_visible", "other_comment_format"])("clean semantic evidence converges: %s", (mode) => {
     const comment = { ...source(), actor: "coderabbitai[bot]", body: mode === "other_comment_format" ? otherCleanBody : cleanBody };
     const f = liveFixture(mode === "review_first" ? liveReview() : comment);
-    if (mode === "older_review_visible") f.reviews = [reviewRecord(6001, "COMMENTED", at(6))];
-    f.run(); f.next(); f.src = mode === "review_first" || mode === "edited_comment" ? { ...comment, id: 999, observed_at: at(23) } : liveReview(7002);
+    if (mode !== "review_first") f.reviews = [reviewRecord(6001, "COMMENTED", at(6))];
+    f.run(); f.next(); f.src = mode === "review_first" ? { ...comment, id: 999, observed_at: at(23) } : liveReview(7002);
+    if (mode === "review_first") f.sourceCreatedAt = at(23);
     f.reviews.push(reviewRecord(7002));
     expect(f.run().decision).toBe("SUPPRESS_DUPLICATE"); expect(f.posts).toBe(1);
+  });
+  it("rejects a clean summary edited after its original creation", () => {
+    const f = liveFixture({ ...source(), actor: "coderabbitai[bot]", body: cleanBody });
+    f.src.observed_at = at(23);
+    f.reviews = [reviewRecord(6001, "COMMENTED", at(6))];
+    expect(() => f.run()).toThrow("summary_completion_required"); expect(f.posts).toBe(0);
   });
   it("accepts a fresh exact-head Codex clean comment with no visible review, then deduplicates the delayed review", () => {
     const f = liveFixture(source()); f.run(); f.next(); f.src = { ...liveReview(7002, "approved"), actor: "chatgpt-codex-connector[bot]" };
@@ -528,6 +537,7 @@ describe("real adapter identity and event ordering", () => {
     f.reviews.push(reviewRecord(8002, "APPROVED", at(22))); f.src = liveReview(8002, "approved"); f.src.observed_at = at(22);
     expect(f.run().decision).toBe("ALLOW_RERUN"); expect(f.posts).toBe(2);
     f.next(); f.src = { ...source(8003), actor: "coderabbitai[bot]", body: cleanBody, observed_at: at(33) };
+    f.sourceCreatedAt = at(33);
     expect(f.run().decision).toBe("SUPPRESS_DUPLICATE"); expect(f.posts).toBe(2);
   });
   it.each(["missing_primary", "wrong_primary_actor", "early_fallback", "old_edited_codex", "wrong_comment_pr", "stale_review_head", "draft"])("rejects stale/untrusted authority: %s", (mode) => {
@@ -663,16 +673,18 @@ describe("real adapter POST uncertainty and recovery", () => {
 });
 
 describe("real adapter provider and blocking-review policy", () => {
-  it.each(["Review skipped", "Review skipped: automatic reviews are disabled", "Action not completed: pull request is in draft mode", "A rate-limit discussion"])("does not classify generic status as an outage: %s", (body) => {
+  it.each(["Review skipped", "Review skipped: automatic reviews are disabled", "Action not completed: pull request is in draft mode", "A rate-limit discussion", "The service unavailable error is fixed.", "> Review rate limited", "    Review rate limited", "<pre>Review rate limited</pre>", "Code example:\n```text\nReview rate limited\n```", "Not temporarily unavailable", "Review rate limitedness"])("does not classify generic status as an outage: %s", (body) => {
     const f = liveFixture({ ...source(), actor: "coderabbitai[bot]", body }); expect(() => f.run()).toThrow(); expect(f.posts).toBe(0);
   });
-  it.each(["Review limit reached", "Review rate limited", "Action not completed: Review rate limited", "Service unavailable", "Temporarily unavailable"])("accepts authenticated post-primary availability evidence: %s", (body) => {
+  it.each(["Review limit reached", "Review rate limited", "Action not completed: Review rate limited", "Service unavailable", "Temporarily unavailable", "<!-- This is an auto-generated reply by CodeRabbit -->\n<!-- CodeRabbit review command invocation: v2:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa -->\n<details>\n<summary>⚠️ Action not completed</summary>\n\nReview rate limited.\n\nPlease retry later.\n</details>", "<!-- This is an auto-generated reply by CodeRabbit -->\r\n<!-- CodeRabbit review command invocation: v2:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa -->\r\n<details>\r\n<summary>⚠️ Action not completed</summary>\r\n\r\nReview rate limited.\r\n\r\nPlease retry later.\r\n</details>"])("accepts authenticated post-primary availability evidence: %s", (body) => {
     const f = liveFixture({ ...source(), actor: "coderabbitai[bot]", body }); expect(f.run().decision).toBe("ALLOW_RERUN"); expect(f.posts).toBe(1);
     const stale = liveFixture({ ...source(), actor: "coderabbitai[bot]", body }); stale.sourceCreatedAt = at(2); expect(() => stale.run()).toThrow("primary_request_required"); expect(stale.posts).toBe(0);
   });
   it.each(["direct_review", "codex_comment", "fallback_request", "outage", "coderabbit_comment"])("blocks a newly arrived CHANGES_REQUESTED on every path: %s", (mode) => {
     const sources: Record<string, LiveSource> = { direct_review: liveReview(), codex_comment: source(), fallback_request: { ...source(9001, fallbackBody), actor: "ibboabdoli-ai" }, outage: { ...source(), actor: "coderabbitai[bot]", body: "Review rate limited" }, coderabbit_comment: { ...source(), actor: "coderabbitai[bot]", body: cleanBody } };
-    const f = liveFixture(sources[mode]); f.hooks.before = ({ endpoint }) => { if (f.states().includes("PREPARED") && endpoint.includes(`/pulls/${pr}/reviews?`)) f.reviews = [reviewRecord(888, "CHANGES_REQUESTED", at(14))]; };
+    const f = liveFixture(sources[mode]);
+    if (mode === "coderabbit_comment") f.reviews = [reviewRecord(6001, "COMMENTED", at(6))];
+    f.hooks.before = ({ endpoint }) => { if (f.states().includes("PREPARED") && endpoint.includes(`/pulls/${pr}/reviews?`)) f.reviews = [reviewRecord(888, "CHANGES_REQUESTED", at(14))]; };
     expect(f.run().decision).toBe("FAIL_CLOSED_MISMATCH"); expect(f.posts).toBe(0); expect(f.capacity()).toBe(4);
   });
 });
@@ -700,7 +712,7 @@ describe("Codex receipt admission through the real final-gate adapter", () => {
 
 describe("authority transitions and late races", () => {
   it.each(["approved", "clean_comment"])("Codex COMMENTED cannot consume the later %s authority", (mode) => {
-    const f = liveFixture({ ...liveReview(), actor: "chatgpt-codex-connector[bot]" });
+    const f = liveFixture({ ...liveReview(7001, "commented"), actor: "chatgpt-codex-connector[bot]" });
     expect(() => f.run()).toThrow("codex_decision_pending"); expect(f.posts).toBe(0); expect(f.capacity()).toBe(4);
     f.src = mode === "approved" ? { ...liveReview(7002, "approved"), actor: "chatgpt-codex-connector[bot]" } : { ...source(), observed_at: at(12) };
     expect(f.run().decision).toBe("ALLOW_RERUN"); expect(f.posts).toBe(1);
@@ -713,10 +725,19 @@ describe("authority transitions and late races", () => {
     };
     expect(f.run().decision).toBe("FAIL_CLOSED_MISMATCH"); expect(f.posts).toBe(0); expect(f.capacity()).toBe(4);
   });
-  it("treats current Codex commit findings as blocking even when original_commit_id differs", () => {
-    const f = liveFixture(source());
-    f.inline = [{ ...findingRecord(), user: { login: "chatgpt-codex-connector[bot]" }, original_commit_id: "b".repeat(40) }];
-    expect(() => f.run()).toThrow("clean_comment_findings"); expect(f.posts).toBe(0);
+  it("ignores carried-forward earlier-head Codex findings but blocks current-original-head findings", () => {
+    const forwarded = liveFixture(source());
+    forwarded.inline = [{ ...findingRecord(), user: { login: "chatgpt-codex-connector[bot]" },
+      original_commit_id: "b".repeat(40), commit_id: head, created_at: "2025-12-31T23:59:59Z" }];
+    expect(forwarded.run().decision).toBe("ALLOW_RERUN"); expect(forwarded.posts).toBe(1);
+    const replied = liveFixture(source());
+    replied.inline = [{ ...findingRecord(), user: { login: "chatgpt-codex-connector[bot]" },
+      original_commit_id: "b".repeat(40), commit_id: head, created_at: "2099-12-31T23:59:59Z" }];
+    expect(() => replied.run()).toThrow("clean_comment_findings"); expect(replied.posts).toBe(0);
+    const current = liveFixture(source());
+    current.inline = [{ ...findingRecord(), user: { login: "chatgpt-codex-connector[bot]" },
+      original_commit_id: head, commit_id: "b".repeat(40) }];
+    expect(() => current.run()).toThrow("clean_comment_findings"); expect(current.posts).toBe(0);
   });
   it("does not correlate a persistent summary to an older/ambiguous review ID", () => {
     const summary = `<!-- recent_review_start -->\nNo actionable comments were generated.\n${head}\n<!-- recent_review_end -->`;
@@ -734,7 +755,7 @@ describe("new HEAD authority through the real adapter", () => {
     const newHead = "b".repeat(40);
     const fresh = liveFixture({ ...source(9900, "<!-- proffera-codex-fallback-review-request:" + newHead + " -->\n@codex review"), actor: "ibboabdoli-ai" }, {head: newHead, runId: 600});
     fresh.all = structuredClone(old.all); fresh.time = 35; fresh.sourceCreatedAt = at(32); fresh.src.observed_at = at(32);
-    fresh.prComments[0].created_at = at(26); fresh.prComments[1].created_at = at(28);
+    fresh.prComments[0].created_at = at(26); fresh.prComments[0].updated_at = at(26); fresh.prComments[1].created_at = at(28);
     fresh.jobs[0].started_at = at(30); fresh.jobs[0].completed_at = at(31);
     expect(fresh.run().decision).toBe("ALLOW_RERUN"); expect(fresh.posts).toBe(1);
     expect(new Set(fresh.memory()!.intents.map(i => i.id)).size).toBe(2);
