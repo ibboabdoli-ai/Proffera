@@ -6825,6 +6825,15 @@ process.stdout.write(JSON.stringify({
     expect(run("validate-changes", { packet: packet(), changed_files: ["scripts/supervisor-authorization-policy.mjs"] }).code).toBe("hard_blocked_change");
     expect(run("validate-changes", { packet: packet(), changed_files: ["scripts/supervisor-preflight.mjs"] }).code).toBe("hard_blocked_change");
     expect(run("validate-changes", { packet: packet(), changed_files: ["scripts/supervisor-owner-push-pending.mjs"] }).code).toBe("hard_blocked_change");
+    for (const helperPath of ["scripts/supervisor-final-gate-memory.mjs", "scripts/supervisor-final-gate-live.mjs"]) {
+      expect(run("validate-changes", { packet: packet(), changed_files: [helperPath] }).code).toBe("hard_blocked_change");
+      const unauthorized = spawnSync(process.execPath, [helper, "validate-changes"], {
+        input: JSON.stringify({ packet: packet({ allowed_paths: [helperPath] }), changed_files: [helperPath] }),
+        encoding: "utf8",
+      });
+      expect(unauthorized.status).toBe(1);
+      expect(unauthorized.stderr).toContain("allowed_paths cannot include hard-blocked scope");
+    }
     const reservationHelper = "scripts/supervisor-b4-exclusive-reservation.mjs";
     expect(run("validate-changes", { packet: packet(), changed_files: [reservationHelper] }).code).toBe("hard_blocked_change");
     const attemptedPacket = packet({allowed_paths: [reservationHelper]});

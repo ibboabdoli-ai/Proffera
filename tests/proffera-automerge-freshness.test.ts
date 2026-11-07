@@ -20,6 +20,14 @@ function run(change:string) {
  let comments=[primary,request,clean,owner];
  const reviews:unknown[]=[], inline:unknown[]=[];
  const initialReviews:unknown[]=[];
+ const coderabbitSummary={id:6,user:{login:"coderabbitai[bot]"},body:"Review completed for exact HEAD "+head+".\nI found no material findings.",
+  created_at:"2026-01-01T00:00:02Z",updated_at:"2026-01-01T00:00:02Z"};
+ if(change==="coderabbit-reaction-rollup"){
+  comments.push(coderabbitSummary);
+  const completed={id:14,user:{login:"coderabbitai[bot]"},commit_id:head,state:"COMMENTED",submitted_at:"2026-01-01T00:00:01Z"};
+  reviews.push(completed);
+  initialReviews.push({...completed});
+ }
  if(change==="removed")comments=[primary,request];
  if(change==="request-removed")comments=[primary,clean];
  if(change==="near-merge-codex-removed")comments=[primary,request,owner];
@@ -47,7 +55,14 @@ function run(change:string) {
  const initialClean={...clean,user:{login:"chatgpt-codex-connector[bot]"},body:"Codex Review: Didn't find any major issues.\nReviewed commit: "+head,created_at:time,updated_at:time};
  const summary={id:4,user:{login:"chatgpt-codex-connector[bot]"},body:"Codex Review Summary",created_at:time,updated_at:"2026-01-01T00:01:00Z"};
  if(change==="summary-edited"){comments.push(summary);}
- writeFileSync(join(dir,"initial.json"),JSON.stringify([primary,request,initialClean,owner,...(change==="summary-edited"?[summary]:[])]));
+ writeFileSync(join(dir,"initial.json"),JSON.stringify([primary,request,initialClean,owner,...(change==="summary-edited"?[summary]:[]),
+  ...(change==="coderabbit-reaction-rollup"?[coderabbitSummary]:[])]));
+ if(change==="codex-reaction-rollup" || change==="coderabbit-reaction-rollup"){
+  Object.assign(primary,{reactions:{total_count:1,"+1":1}});
+  Object.assign(request,{reactions:{total_count:2,"+1":2}});
+  Object.assign(clean,{reactions:{total_count:3,"+1":3}});
+  if(change==="coderabbit-reaction-rollup")Object.assign(coderabbitSummary,{reactions:{total_count:1,eyes:1}});
+ }
  writeFileSync(join(dir,"comments.json"),JSON.stringify(comments));
  writeFileSync(join(dir,"reviews.json"),JSON.stringify(reviews));
  writeFileSync(join(dir,"initial-reviews.json"),JSON.stringify(initialReviews));
@@ -109,6 +124,9 @@ describe("AutoMerge post-poll review freshness",()=>{
   expect(run("summary-edited")).toContain("FRESH_EVIDENCE_OK");
   expect(run("stale-old-thread")).toContain("FRESH_EVIDENCE_OK");
   expect(run("large-evidence")).toContain("FRESH_EVIDENCE_OK");
+  // GitHub reaction rollups can change while content and author remain immutable.
+  expect(run("codex-reaction-rollup")).toContain("FRESH_EVIDENCE_OK");
+  expect(run("coderabbit-reaction-rollup")).toContain("FRESH_EVIDENCE_OK");
   // GitHub carries an old thread's current commit_id forward, but the finding
   // still belongs to its original commit; the fresh current-head review controls.
   for(const scenario of ["coderabbit-carried-before-request","initial-coderabbit-carried-before-request",

@@ -399,16 +399,20 @@ jobs:
             codex_evidence_snapshot="$(jq -Scn --arg sha "$head_sha" --arg request_time "$codex_request_time" --argjson request_id "$codex_request_id" \
               --slurpfile comments <(printf '%s\n' "$comments_json") --slurpfile reviews <(printf '%s\n' "$codex_reviews_json") \
               --slurpfile reactions <(printf '%s\n' "$codex_reactions_json") --slurpfile inline <(printf '%s\n' "$codex_inline_json") '
+              def ev_comment: {id, login: .user.login, body, created_at, updated_at};
+              def ev_review: {id, login: .user.login, body, commit_id, state, submitted_at};
+              def ev_reaction: {id, login: .user.login, content, created_at};
+              def ev_inline: {id, login: .user.login, body, commit_id, original_commit_id, created_at, updated_at, path, line, original_line, side, in_reply_to_id};
               ($comments[0] | if type == "array" then . else error("missing Codex comments") end) as $comments |
               ($reviews[0] | if type == "array" then . else error("missing Codex reviews") end) as $reviews |
               ($reactions[0] | if type == "array" then . else error("missing Codex reactions") end) as $reactions |
               ($inline[0] | if type == "array" then . else error("missing Codex inline") end) as $inline |
-              {request: [$comments[] | select(.id == $request_id)],
+              {request: [$comments[] | select(.id == $request_id) | ev_comment],
                comments: [$comments[] | select(.user.login == "chatgpt-codex-connector[bot]" and (.created_at >= $request_time))
-                 | select((.body // "") | sub("^<!-- codex-review-receipt:v1 -->\\r?\\n\\r?\\n"; "") | startswith("Codex Review: Didn\u0027t find any major issues."))] | sort_by(.id),
-               reviews: [$reviews[] | select(.user.login == "chatgpt-codex-connector[bot]" and .commit_id == $sha)] | sort_by(.id),
-               reactions: [$reactions[] | select(.user.login == "chatgpt-codex-connector[bot]")] | sort_by(.id),
-                inline: [$inline[] | select(.user.login == "chatgpt-codex-connector[bot]" and (((.original_commit_id // .commit_id) == $sha or (.commit_id == $sha and ($request_time == "" or (.created_at | type) != "string" or .created_at == "" or .created_at >= $request_time)))))] | sort_by(.id)}
+                 | select((.body // "") | sub("^<!-- codex-review-receipt:v1 -->\\r?\\n\\r?\\n"; "") | startswith("Codex Review: Didn\u0027t find any major issues.")) | ev_comment] | sort_by(.id),
+               reviews: [$reviews[] | select(.user.login == "chatgpt-codex-connector[bot]" and .commit_id == $sha) | ev_review] | sort_by(.id),
+               reactions: [$reactions[] | select(.user.login == "chatgpt-codex-connector[bot]") | ev_reaction] | sort_by(.id),
+                inline: [$inline[] | select(.user.login == "chatgpt-codex-connector[bot]" and (((.original_commit_id // .commit_id) == $sha or (.commit_id == $sha and ($request_time == "" or (.created_at | type) != "string" or .created_at == "" or .created_at >= $request_time))))) | ev_inline] | sort_by(.id)}
             ')"
             jq -e '
               def valid_time:
@@ -734,11 +738,12 @@ jobs:
                 # The clean-summary route requires both its unedited comment and
                 # its completed post-request review to remain valid after polling.
                 jq -e --slurpfile accepted <(printf '%s\n' "$clean_final_comments_json") --arg marker "$coderabbit_marker" --arg time "$coderabbit_request_time" '
-                  ($accepted[0] | if type == "array" then . else error("missing accepted CodeRabbit comments") end) as $accepted
-                  | . as $current
+                  def ev_comment: {id, login: .user.login, body, created_at, updated_at};
+                  ($accepted[0] | if type == "array" then . else error("missing accepted CodeRabbit comments") end | map(ev_comment)) as $accepted
+                  | map(ev_comment) as $current
                   | ($accepted | length > 0)
                     and all($accepted[]; . as $prior | any($current[]; . == $prior))
-                    and any($current[]; .user.login == "github-actions[bot]"
+                    and any($current[]; .login == "github-actions[bot]"
                       and .body == ($marker + "\n@coderabbitai review")
                       and .created_at == $time and .updated_at == .created_at)
                 ' <<< "$final_comments_json" >/dev/null \
@@ -813,11 +818,12 @@ jobs:
                   || refuse "Refused: accepted CodeRabbit approval was revoked after final owner authorization."
               else
                 jq -e --slurpfile accepted <(printf '%s\n' "$clean_final_comments_json") --arg marker "$coderabbit_marker" --arg time "$coderabbit_request_time" '
-                  ($accepted[0] | if type == "array" then . else error("missing accepted CodeRabbit comments") end) as $accepted
-                  | . as $current
+                  def ev_comment: {id, login: .user.login, body, created_at, updated_at};
+                  ($accepted[0] | if type == "array" then . else error("missing accepted CodeRabbit comments") end | map(ev_comment)) as $accepted
+                  | map(ev_comment) as $current
                   | ($accepted | length > 0)
                     and all($accepted[]; . as $prior | any($current[]; . == $prior))
-                    and any($current[]; .user.login == "github-actions[bot]"
+                    and any($current[]; .login == "github-actions[bot]"
                       and .body == ($marker + "\n@coderabbitai review")
                       and .created_at == $time and .updated_at == .created_at)
                 ' <<< "$near_merge_comments_json" >/dev/null \
