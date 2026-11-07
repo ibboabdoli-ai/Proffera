@@ -1,13 +1,13 @@
 import { NextResponse } from "next/server";
 
 import { getMariaAvailability } from "@/lib/maria-booking-availability";
-import { getMariaPreviewBookingReadiness } from "@/lib/maria-preview-booking";
+import { getMariaBookingReadiness } from "@/lib/maria-booking-runtime";
 
 export const dynamic = "force-dynamic";
 const headers = { "Cache-Control": "private, no-store, max-age=0" };
 
 export async function GET(request: Request) {
-  const readiness = await getMariaPreviewBookingReadiness();
+  const readiness = await getMariaBookingReadiness();
   if (!readiness.enabled) {
     return NextResponse.json({ ok: false, error: "unavailable" }, { status: 403, headers });
   }
