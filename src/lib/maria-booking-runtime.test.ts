@@ -46,6 +46,8 @@ afterEach(() => { vi.unstubAllEnvs(); });
 function enableProduction() {
   for (const [key, value] of Object.entries(flags)) vi.stubEnv(key, value);
   vi.mocked(resolveBrevoApiKey).mockReturnValue("synthetic-email-provider-key");
+  vi.stubEnv("BETTER_AUTH_SECRET","synthetic-auth-secret");
+  vi.stubEnv("LEAD_FROM_EMAIL","Makeup by Maria <noreply@example.invalid>");
 }
 
 function stubSql(...results: Array<Array<Record<string, unknown>>>) {
@@ -73,6 +75,20 @@ describe("Maria Production readiness is independent and disabled by default", ()
   it("refuses missing provider configuration before issuing booking writes", async () => {
     enableProduction();
     vi.mocked(resolveBrevoApiKey).mockReturnValue(null);
+    expect(await getMariaBookingReadiness()).toEqual({enabled:false});
+    expect(getSql).not.toHaveBeenCalled();
+  });
+
+  it("refuses absent OTP/portal signing secrets or mail sender without database queries",async()=>{
+    enableProduction();
+    vi.stubEnv("BETTER_AUTH_SECRET","");
+    vi.stubEnv("AUTH_SECRET","");
+    vi.stubEnv("CUSTOMER_PORTAL_SECRET","");
+    expect(await getMariaBookingReadiness()).toEqual({enabled:false});
+    vi.stubEnv("BETTER_AUTH_SECRET","synthetic-auth-secret");
+    vi.stubEnv("LEAD_FROM_EMAIL","");
+    expect(await getMariaBookingReadiness()).toEqual({enabled:false});
+    vi.stubEnv("LEAD_FROM_EMAIL","not-a-sender");
     expect(await getMariaBookingReadiness()).toEqual({enabled:false});
     expect(getSql).not.toHaveBeenCalled();
   });
