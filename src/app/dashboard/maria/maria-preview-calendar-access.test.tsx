@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import { mariaDefaultCardCopy } from "@/lib/maria-default-card-copy";
 
-const state=vi.hoisted(()=>({slug:"makeup-by-maria",role:"owner",productionEditorReady:false,serviceReadFailure:false}));
+const state=vi.hoisted(()=>({slug:"makeup-by-maria",role:"owner",productionEditorReady:false,productionBookingReady:false,serviceReadFailure:false}));
 vi.mock("server-only",()=>({}));
 vi.mock("next/navigation",()=>({redirect:(url:string)=>{throw Error("REDIRECT "+url)}}));
 vi.mock("@/lib/workspace-access",()=>({
@@ -17,6 +17,8 @@ vi.mock("@/lib/workspace-services-db",()=>({
 }));
 vi.mock("@/lib/workspace-booking-hours-db",()=>({getDashboardWorkspaceBookingHours:async()=>({hours:[]})}));
 vi.mock("@/lib/maria-preview-booking",()=>({getMariaPreviewBookingReadiness:async()=>({enabled:false})}));
+vi.mock("@/lib/maria-booking-runtime",()=>({getMariaBookingReadiness:async()=>state.productionBookingReady
+  ? {enabled:true,workspaceId:"qa",publicSlug:"makeup-by-maria"} : {enabled:false}}));
 vi.mock("@/lib/maria-production-year-editor",()=>({
   isMariaProductionYearEditorReady:async()=>state.productionEditorReady,
 }));
@@ -54,7 +56,7 @@ import CalendarPage from "../kalender/page";
 import BookingsPage from "../bokningar/page";
 import NewBookingPage from "../bokningar/ny/page";
 
-afterEach(()=>{vi.unstubAllEnvs();state.slug="makeup-by-maria";state.role="owner";state.productionEditorReady=false;state.serviceReadFailure=false});
+afterEach(()=>{vi.unstubAllEnvs();state.slug="makeup-by-maria";state.role="owner";state.productionEditorReady=false;state.productionBookingReady=false;state.serviceReadFailure=false});
 describe("Maria preview calendar visible without paid booking",()=>{
   it("routes the Maria manager workspace directly from /dashboard in Preview and Production",async()=>{
     for (const env of ["preview","production"]) {
@@ -104,6 +106,19 @@ describe("Maria preview calendar visible without paid booking",()=>{
     expect(html.match(/href="\/dashboard\/maria\/kalender"/g)).toHaveLength(2);
     expect(html).toContain("Hantera dagens tider");
     expect(html).toContain("Den publika bokningen är inte aktiverad.");
+  });
+  it("shows the complete Maria manager booking, calendar, Swish and schedule entrypoints only after Production readiness",async()=>{
+    vi.stubEnv("VERCEL_ENV","production");
+    state.productionBookingReady=true;
+    state.productionEditorReady=true;
+    const html=renderToStaticMarkup(await MariaSiteDashboardPage({searchParams:Promise.resolve({year:"2030"})}));
+    expect(html).toContain("Hantera bokningar");
+    expect(html).toContain('href="/dashboard/maria/kalender"');
+    expect(html).toContain("Spara bokningstider");
+    expect(html).toContain("Spara 2030");
+    expect(html).toContain("Riktiga kundbokningar är aktiverade");
+    expect(html).not.toContain("Endast intern förhandsvisning.");
+    expect(html).not.toContain("Onlinebokningen är ännu inte aktiverad.");
   });
   it("shows a read-only Maria overview in Production without Preview booking controls",async()=>{
     vi.stubEnv("VERCEL_ENV","production");
