@@ -19,6 +19,9 @@ function parseAndDisplay(years: MariaYear[], year: number, lang: "sv" | "en" = "
   // Execute the actual inline page price validation and formatter, not a duplicate.
   const js = [
     segment("function isValidYearPrice(amount){", "function isBookablePackage(year,kind){"),
+    // Include the real normalization helper used by the public three-language
+    // card payload; the extracted parser must run with its actual dependencies.
+    segment("  function safeDescriptions(value){", "  if(Array.isArray(config.years)){"),
     segment("   const parsed=config.years\n", "   if(new Set(parsed.map("),
     'workspaceConfig.years=parsed; ({years:parsed.map(row=>row.year),trial:displayYearPrice("trial"),without:displayYearPrice("without")})',
   ].join("\n");
