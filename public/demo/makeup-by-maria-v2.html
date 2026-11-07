@@ -400,10 +400,19 @@ function translate(){
   document.querySelector(".first-design").hidden=true;
  }
  document.querySelector('[data-i="detailsPrompt"]').textContent=displayedBookingHours();
- if(state.lang==="sv"&&state.year){
+ if(state.year){
   const details=workspaceConfig.years.find(item=>item.year===state.year);
-  if(details?.trialDescription)document.querySelector('[data-i="trialDesc"]').textContent=details.trialDescription;
-  if(details?.withoutDescription)document.querySelector('[data-i="withoutDesc"]').textContent=details.withoutDescription;
+  // Preserve each language's default copy when no manager override is saved.
+  // textContent keeps every language, including Arabic RTL, as plain text.
+  const selected=(kind)=>{
+   const localized=details?.[kind+"Descriptions"]?.[state.lang];
+   if(typeof localized==="string"&&localized.length<=280)return localized;
+   const legacy=state.lang==="sv"?details?.[kind+"Description"]:"";
+   return typeof legacy==="string"&&legacy.length<=280?legacy:"";
+  };
+  const trialCopy=selected("trial"),withoutCopy=selected("without");
+  if(trialCopy)document.querySelector('[data-i="trialDesc"]').textContent=trialCopy;
+  if(withoutCopy)document.querySelector('[data-i="withoutDesc"]').textContent=withoutCopy;
  }
  $("trialPrice").textContent=displayYearPrice("trial");
  $("withoutPrice").textContent=displayYearPrice("without");
@@ -592,6 +601,15 @@ async function loadMariaWorkspace(){
    }
    workspaceConfig.bookableAdvanceDays=accepted;
   }
+  function safeDescriptions(value){
+   const copy={sv:"",en:"",ar:""};
+   if(!value||typeof value!=="object"||Array.isArray(value))return copy;
+   for(const language of ["sv","en","ar"]){
+    const text=value[language];
+    if(typeof text==="string"&&text.length<=280)copy[language]=text;
+   }
+   return copy;
+  }
   if(Array.isArray(config.years)){
    const parsed=config.years
     .filter(y=>y&&Number.isInteger(y.year)&&y.year>=2026&&y.year<=2036&&y.enabled===true
@@ -599,7 +617,9 @@ async function loadMariaWorkspace(){
          ||isValidYearPrice(y[k])))
     .map(y=>({year:y.year,enabled:true,trial:y.trial??null,without:y.without??null,
       trialDescription:typeof y.trialDescription==="string"&&y.trialDescription.length<=280?y.trialDescription:"",
-      withoutDescription:typeof y.withoutDescription==="string"&&y.withoutDescription.length<=280?y.withoutDescription:""}));
+      withoutDescription:typeof y.withoutDescription==="string"&&y.withoutDescription.length<=280?y.withoutDescription:"",
+      trialDescriptions:safeDescriptions(y.trialDescriptions),
+      withoutDescriptions:safeDescriptions(y.withoutDescriptions)}));
    if(new Set(parsed.map(y=>y.year)).size===parsed.length&&parsed.length<=11){
     workspaceConfig.years=parsed;
     if(state.year&&!parsed.some(y=>y.year===state.year)){
