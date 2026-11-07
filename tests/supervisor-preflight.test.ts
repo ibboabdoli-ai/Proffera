@@ -1302,7 +1302,8 @@ describe("bounded preflight diagnostics", () => {
     git(f.repo,["add","."]);git(f.repo,["commit","-qm","fixture"]);
     const c=inspectFixture({cwd:f.repo,baseSha:f.base,prBody:body(f.base)});
     let verified=false;
-    const result=executeLocalValidation(c,f.repo,["e2e"],{runner:(_cmd:string,_args:string[],options:{env:Record<string,string>;cwd:string})=>{
+    const result=executeLocalValidation(c,f.repo,["e2e"],{runner:(_cmd:string,args:string[],options:{env:Record<string,string>;cwd:string})=>{
+      expect(args).toEqual([join(f.repo,"node_modules","playwright","cli.js"),"test","--workers=1"]);
       expect(options.env.PROFFERA_EXACT_CANDIDATE_E2E).toBe("1");
       expect(options.cwd).toBe(join(f.repo,"e2e"));
       return {status:0,stdout:"",stderr:""};
