@@ -29,7 +29,11 @@ export default async function MariaSiteDashboardPage({ searchParams }: { searchP
   }
 
   const [services, bookingHours, bookingReadiness, cardTranslations] = await Promise.all([
-    getDashboardWorkspaceServices(),
+    // When the Production editor is enabled, never render editable default
+    // values if the existing services could not be fetched reliably.
+    getDashboardWorkspaceServices({
+      strict: isProduction && process.env.PROFFERA_MARIA_PRODUCTION_YEAR_EDITOR_ENABLED === "true",
+    }),
     getDashboardWorkspaceBookingHours(),
     getMariaPreviewBookingReadiness(),
     readMariaCardTranslations(access.workspaceId),
