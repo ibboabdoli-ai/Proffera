@@ -59,7 +59,7 @@ export function isMariaBookingRecipientAllowed(
 ) {
   if (env.VERCEL_ENV === "preview") return isMariaPreviewTestRecipient(email, env);
   return inspectMariaProductionActivationRequest(env).requested
-    && /^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(email.trim())
+    && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())
     && email.trim().length <= 254;
 }
 
