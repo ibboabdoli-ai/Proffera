@@ -8,6 +8,7 @@ import { CalendarClock, CalendarDays, Clock3, History, MapPin, XCircle } from "l
 
 import { readableBookingTextColor } from "@/lib/booking-theme-contract";
 import { localizeMariaPreviewServiceName } from "@/lib/maria-preview-service-copy";
+import { getMariaBookingPortalBase } from "@/lib/maria-preview-customer-safety";
 import { bookingDateLocale } from "@/lib/booking-date-locale";
 import { cancelCustomerCalendarBooking, getCustomerCalendar, type CustomerCalendarBooking } from "@/lib/customer-calendar";
 import { getCustomerPortalPresentation, resolveCustomerPortalLanguage, type CustomerPortalLanguage } from "@/lib/customer-portal-language";
@@ -170,13 +171,13 @@ export default async function Page({ params, searchParams }: PageProps) {
       canCancel={data.policy.customerCancelEnabled}
       cancelNoticeHours={data.policy.cancelNoticeHours}
       language={language}
-      isMariaPreview={presentation?.publicBookingSlug === "makeup-by-maria" && process.env.VERCEL_ENV === "preview"}
+      isMariaPreview={presentation?.publicBookingSlug === "makeup-by-maria" && Boolean(getMariaBookingPortalBase())}
     />
   );
 
   const companyName = presentation?.companyName || (isPrimeView ? "PrimeView Window Care" : "Proffera");
   const isMaria = presentation?.publicBookingSlug === "makeup-by-maria"
-    && process.env.VERCEL_ENV === "preview";
+    && Boolean(getMariaBookingPortalBase());
   const portalPrimary = isMaria ? "#845363" : presentation?.primaryColor || (isPrimeView ? "#1769c2" : "#0a2e63");
   const style = {
     "--portal-primary": portalPrimary,
