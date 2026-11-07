@@ -146,6 +146,21 @@ describe("Maria verification language keeps the Preview booking locale", () => {
     expect(html).not.toContain(">EN</a>");
   });
 
+  it("preserves Arabic and English through the gated Maria Production verification page",async()=>{
+    vi.stubEnv("VERCEL_ENV","production");
+    for(const [key,value] of Object.entries({
+      PROFFERA_MARIA_PUBLIC_SITE_ENABLED:"true",
+      PROFFERA_MARIA_PRODUCTION_BOOKING_ENABLED:"true",
+      PROFFERA_MARIA_PRODUCTION_MANAGER_ENABLED:"true",
+      PROFFERA_MARIA_PRODUCTION_CUSTOMER_EMAIL_ENABLED:"true",
+      PROFFERA_MARIA_PRODUCTION_YEAR_EDITOR_ENABLED:"true",
+      PROFFERA_MARIA_PRODUCTION_ORIGIN:"https://makeupbymaria.se",
+    }))vi.stubEnv(key,value);
+    expect(await markup("ar")).toMatch(/<main[^>]*lang="ar"[^>]*dir="rtl"/);
+    expect(await markup("en")).toMatch(/<main[^>]*lang="en"/);
+    expect(await markup("ar",otherId)).not.toContain('>AR</a>');
+  });
+
   it("continues to support Arabic in both verification forms only in Maria Preview", async () => {
     const html = await markup("ar");
     expect(html).toMatch(/<main[^>]*lang="ar"[^>]*dir="rtl"/);
