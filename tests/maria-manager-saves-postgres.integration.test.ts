@@ -43,6 +43,7 @@ vi.mock("next/navigation", () => ({
 import { readMariaManualSwishStatuses, setMariaManualSwishStatus } from "@/lib/maria-manual-swish";
 import { mariaBookingNumber } from "@/lib/maria-deposit";
 import { saveMariaYearAction } from "@/app/dashboard/maria/actions";
+import { readMariaCardTranslations } from "@/lib/maria-card-translations-db";
 import { saveMariaScheduleAction } from "@/app/dashboard/maria/schedule-actions";
 import { rescheduleMariaDashboardBooking } from "@/lib/maria-dashboard-reschedule";
 import { BookingTimeConflictError, createDashboardBooking } from "@/lib/dashboard-db";
@@ -215,6 +216,10 @@ function compileSql(strings: TemplateStringsArray, values: unknown[]): Query {
     form.set("without", "5800");
     form.set("trial_description", "Brudmakeup med provsminkning");
     form.set("without_description", "Brudmakeup utan prov");
+    form.set("trial_description_en", "Bridal makeup with trial QA");
+    form.set("trial_description_ar", "مكياج عروس مع تجربة للاختبار");
+    form.set("without_description_en", "Bridal makeup without trial QA");
+    form.set("without_description_ar", "مكياج عروس بدون تجربة للاختبار");
     await expect(saveMariaYearAction(form))
       .rejects.toThrow("TEST_REDIRECT:/dashboard/maria?updated=2026&year=2026#priser");
 
@@ -236,11 +241,21 @@ function compileSql(strings: TemplateStringsArray, values: unknown[]): Query {
     expect(without?.base_price_sek).toBe(5800);
     expect(trial?.public_status).toBe("draft");
 
+    const cardCopy = await readMariaCardTranslations(workspaceId);
+    expect(cardCopy.get("maria-bridal-trial-2026")).toEqual({
+      en: "Bridal makeup with trial QA", ar: "مكياج عروس مع تجربة للاختبار",
+    });
+    expect(cardCopy.get("maria-bridal-without-trial-2026")).toEqual({
+      en: "Bridal makeup without trial QA", ar: "مكياج عروس بدون تجربة للاختبار",
+    });
+    expect(trial?.short_description).toBe("Brudmakeup med provsminkning");
+
     await db!.query(
       "update workspace_services set public_status='published' where workspace_id=$1 and public_slug='maria-bridal-trial-2026'",
       [workspaceId],
     );
     form.set("trial", "6900.75");
+    form.set("trial_description_ar", "");
     await expect(saveMariaYearAction(form))
       .rejects.toThrow("TEST_REDIRECT:/dashboard/maria?updated=2026&year=2026#priser");
     const updated = await db!.query(
@@ -250,6 +265,9 @@ function compileSql(strings: TemplateStringsArray, values: unknown[]): Query {
     expect(Number(updated.rows[0]?.price_amount_minor)).toBe(690075);
     expect(updated.rows[0]?.base_price_sek).toBeNull();
     expect(updated.rows[0]?.public_status).toBe("published");
+    // Blank Arabic restores the default; English remains as saved.
+    expect((await readMariaCardTranslations(workspaceId)).get("maria-bridal-trial-2026"))
+      .toEqual({ en: "Bridal makeup with trial QA", ar: "" });
   });
   it("hides and refuses a booking when the approved Preview recipient changes", async () => {
     const count = () => db!.query<{ count: number }>(
@@ -304,12 +322,21 @@ function compileSql(strings: TemplateStringsArray, values: unknown[]): Query {
     form.set("trial", "7000"); form.set("without", "6000");
     form.set("trial_description", "QA with trial");
     form.set("without_description", "QA without trial");
+    form.set("trial_description_en", "QA trial English");
+    form.set("trial_description_ar", "تجربة");
+    form.set("without_description_en", "QA without English");
+    form.set("without_description_ar", "بدون تجربة");
     await expect(saveMariaYearAction(form)).rejects.toThrow("TEST_REDIRECT:/dashboard/maria?error=save");
     const rows = await db!.query(
       "select public_slug from workspace_services where workspace_id=$1 and public_slug like 'maria-bridal-%-2027'",
       [workspaceId],
     );
     expect(rows.rowCount).toBe(0);
+    const invalidTranslations = await db!.query(
+      "select t.service_id from maria_service_card_translations t join workspace_services s on s.id=t.service_id where s.workspace_id=$1 and s.public_slug like 'maria-bridal-%-2027'",
+      [workspaceId],
+    );
+    expect(invalidTranslations.rowCount).toBe(0);
     const afterAudit = await db!.query<{ count: number }>(
       "select count(*)::int as count from admin_audit_logs where workspace_id=$1::uuid and action='maria.booking_year_content.updated'",
       [workspaceId],
