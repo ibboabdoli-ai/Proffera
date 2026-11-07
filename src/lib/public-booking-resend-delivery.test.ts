@@ -10,7 +10,7 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("server-only", () => ({}));
 vi.mock("@/lib/db/server", () => ({ getSql: mocks.getSql }));
-vi.mock("@/lib/maria-preview-booking", () => ({ getMariaPreviewBookingReadiness: mocks.readiness }));
+vi.mock("@/lib/maria-booking-runtime", () => ({ getMariaBookingReadiness: mocks.readiness }));
 vi.mock("@/lib/maria-resend-hold", () => ({ renewMariaPreviewHoldForResend: mocks.renew }));
 vi.mock("@/features/email/booking-verification-email", () => ({ sendBookingVerificationEmail: mocks.email }));
 vi.mock("@/features/email/lead-email", () => ({ sendBookingOwnerNotificationEmail: vi.fn() }));
@@ -18,7 +18,7 @@ vi.mock("@/features/email/unified-booking-confirmation-email", () => ({ sendUnif
 vi.mock("@/features/sms/booking-sms", () => ({ sendBookingOwnerSms: vi.fn(), sendBookingVerificationSms: vi.fn() }));
 vi.mock("@/lib/customer-calendar", () => ({ createCustomerCalendarToken: vi.fn() }));
 vi.mock("@/lib/maria-verified-booking", () => ({ finalizeMariaVerifiedBooking: vi.fn() }));
-vi.mock("@/lib/maria-preview-customer-safety", () => ({ isMariaPreviewTestRecipient: mocks.recipient }));
+vi.mock("@/lib/maria-preview-customer-safety", () => ({ isMariaBookingRecipientAllowed: mocks.recipient, isMariaPreviewTestRecipient: mocks.recipient, getMariaBookingPortalBase: () => "https://qa.vercel.app" }));
 
 import { resendPublicBookingCode, verifyPublicBookingCode } from "./public-booking-verification";
 
@@ -74,7 +74,7 @@ describe("Maria resend: provider uncertainty must not discard a potentially deli
       const actual = await vi.importActual<typeof import("./maria-preview-customer-safety")>(
         "./maria-preview-customer-safety",
       );
-      mocks.recipient.mockImplementation(actual.isMariaPreviewTestRecipient);
+      mocks.recipient.mockImplementation(actual.isMariaBookingRecipientAllowed);
       challenge.expires_at = new Date(Date.now() + 600_000).toISOString();
       challenge.attempts = 0;
       challenge.max_attempts = 5;
