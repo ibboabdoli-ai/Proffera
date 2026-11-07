@@ -48,6 +48,16 @@ describe("Maria verification email branding isolation", () => {
     expect(sent[1]!.htmlContent).not.toContain("maria-client-logo.jpg");
   });
 
+  it.each(["untrusted.example", "qa.vercel.app:444", "qa.vercel.app/other"])(
+    "omits Maria verification logo for an invalid Preview host %s",
+    async (host) => {
+      vi.stubEnv("VERCEL_URL", host);
+      expect((await sendBookingVerificationEmail({ ...fixture, branding: "makeup-by-maria" })).ok).toBe(true);
+      expect(sent).toHaveLength(1);
+      expect(sent[0]!.htmlContent).not.toContain("maria-client-logo.jpg");
+    },
+  );
+
   it("uses the explicit Maria flag even with a renamed display name and Arabic RTL", async () => {
     expect((await sendBookingVerificationEmail({
       ...fixture, companyName: "Maria Studio", branding: "makeup-by-maria", language: "ar",

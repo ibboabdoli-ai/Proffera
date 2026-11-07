@@ -121,7 +121,16 @@ describe("Maria Preview email credentials stay isolated", () => {
   it.each(senders)("fails closed for $name if the dedicated key is absent", async ({ send }) => {
     vi.stubEnv("BREVO_API_KEY", "synthetic-shared-key-that-must-not-be-used");
     vi.stubEnv("PROFFERA_PREVIEW_BREVO_API_KEY", undefined);
-    await send();
+    const result = await send();
+    if (Array.isArray(result)) {
+      expect(result).toHaveLength(2);
+      for (const delivery of result) {
+        expect(delivery.status).toBe("fulfilled");
+        if (delivery.status === "fulfilled") expect(delivery.value).toMatchObject({ ok: false });
+      }
+    } else {
+      expect(result).toMatchObject({ ok: false });
+    }
     expect(fetch).not.toHaveBeenCalled();
   });
 

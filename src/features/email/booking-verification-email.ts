@@ -1,4 +1,6 @@
 import { resolveBrevoApiKey } from "@/lib/email-runtime-config";
+import { mariaEmailLogoHtml } from "@/lib/maria-email-logo";
+import { getMariaPreviewPortalBase } from "@/lib/maria-preview-customer-safety";
 
 type BookingVerificationEmailInput = {
   customerName: string;
@@ -52,9 +54,7 @@ export async function sendBookingVerificationEmail(input: BookingVerificationEma
   const isArabic = input.language === "ar";
   const mariaPreview = process.env.VERCEL_ENV === "preview"
     && input.branding === "makeup-by-maria";
-  const mariaLogo = mariaPreview && process.env.VERCEL_URL
-    ? `<div style="background:#fcfaf8;text-align:center;padding:18px 12px;margin-bottom:18px"><img src="https://${escapeHtml(process.env.VERCEL_URL)}/demo/makeup-by-maria/assets/maria-client-logo.jpg" alt="Makeup by Maria" width="215" height="215" style="display:block;width:215px;max-width:100%;height:auto;margin:auto;border-radius:9px" /></div>`
-    : "";
+  const mariaLogo = mariaPreview ? mariaEmailLogoHtml(getMariaPreviewPortalBase()) : "";
   const subject = isArabic ? `${input.code} هو رمز التحقق لحجزك لدى ${input.companyName}` : isEnglish ? `${input.code} is your verification code for ${input.companyName}` : `${input.code} är din verifieringskod för ${input.companyName}`;
   const text = isArabic ? [
     `${input.code} هو رمز التحقق الخاص بك.`, "", `استخدم هذا الرمز لتأكيد الحجز لدى ${input.companyName}.`, `الرمز صالح لمدة ${expiresMinutes} دقائق.`, "", `مرحبًا ${input.customerName}،`, "لن يتم إنشاء الحجز إلا بعد التحقق من الرمز.", "إذا لم تطلب هذا الحجز، يمكنك تجاهل الرسالة.",

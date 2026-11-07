@@ -4,6 +4,7 @@ import { isValidElement, type ReactElement, type ReactNode } from "react";
 const runtime = vi.hoisted(() => ({
   loadDetail: vi.fn(),
   updateStatus: vi.fn(),
+  sendStatusEmail: vi.fn(),
 }));
 
 vi.mock("server-only", () => ({}));
@@ -28,6 +29,9 @@ vi.mock("@/lib/dashboard-booking-status", () => ({
   isDashboardBookingStatus: (status: string) =>
     ["requested", "confirmed", "completed", "cancelled"].includes(status),
   updateDashboardBookingStatus: runtime.updateStatus,
+}));
+vi.mock("@/features/email/maria-deposit-email", () => ({
+  sendMariaBookingStatusEmail: runtime.sendStatusEmail,
 }));
 vi.mock("@/lib/maria-manual-swish", () => ({
   readMariaManualSwishStatuses: async () => ({ ok: true, entries: {} }),
@@ -94,8 +98,11 @@ beforeEach(() => {
   vi.stubEnv("VERCEL_URL", "maria-synthetic-qa.vercel.app");
   vi.stubEnv("PROFFERA_MARIA_PREVIEW_TEST_EMAIL", "qa@example.invalid");
   vi.stubEnv("PROFFERA_PREVIEW_EMAIL_RECIPIENT", "qa@example.invalid");
+  vi.stubEnv("PROFFERA_PREVIEW_BREVO_API_KEY", "synthetic-qa-only-key");
+  vi.stubEnv("LEAD_FROM_EMAIL", "Preview QA <qa@example.invalid>");
   runtime.loadDetail.mockReset().mockResolvedValue(detail("qa@example.invalid"));
   runtime.updateStatus.mockReset();
+  runtime.sendStatusEmail.mockReset().mockResolvedValue({ ok: true });
 });
 
 afterEach(() => { vi.unstubAllEnvs(); });
@@ -131,4 +138,59 @@ describe("Maria Preview booking status action on a deleted booking", () => {
     );
     expect(runtime.updateStatus).toHaveBeenCalledExactlyOnceWith(id, "requested");
   });
+  it.each(["cancelled", "no_show"])(
+    "rejects reactivation from %s when the writer returns unchanged",
+    async (previousStatus) => {
+      const action = await getStatusAction();
+      runtime.updateStatus.mockResolvedValue({ changed: false, previousStatus });
+      await expect(action(statusForm("requested"))).rejects.toThrow(
+        `REDIRECT:/dashboard/bokningar/${id}?error=maria_activation_conflict&lang=en`,
+      );
+      expect(runtime.sendStatusEmail).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each(["confirmed", "cancelled"])(
+    "reports failed QA email delivery after %s changed",
+    async (status) => {
+      const action = await getStatusAction();
+      runtime.updateStatus.mockResolvedValue({
+        changed: true, previousStatus: "requested", timeZone: "Europe/Stockholm",
+        notification: {
+          customerEmail: "qa@example.invalid", customerName: "Synthetic QA customer",
+          service: "Synthetic QA service", startsAt: "2026-11-20T09:00:00.000Z",
+          endsAt: "2026-11-20T10:00:00.000Z", city: "Stockholm", language: "en",
+        },
+      });
+      runtime.sendStatusEmail.mockResolvedValue({ ok: false });
+      await expect(action(statusForm(status))).rejects.toThrow(
+        `REDIRECT:/dashboard/bokningar/${id}?updated=1&maria_mail=failed&lang=en`,
+      );
+      expect(runtime.updateStatus).toHaveBeenCalledExactlyOnceWith(id, status);
+      expect(runtime.sendStatusEmail).toHaveBeenCalledTimes(1);
+    },
+  );
+
+  it.each(["PROFFERA_PREVIEW_BREVO_API_KEY", "LEAD_FROM_EMAIL"])(
+    "blocks confirmation with a missing %s before the writer",
+    async (key) => {
+      const action = await getStatusAction();
+      vi.stubEnv(key, undefined);
+      await expect(action(statusForm("confirmed"))).rejects.toThrow(
+        `REDIRECT:/dashboard/bokningar/${id}?error=maria_email_setup&lang=en`,
+      );
+      expect(runtime.updateStatus).not.toHaveBeenCalled();
+    },
+  );
+
+  it("confirms a changed status with the standard success redirect", async () => {
+    const action = await getStatusAction();
+    runtime.updateStatus.mockResolvedValue({ changed: true, previousStatus: "requested" });
+    await expect(action(statusForm("completed"))).rejects.toThrow(
+      `REDIRECT:/dashboard/bokningar/${id}?updated=1&lang=en`,
+    );
+    expect(runtime.updateStatus).toHaveBeenCalledExactlyOnceWith(id, "completed");
+    expect(runtime.sendStatusEmail).not.toHaveBeenCalled();
+  });
+
 });
