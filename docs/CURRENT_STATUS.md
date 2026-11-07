@@ -1,6 +1,6 @@
 # Proffera Current Status
 
-Last updated: 2026-11-06
+Last updated: 2026-11-07
 
 This is the canonical factual status document for Proffera. For worker rules, live task state, current `main` SHA, roadmap order, and the stable V1 completion evidence requirements, also read `AGENTS.md`, `WORKER_BOOTSTRAP.md`, GitHub issue #548, GitHub issue #276, `docs/README.md`, and `docs/V1_LAUNCH_EVIDENCE_CONTRACT.json`.
 
@@ -212,3 +212,10 @@ The Preview UI/code change is not a verified end-to-end money flow: validate the
 Do not create another competing current-status file.
 
 Historical phase plans and handoffs may remain in `docs/` for context, but they are not current truth unless a canonical source explicitly points to them. Git history is the archive for older versions of the canonical files.
+
+
+## Maria Production booking preflight — read-only, not launched (2026-11-07)
+
+- `scripts/maria-production-booking-preflight.mjs` checks Production database schema and migration ledger for Maria 0072/0073/0074, owner workspace settings, the two published active 2026 services at the owner-approved first release prices (6,900/5,800 SEK), and at least one configured Friday–Sunday opening window. Its queries run inside `BEGIN READ ONLY` and `ROLLBACK`; no bookings, schema migrations or messages are created.
+- Invocation after independently confirming an authorized **read-only** Proffera Production database connection: `node scripts/maria-production-booking-preflight.mjs --read-only` with a privately provided `DATABASE_URL`. Do not publish the URL or execute against an unverified database. The current connected Neon integration does not expose Proffera Production, so a live database check has **not** been performed in this task.
+- This preflight does **not** implement or enable real customer booking. Public/OTP/customer-contact flows, manager status and manual calendar writes are still Preview-gated; Production entitlement, real-recipient email, verified same-origin domain/SSL routing, manual Swish truthfulness and rollback remain separate release blockers. Draft PR #971 must not be merged, migrated or publicly activated without distinct owner approval.
