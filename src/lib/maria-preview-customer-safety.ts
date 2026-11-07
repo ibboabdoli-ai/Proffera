@@ -1,4 +1,5 @@
 import { resolvePreviewEmailRecipient } from "@/lib/email-runtime-config";
+import { inspectMariaProductionActivationRequest } from "@/lib/maria-production-activation-policy";
 
 /**
  * Preview customer email routes must never deliver to real customer
@@ -45,4 +46,25 @@ export function mariaPreviewStatusChangePreflight(
     return "maria_email_setup";
   }
   return null;
+}
+
+/**
+ * A Preview booking can go only to the approved QA inbox. Production customers
+ * are allowed only after every independent launch switch is explicitly set;
+ * the calling route must ALSO verify DB readiness and the canonical origin.
+ */
+export function isMariaBookingRecipientAllowed(
+  email: string,
+  env: NodeJS.ProcessEnv = process.env,
+) {
+  if (env.VERCEL_ENV === "preview") return isMariaPreviewTestRecipient(email, env);
+  return inspectMariaProductionActivationRequest(env).requested
+    && /^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(email.trim())
+    && email.trim().length <= 254;
+}
+
+/** Only the exact Production domain or the runtime-owned Preview origin. */
+export function getMariaBookingPortalBase(env: NodeJS.ProcessEnv = process.env) {
+  if (env.VERCEL_ENV === "preview") return getMariaPreviewPortalBase(env);
+  return inspectMariaProductionActivationRequest(env).portalOrigin;
 }
