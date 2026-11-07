@@ -115,6 +115,8 @@ function compileSql(strings: TemplateStringsArray, values: unknown[]) {
       PROFFERA_MARIA_PRODUCTION_CUSTOMER_EMAIL_ENABLED: "true",
       PROFFERA_MARIA_PRODUCTION_YEAR_EDITOR_ENABLED: "true",
       PROFFERA_MARIA_PRODUCTION_ORIGIN: "https://makeupbymaria.se",
+      BETTER_AUTH_SECRET: "synthetic-test-auth-secret",
+      LEAD_FROM_EMAIL: "Makeup by Maria <noreply@example.invalid>",
     };
     for (const [key, value] of Object.entries(flags)) vi.stubEnv(key, value);
   });
