@@ -4,7 +4,7 @@ import { neon } from "@neondatabase/serverless";
 
 import { resolveDatabaseUrl } from "@/lib/db/database-url";
 import { getMariaAvailability } from "@/lib/maria-booking-availability";
-import { getMariaPreviewBookingReadiness } from "@/lib/maria-preview-booking";
+import { getMariaBookingReadiness } from "@/lib/maria-booking-runtime";
 
 import { parseLocalDateTime, resolveBookingTimeZone, validatePublicBookingPolicy } from "@/lib/public-booking-policy";
 import { verifyCustomerCalendarToken } from "@/lib/customer-calendar";
@@ -70,7 +70,7 @@ export async function getAvailableRescheduleSlots(token: string, bookingId: stri
   if (!booking) return [];
 
   if (String(booking.workspace_slug) === "makeup-by-maria") {
-    const readiness = await getMariaPreviewBookingReadiness();
+    const readiness = await getMariaBookingReadiness();
     if (!readiness.enabled || readiness.workspaceId !== payload.workspaceId
       || String(booking.time_zone) !== "Europe/Stockholm"
       || booking.staff_id || booking.source !== "public_booking") return [];
