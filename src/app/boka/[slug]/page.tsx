@@ -9,6 +9,7 @@ import { resolveBookingThemeContent } from "@/lib/booking-theme-templates";
 import { readableBookingTextColor } from "@/lib/booking-theme-contract";
 import { getSql } from "@/lib/db/server";
 import { getMariaPreviewBookingReadiness } from "@/lib/maria-preview-booking";
+import { resolveMariaPublicBookingLocale } from "@/lib/maria-public-booking-locale";
 import { allowPublicSubmission } from "@/lib/public-form-protection";
 import { parseLocalDateTime, resolveBookingTimeZone, validatePublicBookingPolicy } from "@/lib/public-booking-policy";
 import { beginBookingEmailVerification } from "@/lib/public-booking-verification";
@@ -229,7 +230,8 @@ export default async function PublicBookingPage({ params, searchParams }: PagePr
     const readiness = await getMariaPreviewBookingReadiness();
     if (!readiness.enabled) return <Unavailable locale={requestedQueryLocale} />;
     if (readiness.enabled) {
-      const locale = requestedQueryLocale;
+      // The shared booking form is SV/EN; Maria's dedicated site supports Arabic too.
+      const locale = resolveMariaPublicBookingLocale(query?.lang);
       const completed = firstParam(query?.booked) === "1" ? "&booked=1" : "";
       redirect(`/demo/makeup-by-maria-v2.html?lang=${locale}${completed}`);
     }
