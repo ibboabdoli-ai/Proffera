@@ -6,14 +6,21 @@ const schemaReady = {
   booking_hours: true, verifications: true, manual_closed_starts: true,
   card_translations: true, verification_contact_columns: true,
 };
+const integrityReady = {
+  manual_closed_columns: true, card_translations_columns: true,
+  manual_closed_pk: true, card_translations_pk: true,
+  manual_closed_fk: true, card_translations_fk: true,
+};
 
 function mockReadOnlyQuery({ schema = schemaReady, migrations = ["20261103_0072", "20261105_0073", "20261107_0074"],
-  workspaceReady = true, priceOverride = null, hoursReady = true } = {}) {
+  workspaceReady = true, priceOverride = null, hoursReady = true,
+  billingCurrency = "SEK", integrity = integrityReady } = {}) {
   const executed = [];
   async function query(sql, params) {
     const statement = sql.trim();
     executed.push({ statement, params });
     if (!/^select\b/i.test(statement)) throw new Error("Unexpected non-read query");
+    if (statement.includes("as manual_closed_columns")) return { rows: [integrity] };
     if (statement.includes("to_regclass(")) return { rows: [schema] };
     if (statement.includes("from proffera_schema_migrations")) {
       return { rows: migrations.map(migration_key => ({ migration_key })) };
@@ -22,7 +29,7 @@ function mockReadOnlyQuery({ schema = schemaReady, migrations = ["20261103_0072"
       return { rows: workspaceReady ? [{
         id: "11111111-2222-4333-8444-555555555555", status: "active",
         public_booking_slug: "makeup-by-maria", owner_email: "synthetic@example.invalid",
-        time_zone: "Europe/Stockholm",
+        time_zone: "Europe/Stockholm", billing_currency: billingCurrency,
       }] : [] };
     }
     if (statement.includes("from workspace_services")) return { rows: [
@@ -90,4 +97,31 @@ describe("Maria Production booking release is inspection-only", () => {
     expect(result.databaseReady).toBe(false);
     expect(result.blockers).toContain("maria_weekend_hours_not_ready");
   });
+
+  it("rejects correct numeric prices when workspace billing is not SEK", async () => {
+    const { query } = mockReadOnlyQuery({ billingCurrency: "EUR" });
+    const result = await inspectMariaProductionBookingDatabase(query);
+    expect(result.databaseReady).toBe(false);
+    expect(result.blockers).toContain("maria_billing_currency_not_sek");
+  });
+
+  it("rejects a table with missing required columns despite a valid table name and migration receipt", async () => {
+    const { query } = mockReadOnlyQuery({
+      integrity: { ...integrityReady, card_translations_columns: false },
+    });
+    const result = await inspectMariaProductionBookingDatabase(query);
+    expect(result.databaseReady).toBe(false);
+    expect(result.blockers).toContain("invalid_card_translations_columns");
+  });
+
+  it("rejects missing primary/foreign keys on both Maria tables", async () => {
+    const { query } = mockReadOnlyQuery({
+      integrity: { ...integrityReady, manual_closed_pk: false, card_translations_fk: false },
+    });
+    const result = await inspectMariaProductionBookingDatabase(query);
+    expect(result.databaseReady).toBe(false);
+    expect(result.blockers).toContain("invalid_manual_closed_pk");
+    expect(result.blockers).toContain("invalid_card_translations_fk");
+  });
+
 });

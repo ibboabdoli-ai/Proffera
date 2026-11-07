@@ -25,6 +25,51 @@ export async function inspectMariaProductionBookingDatabase(query) {
   for (const table of tables) if (schema[table] !== true) blockers.push("missing_" + table);
   if (schema.verification_contact_columns !== true) blockers.push("missing_verification_contact_columns");
 
+  // Existing relation names and migration receipts do not prove that the
+  // IF NOT EXISTS tables have their required columns or constraints.
+  if (schema.manual_closed_starts === true && schema.card_translations === true) {
+    const integritySql = [
+      "select",
+      "(select count(*) from information_schema.columns where table_schema='public'",
+      "and table_name='maria_manual_closed_starts' and (",
+      "(column_name='workspace_id' and udt_name='uuid' and is_nullable='NO') or",
+      "(column_name='starts_at' and udt_name='timestamptz' and is_nullable='NO') or",
+      "(column_name='created_by' and udt_name='text' and is_nullable='NO') or",
+      "(column_name='created_at' and udt_name='timestamptz' and is_nullable='NO')",
+      ")) = 4 as manual_closed_columns,",
+      "(select count(*) from information_schema.columns where table_schema='public'",
+      "and table_name='maria_service_card_translations' and (",
+      "(column_name='service_id' and udt_name='uuid' and is_nullable='NO') or",
+      "(column_name='locale' and udt_name='text' and is_nullable='NO') or",
+      "(column_name='description' and udt_name='text' and is_nullable='NO') or",
+      "(column_name='updated_at' and udt_name='timestamptz' and is_nullable='NO')",
+      ")) = 4 as card_translations_columns,",
+      "exists (select 1 from pg_constraint c",
+      "where c.conrelid=to_regclass('public.maria_manual_closed_starts')",
+      "and c.contype='p' and c.conname='maria_manual_closed_starts_pk'",
+      "and pg_get_constraintdef(c.oid)='PRIMARY KEY (workspace_id, starts_at)') as manual_closed_pk,",
+      "exists (select 1 from pg_constraint c",
+      "where c.conrelid=to_regclass('public.maria_service_card_translations')",
+      "and c.contype='p' and c.conname='maria_service_card_translations_pk'",
+      "and pg_get_constraintdef(c.oid)='PRIMARY KEY (service_id, locale)') as card_translations_pk,",
+      "exists (select 1 from pg_constraint c",
+      "where c.conrelid=to_regclass('public.maria_manual_closed_starts')",
+      "and c.contype='f' and c.confrelid=to_regclass('public.workspaces')",
+      "and c.confdeltype='c' and pg_get_constraintdef(c.oid)",
+      "like 'FOREIGN KEY (workspace_id) REFERENCES %') as manual_closed_fk,",
+      "exists (select 1 from pg_constraint c",
+      "where c.conrelid=to_regclass('public.maria_service_card_translations')",
+      "and c.contype='f' and c.confrelid=to_regclass('public.workspace_services')",
+      "and c.confdeltype='c' and pg_get_constraintdef(c.oid)",
+      "like 'FOREIGN KEY (service_id) REFERENCES %') as card_translations_fk",
+    ].join(" ");
+    const integrity = (await query(integritySql)).rows?.[0];
+    for (const key of ["manual_closed_columns", "card_translations_columns",
+      "manual_closed_pk", "card_translations_pk", "manual_closed_fk", "card_translations_fk"]) {
+      if (integrity?.[key] !== true) blockers.push("invalid_" + key);
+    }
+  }
+
   let appliedMigrations = [];
   if (schema.ledger === true) {
     const rows = await query("select migration_key from proffera_schema_migrations where migration_key in ('20261103_0072','20261105_0073','20261107_0074')");
@@ -36,7 +81,8 @@ export async function inspectMariaProductionBookingDatabase(query) {
     const rows = await query([
       "select w.id::text as id, w.status, w.public_booking_slug,",
       "coalesce(nullif(ws.contact_email,''),'') as owner_email,",
-      "coalesce(nullif(ws.time_zone,''),'Europe/Stockholm') as time_zone",
+      "coalesce(nullif(ws.time_zone,''),'Europe/Stockholm') as time_zone,",
+      "ws.billing_currency as billing_currency",
       "from workspaces w left join workspace_settings ws on ws.workspace_id = w.id::text",
       "where w.slug = 'makeup-by-maria' limit 2",
     ].join(" "));
@@ -45,6 +91,7 @@ export async function inspectMariaProductionBookingDatabase(query) {
       || w.time_zone !== "Europe/Stockholm" || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(w.owner_email ?? ""))) {
       blockers.push("maria_workspace_not_ready");
     } else {
+      if (w.billing_currency !== "SEK") blockers.push("maria_billing_currency_not_sek");
       const services = await query([
         "select public_slug, price_amount_minor, price_type, is_active, public_status, duration_minutes",
         "from workspace_services where workspace_id=$1 and public_slug in",
