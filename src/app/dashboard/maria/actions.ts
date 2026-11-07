@@ -44,9 +44,10 @@ export async function saveMariaYearAction(formData: FormData) {
     withoutDescription = readMariaYearDescription(
       formData.get("without_description"), "Brudmakeup med hembesök.",
     );
-    // Missing language fields indicate an outdated or incomplete form. Never
-    // silently erase previously saved translations on a partial submission.
+    // An incomplete/stale form must not overwrite previously saved Swedish
+    // text with a fallback, or erase English/Arabic translations.
     for (const field of [
+      "trial_description", "without_description",
       "trial_description_en", "trial_description_ar",
       "without_description_en", "without_description_ar",
     ]) {
