@@ -127,6 +127,19 @@ export async function beginBookingEmailVerification(input: BeginBookingVerificat
     return { ok: false as const, error: "address" };
   }
 
+  // Enforce Maria's lifecycle and recipient authorization for EVERY caller,
+  // not just the branded booking API. No generic /boka/[slug] request may
+  // create a real customer hold while Maria Production is unready.
+  if (input.slug === "makeup-by-maria") {
+    const readiness = await getMariaBookingReadiness();
+    if (!readiness.enabled || readiness.workspaceId !== input.workspaceId
+      || readiness.publicSlug !== input.slug || !getMariaBookingPortalBase()
+      || !isMariaBookingRecipientAllowed(input.customerEmail)
+      || input.staffId || input.verificationSms) {
+      return { ok: false as const, error: "invalid" };
+    }
+  }
+
   const sql = getSql();
   if (!sql) return { ok: false as const, error: "database" };
   if (!/^[0-9a-f-]{36}$/i.test(input.serviceId)) return { ok: false as const, error: "service" };
