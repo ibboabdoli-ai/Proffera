@@ -32,6 +32,7 @@ import { MARIA_DEPOSIT_AMOUNT_SEK, MARIA_SWISH_NUMBER, mariaSwishQrPath } from "
 import { readMariaManualSwishStatuses } from "@/lib/maria-manual-swish";
 import { readMariaSwishQrEligibility } from "@/lib/maria-swish-qr-eligibility";
 import { getMariaPreviewPortalBase, isMariaPreviewTestRecipient, mariaPreviewStatusChangePreflight } from "@/lib/maria-preview-customer-safety";
+import { isMariaBookingDetailReadOnly } from "@/lib/maria-manager-ui-policy";
 
 export const dynamic = "force-dynamic";
 
@@ -355,6 +356,7 @@ export default async function BookingDetailPage({ params, searchParams }: Bookin
   const { booking, customer, events } = detail;
   const mariaPreview = access.workspaceSlug === "makeup-by-maria"
     && canManageWorkspaceSettings(access) && process.env.VERCEL_ENV === "preview";
+  const mariaBookingDetailReadOnly = isMariaBookingDetailReadOnly(access.workspaceSlug, process.env.VERCEL_ENV);
   const manualSwish = mariaPreview ? await readMariaManualSwishStatuses() : null;
   const mariaQrEligibility = mariaPreview && manualSwish?.ok === true && manualSwish.entries[booking.id]
     ? await readMariaSwishQrEligibility(booking.id).catch((error) => {
@@ -502,11 +504,22 @@ export default async function BookingDetailPage({ params, searchParams }: Bookin
           <p className="mt-4 whitespace-pre-wrap rounded-control border border-line bg-surface-subtle p-4 text-sm leading-7 text-ink-muted">{parsedNotes.customerNote || parsedNotes.rawNote}</p>
         </article> : null}
 
+        {!mariaBookingDetailReadOnly ? (<>
         <article className="rounded-card border border-line bg-surface p-6 shadow-sm"><h3 className="text-xl font-bold text-ink">{isEnglish ? "Change time" : "Ändra tid"}</h3><p className="mt-3 text-sm leading-7 text-ink-muted">{isEnglish ? "Select a new start time. The current duration is preserved, conflicts are blocked, and the customer receives SMS and email when contact details are available." : "Välj en ny starttid. Bokningens nuvarande längd behålls, krockar blockeras och kunden får SMS och e-post när kontaktuppgifter finns."}</p><form action={rescheduleAction} className="mt-5 grid gap-4 rounded-control border border-line bg-surface-subtle p-4"><input type="hidden" name="lang" value={locale} /><label className="grid gap-2 text-sm font-semibold text-ink">{isEnglish ? "New start time" : "Ny starttid"}<input name="startsAt" type="datetime-local" required className={fieldClass} /></label><button type="submit" className="inline-flex w-fit rounded-control bg-brand-deep px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-brand-deep">{isEnglish ? "Reschedule booking" : "Flytta bokning"}</button></form></article>
 
         <article className="rounded-card border border-line bg-surface p-6 shadow-sm"><h3 className="text-xl font-bold text-ink">{isEnglish ? "Change status" : "Ändra status"}</h3><p className="mt-3 text-sm leading-7 text-ink-muted">{mariaPreview ? (isEnglish
   ? "Maria only emails the approved QA inbox: a confirmation explains the 2,000 SEK Swish deposit due within 24 hours; cancellation sends a friendly email. No SMS is sent."
   : "Maria skickar enbart mejl till godkänd testmottagare: vid bekräftelse skickas Swish-handpenning 2 000 kr inom 24 timmar, och vid manuell avbokning ett vänligt avbokningsmejl. Inga SMS skickas.") : isEnglish ? "Confirmation or cancellation sends email and SMS when the customer has provided contact details." : "Vid bekräftelse eller avbokning skickas e-post och SMS när kunden har lämnat kontaktuppgifter."}</p><form action={statusAction} className="mt-5 grid gap-4 rounded-control border border-line bg-surface-subtle p-4"><input type="hidden" name="lang" value={locale} /><label className="grid gap-2 text-sm font-semibold text-ink">{isEnglish ? "New status" : "Ny status"}<select name="status" defaultValue={bookingStatusOptions.includes(booking.status as DashboardBookingStatus) ? booking.status : "requested"} className={fieldClass}>{bookingStatusOptions.map((status) => <option key={status} value={status}>{bookingStatuses[status]}</option>)}</select></label><button type="submit" className="inline-flex w-fit rounded-control bg-brand-deep px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-brand-deep">{isEnglish ? "Update status" : "Uppdatera status"}</button></form></article>
+        </>) : (
+          <article className="rounded-card border border-line bg-surface p-6 shadow-sm">
+            <h3 className="text-xl font-bold text-ink">{isEnglish ? "Booking changes unavailable" : "Bokningsändringar är avstängda"}</h3>
+            <p className="mt-3 text-sm leading-7 text-ink-muted">
+              {isEnglish
+                ? "Maria bookings are read-only outside the isolated Preview. Status and rescheduling changes require a separately approved launch."
+                : "Marias bokningar är skrivskyddade utanför isolerad Preview. Statusändringar och ombokning kräver ett separat godkännande för publicering."}
+            </p>
+          </article>
+        )}
 
         {mariaPreview && booking.source === "public_booking"
           && customer?.email && isMariaPreviewTestRecipient(customer.email)
