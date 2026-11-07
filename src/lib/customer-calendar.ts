@@ -6,7 +6,7 @@ import { neon } from "@neondatabase/serverless";
 import { sendBookingChangeEmails } from "@/features/email/booking-change-email";
 import { resolveCustomerPortalSecret } from "@/lib/auth-secret";
 import { resolveDatabaseUrl } from "@/lib/db/database-url";
-import { getMariaPreviewPortalBase, isMariaPreviewTestRecipient } from "@/lib/maria-preview-customer-safety";
+import { getMariaBookingPortalBase, isMariaBookingRecipientAllowed } from "@/lib/maria-preview-customer-safety";
 import { resolveBookingTimeZone } from "@/lib/public-booking-policy";
 import type { WorkspaceTimeZone } from "@/lib/workspace-market";
 
@@ -157,17 +157,17 @@ export async function cancelCustomerCalendarBooking(
     select slug from workspaces where id::text=${payload.workspaceId} limit 1
   `;
   const isMaria = String(workspace[0]?.slug ?? "") === "makeup-by-maria";
-  const previewBase = isMaria ? getMariaPreviewPortalBase() : null;
+  const mariaBase = isMaria ? getMariaBookingPortalBase() : null;
   if (isMaria) {
     // Existing QA bookings remain cancellable if new Maria bookings are disabled.
-    if (!previewBase) {
+    if (!mariaBase) {
       return { ok: false as const, error: "not_allowed" };
     }
     const recipient = await sql`
       select email from customers where id=${payload.customerId}::uuid
         and workspace_id=${payload.workspaceId} limit 1
     `;
-    if (!recipient[0] || !isMariaPreviewTestRecipient(String(recipient[0].email))) {
+    if (!recipient[0] || !isMariaBookingRecipientAllowed(String(recipient[0].email))) {
       return { ok: false as const, error: "not_allowed" };
     }
   }
@@ -187,7 +187,7 @@ export async function cancelCustomerCalendarBooking(
         and c.workspace_id = b.workspace_id
         and w.id::text = b.workspace_id
         and coalesce(ps.customer_cancel_enabled, true) = true
-        and (${!isMaria}::boolean or lower(trim(c.email))=lower(${process.env.PROFFERA_MARIA_PREVIEW_TEST_EMAIL?.trim() ?? ""}))
+        and (${!isMaria || process.env.VERCEL_ENV !== "preview"}::boolean or lower(trim(c.email))=lower(${process.env.PROFFERA_MARIA_PREVIEW_TEST_EMAIL?.trim() ?? ""}))
         and b.status in ('requested', 'confirmed')
         and b.starts_at > now() + (coalesce(ps.cancel_notice_hours, 0) || ' hours')::interval
         and b.source not in ('dashboard_availability_block', 'dashboard_availability_recurring_block')
@@ -290,13 +290,13 @@ export async function cancelCustomerCalendarBooking(
   const booking = rows[0];
   if (!booking) return { ok: false as const, error: "not_allowed" };
 
-  const base = previewBase ?? (process.env.NEXT_PUBLIC_APP_URL ?? process.env.APP_URL ?? "https://www.proffera.se").replace(/\/$/, "");
+  const base = mariaBase ?? (process.env.NEXT_PUBLIC_APP_URL ?? process.env.APP_URL ?? "https://www.proffera.se").replace(/\/$/, "");
   await sendBookingChangeEmails({
     kind: "cancelled",
     branding: isMaria ? "makeup-by-maria" : undefined,
     customerName: String(booking.customer_name),
     customerEmail: String(booking.customer_email),
-    ownerEmail: booking.owner_email && (!isMaria || isMariaPreviewTestRecipient(String(booking.owner_email)))
+    ownerEmail: booking.owner_email && (!isMaria || isMariaBookingRecipientAllowed(String(booking.owner_email)))
       ? String(booking.owner_email) : undefined,
     companyName: String(booking.company_name),
     service: String(booking.service ?? "Bokning"),
