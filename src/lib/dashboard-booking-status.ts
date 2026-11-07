@@ -262,7 +262,6 @@ export async function updateDashboardBookingStatus(
           and job.status not in ('completed', 'cancelled'))
           or (${mariaWorkspace}::boolean
             and updated_booking.new_status = 'confirmed'
-            and existing_booking.old_status in ('cancelled', 'no_show')
             and job.status = 'cancelled'))
     ),
     source_job_sync as (

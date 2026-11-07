@@ -155,12 +155,17 @@ export async function proxy(request: NextRequest) {
   const { pathname, search } = request.nextUrl;
   const host = request.headers.get("host") ?? request.nextUrl.host;
   const requestId = resolveRequestId(request);
+  // A dotted DNS apex has a different browser Origin from the canonical host.
+  // Redirect before strict Production booking-origin validation rejects POSTs.
+  const dottedMariaApex = hostnameFromHostHeader(host) === "makeupbymaria.se"
+    && (host.trim().toLowerCase().split(":", 1)[0] === "makeupbymaria.se."
+      || request.nextUrl.hostname.toLowerCase() === "makeupbymaria.se.");
 
   // Canonicalize public Maria pages BEFORE rendering or posting bookings.
   // The www origin is deliberately not accepted by the Production booking API.
   if (process.env.VERCEL_ENV === "production"
     && process.env.PROFFERA_MARIA_PUBLIC_SITE_ENABLED === "true"
-    && hostnameFromHostHeader(host) === "www.makeupbymaria.se"
+    && (hostnameFromHostHeader(host) === "www.makeupbymaria.se" || dottedMariaApex)
     && isPublicPageRouteAllowedForHost(host, pathname)) {
     const canonical = request.nextUrl.clone();
     canonical.protocol = "https:";

@@ -88,16 +88,28 @@ describe("Maria Preview first-party Swish payment information page", () => {
     expect(fallback).toContain('aria-label="Kopiera bokningsnummer"');
   });
 
-  it("fails closed for production, invalid IDs and mismatching QA inboxes before SQL", async () => {
-    const sql = vi.fn();
+  it("fails closed for missing Production bookings, invalid IDs and mismatching Preview inboxes", async () => {
+    const sql = vi.fn().mockResolvedValue([]);
     vi.mocked(getSql).mockReturnValue(sql as never);
     vi.stubEnv("VERCEL_ENV", "production");
     await expect(MariaSwishPaymentPage(props)).rejects.toThrow("NEXT_NOT_FOUND");
+    expect(sql).toHaveBeenCalledTimes(1);
+    sql.mockClear();
     vi.stubEnv("VERCEL_ENV", "preview");
     await expect(MariaSwishPaymentPage({ params: Promise.resolve({ id: "invalid" }) })).rejects.toThrow("NEXT_NOT_FOUND");
     vi.stubEnv("PROFFERA_MARIA_PREVIEW_TEST_EMAIL", "other@example.invalid");
     await expect(MariaSwishPaymentPage(props)).rejects.toThrow("NEXT_NOT_FOUND");
     expect(sql).not.toHaveBeenCalled();
+  });
+
+  it("shows an eligible Production Swish payment without the Preview-only warning", async () => {
+    vi.stubEnv("VERCEL_ENV", "production");
+    const sql = vi.fn().mockResolvedValueOnce([{ id }]).mockResolvedValueOnce([{ count: 0 }]);
+    vi.mocked(getSql).mockReturnValue(sql as never);
+    const html = renderToStaticMarkup(await MariaSwishPaymentPage(props));
+    expect(html).toContain("Swish-handpenning");
+    expect(html).not.toContain("Endast test");
+    expect(sql).toHaveBeenCalledTimes(2);
   });
 
   it("fails closed for missing bookings and reference collisions, using the shared QR rules", async () => {

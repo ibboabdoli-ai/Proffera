@@ -82,7 +82,10 @@ vi.mock("@/lib/customer-reschedule-slots", () => ({
   getAvailableRescheduleSlots: mocks.getAvailableRescheduleSlots,
   getUpcomingRescheduleDays: mocks.getUpcomingRescheduleDays,
 }));
-vi.mock("@/lib/public-site-domains", () => ({ isPrimeViewHost: (host: string | null) => host === "www.primeviewwindowcare.co.uk" }));
+vi.mock("@/lib/public-site-domains", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/public-site-domains")>()),
+  isPrimeViewHost: (host: string | null) => host === "www.primeviewwindowcare.co.uk",
+}));
 
 import PublicBookingPage from "@/app/boka/[slug]/page";
 import VerifyBookingPage from "@/app/boka/verifiera/[id]/page";

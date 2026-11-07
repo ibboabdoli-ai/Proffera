@@ -383,6 +383,42 @@ function compileSql(parts: TemplateStringsArray, values: unknown[]): Query {
     }
   });
 
+  it("reactivates the cancelled service job after cancelled → requested → confirmed", async () => {
+    const service = await db!.query<{ id: string }>(
+      "select id::text from workspace_services where workspace_id=$1 and public_slug='maria-bridal-trial-2026' limit 1",
+      [workspaceId],
+    );
+    // A later week on the configured weekday, without overlap with other fixtures.
+    const jobStart = new Date(start.getTime() + 21 * 86_400_000);
+    const jobEnd = new Date(end.getTime() + 21 * 86_400_000);
+    const created = await db!.query<{ id: string }>(
+      `insert into bookings(workspace_id,customer_id,service_id,title,service,status,source,starts_at,ends_at)
+       values($1,$2::uuid,$3::uuid,'Synthetic job reactivation','Brudsmink med prov 2026','requested','dashboard_manual',$4::timestamptz,$5::timestamptz)
+       returning id::text`,
+      [workspaceId, customerId, service.rows[0]!.id, jobStart.toISOString(), jobEnd.toISOString()],
+    );
+    const bookingId = created.rows[0]!.id;
+    const job = async () => (await db!.query<{
+      status: string; cancelled_at: Date | null; scheduled_starts_at: Date;
+    }>(
+      "select status,cancelled_at,scheduled_starts_at from workspace_service_jobs where workspace_id=$1::uuid and booking_id=$2::uuid",
+      [workspaceId, bookingId],
+    )).rows[0];
+
+    expect((await updateDashboardBookingStatus(bookingId, "confirmed")).changed).toBe(true);
+    expect((await job())?.status).toBe("new");
+    expect((await updateDashboardBookingStatus(bookingId, "cancelled")).changed).toBe(true);
+    expect((await job())?.status).toBe("cancelled");
+    expect((await job())?.cancelled_at).not.toBeNull();
+    expect((await updateDashboardBookingStatus(bookingId, "requested")).changed).toBe(true);
+    expect((await job())?.status).toBe("cancelled");
+    expect((await updateDashboardBookingStatus(bookingId, "confirmed")).changed).toBe(true);
+    const restored = await job();
+    expect(restored?.status).toBe("new");
+    expect(restored?.cancelled_at).toBeNull();
+    expect(new Date(restored!.scheduled_starts_at).toISOString()).toBe(jobStart.toISOString());
+  });
+
   it("waits for Maria's advisory lock before a single-block insert and rejects a newly committed booking", async () => {
     const service = await db!.query<{ id: string }>(
       "select id::text from workspace_services where workspace_id=$1 and public_slug='maria-bridal-trial-2026' limit 1",

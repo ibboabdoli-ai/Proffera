@@ -154,9 +154,34 @@ describe("proxy request boundary", () => {
       for (const pathname of ["/dashboard", "/admin", "/boka/primeview", "/boka/other", "/tjanster", "/booking"]) {
         expect((await proxy(hostRequest(host, pathname))).status, pathname).toBe(404);
       }
-      expect((await proxy(hostRequest(host, "/boka/verifiera/00000000-0000-4000-8000-000000000010"))).status).toBe(200);
+      const verification = await proxy(hostRequest(host, "/boka/verifiera/00000000-0000-4000-8000-000000000010"));
+      if (host.startsWith("www.")) {
+        expect(verification.status).toBe(307);
+        expect(verification.headers.get("location")).toBe(
+          "https://makeupbymaria.se/boka/verifiera/00000000-0000-4000-8000-000000000010",
+        );
+      } else {
+        expect(verification.status).toBe(200);
+      }
     }
     expect(resolvePublicCustomDomainMock).not.toHaveBeenCalled();
+  });
+
+  it("redirects the dotted Maria apex to the canonical booking origin without exposing forbidden paths", async () => {
+    vi.stubEnv("VERCEL_ENV", "production");
+    vi.stubEnv("PROFFERA_MARIA_PUBLIC_SITE_ENABLED", "true");
+    for (const [path, destination] of [
+      ["/?lang=en", "https://makeupbymaria.se/?lang=en"],
+      ["/boka/makeup-by-maria", "https://makeupbymaria.se/boka/makeup-by-maria"],
+    ]) {
+      const response = await proxy(hostRequest("makeupbymaria.se.", path));
+      expect(response.status, path).toBe(307);
+      expect(response.headers.get("location"), path).toBe(destination);
+      expect(response.headers.get("x-middleware-rewrite")).toBeNull();
+    }
+    expect((await proxy(hostRequest("makeupbymaria.se.", "/dashboard"))).status).toBe(404);
+    vi.stubEnv("PROFFERA_MARIA_PUBLIC_SITE_ENABLED", "false");
+    expect((await proxy(hostRequest("makeupbymaria.se.", "/"))).status).toBe(404);
   });
 
   it("enforces Maria host restrictions for direct dotted demo HTML requests", async () => {
