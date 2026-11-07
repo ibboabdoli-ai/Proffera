@@ -2,14 +2,19 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import { mariaDefaultCardCopy } from "@/lib/maria-default-card-copy";
 
-const state=vi.hoisted(()=>({slug:"makeup-by-maria",role:"owner",productionEditorReady:false}));
+const state=vi.hoisted(()=>({slug:"makeup-by-maria",role:"owner",productionEditorReady:false,serviceReadFailure:false}));
 vi.mock("server-only",()=>({}));
 vi.mock("next/navigation",()=>({redirect:(url:string)=>{throw Error("REDIRECT "+url)}}));
 vi.mock("@/lib/workspace-access",()=>({
   getUserWorkspaceAccess:async()=>({ok:true,workspaceSlug:state.slug,role:state.role,workspaceId:"qa"}),
   canManageWorkspaceSettings:(access:{role:string})=>["owner","admin"].includes(access.role),
 }));
-vi.mock("@/lib/workspace-services-db",()=>({getDashboardWorkspaceServices:async()=>[]}));
+vi.mock("@/lib/workspace-services-db",()=>({
+  getDashboardWorkspaceServices:async(options?:{strict?:boolean})=>{
+    if(state.serviceReadFailure && options?.strict) throw Error("Synthetic service DB read failed");
+    return [];
+  },
+}));
 vi.mock("@/lib/workspace-booking-hours-db",()=>({getDashboardWorkspaceBookingHours:async()=>({hours:[]})}));
 vi.mock("@/lib/maria-preview-booking",()=>({getMariaPreviewBookingReadiness:async()=>({enabled:false})}));
 vi.mock("@/lib/maria-production-year-editor",()=>({
@@ -49,7 +54,7 @@ import CalendarPage from "../kalender/page";
 import BookingsPage from "../bokningar/page";
 import NewBookingPage from "../bokningar/ny/page";
 
-afterEach(()=>{vi.unstubAllEnvs();state.slug="makeup-by-maria";state.role="owner";state.productionEditorReady=false});
+afterEach(()=>{vi.unstubAllEnvs();state.slug="makeup-by-maria";state.role="owner";state.productionEditorReady=false;state.serviceReadFailure=false});
 describe("Maria preview calendar visible without paid booking",()=>{
   it("routes the Maria manager workspace directly from /dashboard in Preview and Production",async()=>{
     for (const env of ["preview","production"]) {
@@ -111,6 +116,7 @@ describe("Maria preview calendar visible without paid booking",()=>{
   });
   it("renders the exact year-by-year three-language price editor in Production only after schema gate",async()=>{
     vi.stubEnv("VERCEL_ENV","production");
+    vi.stubEnv("PROFFERA_MARIA_PRODUCTION_YEAR_EDITOR_ENABLED","true");
     state.productionEditorReady=true;
     const html=renderToStaticMarkup(await MariaSiteDashboardPage({searchParams:Promise.resolve({year:"2030"})}));
     expect(html).toContain('name="year" value="2030"');
@@ -125,6 +131,14 @@ describe("Maria preview calendar visible without paid booking",()=>{
     expect(html).not.toContain("Spara bokningstider");
     expect(html).not.toContain('href="/dashboard/maria/kalender"');
     expect(html).not.toContain("Hantera bokningar");
+  });
+  it("fails closed instead of showing editable defaults when Production service read fails",async()=>{
+    vi.stubEnv("VERCEL_ENV","production");
+    vi.stubEnv("PROFFERA_MARIA_PRODUCTION_YEAR_EDITOR_ENABLED","true");
+    state.productionEditorReady=true;
+    state.serviceReadFailure=true;
+    await expect(MariaSiteDashboardPage({searchParams:Promise.resolve({year:"2026"})}))
+      .rejects.toThrow("Synthetic service DB read failed");
   });
   it("keeps Production year editor locked even if the workspace is authorized while migration/flag is off",async()=>{
     vi.stubEnv("VERCEL_ENV","production");
