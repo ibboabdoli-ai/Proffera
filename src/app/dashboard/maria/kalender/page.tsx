@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { CalendarDays, ChevronLeft, Clock3, ShieldCheck } from "lucide-react";
 
 import { canManageWorkspaceSettings, getUserWorkspaceAccess } from "@/lib/workspace-access";
+import { getMariaBookingReadiness } from "@/lib/maria-booking-runtime";
 import {
   changeMariaManualCalendar, MariaCalendarError, readMariaManualCalendar,
   type MariaCalendarView,
@@ -59,8 +60,13 @@ function formDetails(date: string, mode: string, clock: string, lang: "sv" | "en
 
 export default async function MariaManualCalendarPage({searchParams}: {searchParams?: Promise<Params>}) {
   const access = await getUserWorkspaceAccess();
-  if (process.env.VERCEL_ENV !== "preview" || !access.ok
-    || access.workspaceSlug !== "makeup-by-maria" || !canManageWorkspaceSettings(access)) redirect("/dashboard");
+  if (!access.ok || access.workspaceSlug !== "makeup-by-maria" || !canManageWorkspaceSettings(access)) redirect("/dashboard");
+  const preview = process.env.VERCEL_ENV === "preview";
+  if (!preview) {
+    if (process.env.VERCEL_ENV !== "production") redirect("/dashboard");
+    const ready = await getMariaBookingReadiness();
+    if (!ready.enabled || ready.workspaceId !== access.workspaceId) redirect("/dashboard");
+  }
 
   const query = (await searchParams) ?? {};
   const lang = first(query.lang) === "en" ? "en" : "sv";
@@ -240,8 +246,11 @@ export default async function MariaManualCalendarPage({searchParams}: {searchPar
 
       <div className="flex gap-3 rounded-xl border border-[#dec6cd] bg-[#fbf0ef] p-4 text-sm text-[#684956]">
         <ShieldCheck className="shrink-0" size={20}/>
-        <p>{t("Endast intern Preview. Befintliga bokningar och betalningar ändras aldrig av kalendern. En öppnad tid kan fortfarande vara upptagen av en bokning eller verifieringshåll.",
-          "Internal Preview only. Calendar changes never modify existing bookings or payments. An open interval can still be occupied by a booking or verification hold.")}</p>
+        <p>{preview
+          ? t("Endast intern Preview. Befintliga bokningar och betalningar ändras aldrig av kalendern. En öppnad tid kan fortfarande vara upptagen av en bokning eller verifieringshåll.",
+              "Internal Preview only. Calendar changes never modify existing bookings or payments. An open interval can still be occupied by a booking or verification hold.")
+          : t("Kalendern ändrar aldrig befintliga kundbokningar eller betalningar. En öppnad tid kan fortfarande vara upptagen av en bokning eller verifieringshåll.",
+              "Calendar changes never modify existing customer bookings or payments. A reopened interval may still be occupied by a booking or verification hold.")}</p>
       </div>
     </main>
   );
