@@ -3,6 +3,7 @@ import "server-only";
 import { neon } from "@neondatabase/serverless";
 
 import { resolveDatabaseUrl } from "@/lib/db/database-url";
+import { isMariaPreviewTestRecipient } from "@/lib/maria-preview-customer-safety";
 
 import { resolveBookingTimeZone } from "@/lib/public-booking-policy";
 import { deliverVerifiedReviewInvitation } from "@/lib/verified-review-email-delivery";
@@ -64,6 +65,12 @@ export async function updateDashboardBookingStatus(
 
   const access = await getActiveWorkspaceAccess();
   const workspaceId = access.workspaceId;
+  const mariaPreview = access.workspaceSlug === "makeup-by-maria";
+  const mariaRecipient = process.env.PROFFERA_MARIA_PREVIEW_TEST_EMAIL?.trim().toLowerCase() ?? "";
+  // Maria's manager may only mutate isolated QA bookings in Preview.
+  if (mariaPreview && !isMariaPreviewTestRecipient(mariaRecipient)) {
+    throw new Error("Maria status changes require the approved Preview recipient");
+  }
   const marketRows = await sql`
     select time_zone
     from workspace_settings
@@ -72,7 +79,7 @@ export async function updateDashboardBookingStatus(
   `;
   const timeZone = resolveBookingTimeZone(marketRows[0]?.time_zone);
 
-  const rows = await sql`
+  const updateQuery = sql`
     with existing_booking as (
       select
         b.id,
@@ -95,6 +102,7 @@ export async function updateDashboardBookingStatus(
        and c.workspace_id = b.workspace_id
       where b.workspace_id = ${workspaceId}
         and b.id = ${bookingId}
+        and (${!mariaPreview}::boolean or lower(trim(c.email))=${mariaRecipient})
     ),
     updated_booking as (
       update bookings
@@ -104,6 +112,46 @@ export async function updateDashboardBookingStatus(
       where workspace_id = ${workspaceId}
         and id = ${bookingId}
         and status <> ${status}
+        and (${!mariaPreview}::boolean or exists (
+          select 1 from customers c
+          where c.id=bookings.customer_id and c.workspace_id=bookings.workspace_id
+            and lower(trim(c.email))=${mariaRecipient}
+        ))
+        -- Reopening a cancelled Maria reservation is an activation, not a
+        -- harmless status label edit. Under lock 713, reject other live
+        -- appointments and unexpired verification holds, including buffers.
+        -- Unrelated workspaces retain their existing status semantics.
+        and (
+          ${!mariaPreview}::boolean or ${status}::text not in ('requested', 'confirmed')
+          or (
+            not exists (
+              select 1 from bookings other
+              left join workspace_services other_service
+                on other_service.id=other.service_id and other_service.workspace_id=other.workspace_id
+              left join workspace_services current_service
+                on current_service.id=bookings.service_id and current_service.workspace_id=bookings.workspace_id
+              where other.workspace_id=bookings.workspace_id and other.id<>bookings.id
+                and other.status not in ('cancelled','no_show')
+                and other.starts_at-(coalesce(other_service.buffer_before_minutes,0)*interval '1 minute')
+                    < bookings.ends_at+(coalesce(current_service.buffer_after_minutes,0)*interval '1 minute')
+                and other.ends_at+(coalesce(other_service.buffer_after_minutes,0)*interval '1 minute')
+                    > bookings.starts_at-(coalesce(current_service.buffer_before_minutes,0)*interval '1 minute')
+            )
+            and not exists (
+              select 1 from public_booking_verifications hold
+              left join workspace_services hold_service
+                on hold_service.id=hold.service_id and hold_service.workspace_id=hold.workspace_id::text
+              left join workspace_services current_service
+                on current_service.id=bookings.service_id and current_service.workspace_id=bookings.workspace_id
+              where hold.workspace_id=bookings.workspace_id::uuid
+                and hold.consumed_at is null and hold.expires_at>clock_timestamp()
+                and hold.starts_at-(coalesce(hold_service.buffer_before_minutes,0)*interval '1 minute')
+                    < bookings.ends_at+(coalesce(current_service.buffer_after_minutes,0)*interval '1 minute')
+                and hold.ends_at+(coalesce(hold_service.buffer_after_minutes,0)*interval '1 minute')
+                    > bookings.starts_at-(coalesce(current_service.buffer_before_minutes,0)*interval '1 minute')
+            )
+          )
+        )
       returning
         id,
         workspace_id,
@@ -263,6 +311,16 @@ export async function updateDashboardBookingStatus(
       (select starts_at from existing_booking limit 1) as starts_at,
       (select ends_at from existing_booking limit 1) as ends_at
   `;
+
+  // Lock the entire Maria status mutation (including job creation) against
+  // Maria's locked reschedule/verification writers. Other tenants retain the
+  // original single-query path without acquiring Maria's workspace lock.
+  const rows = mariaPreview
+    ? (await sql.transaction([
+        sql`select pg_advisory_xact_lock(hashtextextended(${workspaceId}::text, 713))`,
+        updateQuery,
+      ]))[1]
+    : await updateQuery;
 
   const result = rows[0];
 

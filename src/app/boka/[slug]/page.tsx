@@ -8,6 +8,7 @@ import { JuliusBookingDemo } from "@/components/salon/julius-booking-demo";
 import { resolveBookingThemeContent } from "@/lib/booking-theme-templates";
 import { readableBookingTextColor } from "@/lib/booking-theme-contract";
 import { getSql } from "@/lib/db/server";
+import { getMariaPreviewBookingReadiness } from "@/lib/maria-preview-booking";
 import { allowPublicSubmission } from "@/lib/public-form-protection";
 import { parseLocalDateTime, resolveBookingTimeZone, validatePublicBookingPolicy } from "@/lib/public-booking-policy";
 import { beginBookingEmailVerification } from "@/lib/public-booking-verification";
@@ -66,6 +67,10 @@ function formText(formData: FormData, key: string, maxLength = 1200) { return St
 async function requestPublicBooking(formData: FormData) {
   "use server";
   const slug = String(formData.get("slug") ?? "").trim();
+  // Maria's one-operator bookings must ONLY pass through her workspace-
+  // locked Preview endpoint. The generic booking action has different
+  // concurrency semantics and must not bypass that protection.
+  if (slug === "makeup-by-maria") redirect("/boka/makeup-by-maria?error=unavailable");
   let lang: WorkspaceLanguage = formData.get("lang") === "en" ? "en" : "sv";
   const name = formText(formData, "name", 160);
   const email = formText(formData, "email", 320);
@@ -215,6 +220,17 @@ export default async function PublicBookingPage({ params, searchParams }: PagePr
   const { slug } = await params;
   const query = searchParams ? await searchParams : undefined;
   const requestedQueryLocale: WorkspaceLanguage = firstParam(query?.lang) === "en" ? "en" : "sv";
+  // Maria's isolated single-operator flow must not fall through to the generic
+  // multi-operator booking form when its dedicated booking gate is disabled.
+  if (slug === "makeup-by-maria") {
+    const readiness = await getMariaPreviewBookingReadiness();
+    if (!readiness.enabled) return <Unavailable locale={requestedQueryLocale} />;
+    if (readiness.enabled) {
+      const locale = requestedQueryLocale;
+      const completed = firstParam(query?.booked) === "1" ? "&booked=1" : "";
+      redirect(`/demo/makeup-by-maria-v2.html?lang=${locale}${completed}`);
+    }
+  }
   const sql = getSql();
   if (!sql) return <Unavailable locale={requestedQueryLocale} />;
 

@@ -15,23 +15,28 @@ import {
 
 import { DashboardActionFeedback } from "@/components/dashboard/dashboard-action-feedback";
 import { DashboardMetricGrid, DashboardPageHeader } from "@/components/dashboard/dashboard-page-ui";
+import { MariaSwishPaymentControl } from "@/components/dashboard/maria-swish-payment-control";
 import { sendBookingRescheduleEmail } from "@/features/email/booking-reschedule-email";
 import { sendBookingStatusEmail } from "@/features/email/lead-email";
+import { sendMariaBookingStatusEmail } from "@/features/email/maria-deposit-email";
 import { sendBookingCustomerSms } from "@/features/sms/booking-sms";
 import { getDashboardBookingDetailInStockholm } from "@/lib/dashboard-booking-detail-db";
 import { BookingRescheduleValidationError, rescheduleDashboardBooking } from "@/lib/dashboard-booking-reschedule";
 import { isDashboardBookingStatus, updateDashboardBookingStatus, type DashboardBookingStatus } from "@/lib/dashboard-booking-status";
 import { canManageWorkspaceSettings, getUserWorkspaceAccess } from "@/lib/workspace-access";
 import { hasDashboardModuleAccess } from "@/lib/workspace-module-access";
+import { MARIA_DEPOSIT_AMOUNT_SEK, MARIA_SWISH_NUMBER, MARIA_SWISH_QR_PATH } from "@/lib/maria-deposit";
+import { readMariaManualSwishStatuses } from "@/lib/maria-manual-swish";
+import { getMariaPreviewPortalBase, isMariaPreviewTestRecipient } from "@/lib/maria-preview-customer-safety";
 
 export const dynamic = "force-dynamic";
 
 const bookingStatusOptions = ["requested", "confirmed", "completed", "cancelled"] as const;
 type Locale = "sv" | "en";
-type ErrorKey = "access" | "status" | "save" | "reschedule_time" | "reschedule_past" | "reschedule_conflict" | "reschedule_status";
+type ErrorKey = "access" | "status" | "save" | "maria_preview" | "maria_email_setup" | "reschedule_time" | "reschedule_past" | "reschedule_conflict" | "reschedule_status";
 type BookingDetailPageProps = {
   params: Promise<{ id: string }>;
-  searchParams?: Promise<{ error?: string | string[]; updated?: string | string[]; rescheduled?: string | string[]; created?: string | string[]; lang?: string | string[] }>;
+  searchParams?: Promise<{ error?: string | string[]; updated?: string | string[]; rescheduled?: string | string[]; created?: string | string[]; maria_mail?: string | string[]; payment_saved?: string | string[]; payment_error?: string | string[]; lang?: string | string[] }>;
 };
 
 type ParsedBookingNotes = {
@@ -59,10 +64,10 @@ const eventTypeLabels = {
 };
 const errorMessages: Record<Locale, Record<ErrorKey, string>> = {
   sv: {
-    access: "Du saknar behörighet att ändra bokningen.", status: "Vald status är ogiltig.", save: "Ändringen kunde inte sparas. Försök igen eller kontrollera konfigurationen.", reschedule_time: "Välj ett giltigt datum och klockslag.", reschedule_past: "Den nya tiden måste ligga i framtiden.", reschedule_conflict: "Den nya tiden krockar med en annan aktiv bokning.", reschedule_status: "En avbokad eller utebliven bokning kan inte flyttas.",
+    access: "Du saknar behörighet att ändra bokningen.", status: "Vald status är ogiltig.", save: "Ändringen kunde inte sparas. Försök igen eller kontrollera konfigurationen.", maria_preview: "Maria-bokningar kan endast uppdateras med en godkänd testmottagare i isolerad Preview.", maria_email_setup: "Bokningen ändrades inte: Preview-e-post måste vara konfigurerad för bekräftelse och avbokning.", reschedule_time: "Välj ett giltigt datum och klockslag.", reschedule_past: "Den nya tiden måste ligga i framtiden.", reschedule_conflict: "Den nya tiden krockar med en annan aktiv bokning.", reschedule_status: "En avbokad eller utebliven bokning kan inte flyttas.",
   },
   en: {
-    access: "You do not have permission to change this booking.", status: "The selected status is invalid.", save: "The change could not be saved. Try again or check the configuration.", reschedule_time: "Select a valid date and time.", reschedule_past: "The new time must be in the future.", reschedule_conflict: "The new time conflicts with another active booking.", reschedule_status: "A cancelled or no-show booking cannot be rescheduled.",
+    access: "You do not have permission to change this booking.", status: "The selected status is invalid.", save: "The change could not be saved. Try again or check the configuration.", maria_preview: "Maria booking changes are limited to the approved QA recipient in isolated Preview.", maria_email_setup: "Booking unchanged: Preview email must be configured for confirmation and cancellation.", reschedule_time: "Select a valid date and time.", reschedule_past: "The new time must be in the future.", reschedule_conflict: "The new time conflicts with another active booking.", reschedule_status: "A cancelled or no-show booking cannot be rescheduled.",
   },
 };
 
@@ -166,20 +171,48 @@ async function updateBookingStatusAction(bookingId: string, formData: FormData) 
   const status = getFormText(formData, "status");
   if (!isDashboardBookingStatus(status)) redirectWithError(bookingId, "status", locale);
 
+  const isMaria = workspaceAccess.workspaceSlug === "makeup-by-maria";
+  // The Maria deposit instructions are strictly Preview-only. Validate the
+  // live, workspace-scoped booking BEFORE any status mutation or email attempt.
+  if (isMaria && (status === "confirmed" || status === "cancelled")) {
+    const current = await getDashboardBookingDetailInStockholm(bookingId);
+    if (!getMariaPreviewPortalBase() || !current?.customer
+      || !isMariaPreviewTestRecipient(current.customer.email)) {
+      redirectWithError(bookingId, "maria_preview", locale);
+    }
+    if (!process.env.BREVO_API_KEY || !process.env.LEAD_FROM_EMAIL) {
+      redirectWithError(bookingId, "maria_email_setup", locale);
+    }
+  }
+
+  let mariaMailFailed = false;
   try {
     const result = await updateDashboardBookingStatus(bookingId, status);
     if (result.changed && result.notification && (status === "confirmed" || status === "cancelled")) {
       const notification = result.notification;
-      await Promise.allSettled([
-        notification.customerEmail ? sendBookingStatusEmail({ customerName: notification.customerName, customerEmail: notification.customerEmail, companyName: workspaceAccess.workspaceName, status, service: notification.service, startsAt: notification.startsAt, endsAt: notification.endsAt, city: notification.city, timeZone: result.timeZone }) : Promise.resolve(null),
-        notification.customerPhone ? sendBookingCustomerSms({ customerPhone: notification.customerPhone, companyName: workspaceAccess.workspaceName, status, service: notification.service, startsAt: notification.startsAt, timeZone: result.timeZone }) : Promise.resolve(null),
-      ]);
+      if (isMaria) {
+        // Recheck the returned recipient; no Maria SMS or unapproved inbox.
+        const delivery = isMariaPreviewTestRecipient(notification.customerEmail)
+          ? await sendMariaBookingStatusEmail({
+              bookingId, status, customerName: notification.customerName,
+              customerEmail: notification.customerEmail, companyName: workspaceAccess.workspaceName,
+              service: notification.service, startsAt: notification.startsAt,
+              endsAt: notification.endsAt, city: notification.city, timeZone: result.timeZone,
+            })
+          : { ok: false as const };
+        mariaMailFailed = !delivery.ok;
+      } else {
+        await Promise.allSettled([
+          notification.customerEmail ? sendBookingStatusEmail({ customerName: notification.customerName, customerEmail: notification.customerEmail, companyName: workspaceAccess.workspaceName, status, service: notification.service, startsAt: notification.startsAt, endsAt: notification.endsAt, city: notification.city, timeZone: result.timeZone }) : Promise.resolve(null),
+          notification.customerPhone ? sendBookingCustomerSms({ customerPhone: notification.customerPhone, companyName: workspaceAccess.workspaceName, status, service: notification.service, startsAt: notification.startsAt, timeZone: result.timeZone }) : Promise.resolve(null),
+        ]);
+      }
     }
   } catch (error) {
     console.error("Failed to update dashboard booking status", error);
     redirectWithError(bookingId, "save", locale);
   }
-  redirect(withLang(`/dashboard/bokningar/${bookingId}?updated=1`, locale));
+  redirect(withLang(`/dashboard/bokningar/${bookingId}?updated=1${mariaMailFailed ? "&maria_mail=failed" : ""}`, locale));
 }
 
 async function rescheduleBookingAction(bookingId: string, formData: FormData) {
@@ -188,14 +221,35 @@ async function rescheduleBookingAction(bookingId: string, formData: FormData) {
   const workspaceAccess = await requireBookingManager(bookingId, locale);
   const startsAt = getFormText(formData, "startsAt");
 
+  const isMaria = workspaceAccess.workspaceSlug === "makeup-by-maria";
+  if (isMaria) {
+    const current = await getDashboardBookingDetailInStockholm(bookingId);
+    if (!getMariaPreviewPortalBase() || !current?.customer
+      || !isMariaPreviewTestRecipient(current.customer.email)) {
+      redirectWithError(bookingId, "maria_preview", locale);
+    }
+  }
+
   try {
     const result = await rescheduleDashboardBooking(bookingId, startsAt);
     if (result.changed && result.notification) {
       const notification = result.notification;
-      await Promise.allSettled([
-        notification.customerEmail ? sendBookingRescheduleEmail({ customerName: notification.customerName, customerEmail: notification.customerEmail, companyName: workspaceAccess.workspaceName, service: notification.service, previousStartsAt: notification.previousStartsAt, startsAt: notification.startsAt, endsAt: notification.endsAt, city: notification.city, timeZone: result.timeZone }) : Promise.resolve(null),
-        notification.customerPhone ? sendBookingCustomerSms({ customerPhone: notification.customerPhone, companyName: workspaceAccess.workspaceName, status: "rescheduled", service: notification.service, previousStartsAt: notification.previousStartsAt, startsAt: notification.startsAt, timeZone: result.timeZone }) : Promise.resolve(null),
-      ]);
+      if (isMaria) {
+        // Maria Preview reschedules never send an SMS to a real phone.
+        if (isMariaPreviewTestRecipient(notification.customerEmail)) {
+          await sendBookingRescheduleEmail({
+            customerName: notification.customerName, customerEmail: notification.customerEmail,
+            companyName: workspaceAccess.workspaceName, service: notification.service,
+            previousStartsAt: notification.previousStartsAt, startsAt: notification.startsAt,
+            endsAt: notification.endsAt, city: notification.city, timeZone: result.timeZone,
+          });
+        }
+      } else {
+        await Promise.allSettled([
+          notification.customerEmail ? sendBookingRescheduleEmail({ customerName: notification.customerName, customerEmail: notification.customerEmail, companyName: workspaceAccess.workspaceName, service: notification.service, previousStartsAt: notification.previousStartsAt, startsAt: notification.startsAt, endsAt: notification.endsAt, city: notification.city, timeZone: result.timeZone }) : Promise.resolve(null),
+          notification.customerPhone ? sendBookingCustomerSms({ customerPhone: notification.customerPhone, companyName: workspaceAccess.workspaceName, status: "rescheduled", service: notification.service, previousStartsAt: notification.previousStartsAt, startsAt: notification.startsAt, timeZone: result.timeZone }) : Promise.resolve(null),
+        ]);
+      }
     }
   } catch (error) {
     if (error instanceof BookingRescheduleValidationError) redirectWithError(bookingId, `reschedule_${error.code}` as ErrorKey, locale);
@@ -211,11 +265,20 @@ export default async function BookingDetailPage({ params, searchParams }: Bookin
   if (!detail) notFound();
 
   const { booking, customer, events } = detail;
-  const value = (key: "error" | "updated" | "rescheduled" | "created" | "lang") => { const item = query?.[key]; return Array.isArray(item) ? item[0] : item; };
+  const access = await getUserWorkspaceAccess();
+  const mariaPreview = access.ok && access.workspaceSlug === "makeup-by-maria"
+    && canManageWorkspaceSettings(access) && process.env.VERCEL_ENV === "preview";
+  const manualSwish = mariaPreview ? await readMariaManualSwishStatuses() : null;
+  const value = (key: "error" | "updated" | "rescheduled" | "created" | "maria_mail" | "payment_saved" | "payment_error" | "lang") => { const item = query?.[key]; return Array.isArray(item) ? item[0] : item; };
   const locale: Locale = value("lang") === "en" ? "en" : "sv";
   const isEnglish = locale === "en";
   const errorValue = value("error") as ErrorKey | undefined;
   const errorMessage = errorValue ? errorMessages[locale][errorValue] : undefined;
+  const mariaEmailWarning = value("maria_mail") === "failed"
+    ? isEnglish
+      ? "The booking status was saved, but the Maria customer email could not be delivered. Contact the approved QA recipient manually."
+      : "Bokningsstatusen sparades, men Marias kundmejl kunde inte skickas. Kontakta den godkända QA-mottagaren manuellt."
+    : undefined;
   const statusAction = updateBookingStatusAction.bind(null, booking.id);
   const rescheduleAction = rescheduleBookingAction.bind(null, booking.id);
   const bookingStatuses = bookingStatusLabels[locale];
@@ -261,8 +324,43 @@ export default async function BookingDetailPage({ params, searchParams }: Bookin
 
   return <div className="grid gap-6">
     <DashboardPageHeader eyebrow={isEnglish ? "Booking profile" : "Bokningsprofil"} title={booking.title} description={isEnglish ? "View the booking details, connected customer and history. Change the status or reschedule the time securely." : "Se bokningens viktigaste uppgifter, kopplad kund och historik. Ändra status eller flytta tiden kontrollerat."} icon={CalendarClock} actions={<Link href={withLang("/dashboard/bokningar", locale)} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-control border border-[#d5ddd3] bg-surface px-4 py-2.5 text-sm font-bold text-brand"><ArrowLeft className="h-4 w-4" />{isEnglish ? "Back to bookings" : "Tillbaka till bokningar"}</Link>} />
-    <DashboardActionFeedback statusMessage={successMessage} alertMessage={errorMessage} />
+    <DashboardActionFeedback statusMessage={successMessage} alertMessage={errorMessage ?? mariaEmailWarning} />
     <DashboardMetricGrid items={metrics} />
+    {mariaPreview && manualSwish?.ok === false ? (
+      <p role="alert" className="rounded-lg bg-[#fff0ee] p-3 text-sm font-semibold text-[#a33b2f]">
+        {isEnglish ? "Swish payment status could not be read. Try again." : "Swish-betalningsstatus kunde inte läsas. Försök igen."}
+      </p>
+    ) : null}
+    {mariaPreview && manualSwish?.entries[booking.id] ? (
+      <section className="rounded-card border border-[#e8d9dc] bg-[#fff9f8] p-5 shadow-sm sm:p-6">
+        <h2 className="font-serif text-xl font-bold text-[#704858]">{isEnglish ? "Makeup by Maria · Swish deposit (Preview)" : "Makeup by Maria · Swish-handpenning (Preview)"}</h2>
+        <p className="mt-2 text-sm text-[#6a525b]">
+          {isEnglish
+            ? `After manual confirmation, the approved QA inbox receives an email explaining the ${MARIA_DEPOSIT_AMOUNT_SEK.toLocaleString("sv-SE")} SEK deposit, 24-hour deadline and unique booking reference. Check the payment yourself in Swish; Maria alone can cancel an unpaid booking. No automatic bank verification or SMS.`
+            : <>Vid manuell bekräftelse får den godkända QA-mottagaren ett mejl med
+              handpenning på {MARIA_DEPOSIT_AMOUNT_SEK.toLocaleString("sv-SE")} kr,
+              24 timmars betalningsfrist och unik bokningsreferens.
+              Kontrollera betalningen i Swish själv; utebliven handpenning avbokas
+              endast manuellt av Maria. Ingen automatisk betalningskontroll eller SMS.</>}
+        </p>
+
+        {value("payment_error") ? <p role="alert" className="mt-3 rounded-lg bg-[#fff0ee] p-3 text-sm font-semibold text-[#a33b2f]">{isEnglish ? "Could not update the Swish deposit. Check the payment and try again." : "Kunde inte uppdatera Swish-handpenningen. Kontrollera betalningen och försök igen."}</p> : null}
+        <div className="mt-4">
+          <MariaSwishPaymentControl
+            bookingId={booking.id}
+            bookingStatus={booking.status}
+            readOk={manualSwish?.ok === true}
+            entry={manualSwish?.entries[booking.id]}
+            returnTo="detail"
+            isEnglish={isEnglish}
+          />
+        </div>
+        <p className="mt-2 text-sm"><strong>{isEnglish ? "Swish business:" : "Swish företag:"}</strong> {MARIA_SWISH_NUMBER}</p>
+        <Image src={MARIA_SWISH_QR_PATH} alt={isEnglish ? "Makeup by Maria Swish QR for approved QA verification" : "Makeup by Maria Swish QR för godkänd QA-kontroll"}
+          width={210} height={280} unoptimized className="mt-4 h-auto max-w-[210px] rounded-lg border border-[#e8d9dc]" />
+      </section>
+    ) : null}
+
 
     <section className="grid gap-6 lg:grid-cols-[1fr_360px]">
       <div className="grid gap-6">
@@ -304,7 +402,9 @@ export default async function BookingDetailPage({ params, searchParams }: Bookin
 
         <article className="rounded-card border border-line bg-surface p-6 shadow-sm"><h3 className="text-xl font-bold text-ink">{isEnglish ? "Change time" : "Ändra tid"}</h3><p className="mt-3 text-sm leading-7 text-ink-muted">{isEnglish ? "Select a new start time. The current duration is preserved, conflicts are blocked, and the customer receives SMS and email when contact details are available." : "Välj en ny starttid. Bokningens nuvarande längd behålls, krockar blockeras och kunden får SMS och e-post när kontaktuppgifter finns."}</p><form action={rescheduleAction} className="mt-5 grid gap-4 rounded-control border border-line bg-surface-subtle p-4"><input type="hidden" name="lang" value={locale} /><label className="grid gap-2 text-sm font-semibold text-ink">{isEnglish ? "New start time" : "Ny starttid"}<input name="startsAt" type="datetime-local" required className={fieldClass} /></label><button type="submit" className="inline-flex w-fit rounded-control bg-brand-deep px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-brand-deep">{isEnglish ? "Reschedule booking" : "Flytta bokning"}</button></form></article>
 
-        <article className="rounded-card border border-line bg-surface p-6 shadow-sm"><h3 className="text-xl font-bold text-ink">{isEnglish ? "Change status" : "Ändra status"}</h3><p className="mt-3 text-sm leading-7 text-ink-muted">{isEnglish ? "Confirmation or cancellation sends email and SMS when the customer has provided contact details." : "Vid bekräftelse eller avbokning skickas e-post och SMS när kunden har lämnat kontaktuppgifter."}</p><form action={statusAction} className="mt-5 grid gap-4 rounded-control border border-line bg-surface-subtle p-4"><input type="hidden" name="lang" value={locale} /><label className="grid gap-2 text-sm font-semibold text-ink">{isEnglish ? "New status" : "Ny status"}<select name="status" defaultValue={bookingStatusOptions.includes(booking.status as DashboardBookingStatus) ? booking.status : "requested"} className={fieldClass}>{bookingStatusOptions.map((status) => <option key={status} value={status}>{bookingStatuses[status]}</option>)}</select></label><button type="submit" className="inline-flex w-fit rounded-control bg-brand-deep px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-brand-deep">{isEnglish ? "Update status" : "Uppdatera status"}</button></form></article>
+        <article className="rounded-card border border-line bg-surface p-6 shadow-sm"><h3 className="text-xl font-bold text-ink">{isEnglish ? "Change status" : "Ändra status"}</h3><p className="mt-3 text-sm leading-7 text-ink-muted">{mariaPreview ? (isEnglish
+  ? "Maria only emails the approved QA inbox: a confirmation explains the 2,000 SEK Swish deposit due within 24 hours; cancellation sends a friendly email. No SMS is sent."
+  : "Maria skickar enbart mejl till godkänd testmottagare: vid bekräftelse skickas Swish-handpenning 2 000 kr inom 24 timmar, och vid manuell avbokning ett vänligt avbokningsmejl. Inga SMS skickas.") : isEnglish ? "Confirmation or cancellation sends email and SMS when the customer has provided contact details." : "Vid bekräftelse eller avbokning skickas e-post och SMS när kunden har lämnat kontaktuppgifter."}</p><form action={statusAction} className="mt-5 grid gap-4 rounded-control border border-line bg-surface-subtle p-4"><input type="hidden" name="lang" value={locale} /><label className="grid gap-2 text-sm font-semibold text-ink">{isEnglish ? "New status" : "Ny status"}<select name="status" defaultValue={bookingStatusOptions.includes(booking.status as DashboardBookingStatus) ? booking.status : "requested"} className={fieldClass}>{bookingStatusOptions.map((status) => <option key={status} value={status}>{bookingStatuses[status]}</option>)}</select></label><button type="submit" className="inline-flex w-fit rounded-control bg-brand-deep px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-brand-deep">{isEnglish ? "Update status" : "Uppdatera status"}</button></form></article>
 
         <article className="rounded-card border border-line bg-surface p-6 shadow-sm"><div className="flex items-center justify-between border-b border-line pb-4"><div><h3 className="text-xl font-bold text-ink">{isEnglish ? "Connected customer" : "Kopplad kund"}</h3><p className="text-sm text-ink-muted">{isEnglish ? "Customer details connected to the booking." : "Kunduppgifter kopplade till bokningen."}</p></div><span className="rounded-full bg-[#eaf8f2] px-3 py-1 text-xs font-semibold text-brand">{isEnglish ? "Customer data" : "Kunddata"}</span></div>{!customer ? <p className="mt-5 rounded-control border border-line bg-surface-subtle p-4 text-sm text-ink-muted">{isEnglish ? "No customer is connected to this booking." : "Ingen kund är kopplad till den här bokningen."}</p> : <div className="mt-5 rounded-control border border-line bg-surface-subtle p-4 text-sm text-ink-muted"><div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between"><div><p className="text-lg font-bold text-ink">{customer.name}</p><p className="mt-1 text-ink-muted">{customer.type} · {customer.city}</p><p className="mt-3"><strong>Status:</strong> {customerStatuses[customer.status as keyof typeof customerStatuses] ?? customer.status}</p><p><strong>{isEnglish ? "Email:" : "E-post:"}</strong> {customer.email}</p><p><strong>{isEnglish ? "Phone:" : "Telefon:"}</strong> {customer.phone}</p></div><Link href={withLang(`/dashboard/kunder/${customer.id}`, locale)} className="inline-flex min-h-10 items-center justify-center rounded-full bg-brand-deep px-4 py-2 text-sm font-bold text-white shadow-sm">{isEnglish ? "View customer profile" : "Visa kundprofil"}</Link></div></div>}</article>
       </div>

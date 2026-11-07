@@ -1,6 +1,6 @@
 # Proffera Current Status
 
-Last updated: 2026-09-27
+Last updated: 2026-11-02
 
 This is the canonical factual status document for Proffera. For worker rules, live task state, current `main` SHA, roadmap order, and the stable V1 completion evidence requirements, also read `AGENTS.md`, `WORKER_BOOTSTRAP.md`, GitHub issue #548, GitHub issue #276, `docs/README.md`, and `docs/V1_LAUNCH_EVIDENCE_CONTRACT.json`.
 
@@ -184,6 +184,14 @@ Dedicated Company Directory full revalidation is currently requested twice per h
 SCB location semantics distinguish the company-level registered seat from the physical workplace. SCB enrichment may retain the company-level municipality as source data, but a Directory profile/public geographic municipality is projected only from the same unambiguous workplace visiting address selected by the public-address resolver. Existing non-SCB/manual values are preserved, while values created by the earlier company-level SCB municipality projection are repairable only when field provenance still owns the current value. Public Directory Search likewise prefers a complete, conflict-free single workplace visiting address for unclaimed profiles so street/postcode/city/municipality stay coherent; claimed Workspace-owned profiles are not overwritten by that projection. The `0058` migration is designed to add the relational `frisor` mapping for primary SNI 96.210 and backfill SNI-owned profile/service relations; that migration behavior was validated only on an isolated Neon branch, and Production execution is not claimed here. Neither repair changes publication status. Geographic coordinates remain a separate controlled Lantmäteriet geocoding path; absence of a verified coordinate is not treated as an SCB-sync failure and broad Production geocoding must not be run without its separate restricted-action approval.
 
 A Production runtime warning observed on 2026-08-18 concerns PostgreSQL connection-string SSL semantics. It is a forward-compatibility/security warning rather than an observed request failure and should be handled deliberately before the relevant `pg`/`pg-connection-string` major upgrade.
+
+## Makeup by Maria — isolated Preview booking controls
+
+The customer-specific `makeup-by-maria` workspace has a Preview-only owner/admin dashboard at `/dashboard/maria`. Its year-specific bridal package prices and Swedish descriptions, and its Friday/Saturday/Sunday appointment start windows, are managed within the existing workspace and read by the Preview booking/config paths. This is not a Production booking launch and is not proof that customer-owner access has been delivered.
+
+In the isolated Preview only, the owner/admin can compare the existing `MBM-` booking reference against the business Swish transaction message and **manually mark the 2,000 SEK deposit as paid** in the booking list or booking detail. The control requires an explicit human confirmation of checking Swish. An incorrect mark can be reversed; both actions are append-only, workspace-scoped, actor-attributed `customer_events` records and the latest status is read dynamically when the dashboard is opened. No bank transaction, Stripe integration, automatic payment validation, cancellation, customer notification, or Production write is performed by this control. A confirmed booking alone never implies a paid deposit.
+
+The Preview UI/code change is not a verified end-to-end money flow: validate the authenticated manager action and status persistence against the permitted isolated environment before customer use. Production changes, migrations, release approval, domain activation and PR merge remain separately gated.
 
 ## Current priorities
 

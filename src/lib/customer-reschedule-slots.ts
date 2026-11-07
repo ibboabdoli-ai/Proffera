@@ -3,6 +3,8 @@ import "server-only";
 import { neon } from "@neondatabase/serverless";
 
 import { resolveDatabaseUrl } from "@/lib/db/database-url";
+import { getMariaAvailability } from "@/lib/maria-booking-availability";
+import { getMariaPreviewBookingReadiness } from "@/lib/maria-preview-booking";
 
 import { parseLocalDateTime, resolveBookingTimeZone, validatePublicBookingPolicy } from "@/lib/public-booking-policy";
 import { verifyCustomerCalendarToken } from "@/lib/customer-calendar";
@@ -47,12 +49,15 @@ export async function getAvailableRescheduleSlots(token: string, bookingId: stri
 
   const sql = neon(connectionString);
   const rows = await sql`
-    select b.id, b.service, b.staff_id,
+    select b.id, b.service, b.staff_id, sv.public_slug, w.slug as workspace_slug,
       coalesce(nullif(ws.time_zone, ''), 'Europe/Stockholm') as time_zone,
-      sv.duration_minutes, sv.buffer_before_minutes, sv.buffer_after_minutes,
+      sv.duration_minutes,
+      extract(epoch from (b.ends_at - b.starts_at)) / 60 as booked_duration_minutes,
+      sv.buffer_before_minutes, sv.buffer_after_minutes,
       sv.minimum_notice_minutes, sv.maximum_advance_days
     from bookings b
     join workspace_services sv on sv.workspace_id = b.workspace_id and sv.name = b.service and sv.is_active = true
+    join workspaces w on w.id::text = b.workspace_id
     left join workspace_settings ws on ws.workspace_id = b.workspace_id
     where b.id = ${bookingId}
       and b.customer_id = ${payload.customerId}
@@ -63,6 +68,27 @@ export async function getAvailableRescheduleSlots(token: string, bookingId: stri
   `;
   const booking = rows[0];
   if (!booking) return [];
+
+  if (String(booking.workspace_slug) === "makeup-by-maria") {
+    const readiness = await getMariaPreviewBookingReadiness();
+    if (!readiness.enabled || readiness.workspaceId !== payload.workspaceId || booking.staff_id) return [];
+    // The manager can change the duration for future appointments at any time.
+    // For rescheduling this already-booked appointment, keep its recorded length.
+    // Reject malformed/absent historical durations rather than use today's default.
+    const bookedDurationMinutes = Number(booking.booked_duration_minutes);
+    if (!Number.isInteger(bookedDurationMinutes) || bookedDurationMinutes < 1 || bookedDurationMinutes > 1440) return [];
+    const match = /^maria-bridal-(trial|without-trial)-(202[6-9]|203[0-6])$/.exec(String(booking.public_slug));
+    if (!match || Number(match[2]) !== Number(selectedDate.slice(0, 4))) return [];
+    const offered = await getMariaAvailability({
+      workspaceId: payload.workspaceId, date: selectedDate, year: Number(match[2]),
+      kind: match[1] === "trial" ? "trial" : "without",
+      timeZone: "Europe/Stockholm", excludeBookingId: bookingId,
+      durationOverrideMinutes: bookedDurationMinutes,
+    });
+    return offered.ok ? offered.slots.map((time) => ({
+      startsAtLocal: `${selectedDate}T${time}`, label: time,
+    })) : [];
+  }
 
   const parsedDate = parseLocalDateTime(`${selectedDate}T12:00`);
   if (!parsedDate) return [];
