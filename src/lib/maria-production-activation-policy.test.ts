@@ -6,6 +6,7 @@ import {
 } from "./maria-production-activation-policy";
 
 const ready: NodeJS.ProcessEnv = {
+  NODE_ENV: "test",
   VERCEL_ENV: "production",
   PROFFERA_MARIA_PUBLIC_SITE_ENABLED: "true",
   PROFFERA_MARIA_PRODUCTION_BOOKING_ENABLED: "true",
@@ -17,7 +18,7 @@ const ready: NodeJS.ProcessEnv = {
 
 describe("Maria combined Production release request is disabled by default", () => {
   it("refuses an empty or Preview environment, even when QA booking is enabled", () => {
-    const disabled = inspectMariaProductionActivationRequest({});
+    const disabled = inspectMariaProductionActivationRequest({ NODE_ENV: "test" });
     expect(disabled.requested).toBe(false);
     expect(disabled.blockers).toContain("not_production");
     expect(disabled.portalOrigin).toBeNull();
