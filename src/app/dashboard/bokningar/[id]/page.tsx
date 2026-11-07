@@ -377,11 +377,16 @@ export default async function BookingDetailPage({ params, searchParams }: Bookin
   if (!detail) notFound();
 
   const { booking, customer, events } = detail;
-  const mariaPreview = access.workspaceSlug === "makeup-by-maria"
-    && canManageWorkspaceSettings(access) && process.env.VERCEL_ENV === "preview";
-  const mariaBookingDetailReadOnly = isMariaBookingDetailReadOnly(access.workspaceSlug, process.env.VERCEL_ENV);
-  const manualSwish = mariaPreview ? await readMariaManualSwishStatuses() : null;
-  const mariaQrEligibility = mariaPreview && manualSwish?.ok === true && manualSwish.entries[booking.id]
+  const mariaManager = access.workspaceSlug === "makeup-by-maria"
+    && canManageWorkspaceSettings(access);
+  const mariaPreview = mariaManager && process.env.VERCEL_ENV === "preview";
+  const mariaProductionReady = mariaManager && process.env.VERCEL_ENV === "production"
+    && (await getMariaBookingReadiness()).enabled;
+  const mariaManagerEnabled = mariaPreview || mariaProductionReady;
+  const mariaBookingDetailReadOnly = isMariaBookingDetailReadOnly(access.workspaceSlug, process.env.VERCEL_ENV)
+    && !mariaProductionReady;
+  const manualSwish = mariaManagerEnabled ? await readMariaManualSwishStatuses() : null;
+  const mariaQrEligibility = mariaManagerEnabled && manualSwish?.ok === true && manualSwish.entries[booking.id]
     ? await readMariaSwishQrEligibility(booking.id).catch((error) => {
         console.error("Maria Preview Swish QR eligibility could not be read", error);
         return "unavailable" as const;
@@ -394,8 +399,12 @@ export default async function BookingDetailPage({ params, searchParams }: Bookin
   const errorMessage = errorValue ? errorMessages[locale][errorValue] : undefined;
   const mariaEmailWarning = value("maria_mail") === "failed"
     ? isEnglish
-      ? "The booking status was saved, but the Maria customer email could not be delivered. Contact the approved QA recipient manually."
-      : "Bokningsstatusen sparades, men Marias kundmejl kunde inte skickas. Kontakta den godkända QA-mottagaren manuellt."
+      ? mariaPreview
+        ? "The booking status was saved, but the Maria customer email could not be delivered. Contact the approved QA recipient manually."
+        : "The booking status was saved, but the customer email may not have been delivered. Contact the customer manually."
+      : mariaPreview
+        ? "Bokningsstatusen sparades, men Marias kundmejl kunde inte skickas. Kontakta den godkända QA-mottagaren manuellt."
+        : "Bokningsstatusen sparades, men kundmejlet kanske inte levererades. Kontakta kunden manuellt."
     : undefined;
   const statusAction = updateBookingStatusAction.bind(null, booking.id);
   const resendStatusAction = resendMariaStatusEmailAction.bind(null, booking.id);
@@ -447,14 +456,14 @@ export default async function BookingDetailPage({ params, searchParams }: Bookin
     <DashboardPageHeader eyebrow={isEnglish ? "Booking profile" : "Bokningsprofil"} title={booking.title} description={isEnglish ? "View the booking details, connected customer and history. Change the status or reschedule the time securely." : "Se bokningens viktigaste uppgifter, kopplad kund och historik. Ändra status eller flytta tiden kontrollerat."} icon={CalendarClock} actions={<Link href={withLang("/dashboard/bokningar", locale)} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-control border border-[#d5ddd3] bg-surface px-4 py-2.5 text-sm font-bold text-brand"><ArrowLeft className="h-4 w-4" />{isEnglish ? "Back to bookings" : "Tillbaka till bokningar"}</Link>} />
     <DashboardActionFeedback statusMessage={successMessage} alertMessage={errorMessage ?? mariaEmailWarning} />
     <DashboardMetricGrid items={metrics} />
-    {mariaPreview && manualSwish?.ok === false ? (
+    {mariaManagerEnabled && manualSwish?.ok === false ? (
       <p role="alert" className="rounded-lg bg-[#fff0ee] p-3 text-sm font-semibold text-[#a33b2f]">
         {isEnglish ? "Swish payment status could not be read. Try again." : "Swish-betalningsstatus kunde inte läsas. Försök igen."}
       </p>
     ) : null}
-    {mariaPreview && manualSwish?.entries[booking.id] ? (
+    {mariaManagerEnabled && manualSwish?.entries[booking.id] ? (
       <section className="rounded-card border border-[#e8d9dc] bg-[#fff9f8] p-5 shadow-sm sm:p-6">
-        <h2 className="font-serif text-xl font-bold text-[#704858]">{isEnglish ? "Makeup by Maria · Swish deposit (Preview)" : "Makeup by Maria · Swish-handpenning (Preview)"}</h2>
+        <h2 className="font-serif text-xl font-bold text-[#704858]">{isEnglish ? `Makeup by Maria · Swish deposit${mariaPreview ? " (Preview)" : ""}` : `Makeup by Maria · Swish-handpenning${mariaPreview ? " (Preview)" : ""}`}</h2>
         <p className="mt-2 text-sm text-[#6a525b]">
           {isEnglish
             ? `After manual confirmation, the approved QA inbox receives an email explaining the ${MARIA_DEPOSIT_AMOUNT_SEK.toLocaleString("sv-SE")} SEK deposit, 24-hour deadline and unique booking reference. Check the payment yourself in Swish; Maria alone can cancel an unpaid booking. No automatic bank verification or SMS.`
@@ -544,8 +553,8 @@ export default async function BookingDetailPage({ params, searchParams }: Bookin
           </article>
         )}
 
-        {mariaPreview && booking.source === "public_booking"
-          && customer?.email && isMariaPreviewTestRecipient(customer.email)
+        {mariaManagerEnabled && booking.source === "public_booking"
+          && customer?.email && isMariaBookingRecipientAllowed(customer.email)
           && (booking.status === "confirmed" || booking.status === "cancelled") ? (
           <article className="rounded-card border border-line bg-surface p-6 shadow-sm">
             <h3 className="text-xl font-bold text-ink">{isEnglish ? "Resend Maria status email" : "Skicka om Marias statusmejl"}</h3>
