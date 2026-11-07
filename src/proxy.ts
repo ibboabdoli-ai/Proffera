@@ -159,6 +159,15 @@ export async function proxy(request: NextRequest) {
     return notFound(requestId);
   }
 
+  // Direct demo HTML keeps its own noindex response, while the branded root
+  // rewrites to the same template without inheriting demo-only metadata.
+  // Maria hosts cannot request these internal HTML paths directly.
+  if (pathname === "/demo/makeup-by-maria-v2.html" || pathname === "/demo/makeup-by-maria.html") {
+    const response = allowPublicPath(request, requestId);
+    response.headers.set("X-Robots-Tag", NOINDEX_VALUE);
+    return response;
+  }
+
   // Branded landing is explicitly gated and independent of real bookings.
   // Never redirect the existing holding-page domain during preparation.
   if (isMariaHost(host) && pathname === "/") {

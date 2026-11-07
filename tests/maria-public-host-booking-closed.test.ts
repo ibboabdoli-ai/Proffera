@@ -81,3 +81,35 @@ describe("Maria closed branded site never offers synthetic booking dates or time
     expect(view.time.options.some(o=>o.value==="06:00")).toBe(true);
   });
 });
+
+
+describe("Maria branded home navigation and publication metadata", () => {
+  it.each(["sv", "en", "ar"] as const)("routes logo/back navigation to the branded root in %s", lang => {
+    const homeHelper = segment("function mariaPublicHomeUrl(language){", "const mariaPublicCopy={");
+    const returnHome = segment("function returnHome(){", 'document.querySelector(".identity")');
+    const assigned: string[] = [];
+    runInNewContext(`${homeHelper}\n${returnHome}\nreturnHome()`, {
+      mariaPublicHost: true, state: {lang}, window: {location: {assign: (url: string) => assigned.push(url)}},
+    }, {timeout:1500});
+    expect(assigned).toEqual([`/?lang=${lang}`]);
+    expect(html).toContain('$("bookingCompleteAgain").href=mariaPublicHomeUrl(state.lang);');
+  });
+
+  it("preserves the internal demo path for non-Maria Preview hosts", () => {
+    const homeHelper = segment("function mariaPublicHomeUrl(language){", "const mariaPublicCopy={");
+    const url = runInNewContext(`${homeHelper}\nmariaPublicHomeUrl("en")`, {
+      mariaPublicHost:false,
+    }, {timeout:1500});
+    expect(url).toBe("/demo/makeup-by-maria-v2.html?lang=en");
+  });
+
+  it("provides indexable branded-source metadata while keeping direct demo URLs noindex", () => {
+    const head = html.split("</head>")[0];
+    expect(head).toContain("<title>Makeup by Maria · Brudmakeup i Södertälje</title>");
+    expect(head).toContain('<link rel="canonical" href="https://makeupbymaria.se/">');
+    expect(head).not.toMatch(/<meta name="robots"[^>]*noindex/i);
+    const proxySource = readFileSync(resolve(process.cwd(), "src/proxy.ts"), "utf8");
+    expect(proxySource).toContain('pathname === "/demo/makeup-by-maria-v2.html"');
+    expect(proxySource).toContain('response.headers.set("X-Robots-Tag", NOINDEX_VALUE);');
+  });
+});

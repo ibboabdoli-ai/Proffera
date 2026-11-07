@@ -4,9 +4,9 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="theme-color" content="#fcfaf8">
-<meta name="robots" content="noindex,nofollow">
-<meta name="description" content="Makeup by Maria — exklusiv bokningsförfrågan för brudmakeup. Designförslag 02, endast demo.">
-<title>Makeup by Maria — Design 02 · Bridal Booking</title>
+<meta name="description" content="Makeup by Maria — professionell brudmakeup med eller utan provsminkning i Södertälje.">
+<title>Makeup by Maria · Brudmakeup i Södertälje</title>
+<link rel="canonical" href="https://makeupbymaria.se/">
 <link rel="icon" type="image/jpeg" href="/demo/makeup-by-maria/assets/maria-client-logo.jpg">
 <link rel="apple-touch-icon" href="/demo/makeup-by-maria/assets/maria-client-logo.jpg">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -198,6 +198,9 @@ footer a{color:#875565}
 <footer><div class="footer-brand"><img src="/demo/makeup-by-maria/assets/maria-client-logo.jpg" alt="Makeup by Maria — Bridal & Event Makeup" width="950" height="950" loading="lazy"></div><small data-i="footer">En förhandsvisning · Stockholm, Sverige</small><small>Instagram <a href="https://www.instagram.com/makeupbymaria998/" target="_blank" rel="noopener noreferrer">@makeupbymaria998</a></small></footer>
 <script>
 const mariaPublicHost=/^(?:www\.)?makeupbymaria\.se$/i.test(window.location.hostname);
+function mariaPublicHomeUrl(language){
+ return (mariaPublicHost?"/":"/demo/makeup-by-maria-v2.html")+"?lang="+encodeURIComponent(language);
+}
 const mariaPublicCopy={
  sv:{closed:"Onlinebokningen öppnar snart",info:"Onlinebokningen är inte öppen ännu. Kontakta Maria via Instagram för frågor.",open:"Din förfrågan skickas efter e-postverifiering. Maria bekräftar tiden separat.",footer:"Makeup by Maria · Södertälje, Sverige"},
  en:{closed:"Online booking opens soon",info:"Online booking is not open yet. Contact Maria through Instagram for enquiries.",open:"Your request is sent after email verification. Maria confirms the appointment separately.",footer:"Makeup by Maria · Södertälje, Sweden"},
@@ -207,6 +210,12 @@ if(mariaPublicHost){
  document.title="Makeup by Maria · Brudmakeup i Södertälje";
  const description=document.querySelector('meta[name="description"]');
  if(description)description.content="Makeup by Maria — professionell brudmakeup med eller utan provsminkning i Södertälje.";
+}else{
+ // The canonical branded page is indexable, while direct demo/Preview URLs
+ // remain noindex at the server via X-Robots-Tag.
+ document.title="Makeup by Maria — Design 02 · Bridal Booking";
+ const description=document.querySelector('meta[name="description"]');
+ if(description)description.content="Makeup by Maria — exklusiv bokningsförfrågan för brudmakeup. Designförslag 02, endast demo.";
 }
 const dict={
 sv:{
@@ -242,7 +251,7 @@ function showBookingComplete(){
  $("bookingCompleteTitle").textContent=c.title;
  $("bookingCompleteText").textContent=c.text;
  $("bookingCompleteAgain").textContent=c.again;
- $("bookingCompleteAgain").href="/demo/makeup-by-maria-v2.html?lang="+encodeURIComponent(state.lang);
+ $("bookingCompleteAgain").href=mariaPublicHomeUrl(state.lang);
  $("bookingComplete").hidden=false;
  document.querySelector(".steps").hidden=true;
  for(const name of ["yearStep","serviceStep","detailsStep"])$(name).hidden=true;
@@ -538,7 +547,7 @@ async function buildTimes(preserveSelection=true){
 }
 document.querySelectorAll("[data-package]").forEach(b=>b.addEventListener("click",()=>choosePackage(b.dataset.package)));
 document.querySelectorAll("[data-lang]").forEach(b=>b.addEventListener("click",()=>{state.lang=b.dataset.lang;translate()}));
-function returnHome(){window.location.assign("/demo/makeup-by-maria-v2.html?lang="+encodeURIComponent(state.lang))}
+function returnHome(){window.location.assign(mariaPublicHomeUrl(state.lang))}
 document.querySelector(".identity").addEventListener("click",e=>{e.preventDefault();returnHome()});
 $("backHome").addEventListener("click",returnHome);
 $("backYear").addEventListener("click",()=>showStep("year"));
