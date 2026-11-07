@@ -7,7 +7,10 @@ import { MARIA_CANONICAL_PRODUCTION_ORIGIN } from "./maria-production-activation
  * The default remains closed; preview and disabled Production stay disallowed.
  * This policy never checks or changes a tenant, feature entitlement or database.
  */
-export function getMariaPublicSeoPolicy(env: NodeJS.ProcessEnv = process.env): {
+export function getMariaPublicSeoPolicy(env: {
+  VERCEL_ENV?: string;
+  PROFFERA_MARIA_PUBLIC_SITE_ENABLED?: string;
+} = process.env): {
   robots: MetadataRoute.Robots;
   sitemap: MetadataRoute.Sitemap;
 } {
