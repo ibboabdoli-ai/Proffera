@@ -27,6 +27,10 @@ export async function saveMariaYearAction(formData: FormData) {
   let without: number | null;
   let trialDescription: string;
   let withoutDescription: string;
+  let localized: {
+    trial: {en: string; ar: string};
+    without: {en: string; ar: string};
+  };
   try {
     trial = readMariaYearPrice(formData.get("trial"));
     without = readMariaYearPrice(formData.get("without"));
@@ -40,9 +44,36 @@ export async function saveMariaYearAction(formData: FormData) {
     withoutDescription = readMariaYearDescription(
       formData.get("without_description"), "Brudmakeup med hembesök.",
     );
+    // Missing language fields indicate an outdated or incomplete form. Never
+    // silently erase previously saved translations on a partial submission.
+    for (const field of [
+      "trial_description_en", "trial_description_ar",
+      "without_description_en", "without_description_ar",
+    ]) {
+      if (typeof formData.get(field) !== "string") throw new Error("INVALID_DESCRIPTION");
+    }
+    localized = {
+      trial: {
+        en: readMariaYearDescription(formData.get("trial_description_en"), ""),
+        ar: readMariaYearDescription(formData.get("trial_description_ar"), ""),
+      },
+      without: {
+        en: readMariaYearDescription(formData.get("without_description_en"), ""),
+        ar: readMariaYearDescription(formData.get("without_description_ar"), ""),
+      },
+    };
   } catch {
     redirect("/dashboard/maria?error=description");
   }
+
+  // The new table must be installed in the isolated Preview before editing.
+  // Missing storage cannot cause a partial price or language update.
+  let translationStorageReady = false;
+  try {
+    const rows = await sql`select to_regclass('public.maria_service_card_translations') as relation`;
+    translationStorageReady = Boolean(rows[0]?.relation);
+  } catch { /* fail closed */ }
+  if (!translationStorageReady) redirect("/dashboard/maria?error=translation_setup");
 
   const record = (kind: "trial" | "without-trial", price: number | null, description: string) => {
     const withTrial = kind === "trial";
@@ -94,6 +125,25 @@ export async function saveMariaYearAction(formData: FormData) {
     `;
   };
 
+  /** Persist one explicitly scoped English/Arabic text without changing other tenants. */
+  const recordTranslation = (kind: "trial" | "without-trial", locale: "en" | "ar") => {
+    const slug = `maria-bridal-${kind}-${year}`;
+    const description = localized[kind === "trial" ? "trial" : "without"][locale];
+    return sql!`
+      insert into maria_service_card_translations(service_id, locale, description)
+      select s.id, ${locale}, ${description}
+      from workspace_services s
+      join workspaces w on w.id::text = s.workspace_id
+      where w.id = ${access.workspaceId}::uuid
+        and w.slug = 'makeup-by-maria'
+        and w.status in ('active','trial')
+        and s.public_slug = ${slug}
+      on conflict (service_id, locale) do update
+      set description = excluded.description, updated_at = now()
+      returning service_id
+    `;
+  };
+
   try {
     const result = await sql.transaction([
       // Serialize new-year creation with schedule changes and booking holds.
@@ -101,6 +151,10 @@ export async function saveMariaYearAction(formData: FormData) {
       sql`select pg_advisory_xact_lock(hashtextextended(${access.workspaceId}::text, 713))`,
       record("trial", trial, trialDescription),
       record("without-trial", without, withoutDescription),
+      recordTranslation("trial", "en"),
+      recordTranslation("trial", "ar"),
+      recordTranslation("without-trial", "en"),
+      recordTranslation("without-trial", "ar"),
       // Check the final persisted values inside the DB transaction, not after commit.
       // A name collision with a different slug must roll back both packages and the audit.
       sql`
@@ -123,17 +177,37 @@ export async function saveMariaYearAction(formData: FormData) {
             )
         ) = 2 then 1 else 0 end) as maria_year_guard
       `,
+            // A mismatch of any localized row aborts the entire transaction.
+      // Check persisted values, not merely the input form or RETURNING count.
+      sql`
+        select 1 / (case when (
+          select count(*) from maria_service_card_translations t
+          join workspace_services s on s.id = t.service_id
+          join workspaces w on w.id::text = s.workspace_id
+          where w.id = ${access.workspaceId}::uuid
+            and w.slug = 'makeup-by-maria'
+            and (
+              (s.public_slug = ${`maria-bridal-trial-${year}`}
+                and ((t.locale = 'en' and t.description = ${localized.trial.en})
+                  or (t.locale = 'ar' and t.description = ${localized.trial.ar})))
+              or (s.public_slug = ${`maria-bridal-without-trial-${year}`}
+                and ((t.locale = 'en' and t.description = ${localized.without.en})
+                  or (t.locale = 'ar' and t.description = ${localized.without.ar})))
+            )
+        ) = 4 then 1 else 0 end) as maria_card_translations_guard
+      `,
       sql`
         insert into admin_audit_logs (admin_user_id,workspace_id,action,reason,new_value)
         values (
           ${access.userId},${access.workspaceId}::uuid,
           'maria.booking_year_content.updated',
-          'Workspace owner changed Maria booking year descriptions and prices',
-          ${JSON.stringify({ year, enabled, trialPriceSek: trial, withoutTrialPriceSek: without, copyUpdated: true, mode: "preview_only" })}::jsonb
+          'Workspace owner changed Maria yearly card copy in Swedish, English and Arabic and prices',
+          ${JSON.stringify({ year, enabled, trialPriceSek: trial, withoutTrialPriceSek: without, locales: ["sv", "en", "ar"], copyUpdated: true, mode: "preview_only" })}::jsonb
         )
       `,
     ]);
-    if (result[1]?.length !== 1 || result[2]?.length !== 1) {
+    if (result[1]?.length !== 1 || result[2]?.length !== 1
+      || [3, 4, 5, 6].some(index => result[index]?.length !== 1)) {
       // A missing target indicates a stale or conflicting Maria service; fail closed.
       throw new Error("SERVICE_CONFLICT");
     }
