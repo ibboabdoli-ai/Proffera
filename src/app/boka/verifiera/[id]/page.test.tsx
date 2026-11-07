@@ -177,6 +177,19 @@ describe("Maria verification language keeps the Preview booking locale", () => {
     expect(preview).toContain(">SV</a>");
   });
 
+  it("does not forget Maria workspace identity when experience settings fail", async () => {
+    vi.stubEnv("VERCEL_ENV", "production");
+    mocks.host = "www.proffera.se";
+    mocks.experience.mockRejectedValueOnce(new Error("Synthetic settings outage"));
+    await expect(markup("en")).rejects.toThrow("NEXT_NOT_FOUND");
+  });
+
+  it("fails closed if the verification workspace lookup fails", async () => {
+    mocks.host = "www.proffera.se";
+    mocks.getSql.mockReturnValue(async () => { throw new Error("Synthetic SQL outage"); });
+    await expect(markup("sv")).rejects.toThrow("NEXT_NOT_FOUND");
+  });
+
   it("refuses Maria Production verification from a non-canonical host", async () => {
     vi.stubEnv("VERCEL_ENV", "production");
     mocks.host = "www.proffera.se";

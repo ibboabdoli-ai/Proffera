@@ -63,41 +63,56 @@ function verificationHref(id: string, locale: Locale, channel: string) {
 
 async function getVerificationExperience(id: string): Promise<VerificationExperience> {
   const sql = getSql();
-  if (!sql || !/^[0-9a-f-]{36}$/i.test(id)) return safeVerificationExperience;
+  if (!sql || !/^[0-9a-f-]{36}$/i.test(id)) notFound();
 
+  // Resolve the challenge's real workspace first. A failed public-language lookup
+  // must never erase that identity and bypass Maria's canonical-host guard.
+  let rows: Array<Record<string, unknown>>;
   try {
-    const rows = await sql`
+    rows = await sql`
       select v.workspace_id, w.slug as workspace_slug
       from public_booking_verifications v
       join workspaces w on w.id = v.workspace_id
       where v.id = ${id}::uuid
       limit 1
     `;
-    const workspaceId = String(rows[0]?.workspace_id ?? "");
-    if (!/^[0-9a-f-]{36}$/i.test(workspaceId)) return safeVerificationExperience;
+  } catch {
+    notFound();
+  }
+  const workspaceId = String(rows[0]?.workspace_id ?? "");
+  if (!/^[0-9a-f-]{36}$/i.test(workspaceId)) notFound();
 
+  const mariaWorkspace = String(rows[0]?.workspace_slug) === "makeup-by-maria";
+  const mariaPreview = mariaWorkspace
+    && (process.env.VERCEL_ENV === "preview"
+      || (process.env.VERCEL_ENV === "production" && Boolean(getMariaBookingPortalBase())));
+  const fallback: VerificationExperience = {
+    ...safeVerificationExperience,
+    mariaWorkspace,
+    mariaPreview,
+    swedishEnabled: mariaPreview || safeVerificationExperience.swedishEnabled,
+    englishEnabled: mariaPreview || safeVerificationExperience.englishEnabled,
+  };
+
+  try {
     const experience = await getPublicWorkspaceExperienceSettings(workspaceId);
-    const mariaWorkspace = String(rows[0]?.workspace_slug) === "makeup-by-maria";
-    const mariaPreview = mariaWorkspace
-      && (process.env.VERCEL_ENV === "preview"
-        || (process.env.VERCEL_ENV === "production" && Boolean(getMariaBookingPortalBase())));
     if (
       typeof experience.swedishEnabled !== "boolean"
       || typeof experience.englishEnabled !== "boolean"
       || (!experience.swedishEnabled && !experience.englishEnabled && !mariaPreview)
-    ) return safeVerificationExperience;
+    ) return fallback;
 
     return {
       defaultLanguage: experience.defaultLanguage === "en" ? "en" : "sv",
       swedishEnabled: mariaPreview || experience.swedishEnabled,
-      // Maria's three-language booking entry offers English even when the workspace toggle is off.
       englishEnabled: mariaPreview || experience.englishEnabled,
-      primaryColor: /^#[0-9a-f]{6}$/i.test(experience.primaryColor) ? experience.primaryColor : safeVerificationExperience.primaryColor,
+      primaryColor: /^#[0-9a-f]{6}$/i.test(experience.primaryColor)
+        ? experience.primaryColor : safeVerificationExperience.primaryColor,
       mariaPreview,
       mariaWorkspace,
     };
   } catch {
-    return safeVerificationExperience;
+    return fallback;
   }
 }
 
