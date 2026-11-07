@@ -5,6 +5,7 @@ import { CalendarDays, CalendarOff, ExternalLink, Settings2, ShieldCheck } from 
 import { getDashboardWorkspaceServices } from "@/lib/workspace-services-db";
 import { getDashboardWorkspaceBookingHours } from "@/lib/workspace-booking-hours-db";
 import { getMariaPreviewBookingReadiness } from "@/lib/maria-preview-booking";
+import { readMariaCardTranslations } from "@/lib/maria-card-translations-db";
 import { canManageWorkspaceSettings, getUserWorkspaceAccess } from "@/lib/workspace-access";
 import { saveMariaYearAction } from "./actions";
 import { saveMariaScheduleAction } from "./schedule-actions";
@@ -24,10 +25,11 @@ export default async function MariaSiteDashboardPage({ searchParams }: { searchP
     redirect("/dashboard");
   }
 
-  const [services, bookingHours, bookingReadiness] = await Promise.all([
+  const [services, bookingHours, bookingReadiness, cardTranslations] = await Promise.all([
     getDashboardWorkspaceServices(),
     getDashboardWorkspaceBookingHours(),
     getMariaPreviewBookingReadiness(),
+    readMariaCardTranslations(access.workspaceId),
   ]);
   const packages = expectedKeys.map((slug) =>
     services.find((service) => service.publicSlug === slug) ?? null,
@@ -39,8 +41,10 @@ export default async function MariaSiteDashboardPage({ searchParams }: { searchP
   const displayedYears = [editingYear];
   const savedPackage = (year: number, kind: "trial" | "without-trial") =>
     services.find((item) => item.publicSlug === `maria-bridal-${kind}-${year}`);
-  const savedCopy = (year: number, kind: "trial" | "without-trial") =>
-    savedPackage(year, kind)?.shortDescription ?? "";
+  const savedCopy = (year: number, kind: "trial" | "without-trial", locale: "sv" | "en" | "ar") => {
+    if (locale === "sv") return savedPackage(year, kind)?.shortDescription ?? "";
+    return cardTranslations.get(`maria-bridal-${kind}-${year}`)?.[locale] ?? "";
+  };
   const savedPrice = (year: number, kind: "trial" | "without-trial") => {
     const service = savedPackage(year, kind);
     return service?.priceType === "fixed" && service.priceAmountMinor !== null
@@ -170,9 +174,9 @@ export default async function MariaSiteDashboardPage({ searchParams }: { searchP
       <section id="priser" className="scroll-mt-6 rounded-2xl border border-[#e8d9dc] bg-white p-4 sm:p-8">
         <h2 className="font-serif text-2xl text-[#352a2c]">Bröllopsår och paketpriser</h2>
         <p className="mt-2 max-w-2xl text-sm leading-6 text-[#705f65]">
-          Välj år och ändra pris och svensk beskrivning för varje tjänst.
-          Ett tomt pris visas som &quot;Pris på förfrågan&quot;. Spara ett år i taget.
-          Engelska och arabiska standardtexter ändras inte. Publicering kräver separat godkännande.
+          Välj år och ändra pris och kortbeskrivningar på svenska, engelska och arabiska.
+          Tomma språkfält visar standardtext på respektive språk. Spara ett år i taget.
+          Publicering kräver separat godkännande.
         </p>
         {q.updated ? (
           <p role="status" className="mt-4 rounded-lg bg-[#ecf7f0] px-4 py-3 text-sm font-semibold text-[#256947]">
@@ -225,20 +229,27 @@ export default async function MariaSiteDashboardPage({ searchParams }: { searchP
                 </label>
               </div>
               <div className="mt-4 grid gap-3 sm:grid-cols-2">
-                <label className="grid gap-1.5 text-xs font-semibold text-[#634853]">
-                  Text för brudsmink med prov · svenska
-                  <textarea name="trial_description" maxLength={280} rows={3}
-                    defaultValue={savedCopy(year, "trial")}
-                    placeholder="Lämna tomt för standardtext"
-                    className="w-full rounded-lg border border-[#d8c4cb] bg-white px-3 py-2 text-sm text-[#352a2c]" />
-                </label>
-                <label className="grid gap-1.5 text-xs font-semibold text-[#634853]">
-                  Text för brudsmink utan prov · svenska
-                  <textarea name="without_description" maxLength={280} rows={3}
-                    defaultValue={savedCopy(year, "without-trial")}
-                    placeholder="Lämna tomt för standardtext"
-                    className="w-full rounded-lg border border-[#d8c4cb] bg-white px-3 py-2 text-sm text-[#352a2c]" />
-                </label>
+                {(["trial", "without-trial"] as const).map(kind => (
+                  <div key={kind} className="grid gap-3">
+                    <p className="text-sm font-bold text-[#51313e]">
+                      {kind === "trial" ? "Brudsmink med prov" : "Brudsmink utan prov"}
+                    </p>
+                    {([
+                      ["sv", "Svenska"],
+                      ["en", "English"],
+                      ["ar", "العربية"],
+                    ] as const).map(([locale, languageLabel]) => (
+                      <label key={locale} className="grid gap-1.5 text-xs font-semibold text-[#634853]">
+                        {languageLabel}
+                        <textarea name={`${kind === "trial" ? "trial" : "without"}_description${locale === "sv" ? "" : `_${locale}`}`}
+                          lang={locale} dir={locale === "ar" ? "rtl" : "ltr"} maxLength={280} rows={3}
+                          defaultValue={savedCopy(year, kind, locale)}
+                          placeholder="Tomt fält använder standardtext"
+                          className="w-full rounded-lg border border-[#d8c4cb] bg-white px-3 py-2 text-sm text-[#352a2c]" />
+                      </label>
+                    ))}
+                  </div>
+                ))}
               </div>
               <button type="submit" className="mt-4 min-h-11 rounded-lg bg-[#845363] px-5 text-xs font-bold text-white hover:bg-[#6d3e4e]">
                 Spara {year}
