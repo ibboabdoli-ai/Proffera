@@ -185,7 +185,11 @@ export default async function MariaSiteDashboardPage({ searchParams }: { searchP
         ) : null}
         {q.error ? (
           <p role="alert" className="mt-4 rounded-lg bg-[#fff0ee] px-4 py-3 text-sm font-semibold text-[#9d3333]">
-            Inställningen kunde inte sparas ({q.error}). Kontrollera pris och behörighet.
+            {q.error === "translation_setup"
+              ? "Språktexterna är förberedda men lagringen är ännu inte aktiverad i testmiljön. Inga ändringar sparades."
+              : q.error === "description"
+                ? "Kontrollera beskrivningarna (högst 280 tecken per språk) och ladda om sidan vid behov. Inga ändringar sparades."
+                : `Inställningen kunde inte sparas (${q.error}). Kontrollera pris och behörighet.`}
           </p>
         ) : null}
         <form method="get" action="/dashboard/maria" className="mt-6 flex flex-wrap items-end gap-3 rounded-xl bg-[#fcf6f5] p-4">
