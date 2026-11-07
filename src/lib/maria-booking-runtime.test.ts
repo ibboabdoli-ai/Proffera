@@ -110,16 +110,16 @@ describe("Maria Production readiness is independent and disabled by default", ()
     }
   });
 
-  it("keeps Production booking closed even with valid schema, provider, workspace and entitlement", async () => {
+  it("opens Production booking only after all flags, schema, provider, workspace and entitlement agree", async () => {
     enableProduction();
     const query=stubSql([schema], [schemaContract], [{count:3}], [workspace]);
     vi.mocked(hasWorkspaceFeatureAccessForWorkspace).mockResolvedValue(true);
     const result=await getMariaBookingReadiness();
-    expect(result).toEqual({enabled:false});
+    expect(result).toMatchObject({enabled:true,workspaceId:workspace.workspace_id,publicSlug:"makeup-by-maria"});
     expect(query).toHaveBeenCalledTimes(4);
     expect(hasWorkspaceFeatureAccessForWorkspace)
       .toHaveBeenCalledWith(workspace.workspace_id,"online_booking");
-    // There is no Production OTP/manager acceptance path yet; configuration
-    // flags must not falsely advertise a usable public booking lifecycle.
+    // The flag-only gate is insufficient; all four actual DB checks and
+    // the entitlement check must succeed before the booking API may open.
   });
 });
