@@ -12,7 +12,7 @@ import { getMariaBookingPortalBase } from "@/lib/maria-preview-customer-safety";
 import { bookingDateLocale } from "@/lib/booking-date-locale";
 import { cancelCustomerCalendarBooking, getCustomerCalendar, type CustomerCalendarBooking } from "@/lib/customer-calendar";
 import { getCustomerPortalPresentation, resolveCustomerPortalLanguage, type CustomerPortalLanguage } from "@/lib/customer-portal-language";
-import { isMariaHost, isPrimeViewHost } from "@/lib/public-site-domains";
+import { isCustomerPortalHostAllowedForWorkspace, isPrimeViewHost } from "@/lib/public-site-domains";
 import type { WorkspaceTimeZone } from "@/lib/workspace-market";
 import styles from "../customer-portal.module.css";
 
@@ -61,8 +61,9 @@ async function cancelBooking(formData: FormData) {
   const id = String(formData.get("booking_id") ?? "");
   const presentation = await getCustomerPortalPresentation(token);
   const language = resolveCustomerPortalLanguage(String(formData.get("lang") ?? ""), presentation);
-  if (isMariaHost((await headers()).get("host"))
-    && presentation?.publicBookingSlug !== "makeup-by-maria") notFound();
+  if (!isCustomerPortalHostAllowedForWorkspace(
+    (await headers()).get("host"), presentation?.workspaceSlug, presentation?.publicBookingSlug, process.env.VERCEL_ENV,
+  )) notFound();
   const result = await cancelCustomerCalendarBooking(token, id, language);
   if (result.ok) redirect(portalHref(token, language, { cancelled: "1" }));
   redirect(portalHref(token, language, { error: "cancel" }));
@@ -145,8 +146,9 @@ export default async function Page({ params, searchParams }: PageProps) {
     getCustomerPortalPresentation(token),
     headers(),
   ]);
-  if (isMariaHost(requestHeaders.get("host"))
-    && presentation?.publicBookingSlug !== "makeup-by-maria") notFound();
+  if (!isCustomerPortalHostAllowedForWorkspace(
+    requestHeaders.get("host"), presentation?.workspaceSlug, presentation?.publicBookingSlug, process.env.VERCEL_ENV,
+  )) notFound();
   const language = resolveCustomerPortalLanguage(first(query?.lang), presentation);
   const isEnglish = language === "en";
   const isArabic = language === "ar";
@@ -175,12 +177,13 @@ export default async function Page({ params, searchParams }: PageProps) {
       canCancel={data.policy.customerCancelEnabled}
       cancelNoticeHours={data.policy.cancelNoticeHours}
       language={language}
-      isMariaPreview={presentation?.publicBookingSlug === "makeup-by-maria" && Boolean(getMariaBookingPortalBase())}
+      isMariaPreview={presentation?.workspaceSlug === "makeup-by-maria" && presentation.publicBookingSlug === "makeup-by-maria" && Boolean(getMariaBookingPortalBase())}
     />
   );
 
   const companyName = presentation?.companyName || (isPrimeView ? "PrimeView Window Care" : "Proffera");
-  const isMaria = presentation?.publicBookingSlug === "makeup-by-maria"
+  const isMaria = presentation?.workspaceSlug === "makeup-by-maria"
+    && presentation.publicBookingSlug === "makeup-by-maria"
     && Boolean(getMariaBookingPortalBase());
   const portalPrimary = isMaria ? "#845363" : presentation?.primaryColor || (isPrimeView ? "#1769c2" : "#0a2e63");
   const style = {

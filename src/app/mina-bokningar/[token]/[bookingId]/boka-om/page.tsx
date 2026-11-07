@@ -12,7 +12,7 @@ import { bookingDateLocale } from "@/lib/booking-date-locale";
 import { getRescheduleBooking, rescheduleCustomerBooking } from "@/lib/customer-booking-reschedule";
 import { getCustomerPortalPresentation, resolveCustomerPortalLanguage, type CustomerPortalLanguage } from "@/lib/customer-portal-language";
 import { getAvailableRescheduleSlots, getUpcomingRescheduleDays } from "@/lib/customer-reschedule-slots";
-import { isMariaHost, isPrimeViewHost } from "@/lib/public-site-domains";
+import { isCustomerPortalHostAllowedForWorkspace, isPrimeViewHost } from "@/lib/public-site-domains";
 import styles from "../../../customer-portal.module.css";
 import { RescheduleSlotPicker } from "./reschedule-slot-picker";
 
@@ -77,8 +77,9 @@ export default async function ReschedulePage({ params, searchParams }: PageProps
     getCustomerPortalPresentation(token),
     headers(),
   ]);
-  if (isMariaHost(requestHeaders.get("host"))
-    && presentation?.publicBookingSlug !== "makeup-by-maria") notFound();
+  if (!isCustomerPortalHostAllowedForWorkspace(
+    requestHeaders.get("host"), presentation?.workspaceSlug, presentation?.publicBookingSlug, process.env.VERCEL_ENV,
+  )) notFound();
   const language = resolveCustomerPortalLanguage(first(query?.lang), presentation);
   const isEnglish = language === "en";
   const isArabic = language === "ar";
@@ -96,7 +97,8 @@ export default async function ReschedulePage({ params, searchParams }: PageProps
   const booking = await getRescheduleBooking(token, bookingId);
   if (!booking) notFound();
 
-  const isMaria = presentation?.publicBookingSlug === "makeup-by-maria"
+  const isMaria = presentation?.workspaceSlug === "makeup-by-maria"
+    && presentation.publicBookingSlug === "makeup-by-maria"
     && Boolean(getMariaBookingPortalBase());
   const days = isMaria ? [] : getUpcomingRescheduleDays(booking.timeZone, 7);
   const slotEntries = await Promise.all(
@@ -136,8 +138,9 @@ export default async function ReschedulePage({ params, searchParams }: PageProps
     "use server";
     const startsAtLocal = String(formData.get("startsAtLocal") ?? "");
     const currentPresentation = await getCustomerPortalPresentation(token);
-    if (isMariaHost((await headers()).get("host"))
-      && currentPresentation?.publicBookingSlug !== "makeup-by-maria") notFound();
+    if (!isCustomerPortalHostAllowedForWorkspace(
+      (await headers()).get("host"), currentPresentation?.workspaceSlug, currentPresentation?.publicBookingSlug, process.env.VERCEL_ENV,
+    )) notFound();
     const currentLanguage = resolveCustomerPortalLanguage(language, currentPresentation);
     const result = await rescheduleCustomerBooking(token, bookingId, startsAtLocal, currentLanguage);
     const langSuffix = `&lang=${currentLanguage}`;
