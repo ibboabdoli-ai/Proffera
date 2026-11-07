@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { getSql } from "@/lib/db/server";
+import { getMariaBookingReadiness } from "@/lib/maria-booking-runtime";
 import { canManageWorkspaceSettings, getUserWorkspaceAccess } from "@/lib/workspace-access";
 
 /** Parse a 30-minute-aligned schedule clock or return null for invalid input. */
@@ -18,13 +19,20 @@ function clock(n: number) {
 }
 
 /**
- * Save Maria's Preview-only duration, buffer and Fri-Sun opening hours after
- * manager authorization; serialize the edit against in-flight bookings.
+ * Save Maria's duration, buffer and Fri-Sun opening hours after manager
+ * authorization; Production additionally requires verified booking readiness.
+ * Serialize the edit against in-flight bookings in both deployments.
  */
 export async function saveMariaScheduleAction(formData: FormData) {
   const access = await getUserWorkspaceAccess();
-  if (process.env.VERCEL_ENV !== "preview" || !access.ok || access.workspaceSlug !== "makeup-by-maria"
+  const preview = process.env.VERCEL_ENV === "preview";
+  const production = process.env.VERCEL_ENV === "production";
+  if ((!preview && !production) || !access.ok || access.workspaceSlug !== "makeup-by-maria"
     || !canManageWorkspaceSettings(access)) redirect("/dashboard");
+  if (production) {
+    const readiness = await getMariaBookingReadiness();
+    if (!readiness.enabled || readiness.workspaceId !== access.workspaceId) redirect("/dashboard");
+  }
 
   const duration=Number(formData.get("duration_minutes"));
   const buffer=Number(formData.get("buffer_after_minutes"));
