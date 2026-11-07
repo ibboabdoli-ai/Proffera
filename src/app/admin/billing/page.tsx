@@ -2,6 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 
 import { TrialExtensionForm } from "./trial-extension-form";
+import { MariaPreviewTrialForm } from "./maria-preview-trial-form";
 import { canAccessAdminBilling, listAdminBillingWorkspaces } from "@/lib/admin-billing";
 import {
   BILLING_PRIVATE_DATA,
@@ -39,6 +40,12 @@ function TrialAlert({ workspace }: { workspace: Record<string, unknown> }) {
 }
 
 function Notice({ value }: { value?: string }) {
+  if (value === "maria-trial-started") {
+    return <div role="status" className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-800">Makeup by Marias interna 14-dagarstrial startades i Preview. Ingen betalning skapades.</div>;
+  }
+  if (value === "maria-trial-failed") {
+    return <div role="alert" className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-800">Marias första Preview-trial kunde inte startas. Kontrollera workspace, tidigare abonnemang, databas och adminbehörighet.</div>;
+  }
   if (value === "trial-extended") {
     return <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-800">Trialperioden förlängdes och ändringen loggades.</div>;
   }
@@ -63,7 +70,7 @@ function BillingSafetyPanel() {
         <ul className="mt-2 list-disc space-y-1 pl-5">
           {BILLING_READ_ONLY_OPERATIONS.map((operation) => <li key={operation}>{operation}</li>)}
         </ul>
-        <p className="mt-3 text-xs">Endast en intern, icke-Stripe trialperiod kan förlängas med kontrollerade dagval.</p>
+        <p className="mt-3 text-xs">Endast interna trialperioder får förlängas. I isolerad Preview kan en super_admin också starta Marias första 14-dagarstrial utan Stripe.</p>
       </div>
       <div>
         <p className="font-bold">Privata betalningsdata</p>
@@ -184,6 +191,14 @@ export default async function AdminBillingPage({
                         {workspace.trial_extension_allowed && currentPeriodEnd ? (
                           <details><summary className="cursor-pointer text-xs font-semibold text-amber-800">Kontrollerad trialförlängning</summary><TrialExtensionForm workspaceId={String(workspace.id)} workspacePlanId={String(workspace.workspace_plan_id)} currentPeriodEnd={currentPeriodEnd} /></details>
                         ) : null}
+                        {process.env.VERCEL_ENV === "preview" && admin.role === "super_admin"
+                          && String(workspace.slug) === "makeup-by-maria"
+                          && workspace.missing_subscription && !workspace.stripe_bound ? (
+                            <details>
+                              <summary className="cursor-pointer text-xs font-semibold text-amber-900">Starta Marias första 14-dagarstrial</summary>
+                              <MariaPreviewTrialForm workspaceId={String(workspace.id)} />
+                            </details>
+                          ) : null}
                       </div>
                     </td>
                     <td className="px-4 py-4 align-top"><div className="flex flex-wrap gap-2"><Link href={`/admin/workspaces/${String(workspace.id)}`} className="rounded-lg border border-slate-300 px-3 py-2 font-semibold text-slate-800">Workspace</Link><Link href={`/admin/audit?workspaceId=${encodeURIComponent(String(workspace.id))}`} className="rounded-lg border border-slate-300 px-3 py-2 font-semibold text-slate-800">Audit</Link></div></td>
