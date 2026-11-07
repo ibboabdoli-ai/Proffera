@@ -295,6 +295,7 @@ function isValidMariaPhone(raw){
  return digits.length>=7&&digits.length<=15&&!(phone.startsWith("+")&&digits.startsWith("0"))&&!/^(\d)\1+$/.test(digits);
 }
 let lastBookingError=null;
+let bookingSubmitting=false;
 function localizedBookingError(code){
  const lookup=bookingErrors[state.lang]||bookingErrors.sv;
  return Object.prototype.hasOwnProperty.call(lookup,code)?lookup[code]:(liveBookingCopy[state.lang]||liveBookingCopy.sv).error;
@@ -433,6 +434,8 @@ function translate(){
    document.querySelector('[data-i="safety"]').textContent=publicCopy.info;
   }
  }
+ // The public form is disabled only while booking is closed or actively submitting.
+ $("bookingForm").querySelector('button[type="submit"]').disabled=bookingSubmitting||brandedBookingClosed();
  document.querySelector('[data-i="detailsPrompt"]').textContent=displayedBookingHours();
  if(state.year){
   const details=workspaceConfig.years.find(item=>item.year===state.year);
@@ -579,6 +582,7 @@ $("bookingForm").addEventListener("submit",async e=>{
  }
  const button=$("bookingForm").querySelector('button[type="submit"]');
  if(button.disabled)return;
+ bookingSubmitting=true;
  button.disabled=true;
  message.textContent=(liveBookingCopy[state.lang]||liveBookingCopy.sv).sending;
  try{
@@ -602,7 +606,7 @@ $("bookingForm").addEventListener("submit",async e=>{
   showBookingError(typeof data?.error==="string"?data.error:"general");
  }catch(_error){
   showBookingError("general");
- }finally{button.disabled=false;}
+ }finally{bookingSubmitting=false;button.disabled=brandedBookingClosed();}
 });
 $("weddingDate").addEventListener("change",()=>buildTimes(false));
 async function loadMariaWorkspace(){
