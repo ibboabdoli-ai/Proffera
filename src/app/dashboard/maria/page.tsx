@@ -179,9 +179,9 @@ export default async function MariaSiteDashboardPage({ searchParams }: { searchP
   );
 
   if (isProduction) {
-    // Show the owner's real workspace settings on Proffera's /dashboard while
-    // the public booking launch remains disabled. All Maria-specific mutation
-    // actions and appointment/calendar controls stay Preview-only.
+    // The dedicated Maria Production view remains booking/calendar read-only.
+    // Price and three-language card copy become editable only after an
+    // explicitly enabled, migration-verified Production content gate.
     const packagePrice = (service: (typeof packages)[number]) =>
       service?.priceType === "fixed" && service.priceAmountMinor !== null
         ? `${new Intl.NumberFormat("sv-SE").format(service.priceAmountMinor / 100)} kr`
