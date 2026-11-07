@@ -1,6 +1,7 @@
 import "server-only";
 
 import { getSql } from "@/lib/db/server";
+import { resolveAuthSecret, resolveCustomerPortalSecret } from "@/lib/auth-secret";
 import { resolveBrevoApiKey } from "@/lib/email-runtime-config";
 import { inspectMariaProductionActivationRequest } from "@/lib/maria-production-activation-policy";
 import { getMariaPreviewBookingReadiness } from "@/lib/maria-preview-booking";
@@ -17,7 +18,16 @@ export async function getMariaBookingReadiness(): Promise<MariaBookingReadiness>
   if (process.env.VERCEL_ENV === "preview") {
     return getMariaPreviewBookingReadiness();
   }
-  if (!inspectMariaProductionActivationRequest().requested || !resolveBrevoApiKey()) {
+  if (!inspectMariaProductionActivationRequest().requested || !resolveBrevoApiKey()
+    || !resolveAuthSecret() || !resolveCustomerPortalSecret()) {
+    return { enabled: false };
+  }
+  // Customer OTPs must be non-predictably hashed and the personal booking
+  // portal must be signable BEFORE a booking/hold can be committed. Status
+  // emails also need an actual configured sender.
+  const from = process.env.LEAD_FROM_EMAIL?.trim();
+  const senderAddress = from?.match(/<([^<>]+)>$/)?.[1]?.trim() ?? from;
+  if (!senderAddress || !/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(senderAddress)) {
     return { enabled: false };
   }
 
