@@ -1,7 +1,7 @@
 import "server-only";
 
 import { getSql } from "@/lib/db/server";
-import { getMariaPreviewBookingReadiness } from "@/lib/maria-preview-booking";
+import { getMariaBookingReadiness } from "@/lib/maria-booking-runtime";
 
 type FinalizeMariaInput = {
   verificationId: string;
@@ -11,7 +11,7 @@ type FinalizeMariaInput = {
 };
 
 /**
- * Proffera's Maria Preview bookings have no staff allocation: there is exactly
+ * Proffera's Maria bookings have no staff allocation: there is exactly
  * one operator across every Maria service. Every hold creation and every
  * verified booking must acquire the SAME transaction-scoped workspace lock.
  *
@@ -20,13 +20,17 @@ type FinalizeMariaInput = {
  * booking, and consume the verification token together. No email-based lock.
  */
 export async function finalizeMariaVerifiedBooking(input: FinalizeMariaInput) {
-  const readiness = await getMariaPreviewBookingReadiness();
+  const readiness = await getMariaBookingReadiness();
   if (!readiness.enabled) return { ok: false as const, error: "unavailable" };
 
-  // Fail closed when the QA inbox is revoked. Bind the current recipient to
-  // the locked eligibility query so a direct finalizer call cannot bypass it.
-  const approvedRecipient = process.env.PROFFERA_MARIA_PREVIEW_TEST_EMAIL?.trim().toLowerCase();
-  if (!approvedRecipient) return { ok: false as const, error: "invalid" };
+  // Preview must still bind the exact approved QA recipient inside the locked
+  // SQL transaction. Production uses independently gated real customers and
+  // must not require (or inherit) a Preview QA inbox.
+  const preview = process.env.VERCEL_ENV === "preview";
+  const approvedRecipient = preview
+    ? process.env.PROFFERA_MARIA_PREVIEW_TEST_EMAIL?.trim().toLowerCase()
+    : null;
+  if (preview && !approvedRecipient) return { ok: false as const, error: "invalid" };
 
   const sql = getSql();
   if (!sql) return { ok: false as const, error: "database" };
@@ -45,7 +49,7 @@ export async function finalizeMariaVerifiedBooking(input: FinalizeMariaInput) {
           where v.id=${input.verificationId}::uuid
             and v.workspace_id=${readiness.workspaceId}::uuid
             and v.public_booking_slug='makeup-by-maria'
-            and lower(trim(v.customer_email))=${approvedRecipient}
+            and (${!preview}::boolean or lower(trim(v.customer_email))=${approvedRecipient})
             and v.staff_id is null
             and v.code_hash=${input.expectedCodeHash}
             and v.consumed_at is null and v.verified_at is null
