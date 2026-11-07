@@ -93,7 +93,9 @@ describe("Maria verified booking keeps the current Preview recipient boundary", 
     const [statements] = mocks.transaction.mock.calls[0] as
       [{ sql: string; values: unknown[] }[]];
     expect(statements[1]!.sql).toContain("lower(trim(v.customer_email))=?");
-    expect(statements[1]!.values).toContain(false);
+    // Production conditions omit the QA-recipient restriction, but the real
+    // runtime gate still denies activation until OTP and manager flows exist.
+    expect(statements[1]!.values).toContain(true);
     expect(statements[1]!.values).not.toContain("qa@example.invalid");
   });
 
