@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const state=vi.hoisted(()=>({
   role:"owner",slug:"makeup-by-maria",workspaceId:"11111111-2222-4333-8444-555555555555",
-  productionReady:false,
+  productionReady:false,readinessWorkspaceId:null as string|null,
   query:vi.fn(),transaction:vi.fn(),
 }));
 vi.mock("server-only",()=>({}));
@@ -18,7 +18,7 @@ vi.mock("@/lib/workspace-access",()=>({
 }));
 vi.mock("@/lib/maria-booking-runtime",()=>({
   getMariaBookingReadiness:async()=>state.productionReady
-    ? {enabled:true,workspaceId:state.workspaceId,publicSlug:"makeup-by-maria"}
+    ? {enabled:true,workspaceId:state.readinessWorkspaceId ?? state.workspaceId,publicSlug:"makeup-by-maria"}
     : {enabled:false},
 }));
 import { saveMariaScheduleAction } from "./schedule-actions";
@@ -34,6 +34,7 @@ function form(){
 beforeEach(()=>{
   vi.resetAllMocks();
   state.role="owner";state.slug="makeup-by-maria";state.productionReady=false;
+  state.readinessWorkspaceId=null;
   state.query.mockReturnValue({});
   state.transaction.mockResolvedValue([]);
 });
@@ -52,6 +53,13 @@ describe("Maria manager's Production weekend schedule is disabled until the real
     await expect(saveMariaScheduleAction(form())).rejects.toThrow("REDIRECT:/dashboard");
     state.slug="makeup-by-maria";state.role="staff";
     await expect(saveMariaScheduleAction(form())).rejects.toThrow("REDIRECT:/dashboard");
+    expect(state.transaction).not.toHaveBeenCalled();
+  });
+  it("refuses a ready Production flag bound to another workspace before writing",async()=>{
+    vi.stubEnv("VERCEL_ENV","production");state.productionReady=true;
+    state.readinessWorkspaceId="aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee";
+    await expect(saveMariaScheduleAction(form())).rejects.toThrow("REDIRECT:/dashboard");
+    expect(state.query).not.toHaveBeenCalled();
     expect(state.transaction).not.toHaveBeenCalled();
   });
   it("executes the same locked update in a ready Production workspace",async()=>{

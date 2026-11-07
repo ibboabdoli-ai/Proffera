@@ -7,6 +7,7 @@ import { sendBookingVerificationEmail } from "@/features/email/booking-verificat
 import { sendUnifiedBookingConfirmationEmail } from "@/features/email/unified-booking-confirmation-email";
 import { sendBookingOwnerSms, sendBookingVerificationSms } from "@/features/sms/booking-sms";
 import { createCustomerCalendarToken } from "@/lib/customer-calendar";
+import { resolveAuthSecret } from "@/lib/auth-secret";
 import { getSql } from "@/lib/db/server";
 import { finalizeMariaVerifiedBooking } from "@/lib/maria-verified-booking";
 import { getMariaBookingReadiness } from "@/lib/maria-booking-runtime";
@@ -62,7 +63,8 @@ export function validatePrimeViewServiceAddress(input: { address?: string; postc
 
 /** Hash the code with its verification ID and auth secret (or configured fallback). */
 function hashCode(id: string, code: string) {
-  const secret = process.env.BETTER_AUTH_SECRET ?? process.env.AUTH_SECRET ?? "proffera-booking-verification";
+  // Use exactly the nonempty auth secret required by Production readiness.
+  const secret = resolveAuthSecret() ?? "proffera-booking-verification";
   return createHash("sha256").update(`${id}:${code}:${secret}`).digest("hex");
 }
 

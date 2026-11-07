@@ -87,12 +87,12 @@ export default async function MariaSiteDashboardPage({ searchParams }: { searchP
             ? "Det här ändrar bara paketpris och text. Publicering, bokningar och kalendern ändras inte."
             : "Publicering kräver separat godkännande."}
         </p>
-        {q.updated ? (
+        {q.updated && q.updated !== "schedule" ? (
           <p role="status" className="mt-4 rounded-lg bg-[#ecf7f0] px-4 py-3 text-sm font-semibold text-[#256947]">
             {q.updated === "schedule" ? "Bokningstider och behandlingstid har sparats." : `År ${q.updated} har sparats.`}
           </p>
         ) : null}
-        {q.error ? (
+        {q.error && q.error !== "schedule" && q.error !== "database" ? (
           <p role="alert" className="mt-4 rounded-lg bg-[#fff0ee] px-4 py-3 text-sm font-semibold text-[#9d3333]">
             {q.error === "translation_setup"
               ? "Språktexternas lagring är inte aktiverad i denna miljö. Inga ändringar sparades."
@@ -303,6 +303,18 @@ export default async function MariaSiteDashboardPage({ searchParams }: { searchP
   </p>
 )}
 
+      {q.updated === "schedule" ? (
+        <p role="status" className="rounded-lg bg-[#ecf7f0] px-4 py-3 text-sm font-semibold text-[#256947]">
+          Bokningstider och behandlingstid har sparats.
+        </p>
+      ) : null}
+      {q.error === "schedule" || q.error === "database" ? (
+        <p role="alert" className="rounded-lg bg-[#fff0ee] px-4 py-3 text-sm font-semibold text-[#9d3333]">
+          {q.error === "database"
+            ? "Databasen kunde inte nås. Inga bokningstider sparades."
+            : "Bokningstiderna kunde inte sparas. Kontrollera tiderna och försök igen."}
+        </p>
+      ) : null}
       <section id="tider" className="scroll-mt-6 rounded-2xl border border-[#e8d9dc] bg-white p-4 sm:p-8">
         <h2 className="font-serif text-2xl text-[#352a2c]">Mina arbetstider</h2>
         <p className="mt-2 text-sm leading-6 text-[#705f65]">

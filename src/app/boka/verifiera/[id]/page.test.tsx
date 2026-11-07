@@ -8,7 +8,8 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("server-only", () => ({}));
-vi.mock("next/navigation", () => ({ redirect: vi.fn() }));
+vi.mock("next/navigation", () => ({ redirect: vi.fn(), notFound: () => { throw new Error("NEXT_NOT_FOUND"); } }));
+vi.mock("next/headers", () => ({ headers: async () => new Headers({ host: "maria-qa.vercel.app" }) }));
 vi.mock("@/lib/db/server", () => ({ getSql: mocks.getSql }));
 vi.mock("@/lib/workspace-experience", () => ({
   getPublicWorkspaceExperienceSettings: mocks.experience,

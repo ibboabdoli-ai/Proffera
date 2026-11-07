@@ -1,9 +1,12 @@
-import { redirect } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
+import { headers } from "next/headers";
 import type { CSSProperties } from "react";
 
 import { readableBookingTextColor } from "@/lib/booking-theme-contract";
 import { getSql } from "@/lib/db/server";
 import { getMariaBookingPortalBase } from "@/lib/maria-preview-customer-safety";
+import { MARIA_CANONICAL_PRODUCTION_ORIGIN } from "@/lib/maria-production-activation-policy";
+import { hostnameFromHostHeader, isMariaHost } from "@/lib/public-site-domains";
 import { resolvePublicBusinessLocale } from "@/lib/public-business-locale";
 import { resendPublicBookingCode, verifyPublicBookingCode } from "@/lib/public-booking-verification";
 import { publicBookingSuccessRedirect } from "@/lib/public-booking-success-redirect";
@@ -24,6 +27,7 @@ type VerificationExperience = {
   englishEnabled: boolean;
   primaryColor: string;
   mariaPreview: boolean;
+  mariaWorkspace: boolean;
 };
 
 const safeVerificationExperience: VerificationExperience = {
@@ -32,6 +36,7 @@ const safeVerificationExperience: VerificationExperience = {
   englishEnabled: false,
   primaryColor: "#17452f",
   mariaPreview: false,
+  mariaWorkspace: false,
 };
 
 const messages: Record<Locale, Record<string, string>> = {
@@ -72,7 +77,8 @@ async function getVerificationExperience(id: string): Promise<VerificationExperi
     if (!/^[0-9a-f-]{36}$/i.test(workspaceId)) return safeVerificationExperience;
 
     const experience = await getPublicWorkspaceExperienceSettings(workspaceId);
-    const mariaPreview = String(rows[0]?.workspace_slug) === "makeup-by-maria"
+    const mariaWorkspace = String(rows[0]?.workspace_slug) === "makeup-by-maria";
+    const mariaPreview = mariaWorkspace
       && (process.env.VERCEL_ENV === "preview"
         || (process.env.VERCEL_ENV === "production" && Boolean(getMariaBookingPortalBase())));
     if (
@@ -83,14 +89,25 @@ async function getVerificationExperience(id: string): Promise<VerificationExperi
 
     return {
       defaultLanguage: experience.defaultLanguage === "en" ? "en" : "sv",
-      swedishEnabled: experience.swedishEnabled,
+      swedishEnabled: mariaPreview || experience.swedishEnabled,
       // Maria's three-language booking entry offers English even when the workspace toggle is off.
       englishEnabled: mariaPreview || experience.englishEnabled,
       primaryColor: /^#[0-9a-f]{6}$/i.test(experience.primaryColor) ? experience.primaryColor : safeVerificationExperience.primaryColor,
       mariaPreview,
+      mariaWorkspace,
     };
   } catch {
     return safeVerificationExperience;
+  }
+}
+
+/** Prevent a Maria challenge from crossing public business domains. */
+async function assertMariaVerificationHost(experience: VerificationExperience) {
+  const host = (await headers()).get("host");
+  if (isMariaHost(host) && !experience.mariaWorkspace) notFound();
+  if (experience.mariaWorkspace && process.env.VERCEL_ENV === "production"
+    && hostnameFromHostHeader(host) !== new URL(MARIA_CANONICAL_PRODUCTION_ORIGIN).hostname) {
+    notFound();
   }
 }
 
@@ -99,6 +116,7 @@ async function verify(formData: FormData) {
   const id = String(formData.get("id") ?? "");
   const code = String(formData.get("code") ?? "").trim();
   const experience = await getVerificationExperience(id);
+  await assertMariaVerificationHost(experience);
   const wanted = String(formData.get("lang") ?? "");
   const locale: Locale = experience.mariaPreview && (wanted === "ar" || wanted === "en")
     ? wanted : resolvePublicBusinessLocale(experience, wanted);
@@ -112,6 +130,7 @@ async function resend(formData: FormData) {
   "use server";
   const id = String(formData.get("id") ?? "");
   const experience = await getVerificationExperience(id);
+  await assertMariaVerificationHost(experience);
   const wanted = String(formData.get("lang") ?? "");
   const locale: Locale = experience.mariaPreview && (wanted === "ar" || wanted === "en")
     ? wanted : resolvePublicBusinessLocale(experience, wanted);
@@ -125,6 +144,7 @@ export default async function VerifyBookingPage({ params, searchParams }: PagePr
   const { id } = await params;
   const query = searchParams ? await searchParams : undefined;
   const experience = await getVerificationExperience(id);
+  await assertMariaVerificationHost(experience);
   const wanted = first(query?.lang);
   const locale: Locale = experience.mariaPreview && (wanted === "ar" || wanted === "en")
     ? wanted : resolvePublicBusinessLocale(experience, wanted);

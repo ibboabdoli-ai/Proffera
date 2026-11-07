@@ -12,7 +12,7 @@ import { bookingDateLocale } from "@/lib/booking-date-locale";
 import { getRescheduleBooking, rescheduleCustomerBooking } from "@/lib/customer-booking-reschedule";
 import { getCustomerPortalPresentation, resolveCustomerPortalLanguage, type CustomerPortalLanguage } from "@/lib/customer-portal-language";
 import { getAvailableRescheduleSlots, getUpcomingRescheduleDays } from "@/lib/customer-reschedule-slots";
-import { isPrimeViewHost } from "@/lib/public-site-domains";
+import { isMariaHost, isPrimeViewHost } from "@/lib/public-site-domains";
 import styles from "../../../customer-portal.module.css";
 import { RescheduleSlotPicker } from "./reschedule-slot-picker";
 
@@ -77,6 +77,8 @@ export default async function ReschedulePage({ params, searchParams }: PageProps
     getCustomerPortalPresentation(token),
     headers(),
   ]);
+  if (isMariaHost(requestHeaders.get("host"))
+    && presentation?.publicBookingSlug !== "makeup-by-maria") notFound();
   const language = resolveCustomerPortalLanguage(first(query?.lang), presentation);
   const isEnglish = language === "en";
   const isArabic = language === "ar";
@@ -134,6 +136,8 @@ export default async function ReschedulePage({ params, searchParams }: PageProps
     "use server";
     const startsAtLocal = String(formData.get("startsAtLocal") ?? "");
     const currentPresentation = await getCustomerPortalPresentation(token);
+    if (isMariaHost((await headers()).get("host"))
+      && currentPresentation?.publicBookingSlug !== "makeup-by-maria") notFound();
     const currentLanguage = resolveCustomerPortalLanguage(language, currentPresentation);
     const result = await rescheduleCustomerBooking(token, bookingId, startsAtLocal, currentLanguage);
     const langSuffix = `&lang=${currentLanguage}`;

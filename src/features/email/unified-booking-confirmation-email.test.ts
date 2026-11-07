@@ -138,7 +138,11 @@ describe("Booking confirmation language consistency", () => {
     });
     expect(message.subject).toContain("Booking request received");
     expect(message.text).toContain("Hello QA Maria");
-    expect(message.text).toContain("Start:");
+    const englishDate = new Intl.DateTimeFormat("en-GB", {
+      timeZone: "Europe/Stockholm", dateStyle: "full", timeStyle: "short",
+    });
+    expect(message.text).toContain(`Start: ${englishDate.format(new Date(booking.startsAt))}`);
+    expect(message.text).toContain(`End: ${englishDate.format(new Date(booking.endsAt))}`);
     expect(message.html).not.toContain('dir="rtl"');
     expect(message.text).not.toContain("Bokningsförfrågan");
     expect(message.html).not.toContain("primeview-window-care-logo.jpeg");

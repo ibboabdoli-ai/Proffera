@@ -7,6 +7,7 @@ import { sendBookingChangeEmails } from "@/features/email/booking-change-email";
 import { resolveCustomerPortalSecret } from "@/lib/auth-secret";
 import { resolveDatabaseUrl } from "@/lib/db/database-url";
 import { getMariaBookingPortalBase, isMariaBookingRecipientAllowed } from "@/lib/maria-preview-customer-safety";
+import { getMariaBookingReadiness } from "@/lib/maria-booking-runtime";
 import { resolveBookingTimeZone } from "@/lib/public-booking-policy";
 import type { WorkspaceTimeZone } from "@/lib/workspace-market";
 
@@ -159,7 +160,14 @@ export async function cancelCustomerCalendarBooking(
   const isMaria = String(workspace[0]?.slug ?? "") === "makeup-by-maria";
   const mariaBase = isMaria ? getMariaBookingPortalBase() : null;
   if (isMaria) {
-    // Existing QA bookings remain cancellable if new Maria bookings are disabled.
+    // Preview QA cancellation keeps its original isolation exception.
+    // A Production portal origin flag by itself cannot authorize writes.
+    if (process.env.VERCEL_ENV === "production") {
+      const ready = await getMariaBookingReadiness();
+      if (!ready.enabled || ready.workspaceId !== payload.workspaceId) {
+        return { ok: false as const, error: "not_allowed" };
+      }
+    }
     if (!mariaBase) {
       return { ok: false as const, error: "not_allowed" };
     }

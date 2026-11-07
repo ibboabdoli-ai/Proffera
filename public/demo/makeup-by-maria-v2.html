@@ -197,7 +197,7 @@ footer a{color:#875565}
 </div></main>
 <footer><div class="footer-brand"><img src="/demo/makeup-by-maria/assets/maria-client-logo.jpg" alt="Makeup by Maria — Bridal & Event Makeup" width="950" height="950" loading="lazy"></div><small data-i="footer">En förhandsvisning · Stockholm, Sverige</small><small>Instagram <a href="https://www.instagram.com/makeupbymaria998/" target="_blank" rel="noopener noreferrer">@makeupbymaria998</a></small></footer>
 <script>
-const mariaPublicHost=/^(?:www\.)?makeupbymaria\.se$/i.test(window.location.hostname);
+const mariaPublicHost=/^(?:www\.)?makeupbymaria\.se$/i.test(window.location.hostname.replace(/\.$/,""));
 function mariaPublicHomeUrl(language){
  return (mariaPublicHost?"/":"/demo/makeup-by-maria-v2.html")+"?lang="+encodeURIComponent(language);
 }
