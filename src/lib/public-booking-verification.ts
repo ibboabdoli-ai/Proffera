@@ -149,14 +149,18 @@ export async function beginBookingEmailVerification(input: BeginBookingVerificat
   const expiresAt = new Date(Date.now() + EXPIRY_MINUTES * 60_000).toISOString();
 
   const serviceRows = await sql`
-    select id, name
-    from workspace_services
-    where id = ${input.serviceId}::uuid
-      and workspace_id = ${input.workspaceId}
-      and is_active = true
+    select s.id, s.name, w.slug as workspace_slug
+    from workspace_services s
+    join workspaces w on w.id::text=s.workspace_id
+    where s.id = ${input.serviceId}::uuid
+      and s.workspace_id = ${input.workspaceId}
+      and s.is_active = true
     limit 1
   `;
   if (!serviceRows[0]) return { ok: false as const, error: "service" };
+  // Check the actual workspace identity, not a mutable public booking alias.
+  if (serviceRows[0].workspace_slug === "makeup-by-maria"
+    && input.slug !== "makeup-by-maria") return { ok: false as const, error: "invalid" };
 
   // Maria is a single-person operation. Serialize all new holds for this
   // workspace, regardless of customer email, and check overlap INSIDE
@@ -282,7 +286,7 @@ export async function resendPublicBookingCode(id: string, language: "sv" | "en" 
   if (!sql || !/^[0-9a-f-]{36}$/i.test(id)) return { ok: false as const, error: "invalid" };
 
   const rows = await sql`
-    select v.*, coalesce(nullif(ws.company_name, ''), w.company_name, w.name) as company_name
+    select v.*, w.slug as workspace_slug, coalesce(nullif(ws.company_name, ''), w.company_name, w.name) as company_name
     from public_booking_verifications v
     join workspaces w on w.id = v.workspace_id
     left join workspace_settings ws on ws.workspace_id = w.id::text
@@ -291,6 +295,8 @@ export async function resendPublicBookingCode(id: string, language: "sv" | "en" 
   `;
   const challenge = rows[0];
   if (!challenge || challenge.consumed_at || challenge.verified_at) return { ok: false as const, error: "invalid" };
+  if (challenge.workspace_slug === "makeup-by-maria"
+    && challenge.public_booking_slug !== "makeup-by-maria") return { ok: false as const, error: "invalid" };
 
   const createdAt = new Date(String(challenge.created_at)).getTime();
   const updatedAt = new Date(String(challenge.updated_at ?? challenge.created_at)).getTime();
@@ -373,7 +379,7 @@ export async function verifyPublicBookingCode(id: string, code: string, language
   if (!sql || !/^[0-9a-f-]{36}$/i.test(id) || !/^\d{6}$/.test(code)) return { ok: false as const, error: "invalid" };
 
   const rows = await sql`
-    select v.*, coalesce(nullif(ws.company_name, ''), w.company_name, w.name) as company_name,
+    select v.*, w.slug as workspace_slug, coalesce(nullif(ws.company_name, ''), w.company_name, w.name) as company_name,
       nullif(ws.contact_email, '') as owner_email, nullif(ws.contact_phone, '') as owner_phone,
       coalesce(nullif(ws.time_zone, ''), 'Europe/Stockholm') as time_zone
     from public_booking_verifications v
@@ -384,6 +390,8 @@ export async function verifyPublicBookingCode(id: string, code: string, language
   `;
   const challenge = rows[0];
   if (!challenge || challenge.consumed_at || challenge.verified_at) return { ok: false as const, error: "invalid" };
+  if (challenge.workspace_slug === "makeup-by-maria"
+    && challenge.public_booking_slug !== "makeup-by-maria") return { ok: false as const, error: "invalid" };
   // Revalidate both the Maria workspace and current recipient policy when
   // verifying (not just when issuing). Preview revocation and Production flags
   // must prevent any previously issued challenge from being consumed.

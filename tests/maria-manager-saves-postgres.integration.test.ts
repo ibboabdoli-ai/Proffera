@@ -729,14 +729,25 @@ function compileSql(strings: TemplateStringsArray, values: unknown[]): Query {
   });
 
   it("saves open days while ignoring invalid hidden clock values for closed days", async () => {
+    const saved = await db!.query<{duration_minutes:number;buffer_after_minutes:number}>(
+      "select duration_minutes,buffer_after_minutes from workspace_services where workspace_id=$1 and public_slug='maria-bridal-trial-2026' limit 1",
+      [workspaceId],
+    );
+    expect(saved.rows).toHaveLength(1);
+    const duration = String(saved.rows[0]!.duration_minutes);
+    const buffer = String(saved.rows[0]!.buffer_after_minutes);
     const form = new FormData();
-    form.set("duration_minutes", "720");
-    form.set("buffer_after_minutes", "120");
+    form.set("duration_minutes", duration);
+    form.set("buffer_after_minutes", buffer);
+    form.set("original_duration_minutes", duration);
+    form.set("original_buffer_after_minutes", buffer);
     for (const day of [5, 6, 0]) {
       form.set("day_" + day + "_first", "06:00");
       form.set("day_" + day + "_last", day === 0 ? "10:00" : "08:00");
     }
     form.set("day_0_closed", "on");
+    form.set("day_0_first", "invalid-hidden-time");
+    form.set("day_0_last", "invalid-hidden-time");
     await expect(saveMariaScheduleAction(form))
       .rejects.toThrow("TEST_REDIRECT:/dashboard/maria?updated=schedule#tider");
     const results = await db!.query<{

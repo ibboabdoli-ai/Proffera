@@ -77,6 +77,15 @@ describe("Maria OTP issuance cannot bypass branded Production readiness via a ge
     expect(mocks.getSql).not.toHaveBeenCalled();
   });
 
+  it("refuses a renamed Maria public slug before using generic OTP hold SQL", async () => {
+    const sql = vi.fn().mockResolvedValue([{ id: input.serviceId, workspace_slug: "makeup-by-maria" }]);
+    mocks.getSql.mockReturnValue(sql);
+    expect(await beginBookingEmailVerification({ ...input, slug: "renamed-maria" }))
+      .toMatchObject({ ok: false, error: "invalid" });
+    expect(sql).toHaveBeenCalledTimes(1);
+    expect(mocks.sendOtp).not.toHaveBeenCalled();
+  });
+
   it("reaches the ordinary DB preflight only after all Maria issuance checks pass", async () => {
     mocks.readiness.mockResolvedValue({ enabled:true, workspaceId, publicSlug:"makeup-by-maria" });
     expect(await beginBookingEmailVerification(input)).toMatchObject({ ok:false, error:"database" });

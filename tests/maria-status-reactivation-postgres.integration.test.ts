@@ -419,6 +419,31 @@ function compileSql(parts: TemplateStringsArray, values: unknown[]): Query {
     expect(new Date(restored!.scheduled_starts_at).toISOString()).toBe(jobStart.toISOString());
   });
 
+  it("synchronizes a previously cancelled Maria service job on booking completion", async () => {
+    const service = await db!.query<{id:string}>(
+      "select id::text from workspace_services where workspace_id=$1 and public_slug='maria-bridal-trial-2026' limit 1",
+      [workspaceId],
+    );
+    const begins = new Date(start.getTime() + 28*86_400_000);
+    const finishes = new Date(end.getTime() + 28*86_400_000);
+    const created = await db!.query<{id:string}>(
+      `insert into bookings(workspace_id,customer_id,service_id,title,service,status,source,starts_at,ends_at)
+       values($1,$2::uuid,$3::uuid,'Synthetic completed job','Brudsmink med prov 2026','requested','dashboard_manual',$4::timestamptz,$5::timestamptz) returning id::text`,
+      [workspaceId,customerId,service.rows[0]!.id,begins.toISOString(),finishes.toISOString()],
+    );
+    const id=created.rows[0]!.id;
+    expect((await updateDashboardBookingStatus(id,"confirmed")).changed).toBe(true);
+    expect((await updateDashboardBookingStatus(id,"cancelled")).changed).toBe(true);
+    expect((await updateDashboardBookingStatus(id,"completed")).changed).toBe(true);
+    const job=await db!.query<{status:string;cancelled_at:Date|null;completed_at:Date|null}>(
+      "select status,cancelled_at,completed_at from workspace_service_jobs where workspace_id=$1::uuid and booking_id=$2::uuid",
+      [workspaceId,id],
+    );
+    expect(job.rows[0]?.status).toBe("completed");
+    expect(job.rows[0]?.cancelled_at).toBeNull();
+    expect(job.rows[0]?.completed_at).not.toBeNull();
+  });
+
   it("waits for Maria's advisory lock before a single-block insert and rejects a newly committed booking", async () => {
     const service = await db!.query<{ id: string }>(
       "select id::text from workspace_services where workspace_id=$1 and public_slug='maria-bridal-trial-2026' limit 1",

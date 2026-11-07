@@ -133,6 +133,9 @@ describe("Maria Production readiness is independent and disabled by default", ()
     const result=await getMariaBookingReadiness();
     expect(result).toMatchObject({enabled:true,workspaceId:workspace.workspace_id,publicSlug:"makeup-by-maria"});
     expect(query).toHaveBeenCalledTimes(4);
+    const pricingGate = Array.from(query.mock.calls[3]![0] as TemplateStringsArray).join("?");
+    expect(pricingGate).toContain("not exists");
+    expect(pricingGate).toContain("unsafe.price_type <> 'fixed'");
     expect(hasWorkspaceFeatureAccessForWorkspace)
       .toHaveBeenCalledWith(workspace.workspace_id,"online_booking");
     // The flag-only gate is insufficient; all four actual DB checks and
