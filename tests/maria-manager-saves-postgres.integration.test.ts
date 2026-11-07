@@ -36,6 +36,14 @@ vi.mock("@/lib/workspace-access", () => ({
 vi.mock("@/lib/workspace-module-access", () => ({
   hasDashboardModuleAccess: async (moduleId: string) => moduleId === "online_booking",
 }));
+vi.mock("@/lib/maria-booking-runtime", () => ({
+  // This suite verifies PostgreSQL booking writes and conflicts with a
+  // synthetic, already-authorized Preview workspace. Readiness/entitlement
+  // policy is covered in its own tests, not synthesized from missing plans.
+  getMariaBookingReadiness: async () => process.env.VERCEL_ENV === "preview"
+    ? { enabled: true, workspaceId: runtime.workspaceId, publicSlug: "makeup-by-maria" }
+    : { enabled: false },
+}));
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 vi.mock("next/navigation", () => ({
   redirect: (url: string) => { throw new Error("TEST_REDIRECT:" + url); },
@@ -168,6 +176,7 @@ function compileSql(strings: TemplateStringsArray, values: unknown[]): Query {
     runtime.workspaceSlug = "makeup-by-maria";
     vi.stubEnv("VERCEL_ENV", "preview");
     vi.stubEnv("VERCEL_URL", "qa.vercel.app");
+    vi.stubEnv("PROFFERA_MARIA_PREVIEW_BOOKING_ENABLED", "true");
     vi.stubEnv("PROFFERA_MARIA_PREVIEW_TEST_EMAIL", "qa@example.invalid");
     vi.stubEnv("PROFFERA_PREVIEW_EMAIL_RECIPIENT", "qa@example.invalid");
   });
