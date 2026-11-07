@@ -4,6 +4,7 @@ import { neon } from "@neondatabase/serverless";
 
 import { resolveDatabaseUrl } from "@/lib/db/database-url";
 import { isMariaPreviewTestRecipient } from "@/lib/maria-preview-customer-safety";
+import { getMariaBookingReadiness } from "@/lib/maria-booking-runtime";
 
 import { resolveBookingTimeZone } from "@/lib/public-booking-policy";
 import { deliverVerifiedReviewInvitation } from "@/lib/verified-review-email-delivery";
@@ -67,15 +68,23 @@ export async function updateDashboardBookingStatus(
   }
 
   const access = await getActiveWorkspaceAccess();
-  // Maria Production bookings remain read-only until separately approved.
-  // Guard the shared server writer, including direct status-action submissions.
-  if (access.workspaceSlug === "makeup-by-maria" && process.env.VERCEL_ENV === "production") {
-    throw new Error("Maria booking status changes are disabled in Production");
-  }
   const workspaceId = access.workspaceId;
-  const mariaPreview = access.workspaceSlug === "makeup-by-maria";
+  const mariaWorkspace = access.workspaceSlug === "makeup-by-maria";
+  const mariaPreview = mariaWorkspace && process.env.VERCEL_ENV === "preview";
+  const mariaProduction = mariaWorkspace && process.env.VERCEL_ENV === "production";
+  // Direct server actions must not bypass the exact workspace/readiness gate.
+  if (mariaWorkspace && !mariaPreview && !mariaProduction) {
+    throw new Error("Maria booking status changes are unavailable outside Preview or Production");
+  }
+  if (mariaProduction) {
+    const ready = await getMariaBookingReadiness();
+    if (!ready.enabled || ready.workspaceId !== workspaceId) {
+      throw new Error("Maria booking status changes are disabled in Production");
+    }
+  }
   const mariaRecipient = process.env.PROFFERA_MARIA_PREVIEW_TEST_EMAIL?.trim().toLowerCase() ?? "";
-  // Maria's manager may only mutate isolated QA bookings in Preview.
+  // Preview may mutate only the approved QA customer; Production cannot
+  // inherit that email allowlist, but retains all tenant and conflict checks.
   if (mariaPreview && !isMariaPreviewTestRecipient(mariaRecipient)) {
     throw new Error("Maria status changes require the approved Preview recipient");
   }
@@ -104,7 +113,7 @@ export async function updateDashboardBookingStatus(
         c.name as customer_name,
         c.email as customer_email,
         c.phone as customer_phone,
-        case when ${mariaPreview}::boolean then coalesce((
+        case when ${mariaWorkspace}::boolean then coalesce((
           select e.metadata->>'language' from customer_events e
           where e.workspace_id=b.workspace_id and e.booking_id=b.id
             and e.event_type='booking' and e.metadata->>'source'='public_booking'
@@ -137,7 +146,7 @@ export async function updateDashboardBookingStatus(
         -- appointments, holds and closed starts before changing its status.
         -- Unrelated workspaces retain their existing status semantics.
         and (
-          ${!mariaPreview}::boolean or ${status}::text = 'cancelled'
+          ${!mariaWorkspace}::boolean or ${status}::text = 'cancelled'
           or bookings.status not in ('cancelled','no_show')
           or (
             not exists (
@@ -347,7 +356,7 @@ export async function updateDashboardBookingStatus(
   // Lock the entire Maria status mutation (including job creation) against
   // Maria's locked reschedule/verification writers. Other tenants retain the
   // original single-query path without acquiring Maria's workspace lock.
-  const rows = mariaPreview
+  const rows = mariaWorkspace
     ? (await sql.transaction([
         sql`select pg_advisory_xact_lock(hashtextextended(${workspaceId}::text, 713))`,
         updateQuery,
