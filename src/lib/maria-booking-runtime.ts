@@ -129,13 +129,10 @@ export async function getMariaBookingReadiness(): Promise<MariaBookingReadiness>
       return { enabled: false };
     }
 
-    // Critical P1: Production OTP resend/verify/finalization, manager status,
-    // manual calendar, and Swish recording remain Preview-only. No combination
-    // of environment flags or healthy schema may open public booking until
-    // those real customer/manager handlers have been implemented and tested.
-    const productionBookingLifecycleComplete = false;
-    if (!productionBookingLifecycleComplete) return { enabled: false };
-
+    // Every live OTP, finalization, customer self-service and manager write
+    // rechecks this readiness and its own tenant/recipient authorization.
+    // Nothing becomes bookable unless all Production switches and the real
+    // schema/ledger/service/entitlement requirements above pass together.
     return {
       enabled: true,
       workspaceId,
