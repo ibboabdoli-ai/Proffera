@@ -4,7 +4,7 @@ import { resolveBrevoApiKey } from "@/lib/email-runtime-config";
 
 import type { WorkspaceTimeZone } from "@/lib/workspace-market";
 import { bookingDateLocale } from "@/lib/booking-date-locale";
-import { getMariaPreviewPortalBase, isMariaPreviewTestRecipient } from "@/lib/maria-preview-customer-safety";
+import { getMariaBookingPortalBase, isMariaBookingRecipientAllowed } from "@/lib/maria-preview-customer-safety";
 
 type Input = {
   customerName: string;
@@ -246,15 +246,25 @@ export function buildUnifiedBookingConfirmationEmail(input: Input) {
 }
 
 /**
- * Send a booking confirmation through Brevo after enforcing Maria's QA-only
- * Preview recipient gate. Ordinary tenants retain their existing delivery path.
+ * Send a booking confirmation only to a recipient authorized for the current
+ * Maria environment. Production requires explicit site/email/booking switches;
+ * Preview remains locked to the single QA inbox.
  */
 export async function sendUnifiedBookingConfirmationEmail(input: Input) {
-  // Maria branding and its contact links are strictly for the approved QA inbox.
-  // A generic Production caller must never be able to bypass that boundary.
-  if (input.branding === "makeup-by-maria"
-    && (!getMariaPreviewPortalBase() || !isMariaPreviewTestRecipient(input.customerEmail))) {
-    return { ok: false as const, message: "Maria Preview recipient not approved." };
+  if (input.branding === "makeup-by-maria") {
+    const origin = getMariaBookingPortalBase();
+    if (!origin || !isMariaBookingRecipientAllowed(input.customerEmail)) {
+      return { ok: false as const, message: "Maria Preview recipient not approved." };
+    }
+    // Never publish a portal link to another origin in a branded customer mail.
+    try {
+      if (new URL(input.portalUrl).origin !== origin
+        || new URL(input.rescheduleUrl).origin !== origin) {
+        return { ok: false as const, message: "Maria booking portal origin mismatch." };
+      }
+    } catch {
+      return { ok: false as const, message: "Maria booking portal origin mismatch." };
+    }
   }
   const apiKey = resolveBrevoApiKey();
   const from = process.env.LEAD_FROM_EMAIL;
