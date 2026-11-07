@@ -47,6 +47,9 @@ export default async function CalendarPage({ searchParams }: CalendarPageProps) 
   // Shared calendar mutations are deliberately unavailable for Maria until launch approval.
   const mariaCalendarProtected = access.ok && access.workspaceSlug === "makeup-by-maria" &&
     (process.env.VERCEL_ENV === "preview" || process.env.VERCEL_ENV === "production");
+  const moveDisabledReason = mariaCalendarProtected
+    ? process.env.VERCEL_ENV === "production" ? "maria_production_readonly" as const : "maria_preview_details" as const
+    : undefined;
 
   const bookingEvents = events.filter((event) => event.type === "booking");
   const bookingCount = bookingEvents.length;
@@ -117,7 +120,7 @@ export default async function CalendarPage({ searchParams }: CalendarPageProps) 
         <DashboardMetricGrid items={metrics} />
 
         <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_320px]">
-          <BusinessCalendar events={events} timeZone={timeZone} isEnglish={isEnglish} allowDragAndDrop={!mariaCalendarProtected} />
+          <BusinessCalendar events={events} timeZone={timeZone} isEnglish={isEnglish} allowDragAndDrop={!mariaCalendarProtected} moveDisabledReason={moveDisabledReason} />
 
           <aside className="h-fit rounded-card border border-line bg-surface p-4 shadow-card xl:sticky xl:top-24">
             <div className="flex items-center justify-between gap-3 border-b border-line pb-3">
