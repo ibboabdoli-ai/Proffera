@@ -44,6 +44,7 @@ vi.mock("next/navigation", () => ({
 import { readMariaManualSwishStatuses, setMariaManualSwishStatus } from "@/lib/maria-manual-swish";
 import { mariaBookingNumber } from "@/lib/maria-deposit";
 import { saveMariaYearAction } from "@/app/dashboard/maria/actions";
+import { saveMariaProductionYearAction } from "@/app/dashboard/maria/production-year-actions";
 import { mariaDefaultCardCopy } from "@/lib/maria-default-card-copy";
 import { readMariaCardTranslations } from "@/lib/maria-card-translations-db";
 import { saveMariaScheduleAction } from "@/app/dashboard/maria/schedule-actions";
@@ -488,6 +489,109 @@ function compileSql(strings: TemplateStringsArray, values: unknown[]): Query {
     } finally {
       runtime.makeSql = factory;
       logging.mockRestore();
+    }
+  });
+
+  it("keeps Production content changes locked behind the explicit environment and 0074 schema gate", async () => {
+    vi.stubEnv("VERCEL_ENV", "production");
+    vi.stubEnv("PROFFERA_MARIA_PRODUCTION_YEAR_EDITOR_ENABLED", undefined);
+    const form = new FormData();
+    form.set("year", "2036");
+    form.set("trial", "6900"); form.set("without", "5800");
+    for(const field of [
+      "trial_description", "without_description",
+      "trial_description_en", "trial_description_ar",
+      "without_description_en", "without_description_ar",
+    ]) form.set(field, "Not written");
+    await expect(saveMariaProductionYearAction(form))
+      .rejects.toThrow("TEST_REDIRECT:/dashboard/maria?error=translation_setup");
+    const result = await db!.query<{count:number}>(
+      "select count(*)::int as count from workspace_services where workspace_id=$1 and public_slug in ('maria-bridal-trial-2036','maria-bridal-without-trial-2036')",
+      [workspaceId],
+    );
+    expect(result.rows[0]?.count).toBe(0);
+  });
+
+  it("Production owner saves yearly SV/EN/AR prices without changing publication, schedules or bookings", async () => {
+    vi.stubEnv("VERCEL_ENV", "production");
+    vi.stubEnv("PROFFERA_MARIA_PRODUCTION_YEAR_EDITOR_ENABLED", "true");
+    const bookingsBefore = await db!.query<{count:number}>(
+      "select count(*)::int as count from bookings where workspace_id=$1",
+      [workspaceId],
+    );
+    const form = new FormData();
+    form.set("year", "2036");
+    form.set("trial", "6900.25"); form.set("without", "5800");
+    form.set("trial_description", "Brudmakeup med prov 2036");
+    form.set("without_description", "Brudmakeup utan prov 2036");
+    form.set("trial_description_en", "Bridal 2036 with trial");
+    form.set("trial_description_ar", "مكياج عام ٢٠٣٦ مع تجربة");
+    form.set("without_description_en", "Bridal 2036 without trial");
+    form.set("without_description_ar", "مكياج عام ٢٠٣٦ بدون تجربة");
+    // Publication is NEVER accepted from this writer, even if malicious
+    // FormData includes a Preview-only enabled checkbox.
+    form.set("enabled", "on");
+    await expect(saveMariaProductionYearAction(form))
+      .rejects.toThrow("TEST_REDIRECT:/dashboard/maria?updated=2036&year=2036#priser");
+    const rows = await db!.query<{
+      name:string;public_slug:string;price_amount_minor:number|string;short_description:string;
+      public_status:string;is_active:boolean;conversion_mode:string;
+    }>(
+      "select name,public_slug,price_amount_minor,short_description,public_status,is_active,conversion_mode from workspace_services where workspace_id=$1 and public_slug in ('maria-bridal-trial-2036','maria-bridal-without-trial-2036') order by public_slug",
+      [workspaceId],
+    );
+    expect(rows.rowCount).toBe(2);
+    expect(rows.rows.map(row=>row.public_status)).toEqual(["draft","draft"]);
+    expect(rows.rows.map(row=>row.is_active)).toEqual([false,false]);
+    expect(rows.rows.map(row=>row.conversion_mode)).toEqual(["quote","quote"]);
+    expect(rows.rows.find(row=>row.public_slug==="maria-bridal-trial-2036")?.price_amount_minor).toEqual(expect.anything());
+    expect(Number(rows.rows.find(row=>row.public_slug==="maria-bridal-trial-2036")?.price_amount_minor)).toBe(690025);
+    const translated = await readMariaCardTranslations(workspaceId);
+    expect(translated.get("maria-bridal-trial-2036")).toEqual({en:"Bridal 2036 with trial",ar:"مكياج عام ٢٠٣٦ مع تجربة"});
+    expect(translated.get("maria-bridal-without-trial-2036")).toEqual({en:"Bridal 2036 without trial",ar:"مكياج عام ٢٠٣٦ بدون تجربة"});
+
+    // An existing published service must remain published and active after
+    // a subsequent content-only save; no reservation/calendar writes.
+    await db!.query(
+      "update workspace_services set public_status='published',is_active=true where workspace_id=$1 and public_slug='maria-bridal-trial-2036'",
+      [workspaceId],
+    );
+    form.set("trial", "6999.75");
+    await expect(saveMariaProductionYearAction(form))
+      .rejects.toThrow("TEST_REDIRECT:/dashboard/maria?updated=2036&year=2036#priser");
+    const state = await db!.query<{public_status:string;is_active:boolean;price_amount_minor:number|string}>(
+      "select public_status,is_active,price_amount_minor from workspace_services where workspace_id=$1 and public_slug='maria-bridal-trial-2036'",
+      [workspaceId],
+    );
+    expect(state.rows[0]?.public_status).toBe("published");
+    expect(state.rows[0]?.is_active).toBe(true);
+    expect(Number(state.rows[0]?.price_amount_minor)).toBe(699975);
+    const bookingsAfter = await db!.query<{count:number}>(
+      "select count(*)::int as count from bookings where workspace_id=$1",
+      [workspaceId],
+    );
+    expect(bookingsAfter.rows[0]?.count).toBe(bookingsBefore.rows[0]?.count);
+  });
+
+  it("Production writer refuses another tenant or staff even when the environment flag is on", async () => {
+    vi.stubEnv("VERCEL_ENV", "production");
+    vi.stubEnv("PROFFERA_MARIA_PRODUCTION_YEAR_EDITOR_ENABLED", "true");
+    const form = new FormData();
+    form.set("year", "2026"); form.set("trial", "1"); form.set("without", "2");
+    for(const field of [
+      "trial_description","without_description",
+      "trial_description_en","trial_description_ar",
+      "without_description_en","without_description_ar",
+    ])form.set(field, "Forbidden");
+    runtime.workspaceSlug = "unrelated-tenant";
+    await expect(saveMariaProductionYearAction(form)).rejects.toThrow("TEST_REDIRECT:/dashboard");
+    runtime.workspaceSlug = "makeup-by-maria";
+    runtime.role = "staff";
+    try {
+      await expect(saveMariaProductionYearAction(form)).rejects.toThrow("TEST_REDIRECT:/dashboard");
+    } finally {
+      runtime.role = "owner";
+      runtime.workspaceSlug = "makeup-by-maria";
     }
   });
 
