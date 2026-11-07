@@ -249,20 +249,45 @@ export async function updateDashboardBookingStatus(
         job.id,
         job.workspace_id,
         job.status as old_status,
-        updated_booking.new_status as booking_status
+        updated_booking.new_status as booking_status,
+        existing_booking.old_status as old_booking_status,
+        existing_booking.staff_id as booking_staff_id,
+        existing_booking.starts_at as booking_starts_at,
+        existing_booking.ends_at as booking_ends_at
       from workspace_service_jobs job
       join updated_booking on job.booking_id = updated_booking.id
+      join existing_booking on existing_booking.id = updated_booking.id
       where job.workspace_id = ${workspaceId}::uuid
-        and updated_booking.new_status in ('completed', 'cancelled')
-        and job.status not in ('completed', 'cancelled')
+        and ((updated_booking.new_status in ('completed', 'cancelled')
+          and job.status not in ('completed', 'cancelled'))
+          or (${mariaWorkspace}::boolean
+            and updated_booking.new_status = 'confirmed'
+            and existing_booking.old_status in ('cancelled', 'no_show')
+            and job.status = 'cancelled'))
     ),
     source_job_sync as (
       update workspace_service_jobs job
       set
-        status = case when source_job_candidate.booking_status = 'completed' then 'completed' else 'cancelled' end,
-        completion_summary = case when source_job_candidate.booking_status = 'completed' then 'Booking source marked completed.' else job.completion_summary end,
-        completed_at = case when source_job_candidate.booking_status = 'completed' then now() else job.completed_at end,
-        cancelled_at = case when source_job_candidate.booking_status = 'cancelled' then now() else job.cancelled_at end,
+        status = case
+          when source_job_candidate.booking_status = 'completed' then 'completed'
+          when source_job_candidate.booking_status = 'cancelled' then 'cancelled'
+          when source_job_candidate.booking_staff_id is null then 'new' else 'assigned' end,
+        completion_summary = case
+          when source_job_candidate.booking_status = 'completed' then 'Booking source marked completed.'
+          when source_job_candidate.booking_status = 'confirmed' then null
+          else job.completion_summary end,
+        completed_at = case
+          when source_job_candidate.booking_status = 'completed' then now()
+          when source_job_candidate.booking_status = 'confirmed' then null
+          else job.completed_at end,
+        cancelled_at = case
+          when source_job_candidate.booking_status = 'cancelled' then now()
+          when source_job_candidate.booking_status = 'confirmed' then null
+          else job.cancelled_at end,
+        scheduled_starts_at = case when source_job_candidate.booking_status = 'confirmed'
+          then source_job_candidate.booking_starts_at else job.scheduled_starts_at end,
+        scheduled_ends_at = case when source_job_candidate.booking_status = 'confirmed'
+          then source_job_candidate.booking_ends_at else job.scheduled_ends_at end,
         updated_at = now()
       from source_job_candidate
       where job.id = source_job_candidate.id

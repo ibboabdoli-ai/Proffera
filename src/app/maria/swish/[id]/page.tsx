@@ -67,14 +67,16 @@ export default async function MariaSwishPaymentPage({
   const { id } = await params;
   if (!uuid.test(id)) notFound();
   const preview = process.env.VERCEL_ENV === "preview";
-  const readiness = await getMariaBookingReadiness();
-  if (!readiness.enabled) notFound();
+  const readiness = preview ? await getMariaBookingReadiness() : null;
+  if (preview && !readiness?.enabled) notFound();
+  // Intake can be closed without hiding already-confirmed unpaid payment links.
+  if (!preview && process.env.VERCEL_ENV !== "production") notFound();
 
   // Use the same eligibility rules as the QR endpoint; never show
   // payment details that the QR endpoint would reject.
   let eligible = false;
   try {
-    eligible = await readMariaSwishQrEligibility(id, readiness.workspaceId) === "eligible";
+    eligible = await readMariaSwishQrEligibility(id, readiness?.enabled ? readiness.workspaceId : undefined) === "eligible";
   } catch (error) {
     console.error("Maria Swish payment page unavailable", error);
   }

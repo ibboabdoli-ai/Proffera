@@ -12,11 +12,18 @@ export type MariaSwishQrEligibility = "eligible" | "unavailable" | "ambiguous";
 /** Shared fail-closed eligibility for Maria QR and its dashboard image. */
 export async function readMariaSwishQrEligibility(bookingId: string, expectedWorkspaceId?: string): Promise<MariaSwishQrEligibility> {
   if (!uuid.test(bookingId)) return "unavailable";
-  const readiness = await getMariaBookingReadiness();
-  if (!readiness.enabled || (expectedWorkspaceId && readiness.workspaceId !== expectedWorkspaceId)) {
+  const preview = process.env.VERCEL_ENV === "preview";
+  const production = process.env.VERCEL_ENV === "production";
+  if (!preview && !production) return "unavailable";
+  // Existing unpaid confirmed bookings retain their payment link if intake is
+  // temporarily paused. Preview still requires the isolated QA gate.
+  const readiness = preview ? await getMariaBookingReadiness() : null;
+  if ((preview && !readiness?.enabled)
+    || (expectedWorkspaceId && !uuid.test(expectedWorkspaceId))
+    || (preview && expectedWorkspaceId && readiness?.workspaceId !== expectedWorkspaceId)) {
     return "unavailable";
   }
-  const preview = process.env.VERCEL_ENV === "preview";
+  const scopedWorkspaceId = expectedWorkspaceId ?? (readiness?.enabled ? readiness.workspaceId : null);
   const approved = preview
     ? process.env.PROFFERA_MARIA_PREVIEW_TEST_EMAIL?.trim().toLowerCase()
     : null;
@@ -35,7 +42,15 @@ export async function readMariaSwishQrEligibility(bookingId: string, expectedWor
       and b.status in ('confirmed','completed')
       and b.source='public_booking'
       and (${!preview}::boolean or lower(trim(c.email))=${approved ?? ""})
-      and b.workspace_id=${readiness.workspaceId}
+      and (${!scopedWorkspaceId}::boolean or b.workspace_id=${scopedWorkspaceId ?? ""})
+      and coalesce((
+        select e.metadata->>'state' from customer_events e
+        where e.workspace_id=b.workspace_id and e.booking_id=b.id
+          and e.event_type='note'
+          and e.metadata->>'source'='maria_swish_manual_deposit_v1'
+          and e.metadata->>'state' in ('paid','unverified')
+        order by e.created_at desc, e.id desc limit 1
+      ), 'unverified') <> 'paid'
     limit 1
   `;
   if (eligible.length !== 1) return "unavailable";

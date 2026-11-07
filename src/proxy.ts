@@ -5,6 +5,7 @@ import { isMariaPaymentStandalonePath, MARIA_PAYMENT_SHELL_HEADER } from "./lib/
 import { resolvePublicRequestLocale } from "./lib/public-locale";
 import { resolvePublicCustomDomain } from "./lib/public-site-domain-routing";
 import {
+  hostnameFromHostHeader,
   isPlatformHost,
   isMariaHost,
   isPrimeViewHost,
@@ -154,6 +155,19 @@ export async function proxy(request: NextRequest) {
   const { pathname, search } = request.nextUrl;
   const host = request.headers.get("host") ?? request.nextUrl.host;
   const requestId = resolveRequestId(request);
+
+  // Canonicalize public Maria pages BEFORE rendering or posting bookings.
+  // The www origin is deliberately not accepted by the Production booking API.
+  if (process.env.VERCEL_ENV === "production"
+    && process.env.PROFFERA_MARIA_PUBLIC_SITE_ENABLED === "true"
+    && hostnameFromHostHeader(host) === "www.makeupbymaria.se"
+    && isPublicPageRouteAllowedForHost(host, pathname)) {
+    const canonical = request.nextUrl.clone();
+    canonical.protocol = "https:";
+    canonical.hostname = "makeupbymaria.se";
+    canonical.port = "";
+    return redirectWithRequestId(canonical, requestId);
+  }
 
   if (!isPublicPageRouteAllowedForHost(host, pathname)) {
     return notFound(requestId);

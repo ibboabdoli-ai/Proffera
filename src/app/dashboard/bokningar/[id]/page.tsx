@@ -334,6 +334,7 @@ async function rescheduleBookingAction(bookingId: string, formData: FormData) {
     }
   }
 
+  let mariaRescheduleMailFailed = false;
   try {
     const result = await rescheduleDashboardBooking(bookingId, startsAt);
     if (result.changed && result.notification) {
@@ -341,13 +342,19 @@ async function rescheduleBookingAction(bookingId: string, formData: FormData) {
       if (isMaria) {
         // Maria reschedules send authorized email only; never send SMS.
         if (isMariaBookingRecipientAllowed(notification.customerEmail)) {
-          await sendBookingRescheduleEmail({
+          const delivery = await sendBookingRescheduleEmail({
             customerName: notification.customerName, customerEmail: notification.customerEmail,
             companyName: workspaceAccess.workspaceName, branding: "makeup-by-maria", service: notification.service,
             previousStartsAt: notification.previousStartsAt, startsAt: notification.startsAt,
             endsAt: notification.endsAt, city: notification.city, timeZone: result.timeZone,
             language: notification.language,
+          }).catch((error) => {
+            console.error("Maria reschedule email could not be delivered", error);
+            return { ok: false as const };
           });
+          mariaRescheduleMailFailed = !delivery.ok;
+        } else {
+          mariaRescheduleMailFailed = true;
         }
       } else {
         await Promise.allSettled([
@@ -361,7 +368,7 @@ async function rescheduleBookingAction(bookingId: string, formData: FormData) {
     console.error("Failed to reschedule dashboard booking", error);
     redirectWithError(bookingId, "save", locale);
   }
-  redirect(withLang(`/dashboard/bokningar/${bookingId}?rescheduled=1`, locale));
+  redirect(withLang(`/dashboard/bokningar/${bookingId}?rescheduled=1${mariaRescheduleMailFailed ? "&maria_reschedule_mail=failed" : ""}`, locale));
 }
 
 export default async function BookingDetailPage({ params, searchParams }: BookingDetailPageProps) {
@@ -392,7 +399,7 @@ export default async function BookingDetailPage({ params, searchParams }: Bookin
         return "unavailable" as const;
       })
     : "unavailable";
-  const value = (key: "error" | "updated" | "rescheduled" | "created" | "maria_mail" | "payment_saved" | "payment_error" | "lang") => { const item = query?.[key]; return Array.isArray(item) ? item[0] : item; };
+  const value = (key: "error" | "updated" | "rescheduled" | "created" | "maria_mail" | "payment_saved" | "payment_error" | "maria_reschedule_mail" | "lang") => { const item = query?.[key]; return Array.isArray(item) ? item[0] : item; };
   const locale: Locale = value("lang") === "en" ? "en" : "sv";
   const isEnglish = locale === "en";
   const errorValue = value("error") as ErrorKey | undefined;
@@ -405,6 +412,11 @@ export default async function BookingDetailPage({ params, searchParams }: Bookin
       : mariaPreview
         ? "Bokningsstatusen sparades, men Marias kundmejl kunde inte skickas. Kontakta den godkända QA-mottagaren manuellt."
         : "Bokningsstatusen sparades, men kundmejlet kanske inte levererades. Kontakta kunden manuellt."
+    : undefined;
+  const mariaRescheduleMailWarning = value("maria_reschedule_mail") === "failed"
+    ? isEnglish
+      ? "The booking was rescheduled, but the customer email could not be delivered. Contact the customer directly."
+      : "Bokningen flyttades, men kundmejlet kunde inte skickas. Kontakta kunden direkt."
     : undefined;
   const statusAction = updateBookingStatusAction.bind(null, booking.id);
   const resendStatusAction = resendMariaStatusEmailAction.bind(null, booking.id);
@@ -437,7 +449,9 @@ export default async function BookingDetailPage({ params, searchParams }: Bookin
   ] as const;
   const fieldClass = "rounded-control border border-[#dce4ee] px-4 py-3 text-sm font-normal text-ink outline-none transition focus:border-[#1469d8] focus:ring-2 focus:ring-[#1469d8]/20";
   const successMessage = value("maria_mail") === "resent"
-    ? (isEnglish ? "Status email was resent to the approved QA inbox." : "Statusmejlet skickades om till godkänd QA-inkorg.")
+    ? (isEnglish
+      ? mariaPreview ? "Status email was resent to the approved QA inbox." : "Status email was resent to the customer."
+      : mariaPreview ? "Statusmejlet skickades om till godkänd QA-inkorg." : "Statusmejlet skickades om till kunden.")
     : value("rescheduled") === "1"
     ? isEnglish
       ? "The booking was rescheduled. The previous and new times were saved, and the customer was notified when contact details were available."
@@ -454,7 +468,7 @@ export default async function BookingDetailPage({ params, searchParams }: Bookin
 
   return <div className="grid gap-6">
     <DashboardPageHeader eyebrow={isEnglish ? "Booking profile" : "Bokningsprofil"} title={booking.title} description={isEnglish ? "View the booking details, connected customer and history. Change the status or reschedule the time securely." : "Se bokningens viktigaste uppgifter, kopplad kund och historik. Ändra status eller flytta tiden kontrollerat."} icon={CalendarClock} actions={<Link href={withLang("/dashboard/bokningar", locale)} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-control border border-[#d5ddd3] bg-surface px-4 py-2.5 text-sm font-bold text-brand"><ArrowLeft className="h-4 w-4" />{isEnglish ? "Back to bookings" : "Tillbaka till bokningar"}</Link>} />
-    <DashboardActionFeedback statusMessage={successMessage} alertMessage={errorMessage ?? mariaEmailWarning} />
+    <DashboardActionFeedback statusMessage={successMessage} alertMessage={errorMessage ?? mariaRescheduleMailWarning ?? mariaEmailWarning} />
     <DashboardMetricGrid items={metrics} />
     {mariaManagerEnabled && manualSwish?.ok === false ? (
       <p role="alert" className="rounded-lg bg-[#fff0ee] p-3 text-sm font-semibold text-[#a33b2f]">
@@ -466,8 +480,8 @@ export default async function BookingDetailPage({ params, searchParams }: Bookin
         <h2 className="font-serif text-xl font-bold text-[#704858]">{isEnglish ? `Makeup by Maria · Swish deposit${mariaPreview ? " (Preview)" : ""}` : `Makeup by Maria · Swish-handpenning${mariaPreview ? " (Preview)" : ""}`}</h2>
         <p className="mt-2 text-sm text-[#6a525b]">
           {isEnglish
-            ? `After manual confirmation, the approved QA inbox receives an email explaining the ${MARIA_DEPOSIT_AMOUNT_SEK.toLocaleString("sv-SE")} SEK deposit, 24-hour deadline and unique booking reference. Check the payment yourself in Swish; Maria alone can cancel an unpaid booking. No automatic bank verification or SMS.`
-            : <>Vid manuell bekräftelse får den godkända QA-mottagaren ett mejl med
+            ? `After manual confirmation, ${mariaPreview ? "the approved QA inbox" : "the customer"} receives an email explaining the ${MARIA_DEPOSIT_AMOUNT_SEK.toLocaleString("sv-SE")} SEK deposit, 24-hour deadline and unique booking reference. Check the payment yourself in Swish; Maria alone can cancel an unpaid booking. No automatic bank verification or SMS.`
+            : <>Vid manuell bekräftelse får {mariaPreview ? "den godkända QA-mottagaren" : "kunden"} ett mejl med
               handpenning på {MARIA_DEPOSIT_AMOUNT_SEK.toLocaleString("sv-SE")} kr,
               24 timmars betalningsfrist och unik bokningsreferens.
               Kontrollera betalningen i Swish själv; utebliven handpenning avbokas
@@ -491,7 +505,9 @@ export default async function BookingDetailPage({ params, searchParams }: Bookin
             width={380} height={380} unoptimized className="mt-4 h-auto max-w-[210px] rounded-lg border border-[#e8d9dc]" />
         ) : (
           <p className="mt-3 text-sm text-[#754b5a]">
-            {isEnglish ? "The QR code is available only for an eligible confirmed or completed QA booking with a unique reference." : "QR-koden visas bara för en godkänd bekräftad eller avslutad QA-bokning med unik referens."}
+            {isEnglish
+              ? `The QR code is available only for an eligible confirmed or completed ${mariaPreview ? "QA " : ""}booking with a unique reference and unpaid deposit.`
+              : `QR-koden visas bara för en godkänd bekräftad eller avslutad ${mariaPreview ? "QA-" : ""}bokning med unik referens och obetald handpenning.`}
           </p>
         )}
       </section>

@@ -99,7 +99,7 @@ export async function GET() {
       const original = defaults.get(year);
       defaults.set(year, {
         year,
-        enabled: Boolean(items.trial?.enabled && items.without?.enabled),
+        enabled: Boolean(items.trial?.enabled || items.without?.enabled),
         trial: items.trial ? items.trial.value : (original?.trial ?? null),
         without: items.without ? items.without.value : (original?.without ?? null),
         trialDescription: items.trial?.description ?? original?.trialDescription,
