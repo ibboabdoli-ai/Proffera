@@ -37,10 +37,13 @@ export async function readMariaCardTranslations(workspaceId: string): Promise<Ma
       entry[locale] = value;
       translations.set(slug, entry);
     }
-  } catch {
-    // Migration 0074 is not necessarily installed on an older Preview. Never
-    // guess translations or weaken workspace boundaries when storage is absent.
-    return new Map();
+  } catch (error) {
+    // A missing 0074 table is expected on older Previews. All other read
+    // failures must stop the editor: returning defaults could overwrite
+    // existing translations on the manager's next save.
+    if ((error as { code?: string } | null)?.code === "42P01") return new Map();
+    console.error("Maria card translations could not be read", error);
+    throw error;
   }
   return translations;
 }
