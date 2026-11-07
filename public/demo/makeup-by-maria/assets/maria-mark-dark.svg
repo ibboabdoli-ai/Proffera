@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 192 192" role="img" aria-labelledby="title"><title id="title">Makeup by Maria M on burgundy</title><circle cx="96" cy="96" r="92" fill="#4d1d2d"/><g transform="translate(14 14) scale(.88)"><defs>
+<linearGradient id="dmetal" x1="0" x2="1" y1="0" y2="1"><stop offset="0" stop-color="#fff3e5"/><stop offset=".34" stop-color="#ffd5be"/><stop offset=".68" stop-color="#f2b4a9"/><stop offset="1" stop-color="#fff1df"/></linearGradient>
+<linearGradient id="dpetal" x1="0" x2="1" y1="0" y2="1"><stop offset="0" stop-color="#ffe3d7"/><stop offset="1" stop-color="#f2b2a6"/></linearGradient>
+</defs>
+<g fill="none" stroke-linecap="round" stroke-linejoin="round">
+<path d="M18 154 C23 119 31 62 40 36 Q46 21 57 30 L91 100 125 30 Q137 16 148 34 L164 154 145 154 136 68 98 139 Q92 152 85 138 L49 68 37 154Z" fill="url(#dmetal)" stroke="#ffd8c1" stroke-width="1.7"/>
+<path d="M40 149 L49 45 90 129 136 44 147 151" stroke="#fff4e4" stroke-opacity=".68" stroke-width="2.8"/>
+<path d="M19 112 C22 85 48 89 72 101 C87 109 97 116 112 118 C137 123 164 106 169 87 C166 119 140 140 110 133 C72 125 48 103 19 112Z" fill="url(#dpetal)" stroke="#ffe2d4" stroke-width=".7" opacity=".9"/>
+<path d="M26 122 C18 141 23 162 45 169 M158 125 C174 140 168 160 151 165" stroke="#e5aaa1" stroke-width="1.5" opacity=".8"/>
+<path d="M130 52 L153 20" stroke="#f7c4a9" stroke-width="7"/>
+<path d="M130 52 L153 20" stroke="#f8d0b4" stroke-width="3" opacity=".75"/>
+<path d="M149 22 C146 12 148 7 158 5 C169 14 162 20 158 26Z" fill="#bf6d60" stroke="#8e4553" stroke-width=".7"/>
+<path d="M124 57 C128 54 136 57 136 64" stroke="#ffe3cf" stroke-width="1.5"/>
+<path d="M94 8 Q91 4 88 8 L85 23 91 32 97 23Z" fill="#f5c3ae" stroke="#af6970" stroke-width=".8"/>
+<circle cx="91" cy="3.5" r="2.2" fill="#ffe2d5"/>
+</g></g></svg>

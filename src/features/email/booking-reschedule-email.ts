@@ -1,9 +1,12 @@
 import type { WorkspaceTimeZone } from "@/lib/workspace-market";
+import { mariaEmailLogoHtml } from "@/lib/maria-email-logo";
+import { getMariaPreviewPortalBase } from "@/lib/maria-preview-customer-safety";
 
 type SendBookingRescheduleEmailInput = {
   customerName: string;
   customerEmail: string;
   companyName: string;
+  branding?: "makeup-by-maria";
   service: string;
   previousStartsAt: string;
   startsAt: string;
@@ -48,6 +51,8 @@ export async function sendBookingRescheduleEmail(input: SendBookingRescheduleEma
   const from = process.env.LEAD_FROM_EMAIL;
   if (!apiKey || !from) return { ok: false as const, message: "Brevo är inte konfigurerat." };
 
+  const logo = input.branding === "makeup-by-maria"
+    ? mariaEmailLogoHtml(getMariaPreviewPortalBase()) : "";
   const previousStart = formatBookingDate(input.previousStartsAt, input.timeZone);
   const start = formatBookingDate(input.startsAt, input.timeZone);
   const end = formatBookingDate(input.endsAt, input.timeZone);
@@ -70,6 +75,7 @@ export async function sendBookingRescheduleEmail(input: SendBookingRescheduleEma
   ].filter(Boolean).join("\n");
   const html = `
     <div style="font-family:Arial,sans-serif;line-height:1.6;color:#17201a;">
+      ${logo}
       <p>Hej ${escapeHtml(input.customerName)},</p>
       <p>Din bokning hos <strong>${escapeHtml(input.companyName)}</strong> har fått en ny tid.</p>
       <ul>

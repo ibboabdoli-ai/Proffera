@@ -187,7 +187,7 @@ describe("PostHog final review regressions", () => {
     const booking = source("src/app/boka/[slug]/page.tsx");
     const offer = source("src/app/offert/[token]/page.tsx");
 
-    expect(layout).toContain("{isPlatformSite && <AnalyticsConsentControl />}");
+    expect(layout).toContain("{!mariaPaymentStandalone && isPlatformSite && <AnalyticsConsentControl />}");
     expect(control).toContain('import { usePathname, useSearchParams } from "next/navigation"');
     expect(control).toContain("const pathname = usePathname()");
     expect(control).toContain("const searchParams = useSearchParams()");

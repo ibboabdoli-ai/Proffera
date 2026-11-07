@@ -5,12 +5,12 @@ import { neon } from "@neondatabase/serverless";
 import { verifyCustomerCalendarToken } from "@/lib/customer-calendar";
 import { resolveDatabaseUrl } from "@/lib/db/database-url";
 
-export type CustomerPortalLanguage = "sv" | "en";
+export type CustomerPortalLanguage = "sv" | "en" | "ar";
 
 export type CustomerPortalPresentation = {
   publicBookingSlug: string;
   companyName: string;
-  defaultLanguage: CustomerPortalLanguage;
+  defaultLanguage: "sv" | "en";
   swedishEnabled: boolean;
   englishEnabled: boolean;
   primaryColor: string;
@@ -58,6 +58,9 @@ export function resolveCustomerPortalLanguage(
   requested: string | undefined,
   presentation: CustomerPortalPresentation | null,
 ): CustomerPortalLanguage {
+  // Arabic is enabled only for Maria's isolated Preview, not other tenants.
+  if (requested === "ar" && presentation?.publicBookingSlug === "makeup-by-maria"
+    && process.env.VERCEL_ENV === "preview") return "ar";
   if (requested === "en" && presentation?.englishEnabled) return "en";
   if (requested === "sv" && presentation?.swedishEnabled) return "sv";
   if (presentation?.defaultLanguage === "en" && presentation.englishEnabled) return "en";

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { resolveAdminArea } from "./lib/admin-navigation";
+import { isMariaPaymentStandalonePath, MARIA_PAYMENT_SHELL_HEADER } from "./lib/maria-payment-standalone";
 import { resolvePublicRequestLocale } from "./lib/public-locale";
 import { resolvePublicCustomDomain } from "./lib/public-site-domain-routing";
 import {
@@ -82,6 +83,8 @@ function resolveRequestId(request: NextRequest) {
 
 function requestHeadersWithRequestId(request: NextRequest, requestId: string) {
   const requestHeaders = new Headers(request.headers);
+  // Never trust a client-supplied shell override on dashboards or other routes.
+  requestHeaders.delete(MARIA_PAYMENT_SHELL_HEADER);
   requestHeaders.set(REQUEST_ID_HEADER, requestId);
   return requestHeaders;
 }
@@ -128,6 +131,10 @@ function allowAdminWithPath(request: NextRequest, requestId: string) {
 function allowPublicPath(request: NextRequest, requestId: string) {
   const requestHeaders = requestHeadersWithRequestId(request, requestId);
   requestHeaders.delete("x-proffera-locale");
+  // Only the exact Maria Preview payment URL gets a standalone brand shell.
+  if (process.env.VERCEL_ENV === "preview" && isMariaPaymentStandalonePath(request.nextUrl.pathname)) {
+    requestHeaders.set(MARIA_PAYMENT_SHELL_HEADER, "1");
+  }
 
   const locale = resolvePublicRequestLocale(
     request.nextUrl.pathname,
