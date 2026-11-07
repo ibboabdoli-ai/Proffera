@@ -27,7 +27,7 @@ export async function getMariaBookingReadiness(): Promise<MariaBookingReadiness>
   // emails also need an actual configured sender.
   const from = process.env.LEAD_FROM_EMAIL?.trim();
   const senderAddress = from?.match(/<([^<>]+)>$/)?.[1]?.trim() ?? from;
-  if (!senderAddress || !/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(senderAddress)) {
+  if (!senderAddress || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(senderAddress)) {
     return { enabled: false };
   }
 
