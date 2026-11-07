@@ -406,7 +406,7 @@ function translate(){
   for(const id of ["customerEmail","customerPhone"]){
    const input=$(id);if(input.validity.customError)input.setCustomValidity(localizedBookingError(lastBookingError));
   }
- }else if(workspaceConfig.bookingEnabled && $("bookingForm").querySelector('button[type="submit"]').disabled){
+ }else if(bookingSubmitting){
   $("message").textContent=(liveBookingCopy[state.lang]||liveBookingCopy.sv).sending;
  }
  if(workspaceConfig.bookingEnabled){

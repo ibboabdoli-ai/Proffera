@@ -45,6 +45,7 @@ import { beginBookingEmailVerification, resendPublicBookingCode, verifyPublicBoo
 import { getMariaBookingReadiness } from "@/lib/maria-booking-runtime";
 import { updateDashboardBookingStatus } from "@/lib/dashboard-booking-status";
 import { setMariaManualSwishStatus, readMariaManualSwishStatuses } from "@/lib/maria-manual-swish";
+import { readMariaSwishQrEligibility } from "@/lib/maria-swish-qr-eligibility";
 import { changeMariaManualCalendar } from "@/lib/maria-manual-calendar";
 import { sendMariaBookingStatusEmail } from "@/features/email/maria-deposit-email";
 
@@ -246,7 +247,9 @@ function compileSql(strings: TemplateStringsArray, values: unknown[]): Query {
     expect(revivedJob.rows[0]?.cancelled_at).toBeNull();
     expect(revivedJob.rows[0]?.completed_at).toBeNull();
 
+    expect(await readMariaSwishQrEligibility(bookingId)).toBe("eligible");
     expect(await setMariaManualSwishStatus(bookingId,"paid")).toEqual({changed:true});
+    expect(await readMariaSwishQrEligibility(bookingId)).toBe("unavailable");
     const paid=await readMariaManualSwishStatuses();
     expect(paid.entries[bookingId]?.state).toBe("paid");
 

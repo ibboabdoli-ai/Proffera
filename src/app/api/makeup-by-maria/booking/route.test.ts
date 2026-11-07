@@ -22,17 +22,17 @@ import { getMariaBookingReadiness } from "@/lib/maria-booking-runtime";
 import { beginBookingEmailVerification } from "@/lib/public-booking-verification";
 import { POST } from "./route";
 
-function request(email: string) {
+function request(email: string, origin = "https://maria-qa.vercel.app") {
   // Always choose a future Friday inside the supported bridal-year range.
   const friday = new Date(Date.now() + 8 * 86_400_000);
   while (friday.getUTCDay() !== 5) friday.setUTCDate(friday.getUTCDate() + 1);
   const date = friday.toISOString().slice(0, 10);
-  const url = "https://maria-qa.vercel.app/api/makeup-by-maria/booking";
+  const url = origin + "/api/makeup-by-maria/booking";
   return new Request(url, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      Origin: "https://maria-qa.vercel.app",
+      Origin: origin,
     },
     body: JSON.stringify({
       year: Number(date.slice(0, 4)),
@@ -89,6 +89,46 @@ describe("Maria isolated Preview booking email egress safety", () => {
       verificationUrl: `/boka/verifiera/${verificationId}?lang=sv&channel=uncertain`,
     });
     expect(response.headers.get("Cache-Control")).toContain("no-store");
+    expect(beginBookingEmailVerification).toHaveBeenCalledTimes(1);
+  });
+
+  it("accepts a canonical-origin Production booking and returns its OTP verification URL", async () => {
+    vi.stubEnv("VERCEL_ENV", "production");
+    for (const [key, value] of Object.entries({
+      PROFFERA_MARIA_PUBLIC_SITE_ENABLED: "true",
+      PROFFERA_MARIA_PRODUCTION_BOOKING_ENABLED: "true",
+      PROFFERA_MARIA_PRODUCTION_MANAGER_ENABLED: "true",
+      PROFFERA_MARIA_PRODUCTION_CUSTOMER_EMAIL_ENABLED: "true",
+      PROFFERA_MARIA_PRODUCTION_YEAR_EDITOR_ENABLED: "true",
+      PROFFERA_MARIA_PRODUCTION_ORIGIN: "https://makeupbymaria.se",
+    })) vi.stubEnv(key, value);
+    const sql = vi.fn()
+      .mockResolvedValueOnce([{ id: "00000000-0000-4000-8000-000000000010",
+        name: "Brudsmink med prov", duration_minutes: 180,
+        buffer_before_minutes: 0, buffer_after_minutes: 0,
+        minimum_notice_minutes: 0, maximum_advance_days: 365 }])
+      .mockResolvedValueOnce([{ opens_at: "06:00", closes_at: "10:00", is_closed: false }]);
+    vi.mocked(getSql).mockReturnValue(sql as unknown as ReturnType<typeof getSql>);
+    vi.mocked(getMariaAvailability).mockResolvedValue({ ok: true, slots: ["07:00"] });
+    vi.mocked(allowPublicSubmission).mockResolvedValue(true);
+    vi.mocked(beginBookingEmailVerification).mockResolvedValue({
+      ok: true, verificationId: "00000000-0000-4000-8000-000000000099", delivery: "email",
+    });
+    const response = await POST(request("bride@example.com", "https://makeupbymaria.se"));
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      ok: true,
+      verificationUrl: "/boka/verifiera/00000000-0000-4000-8000-000000000099?lang=sv",
+    });
+    expect(allowPublicSubmission).toHaveBeenCalledWith(expect.objectContaining({
+      scope: "maria_production_booking_verification",
+    }));
+    expect(beginBookingEmailVerification).toHaveBeenCalledWith(expect.objectContaining({
+      slug: "makeup-by-maria", customerEmail: "bride@example.com", verificationSms: false,
+    }));
+    expect(sql).toHaveBeenCalledTimes(2);
+    const wrongOrigin = await POST(request("bride@example.com", "https://www.makeupbymaria.se"));
+    expect(wrongOrigin.status).toBe(403);
     expect(beginBookingEmailVerification).toHaveBeenCalledTimes(1);
   });
 

@@ -300,7 +300,7 @@ export async function sendMariaBookingStatusEmail(input: MariaBookingStatusEmail
   } catch {
     return { ok: false as const, error: "invalid_booking" as const };
   }
-  const senderParts = from.match(/^(.+?)\s*<([^>]+)>$/);
+  const senderParts = from.trim().match(/^(.+?)\s*<([^>]+)>$/);
   const sender = senderParts
     ? { name: senderParts[1].trim(), email: senderParts[2].trim() }
     : { name: input.companyName, email: from.trim() };

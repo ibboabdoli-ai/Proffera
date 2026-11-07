@@ -124,6 +124,15 @@ describe("Maria-only Swish confirmation and cancellation email", () => {
     expect(sent.textContent).toContain("handpenningen som mottagen");
   });
 
+  it("normalizes the configured display-name sender before emailing a deposit", async () => {
+    vi.stubEnv("LEAD_FROM_EMAIL", "Makeup by Maria <noreply@example.invalid>  ");
+    const fetchMock = vi.fn().mockResolvedValue({ok:true});
+    vi.stubGlobal("fetch", fetchMock);
+    expect(await sendMariaBookingStatusEmail(booking)).toEqual({ok:true});
+    const sent = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body)) as {sender:{name:string;email:string}};
+    expect(sent.sender).toEqual({name:"Makeup by Maria",email:"noreply@example.invalid"});
+  });
+
   it("sends with only the dedicated Preview Brevo credential", async () => {
     vi.stubEnv("BREVO_API_KEY", "shared-production-credential");
     const fetchMock = vi.fn().mockResolvedValue({ ok: true });

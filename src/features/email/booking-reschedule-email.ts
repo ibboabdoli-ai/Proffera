@@ -35,7 +35,7 @@ function escapeHtml(value: string) {
 }
 
 function parseSender(value: string) {
-  const match = value.match(/^(.+?)\s*<([^>]+)>$/);
+  const match = value.trim().match(/^(.+?)\s*<([^>]+)>$/);
   if (!match) return { name: "Proffera", email: value.trim() };
   return { name: match[1].trim(), email: match[2].trim() };
 }

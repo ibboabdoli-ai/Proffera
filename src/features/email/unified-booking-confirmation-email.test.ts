@@ -50,6 +50,15 @@ describe("Unified email Maria Preview recipient boundary", () => {
     expect(payload.htmlContent).toContain("/demo/makeup-by-maria/assets/maria-client-logo.jpg");
   });
 
+  it("normalizes a display-name sender with trailing whitespace", async () => {
+    vi.stubEnv("LEAD_FROM_EMAIL", "Makeup by Maria <noreply@example.invalid>   ");
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ messageId: "synthetic" }) });
+    vi.stubGlobal("fetch", fetchMock);
+    expect((await sendUnifiedBookingConfirmationEmail(booking)).ok).toBe(true);
+    const sent = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body)) as {sender:{name:string;email:string}};
+    expect(sent.sender).toEqual({name:"Makeup by Maria",email:"noreply@example.invalid"});
+  });
+
   it("does not send to an unauthorized Maria Preview customer", async () => {
     const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);
