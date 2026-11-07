@@ -78,6 +78,162 @@ export async function getWorkspaceBillingSummary(workspaceId: string): Promise<W
   }
 }
 
+/**
+ * Atomic, current-subscription-only entitlement revocation. A stale refund
+ * must never alter the plan/features of a newly linked subscription.
+ */
+export async function syncCancelledWorkspaceSubscription(
+  subscription: Stripe.Subscription,
+  eventCreated: number,
+  expectedPriceId: string,
+  stripe?: Stripe,
+) {
+  const workspaceId = subscription.metadata.workspace_id?.trim() ?? "";
+  const item = subscription.items.data[0];
+  const priceId = item?.price.id ?? "";
+  const customerId = stripeId(subscription.customer);
+  if (!uuidPattern.test(workspaceId) || !customerId || !priceId ||
+      priceId !== expectedPriceId || subscription.status !== "canceled" ||
+      !Number.isSafeInteger(eventCreated)) {
+    return { ok: false as const, code: "ignored" as const };
+  }
+  const sql = getSql();
+  if (!sql) return { ok: false as const, code: "database" as const };
+  const periodStart = item?.current_period_start
+    ? new Date(item.current_period_start * 1000).toISOString() : null;
+  const periodEnd = item?.current_period_end
+    ? new Date(item.current_period_end * 1000).toISOString() : null;
+  try {
+    // Recover out-of-order initial cancellations only with a provider-verified
+    // completed Checkout Session for this exact Workspace/Customer/Subscription.
+    // The pending session identity is rechecked inside the atomic SQL write.
+    let verifiedCheckoutSessionId: string | null = null;
+    if (stripe) {
+      const pending = await sql`
+        select stripe_checkout_session_id
+        from workspace_billing_subscriptions
+        where workspace_id = ${workspaceId}::uuid
+          and stripe_subscription_id is null
+          and status = 'pending'
+          and stripe_checkout_session_id is not null
+          and (stripe_customer_id is null or stripe_customer_id = ${customerId})
+        limit 1
+      `;
+      const pendingId = pending[0]?.stripe_checkout_session_id;
+      if (typeof pendingId === "string" && pendingId) {
+        const session = await stripe.checkout.sessions.retrieve(pendingId);
+        if (session.status === "complete" &&
+            session.mode === "subscription" &&
+            session.livemode === subscription.livemode &&
+            session.id === pendingId &&
+            stripeId(session.subscription) === subscription.id &&
+            stripeId(session.customer) === customerId &&
+            session.client_reference_id === workspaceId &&
+            session.metadata?.workspace_id === workspaceId) {
+          verifiedCheckoutSessionId = pendingId;
+        }
+      }
+    }
+
+    // Exact current binding or verified pending Checkout gates plan and flags.
+    const rows = await sql`
+      with latest_plan as (
+        select id from workspace_plans
+        where workspace_id = ${workspaceId}::uuid
+        order by created_at desc
+        limit 1
+      ),
+      changed_billing as (
+        update workspace_billing_subscriptions b
+        set workspace_plan_id = coalesce(b.workspace_plan_id, (select id from latest_plan)),
+            status = 'cancelled',
+            cancel_at_period_end = false,
+            stripe_customer_id = ${customerId},
+            stripe_subscription_id = ${subscription.id},
+            stripe_price_id = ${priceId},
+            current_period_start = coalesce(${periodStart}::timestamptz, b.current_period_start),
+            current_period_end = coalesce(${periodEnd}::timestamptz, b.current_period_end),
+            last_event_created = greatest(coalesce(b.last_event_created, 0), ${eventCreated}),
+            updated_at = now()
+        where b.workspace_id = ${workspaceId}::uuid
+          and (b.workspace_plan_id is not null or exists (select 1 from latest_plan))
+          and (
+            (b.stripe_subscription_id = ${subscription.id}
+             and b.stripe_customer_id = ${customerId})
+            or (
+              ${verifiedCheckoutSessionId}::text is not null
+              and b.stripe_subscription_id is null
+              and b.status = 'pending'
+              and b.stripe_checkout_session_id = ${verifiedCheckoutSessionId}
+              and (b.stripe_customer_id is null or b.stripe_customer_id = ${customerId})
+            )
+          )
+        returning b.workspace_id, b.workspace_plan_id
+      ),
+      changed_plan as (
+        update workspace_plans p
+        set status = 'cancelled',
+            current_period_start = coalesce(${periodStart}::timestamptz, p.current_period_start),
+            current_period_end = coalesce(${periodEnd}::timestamptz, p.current_period_end),
+            updated_at = now()
+        from changed_billing b
+        where p.id = b.workspace_plan_id
+        returning p.id
+      ),
+      changed_flags as (
+        insert into workspace_feature_flags (
+          id, workspace_id, feature_key, enabled, created_at, updated_at
+        )
+        select gen_random_uuid(), b.workspace_id, f.feature_key, false, now(), now()
+        from changed_billing b
+        cross join (values
+          ('booking_demo'), ('crm_customers'), ('lead_inbox'), ('ai_assistant')
+        ) as f(feature_key)
+        on conflict (workspace_id, feature_key)
+        do update set enabled = false, updated_at = now()
+        returning workspace_id
+      )
+      select
+        (select count(*) from changed_billing)::int as billing_count,
+        (select count(*) from changed_plan)::int as plan_count,
+        (select count(*) from changed_flags)::int as flag_count
+    `;
+    if (Number(rows[0]?.billing_count ?? 0) === 0) {
+      if (verifiedCheckoutSessionId) {
+        // A replaced Checkout must be ignored, but a still-pending verified
+        // Checkout with missing plan/binding must be retried rather than
+        // acknowledged as completed and leaving the owner stuck.
+        const current = await sql`
+          select stripe_checkout_session_id, stripe_subscription_id, status
+          from workspace_billing_subscriptions
+          where workspace_id = ${workspaceId}::uuid
+          limit 1
+        `;
+        if (current[0]?.status === "pending" &&
+            current[0].stripe_checkout_session_id === verifiedCheckoutSessionId &&
+            !current[0].stripe_subscription_id) {
+          return { ok: false as const, code: "database" as const };
+        }
+      }
+      return { ok: false as const, code: "stale" as const };
+    }
+    if (Number(rows[0]?.plan_count ?? 0) !== 1 ||
+        Number(rows[0]?.flag_count ?? 0) !== 4) {
+      return { ok: false as const, code: "database" as const };
+    }
+    try {
+      const aiChat = await syncWorkspaceAiChat({ workspaceId, enabled: false });
+      if (!aiChat.ok) console.error("Cancelled AI Chat sync failed", { workspaceId, code: aiChat.code });
+    } catch (error) {
+      console.error("Cancelled AI Chat sync crashed", { workspaceId, error });
+    }
+    return { ok: true as const };
+  } catch (error) {
+    console.error("Failed to sync guarded Stripe cancellation", error);
+    return { ok: false as const, code: "database" as const };
+  }
+}
+
 export async function syncWorkspaceSubscription(
   subscription: Stripe.Subscription,
   eventCreated: number,
@@ -95,6 +251,10 @@ export async function syncWorkspaceSubscription(
 
   if (!sql || !uuidPattern.test(workspaceId) || stripePriceId !== expectedPriceId) {
     return { ok: false as const, code: "ignored" as const };
+  }
+
+  if (subscription.status === "canceled") {
+    return syncCancelledWorkspaceSubscription(subscription, eventCreated, expectedPriceId);
   }
 
   const status = normalizeStripeStatus(subscription.status);
