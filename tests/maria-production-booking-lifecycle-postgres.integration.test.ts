@@ -191,8 +191,22 @@ function compileSql(strings: TemplateStringsArray, values: unknown[]): Query {
     expect(again).toMatchObject({ok:false,error:"invalid"});
     expect((await db!.query("select id from bookings where workspace_id=$1 and source='public_booking'",[workspaceId])).rowCount).toBe(1);
     const customerMessages=vi.mocked(fetch).mock.calls.map(([,options])=>JSON.parse(String(options?.body)) as {subject:string;htmlContent:string;to:{email:string}[]});
+    // Assert a trusted portal origin, not a substring that could appear on an attacker host.
+    const hasTrustedMariaPortalLink = (html: string) =>
+      [...html.matchAll(/<a\b[^>]*\bhref="([^"]+)"/g)].some(([, href]) => {
+        try {
+          const url = new URL(href);
+          return url.origin === "https://makeupbymaria.se"
+            && url.pathname.startsWith("/mina-bokningar/");
+        } catch {
+          return false;
+        }
+      });
+    expect(hasTrustedMariaPortalLink(
+      '<a href="https://makeupbymaria.se.evil.example/mina-bokningar/fake">Fake</a>',
+    )).toBe(false);
     expect(customerMessages.some(m=>m.subject.includes("تم استلام طلب حجزك")
-      && m.htmlContent.includes("https://makeupbymaria.se/mina-bokningar/"))).toBe(true);
+      && hasTrustedMariaPortalLink(m.htmlContent))).toBe(true);
 
     const confirmed=await updateDashboardBookingStatus(bookingId,"confirmed");
     expect(confirmed.changed).toBe(true);
