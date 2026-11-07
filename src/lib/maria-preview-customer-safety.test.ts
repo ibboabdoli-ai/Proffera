@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { getMariaPreviewPortalBase, isMariaPreviewTestRecipient, mariaPreviewStatusChangePreflight } from "./maria-preview-customer-safety";
+import { getMariaBookingPortalBase, isMariaBookingRecipientAllowed, getMariaPreviewPortalBase, isMariaPreviewTestRecipient, mariaPreviewStatusChangePreflight } from "./maria-preview-customer-safety";
 
 describe("Maria Preview customer-only delivery gate", () => {
   const preview = {
@@ -76,4 +76,34 @@ describe("Maria Preview status-change recipient preflight", () => {
       expect(mariaPreviewStatusChangePreflight(status, "qa@example.invalid", false, preview)).toBeNull();
     },
   );
+});
+
+describe("Maria Production recipient and canonical-origin boundary", () => {
+  const ready = {
+    VERCEL_ENV: "production",
+    PROFFERA_MARIA_PUBLIC_SITE_ENABLED: "true",
+    PROFFERA_MARIA_PRODUCTION_BOOKING_ENABLED: "true",
+    PROFFERA_MARIA_PRODUCTION_MANAGER_ENABLED: "true",
+    PROFFERA_MARIA_PRODUCTION_CUSTOMER_EMAIL_ENABLED: "true",
+    PROFFERA_MARIA_PRODUCTION_YEAR_EDITOR_ENABLED: "true",
+    PROFFERA_MARIA_PRODUCTION_ORIGIN: "https://makeupbymaria.se",
+  } as NodeJS.ProcessEnv;
+
+  it("rejects real Production email recipients if any switch is absent", () => {
+    expect(isMariaBookingRecipientAllowed("bride@example.com", {
+      ...ready, PROFFERA_MARIA_PRODUCTION_BOOKING_ENABLED: "",
+    })).toBe(false);
+    expect(getMariaBookingPortalBase({
+      ...ready, PROFFERA_MARIA_PRODUCTION_ORIGIN:"https://evil.example",
+    })).toBeNull();
+    expect(isMariaBookingRecipientAllowed("qa@example.invalid", {
+      ...ready, VERCEL_ENV: "preview",
+    })).toBe(false);
+  });
+
+  it("uses the exact public origin after every Production switch is requested", () => {
+    expect(isMariaBookingRecipientAllowed("bride@example.com",ready)).toBe(true);
+    expect(isMariaBookingRecipientAllowed("not an email",ready)).toBe(false);
+    expect(getMariaBookingPortalBase(ready)).toBe("https://makeupbymaria.se");
+  });
 });
