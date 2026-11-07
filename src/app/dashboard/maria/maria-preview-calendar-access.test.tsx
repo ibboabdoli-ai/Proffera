@@ -17,7 +17,7 @@ vi.mock("@/lib/workspace-module-access",()=>({
   getDashboardEnabledFeatureKeys:async()=>[],
 }));
 vi.mock("@/components/dashboard/business-calendar",()=>({
-  BusinessCalendar:({allowDragAndDrop}:{allowDragAndDrop?:boolean})=><div data-calendar-drag={String(allowDragAndDrop)}/>,
+  BusinessCalendar:({allowDragAndDrop,moveDisabledReason}:{allowDragAndDrop?:boolean;moveDisabledReason?:string})=><div data-calendar-drag={String(allowDragAndDrop)} data-move-reason={moveDisabledReason??"none"}/>,
 }));
 vi.mock("@/lib/dashboard-calendar",()=>({getDashboardCalendarEvents:async()=>[]}));
 vi.mock("@/lib/workspace-settings-db",()=>({getDashboardWorkspaceSettings:async()=>({timeZone:"Europe/Stockholm"})}));
@@ -113,6 +113,10 @@ describe("Maria generic calendar controls remain isolated",()=>{
     state.slug=slug;
     const html=renderToStaticMarkup(await CalendarPage({searchParams:Promise.resolve({})}));
     expect(html).toContain(`data-calendar-drag="${enabled}"`);
+    const expectedReason = slug === "makeup-by-maria" && env === "production"
+      ? "maria_production_readonly" : slug === "makeup-by-maria" && env === "preview"
+        ? "maria_preview_details" : "none";
+    expect(html).toContain(`data-move-reason="${expectedReason}"`);
     expect(html.includes('href="/dashboard/bokningar/ny"')).toBe(enabled);
     expect(html.includes('href="/dashboard/bokningar/blockera"')).toBe(enabled);
   });
