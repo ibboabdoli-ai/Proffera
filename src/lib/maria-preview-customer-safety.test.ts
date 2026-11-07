@@ -80,6 +80,7 @@ describe("Maria Preview status-change recipient preflight", () => {
 
 describe("Maria Production recipient and canonical-origin boundary", () => {
   const ready = {
+    NODE_ENV: "test",
     VERCEL_ENV: "production",
     PROFFERA_MARIA_PUBLIC_SITE_ENABLED: "true",
     PROFFERA_MARIA_PRODUCTION_BOOKING_ENABLED: "true",
