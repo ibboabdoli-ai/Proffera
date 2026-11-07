@@ -31,7 +31,8 @@ import { hasDashboardModuleAccess } from "@/lib/workspace-module-access";
 import { MARIA_DEPOSIT_AMOUNT_SEK, MARIA_SWISH_NUMBER, mariaSwishQrPath } from "@/lib/maria-deposit";
 import { readMariaManualSwishStatuses } from "@/lib/maria-manual-swish";
 import { readMariaSwishQrEligibility } from "@/lib/maria-swish-qr-eligibility";
-import { getMariaPreviewPortalBase, isMariaPreviewTestRecipient, mariaPreviewStatusChangePreflight } from "@/lib/maria-preview-customer-safety";
+import { getMariaBookingPortalBase, isMariaBookingRecipientAllowed, isMariaPreviewTestRecipient, mariaPreviewStatusChangePreflight } from "@/lib/maria-preview-customer-safety";
+import { getMariaBookingReadiness } from "@/lib/maria-booking-runtime";
 import { isMariaBookingDetailReadOnly } from "@/lib/maria-manager-ui-policy";
 
 export const dynamic = "force-dynamic";
@@ -177,15 +178,28 @@ async function updateBookingStatusAction(bookingId: string, formData: FormData) 
   if (!isDashboardBookingStatus(status)) redirectWithError(bookingId, "status", locale);
 
   const isMaria = workspaceAccess.workspaceSlug === "makeup-by-maria";
-  // Validate the workspace-scoped QA recipient for ALL Maria status changes
-  // before the writer runs. Email-sending statuses also require email setup.
+  // Preview keeps its strict QA inbox. Production separately proves owner,
+  // workspace, runtime readiness and permitted real customer before mutation.
   if (isMaria) {
     const current = await getDashboardBookingDetailInStockholm(bookingId);
     if (!current) redirectWithError(bookingId, "save", locale);
-    const preflightError = mariaPreviewStatusChangePreflight(
-      status, current?.customer?.email, Boolean(resolveBrevoApiKey() && process.env.LEAD_FROM_EMAIL),
-    );
-    if (preflightError) redirectWithError(bookingId, preflightError, locale);
+    const deliveryReady = Boolean(resolveBrevoApiKey() && process.env.LEAD_FROM_EMAIL);
+    if (process.env.VERCEL_ENV === "preview") {
+      const preflightError = mariaPreviewStatusChangePreflight(
+        status, current.customer?.email, deliveryReady,
+      );
+      if (preflightError) redirectWithError(bookingId, preflightError, locale);
+    } else {
+      const ready = await getMariaBookingReadiness();
+      if (!ready.enabled || ready.workspaceId !== workspaceAccess.workspaceId
+        || !getMariaBookingPortalBase()
+        || !isMariaBookingRecipientAllowed(current.customer?.email ?? "")) {
+        redirectWithError(bookingId, "maria_preview", locale);
+      }
+      if ((status === "confirmed" || status === "cancelled") && !deliveryReady) {
+        redirectWithError(bookingId, "maria_email_setup", locale);
+      }
+    }
   }
 
   let mariaMailFailed = false;
@@ -198,8 +212,8 @@ async function updateBookingStatusAction(bookingId: string, formData: FormData) 
     if (result.changed && result.notification && (status === "confirmed" || status === "cancelled")) {
       const notification = result.notification;
       if (isMaria) {
-        // Recheck the returned recipient; no Maria SMS or unapproved inbox.
-        const delivery = isMariaPreviewTestRecipient(notification.customerEmail)
+        // Recheck the returned recipient; Maria sends email but no SMS.
+        const delivery = isMariaBookingRecipientAllowed(notification.customerEmail)
           ? await sendMariaBookingStatusEmail({
               bookingId, status, customerName: notification.customerName,
               customerEmail: notification.customerEmail, companyName: workspaceAccess.workspaceName,
