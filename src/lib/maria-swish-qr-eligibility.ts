@@ -18,12 +18,13 @@ export async function readMariaSwishQrEligibility(bookingId: string, expectedWor
   // Existing unpaid confirmed bookings retain their payment link if intake is
   // temporarily paused. Preview still requires the isolated QA gate.
   const readiness = preview ? await getMariaBookingReadiness() : null;
-  if ((preview && !readiness?.enabled)
+  const previewWorkspaceId = readiness?.enabled ? readiness.workspaceId : null;
+  if ((preview && !previewWorkspaceId)
     || (expectedWorkspaceId && !uuid.test(expectedWorkspaceId))
-    || (preview && expectedWorkspaceId && readiness?.workspaceId !== expectedWorkspaceId)) {
+    || (preview && expectedWorkspaceId && previewWorkspaceId !== expectedWorkspaceId)) {
     return "unavailable";
   }
-  const scopedWorkspaceId = expectedWorkspaceId ?? (readiness?.enabled ? readiness.workspaceId : null);
+  const scopedWorkspaceId = expectedWorkspaceId ?? previewWorkspaceId;
   const approved = preview
     ? process.env.PROFFERA_MARIA_PREVIEW_TEST_EMAIL?.trim().toLowerCase()
     : null;
