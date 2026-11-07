@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { getSql } from "@/lib/db/server";
-import { getMariaPreviewBookingReadiness } from "@/lib/maria-preview-booking";
+import { getMariaBookingReadiness } from "@/lib/maria-booking-runtime";
 import { readMariaCardTranslations } from "@/lib/maria-card-translations-db";
 import { canManageWorkspaceSettings, getUserWorkspaceAccess } from "@/lib/workspace-access";
 
@@ -58,7 +58,7 @@ export async function GET() {
           and weekday in (0, 5, 6)
         order by weekday
       `,
-      getMariaPreviewBookingReadiness(),
+      getMariaBookingReadiness(),
       readMariaCardTranslations(workspaceId).catch((error) => {
         // Public display may use default translations, but the manager editor
         // still fails closed so unreadable saved copy is never overwritten.
@@ -158,7 +158,7 @@ export async function GET() {
 
     return NextResponse.json({
       connected: true,
-      previewOnly: true,
+      previewOnly: process.env.VERCEL_ENV !== "production",
       bookingEnabled: bookingReadiness.enabled,
       bookableDurations,
       bookableAdvanceDays,
