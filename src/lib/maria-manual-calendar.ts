@@ -1,6 +1,7 @@
 import "server-only";
 
 import { getSql } from "@/lib/db/server";
+import { getMariaBookingReadiness } from "@/lib/maria-booking-runtime";
 import { canManageWorkspaceSettings, getUserWorkspaceAccess } from "@/lib/workspace-access";
 import {
   mariaCalendarDateAllowed, mariaCalendarDayBounds, mariaCalendarIntervals,
@@ -22,21 +23,27 @@ export type MariaCalendarView = {
   snapshotAtEpoch: number;
 };
 
-/** Stable error codes for Preview-only manager calendar operations. */
+/** Stable error codes for Maria manager calendar operations. */
 export class MariaCalendarError extends Error {
   constructor(public readonly code: "access" | "date" | "schedule" | "time" | "conflict" | "database") {
     super(code);
   }
 }
 
-/** Require a Maria workspace manager in Preview; fail closed for Production and other tenants. */
+/** Require an authorized Maria manager in Preview or fully gated Production. */
 async function requireMariaCalendarManager() {
-  if (process.env.VERCEL_ENV !== "preview") throw new MariaCalendarError("access");
+  const preview = process.env.VERCEL_ENV === "preview";
+  const production = process.env.VERCEL_ENV === "production";
+  if (!preview && !production) throw new MariaCalendarError("access");
   const access = await getUserWorkspaceAccess();
-  // Maria-only Preview manager QA needs no paid online-booking entitlement.
-  // Public booking, payments, other tenants, and Production remain gated.
   if (!access.ok || access.workspaceSlug !== "makeup-by-maria"
     || !canManageWorkspaceSettings(access)) throw new MariaCalendarError("access");
+  if (production) {
+    const ready = await getMariaBookingReadiness();
+    if (!ready.enabled || ready.workspaceId !== access.workspaceId) {
+      throw new MariaCalendarError("access");
+    }
+  }
   const sql = getSql();
   if (!sql) throw new MariaCalendarError("database");
   return { sql, workspaceId: access.workspaceId, userId: access.userId };
@@ -185,7 +192,7 @@ export async function changeMariaManualCalendar(input: CalendarChange, now = new
 
   const audit = JSON.stringify({
     date: input.date, mode: input.mode, clock: single ? input.clock : null,
-    requestedIntervals: future.length, previewOnly: true,
+    requestedIntervals: future.length, previewOnly: process.env.VERCEL_ENV === "preview",
   });
   try {
     const rows = await sql.transaction([
@@ -253,7 +260,7 @@ export async function changeMariaManualCalendar(input: CalendarChange, now = new
         insert into admin_audit_logs(admin_user_id,workspace_id,action,reason,new_value)
         values(${userId},${workspaceId}::uuid,
           'maria.manual_calendar.updated',
-          'Preview-only manual booking-start availability change',
+          'Manual Maria booking-start availability change',
           ${audit}::jsonb)
       `,
     ]);
