@@ -6,6 +6,7 @@ import { redirect } from "next/navigation";
 import { getSql } from "@/lib/db/server";
 import { canManageWorkspaceSettings, getUserWorkspaceAccess } from "@/lib/workspace-access";
 import { readMariaYearDescription, readMariaYearPrice } from "@/lib/maria-year-editor";
+import { mariaDefaultCardCopy } from "@/lib/maria-default-card-copy";
 
 const FIRST_YEAR = 2026;
 const LAST_YEAR = 2036;
@@ -39,10 +40,10 @@ export async function saveMariaYearAction(formData: FormData) {
   }
   try {
     trialDescription = readMariaYearDescription(
-      formData.get("trial_description"), "Brudmakeup med provsminkning och hembesök.",
+      formData.get("trial_description"), mariaDefaultCardCopy.trial.sv,
     );
     withoutDescription = readMariaYearDescription(
-      formData.get("without_description"), "Brudmakeup med hembesök.",
+      formData.get("without_description"), mariaDefaultCardCopy["without-trial"].sv,
     );
     // An incomplete/stale form must not overwrite previously saved Swedish
     // text with a fallback, or erase English/Arabic translations.
