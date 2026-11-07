@@ -17,7 +17,7 @@ describe("marketplace-first homepage contract", () => {
     expect(home).toContain("Vad behöver du hjälp med?");
     expect(home).toContain("Hitta företag, boka tid eller få offerter – gratis.");
     expect(home).toContain("PublicDirectorySearchForm");
-    expect(home).toContain("getCachedPublishedDirectoryLocationSuggestions");
+    expect(home).not.toContain("getCachedPublishedDirectoryLocationSuggestions");
     expect(home).toContain(".filter((category) => category.query)");
     expect(home).toContain("directoryPaths[locale]");
   });
@@ -64,26 +64,22 @@ describe("marketplace-first homepage contract", () => {
   });
 
 
-  it("renders real published companies with resilient logo and media fallbacks", () => {
+  it("avoids all automatic public company and city reads on the homepage", () => {
     const home = source("src/components/marketplace/marketplace-home.tsx");
-    const media = source("src/components/marketplace/marketplace-company-media.tsx");
-
-    expect(home).toContain("getCachedMarketplaceHomeCompanies(4)");
-    expect(home).toContain("MarketplaceCompanyLogo");
-    expect(home).toContain("MarketplaceCompanyCover");
-    expect(home).toContain("profile.logoUrl");
-    expect(home).toContain("profile.media");
-    expect(media).toContain("onError={() => setFailed(true)}");
-    expect(media).toContain("Building2");
+    expect(home).not.toContain("getCachedMarketplaceHomeCompanies(4)");
+    expect(home).not.toContain("getCachedPublishedDirectoryLocationSuggestions(24)");
+    expect(home).not.toContain("MarketplaceCompanyLogo");
+    expect(home).toContain("Välj en tjänst och ange en adress");
   });
 
-  it("keeps review claims truthful and sends Google through a neutral Maps search link", () => {
+  it("offers an on-demand service search without fake public company claims", () => {
     const home = source("src/components/marketplace/marketplace-home.tsx");
-
-    expect(home).toContain("verified Proffera reviews");
-    expect(home).toContain("verifierade Proffera-omdömen");
-    expect(home).toContain("https://www.google.com/maps/search/?api=1&query=");
-    expect(home).not.toContain("Google Reviews");
+    const form = source("src/components/company-directory/public-directory-search-form.tsx");
+    expect(home).toContain("PublicDirectorySearchForm");
+    expect(form).toContain('name="address"');
+    expect(form).toContain('type="range"');
+    expect(form).toContain("searchPublicDirectoryNearbyAction");
+    expect(form).toContain("searchPublicDirectoryAddressAction");
     expect(home).not.toContain("Google-omdömen");
   });
 
