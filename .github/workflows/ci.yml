@@ -883,8 +883,11 @@ jobs:
               guard_review_completion_time="$(jq -r --arg request_time "$coderabbit_request_time" '[.[] | select(.state == "APPROVED" or .state == "COMMENTED") | select($request_time != "" and (.submitted_at // "") >= $request_time) | .submitted_at] | min // empty' <<< "$guard_current_reviews")"
               guard_comments_json="$(gh api --paginate "repos/${REPOSITORY}/issues/${PR_NUMBER}/comments?per_page=100" --jq '.[]' | jq -s '.')"
               guard_clean_count="$(jq -r --argjson accepted "$clean_final_comments_json" --arg review_time "$guard_review_completion_time" --arg marker "$coderabbit_marker" --arg request_time "$coderabbit_request_time" '
-                [ $accepted[] as $prior | .[] | select(. == $prior and $review_time != "" and .created_at >= $review_time) ] as $current
-                | if any(.[]; .user.login == "github-actions[bot]" and .body == ($marker + "\n@coderabbitai review") and .created_at == $request_time and .updated_at == .created_at) then ($current | length) else 0 end
+                def evidence: {id, login: .user.login, body, created_at, updated_at};
+                ($accepted | map(evidence)) as $accepted_evidence
+                | (map(evidence)) as $current_evidence
+                | [ $accepted_evidence[] as $prior | $current_evidence[] | select(. == $prior and $review_time != "" and .created_at >= $review_time) ] as $current
+                | if any($current_evidence[]; .login == "github-actions[bot]" and .body == ($marker + "\n@coderabbitai review") and .created_at == $request_time and .updated_at == .created_at) then ($current | length) else 0 end
               ' <<< "$guard_comments_json")"
               if [ "$guard_clean_count" -eq 0 ]; then
                 echo "CodeRabbit clean summary lacks an unchanged, post-request completed review witness."
