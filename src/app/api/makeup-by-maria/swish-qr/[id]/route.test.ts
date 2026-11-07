@@ -2,6 +2,15 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("server-only", () => ({}));
 vi.mock("@/lib/db/server", () => ({ getSql: vi.fn() }));
+vi.mock("@/lib/maria-booking-runtime", () => ({
+  // Exercise the QR eligibility SQL directly with a scoped synthetic manager
+  // workspace. Production always fails closed in this endpoint fixture.
+  getMariaBookingReadiness: async () =>
+    process.env.VERCEL_ENV === "preview" &&
+    process.env.PROFFERA_MARIA_PREVIEW_BOOKING_ENABLED === "true"
+      ? { enabled: true, workspaceId: "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee" }
+      : { enabled: false },
+}));
 vi.mock("@/lib/maria-preview-customer-safety", () => ({
   isMariaPreviewTestRecipient: (email: string) => email === "qa@example.invalid",
 }));
@@ -50,9 +59,9 @@ describe("Maria Preview booking-specific Swish QR", () => {
     expect(text).toContain("b.id=$1::uuid");
     expect(text).toContain("b.status in ('confirmed','completed')");
     expect(text).toContain("b.source='public_booking'");
-    expect(text).toContain("lower(trim(c.email))=$2");
-    expect(text).toContain("b.workspace_id=coalesce($3::text, b.workspace_id)");
-    expect(bound).toEqual([id, "qa@example.invalid", null]);
+    expect(text).toContain("lower(trim(c.email))=$3");
+    expect(text).toContain("b.workspace_id=$4");
+    expect(bound).toEqual([id, false, "qa@example.invalid", "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee"]);
   });
 
   it("fails closed in Production, for malformed IDs, or with a disabled Preview switch", async () => {
