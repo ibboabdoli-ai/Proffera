@@ -313,7 +313,8 @@ let workspaceConfig={
  bookingEnabled:false,
  bookableDurations:{},
  bookableAdvanceDays:{},
- years:[
+ // The public branded site never starts with Preview-only demo prices.
+ years:mariaPublicHost?[]:[
   {year:2026,enabled:true,trial:6900,without:5800},
   {year:2027,enabled:true,trial:null,without:null},
   {year:2028,enabled:true,trial:null,without:null}
