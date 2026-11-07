@@ -181,6 +181,7 @@ async function updateBookingStatusAction(bookingId: string, formData: FormData) 
   // before the writer runs. Email-sending statuses also require email setup.
   if (isMaria) {
     const current = await getDashboardBookingDetailInStockholm(bookingId);
+    if (!current) redirectWithError(bookingId, "save", locale);
     const preflightError = mariaPreviewStatusChangePreflight(
       status, current?.customer?.email, Boolean(resolveBrevoApiKey() && process.env.LEAD_FROM_EMAIL),
     );
