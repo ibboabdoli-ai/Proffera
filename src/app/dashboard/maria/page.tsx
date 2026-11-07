@@ -61,7 +61,7 @@ export default async function MariaSiteDashboardPage({ searchParams }: { searchP
   const isYearEnabled = (year: number) => {
     const trial = savedPackage(year, "trial");
     const without = savedPackage(year, "without-trial");
-    return !trial && !without ? year <= 2028 : Boolean(trial?.isActive && without?.isActive);
+    return !trial && !without ? year <= 2028 : Boolean(trial?.isActive || without?.isActive);
   };
 
   const schedulePackage = services.find(item => /^maria-bridal-(trial|without-trial)-(202[6-9]|203[0-6])$/.test(item.publicSlug));
@@ -118,6 +118,9 @@ export default async function MariaSiteDashboardPage({ searchParams }: { searchP
           {displayedYears.map((year) => (
             <form key={year} action={contentOnly ? saveMariaProductionYearAction : saveMariaYearAction} className="rounded-xl border border-[#e6d7db] bg-[#fefafa] p-4 sm:p-5">
               <input type="hidden" name="year" value={year} />
+               {!contentOnly && (savedPackage(year, "trial") || savedPackage(year, "without-trial"))
+                 ? <input type="hidden" name="enabled_original" value={String(isYearEnabled(year))} />
+                 : null}
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <h3 className="font-serif text-2xl text-[#51313e]">{year}</h3>
                 {contentOnly

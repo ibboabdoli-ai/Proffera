@@ -21,6 +21,7 @@ const mocks = vi.hoisted(() => ({
   resendPublicBookingCode: vi.fn(),
   publicBookingSuccessRedirect: vi.fn(),
   getPublicWorkspaceExperienceSettings: vi.fn(),
+  getMariaBookingReadiness: vi.fn(),
 }));
 
 vi.mock("server-only", () => ({}));
@@ -47,6 +48,7 @@ vi.mock("@/lib/public-booking-verification", () => ({
 }));
 vi.mock("@/lib/public-booking-success-redirect", () => ({ publicBookingSuccessRedirect: mocks.publicBookingSuccessRedirect }));
 vi.mock("@/lib/workspace-feature-entitlement-db", () => ({ hasWorkspaceFeatureAccessForWorkspace: vi.fn() }));
+vi.mock("@/lib/maria-booking-runtime", () => ({ getMariaBookingReadiness: mocks.getMariaBookingReadiness }));
 vi.mock("@/lib/workspace-experience", () => ({ getPublicWorkspaceExperienceSettings: mocks.getPublicWorkspaceExperienceSettings }));
 vi.mock("@/lib/booking-theme-templates", () => ({ resolveBookingThemeContent: vi.fn() }));
 vi.mock("@/components/service-ai-chat-widget", () => ({ BookingAiChatWidget: () => null }));
@@ -213,6 +215,19 @@ describe("public booking human-designed UX contract", () => {
     expect(controls).toContain("label:nth-of-type(4) { order: 10; }");
     expect(controls).toContain("input[type=\"date\"] { order: 20; }");
     expect(controls).toContain("select[aria-label] { order: 30; }");
+  });
+
+  it("renders Maria's unavailable notice in Arabic without opening public booking", async () => {
+    mocks.getMariaBookingReadiness.mockResolvedValue({enabled:false});
+    const element=await PublicBookingPage({
+      params:Promise.resolve({slug:"makeup-by-maria"}),
+      searchParams:Promise.resolve({lang:"ar"}),
+    });
+    const html=renderToStaticMarkup(element);
+    expect(html).toContain('lang="ar"');
+    expect(html).toContain('dir="rtl"');
+    expect(html).toContain("الحجز غير متاح حاليًا");
+    expect(mocks.getSql).not.toHaveBeenCalled();
   });
 
   it("keeps real tenant media and published booking data contracts", () => {

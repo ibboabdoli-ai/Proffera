@@ -229,7 +229,7 @@ export default async function PublicBookingPage({ params, searchParams }: PagePr
   // to reject a successfully verified Production customer.
   if (slug === "makeup-by-maria") {
     const readiness = await getMariaBookingReadiness();
-    if (!readiness.enabled) return <Unavailable locale={requestedQueryLocale} />;
+    if (!readiness.enabled) return <Unavailable locale={firstParam(query?.lang) === "ar" ? "ar" : requestedQueryLocale} />;
     redirect(resolveMariaBookingLandingDestination(
       query?.lang, firstParam(query?.booked) === "1", process.env.VERCEL_ENV,
     ));
@@ -476,10 +476,13 @@ export default async function PublicBookingPage({ params, searchParams }: PagePr
   );
 }
 
-function Unavailable({ locale }: { locale: WorkspaceLanguage }) {
-  const t = copy[locale];
+function Unavailable({ locale }: { locale: WorkspaceLanguage | "ar" }) {
+  const t = locale === "ar" ? {
+    unavailableTitle: "الحجز غير متاح حاليًا",
+    unavailableBody: "الحجز الإلكتروني لم يُفتح بعد. يمكنكِ التواصل مع ماريا عبر إنستغرام.",
+  } : copy[locale];
   return (
-    <main className={styles.unavailablePage} lang={locale}>
+    <main className={styles.unavailablePage} lang={locale} dir={locale === "ar" ? "rtl" : "ltr"}>
       <section className={styles.unavailableCard}>
         <h1>{t.unavailableTitle}</h1>
         <p>{t.unavailableBody}</p>
