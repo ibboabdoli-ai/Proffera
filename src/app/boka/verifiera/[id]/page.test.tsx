@@ -5,11 +5,12 @@ import { isValidElement, type ReactNode } from "react";
 const mocks = vi.hoisted(() => ({
   getSql: vi.fn(),
   experience: vi.fn(),
+  host: "maria-qa.vercel.app",
 }));
 
 vi.mock("server-only", () => ({}));
 vi.mock("next/navigation", () => ({ redirect: vi.fn(), notFound: () => { throw new Error("NEXT_NOT_FOUND"); } }));
-vi.mock("next/headers", () => ({ headers: async () => new Headers({ host: "maria-qa.vercel.app" }) }));
+vi.mock("next/headers", () => ({ headers: async () => new Headers({ host: mocks.host }) }));
 vi.mock("@/lib/db/server", () => ({ getSql: mocks.getSql }));
 vi.mock("@/lib/workspace-experience", () => ({
   getPublicWorkspaceExperienceSettings: mocks.experience,
@@ -30,6 +31,7 @@ const otherWorkspaceId = "bbbbbbbb-cccc-4ddd-8eee-ffffffffffff";
 
 beforeEach(() => {
   vi.resetAllMocks();
+  mocks.host = "maria-qa.vercel.app";
   vi.stubEnv("VERCEL_ENV", "preview");
   // Model the SQL tag at the request boundary rather than returning a Maria
   // row for every verification. The WHERE predicate and bound UUID matter.
@@ -142,6 +144,7 @@ describe("Maria verification language keeps the Preview booking locale", () => {
 
   it("keeps Maria Production gated by workspace language settings", async () => {
     vi.stubEnv("VERCEL_ENV", "production");
+    mocks.host = "makeupbymaria.se";
     const html = await markup("en");
     expect(html).toMatch(/<main[^>]*lang="sv"/);
     expect(html).not.toContain(">EN</a>");
@@ -149,6 +152,7 @@ describe("Maria verification language keeps the Preview booking locale", () => {
 
   it("preserves Arabic and English through the gated Maria Production verification page",async()=>{
     vi.stubEnv("VERCEL_ENV","production");
+    mocks.host = "makeupbymaria.se";
     for(const [key,value] of Object.entries({
       PROFFERA_MARIA_PUBLIC_SITE_ENABLED:"true",
       PROFFERA_MARIA_PRODUCTION_BOOKING_ENABLED:"true",
@@ -159,7 +163,24 @@ describe("Maria verification language keeps the Preview booking locale", () => {
     }))vi.stubEnv(key,value);
     expect(await markup("ar")).toMatch(/<main[^>]*lang="ar"[^>]*dir="rtl"/);
     expect(await markup("en")).toMatch(/<main[^>]*lang="en"/);
-    expect(await markup("ar",otherId)).not.toContain('>AR</a>');
+    // A different tenant challenge may not render on Maria's public host.
+    await expect(markup("ar",otherId)).rejects.toThrow("NEXT_NOT_FOUND");
+  });
+
+  it("keeps the Swedish locale for Maria even with workspace Swedish disabled", async () => {
+    mocks.experience.mockResolvedValue({
+      defaultLanguage: "en", swedishEnabled: false, englishEnabled: false,
+      primaryColor: "#17452f",
+    });
+    const preview = await markup("sv");
+    expect(preview).toMatch(/<main[^>]*lang="sv"/);
+    expect(preview).toContain(">SV</a>");
+  });
+
+  it("refuses Maria Production verification from a non-canonical host", async () => {
+    vi.stubEnv("VERCEL_ENV", "production");
+    mocks.host = "www.proffera.se";
+    await expect(markup("sv")).rejects.toThrow("NEXT_NOT_FOUND");
   });
 
   it("continues to support Arabic in both verification forms only in Maria Preview", async () => {
@@ -172,6 +193,7 @@ describe("Maria verification language keeps the Preview booking locale", () => {
       expect(form).toMatch(/<input\b[^>]*type="hidden"[^>]*name="lang"[^>]*value="ar"/);
     }
     vi.stubEnv("VERCEL_ENV", "production");
+    mocks.host = "makeupbymaria.se";
     expect(await markup("ar")).toMatch(/<main[^>]*lang="sv"/);
   });
 });
