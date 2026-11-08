@@ -377,9 +377,13 @@ function futureFriday() {
       expect(allowed.status).toBe(200);
       expect(allowed.headers.get("content-type")).toBe("image/png");
 
-      // Even a confirmed dashboard-created record cannot receive a public QR.
+      // An approved QA recipient may pay a dashboard-created booking only in
+      // isolated Preview. Production never inherits that source exception.
       await db!.query("update bookings set source='dashboard_manual' where id=$1::uuid",[bookingId]);
+      expect((await requestQr(bookingId)).status).toBe(200);
+      vi.stubEnv("VERCEL_ENV","production");
       expect((await requestQr(bookingId)).status).toBe(404);
+      vi.stubEnv("VERCEL_ENV","preview");
       await db!.query("update bookings set source='public_booking' where id=$1::uuid",[bookingId]);
 
       // Maria membership alone is not sufficient: customer email must
@@ -387,7 +391,8 @@ function futureFriday() {
       await db!.query("update customers set email='not-approved@example.invalid' where id=$1::uuid",[customerId]);
       expect((await requestQr(bookingId)).status).toBe(404);
     } finally {
-      // Keep the shared fixture intact even if a negative assertion fails.
+      // Restore the Preview gate and synthetic fixture on every exit path.
+      vi.stubEnv("VERCEL_ENV","preview");
       await db!.query("update customers set email='qa@example.invalid' where id=$1::uuid",[customerId]);
       await db!.query("update bookings set source='public_booking',status='requested' where id=$1::uuid",[bookingId]);
     }
