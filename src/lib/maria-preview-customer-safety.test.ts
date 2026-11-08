@@ -119,6 +119,7 @@ describe("Maria Production recipient and canonical-origin boundary", () => {
     }
     expect(isMariaExistingBookingRecipientAllowed("invalid address", paused)).toBe(false);
     expect(getMariaExistingBookingPortalBase({
+      NODE_ENV:"test",
       VERCEL_ENV:"preview",
       VERCEL_URL:"proffera-jhap-qa.vercel.app",
     })).toBe("https://proffera-jhap-qa.vercel.app");
