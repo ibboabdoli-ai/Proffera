@@ -125,7 +125,8 @@ export async function finalizeMariaVerifiedBooking(input: FinalizeMariaInput) {
           select ${readiness.workspaceId},b.customer_id,b.id,'booking',
             'Booking created','Maria appointment created after verified email.',
             jsonb_build_object('source','public_booking','service','Makeup by Maria',
-              'language',${input.bookingLanguage ?? "sv"}::text)
+              'language',${input.bookingLanguage ?? "sv"}::text,
+              'verification_id',${input.verificationId}::text)
           from booking b returning id
         ),
         consumed as (

@@ -118,6 +118,13 @@ describe("Maria verification language keeps the Preview booking locale", () => {
     );
     expect(verifyPublicBookingCode).toHaveBeenCalledWith(id, "123456", "en");
     expect(redirect).toHaveBeenLastCalledWith(`/boka/verifiera/${id}?error=code&lang=en`);
+    vi.mocked(verifyPublicBookingCode).mockResolvedValue({
+      ok:true,slug:"makeup-by-maria",
+      portalUrl:"https://maria-qa.vercel.app/mina-bokningar/synthetic-signed-token?lang=en",
+    });
+    await expect(actions[0](data)).rejects.toThrow(
+      "NEXT_REDIRECT: https://maria-qa.vercel.app/mina-bokningar/synthetic-signed-token?lang=en",
+    );
 
     await expect(actions[1](data)).rejects.toThrow(
       `NEXT_REDIRECT: /boka/verifiera/${id}?error=wait&lang=en`,

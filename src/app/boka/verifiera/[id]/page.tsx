@@ -138,6 +138,7 @@ async function verify(formData: FormData) {
   const channel = String(formData.get("channel") ?? "");
   const result = await verifyPublicBookingCode(id, code, locale);
   if (!result.ok) redirect(`/boka/verifiera/${id}?error=${result.error}&lang=${locale}${channelSuffix(channel)}`);
+  if ("portalUrl" in result && result.portalUrl) redirect(result.portalUrl);
   redirect(publicBookingSuccessRedirect(result.slug, locale));
 }
 

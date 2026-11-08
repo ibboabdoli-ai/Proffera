@@ -193,15 +193,29 @@ function compileSql(strings: TemplateStringsArray, values: unknown[]): Query {
     expect(await verifyPublicBookingCode(id,firstCode!,"ar")).toMatchObject({ok:false,error:"code"});
     expect((await db!.query("select id from bookings where workspace_id=$1 and source='public_booking'",[workspaceId])).rowCount).toBe(0);
 
+    // Booking confirmation must still work when Brevo rejects its receipt.
+    const successResponse = new Response(JSON.stringify({messageId:"synthetic-only"}),{status:201});
+    vi.mocked(fetch).mockImplementation(async (_url, options) => {
+      const payload = JSON.parse(String((options as RequestInit)?.body ?? "{}")) as {subject?: string};
+      return payload.subject?.includes("تم استلام طلب حجزك")
+        ? new Response("Synthetic email outage",{status:503}) : successResponse;
+    });
     const verified=await verifyPublicBookingCode(id,resentCode!,"ar");
     expect(verified).toMatchObject({ok:true,slug:"makeup-by-maria"});
+    expect(verified.ok && verified.portalUrl).toMatch(/^https:\/\/makeupbymaria\.se\/mina-bokningar\//);
     const bookings=await db!.query<{id:string;status:string}>(
       "select id::text,status from bookings where workspace_id=$1 and source='public_booking'",[workspaceId]);
     expect(bookings.rowCount).toBe(1);
     const bookingId=bookings.rows[0]!.id;
     expect(bookings.rows[0]!.status).toBe("requested");
+    const beforeRetryEmailCount=vi.mocked(fetch).mock.calls.length;
     const again=await verifyPublicBookingCode(id,resentCode!,"ar");
-    expect(again).toMatchObject({ok:false,error:"invalid"});
+    expect(again).toMatchObject({ok:true,slug:"makeup-by-maria"});
+    expect(again.ok && again.portalUrl).toBe(verified.ok && verified.portalUrl);
+    expect(vi.mocked(fetch).mock.calls.length).toBe(beforeRetryEmailCount);
+    // A different code cannot recover the booking after consumption.
+    expect(await verifyPublicBookingCode(id,resentCode==="000000"?"111111":"000000","ar"))
+      .toMatchObject({ok:false,error:"code"});
     expect((await db!.query("select id from bookings where workspace_id=$1 and source='public_booking'",[workspaceId])).rowCount).toBe(1);
     const customerMessages=vi.mocked(fetch).mock.calls.map(([,options])=>JSON.parse(String(options?.body)) as {subject:string;htmlContent:string;to:{email:string}[]});
     // Assert a trusted portal origin, not a substring that could appear on an attacker host.

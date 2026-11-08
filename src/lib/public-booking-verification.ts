@@ -389,7 +389,55 @@ export async function verifyPublicBookingCode(id: string, code: string, language
     limit 1
   `;
   const challenge = rows[0];
-  if (!challenge || challenge.consumed_at || challenge.verified_at) return { ok: false as const, error: "invalid" };
+  if (!challenge) return { ok: false as const, error: "invalid" };
+  // Permit a short authenticated recovery of the *existing* booking after
+  // a lost verification response. Neither inserts nor sends email again.
+  if (challenge.consumed_at || challenge.verified_at) {
+    if (challenge.workspace_slug !== "makeup-by-maria"
+      || challenge.public_booking_slug !== "makeup-by-maria"
+      || !challenge.consumed_at || !challenge.verified_at
+      || Number(challenge.attempts) >= Number(challenge.max_attempts)) {
+      return { ok: false as const, error: "invalid" };
+    }
+    const consumedAtMs = Date.parse(String(challenge.consumed_at));
+    if (!Number.isFinite(consumedAtMs) || consumedAtMs > Date.now()
+      || Date.now() - consumedAtMs > 30 * 60 * 1000) {
+      return { ok: false as const, error: "invalid" };
+    }
+    if (hashCode(id, code) !== String(challenge.code_hash)) {
+      await sql`
+        update public_booking_verifications
+        set attempts=attempts+1, updated_at=now()
+        where id=${id}::uuid and consumed_at is not null
+          and verified_at is not null and attempts<max_attempts
+      `;
+      return { ok: false as const, error: "code" };
+    }
+    const portalBase = getMariaBookingPortalBase();
+    if (!portalBase || !isMariaBookingRecipientAllowed(String(challenge.customer_email))) {
+      return { ok: false as const, error: "unavailable" };
+    }
+    const recovered = await sql`
+      select b.id as booking_id,b.customer_id,b.ends_at
+      from customer_events e
+      join bookings b on b.id=e.booking_id and b.workspace_id=e.workspace_id
+        and b.customer_id=e.customer_id
+      where e.workspace_id=${String(challenge.workspace_id)}
+        and e.event_type='booking' and e.metadata->>'source'='public_booking'
+        and e.metadata->>'verification_id'=${id}
+        and b.source='public_booking'
+      order by e.created_at desc limit 1
+    `;
+    const linked = recovered[0];
+    if (!linked?.booking_id || !linked?.customer_id) return { ok: false as const, error: "invalid" };
+    const recoveryLanguage: "sv" | "en" | "ar" = language === "en" || language === "ar" ? language : "sv";
+    const token = createCustomerCalendarToken({
+      workspaceId: String(challenge.workspace_id), customerId: String(linked.customer_id),
+      expiresInSeconds: portalTokenLifetimeSeconds(toIsoTimestamp(linked.ends_at)),
+    });
+    return { ok: true as const, slug: "makeup-by-maria",
+      portalUrl: `${portalBase}/mina-bokningar/${encodeURIComponent(token)}?lang=${recoveryLanguage}` };
+  }
   if (challenge.workspace_slug === "makeup-by-maria"
     && challenge.public_booking_slug !== "makeup-by-maria") return { ok: false as const, error: "invalid" };
   // Revalidate both the Maria workspace and current recipient policy when
@@ -555,5 +603,8 @@ export async function verifyPublicBookingCode(id: string, code: string, language
     !isMaria && challenge.owner_phone ? sendBookingOwnerSms({ ownerPhone: String(challenge.owner_phone), companyName: String(challenge.company_name), customerName: String(challenge.customer_name), customerPhone: String(challenge.customer_phone ?? ""), service: String(challenge.service_name), startsAt, timeZone }) : Promise.resolve(),
   ]);
 
-  return { ok: true as const, slug: String(challenge.public_booking_slug) };
+  // The verified customer sees the authenticated booking immediately even
+  // if the separate receipt email fails or public intake is later disabled.
+  return { ok: true as const, slug: String(challenge.public_booking_slug),
+    ...(isMaria ? { portalUrl } : {}) };
 }
