@@ -4,7 +4,7 @@ import type { WorkspaceTimeZone } from "@/lib/workspace-market";
 import { bookingDateLocale } from "@/lib/booking-date-locale";
 import { resolveBrevoApiKey } from "@/lib/email-runtime-config";
 import { mariaEmailLogoHtml } from "@/lib/maria-email-logo";
-import { getMariaPreviewPortalBase } from "@/lib/maria-preview-customer-safety";
+import { getMariaBookingPortalBase } from "@/lib/maria-preview-customer-safety";
 
 type BookingChangeEmailInput = {
   kind: "cancelled" | "rescheduled";
@@ -59,7 +59,7 @@ async function send(to: { email: string; name: string }, subject: string, text: 
 
 export async function sendBookingChangeEmails(input: BookingChangeEmailInput) {
   const logo = input.branding === "makeup-by-maria"
-    ? mariaEmailLogoHtml(getMariaPreviewPortalBase()) : "";
+    ? mariaEmailLogoHtml(getMariaBookingPortalBase()) : "";
   const language = input.language;
   const isEnglish = language === "en";
   const isArabic = language === "ar";

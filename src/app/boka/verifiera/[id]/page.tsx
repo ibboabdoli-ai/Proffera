@@ -4,7 +4,7 @@ import type { CSSProperties } from "react";
 
 import { readableBookingTextColor } from "@/lib/booking-theme-contract";
 import { getSql } from "@/lib/db/server";
-import { getMariaBookingPortalBase } from "@/lib/maria-preview-customer-safety";
+import { getMariaExistingBookingPortalBase } from "@/lib/maria-preview-customer-safety";
 import { MARIA_CANONICAL_PRODUCTION_ORIGIN } from "@/lib/maria-production-activation-policy";
 import { hostnameFromHostHeader, isMariaHost } from "@/lib/public-site-domains";
 import { resolvePublicBusinessLocale } from "@/lib/public-business-locale";
@@ -41,13 +41,13 @@ const safeVerificationExperience: VerificationExperience = {
 
 const messages: Record<Locale, Record<string, string>> = {
   sv: {
-    invalid: "Verifieringsförfrågan är ogiltig.", expired: "Koden har gått ut. Skicka en ny kod.", attempts: "För många felaktiga försök. Skicka en ny kod.", code: "Koden stämmer inte. Kontrollera mejlet eller SMS:et och försök igen.", conflict: "Tiden hann bli bokad. Välj en ny tid.", save: "Bokningen kunde inte sparas. Försök igen.", wait: "Vänta minst 30 sekunder innan du skickar en ny kod.", email: "Koden kunde inte skickas just nu. Försök igen om en stund.",
+    invalid: "Verifieringsförfrågan är ogiltig.", expired: "Koden har gått ut. Skicka en ny kod.", attempts: "För många felaktiga försök. Skicka en ny kod.", code: "Koden stämmer inte. Kontrollera mejlet eller SMS:et och försök igen.", conflict: "Tiden hann bli bokad. Välj en ny tid.", save: "Bokningen kunde inte sparas. Försök igen.", wait: "Vänta minst 30 sekunder innan du skickar en ny kod.", email: "Koden kunde inte skickas just nu. Försök igen om en stund.", unavailable: "Bokningen kan redan vara sparad, men länken kan inte visas nu. Kontakta Makeup by Maria för hjälp och gör inte en ny bokning.",
   },
   en: {
-    invalid: "The verification request is invalid.", expired: "The code has expired. Send a new code.", attempts: "Too many incorrect attempts. Send a new code.", code: "That code is incorrect. Check your email or SMS and try again.", conflict: "That time has just been booked. Please choose a new time.", save: "The booking could not be saved. Please try again.", wait: "Please wait at least 30 seconds before sending another code.", email: "We could not send a code right now. Please try again in a moment.",
+    invalid: "The verification request is invalid.", expired: "The code has expired. Send a new code.", attempts: "Too many incorrect attempts. Send a new code.", code: "That code is incorrect. Check your email or SMS and try again.", conflict: "That time has just been booked. Please choose a new time.", save: "The booking could not be saved. Please try again.", wait: "Please wait at least 30 seconds before sending another code.", email: "We could not send a code right now. Please try again in a moment.", unavailable: "Your booking may already be saved, but we cannot show its link right now. Contact Makeup by Maria for help. Do not submit a second booking.",
   },
   ar: {
-    invalid: "طلب التحقق غير صالح.", expired: "انتهت صلاحية الرمز. اطلب رمزًا جديدًا.", attempts: "محاولات غير صحيحة كثيرة. اطلب رمزًا جديدًا.", code: "الرمز غير صحيح. تحقّق من بريدك الإلكتروني وحاول مجددًا.", conflict: "تم حجز هذا الموعد. اختر وقتًا آخر.", save: "تعذّر حفظ الحجز. حاول مجددًا.", wait: "انتظر 30 ثانية على الأقل قبل طلب رمز جديد.", email: "تعذّر إرسال الرمز الآن. حاول لاحقًا.",
+    invalid: "طلب التحقق غير صالح.", expired: "انتهت صلاحية الرمز. اطلب رمزًا جديدًا.", attempts: "محاولات غير صحيحة كثيرة. اطلب رمزًا جديدًا.", code: "الرمز غير صحيح. تحقّق من بريدك الإلكتروني وحاول مجددًا.", conflict: "تم حجز هذا الموعد. اختر وقتًا آخر.", save: "تعذّر حفظ الحجز. حاول مجددًا.", wait: "انتظر 30 ثانية على الأقل قبل طلب رمز جديد.", email: "تعذّر إرسال الرمز الآن. حاول لاحقًا.", unavailable: "قد يكون حجزك محفوظًا بالفعل، لكن لا يمكن عرض الرابط الآن. تواصل مع Makeup by Maria للمساعدة ولا تنشئ حجزًا ثانيًا.",
   },
 };
 
@@ -85,7 +85,7 @@ async function getVerificationExperience(id: string): Promise<VerificationExperi
   const mariaWorkspace = String(rows[0]?.workspace_slug) === "makeup-by-maria";
   const mariaPreview = mariaWorkspace
     && (process.env.VERCEL_ENV === "preview"
-      || (process.env.VERCEL_ENV === "production" && Boolean(getMariaBookingPortalBase())));
+      || (process.env.VERCEL_ENV === "production" && Boolean(getMariaExistingBookingPortalBase())));
   const fallback: VerificationExperience = {
     ...safeVerificationExperience,
     mariaWorkspace,
@@ -209,6 +209,13 @@ export default async function VerifyBookingPage({ params, searchParams }: PagePr
             {deliveryText} {locale === "ar" ? "لن يتم إنشاء الحجز إلا بعد التحقق من الرمز." : isEnglish ? "The booking is created only after the code is verified." : "Bokningen skapas först när koden har verifierats."}
           </p>
 
+          {experience.mariaWorkspace ? <p className={styles.verifyLead}>
+            {locale === "ar"
+              ? "إذا أدخلت الرمز سابقًا ولكن لم يظهر تأكيد الحجز، يمكنك إدخال الرمز نفسه لاستعادة رابط الحجز دون إنشاء حجز آخر."
+              : isEnglish
+                ? "Already entered the code but lost your confirmation? Re-enter the same code to recover the existing booking link without booking again."
+                : "Har du redan angett koden men tappat bekräftelsen? Ange samma kod igen för att återställa länken till din befintliga bokning utan att boka en gång till."}
+          </p> : null}
           {resent ? <p className={styles.verifySuccess}>{locale === "ar" ? "تم إرسال رمز جديد." : isEnglish ? "A new code has been sent." : "En ny kod har skickats."}</p> : null}
           {error ? <p role="alert" className={styles.verifyError}>{error}</p> : null}
 

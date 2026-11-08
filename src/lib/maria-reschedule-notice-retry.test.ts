@@ -1,7 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("server-only",()=>({}));
-const m=vi.hoisted(()=>({sql:vi.fn(),send:vi.fn(),ready:vi.fn()}));
+vi.mock("@/lib/maria-booking-notification-lock",()=>({
+  withMariaBookingNotificationLock:async(_workspaceId:string,action:()=>Promise<unknown>)=>action(),
+}));
+const m=vi.hoisted(()=>({sql:vi.fn(),send:vi.fn(),sendManager:vi.fn(),ready:vi.fn()}));
 vi.mock("@/lib/db/server",()=>({getSql:()=>m.sql}));
 vi.mock("@/lib/maria-booking-runtime",()=>({getMariaBookingReadiness:m.ready}));
 vi.mock("@/lib/maria-preview-customer-safety",()=>({
@@ -13,6 +16,9 @@ vi.mock("@/lib/customer-calendar",()=>({
 }));
 vi.mock("@/features/email/booking-change-email",()=>({
   sendBookingChangeEmails:m.send,
+}));
+vi.mock("@/features/email/booking-reschedule-email",()=>({
+  sendBookingRescheduleEmail:m.sendManager,
 }));
 import {hasPendingMariaRescheduleNotice,retryMariaRescheduleNotice}
   from "./maria-reschedule-notice-retry";
@@ -93,6 +99,25 @@ describe("Maria customer-reschedule notification retry",()=>{
     expect(m.send.mock.calls[0]![0]).toMatchObject({
       sendCustomer:false,ownerEmail:"qa@example.invalid",
     });
+  });
+
+  it("retries a committed manager reschedule using its original localized template",async()=>{
+    const manager={...row,metadata:{...row.metadata,
+      source:"maria_manager_dashboard_reschedule",notice_customer:"pending",notice_owner:"skipped"}};
+    m.sql.mockResolvedValueOnce([manager])
+      .mockResolvedValueOnce([{attempted_at:"2026-11-08 10:00:00+00"}])
+      .mockResolvedValueOnce([{id:eventId}]);
+    m.sendManager.mockResolvedValueOnce({ok:true});
+    expect(await retryMariaRescheduleNotice(id,workspaceId)).toEqual({ok:true});
+    expect(m.sendManager).toHaveBeenCalledOnce();
+    expect(m.sendManager.mock.calls[0]![0]).toMatchObject({
+      branding:"makeup-by-maria",customerEmail:"qa@example.invalid",
+      language:"en",previousStartsAt:"2027-06-11T08:00:00.000Z",
+      startsAt:"2027-06-18T08:00:00.000Z",
+    });
+    const readSql=m.sql.mock.calls[0]![0] as TemplateStringsArray;
+    expect(readSql.join("?")).toContain("maria_manager_dashboard_reschedule");
+    expect(m.send).not.toHaveBeenCalled();
   });
 
   it("refuses a concurrently claimed or obsolete booking without sending anything",async()=>{

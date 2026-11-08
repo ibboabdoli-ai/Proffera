@@ -1,5 +1,5 @@
 import { resolvePreviewEmailRecipient } from "@/lib/email-runtime-config";
-import { inspectMariaProductionActivationRequest } from "@/lib/maria-production-activation-policy";
+import { inspectMariaProductionActivationRequest, isMariaProductionExistingBookingLifecycleAuthorized, MARIA_CANONICAL_PRODUCTION_ORIGIN } from "@/lib/maria-production-activation-policy";
 
 /**
  * Preview customer email routes must never deliver to real customer
@@ -67,4 +67,24 @@ export function isMariaBookingRecipientAllowed(
 export function getMariaBookingPortalBase(env: NodeJS.ProcessEnv = process.env) {
   if (env.VERCEL_ENV === "preview") return getMariaPreviewPortalBase(env);
   return inspectMariaProductionActivationRequest(env).portalOrigin;
+}
+
+/**
+ * Existing authorized bookings may be cancelled or recovered during an intake
+ * or package-entitlement pause. These functions do not authorize new bookings.
+ */
+export function getMariaExistingBookingPortalBase(env: NodeJS.ProcessEnv = process.env) {
+  if (env.VERCEL_ENV === "preview") return getMariaPreviewPortalBase(env);
+  return isMariaProductionExistingBookingLifecycleAuthorized(env)
+    ? MARIA_CANONICAL_PRODUCTION_ORIGIN : null;
+}
+
+export function isMariaExistingBookingRecipientAllowed(
+  email: string,
+  env: NodeJS.ProcessEnv = process.env,
+) {
+  if (env.VERCEL_ENV === "preview") return isMariaPreviewTestRecipient(email, env);
+  return isMariaProductionExistingBookingLifecycleAuthorized(env)
+    && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())
+    && email.trim().length <= 254;
 }

@@ -3,6 +3,7 @@ import "server-only";
 import { getSql } from "@/lib/db/server";
 import { getMariaBookingReadiness } from "@/lib/maria-booking-runtime";
 import { MARIA_DEPOSIT_AMOUNT_SEK, mariaBookingNumber } from "@/lib/maria-deposit";
+import { isMariaProductionSwishAuthorized } from "@/lib/maria-production-activation-policy";
 import { isMariaPreviewTestRecipient } from "@/lib/maria-preview-customer-safety";
 import { canManageWorkspaceSettings, getUserWorkspaceAccess } from "@/lib/workspace-access";
 import { hasDashboardModuleAccess } from "@/lib/workspace-module-access";
@@ -30,7 +31,8 @@ async function requireMariaManager() {
   }
   if (production) {
     const ready = await getMariaBookingReadiness();
-    if (!ready.enabled || ready.workspaceId !== access.workspaceId) {
+    if ((!ready.enabled || ready.workspaceId !== access.workspaceId)
+      && !isMariaProductionSwishAuthorized()) {
       throw new Error("MARIA_MANUAL_SWISH_FORBIDDEN");
     }
   }

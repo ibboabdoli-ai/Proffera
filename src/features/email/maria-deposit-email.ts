@@ -5,9 +5,10 @@ import { bookingDateLocale } from "@/lib/booking-date-locale";
 import { getSql } from "@/lib/db/server";
 import { resolveBrevoApiKey } from "@/lib/email-runtime-config";
 
-import { getMariaBookingPortalBase, isMariaBookingRecipientAllowed } from "@/lib/maria-preview-customer-safety";
+import { getMariaBookingPortalBase, getMariaExistingBookingPortalBase, isMariaBookingRecipientAllowed, isMariaExistingBookingRecipientAllowed } from "@/lib/maria-preview-customer-safety";
 import { getMariaBookingReadiness } from "@/lib/maria-booking-runtime";
-import { MARIA_CANONICAL_PRODUCTION_ORIGIN } from "@/lib/maria-production-activation-policy";
+import { withMariaBookingNotificationLock } from "@/lib/maria-booking-notification-lock";
+import { MARIA_CANONICAL_PRODUCTION_ORIGIN, isMariaProductionSwishAuthorized } from "@/lib/maria-production-activation-policy";
 import {
   MARIA_DEPOSIT_AMOUNT_SEK, MARIA_SWISH_NUMBER, mariaSwishPaymentPagePath,
   mariaSwishQrPath, mariaBookingNumber, mariaDepositDeadline,
@@ -16,6 +17,8 @@ import type { WorkspaceTimeZone } from "@/lib/workspace-market";
 
 export type MariaBookingStatusEmailInput = {
   bookingId: string;
+  /** Mandatory at dispatch; pure rendering may omit workspace identity. */
+  workspaceId?: string;
   status: "confirmed" | "cancelled";
   customerName: string;
   customerEmail: string;
@@ -259,18 +262,28 @@ export function buildMariaBookingStatusEmail(input: MariaBookingStatusEmailInput
  * This does not initiate a transaction, validate payments or send SMS.
  */
 export async function sendMariaBookingStatusEmail(input: MariaBookingStatusEmailInput) {
-  const base = getMariaBookingPortalBase();
-  if (!base || !isMariaBookingRecipientAllowed(input.customerEmail)) {
+  const cancellation = input.status === "cancelled";
+  // Match the booking writer's full whitespace trimming; never hand Brevo
+  // the padded string persisted in a legacy/customer-imported record.
+  const customerEmail = input.customerEmail.trim().toLowerCase();
+  const base = cancellation ? getMariaExistingBookingPortalBase() : getMariaBookingPortalBase();
+  const recipientAllowed = cancellation
+    ? isMariaExistingBookingRecipientAllowed(customerEmail)
+    : isMariaBookingRecipientAllowed(customerEmail);
+  if (!base || !recipientAllowed) {
     return { ok: false as const, error: "recipient_not_approved" as const };
   }
   // A direct status-email request cannot bypass Production workspace, schema,
   // booking entitlement and lifecycle readiness. Preview retains its QA gate.
-  if (process.env.VERCEL_ENV === "production" && !(await getMariaBookingReadiness()).enabled) {
+  if (process.env.VERCEL_ENV === "production" && !cancellation
+    && (!(await getMariaBookingReadiness()).enabled || !isMariaProductionSwishAuthorized())) {
     return { ok: false as const, error: "recipient_not_approved" as const };
   }
   const apiKey = resolveBrevoApiKey();
   const from = process.env.LEAD_FROM_EMAIL;
   if (!apiKey || !from) return { ok: false as const, error: "email_not_configured" as const };
+  try {
+    return await withMariaBookingNotificationLock(input.workspaceId ?? "", async () => {
   let content: ReturnType<typeof buildMariaBookingStatusEmail>;
   try {
     // Read the current booking status on every send. An old confirmation
@@ -289,16 +302,19 @@ export async function sendMariaBookingStatusEmail(input: MariaBookingStatusEmail
         from bookings b
         join customers c on c.id=b.customer_id and c.workspace_id=b.workspace_id
         join workspaces w on w.id::text=b.workspace_id
-        where b.id=${input.bookingId}::uuid and w.slug='makeup-by-maria'
+        where b.id=${input.bookingId}::uuid and b.workspace_id=${input.workspaceId}
+          and w.slug='makeup-by-maria'
           and w.status in ('active','trial')
           and (b.source='public_booking'
-            or (${process.env.VERCEL_ENV === "preview"}::boolean and b.source='dashboard_manual'))
+            or ((${process.env.VERCEL_ENV === "preview"
+              || (cancellation ? Boolean(getMariaExistingBookingPortalBase()) : isMariaProductionSwishAuthorized())}::boolean)
+              and b.source='dashboard_manual'))
           and b.status=${input.status}
           and b.starts_at=${input.startsAt}::timestamptz
           and b.ends_at=${input.endsAt}::timestamptz
           and (${!input.expectedRevision}::boolean
             or date_trunc('milliseconds',b.updated_at)=${input.expectedRevision ?? "1970-01-01T00:00:00.000Z"}::timestamptz)
-          and lower(trim(c.email))=${input.customerEmail.trim().toLowerCase()}
+          and lower(btrim(c.email, chr(9) || chr(10) || chr(13) || ' '))=${customerEmail}
         limit 1
       `;
     if (!rows[0]) return { ok: false as const, error: "invalid_booking" as const };
@@ -317,7 +333,7 @@ export async function sendMariaBookingStatusEmail(input: MariaBookingStatusEmail
       signal: AbortSignal.timeout(10_000),
       headers: { "api-key": apiKey, "Content-Type": "application/json" },
       body: JSON.stringify({
-        sender, to: [{ email: input.customerEmail, name: input.customerName }],
+        sender, to: [{ email: customerEmail, name: input.customerName }],
         subject: content.subject, textContent: content.text, htmlContent: content.html,
       }),
     });
@@ -325,5 +341,10 @@ export async function sendMariaBookingStatusEmail(input: MariaBookingStatusEmail
     return { ok: true as const };
   } catch {
     return { ok: false as const, error: "email_delivery_uncertain" as const };
+  }
+    });
+  } catch (error) {
+    console.error("Maria status email serialization failed", error);
+    return { ok: false as const, error: "booking_state_unavailable" as const };
   }
 }

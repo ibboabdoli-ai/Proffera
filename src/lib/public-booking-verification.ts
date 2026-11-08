@@ -7,12 +7,12 @@ import { sendBookingVerificationEmail } from "@/features/email/booking-verificat
 import { sendUnifiedBookingConfirmationEmail } from "@/features/email/unified-booking-confirmation-email";
 import { sendBookingOwnerSms, sendBookingVerificationSms } from "@/features/sms/booking-sms";
 import { createCustomerCalendarToken } from "@/lib/customer-calendar";
-import { resolveAuthSecret } from "@/lib/auth-secret";
+import { resolveAuthSecret, resolveCustomerPortalSecret } from "@/lib/auth-secret";
 import { getSql } from "@/lib/db/server";
 import { finalizeMariaVerifiedBooking } from "@/lib/maria-verified-booking";
 import { getMariaBookingReadiness } from "@/lib/maria-booking-runtime";
 import { renewMariaPreviewHoldForResend } from "@/lib/maria-resend-hold";
-import { getMariaBookingPortalBase, isMariaBookingRecipientAllowed, isMariaPreviewTestRecipient } from "@/lib/maria-preview-customer-safety";
+import { getMariaBookingPortalBase, getMariaExistingBookingPortalBase, isMariaBookingRecipientAllowed, isMariaExistingBookingRecipientAllowed, isMariaPreviewTestRecipient } from "@/lib/maria-preview-customer-safety";
 import type { WorkspaceTimeZone } from "@/lib/workspace-market";
 
 const EXPIRY_MINUTES = 10;
@@ -377,6 +377,7 @@ export async function resendPublicBookingCode(id: string, language: "sv" | "en" 
 export async function verifyPublicBookingCode(id: string, code: string, language?: "sv" | "en" | "ar") {
   const sql = getSql();
   if (!sql || !/^[0-9a-f-]{36}$/i.test(id) || !/^\d{6}$/.test(code)) return { ok: false as const, error: "invalid" };
+  const canonicalId = id.toLowerCase();
 
   const rows = await sql`
     select v.*, w.slug as workspace_slug, coalesce(nullif(ws.company_name, ''), w.company_name, w.name) as company_name,
@@ -404,17 +405,29 @@ export async function verifyPublicBookingCode(id: string, code: string, language
       || Date.now() - consumedAtMs > 30 * 60 * 1000) {
       return { ok: false as const, error: "invalid" };
     }
-    if (hashCode(id, code) !== String(challenge.code_hash)) {
-      await sql`
-        update public_booking_verifications
-        set attempts=attempts+1, updated_at=now()
-        where id=${id}::uuid and consumed_at is not null
-          and verified_at is not null and attempts<max_attempts
-      `;
+    // Reserve a recovery attempt in PostgreSQL BEFORE testing the guess.
+    // Under concurrent requests, only a caller that wins the conditional
+    // row update may evaluate the code and issue a signed portal token.
+    const reserved = await sql`
+      update public_booking_verifications
+      set attempts=attempts+1, updated_at=now()
+      where id=${id}::uuid and consumed_at is not null
+        and verified_at is not null
+        and consumed_at<=now()
+        and consumed_at>=now()-interval '30 minutes'
+        and attempts<max_attempts
+        and code_hash=${String(challenge.code_hash)}
+      returning code_hash
+    `;
+    if (reserved.length !== 1) return { ok: false as const, error: "invalid" };
+    if (hashCode(canonicalId, code) !== String(reserved[0]?.code_hash)) {
       return { ok: false as const, error: "code" };
     }
-    const portalBase = getMariaBookingPortalBase();
-    if (!portalBase || !isMariaBookingRecipientAllowed(String(challenge.customer_email))) {
+    // A committed booking is recoverable even after new intake is paused.
+    // This is code-authenticated, still rate-limited, and cannot insert or send.
+    const portalBase = getMariaExistingBookingPortalBase();
+    if (!portalBase || !resolveCustomerPortalSecret()
+      || !isMariaExistingBookingRecipientAllowed(String(challenge.customer_email))) {
       return { ok: false as const, error: "unavailable" };
     }
     const recovered = await sql`
@@ -424,7 +437,7 @@ export async function verifyPublicBookingCode(id: string, code: string, language
         and b.customer_id=e.customer_id
       where e.workspace_id=${String(challenge.workspace_id)}
         and e.event_type='booking' and e.metadata->>'source'='public_booking'
-        and e.metadata->>'verification_id'=${id}
+        and e.metadata->>'verification_id'=${canonicalId}
         and b.source='public_booking'
       order by e.created_at desc limit 1
     `;
@@ -453,7 +466,7 @@ export async function verifyPublicBookingCode(id: string, code: string, language
   if (new Date(String(challenge.expires_at)) <= new Date()) return { ok: false as const, error: "expired" };
   if (Number(challenge.attempts) >= Number(challenge.max_attempts)) return { ok: false as const, error: "attempts" };
 
-  if (hashCode(id, code) !== String(challenge.code_hash)) {
+  if (hashCode(canonicalId, code) !== String(challenge.code_hash)) {
     await sql`
       update public_booking_verifications set attempts=attempts+1,updated_at=now()
       where id=${id}::uuid and consumed_at is null and verified_at is null
@@ -496,8 +509,8 @@ export async function verifyPublicBookingCode(id: string, code: string, language
     // publication, buffer and all Maria bookings/holds under the same
     // workspace-scoped transaction lock used when a hold is created.
     const confirmed = await finalizeMariaVerifiedBooking({
-      verificationId: id,
-      expectedCodeHash: hashCode(id, code),
+      verificationId: canonicalId,
+      expectedCodeHash: hashCode(canonicalId, code),
       bookingNote,
       bookingLanguage: language === "en" || language === "ar" ? language : "sv",
     });

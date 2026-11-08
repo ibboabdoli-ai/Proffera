@@ -92,6 +92,13 @@ describe("Maria Preview first-party Swish payment information page", () => {
     const sql = vi.fn().mockResolvedValue([]);
     vi.mocked(getSql).mockReturnValue(sql as never);
     vi.stubEnv("VERCEL_ENV", "production");
+    // The payment portal must fail closed without an explicit, separate
+    // authorization even if a booking UUID exists.
+    await expect(MariaSwishPaymentPage(props)).rejects.toThrow("NEXT_NOT_FOUND");
+    expect(sql).not.toHaveBeenCalled();
+    vi.stubEnv("PROFFERA_MARIA_PUBLIC_SITE_ENABLED", "true");
+    vi.stubEnv("PROFFERA_MARIA_PRODUCTION_ORIGIN", "https://makeupbymaria.se");
+    vi.stubEnv("PROFFERA_MARIA_PRODUCTION_SWISH_ENABLED", "true");
     await expect(MariaSwishPaymentPage(props)).rejects.toThrow("NEXT_NOT_FOUND");
     expect(sql).toHaveBeenCalledTimes(1);
     sql.mockClear();
@@ -104,6 +111,9 @@ describe("Maria Preview first-party Swish payment information page", () => {
 
   it("shows an eligible Production Swish payment without the Preview-only warning", async () => {
     vi.stubEnv("VERCEL_ENV", "production");
+    vi.stubEnv("PROFFERA_MARIA_PUBLIC_SITE_ENABLED", "true");
+    vi.stubEnv("PROFFERA_MARIA_PRODUCTION_ORIGIN", "https://makeupbymaria.se");
+    vi.stubEnv("PROFFERA_MARIA_PRODUCTION_SWISH_ENABLED", "true");
     const sql = vi.fn().mockResolvedValueOnce([{ id }]);
     vi.mocked(getSql).mockReturnValue(sql as never);
     const html = renderToStaticMarkup(await MariaSwishPaymentPage(props));

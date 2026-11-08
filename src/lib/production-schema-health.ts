@@ -15,6 +15,9 @@ export const REQUIRED_PRODUCTION_MIGRATIONS = [
   // Additive localized-card schema must be applied in a controlled release
   // before this PR can be promoted; Preview preparation is not proof for Prod.
   "20261107_0074",
+  // All lifecycle-settings columns required by the customer portal are now
+  // recorded as an explicit, separately approved additive migration.
+  "20261108_0075",
 ] as const;
 
 type QueryExecutor = (

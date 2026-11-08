@@ -5,6 +5,7 @@ const runtime = vi.hoisted(() => ({
   loadDetail: vi.fn(),
   updateStatus: vi.fn(),
   sendStatusEmail: vi.fn(),
+  retrySql: vi.fn(),
 }));
 
 vi.mock("server-only", () => ({}));
@@ -33,10 +34,14 @@ vi.mock("@/lib/dashboard-booking-status", () => ({
 vi.mock("@/features/email/maria-deposit-email", () => ({
   sendMariaBookingStatusEmail: runtime.sendStatusEmail,
 }));
+vi.mock("@/lib/db/server", () => ({
+  getSql: () => (...args: unknown[]) => runtime.retrySql(...args),
+}));
 vi.mock("@/lib/maria-manual-swish", () => ({
   readMariaManualSwishStatuses: async () => ({ ok: true, entries: {} }),
 }));
 
+import { MariaStatusEmailRetryButton } from "@/components/dashboard/maria-status-email-retry-button";
 import BookingDetailPage from "./page";
 
 const id = "00000000-0000-4000-8000-000000000123";
@@ -86,6 +91,19 @@ async function getStatusAction() {
   return form.props.action as (data: FormData) => Promise<unknown>;
 }
 
+async function getStatusRetryAction() {
+  const page = await BookingDetailPage({
+    params: Promise.resolve({ id }),
+    searchParams: Promise.resolve({ lang: "en" }),
+  });
+  const form = collectElements(page).find((element) =>
+    element.type === "form" && collectElements(element.props.children)
+      .some((child) => child.type === MariaStatusEmailRetryButton),
+  );
+  if (typeof form?.props.action !== "function") throw new Error("Maria retry form action missing");
+  return form.props.action as (data: FormData) => Promise<unknown>;
+}
+
 function statusForm(status: string) {
   const form = new FormData();
   form.set("lang", "en");
@@ -103,6 +121,7 @@ beforeEach(() => {
   runtime.loadDetail.mockReset().mockResolvedValue(detail("qa@example.invalid"));
   runtime.updateStatus.mockReset();
   runtime.sendStatusEmail.mockReset().mockResolvedValue({ ok: true });
+  runtime.retrySql.mockReset();
 });
 
 afterEach(() => { vi.unstubAllEnvs(); });
@@ -192,6 +211,71 @@ describe("Maria Preview booking status action on a deleted booking", () => {
       expect(runtime.updateStatus).not.toHaveBeenCalled();
     },
   );
+
+  it("allows only cancellation of an existing Production booking during an intake pause", async () => {
+    vi.stubEnv("VERCEL_ENV","production");
+    vi.stubEnv("PROFFERA_MARIA_PUBLIC_SITE_ENABLED","true");
+    vi.stubEnv("PROFFERA_MARIA_PRODUCTION_MANAGER_ENABLED","true");
+    vi.stubEnv("PROFFERA_MARIA_PRODUCTION_CUSTOMER_EMAIL_ENABLED","true");
+    vi.stubEnv("PROFFERA_MARIA_PRODUCTION_ORIGIN","https://makeupbymaria.se");
+    vi.stubEnv("PROFFERA_MARIA_PRODUCTION_BOOKING_ENABLED","false");
+    vi.stubEnv("BREVO_API_KEY","synthetic-non-delivering-key");
+    runtime.loadDetail.mockResolvedValue(detail("customer@example.com"));
+    const action = await getStatusAction();
+    const page = await BookingDetailPage({params:Promise.resolve({id}),
+      searchParams:Promise.resolve({lang:"en"})});
+    const statusSelect=collectElements(page).find(el => el.type==="select" && el.props.name==="status");
+    expect(statusSelect).toBeTruthy();
+    const options=collectElements(statusSelect?.props.children)
+      .filter(el=>el.type==="option")
+      .map(el=>String((el.props as {value?:string}).value));
+    expect(options).toEqual(["cancelled"]);
+    runtime.updateStatus.mockResolvedValue({
+      changed:true,previousStatus:"confirmed",timeZone:"Europe/Stockholm",
+      notification:{
+        customerEmail:"customer@example.com",customerName:"Synthetic QA customer",
+        service:"Synthetic QA service",startsAt:"2026-11-20T09:00:00.000Z",
+        endsAt:"2026-11-20T10:00:00.000Z",city:"Stockholm",language:"en",
+      },
+    });
+    await expect(action(statusForm("confirmed"))).rejects.toThrow(
+      `REDIRECT:/dashboard/bokningar/${id}?error=maria_preview&lang=en`);
+    expect(runtime.updateStatus).not.toHaveBeenCalled();
+    await expect(action(statusForm("cancelled"))).rejects.toThrow(
+      `REDIRECT:/dashboard/bokningar/${id}?updated=1&lang=en`);
+    expect(runtime.updateStatus).toHaveBeenCalledExactlyOnceWith(id,"cancelled");
+    expect(runtime.sendStatusEmail).toHaveBeenCalledOnce();
+  });
+
+  it("retries a tab-padded Preview cancellation without losing PostgreSQL timestamp milliseconds", async () => {
+    const current = detail("qa@example.invalid");
+    runtime.loadDetail.mockResolvedValue({
+      ...current, booking: { ...current.booking, status: "cancelled" },
+    });
+    runtime.retrySql.mockResolvedValueOnce([{
+      status: "cancelled", service: "Synthetic QA service", city: "Stockholm",
+      starts_at: new Date("2027-06-18T09:00:00.123Z"),
+      ends_at: new Date("2027-06-18T12:00:00.456Z"),
+      customer_name: "Synthetic QA customer",
+      customer_email: "\tQA@example.invalid  \r",
+      booking_language: "sv", confirmed_at: null,
+    }]);
+    const action = await getStatusRetryAction();
+    const form = new FormData();
+    form.set("lang", "en");
+    await expect(action(form)).rejects.toThrow(
+      `REDIRECT:/dashboard/bokningar/${id}?maria_mail=resent&lang=en`,
+    );
+    expect(runtime.sendStatusEmail).toHaveBeenCalledWith(expect.objectContaining({
+      bookingId: id,
+      customerEmail: "qa@example.invalid",
+      startsAt: "2027-06-18T09:00:00.123Z",
+      endsAt: "2027-06-18T12:00:00.456Z",
+      status: "cancelled",
+    }));
+    const query = (runtime.retrySql.mock.calls[0]![0] as TemplateStringsArray).join("?");
+    expect(query).toContain("lower(btrim(c.email, chr(9) || chr(10) || chr(13) || ' '))=?");
+  });
 
   it("does not falsely claim email delivery when a Maria reschedule notification fails", async () => {
     const page = await BookingDetailPage({

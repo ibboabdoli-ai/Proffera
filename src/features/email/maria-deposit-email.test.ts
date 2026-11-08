@@ -1,12 +1,16 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("server-only", () => ({}));
+vi.mock("@/lib/maria-booking-notification-lock", () => ({
+  withMariaBookingNotificationLock: async (_workspaceId: string, action: () => Promise<unknown>) => action(),
+}));
 const dbQuery = vi.hoisted(() => vi.fn());
 vi.mock("@/lib/db/server", () => ({ getSql: () => (...args: unknown[]) => dbQuery(...args) }));
 
 import { buildMariaBookingStatusEmail, sendMariaBookingStatusEmail } from "./maria-deposit-email";
 
 const booking = {
+  workspaceId: "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee",
   bookingId: "00000000-0000-0000-0000-000000000001",
   status: "confirmed" as const,
   customerName: "QA <Bride>",
@@ -143,6 +147,19 @@ describe("Maria-only Swish confirmation and cancellation email", () => {
     expect(values).toContain(booking.endsAt);
   });
 
+  it("trims tabs, carriage returns and spaces for the SQL recipient gate and Brevo recipient", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true });
+    vi.stubGlobal("fetch", fetchMock);
+    expect(await sendMariaBookingStatusEmail({
+      ...booking, customerEmail: "\tQA@example.invalid  \r",
+    })).toEqual({ ok: true });
+    const sqlText = (dbQuery.mock.calls[0]![0] as TemplateStringsArray).join("?");
+    expect(sqlText).toContain("lower(btrim(c.email, chr(9) || chr(10) || chr(13) || ' '))=?");
+    expect(dbQuery.mock.calls[0]).toContain("qa@example.invalid");
+    const sent = JSON.parse(String(fetchMock.mock.calls[0]![1].body)) as { to: Array<{email: string}> };
+    expect(sent.to).toEqual([{ email: "qa@example.invalid", name: "QA <Bride>" }]);
+  });
+
   it("reads the latest booking-scoped manual payment state before sending a confirmation", async () => {
     dbQuery.mockResolvedValueOnce([{ deposit_state: "paid" }]);
     const fetchMock = vi.fn().mockResolvedValue({ ok: true });
@@ -232,6 +249,26 @@ describe("Maria-only Swish confirmation and cancellation email", () => {
     vi.stubEnv("VERCEL_ENV", "production");
     expect(await sendMariaBookingStatusEmail(booking)).toEqual({ ok: false, error: "recipient_not_approved" });
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("sends an existing cancellation during an authorized Production intake pause, not a deposit request", async () => {
+    vi.stubEnv("VERCEL_ENV","production");
+    vi.stubEnv("PROFFERA_MARIA_PUBLIC_SITE_ENABLED","true");
+    vi.stubEnv("PROFFERA_MARIA_PRODUCTION_MANAGER_ENABLED","true");
+    vi.stubEnv("PROFFERA_MARIA_PRODUCTION_CUSTOMER_EMAIL_ENABLED","true");
+    vi.stubEnv("PROFFERA_MARIA_PRODUCTION_ORIGIN","https://makeupbymaria.se");
+    vi.stubEnv("PROFFERA_MARIA_PRODUCTION_BOOKING_ENABLED","false");
+    vi.stubEnv("PROFFERA_MARIA_PRODUCTION_SWISH_ENABLED","false");
+    const fetchMock=vi.fn().mockResolvedValue({ok:true});
+    vi.stubGlobal("fetch",fetchMock);
+    expect(await sendMariaBookingStatusEmail({...booking,status:"cancelled"}))
+      .toEqual({ok:true});
+    const delivered=JSON.parse(fetchMock.mock.calls[0]![1].body as string);
+    expect(delivered.htmlContent).not.toContain("/api/makeup-by-maria/swish-qr/");
+    expect(delivered.textContent).not.toContain("2 000 kr");
+    expect(await sendMariaBookingStatusEmail(booking))
+      .toEqual({ok:false,error:"recipient_not_approved"});
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
   it("does not send a stale deposit request if the booking was cancelled", async () => {

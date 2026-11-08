@@ -144,7 +144,18 @@ export async function sendBookingRescheduleEmail(input: SendBookingRescheduleEma
         htmlContent: html,
       }),
     });
-    const data = (await response.json().catch(() => ({}))) as BrevoResponse;
+    let data: BrevoResponse;
+    try {
+      data = (await response.json()) as BrevoResponse;
+    } catch {
+      // A 2xx status with an unreadable response body does not prove that
+      // Brevo recorded the message. Never show a false delivery success.
+      if (response.ok) return {
+        ok: false as const,
+        message: "Brevo response body could not be read; email delivery is unconfirmed.",
+      };
+      data = {};
+    }
     if (!response.ok) return { ok: false as const, message: data.message ?? data.code ?? "Kunde inte skicka ombokningsmejl." };
     return { ok: true as const, providerId: data.messageId ?? null };
   } catch (error) {

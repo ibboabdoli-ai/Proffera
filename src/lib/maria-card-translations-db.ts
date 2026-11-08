@@ -7,17 +7,23 @@ export type MariaCardTranslations = Map<string, { en: string; ar: string }>;
 /**
  * Read only Maria bridal-card copy for the selected workspace in Preview,
  * or in Production after the separate owner-editor feature gate is enabled.
- * Missing schema stays on the site's established language-specific defaults;
- * only an authenticated Maria manager can save new translations.
+ * Public display can use language defaults when schema is missing. The
+ * editable manager page requests strict reads to avoid overwriting saved copy.
  */
-export async function readMariaCardTranslations(workspaceId: string): Promise<MariaCardTranslations> {
+export async function readMariaCardTranslations(
+  workspaceId: string,
+  options: { strict?: boolean } = {},
+): Promise<MariaCardTranslations> {
   const translations: MariaCardTranslations = new Map();
   const preview = process.env.VERCEL_ENV === "preview";
   const productionEditor = process.env.VERCEL_ENV === "production"
     && process.env.PROFFERA_MARIA_PRODUCTION_YEAR_EDITOR_ENABLED === "true";
   if (!preview && !productionEditor) return translations;
   const sql = getSql();
-  if (!sql) return translations;
+  if (!sql) {
+    if (options.strict) throw new Error("MARIA_TRANSLATIONS_DB_UNAVAILABLE");
+    return translations;
+  }
   try {
     const rows = await sql`
       select s.public_slug, t.locale, t.description
@@ -46,7 +52,7 @@ export async function readMariaCardTranslations(workspaceId: string): Promise<Ma
     // All other read
     // failures must stop the editor: returning defaults could overwrite
     // existing translations on the manager's next save.
-    if ((error as { code?: string } | null)?.code === "42P01") return new Map();
+    if (!options.strict && (error as { code?: string } | null)?.code === "42P01") return new Map();
     console.error("Maria card translations could not be read", error);
     throw error;
   }

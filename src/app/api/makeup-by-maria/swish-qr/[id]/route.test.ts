@@ -61,15 +61,18 @@ describe("Maria Preview booking-specific Swish QR", () => {
     expect(text).toContain("b.source='public_booking'");
     expect(text).toContain("b.source='dashboard_manual'");
     expect(bound).toContain(true);
-    expect(text).toContain("lower(trim(c.email))=$4");
-    expect(text).toContain("b.workspace_id=$6");
+    expect(text).toContain("lower(btrim(c.email, chr(9) || chr(10) || chr(13) || ' '))=$5");
+    expect(text).toContain("b.workspace_id=$7");
     expect(text).toContain("maria_swish_manual_deposit_v1");
     expect(text).toContain("<> 'paid'");
-    expect(bound).toEqual([id, true, false, "qa@example.invalid", false, "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee"]);
+    expect(bound).toEqual([id, true, false, false, "qa@example.invalid", false, "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee"]);
   });
 
   it("supports a Production PNG for an existing confirmed unpaid booking with a unique reference", async () => {
     vi.stubEnv("VERCEL_ENV", "production");
+    vi.stubEnv("PROFFERA_MARIA_PUBLIC_SITE_ENABLED", "true");
+    vi.stubEnv("PROFFERA_MARIA_PRODUCTION_ORIGIN", "https://makeupbymaria.se");
+    vi.stubEnv("PROFFERA_MARIA_PRODUCTION_SWISH_ENABLED", "true");
     const sql = vi.fn().mockResolvedValueOnce([{ id }]);
     vi.mocked(getSql).mockReturnValue(sql as never);
     const response = await GET(request, params);
@@ -83,6 +86,11 @@ describe("Maria Preview booking-specific Swish QR", () => {
     const sql = vi.fn().mockResolvedValue([]);
     vi.mocked(getSql).mockReturnValue(sql as never);
     vi.stubEnv("VERCEL_ENV", "production");
+    expect((await GET(request, params)).status).toBe(404);
+    expect(sql).not.toHaveBeenCalled();
+    vi.stubEnv("PROFFERA_MARIA_PUBLIC_SITE_ENABLED", "true");
+    vi.stubEnv("PROFFERA_MARIA_PRODUCTION_ORIGIN", "https://makeupbymaria.se");
+    vi.stubEnv("PROFFERA_MARIA_PRODUCTION_SWISH_ENABLED", "true");
     expect((await GET(request, params)).status).toBe(404);
     expect(sql).toHaveBeenCalledOnce();
     sql.mockClear();

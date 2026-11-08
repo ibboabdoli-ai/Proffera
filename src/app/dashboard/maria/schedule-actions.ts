@@ -51,6 +51,9 @@ export async function saveMariaScheduleAction(formData: FormData) {
   }));
   if(days.some(d=>!d.closed && (d.first===null||d.last===null||d.last<=d.first
     ||d.last+duration+buffer>1439))) redirect("/dashboard/maria?error=schedule");
+  const proposedHours = JSON.stringify(days.map(d => ({
+    weekday:d.day, is_closed:d.closed, first_minute:d.first, last_minute:d.last,
+  })));
   const sql=getSql();
   if (!sql) redirect("/dashboard/maria?error=database");
   try {
@@ -70,7 +73,40 @@ export async function saveMariaScheduleAction(formData: FormData) {
           select 1 from public_booking_verifications hold
           where hold.workspace_id=${access.workspaceId}::uuid
             and hold.consumed_at is null and hold.expires_at>now()
-        )) then 1 else 0 end) as maria_package_guard
+        )) and not exists (
+          -- Lock-scope check of the persisted duration for stale hours-only forms.
+          select 1 from workspace_services s
+          cross join jsonb_to_recordset(${proposedHours}::jsonb)
+            as d(weekday integer,is_closed boolean,first_minute integer,last_minute integer)
+          where s.workspace_id=${access.workspaceId}
+            and s.public_slug ~ '^maria-bridal-(trial|without-trial)-(202[6-9]|203[0-6])$'
+            and d.is_closed=false
+            and (
+              coalesce((case when ${serviceChanged}::boolean then ${duration}
+                else s.duration_minutes end),-1) < 1
+              or coalesce((case when ${serviceChanged}::boolean then ${buffer}
+                else s.buffer_after_minutes end),-1) < 0
+              or d.last_minute
+                + (case when ${serviceChanged}::boolean then ${duration} else s.duration_minutes end)
+                + (case when ${serviceChanged}::boolean then ${buffer} else s.buffer_after_minutes end)
+                > 1439
+            )
+        ) and not exists (
+          -- A submitted start window must preserve every active OTP hold start.
+          select 1 from public_booking_verifications hold
+          where hold.workspace_id=${access.workspaceId}::uuid
+            and hold.consumed_at is null and hold.expires_at>now()
+            and not exists (
+              select 1 from jsonb_to_recordset(${proposedHours}::jsonb)
+                as d(weekday integer,is_closed boolean,first_minute integer,last_minute integer)
+              where d.is_closed=false
+                and d.weekday=extract(dow from
+                  (hold.starts_at at time zone 'Europe/Stockholm'))::int
+                and (extract(hour from (hold.starts_at at time zone 'Europe/Stockholm'))*60
+                  +extract(minute from (hold.starts_at at time zone 'Europe/Stockholm')))
+                  between d.first_minute and d.last_minute
+            )
+        ) then 1 else 0 end) as maria_package_guard
       `,
       ...days.map(d=>sql`
         insert into workspace_booking_hours

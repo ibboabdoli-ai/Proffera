@@ -104,7 +104,7 @@ export async function rescheduleMariaDashboardBooking(input: {
         with eligible as (
           select b.id,b.workspace_id,b.customer_id,b.starts_at as previous_starts_at,
             b.ends_at as previous_ends_at,c.name as customer_name,c.email as customer_email,
-            c.phone as customer_phone,b.service as service_name,b.city,
+            c.phone as customer_phone,s.name as service_name,b.city,
             coalesce((select e.metadata->>'language' from customer_events e
               where e.workspace_id=b.workspace_id and e.booking_id=b.id
                 and e.event_type='booking' and e.metadata->>'source'='public_booking'
@@ -167,11 +167,14 @@ export async function rescheduleMariaDashboardBooking(input: {
         moved as (
           update bookings b
           set starts_at=${newStartIso}::timestamptz,
-            ends_at=${newEndIso}::timestamptz,updated_at=now()
+            ends_at=${newEndIso}::timestamptz,
+            -- The old trigger resolves by bookings.service text. Keep it
+            -- consistent with the authoritative service_id on a reschedule.
+            service=eligible.service_name,updated_at=now()
           from eligible
           where b.id=eligible.id and b.starts_at=eligible.previous_starts_at
             and b.status in ('requested','confirmed')
-          returning b.id,b.workspace_id,b.customer_id,eligible.customer_name,
+          returning b.id,b.workspace_id,b.customer_id,b.updated_at as notice_revision,eligible.customer_name,
             eligible.customer_email,eligible.customer_phone,eligible.service_name,
             eligible.city,eligible.booking_language,eligible.previous_starts_at,eligible.previous_ends_at
         ),
@@ -195,7 +198,12 @@ export async function rescheduleMariaDashboardBooking(input: {
           select workspace_id,customer_id,id,'booking',
             'Bokning ombokad','Maria dashboard changed the booking time.',
             jsonb_build_object('source','maria_manager_dashboard_reschedule',
-              'starts_at',${newStartIso}::text,'ends_at',${newEndIso}::text)
+              'starts_at',${newStartIso}::text,'ends_at',${newEndIso}::text,
+              'previous_starts_at',previous_starts_at::text,
+              'previous_ends_at',previous_ends_at::text,
+              'language',coalesce(booking_language,'sv'),
+              'notice_revision',date_trunc('milliseconds',notice_revision)::text,
+              'notice_customer','pending','notice_owner','skipped')
           from moved returning id
         )
         select * from moved

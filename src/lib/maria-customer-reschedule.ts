@@ -4,8 +4,10 @@ import { sendBookingChangeEmails } from "@/features/email/booking-change-email";
 import { getSql } from "@/lib/db/server";
 import { getMariaAvailability } from "@/lib/maria-booking-availability";
 import { getMariaBookingReadiness } from "@/lib/maria-booking-runtime";
+import { withMariaBookingNotificationLock } from "@/lib/maria-booking-notification-lock";
 import { getMariaBookingPortalBase, isMariaBookingRecipientAllowed } from "@/lib/maria-preview-customer-safety";
 import { parseLocalDateTime, validatePublicBookingPolicy } from "@/lib/public-booking-policy";
+import { postgresTimestampIso } from "@/lib/postgres-timestamp";
 
 type MariaChangeInput = {
   workspaceId: string;
@@ -122,7 +124,7 @@ export async function rescheduleMariaCustomerBooking(input: MariaChangeInput) {
             and b.starts_at<>${start}::timestamptz
             and w.slug='makeup-by-maria' and w.public_booking_slug='makeup-by-maria'
             and w.status in ('active','trial')
-            and (${process.env.VERCEL_ENV !== "preview"}::boolean or lower(trim(c.email))=lower(${process.env.PROFFERA_MARIA_PREVIEW_TEST_EMAIL?.trim() ?? ""}))
+            and (${process.env.VERCEL_ENV !== "preview"}::boolean or lower(btrim(c.email, chr(9) || chr(10) || chr(13) || ' '))=lower(${process.env.PROFFERA_MARIA_PREVIEW_TEST_EMAIL?.trim() ?? ""}))
             and coalesce(ps.customer_reschedule_enabled,true)=true
             and s.public_slug=${slug} and s.is_active=true and s.public_status='published'
             and s.duration_minutes between 1 and 1440
@@ -166,12 +168,15 @@ export async function rescheduleMariaCustomerBooking(input: MariaChangeInput) {
         changed_booking as (
           update bookings b
           set starts_at=${start}::timestamptz,ends_at=${end}::timestamptz,
+            -- Preserve stable service_id but sync the denormalized name so
+            -- the existing public-booking trigger can find a renamed service.
+            service=eligible.service_name,
             status=case when eligible.needs_confirmation then 'requested' else 'confirmed' end,
             updated_at=now()
           from eligible
           where b.id=eligible.id and b.starts_at=eligible.old_starts_at
             and b.status in ('requested','confirmed')
-          returning b.id,b.workspace_id,b.customer_id,b.status,
+          returning b.id,b.workspace_id,b.customer_id,b.status,date_trunc('milliseconds',b.updated_at) as notice_revision,
             eligible.old_starts_at,eligible.old_ends_at,eligible.customer_name,
             eligible.customer_email,eligible.company_name,eligible.owner_email,
             eligible.time_zone,eligible.service_name,eligible.city
@@ -203,6 +208,7 @@ export async function rescheduleMariaCustomerBooking(input: MariaChangeInput) {
               'previous_starts_at',old_starts_at::text,
               'previous_ends_at',old_ends_at::text,
               'language',${input.language}::text,
+              'notice_revision',date_trunc('milliseconds',notice_revision)::text,
               'notice_customer','sending',
               'notice_owner',case when owner_email is not null then 'sending' else 'skipped' end,
               'notice_attempted_at',now()::text)
@@ -214,6 +220,28 @@ export async function rescheduleMariaCustomerBooking(input: MariaChangeInput) {
     ]);
     const booking = changed?.[0];
     if (!booking) return { ok: false as const, error: "conflict" as const };
+    try {
+      return await withMariaBookingNotificationLock(input.workspaceId, async () => {
+        const current = await sql`
+          select 1 from bookings b
+          join customers c on c.id=b.customer_id and c.workspace_id=b.workspace_id
+          where b.workspace_id=${input.workspaceId} and b.id=${input.bookingId}::uuid
+            and b.status in ('requested','confirmed')
+            and b.starts_at=${start}::timestamptz and b.ends_at=${end}::timestamptz
+            and date_trunc('milliseconds',b.updated_at)=date_trunc('milliseconds',${postgresTimestampIso(booking.notice_revision)}::timestamptz)
+            and lower(btrim(c.email, chr(9) || chr(10) || chr(13) || ' '))=lower(${String(booking.customer_email).trim()})
+          limit 1
+        `;
+        if (!current[0]) {
+          await sql`
+            update customer_events set metadata=metadata||jsonb_build_object(
+              'notice_customer','superseded','notice_owner','superseded')
+            where id=${String(booking.notice_event_id)}::uuid
+              and workspace_id=${input.workspaceId} and booking_id=${input.bookingId}::uuid
+              and metadata->>'source'='maria_preview_reschedule'
+          `;
+          return { ok: true as const, emailWarning: false };
+        }
     // Do not deliver Preview notifications to any recipient beyond the QA inbox.
     const notices = await sendBookingChangeEmails({
       kind: "rescheduled",
@@ -225,8 +253,8 @@ export async function rescheduleMariaCustomerBooking(input: MariaChangeInput) {
       companyName: String(booking.company_name),
       service: String(booking.service_name),
       city: String(booking.city ?? ""),
-      oldStartsAt: new Date(String(booking.old_starts_at)).toISOString(),
-      oldEndsAt: new Date(String(booking.old_ends_at)).toISOString(),
+      oldStartsAt: postgresTimestampIso(booking.old_starts_at),
+      oldEndsAt: postgresTimestampIso(booking.old_ends_at),
       newStartsAt: start,
       newEndsAt: end,
       portalUrl: `${base}/mina-bokningar/${encodeURIComponent(input.token)}?lang=${input.language}`,
@@ -269,6 +297,11 @@ export async function rescheduleMariaCustomerBooking(input: MariaChangeInput) {
       });
     }
     return { ok: true as const, emailWarning: emailWarning || !journalSaved };
+      });
+    } catch (error) {
+      console.error("Committed Maria reschedule notification requires follow-up", error);
+      return { ok: true as const, emailWarning: true };
+    }
   } catch (error) {
     console.error("Maria customer reschedule failed closed", error);
     return { ok: false as const, error: "conflict" as const };

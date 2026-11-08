@@ -10,17 +10,23 @@ type Query = { text: string; values: unknown[] };
 type QueryResponse = Record<string, unknown>[];
 const runtime = vi.hoisted(() => ({
   makeSql: undefined as undefined | (() => unknown),
+  databaseUrl: "",
   workspaceId: "",
   workspaceSlug: "makeup-by-maria",
   userId: "maria-qa-manager",
   role: "owner",
 }));
 vi.mock("server-only", () => ({}));
+vi.mock("@/lib/auth-secret", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/auth-secret")>()),
+  resolveCustomerPortalSecret: () => "synthetic-maria-postgres-portal-test-only",
+}));
 vi.mock("@neondatabase/serverless", () => ({
   neon: () => runtime.makeSql?.() ?? null,
 }));
 vi.mock("@/lib/db/database-url", () => ({
   resolveDatabaseUrl: () => "postgresql://synthetic-manager-test-only.invalid",
+  resolveNodePostgresDatabaseUrl: () => runtime.databaseUrl,
 }));
 vi.mock("@/lib/db/server", () => ({
   getSql: () => runtime.makeSql?.() ?? null,
@@ -50,7 +56,9 @@ vi.mock("next/navigation", () => ({
 }));
 
 import { readMariaManualSwishStatuses, setMariaManualSwishStatus } from "@/lib/maria-manual-swish";
+import { cancelCustomerCalendarBooking, createCustomerCalendarToken } from "@/lib/customer-calendar";
 import { mariaBookingNumber } from "@/lib/maria-deposit";
+import { readMariaSwishQrEligibility } from "@/lib/maria-swish-qr-eligibility";
 import { saveMariaYearAction } from "@/app/dashboard/maria/actions";
 import { GET as getMariaPublicConfig } from "@/app/api/makeup-by-maria/config/route";
 import { saveMariaProductionYearAction } from "@/app/dashboard/maria/production-year-actions";
@@ -94,6 +102,7 @@ function compileSql(strings: TemplateStringsArray, values: unknown[]): Query {
     const port = docker(["port", container, "5432/tcp"]).split(/\r?\n/u)[0]?.match(/:(\d+)$/u)?.[1];
     if (!port) throw new Error("Maria PostgreSQL test port missing");
     connectionString = "postgres://postgres:postgres@127.0.0.1:" + port + "/proffera_test";
+    runtime.databaseUrl = connectionString;
     let ready = false;
     for (let attempt = 0; attempt < 80; attempt++) {
       const probe = new Client({ connectionString });
@@ -371,6 +380,31 @@ function compileSql(strings: TemplateStringsArray, values: unknown[]): Query {
     }
   });
 
+  it("does not publish 2026 draft prices through the Production public config", async () => {
+    const existing = (await db!.query<{public_slug:string;public_status:string}>(
+      "select public_slug,public_status from workspace_services where workspace_id=$1 and public_slug in ('maria-bridal-trial-2026','maria-bridal-without-trial-2026')",
+      [workspaceId],
+    )).rows;
+    expect(existing.length).toBe(2);
+    try {
+      await db!.query(
+        "update workspace_services set public_status='draft' where workspace_id=$1 and public_slug in ('maria-bridal-trial-2026','maria-bridal-without-trial-2026')",
+        [workspaceId],
+      );
+      vi.stubEnv("VERCEL_ENV","production");
+      const payload = await (await getMariaPublicConfig()).json();
+      expect((payload.years as Array<{year:number}>).find(row=>row.year===2026)).toBeUndefined();
+      expect(payload.prices2026).toEqual({});
+    } finally {
+      for (const row of existing) {
+        await db!.query(
+          "update workspace_services set public_status=$3 where workspace_id=$1 and public_slug=$2",
+          [workspaceId,row.public_slug,row.public_status],
+        );
+      }
+    }
+  });
+
   it("hides and refuses a booking when the approved Preview recipient changes", async () => {
     const count = () => db!.query<{ count: number }>(
       "select count(*)::int as count from customer_events where workspace_id=$1 and booking_id=$2::uuid and metadata->>'source'='maria_swish_manual_deposit_v1'",
@@ -384,6 +418,16 @@ function compileSql(strings: TemplateStringsArray, values: unknown[]): Query {
     await expect(setMariaManualSwishStatus(bookingId, "paid"))
       .rejects.toThrow("MARIA_MANUAL_SWISH_FORBIDDEN");
     expect(Number((await count()).rows[0]?.count)).toBe(before);
+  });
+
+  it("shows Production manual-booking payment instructions only after separate Swish activation", async () => {
+    vi.stubEnv("VERCEL_ENV","production");
+    vi.stubEnv("PROFFERA_MARIA_PUBLIC_SITE_ENABLED","true");
+    vi.stubEnv("PROFFERA_MARIA_PRODUCTION_ORIGIN","https://makeupbymaria.se");
+    vi.stubEnv("PROFFERA_MARIA_PRODUCTION_SWISH_ENABLED",undefined);
+    expect(await readMariaSwishQrEligibility(bookingId)).toBe("unavailable");
+    vi.stubEnv("PROFFERA_MARIA_PRODUCTION_SWISH_ENABLED","true");
+    expect(await readMariaSwishQrEligibility(bookingId)).toBe("eligible");
   });
 
   it("fails closed if the effective Brevo inbox differs from the Maria allowlist", async () => {
@@ -498,6 +542,9 @@ function compileSql(strings: TemplateStringsArray, values: unknown[]): Query {
       await expect(saveMariaYearAction(form))
         .rejects.toThrow("TEST_REDIRECT:/dashboard/maria?error=translation_setup");
       expect(await readMariaCardTranslations(workspaceId)).toEqual(new Map());
+      // The public display may fall back, but the editable manager must not.
+      await expect(readMariaCardTranslations(workspaceId, {strict:true}))
+        .rejects.toMatchObject({code:"42P01"});
       const created = await db!.query<{count:number}>(
         "select count(*)::int as count from workspace_services where workspace_id=$1 and public_slug in ('maria-bridal-trial-2035','maria-bridal-without-trial-2035')",
         [workspaceId],
@@ -764,39 +811,107 @@ function compileSql(strings: TemplateStringsArray, values: unknown[]): Query {
         [workspaceId, `Maria QA reschedule ${year}`, `maria-bridal-trial-${year}`],
       );
     }
-    const service = await db!.query<{ id: string }>(
-      "select id::text from workspace_services where workspace_id=$1 and public_slug=$2 and public_status='published'",
+    const service = await db!.query<{ id: string; name: string }>(
+      "select id::text,name from workspace_services where workspace_id=$1 and public_slug=$2 and public_status='published'",
       [workspaceId, `maria-bridal-trial-${year}`],
     );
     expect(service.rowCount).toBe(1);
     await db!.query(
-      "update bookings set service_id=$1::uuid,source='public_booking',starts_at=now()+interval '20 days', ends_at=now()+interval '20 days 3 hours' where id=$2::uuid",
-      [service.rows[0]!.id, bookingId],
+      "update bookings set service_id=$1::uuid,service=$2,source='public_booking',starts_at=now()+interval '20 days', ends_at=now()+interval '20 days 3 hours' where id=$3::uuid",
+      [service.rows[0]!.id, service.rows[0]!.name, bookingId],
     );
     await db!.query(
       "insert into workspace_booking_hours (workspace_id,weekday,opens_at,closes_at,is_closed) values ($1,5,'06:00','10:00',false) on conflict (workspace_id,weekday) do update set opens_at='06:00',closes_at='10:00',is_closed=false",
       [workspaceId],
     );
+    // Reproduce a service renamed after its booking was created: the old
+    // name remains in bookings.service until the reschedule writes through.
+    const renamedService = `Renamed synthetic Maria service ${year}`;
+    await db!.query("update workspace_services set name=$2 where id=$1::uuid",
+      [service.rows[0]!.id,renamedService]);
+    try {
     const changed = await rescheduleMariaDashboardBooking({
       bookingId, workspaceId, localStartsAt: day + "T06:00",
     });
     expect(changed.ok).toBe(true);
     if (!changed.ok) throw new Error(changed.error);
     expect(changed.result.changed).toBe(true);
-    const persisted = await db!.query(
-      "select (starts_at at time zone 'Europe/Stockholm')::text as starts_local from bookings where id=$1::uuid",
+    const persisted = await db!.query<{starts_local:string;service:string}>(
+      "select (starts_at at time zone 'Europe/Stockholm')::text as starts_local,service from bookings where id=$1::uuid",
       [bookingId],
     );
     expect(String(persisted.rows[0]?.starts_local)).toContain(day + " 06:00:00");
+    expect(persisted.rows[0]?.service).toBe(renamedService);
+    // Persist the notification before a provider request, so the owner can retry.
+    const savedNotice=await db!.query<{metadata:Record<string,unknown>}>(
+      "select metadata from customer_events where workspace_id=$1 and booking_id=$2::uuid and metadata->>'source'='maria_manager_dashboard_reschedule' order by created_at desc,id desc limit 1",
+      [workspaceId,bookingId],
+    );
+    expect(savedNotice.rows[0]?.metadata).toMatchObject({
+      source:"maria_manager_dashboard_reschedule",notice_customer:"pending",
+      notice_owner:"skipped",language:"sv",
+      previous_starts_at:expect.any(String),previous_ends_at:expect.any(String),
+    });
 
-    await db!.query(
-      "insert into public_booking_verifications (workspace_id,public_booking_slug,customer_name,customer_email,service_id,service_name,starts_at,ends_at,code_hash,expires_at) values ($1::uuid,'makeup-by-maria','QA Hold','qa@example.invalid',$2::uuid,'Synthetic hold',($3::timestamp at time zone 'Europe/Stockholm'),($3::timestamp at time zone 'Europe/Stockholm') + interval '3 hours','synthetic-only',now()+interval '30 minutes')",
+    } finally {
+      await db!.query("update workspace_services set name=$2 where id=$1::uuid",
+        [service.rows[0]!.id,service.rows[0]!.name]);
+    }
+
+    const hold = await db!.query<{id:string}>(
+      "insert into public_booking_verifications (workspace_id,public_booking_slug,customer_name,customer_email,service_id,service_name,starts_at,ends_at,code_hash,expires_at) values ($1::uuid,'makeup-by-maria','QA Hold','qa@example.invalid',$2::uuid,'Synthetic hold',($3::timestamp at time zone 'Europe/Stockholm'),($3::timestamp at time zone 'Europe/Stockholm') + interval '3 hours','synthetic-only',now()+interval '30 minutes') returning id::text",
       [workspaceId, service.rows[0]!.id, day + " 09:30"],
     );
-    const conflicted = await rescheduleMariaDashboardBooking({
-      bookingId, workspaceId, localStartsAt: day + "T09:30",
-    });
-    expect(conflicted).toMatchObject({ ok: false, error: "conflict" });
+    try {
+      const conflicted = await rescheduleMariaDashboardBooking({
+        bookingId, workspaceId, localStartsAt: day + "T09:30",
+      });
+      expect(conflicted).toMatchObject({ ok: false, error: "conflict" });
+    } finally {
+      // A synthetic hold must not leak into the following independent
+      // schedule-saving regression and falsely reject otherwise valid hours.
+      await db!.query("delete from public_booking_verifications where id=$1::uuid", [hold.rows[0]!.id]);
+    }
+  });
+
+  it("cancels a Preview booking with a tab-padded approved email using real PostgreSQL", async () => {
+    const paddedCustomerId=randomUUID();
+    const paddedBookingId=randomUUID();
+    await db!.query(
+      "insert into customers (id,workspace_id,name,email,status,source) values ($1::uuid,$2,'Synthetic Preview QA',$3,'active','dashboard_manual')",
+      [paddedCustomerId,workspaceId,"\tQA@example.invalid  \r"],
+    );
+    try {
+      await db!.query(
+        "insert into bookings (id,workspace_id,customer_id,title,service,status,source,starts_at,ends_at) values ($1::uuid,$2,$3::uuid,'Synthetic QA cancellation','Synthetic makeup','requested','dashboard_manual',now()+interval '28 days',now()+interval '28 days 3 hours')",
+        [paddedBookingId,workspaceId,paddedCustomerId],
+      );
+      // This tests the actual cancellation predicate, not a detached SQL copy.
+      // Never send real email while exercising isolated PostgreSQL.
+      vi.stubEnv("PROFFERA_PREVIEW_BREVO_API_KEY","");
+      vi.stubEnv("BREVO_API_KEY","");
+      const token=createCustomerCalendarToken({workspaceId,customerId:paddedCustomerId});
+      expect(await cancelCustomerCalendarBooking(token,paddedBookingId,"sv")).toEqual({ok:true});
+      const state=await db!.query<{status:string}>(
+        "select status from bookings where id=$1::uuid and workspace_id=$2",
+        [paddedBookingId,workspaceId],
+      );
+      expect(state.rows[0]?.status).toBe("cancelled");
+      // Brevo is disabled: a durable failure/follow-up event must remain,
+      // without cancelling the already committed customer action.
+      const notice=await db!.query<{metadata:Record<string,unknown>;description:string}>(
+        "select metadata,description from customer_events where workspace_id=$1 and booking_id=$2::uuid and metadata->>'source'='customer_portal' and metadata->>'new_status'='cancelled' order by created_at desc limit 1",
+        [workspaceId,paddedBookingId],
+      );
+      expect(notice.rows[0]?.metadata).toMatchObject({
+        notice_customer:"failed",notice_owner:"skipped",
+      });
+      expect(notice.rows[0]?.description).toContain("kontakta");
+    } finally {
+      await db!.query("delete from customer_events where booking_id=$1::uuid",[paddedBookingId]);
+      await db!.query("delete from bookings where id=$1::uuid",[paddedBookingId]);
+      await db!.query("delete from customers where id=$1::uuid",[paddedCustomerId]);
+    }
   });
 
   it("saves open days while ignoring invalid hidden clock values for closed days", async () => {
@@ -831,6 +946,72 @@ function compileSql(strings: TemplateStringsArray, values: unknown[]): Query {
     expect(results.rows.find((x) => x.weekday === 0)?.is_closed).toBe(true);
     expect(results.rows.find((x) => x.weekday === 0)?.opens_at).toBeNull();
     expect(results.rows.find((x) => x.weekday === 5)?.is_closed).toBe(false);
+  });
+
+  it("refuses a stale hours-only form that would retain an oversized saved duration", async () => {
+    const before = await db!.query(
+      "select weekday,opens_at::text,closes_at::text,is_closed from workspace_booking_hours where workspace_id=$1 order by weekday",
+      [workspaceId],
+    );
+    const form = new FormData();
+    form.set("duration_minutes","60");
+    form.set("buffer_after_minutes","0");
+    form.set("original_duration_minutes","60");
+    form.set("original_buffer_after_minutes","0");
+    for (const weekday of [5,6,0]) {
+      form.set(`day_${weekday}_first`,"06:00");
+      form.set(`day_${weekday}_last`,"22:00");
+    }
+    // The form considers 22:00 + 60 minutes valid. Persisted packages still
+    // require 180+ minutes and must veto the hours-only save under DB lock.
+    await expect(saveMariaScheduleAction(form))
+      .rejects.toThrow("TEST_REDIRECT:/dashboard/maria?error=schedule");
+    const after = await db!.query(
+      "select weekday,opens_at::text,closes_at::text,is_closed from workspace_booking_hours where workspace_id=$1 order by weekday",
+      [workspaceId],
+    );
+    expect(after.rows).toEqual(before.rows);
+  });
+
+  it("preserves an active OTP hold when the manager changes opening hours", async () => {
+    const service = (await db!.query<{id:string;duration_minutes:number;buffer_after_minutes:number}>(
+      "select id::text,duration_minutes,buffer_after_minutes from workspace_services where workspace_id=$1 and public_slug='maria-bridal-trial-2026'",
+      [workspaceId],
+    )).rows[0]!;
+    expect(service?.id).toBeTruthy();
+    const day = (await db!.query<{day:string}>(
+      "select to_char(current_date+14+((6-extract(dow from current_date)::int+7)%7),'YYYY-MM-DD') as day",
+    )).rows[0]!.day;
+    const startsAt = (await db!.query<{start:string}>(
+      "select (($1::date + time '09:00') at time zone 'Europe/Stockholm')::text as start",[day],
+    )).rows[0]!.start;
+    const holdId=randomUUID();
+    await db!.query(
+      `insert into public_booking_verifications(id,workspace_id,public_booking_slug,customer_name,
+       customer_email,service_id,service_name,starts_at,ends_at,code_hash,expires_at)
+       values($1::uuid,$2::uuid,'makeup-by-maria','QA','qa@example.invalid',$3::uuid,
+       'QA hold',$4::timestamptz,$4::timestamptz+interval '3 hours','synthetic',now()+interval '30 minutes')`,
+      [holdId,workspaceId,service.id,startsAt],
+    );
+    try {
+      const form = new FormData();
+      form.set("duration_minutes",String(service.duration_minutes));
+      form.set("buffer_after_minutes",String(service.buffer_after_minutes ?? 0));
+      form.set("original_duration_minutes",String(service.duration_minutes));
+      form.set("original_buffer_after_minutes",String(service.buffer_after_minutes ?? 0));
+      for (const weekday of [5,6,0]) {
+        form.set(`day_${weekday}_first`,weekday===6?"10:00":"06:00");
+        form.set(`day_${weekday}_last`,"18:00");
+      }
+      await expect(saveMariaScheduleAction(form))
+        .rejects.toThrow("TEST_REDIRECT:/dashboard/maria?error=schedule");
+      const remaining = await db!.query(
+        "select id from public_booking_verifications where id=$1::uuid and consumed_at is null",[holdId],
+      );
+      expect(remaining.rowCount).toBe(1);
+    } finally {
+      await db!.query("delete from public_booking_verifications where id=$1::uuid",[holdId]);
+    }
   });
 
   it("keeps Maria year and schedule writers unavailable in Production", async () => {

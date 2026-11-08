@@ -93,6 +93,18 @@ describe("Maria Production readiness is independent and disabled by default", ()
     expect(getSql).not.toHaveBeenCalled();
   });
 
+  it("refuses an invalid OTP sender even if the status sender is valid", async () => {
+    enableProduction();
+    vi.stubEnv("BOOKING_FROM_EMAIL", "Makeup by Maria <invalid-otp-sender>");
+    expect(await getMariaBookingReadiness()).toEqual({enabled:false});
+    expect(getSql).not.toHaveBeenCalled();
+
+    vi.stubEnv("BOOKING_FROM_EMAIL", "Makeup by Maria <booking@example.invalid>");
+    stubSql([schema], [schemaContract], [{count:3}], [workspace]);
+    vi.mocked(hasWorkspaceFeatureAccessForWorkspace).mockResolvedValue(true);
+    expect(await getMariaBookingReadiness()).toMatchObject({enabled:true});
+  });
+
   it("requires actual schema and all three canonical migration receipts", async () => {
     enableProduction();
     const missing = stubSql([{...schema, closed_starts:false}]);
@@ -135,7 +147,7 @@ describe("Maria Production readiness is independent and disabled by default", ()
     expect(query).toHaveBeenCalledTimes(4);
     const pricingGate = Array.from(query.mock.calls[3]![0] as TemplateStringsArray).join("?");
     expect(pricingGate).toContain("not exists");
-    expect(pricingGate).toContain("unsafe.price_type <> 'fixed'");
+    expect(pricingGate).toContain("unsafe.price_type IS DISTINCT FROM 'fixed'");
     expect(hasWorkspaceFeatureAccessForWorkspace)
       .toHaveBeenCalledWith(workspace.workspace_id,"online_booking");
     // The flag-only gate is insufficient; all four actual DB checks and

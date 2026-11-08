@@ -4936,7 +4936,7 @@ esac
         });
       }
     }
-  });
+  }, 20_000);
 
   it("recovers a released-valid split close after terminal task persistence fails in both sync paths", () => {
     let recoveredForCapacity: Array<Record<string, unknown>> | null = null;

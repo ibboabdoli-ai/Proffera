@@ -2,7 +2,7 @@ import { execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { setTimeout as delay } from "node:timers/promises";
 
-import { Client } from "pg";
+import { Client, Pool } from "pg";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { applyCanonicalProfferaMigrations } from "./helpers/postgres-canonical-schema";
 
@@ -10,11 +10,15 @@ type Query = { text: string; values: unknown[] };
 const runtime = vi.hoisted(() => ({
   makeSql: undefined as undefined | (() => unknown),
   workspaceId: "",
+  databaseUrl: "",
   userId: "synthetic-maria-manager",
 }));
 vi.mock("server-only", () => ({}));
 vi.mock("@neondatabase/serverless", () => ({ neon: () => runtime.makeSql?.() ?? null }));
-vi.mock("@/lib/db/database-url", () => ({ resolveDatabaseUrl: () => "postgresql://synthetic-isolated-pg-test.invalid" }));
+vi.mock("@/lib/db/database-url", () => ({
+  resolveDatabaseUrl: () => "postgresql://synthetic-isolated-pg-test.invalid",
+  resolveNodePostgresDatabaseUrl: () => runtime.databaseUrl,
+}));
 vi.mock("@/lib/db/server", () => ({ getSql: () => runtime.makeSql?.() ?? null }));
 vi.mock("@/lib/workspace-feature-entitlement-db", () => ({
   hasWorkspaceFeatureAccessForWorkspace: async (id: string) => id === runtime.workspaceId,
@@ -35,6 +39,7 @@ vi.mock("@/lib/workspace-module-access", () => ({
   hasDashboardModuleAccess: async (id: string) => id === "online_booking",
 }));
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
+vi.mock("@/features/email/booking-change-email", () => ({ sendBookingChangeEmails: vi.fn() }));
 vi.mock("next/navigation", () => ({ redirect: (url: string) => { throw new Error("TEST_REDIRECT:" + url); } }));
 vi.mock("@/features/sms/booking-sms", () => ({
   sendBookingVerificationSms: () => { throw new Error("Maria must never send verification SMS"); },
@@ -49,6 +54,9 @@ import { readMariaSwishQrEligibility } from "@/lib/maria-swish-qr-eligibility";
 import { mariaBookingNumber } from "@/lib/maria-deposit";
 import { changeMariaManualCalendar } from "@/lib/maria-manual-calendar";
 import { sendMariaBookingStatusEmail } from "@/features/email/maria-deposit-email";
+import { sendBookingChangeEmails } from "@/features/email/booking-change-email";
+import { retryMariaRescheduleNotice } from "@/lib/maria-reschedule-notice-retry";
+import { withMariaBookingNotificationLock } from "@/lib/maria-booking-notification-lock";
 
 const RUN = process.env.GITHUB_ACTIONS === "true" || process.env.PROFFERA_POSTGRES_INTEGRATION === "1";
 function docker(args: string[]) { return execFileSync("docker", args, { encoding: "utf8" }).trim(); }
@@ -78,6 +86,7 @@ function compileSql(strings: TemplateStringsArray, values: unknown[]): Query {
     const port = docker(["port", container, "5432/tcp"]).split(/\r?\n/u)[0]?.match(/:(\d+)$/u)?.[1];
     if (!port) throw Error("Isolated Maria PostgreSQL port missing");
     connectionString = "postgres://postgres:postgres@127.0.0.1:" + port + "/proffera_test";
+    runtime.databaseUrl = connectionString;
     let ready = false;
     for(let attempt=0;attempt<80;attempt++) {
       const probe=new Client({connectionString});
@@ -136,7 +145,25 @@ function compileSql(strings: TemplateStringsArray, values: unknown[]): Query {
     if(container){try{docker(["stop",container]);}catch{/* cleaned automatically */}}
   },30_000);
 
+  // Exercise real PostgreSQL contention with independent connections.
+  async function withParallelSql<T>(action: () => Promise<T>): Promise<T> {
+    const pool = new Pool({ connectionString, max: 16 });
+    const previous = runtime.makeSql;
+    runtime.makeSql = () => (parts: TemplateStringsArray, ...values: unknown[]) => {
+      const query = compileSql(parts, values);
+      return Object.assign(query, {
+        then: (resolve: (rows: Record<string, unknown>[]) => unknown, reject: (error: unknown) => unknown) =>
+          pool.query(query.text, query.values).then(result => resolve(result.rows as Record<string, unknown>[]), reject),
+      });
+    };
+    try { return await action(); }
+    finally { runtime.makeSql = previous; await pool.end(); }
+  }
+
   beforeEach(()=>{
+    // Preserve the isolated Docker URL across all Vitest cases; the
+    // notification lock runs on a dedicated PostgreSQL Client.
+    runtime.databaseUrl = connectionString;
     const flags:Record<string,string>={
       VERCEL_ENV:"production",PROFFERA_MARIA_PUBLIC_SITE_ENABLED:"true",
       PROFFERA_MARIA_PRODUCTION_BOOKING_ENABLED:"true",
@@ -144,6 +171,7 @@ function compileSql(strings: TemplateStringsArray, values: unknown[]): Query {
       PROFFERA_MARIA_PRODUCTION_CUSTOMER_EMAIL_ENABLED:"true",
       PROFFERA_MARIA_PRODUCTION_YEAR_EDITOR_ENABLED:"true",
       PROFFERA_MARIA_PRODUCTION_ORIGIN:"https://makeupbymaria.se",
+      PROFFERA_MARIA_PRODUCTION_SWISH_ENABLED:"true",
       BREVO_API_KEY:"synthetic-production-email-key",
       LEAD_FROM_EMAIL:"Makeup by Maria <noreply@example.invalid>",
       BETTER_AUTH_SECRET:"synthetic-only-for-isolated-postgres-test",
@@ -153,6 +181,64 @@ function compileSql(strings: TemplateStringsArray, values: unknown[]): Query {
       new Response(JSON.stringify({messageId:"synthetic-only"}),{status:201})));
   });
   afterEach(()=>{vi.unstubAllEnvs();vi.unstubAllGlobals();});
+
+  it("serializes in-flight provider requests against booking writers on real PostgreSQL", async () => {
+    let entered!: () => void;
+    let release!: () => void;
+    // Fail immediately on a fixture mismatch instead of hanging on
+    // an unresolved provider gate while a detached promise rejects.
+    expect(runtime.databaseUrl).toBe(connectionString);
+    const acquired = new Promise<void>(resolve => { entered = resolve; });
+    const delayedProvider = new Promise<void>(resolve => { release = resolve; });
+    const first = withMariaBookingNotificationLock(workspaceId, async () => {
+      entered();
+      await delayedProvider;
+      return "synthetic-provider-accepted";
+    });
+    await Promise.race([acquired, delay(5_000).then(() => { throw new Error("Maria synthetic lock entry timed out"); })]);
+    const writer = new Client({ connectionString });
+    let acquiredWriterLock = false;
+    try {
+      await writer.connect();
+      await writer.query("BEGIN");
+      const second = writer.query(
+        "select pg_advisory_xact_lock(hashtextextended($1::text, 713))", [workspaceId],
+      ).then(() => { acquiredWriterLock = true; });
+      await delay(80);
+      expect(acquiredWriterLock).toBe(false);
+      release();
+      expect(await first).toBe("synthetic-provider-accepted");
+      await second;
+      expect(acquiredWriterLock).toBe(true);
+    } finally {
+      release();
+      await first.catch(() => undefined);
+      await writer.query("ROLLBACK").catch(() => undefined);
+      await writer.end().catch(() => undefined);
+    }
+  }, 30_000);
+
+  it("rejects a second published from-priced or null-priced Maria package in real PostgreSQL", async () => {
+    expect(await getMariaBookingReadiness()).toMatchObject({enabled:true,workspaceId});
+    const year = day.slice(0,4);
+    for (const [priceType,amount] of [["from",550000],[null,null]] as const) {
+      const id = (await db!.query<{id:string}>(
+        `insert into workspace_services
+           (workspace_id,name,public_slug,duration_minutes,buffer_before_minutes,
+            buffer_after_minutes,minimum_notice_minutes,maximum_advance_days,
+            is_active,public_status,price_type,price_amount_minor)
+         values($1,'Synthetic unsafe second package',$2,180,0,0,0,730,true,'published',$3,$4)
+         returning id::text`,
+        [workspaceId,`maria-bridal-without-trial-${year}`,priceType,amount],
+      )).rows[0]!.id;
+      try {
+        expect(await getMariaBookingReadiness()).toEqual({enabled:false});
+      } finally {
+        await db!.query("delete from workspace_services where id=$1::uuid",[id]);
+      }
+    }
+    expect(await getMariaBookingReadiness()).toMatchObject({enabled:true,workspaceId});
+  },30_000);
 
   it("issues, resends, verifies and consumes one Production OTP, then lets Maria confirm and mark Swish manually",async()=>{
     const ready=await getMariaBookingReadiness();
@@ -200,7 +286,8 @@ function compileSql(strings: TemplateStringsArray, values: unknown[]): Query {
       return payload.subject?.includes("تم استلام طلب حجزك")
         ? new Response("Synthetic email outage",{status:503}) : successResponse;
     });
-    const verified=await verifyPublicBookingCode(id,resentCode!,"ar");
+    // Canonical UUID hashing must work with equivalent uppercase URL IDs.
+    const verified=await verifyPublicBookingCode(id.toUpperCase(),resentCode!,"ar");
     expect(verified).toMatchObject({ok:true,slug:"makeup-by-maria"});
     expect(verified.ok && verified.portalUrl).toMatch(/^https:\/\/makeupbymaria\.se\/mina-bokningar\//);
     const bookings=await db!.query<{id:string;status:string}>(
@@ -216,6 +303,24 @@ function compileSql(strings: TemplateStringsArray, values: unknown[]): Query {
     // A different code cannot recover the booking after consumption.
     expect(await verifyPublicBookingCode(id,resentCode==="000000"?"111111":"000000","ar"))
       .toMatchObject({ok:false,error:"code"});
+
+    // Real PostgreSQL contention: with one remaining attempt, 11 parallel
+    // requests (valid + invalid) must never issue more than one recovery.
+    await db!.query(
+      "update public_booking_verifications set attempts=max_attempts-1 where id=$1::uuid",
+      [id],
+    );
+    const wrongCode=resentCode==="000000"?"111111":"000000";
+    const guesses=[resentCode!,...Array.from({length:10},()=>wrongCode)];
+    const outcomes=await withParallelSql(() =>
+      Promise.all(guesses.map(value=>verifyPublicBookingCode(id,value,"ar"))));
+    expect(outcomes.filter(outcome=>outcome.ok).length).toBeLessThanOrEqual(1);
+    const attempts=(await db!.query<{attempts:number;max_attempts:number}>(
+      "select attempts,max_attempts from public_booking_verifications where id=$1::uuid",[id],
+    )).rows[0];
+    expect(attempts?.attempts).toBe(attempts?.max_attempts);
+    expect(await verifyPublicBookingCode(id,resentCode!,"ar"))
+      .toMatchObject({ok:false,error:"invalid"});
     expect((await db!.query("select id from bookings where workspace_id=$1 and source='public_booking'",[workspaceId])).rowCount).toBe(1);
     const customerMessages=vi.mocked(fetch).mock.calls.map(([,options])=>JSON.parse(String(options?.body)) as {subject:string;htmlContent:string;to:{email:string}[]});
     // Assert a trusted portal origin, not a substring that could appear on an attacker host.
@@ -246,8 +351,17 @@ function compileSql(strings: TemplateStringsArray, values: unknown[]): Query {
     expect(linkedJobBefore.rowCount).toBe(1);
     const originalJobId=linkedJobBefore.rows[0]!.id;
     expect(["new","assigned"]).toContain(linkedJobBefore.rows[0]?.status);
+    // Stopping new-booking intake must NOT strand an existing confirmed booking.
+    vi.stubEnv("PROFFERA_MARIA_PRODUCTION_BOOKING_ENABLED","false");
+    expect(await getMariaBookingReadiness()).toEqual({enabled:false});
+    // Removing existing-lifecycle email permission still fails closed.
+    vi.stubEnv("PROFFERA_MARIA_PRODUCTION_CUSTOMER_EMAIL_ENABLED","false");
+    await expect(updateDashboardBookingStatus(bookingId,"cancelled"))
+      .rejects.toThrow("Maria booking status changes are disabled in Production");
+    vi.stubEnv("PROFFERA_MARIA_PRODUCTION_CUSTOMER_EMAIL_ENABLED","true");
     const cancelled=await updateDashboardBookingStatus(bookingId,"cancelled");
     expect(cancelled.changed).toBe(true);
+    vi.stubEnv("PROFFERA_MARIA_PRODUCTION_BOOKING_ENABLED","true");
     const cancelledJob=await db!.query<{status:string;cancelled_at:string|null}>(
       "select status,cancelled_at::text from workspace_service_jobs where id=$1::uuid",[originalJobId]);
     expect(cancelledJob.rows[0]?.status).toBe("cancelled");
@@ -263,13 +377,16 @@ function compileSql(strings: TemplateStringsArray, values: unknown[]): Query {
     expect(revivedJob.rows[0]?.completed_at).toBeNull();
 
     expect(await readMariaSwishQrEligibility(bookingId)).toBe("eligible");
+    vi.stubEnv("PROFFERA_MARIA_PRODUCTION_SWISH_ENABLED","false");
+    expect(await readMariaSwishQrEligibility(bookingId)).toBe("unavailable");
+    vi.stubEnv("PROFFERA_MARIA_PRODUCTION_SWISH_ENABLED","true");
     expect(await setMariaManualSwishStatus(bookingId,"paid")).toEqual({changed:true});
     expect(await readMariaSwishQrEligibility(bookingId)).toBe("unavailable");
     const paid=await readMariaManualSwishStatuses();
     expect(paid.entries[bookingId]?.state).toBe("paid");
 
     const statusEmail=await sendMariaBookingStatusEmail({
-      bookingId,status:"confirmed",customerName:"Synthetic Bride",
+      bookingId,workspaceId,status:"confirmed",customerName:"Synthetic Bride",
       customerEmail:"bride@example.invalid",companyName:"Makeup by Maria",
       service:"Brudmakeup med prov",startsAt,endsAt,city:"Södertälje",language:"ar",
       timeZone:"Europe/Stockholm",
@@ -288,6 +405,53 @@ function compileSql(strings: TemplateStringsArray, values: unknown[]): Query {
       [workspaceId]);
     expect(closed.rowCount).toBeGreaterThan(0);
   },120_000);
+
+  it("delivers an authorized manager cancellation to a padded stored email through real PostgreSQL", async () => {
+    const booking = (await db!.query<{
+      id: string; customer_id: string; email: string; status: string;
+      starts_at: Date; ends_at: Date;
+    }>(`
+      select b.id::text,c.id::text as customer_id,c.email,b.status,
+        b.starts_at,b.ends_at
+      from bookings b join customers c on c.id=b.customer_id and c.workspace_id=b.workspace_id
+      where b.workspace_id=$1 and b.source='public_booking'
+      order by b.created_at desc limit 1
+    `,[workspaceId])).rows[0];
+    expect(booking?.status).toBe("confirmed");
+    const padded = "\tBRIDE@example.invalid  \r";
+    await db!.query(
+      "update customers set email=$1 where id=$2::uuid and workspace_id=$3",
+      [padded,booking!.customer_id,workspaceId],
+    );
+    let changed = false;
+    try {
+      // Existing bookings remain cancellable while new intake is paused.
+      vi.stubEnv("PROFFERA_MARIA_PRODUCTION_BOOKING_ENABLED","false");
+      const result = await updateDashboardBookingStatus(booking!.id,"cancelled");
+      expect(result.changed).toBe(true);
+      changed = true;
+      expect(await sendMariaBookingStatusEmail({
+        bookingId: booking!.id,workspaceId,status:"cancelled",
+        customerName:"Synthetic Bride",customerEmail:padded,
+        companyName:"Makeup by Maria",service:"Brudmakeup med prov",
+        startsAt:new Date(booking!.starts_at).toISOString(),
+        endsAt:new Date(booking!.ends_at).toISOString(),
+        city:"Södertälje",timeZone:"Europe/Stockholm",
+      })).toEqual({ok:true});
+      const sent = JSON.parse(String(vi.mocked(fetch).mock.calls.at(-1)?.[1]?.body)) as {
+        to: Array<{email:string}>; textContent: string;
+      };
+      expect(sent.to[0]?.email).toBe("bride@example.invalid");
+      expect(sent.textContent).not.toContain("Pay within 24 hours");
+    } finally {
+      vi.stubEnv("PROFFERA_MARIA_PRODUCTION_BOOKING_ENABLED","true");
+      await db!.query(
+        "update customers set email=$1 where id=$2::uuid and workspace_id=$3",
+        [booking!.email,booking!.customer_id,workspaceId],
+      );
+      if (changed) expect((await updateDashboardBookingStatus(booking!.id,"confirmed")).changed).toBe(true);
+    }
+  },30_000);
 
   it("normalizes tabs in Preview email using PostgreSQL's actual btrim predicate", async () => {
     const result = await db!.query<{ matches: boolean; mismatch: boolean }>(
@@ -338,4 +502,89 @@ function compileSql(strings: TemplateStringsArray, values: unknown[]): Query {
       await db!.query("delete from customers where id=$1::uuid", [customerId]);
     }
   },30_000);
+  it("serializes Maria retry claims and lease recovery on real concurrent PostgreSQL connections", async () => {
+    const booking = (await db!.query<{
+      id: string; customer_id: string; starts_at: string; ends_at: string;
+    }>("select id::text,customer_id::text,starts_at::text,ends_at::text from bookings where workspace_id=$1 and source='public_booking' order by created_at desc limit 1",[workspaceId])).rows[0];
+    expect(booking?.id).toBeTruthy();
+    const eventId = (await db!.query<{id:string}>(
+      `insert into customer_events(workspace_id,customer_id,booking_id,event_type,title,description,metadata)
+       values($1,$2::uuid,$3::uuid,'booking','Synthetic retry','Synthetic only',$4::jsonb) returning id::text`,
+      [workspaceId,booking!.customer_id,booking!.id,JSON.stringify({
+        source:"maria_preview_reschedule",
+        previous_starts_at:new Date(new Date(booking!.starts_at).getTime()-604800000).toISOString(),
+        previous_ends_at:new Date(new Date(booking!.ends_at).getTime()-604800000).toISOString(),
+        starts_at:new Date(booking!.starts_at).toISOString(),
+        ends_at:new Date(booking!.ends_at).toISOString(),
+        language:"en",notice_customer:"failed",notice_owner:"sent",
+        notice_attempted_at:"2026-01-01T00:00:00Z",
+      })],
+    )).rows[0]!.id;
+    const sender=vi.mocked(sendBookingChangeEmails);
+    const successful=[
+      {status:"fulfilled" as const,value:{ok:true as const}},
+      {status:"fulfilled" as const,value:{ok:true as const}},
+    ] as Awaited<ReturnType<typeof sendBookingChangeEmails>>;
+    const setState=async (customer:string,attempted:string)=>db!.query(
+      `update customer_events set metadata=metadata||jsonb_build_object(
+        'notice_customer',$2::text,'notice_owner','sent','notice_attempted_at',$3::text)
+       where id=$1::uuid`,[eventId,customer,attempted],
+    );
+    try {
+      await withParallelSql(async()=>{
+        sender.mockReset().mockImplementation(async()=>{await delay(90);return successful;});
+        const results=await Promise.all([
+          retryMariaRescheduleNotice(booking!.id,workspaceId),
+          retryMariaRescheduleNotice(booking!.id,workspaceId),
+        ]);
+        expect(results.filter(result=>result.ok)).toHaveLength(1);
+        expect(sender).toHaveBeenCalledOnce();
+        const sent=(await db!.query<{state:string}>(
+          "select metadata->>'notice_customer' as state from customer_events where id=$1::uuid",
+          [eventId],
+        )).rows[0];
+        expect(sent?.state).toBe("sent");
+
+        // A live lease is not stealable, but an expired lease is recoverable.
+        await setState("sending",new Date().toISOString());
+        sender.mockClear();
+        expect(await retryMariaRescheduleNotice(booking!.id,workspaceId)).toEqual({ok:false});
+        expect(sender).not.toHaveBeenCalled();
+        await setState("sending","2026-01-01T00:00:00Z");
+        expect(await retryMariaRescheduleNotice(booking!.id,workspaceId)).toEqual({ok:true});
+        expect(sender).toHaveBeenCalledOnce();
+
+        // A stale sender must not overwrite a newer claim's result.
+        await setState("failed","2026-01-01T00:00:00Z");
+        sender.mockReset();
+        let signalStarted!:()=>void,release!:()=>void;
+        const started=new Promise<void>(resolve=>{signalStarted=resolve;});
+        const hold=new Promise<void>(resolve=>{release=resolve;});
+        sender.mockImplementationOnce(async()=>{signalStarted();await hold;return successful;});
+        const pending=retryMariaRescheduleNotice(booking!.id,workspaceId);
+        await started;
+        await setState("sending","2099-01-01T00:00:00Z");
+        release();
+        expect(await pending).toEqual({ok:false});
+        expect((await db!.query<{state:string;attempt:string}>(
+          "select metadata->>'notice_customer' as state,metadata->>'notice_attempted_at' as attempt from customer_events where id=$1::uuid",
+          [eventId],
+        )).rows[0]).toMatchObject({state:"sending",attempt:"2099-01-01T00:00:00Z"});
+
+        // The latest event cannot be retried once its booking time is obsolete.
+        await setState("failed","2026-01-01T00:00:00Z");
+        await db!.query(
+          `update customer_events set metadata=jsonb_set(metadata,'{starts_at}',to_jsonb('2099-01-01T00:00:00Z'::text)) where id=$1::uuid`,
+          [eventId],
+        );
+        sender.mockClear();
+        expect(await retryMariaRescheduleNotice(booking!.id,workspaceId)).toEqual({ok:false});
+        expect(sender).not.toHaveBeenCalled();
+      });
+    } finally {
+      sender.mockReset();
+      await db!.query("delete from customer_events where id=$1::uuid",[eventId]);
+    }
+  },60_000);
+
 });

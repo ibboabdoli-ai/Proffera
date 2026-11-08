@@ -65,6 +65,20 @@ async function markup(lang: string, verificationId = id) {
 }
 
 describe("Maria verification language keeps the Preview booking locale", () => {
+  it.each([
+    ["sv","Bokningen kan redan vara sparad"],
+    ["en","Your booking may already be saved"],
+    ["ar","قد يكون حجزك محفوظًا بالفعل"],
+  ])("shows a recoverable booking error in %s without promising a second booking", async (locale,expected) => {
+    const element = await VerifyBookingPage({
+      params: Promise.resolve({id}),
+      searchParams: Promise.resolve({lang:locale,error:"unavailable"}),
+    });
+    const html = renderToStaticMarkup(element);
+    expect(html).toContain(expected);
+    expect(html).toContain('role="alert"');
+  });
+
   it("retains English and offers its language switch even when the workspace toggle is off", async () => {
     const html = await markup("en");
     expect(html).toMatch(/<main[^>]*lang="en"/);
@@ -195,6 +209,43 @@ describe("Maria verification language keeps the Preview booking locale", () => {
     mocks.host = "www.proffera.se";
     mocks.getSql.mockReturnValue(async () => { throw new Error("Synthetic SQL outage"); });
     await expect(markup("sv")).rejects.toThrow("NEXT_NOT_FOUND");
+  });
+
+  it("rejects both verification server actions on a noncanonical Production host", async () => {
+    vi.stubEnv("VERCEL_ENV", "production");
+    mocks.host = "makeupbymaria.se";
+    for (const [key,value] of Object.entries({
+      PROFFERA_MARIA_PUBLIC_SITE_ENABLED:"true",
+      PROFFERA_MARIA_PRODUCTION_BOOKING_ENABLED:"true",
+      PROFFERA_MARIA_PRODUCTION_MANAGER_ENABLED:"true",
+      PROFFERA_MARIA_PRODUCTION_CUSTOMER_EMAIL_ENABLED:"true",
+      PROFFERA_MARIA_PRODUCTION_YEAR_EDITOR_ENABLED:"true",
+      PROFFERA_MARIA_PRODUCTION_ORIGIN:"https://makeupbymaria.se",
+    })) vi.stubEnv(key,value);
+    const page = await VerifyBookingPage({
+      params:Promise.resolve({id}),
+      searchParams:Promise.resolve({lang:"sv"}),
+    });
+    const actions:Array<(data:FormData)=>Promise<void>> = [];
+    function collect(node:ReactNode):void {
+      if (Array.isArray(node)) { node.forEach(collect); return; }
+      if (!isValidElement(node)) return;
+      const props = node.props as {action?:unknown;children?:ReactNode};
+      if (node.type === "form" && typeof props.action === "function") {
+        actions.push(props.action as (data:FormData)=>Promise<void>);
+      }
+      collect(props.children);
+    }
+    collect(page);
+    expect(actions).toHaveLength(2);
+    mocks.host = "www.proffera.se";
+    const data = new FormData();
+    data.set("id",id); data.set("code","123456"); data.set("lang","sv");
+    for (const action of actions) {
+      await expect(action(data)).rejects.toThrow("NEXT_NOT_FOUND");
+    }
+    expect(verifyPublicBookingCode).not.toHaveBeenCalled();
+    expect(resendPublicBookingCode).not.toHaveBeenCalled();
   });
 
   it("refuses Maria Production verification from a non-canonical host", async () => {

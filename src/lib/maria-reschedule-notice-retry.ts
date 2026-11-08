@@ -1,9 +1,11 @@
 import "server-only";
 
 import { sendBookingChangeEmails } from "@/features/email/booking-change-email";
+import { sendBookingRescheduleEmail } from "@/features/email/booking-reschedule-email";
 import { createCustomerCalendarToken } from "@/lib/customer-calendar";
 import { getSql } from "@/lib/db/server";
 import { getMariaBookingReadiness } from "@/lib/maria-booking-runtime";
+import { withMariaBookingNotificationLock } from "@/lib/maria-booking-notification-lock";
 import { getMariaBookingPortalBase, isMariaBookingRecipientAllowed } from "@/lib/maria-preview-customer-safety";
 
 const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -23,7 +25,7 @@ async function currentNotice(id:string,workspaceId:string):Promise<Notice|null>{
     with newest as (
       select e.id,e.workspace_id,e.booking_id,e.metadata from customer_events e
       where e.workspace_id=${workspaceId} and e.booking_id=${id}::uuid
-        and e.event_type='booking' and e.metadata->>'source'='maria_preview_reschedule'
+        and e.event_type='booking' and e.metadata->>'source' in ('maria_preview_reschedule','maria_manager_dashboard_reschedule')
       order by e.created_at desc,e.id desc limit 1
     )
     select n.id::text as event_id,n.metadata,
@@ -42,6 +44,8 @@ async function currentNotice(id:string,workspaceId:string):Promise<Notice|null>{
       and b.status in ('requested','confirmed') and w.slug='makeup-by-maria'
       and b.starts_at=(n.metadata->>'starts_at')::timestamptz
       and b.ends_at=(n.metadata->>'ends_at')::timestamptz
+      and (n.metadata->>'notice_revision' is null
+        or date_trunc('milliseconds',b.updated_at)=(n.metadata->>'notice_revision')::timestamptz)
     limit 1
   `;
   return rows[0] as Notice|undefined ?? null;
@@ -50,7 +54,8 @@ function targets(row:Notice){
   const m=metadata(row.metadata);
   return {m,customer:isMariaBookingRecipientAllowed(String(row.customer_email??""))
       &&retryable(m.notice_customer,m.notice_attempted_at),
-    owner:Boolean(row.owner_email) &&isMariaBookingRecipientAllowed(String(row.owner_email))
+    owner:m.source!=="maria_manager_dashboard_reschedule"
+      &&Boolean(row.owner_email) &&isMariaBookingRecipientAllowed(String(row.owner_email))
       &&retryable(m.notice_owner,m.notice_attempted_at)};
 }
 export async function hasPendingMariaRescheduleNotice(id:string,workspaceId:string){
@@ -66,6 +71,7 @@ export async function retryMariaRescheduleNotice(id:string,workspaceId:string){
   const readiness=await getMariaBookingReadiness();
   if(!base||!readiness.enabled||readiness.workspaceId!==workspaceId)return {ok:false as const};
   try{
+    return await withMariaBookingNotificationLock(workspaceId,async()=>{
     const sql=getSql();if(!sql)return {ok:false as const};
     const row=await currentNotice(id,workspaceId);
     if(!row)return {ok:false as const};
@@ -82,7 +88,7 @@ export async function retryMariaRescheduleNotice(id:string,workspaceId:string){
         'notice_attempted_at',now()::text)
       where e.id=${eventId}::uuid and e.workspace_id=${workspaceId}
         and e.booking_id=${id}::uuid
-        and e.metadata->>'source'='maria_preview_reschedule'
+        and e.metadata->>'source' in ('maria_preview_reschedule','maria_manager_dashboard_reschedule')
         and (${!customer}::boolean or
           e.metadata->>'notice_customer' in ('pending','failed') or
           (e.metadata->>'notice_customer'='sending'
@@ -106,7 +112,17 @@ export async function retryMariaRescheduleNotice(id:string,workspaceId:string){
       workspaceId,customerId:String(row.customer_id),expiresInSeconds:secs,
     });
     const language=m.language==="ar"?"ar":m.language==="en"?"en":"sv";
-    const res=await sendBookingChangeEmails({
+    const res=m.source==="maria_manager_dashboard_reschedule"
+      ? await Promise.allSettled([sendBookingRescheduleEmail({
+          customerName:String(row.customer_name),customerEmail:String(row.customer_email),
+          companyName:String(row.company_name),branding:"makeup-by-maria",
+          service:String(row.service_name),city:String(row.city??""),
+          previousStartsAt:new Date(String(m.previous_starts_at)).toISOString(),
+          startsAt:new Date(String(row.starts_at)).toISOString(),
+          endsAt:new Date(String(row.ends_at)).toISOString(),
+          timeZone:"Europe/Stockholm",language,
+        })])
+      : await sendBookingChangeEmails({
       kind:"rescheduled",branding:"makeup-by-maria",
       customerName:String(row.customer_name),customerEmail:String(row.customer_email),
       sendCustomer:customer,
@@ -129,10 +145,11 @@ export async function retryMariaRescheduleNotice(id:string,workspaceId:string){
       update customer_events e set metadata=e.metadata||jsonb_build_object(
         'notice_customer',${cs}::text,'notice_owner',${os}::text)
       where e.id=${eventId}::uuid and e.workspace_id=${workspaceId}
-        and e.metadata->>'source'='maria_preview_reschedule'
+        and e.metadata->>'source' in ('maria_preview_reschedule','maria_manager_dashboard_reschedule')
         and e.metadata->>'notice_attempted_at'=${String(claims[0]?.attempted_at)}
       returning id
     `;
     return {ok:updated.length===1 &&cs!=="failed" &&os!=="failed"};
+    });
   }catch(error){console.error("Maria notification retry failed closed",error);return {ok:false as const};}
 }
