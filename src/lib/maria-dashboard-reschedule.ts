@@ -104,7 +104,7 @@ export async function rescheduleMariaDashboardBooking(input: {
         with eligible as (
           select b.id,b.workspace_id,b.customer_id,b.starts_at as previous_starts_at,
             b.ends_at as previous_ends_at,c.name as customer_name,c.email as customer_email,
-            c.phone as customer_phone,b.service as service_name,b.city,
+            c.phone as customer_phone,s.name as service_name,b.city,
             coalesce((select e.metadata->>'language' from customer_events e
               where e.workspace_id=b.workspace_id and e.booking_id=b.id
                 and e.event_type='booking' and e.metadata->>'source'='public_booking'
@@ -167,7 +167,10 @@ export async function rescheduleMariaDashboardBooking(input: {
         moved as (
           update bookings b
           set starts_at=${newStartIso}::timestamptz,
-            ends_at=${newEndIso}::timestamptz,updated_at=now()
+            ends_at=${newEndIso}::timestamptz,
+            -- The old trigger resolves by bookings.service text. Keep it
+            -- consistent with the authoritative service_id on a reschedule.
+            service=eligible.service_name,updated_at=now()
           from eligible
           where b.id=eligible.id and b.starts_at=eligible.previous_starts_at
             and b.status in ('requested','confirmed')

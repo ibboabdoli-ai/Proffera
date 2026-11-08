@@ -808,30 +808,37 @@ function compileSql(strings: TemplateStringsArray, values: unknown[]): Query {
         [workspaceId, `Maria QA reschedule ${year}`, `maria-bridal-trial-${year}`],
       );
     }
-    const service = await db!.query<{ id: string }>(
-      "select id::text from workspace_services where workspace_id=$1 and public_slug=$2 and public_status='published'",
+    const service = await db!.query<{ id: string; name: string }>(
+      "select id::text,name from workspace_services where workspace_id=$1 and public_slug=$2 and public_status='published'",
       [workspaceId, `maria-bridal-trial-${year}`],
     );
     expect(service.rowCount).toBe(1);
     await db!.query(
-      "update bookings set service_id=$1::uuid,source='public_booking',starts_at=now()+interval '20 days', ends_at=now()+interval '20 days 3 hours' where id=$2::uuid",
-      [service.rows[0]!.id, bookingId],
+      "update bookings set service_id=$1::uuid,service=$2,source='public_booking',starts_at=now()+interval '20 days', ends_at=now()+interval '20 days 3 hours' where id=$3::uuid",
+      [service.rows[0]!.id, service.rows[0]!.name, bookingId],
     );
     await db!.query(
       "insert into workspace_booking_hours (workspace_id,weekday,opens_at,closes_at,is_closed) values ($1,5,'06:00','10:00',false) on conflict (workspace_id,weekday) do update set opens_at='06:00',closes_at='10:00',is_closed=false",
       [workspaceId],
     );
+    // Reproduce a service renamed after its booking was created: the old
+    // name remains in bookings.service until the reschedule writes through.
+    const renamedService = `Renamed synthetic Maria service ${year}`;
+    await db!.query("update workspace_services set name=$2 where id=$1::uuid",
+      [service.rows[0]!.id,renamedService]);
+    try {
     const changed = await rescheduleMariaDashboardBooking({
       bookingId, workspaceId, localStartsAt: day + "T06:00",
     });
     expect(changed.ok).toBe(true);
     if (!changed.ok) throw new Error(changed.error);
     expect(changed.result.changed).toBe(true);
-    const persisted = await db!.query(
-      "select (starts_at at time zone 'Europe/Stockholm')::text as starts_local from bookings where id=$1::uuid",
+    const persisted = await db!.query<{starts_local:string;service:string}>(
+      "select (starts_at at time zone 'Europe/Stockholm')::text as starts_local,service from bookings where id=$1::uuid",
       [bookingId],
     );
     expect(String(persisted.rows[0]?.starts_local)).toContain(day + " 06:00:00");
+    expect(persisted.rows[0]?.service).toBe(renamedService);
     // Persist the notification before a provider request, so the owner can retry.
     const savedNotice=await db!.query<{metadata:Record<string,unknown>}>(
       "select metadata from customer_events where workspace_id=$1 and booking_id=$2::uuid and metadata->>'source'='maria_manager_dashboard_reschedule' order by created_at desc,id desc limit 1",
@@ -842,6 +849,11 @@ function compileSql(strings: TemplateStringsArray, values: unknown[]): Query {
       notice_owner:"skipped",language:"sv",
       previous_starts_at:expect.any(String),previous_ends_at:expect.any(String),
     });
+
+    } finally {
+      await db!.query("update workspace_services set name=$2 where id=$1::uuid",
+        [service.rows[0]!.id,service.rows[0]!.name]);
+    }
 
     const hold = await db!.query<{id:string}>(
       "insert into public_booking_verifications (workspace_id,public_booking_slug,customer_name,customer_email,service_id,service_name,starts_at,ends_at,code_hash,expires_at) values ($1::uuid,'makeup-by-maria','QA Hold','qa@example.invalid',$2::uuid,'Synthetic hold',($3::timestamp at time zone 'Europe/Stockholm'),($3::timestamp at time zone 'Europe/Stockholm') + interval '3 hours','synthetic-only',now()+interval '30 minutes') returning id::text",

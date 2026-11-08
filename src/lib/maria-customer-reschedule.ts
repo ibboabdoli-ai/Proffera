@@ -166,6 +166,9 @@ export async function rescheduleMariaCustomerBooking(input: MariaChangeInput) {
         changed_booking as (
           update bookings b
           set starts_at=${start}::timestamptz,ends_at=${end}::timestamptz,
+            -- Preserve stable service_id but sync the denormalized name so
+            -- the existing public-booking trigger can find a renamed service.
+            service=eligible.service_name,
             status=case when eligible.needs_confirmation then 'requested' else 'confirmed' end,
             updated_at=now()
           from eligible
