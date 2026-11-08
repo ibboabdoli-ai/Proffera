@@ -193,6 +193,41 @@ describe("Maria Preview booking status action on a deleted booking", () => {
     },
   );
 
+  it("allows only cancellation of an existing Production booking during an intake pause", async () => {
+    vi.stubEnv("VERCEL_ENV","production");
+    vi.stubEnv("PROFFERA_MARIA_PUBLIC_SITE_ENABLED","true");
+    vi.stubEnv("PROFFERA_MARIA_PRODUCTION_MANAGER_ENABLED","true");
+    vi.stubEnv("PROFFERA_MARIA_PRODUCTION_CUSTOMER_EMAIL_ENABLED","true");
+    vi.stubEnv("PROFFERA_MARIA_PRODUCTION_ORIGIN","https://makeupbymaria.se");
+    vi.stubEnv("PROFFERA_MARIA_PRODUCTION_BOOKING_ENABLED","false");
+    vi.stubEnv("BREVO_API_KEY","synthetic-non-delivering-key");
+    runtime.loadDetail.mockResolvedValue(detail("customer@example.com"));
+    const action = await getStatusAction();
+    const page = await BookingDetailPage({params:Promise.resolve({id}),
+      searchParams:Promise.resolve({lang:"en"})});
+    const statusSelect=collectElements(page).find(el => el.type==="select" && el.props.name==="status");
+    expect(statusSelect).toBeTruthy();
+    const options=collectElements(statusSelect?.props.children)
+      .filter(el=>el.type==="option")
+      .map(el=>String((el.props as {value?:string}).value));
+    expect(options).toEqual(["cancelled"]);
+    runtime.updateStatus.mockResolvedValue({
+      changed:true,previousStatus:"confirmed",timeZone:"Europe/Stockholm",
+      notification:{
+        customerEmail:"customer@example.com",customerName:"Synthetic QA customer",
+        service:"Synthetic QA service",startsAt:"2026-11-20T09:00:00.000Z",
+        endsAt:"2026-11-20T10:00:00.000Z",city:"Stockholm",language:"en",
+      },
+    });
+    await expect(action(statusForm("confirmed"))).rejects.toThrow(
+      `REDIRECT:/dashboard/bokningar/${id}?error=maria_preview&lang=en`);
+    expect(runtime.updateStatus).not.toHaveBeenCalled();
+    await expect(action(statusForm("cancelled"))).rejects.toThrow(
+      `REDIRECT:/dashboard/bokningar/${id}?updated=1&lang=en`);
+    expect(runtime.updateStatus).toHaveBeenCalledExactlyOnceWith(id,"cancelled");
+    expect(runtime.sendStatusEmail).toHaveBeenCalledOnce();
+  });
+
   it("does not falsely claim email delivery when a Maria reschedule notification fails", async () => {
     const page = await BookingDetailPage({
       params: Promise.resolve({ id }),

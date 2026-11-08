@@ -234,6 +234,26 @@ describe("Maria-only Swish confirmation and cancellation email", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it("sends an existing cancellation during an authorized Production intake pause, not a deposit request", async () => {
+    vi.stubEnv("VERCEL_ENV","production");
+    vi.stubEnv("PROFFERA_MARIA_PUBLIC_SITE_ENABLED","true");
+    vi.stubEnv("PROFFERA_MARIA_PRODUCTION_MANAGER_ENABLED","true");
+    vi.stubEnv("PROFFERA_MARIA_PRODUCTION_CUSTOMER_EMAIL_ENABLED","true");
+    vi.stubEnv("PROFFERA_MARIA_PRODUCTION_ORIGIN","https://makeupbymaria.se");
+    vi.stubEnv("PROFFERA_MARIA_PRODUCTION_BOOKING_ENABLED","false");
+    vi.stubEnv("PROFFERA_MARIA_PRODUCTION_SWISH_ENABLED","false");
+    const fetchMock=vi.fn().mockResolvedValue({ok:true});
+    vi.stubGlobal("fetch",fetchMock);
+    expect(await sendMariaBookingStatusEmail({...booking,status:"cancelled"}))
+      .toEqual({ok:true});
+    const delivered=JSON.parse(fetchMock.mock.calls[0]![1].body as string);
+    expect(delivered.htmlContent).not.toContain("/api/makeup-by-maria/swish-qr/");
+    expect(delivered.textContent).not.toContain("2 000 kr");
+    expect(await sendMariaBookingStatusEmail(booking))
+      .toEqual({ok:false,error:"recipient_not_approved"});
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
   it("does not send a stale deposit request if the booking was cancelled", async () => {
     dbQuery.mockResolvedValueOnce([]);
     const fetchMock = vi.fn();

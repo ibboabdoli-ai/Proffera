@@ -6,8 +6,7 @@ import { neon } from "@neondatabase/serverless";
 import { sendBookingChangeEmails } from "@/features/email/booking-change-email";
 import { resolveCustomerPortalSecret } from "@/lib/auth-secret";
 import { resolveDatabaseUrl } from "@/lib/db/database-url";
-import { getMariaBookingPortalBase, isMariaBookingRecipientAllowed } from "@/lib/maria-preview-customer-safety";
-import { getMariaBookingReadiness } from "@/lib/maria-booking-runtime";
+import { getMariaExistingBookingPortalBase, isMariaExistingBookingRecipientAllowed } from "@/lib/maria-preview-customer-safety";
 import { resolveBookingTimeZone } from "@/lib/public-booking-policy";
 import type { WorkspaceTimeZone } from "@/lib/workspace-market";
 
@@ -158,16 +157,11 @@ export async function cancelCustomerCalendarBooking(
     select slug from workspaces where id::text=${payload.workspaceId} limit 1
   `;
   const isMaria = String(workspace[0]?.slug ?? "") === "makeup-by-maria";
-  const mariaBase = isMaria ? getMariaBookingPortalBase() : null;
+  const mariaBase = isMaria ? getMariaExistingBookingPortalBase() : null;
   if (isMaria) {
-    // Preview QA cancellation keeps its original isolation exception.
-    // A Production portal origin flag by itself cannot authorize writes.
-    if (process.env.VERCEL_ENV === "production") {
-      const ready = await getMariaBookingReadiness();
-      if (!ready.enabled || ready.workspaceId !== payload.workspaceId) {
-        return { ok: false as const, error: "not_allowed" };
-      }
-    }
+    // Existing, token-authenticated cancellations remain available when
+    // new-booking intake is paused. Lifecycle site, manager, origin and
+    // recipient authorization must still pass independently.
     if (!mariaBase) {
       return { ok: false as const, error: "not_allowed" };
     }
@@ -175,7 +169,7 @@ export async function cancelCustomerCalendarBooking(
       select email from customers where id=${payload.customerId}::uuid
         and workspace_id=${payload.workspaceId} limit 1
     `;
-    if (!recipient[0] || !isMariaBookingRecipientAllowed(String(recipient[0].email))) {
+    if (!recipient[0] || !isMariaExistingBookingRecipientAllowed(String(recipient[0].email))) {
       return { ok: false as const, error: "not_allowed" };
     }
   }
@@ -304,7 +298,7 @@ export async function cancelCustomerCalendarBooking(
     branding: isMaria ? "makeup-by-maria" : undefined,
     customerName: String(booking.customer_name),
     customerEmail: String(booking.customer_email),
-    ownerEmail: booking.owner_email && (!isMaria || isMariaBookingRecipientAllowed(String(booking.owner_email)))
+    ownerEmail: booking.owner_email && (!isMaria || isMariaExistingBookingRecipientAllowed(String(booking.owner_email)))
       ? String(booking.owner_email) : undefined,
     companyName: String(booking.company_name),
     service: String(booking.service ?? "Bokning"),

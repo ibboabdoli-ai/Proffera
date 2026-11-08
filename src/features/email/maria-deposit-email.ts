@@ -5,7 +5,7 @@ import { bookingDateLocale } from "@/lib/booking-date-locale";
 import { getSql } from "@/lib/db/server";
 import { resolveBrevoApiKey } from "@/lib/email-runtime-config";
 
-import { getMariaBookingPortalBase, isMariaBookingRecipientAllowed } from "@/lib/maria-preview-customer-safety";
+import { getMariaBookingPortalBase, getMariaExistingBookingPortalBase, isMariaBookingRecipientAllowed, isMariaExistingBookingRecipientAllowed } from "@/lib/maria-preview-customer-safety";
 import { getMariaBookingReadiness } from "@/lib/maria-booking-runtime";
 import { MARIA_CANONICAL_PRODUCTION_ORIGIN, isMariaProductionSwishAuthorized } from "@/lib/maria-production-activation-policy";
 import {
@@ -259,13 +259,18 @@ export function buildMariaBookingStatusEmail(input: MariaBookingStatusEmailInput
  * This does not initiate a transaction, validate payments or send SMS.
  */
 export async function sendMariaBookingStatusEmail(input: MariaBookingStatusEmailInput) {
-  const base = getMariaBookingPortalBase();
-  if (!base || !isMariaBookingRecipientAllowed(input.customerEmail)) {
+  const cancellation = input.status === "cancelled";
+  const base = cancellation ? getMariaExistingBookingPortalBase() : getMariaBookingPortalBase();
+  const recipientAllowed = cancellation
+    ? isMariaExistingBookingRecipientAllowed(input.customerEmail)
+    : isMariaBookingRecipientAllowed(input.customerEmail);
+  if (!base || !recipientAllowed) {
     return { ok: false as const, error: "recipient_not_approved" as const };
   }
   // A direct status-email request cannot bypass Production workspace, schema,
   // booking entitlement and lifecycle readiness. Preview retains its QA gate.
-  if (process.env.VERCEL_ENV === "production" && !(await getMariaBookingReadiness()).enabled) {
+  if (process.env.VERCEL_ENV === "production" && !cancellation
+    && (!(await getMariaBookingReadiness()).enabled || !isMariaProductionSwishAuthorized())) {
     return { ok: false as const, error: "recipient_not_approved" as const };
   }
   const apiKey = resolveBrevoApiKey();
@@ -292,7 +297,8 @@ export async function sendMariaBookingStatusEmail(input: MariaBookingStatusEmail
         where b.id=${input.bookingId}::uuid and w.slug='makeup-by-maria'
           and w.status in ('active','trial')
           and (b.source='public_booking'
-            or ((${process.env.VERCEL_ENV === "preview" || isMariaProductionSwishAuthorized()}::boolean)
+            or ((${process.env.VERCEL_ENV === "preview"
+              || (cancellation ? Boolean(getMariaExistingBookingPortalBase()) : isMariaProductionSwishAuthorized())}::boolean)
               and b.source='dashboard_manual'))
           and b.status=${input.status}
           and b.starts_at=${input.startsAt}::timestamptz
