@@ -16,6 +16,10 @@ const runtime = vi.hoisted(() => ({
   role: "owner",
 }));
 vi.mock("server-only", () => ({}));
+vi.mock("@/lib/auth-secret", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/auth-secret")>()),
+  resolveCustomerPortalSecret: () => "synthetic-maria-postgres-portal-test-only",
+}));
 vi.mock("@neondatabase/serverless", () => ({
   neon: () => runtime.makeSql?.() ?? null,
 }));
@@ -50,6 +54,7 @@ vi.mock("next/navigation", () => ({
 }));
 
 import { readMariaManualSwishStatuses, setMariaManualSwishStatus } from "@/lib/maria-manual-swish";
+import { cancelCustomerCalendarBooking, createCustomerCalendarToken } from "@/lib/customer-calendar";
 import { mariaBookingNumber } from "@/lib/maria-deposit";
 import { readMariaSwishQrEligibility } from "@/lib/maria-swish-qr-eligibility";
 import { saveMariaYearAction } from "@/app/dashboard/maria/actions";
@@ -851,6 +856,36 @@ function compileSql(strings: TemplateStringsArray, values: unknown[]): Query {
       // A synthetic hold must not leak into the following independent
       // schedule-saving regression and falsely reject otherwise valid hours.
       await db!.query("delete from public_booking_verifications where id=$1::uuid", [hold.rows[0]!.id]);
+    }
+  });
+
+  it("cancels a Preview booking with a tab-padded approved email using real PostgreSQL", async () => {
+    const paddedCustomerId=randomUUID();
+    const paddedBookingId=randomUUID();
+    await db!.query(
+      "insert into customers (id,workspace_id,name,email,status,source) values ($1::uuid,$2,'Synthetic Preview QA',$3,'active','dashboard_manual')",
+      [paddedCustomerId,workspaceId,"\\tQA@example.invalid  \\r".replaceAll("\\t","\t").replaceAll("\\r","\r")],
+    );
+    try {
+      await db!.query(
+        "insert into bookings (id,workspace_id,customer_id,title,service,status,source,starts_at,ends_at) values ($1::uuid,$2,$3::uuid,'Synthetic QA cancellation','Synthetic makeup','requested','dashboard_manual',now()+interval '28 days',now()+interval '28 days 3 hours')",
+        [paddedBookingId,workspaceId,paddedCustomerId],
+      );
+      // This tests the actual cancellation predicate, not a detached SQL copy.
+      // Never send real email while exercising isolated PostgreSQL.
+      vi.stubEnv("PROFFERA_PREVIEW_BREVO_API_KEY","");
+      vi.stubEnv("BREVO_API_KEY","");
+      const token=createCustomerCalendarToken({workspaceId,customerId:paddedCustomerId});
+      expect(await cancelCustomerCalendarBooking(token,paddedBookingId,"sv")).toEqual({ok:true});
+      const state=await db!.query<{status:string}>(
+        "select status from bookings where id=$1::uuid and workspace_id=$2",
+        [paddedBookingId,workspaceId],
+      );
+      expect(state.rows[0]?.status).toBe("cancelled");
+    } finally {
+      await db!.query("delete from customer_events where booking_id=$1::uuid",[paddedBookingId]);
+      await db!.query("delete from bookings where id=$1::uuid",[paddedBookingId]);
+      await db!.query("delete from customers where id=$1::uuid",[paddedCustomerId]);
     }
   });
 
