@@ -404,13 +404,22 @@ export async function verifyPublicBookingCode(id: string, code: string, language
       || Date.now() - consumedAtMs > 30 * 60 * 1000) {
       return { ok: false as const, error: "invalid" };
     }
-    if (hashCode(id, code) !== String(challenge.code_hash)) {
-      await sql`
-        update public_booking_verifications
-        set attempts=attempts+1, updated_at=now()
-        where id=${id}::uuid and consumed_at is not null
-          and verified_at is not null and attempts<max_attempts
-      `;
+    // Reserve a recovery attempt in PostgreSQL BEFORE testing the guess.
+    // Under concurrent requests, only a caller that wins the conditional
+    // row update may evaluate the code and issue a signed portal token.
+    const reserved = await sql`
+      update public_booking_verifications
+      set attempts=attempts+1, updated_at=now()
+      where id=${id}::uuid and consumed_at is not null
+        and verified_at is not null
+        and consumed_at<=now()
+        and consumed_at>=now()-interval '30 minutes'
+        and attempts<max_attempts
+        and code_hash=${String(challenge.code_hash)}
+      returning code_hash
+    `;
+    if (reserved.length !== 1) return { ok: false as const, error: "invalid" };
+    if (hashCode(id, code) !== String(reserved[0]?.code_hash)) {
       return { ok: false as const, error: "code" };
     }
     const portalBase = getMariaBookingPortalBase();

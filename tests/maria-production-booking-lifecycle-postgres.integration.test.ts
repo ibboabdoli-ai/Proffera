@@ -216,6 +216,23 @@ function compileSql(strings: TemplateStringsArray, values: unknown[]): Query {
     // A different code cannot recover the booking after consumption.
     expect(await verifyPublicBookingCode(id,resentCode==="000000"?"111111":"000000","ar"))
       .toMatchObject({ok:false,error:"code"});
+
+    // Real PostgreSQL contention: with one remaining attempt, 11 parallel
+    // requests (valid + invalid) must never issue more than one recovery.
+    await db!.query(
+      "update public_booking_verifications set attempts=max_attempts-1 where id=$1::uuid",
+      [id],
+    );
+    const wrongCode=resentCode==="000000"?"111111":"000000";
+    const guesses=[resentCode!,...Array.from({length:10},()=>wrongCode)];
+    const outcomes=await Promise.all(guesses.map(value=>verifyPublicBookingCode(id,value,"ar")));
+    expect(outcomes.filter(outcome=>outcome.ok).length).toBeLessThanOrEqual(1);
+    const attempts=(await db!.query<{attempts:number;max_attempts:number}>(
+      "select attempts,max_attempts from public_booking_verifications where id=$1::uuid",[id],
+    )).rows[0];
+    expect(attempts?.attempts).toBe(attempts?.max_attempts);
+    expect(await verifyPublicBookingCode(id,resentCode!,"ar"))
+      .toMatchObject({ok:false,error:"invalid"});
     expect((await db!.query("select id from bookings where workspace_id=$1 and source='public_booking'",[workspaceId])).rowCount).toBe(1);
     const customerMessages=vi.mocked(fetch).mock.calls.map(([,options])=>JSON.parse(String(options?.body)) as {subject:string;htmlContent:string;to:{email:string}[]});
     // Assert a trusted portal origin, not a substring that could appear on an attacker host.
