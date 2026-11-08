@@ -101,8 +101,9 @@ export default async function ReschedulePage({ params, searchParams }: PageProps
   const mariaWorkspace = presentation?.workspaceSlug === "makeup-by-maria"
     && presentation.publicBookingSlug === "makeup-by-maria";
   const isMaria = mariaWorkspace && Boolean(getMariaBookingPortalBase());
-  const mariaUnavailable = mariaWorkspace && process.env.VERCEL_ENV === "production"
-    && (await getMariaBookingReadiness().catch(() => ({ enabled: false }))).enabled !== true;
+  const mariaServiceUnavailable = mariaWorkspace && booking.serviceRescheduleAvailable === false;
+  const mariaUnavailable = mariaServiceUnavailable || (mariaWorkspace && process.env.VERCEL_ENV === "production"
+    && (await getMariaBookingReadiness().catch(() => ({ enabled: false }))).enabled !== true);
   const days = mariaWorkspace ? [] : getUpcomingRescheduleDays(booking.timeZone, 7);
   const slotEntries = await Promise.all(
     days.map(async (day) => [day.date, await getAvailableRescheduleSlots(token, bookingId, day.date)] as const),
@@ -196,9 +197,13 @@ export default async function ReschedulePage({ params, searchParams }: PageProps
           {mariaWorkspace ? (
             mariaUnavailable ? (
               <p role="alert" className={styles.noticeError}>
-                {t("Ombokning online är tillfälligt stängd. Kontakta Maria direkt för en ny tid.",
-                  "Online rescheduling is temporarily unavailable. Contact Maria directly for another time.",
-                  "تغيير الموعد عبر الإنترنت غير متاح مؤقتًا. تواصلي مع ماريا مباشرة لتحديد موعد جديد.")}
+                {mariaServiceUnavailable
+                  ? t("Den bokade tjänsten erbjuds inte längre för ombokning. Kontakta Maria direkt.",
+                      "This booked service is no longer available for rescheduling. Contact Maria directly.",
+                      "الخدمة المحجوزة لم تعد متاحة لتغيير الموعد. تواصلي مع ماريا مباشرة.")
+                  : t("Ombokning online är tillfälligt stängd. Kontakta Maria direkt för en ny tid.",
+                      "Online rescheduling is temporarily unavailable. Contact Maria directly for another time.",
+                      "تغيير الموعد عبر الإنترنت غير متاح مؤقتًا. تواصلي مع ماريا مباشرة لتحديد موعد جديد.")}
               </p>
             ) : <form method="get" className="mt-3 flex flex-wrap items-end gap-3">
               <input type="hidden" name="lang" value={language} />

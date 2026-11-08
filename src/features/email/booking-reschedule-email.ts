@@ -147,7 +147,10 @@ export async function sendBookingRescheduleEmail(input: SendBookingRescheduleEma
     const data = (await response.json().catch(() => ({}))) as BrevoResponse;
     if (!response.ok) return { ok: false as const, message: data.message ?? data.code ?? "Kunde inte skicka ombokningsmejl." };
     return { ok: true as const, providerId: data.messageId ?? null };
-  } catch {
-    return { ok: false as const, message: "Kunde inte kontakta Brevo." };
+  } catch (error) {
+    const timedOut = error instanceof Error && (error.name === "TimeoutError" || error.name === "AbortError");
+    return { ok: false as const, message: timedOut
+      ? "Brevo request timed out; email delivery is unconfirmed."
+      : "Kunde inte kontakta Brevo." };
   }
 }

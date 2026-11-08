@@ -275,6 +275,16 @@ function compileSql(strings: TemplateStringsArray, values: unknown[]): Query {
     expect(closed.rowCount).toBeGreaterThan(0);
   },120_000);
 
+  it("normalizes tabs in Preview email using PostgreSQL's actual btrim predicate", async () => {
+    const result = await db!.query<{ matches: boolean; mismatch: boolean }>(
+      `select
+        lower(btrim($1::text, chr(9) || chr(10) || chr(13) || ' ')) = lower($2::text) as matches,
+        lower(btrim($3::text, chr(9) || chr(10) || chr(13) || ' ')) = lower($2::text) as mismatch`,
+      ["\tQA@example.invalid  \r", "qa@example.invalid", "different@example.invalid"],
+    );
+    expect(result.rows[0]).toMatchObject({ matches: true, mismatch: false });
+  });
+
   it("keeps two real PostgreSQL bookings with the same old six-digit prefix independently payable", async () => {
     const ids = [
       "abcdef00-1111-4111-8111-111111111111",

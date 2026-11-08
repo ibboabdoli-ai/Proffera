@@ -330,6 +330,26 @@ describe("public booking human-designed UX contract", () => {
     expect(readyCard?.props.canReschedule).toBe(true);
   });
 
+  it("explains inactive Maria services rather than offering other weekend dates", async () => {
+    vi.stubEnv("VERCEL_ENV", "production");
+    mocks.headers.mockResolvedValue(new Headers({ host: "makeupbymaria.se" }));
+    mocks.getCustomerPortalPresentation.mockResolvedValue({
+      ...presentation, workspaceSlug: "makeup-by-maria", publicBookingSlug: "makeup-by-maria",
+    });
+    mocks.getMariaBookingReadiness.mockResolvedValue({ enabled: true });
+    mocks.getRescheduleBooking.mockResolvedValue({
+      ...rescheduleBooking, serviceRescheduleAvailable: false,
+    });
+    const page = await ReschedulePage({
+      params: Promise.resolve({ token: "customer-token", bookingId: "booking-1" }),
+      searchParams: Promise.resolve({ lang: "en" }),
+    });
+    const html = renderToStaticMarkup(page);
+    expect(html).toContain("This booked service is no longer available for rescheduling");
+    expect(html).not.toContain('type="date"');
+    expect(mocks.getAvailableRescheduleSlots).not.toHaveBeenCalled();
+  });
+
   it("preserves the active locale in PrimeView redirects", async () => {
     mocks.getCustomerPortalPresentation.mockResolvedValue({ ...presentation, publicBookingSlug: "primeview" });
 
