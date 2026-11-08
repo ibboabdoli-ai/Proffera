@@ -7,12 +7,12 @@ import { sendBookingVerificationEmail } from "@/features/email/booking-verificat
 import { sendUnifiedBookingConfirmationEmail } from "@/features/email/unified-booking-confirmation-email";
 import { sendBookingOwnerSms, sendBookingVerificationSms } from "@/features/sms/booking-sms";
 import { createCustomerCalendarToken } from "@/lib/customer-calendar";
-import { resolveAuthSecret } from "@/lib/auth-secret";
+import { resolveAuthSecret, resolveCustomerPortalSecret } from "@/lib/auth-secret";
 import { getSql } from "@/lib/db/server";
 import { finalizeMariaVerifiedBooking } from "@/lib/maria-verified-booking";
 import { getMariaBookingReadiness } from "@/lib/maria-booking-runtime";
 import { renewMariaPreviewHoldForResend } from "@/lib/maria-resend-hold";
-import { getMariaBookingPortalBase, isMariaBookingRecipientAllowed, isMariaPreviewTestRecipient } from "@/lib/maria-preview-customer-safety";
+import { getMariaBookingPortalBase, getMariaExistingBookingPortalBase, isMariaBookingRecipientAllowed, isMariaExistingBookingRecipientAllowed, isMariaPreviewTestRecipient } from "@/lib/maria-preview-customer-safety";
 import type { WorkspaceTimeZone } from "@/lib/workspace-market";
 
 const EXPIRY_MINUTES = 10;
@@ -423,8 +423,11 @@ export async function verifyPublicBookingCode(id: string, code: string, language
     if (hashCode(canonicalId, code) !== String(reserved[0]?.code_hash)) {
       return { ok: false as const, error: "code" };
     }
-    const portalBase = getMariaBookingPortalBase();
-    if (!portalBase || !isMariaBookingRecipientAllowed(String(challenge.customer_email))) {
+    // A committed booking is recoverable even after new intake is paused.
+    // This is code-authenticated, still rate-limited, and cannot insert or send.
+    const portalBase = getMariaExistingBookingPortalBase();
+    if (!portalBase || !resolveCustomerPortalSecret()
+      || !isMariaExistingBookingRecipientAllowed(String(challenge.customer_email))) {
       return { ok: false as const, error: "unavailable" };
     }
     const recovered = await sql`

@@ -4,7 +4,7 @@ import { neon } from "@neondatabase/serverless";
 
 import { verifyCustomerCalendarToken } from "@/lib/customer-calendar";
 import { resolveDatabaseUrl } from "@/lib/db/database-url";
-import { getMariaBookingPortalBase } from "@/lib/maria-preview-customer-safety";
+import { getMariaExistingBookingPortalBase } from "@/lib/maria-preview-customer-safety";
 
 export type CustomerPortalLanguage = "sv" | "en" | "ar";
 
@@ -66,7 +66,7 @@ export function resolveCustomerPortalLanguage(
   // Production origin. Other workspaces retain their existing language flags.
   if (presentation?.workspaceSlug === "makeup-by-maria"
     && presentation.publicBookingSlug === "makeup-by-maria"
-    && Boolean(getMariaBookingPortalBase())
+    && Boolean(getMariaExistingBookingPortalBase())
     && (requested === "ar" || requested === "sv" || requested === "en")) return requested;
   if (requested === "en" && presentation?.englishEnabled) return "en";
   if (requested === "sv" && presentation?.swedishEnabled) return "sv";

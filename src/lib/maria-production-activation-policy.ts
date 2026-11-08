@@ -55,3 +55,18 @@ export function isMariaProductionSwishAuthorized(env: NodeJS.ProcessEnv = proces
     && env.PROFFERA_MARIA_PRODUCTION_ORIGIN === MARIA_CANONICAL_PRODUCTION_ORIGIN
     && env.PROFFERA_MARIA_PRODUCTION_SWISH_ENABLED === "true";
 }
+
+/**
+ * Existing-booking lifecycle authorization is independent of new-booking intake,
+ * prices, and year editing. It does not enable public booking creation. Keep
+ * public site, manager, customer-email and exact-origin permissions mandatory.
+ */
+export function isMariaProductionExistingBookingLifecycleAuthorized(
+  env: NodeJS.ProcessEnv = process.env,
+): boolean {
+  return env.VERCEL_ENV === "production"
+    && env.PROFFERA_MARIA_PUBLIC_SITE_ENABLED === "true"
+    && env.PROFFERA_MARIA_PRODUCTION_MANAGER_ENABLED === "true"
+    && env.PROFFERA_MARIA_PRODUCTION_CUSTOMER_EMAIL_ENABLED === "true"
+    && env.PROFFERA_MARIA_PRODUCTION_ORIGIN === MARIA_CANONICAL_PRODUCTION_ORIGIN;
+}

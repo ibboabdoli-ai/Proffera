@@ -65,6 +65,20 @@ async function markup(lang: string, verificationId = id) {
 }
 
 describe("Maria verification language keeps the Preview booking locale", () => {
+  it.each([
+    ["sv","Bokningen kan redan vara sparad"],
+    ["en","Your booking may already be saved"],
+    ["ar","قد يكون حجزك محفوظًا بالفعل"],
+  ])("shows a recoverable booking error in %s without promising a second booking", async (locale,expected) => {
+    const element = await VerifyBookingPage({
+      params: Promise.resolve({id}),
+      searchParams: Promise.resolve({lang:locale,error:"unavailable"}),
+    });
+    const html = renderToStaticMarkup(element);
+    expect(html).toContain(expected);
+    expect(html).toContain('role="alert"');
+  });
+
   it("retains English and offers its language switch even when the workspace toggle is off", async () => {
     const html = await markup("en");
     expect(html).toMatch(/<main[^>]*lang="en"/);

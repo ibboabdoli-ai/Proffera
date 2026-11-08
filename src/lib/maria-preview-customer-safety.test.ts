@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { getMariaBookingPortalBase, isMariaBookingRecipientAllowed, getMariaPreviewPortalBase, isMariaPreviewTestRecipient, mariaPreviewStatusChangePreflight } from "./maria-preview-customer-safety";
+import { getMariaBookingPortalBase, getMariaExistingBookingPortalBase, isMariaBookingRecipientAllowed, isMariaExistingBookingRecipientAllowed, getMariaPreviewPortalBase, isMariaPreviewTestRecipient, mariaPreviewStatusChangePreflight } from "./maria-preview-customer-safety";
 
 describe("Maria Preview customer-only delivery gate", () => {
   const preview = {
@@ -100,6 +100,28 @@ describe("Maria Production recipient and canonical-origin boundary", () => {
     expect(isMariaBookingRecipientAllowed("qa@example.invalid", {
       ...ready, VERCEL_ENV: "preview",
     })).toBe(false);
+  });
+
+  it("keeps existing-booking recovery and cancellation authorized during an intake pause", () => {
+    const paused = { ...ready, PROFFERA_MARIA_PRODUCTION_BOOKING_ENABLED: "false",
+      PROFFERA_MARIA_PRODUCTION_YEAR_EDITOR_ENABLED: "" };
+    expect(isMariaBookingRecipientAllowed("bride@example.com", paused)).toBe(false);
+    expect(getMariaBookingPortalBase(paused)).toBeNull();
+    expect(getMariaExistingBookingPortalBase(paused)).toBe("https://makeupbymaria.se");
+    expect(isMariaExistingBookingRecipientAllowed("bride@example.com", paused)).toBe(true);
+    for (const key of ["PROFFERA_MARIA_PUBLIC_SITE_ENABLED",
+      "PROFFERA_MARIA_PRODUCTION_MANAGER_ENABLED",
+      "PROFFERA_MARIA_PRODUCTION_CUSTOMER_EMAIL_ENABLED",
+      "PROFFERA_MARIA_PRODUCTION_ORIGIN"] as const) {
+      const disabled = { ...paused, [key]:"" };
+      expect(getMariaExistingBookingPortalBase(disabled)).toBeNull();
+      expect(isMariaExistingBookingRecipientAllowed("bride@example.com", disabled)).toBe(false);
+    }
+    expect(isMariaExistingBookingRecipientAllowed("invalid address", paused)).toBe(false);
+    expect(getMariaExistingBookingPortalBase({
+      VERCEL_ENV:"preview",
+      VERCEL_URL:"proffera-jhap-qa.vercel.app",
+    })).toBe("https://proffera-jhap-qa.vercel.app");
   });
 
   it("uses the exact public origin after every Production switch is requested", () => {
