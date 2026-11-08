@@ -7,6 +7,7 @@ import { getMariaExistingBookingPortalBase, isMariaExistingBookingRecipientAllow
 import { getMariaBookingReadiness } from "@/lib/maria-booking-runtime";
 
 import { resolveBookingTimeZone } from "@/lib/public-booking-policy";
+import { postgresTimestampIso } from "@/lib/postgres-timestamp";
 import { deliverVerifiedReviewInvitation } from "@/lib/verified-review-email-delivery";
 import { canManageWorkspaceSettings, getUserWorkspaceAccess } from "@/lib/workspace-access";
 
@@ -431,14 +432,14 @@ export async function updateDashboardBookingStatus(
         customerPhone: String(result.customer_phone ?? ""),
         service: String(result.service ?? "Bokning"),
         city: String(result.city ?? ""),
-        startsAt: new Date(String(result.starts_at)).toISOString(),
-        endsAt: new Date(String(result.ends_at)).toISOString(),
+        startsAt: postgresTimestampIso(result.starts_at),
+        endsAt: postgresTimestampIso(result.ends_at),
         language: result.booking_language === "ar" ? "ar" as const
           : result.booking_language === "en" ? "en" as const : "sv" as const,
         revision: result.notification_revision
-          ? new Date(String(result.notification_revision)).toISOString() : undefined,
+          ? postgresTimestampIso(result.notification_revision) : undefined,
         confirmedAt: status === "confirmed" && result.confirmed_at
-          ? new Date(String(result.confirmed_at)).toISOString() : undefined,
+          ? postgresTimestampIso(result.confirmed_at) : undefined,
       }
     : null;
 

@@ -9,6 +9,7 @@ import { resolveCustomerPortalSecret } from "@/lib/auth-secret";
 import { resolveDatabaseUrl } from "@/lib/db/database-url";
 import { getMariaExistingBookingPortalBase, isMariaExistingBookingRecipientAllowed } from "@/lib/maria-preview-customer-safety";
 import { resolveBookingTimeZone } from "@/lib/public-booking-policy";
+import { postgresTimestampIso } from "@/lib/postgres-timestamp";
 import type { WorkspaceTimeZone } from "@/lib/workspace-market";
 
 const connectionString = resolveDatabaseUrl();
@@ -82,8 +83,8 @@ const toBooking = (row: Record<string, unknown>): CustomerCalendarBooking => ({
   service: String(row.service ?? "Ej angiven"),
   city: String(row.city ?? ""),
   status: String(row.status ?? "requested"),
-  startsAt: new Date(String(row.starts_at)).toISOString(),
-  endsAt: new Date(String(row.ends_at)).toISOString(),
+  startsAt: postgresTimestampIso(row.starts_at),
+  endsAt: postgresTimestampIso(row.ends_at),
 });
 
 export async function getCustomerCalendar(token: string): Promise<CustomerCalendarData | null> {
@@ -317,8 +318,8 @@ export async function cancelCustomerCalendarBooking(
     companyName: String(booking.company_name),
     service: String(booking.service ?? "Bokning"),
     city: String(booking.city ?? ""),
-    oldStartsAt: new Date(String(booking.starts_at)).toISOString(),
-    oldEndsAt: new Date(String(booking.ends_at)).toISOString(),
+    oldStartsAt: postgresTimestampIso(booking.starts_at),
+    oldEndsAt: postgresTimestampIso(booking.ends_at),
     portalUrl: `${base}/mina-bokningar/${encodeURIComponent(token)}?lang=${language}`,
     timeZone: resolveBookingTimeZone(booking.time_zone),
     language,
@@ -336,9 +337,9 @@ export async function cancelCustomerCalendarBooking(
           -- a JavaScript Date round-trip retains only milliseconds.
           -- Compare to the same precision rather than suppressing a current
           -- cancellation notice as falsely superseded.
-          and date_trunc('milliseconds',b.starts_at)=date_trunc('milliseconds',${new Date(String(booking.starts_at)).toISOString()}::timestamptz)
-          and date_trunc('milliseconds',b.ends_at)=date_trunc('milliseconds',${new Date(String(booking.ends_at)).toISOString()}::timestamptz)
-          and date_trunc('milliseconds',b.updated_at)=date_trunc('milliseconds',${new Date(String(booking.cancellation_revision)).toISOString()}::timestamptz)
+          and date_trunc('milliseconds',b.starts_at)=date_trunc('milliseconds',${postgresTimestampIso(booking.starts_at)}::timestamptz)
+          and date_trunc('milliseconds',b.ends_at)=date_trunc('milliseconds',${postgresTimestampIso(booking.ends_at)}::timestamptz)
+          and date_trunc('milliseconds',b.updated_at)=date_trunc('milliseconds',${postgresTimestampIso(booking.cancellation_revision)}::timestamptz)
           and lower(btrim(c.email, chr(9) || chr(10) || chr(13) || ' '))=lower(${String(booking.customer_email).trim()})
         limit 1
       `;

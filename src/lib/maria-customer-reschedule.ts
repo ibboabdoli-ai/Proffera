@@ -7,6 +7,7 @@ import { getMariaBookingReadiness } from "@/lib/maria-booking-runtime";
 import { withMariaBookingNotificationLock } from "@/lib/maria-booking-notification-lock";
 import { getMariaBookingPortalBase, isMariaBookingRecipientAllowed } from "@/lib/maria-preview-customer-safety";
 import { parseLocalDateTime, validatePublicBookingPolicy } from "@/lib/public-booking-policy";
+import { postgresTimestampIso } from "@/lib/postgres-timestamp";
 
 type MariaChangeInput = {
   workspaceId: string;
@@ -227,7 +228,7 @@ export async function rescheduleMariaCustomerBooking(input: MariaChangeInput) {
           where b.workspace_id=${input.workspaceId} and b.id=${input.bookingId}::uuid
             and b.status in ('requested','confirmed')
             and b.starts_at=${start}::timestamptz and b.ends_at=${end}::timestamptz
-            and date_trunc('milliseconds',b.updated_at)=date_trunc('milliseconds',${new Date(String(booking.notice_revision)).toISOString()}::timestamptz)
+            and date_trunc('milliseconds',b.updated_at)=date_trunc('milliseconds',${postgresTimestampIso(booking.notice_revision)}::timestamptz)
             and lower(btrim(c.email, chr(9) || chr(10) || chr(13) || ' '))=lower(${String(booking.customer_email).trim()})
           limit 1
         `;
@@ -252,8 +253,8 @@ export async function rescheduleMariaCustomerBooking(input: MariaChangeInput) {
       companyName: String(booking.company_name),
       service: String(booking.service_name),
       city: String(booking.city ?? ""),
-      oldStartsAt: new Date(String(booking.old_starts_at)).toISOString(),
-      oldEndsAt: new Date(String(booking.old_ends_at)).toISOString(),
+      oldStartsAt: postgresTimestampIso(booking.old_starts_at),
+      oldEndsAt: postgresTimestampIso(booking.old_ends_at),
       newStartsAt: start,
       newEndsAt: end,
       portalUrl: `${base}/mina-bokningar/${encodeURIComponent(input.token)}?lang=${input.language}`,
