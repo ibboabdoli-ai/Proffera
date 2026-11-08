@@ -1,4 +1,4 @@
-import { getMariaBookingPortalBase } from "@/lib/maria-preview-customer-safety";
+import { getMariaBookingPortalBase, getMariaExistingBookingPortalBase } from "@/lib/maria-preview-customer-safety";
 
 /** Approved Maria client logo for transactional booking email HTML.
  * Keep this table-based and inline-styled for Gmail/iOS mail clients.
@@ -18,7 +18,7 @@ export function mariaEmailLogoHtml(previewUrl: string | null | undefined) {
     const url = new URL(previewUrl);
     // The environment-derived Preview origin is trusted; an arbitrary
     // vercel.app subdomain supplied by a caller is not.
-    const approvedOrigin = getMariaBookingPortalBase();
+    const approvedOrigin = getMariaBookingPortalBase() ?? getMariaExistingBookingPortalBase();
     if (!approvedOrigin || url.origin !== approvedOrigin
       || url.protocol !== "https:"
       || url.username || url.password || url.port) return "";

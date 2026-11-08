@@ -284,6 +284,7 @@ export async function beginBookingEmailVerification(input: BeginBookingVerificat
 export async function resendPublicBookingCode(id: string, language: "sv" | "en" | "ar" = "sv") {
   const sql = getSql();
   if (!sql || !/^[0-9a-f-]{36}$/i.test(id)) return { ok: false as const, error: "invalid" };
+  const canonicalId = id.toLowerCase();
 
   const rows = await sql`
     select v.*, w.slug as workspace_slug, coalesce(nullif(ws.company_name, ''), w.company_name, w.name) as company_name
@@ -316,14 +317,14 @@ export async function resendPublicBookingCode(id: string, language: "sv" | "en" 
       return { ok: false as const, error: "invalid" };
     }
 
-    const expectedHash = hashCode(id, code);
+    const expectedHash = hashCode(canonicalId, code);
     const expiresAt = new Date(Date.now() + EXPIRY_MINUTES * 60_000).toISOString();
     // Re-acquire the hold only after checking current bookings, other active
     // holds, service policy and buffers under Maria's workspace-wide lock.
     // An expired hold must not evict a booking created in the meantime.
     const renewed = await renewMariaPreviewHoldForResend({
       workspaceId: readiness.workspaceId,
-      verificationId: id,
+      verificationId: canonicalId,
       expectedCodeHash: expectedHash,
       expiresAt,
     });
@@ -362,7 +363,7 @@ export async function resendPublicBookingCode(id: string, language: "sv" | "en" 
   const expiresAt = new Date(Date.now() + EXPIRY_MINUTES * 60_000).toISOString();
   await sql`
     update public_booking_verifications
-    set code_hash = ${hashCode(id, code)}, expires_at = ${expiresAt}::timestamptz, attempts = 0, updated_at = now()
+    set code_hash = ${hashCode(canonicalId, code)}, expires_at = ${expiresAt}::timestamptz, attempts = 0, updated_at = now()
     where id = ${id}::uuid and consumed_at is null and verified_at is null
   `;
   const delivery = emailSent.ok && smsSent.ok ? "email_sms" : smsSent.ok ? "sms" : "email";
@@ -405,6 +406,12 @@ export async function verifyPublicBookingCode(id: string, code: string, language
       || Date.now() - consumedAtMs > 30 * 60 * 1000) {
       return { ok: false as const, error: "invalid" };
     }
+    // Disabled lifecycle must not consume authenticated recovery attempts.
+    const portalBase = getMariaExistingBookingPortalBase();
+    if (!portalBase || !resolveCustomerPortalSecret()
+      || !isMariaExistingBookingRecipientAllowed(String(challenge.customer_email))) {
+      return { ok: false as const, error: "unavailable" };
+    }
     // Reserve a recovery attempt in PostgreSQL BEFORE testing the guess.
     // Under concurrent requests, only a caller that wins the conditional
     // row update may evaluate the code and issue a signed portal token.
@@ -425,11 +432,6 @@ export async function verifyPublicBookingCode(id: string, code: string, language
     }
     // A committed booking is recoverable even after new intake is paused.
     // This is code-authenticated, still rate-limited, and cannot insert or send.
-    const portalBase = getMariaExistingBookingPortalBase();
-    if (!portalBase || !resolveCustomerPortalSecret()
-      || !isMariaExistingBookingRecipientAllowed(String(challenge.customer_email))) {
-      return { ok: false as const, error: "unavailable" };
-    }
     const recovered = await sql`
       select b.id as booking_id,b.customer_id,b.ends_at
       from customer_events e

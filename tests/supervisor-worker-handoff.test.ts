@@ -1645,6 +1645,8 @@ process.exit(2);
   const result = spawnSync("bash", ["-c", script], {
     cwd: repo,
     encoding: "utf8",
+    timeout: 12_000,
+    killSignal: "SIGKILL",
     env: {
       ...process.env,
       PATH: `${bin}${delimiter}${process.env.PATH ?? ""}`,

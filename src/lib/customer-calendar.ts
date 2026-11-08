@@ -306,14 +306,14 @@ export async function cancelCustomerCalendarBooking(
   const base = mariaBase ?? (process.env.NEXT_PUBLIC_APP_URL ?? process.env.APP_URL ?? "https://www.proffera.se").replace(/\/$/, "");
   const ownerEmail = booking.owner_email && (!isMaria
     || isMariaExistingBookingRecipientAllowed(String(booking.owner_email)))
-    ? String(booking.owner_email) : undefined;
+    ? String(booking.owner_email).trim() : undefined;
   // The booking and its pending notice were committed together. A provider
   // outage must not make an already-successful cancellation appear rolled back.
   const sendCancellation = () => sendBookingChangeEmails({
     kind: "cancelled",
     branding: isMaria ? "makeup-by-maria" : undefined,
     customerName: String(booking.customer_name),
-    customerEmail: String(booking.customer_email),
+    customerEmail: isMaria ? String(booking.customer_email).trim() : String(booking.customer_email),
     ownerEmail,
     companyName: String(booking.company_name),
     service: String(booking.service ?? "Bokning"),

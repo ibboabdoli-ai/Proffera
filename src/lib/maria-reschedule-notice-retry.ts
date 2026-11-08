@@ -77,7 +77,10 @@ export async function retryMariaRescheduleNotice(id:string,workspaceId:string){
     if(!row)return {ok:false as const};
     const {m,customer,owner}=targets(row);
     const eventId=String(row.event_id??"");
-    if(!uuid.test(eventId)||(!customer&&!owner))return {ok:false as const};
+    if(!uuid.test(eventId))return {ok:false as const};
+    if (!customer && !owner) {
+      return {ok:false as const, alreadySent: m.notice_customer==="sent" && (m.notice_owner==="sent" || m.notice_owner==="skipped")};
+    }
     // Only one concurrent sender can claim a failed/pending/expired delivery.
     const claims=await sql`
       update customer_events e set metadata=e.metadata||jsonb_build_object(

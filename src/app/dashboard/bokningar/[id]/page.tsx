@@ -35,6 +35,7 @@ import { readMariaManualSwishStatuses } from "@/lib/maria-manual-swish";
 import { readMariaSwishQrEligibility } from "@/lib/maria-swish-qr-eligibility";
 import { getMariaBookingPortalBase, getMariaExistingBookingPortalBase, isMariaBookingRecipientAllowed, isMariaExistingBookingRecipientAllowed, isMariaPreviewTestRecipient, mariaPreviewStatusChangePreflight } from "@/lib/maria-preview-customer-safety";
 import { getMariaBookingReadiness } from "@/lib/maria-booking-runtime";
+import { isMariaProductionSwishAuthorized, isMariaProductionExistingBookingLifecycleAuthorized } from "@/lib/maria-production-activation-policy";
 import { hasPendingMariaRescheduleNotice, retryMariaRescheduleNotice } from "@/lib/maria-reschedule-notice-retry";
 import { isMariaBookingDetailReadOnly } from "@/lib/maria-manager-ui-policy";
 
@@ -209,6 +210,10 @@ async function updateBookingStatusAction(bookingId: string, formData: FormData) 
           redirectWithError(bookingId, "maria_preview", locale);
         }
       }
+      if (status === "confirmed" && process.env.VERCEL_ENV === "production"
+        && !isMariaProductionSwishAuthorized()) {
+        redirectWithError(bookingId, "maria_email_setup", locale);
+      }
       // A permitted existing cancellation must still commit when Brevo is
       // unavailable; the manager sees a delivery warning after the write.
       if ((status === "confirmed" || (status === "cancelled" && !existingCancellation)) && !deliveryReady) {
@@ -244,6 +249,24 @@ async function updateBookingStatusAction(bookingId: string, formData: FormData) 
             })
           : { ok: false as const };
         mariaMailFailed = !delivery.ok;
+        if (notification.noticeEventId) {
+          try {
+            const sql = getSql();
+            if (!sql) throw new Error("Maria notice outcome database unavailable");
+            await sql`
+              update customer_events
+              set metadata=metadata || jsonb_build_object('notice_customer',${delivery.ok ? "accepted" : "failed"}::text),
+                  description=${delivery.ok
+                    ? "Maria status updated. Customer email accepted by provider."
+                    : "Maria status updated. Customer email not confirmed; follow up manually."}
+              where id=${notification.noticeEventId}::uuid and workspace_id=${workspaceAccess.workspaceId}
+                and booking_id=${bookingId}::uuid and event_type='status_change'
+            `;
+          } catch (error) {
+            // The pending booking-history entry survives any outcome write failure.
+            console.error("Maria status email outcome could not be recorded", error);
+          }
+        }
       } else {
         await Promise.allSettled([
           notification.customerEmail ? sendBookingStatusEmail({ customerName: notification.customerName, customerEmail: notification.customerEmail, companyName: workspaceAccess.workspaceName, status, service: notification.service, startsAt: notification.startsAt, endsAt: notification.endsAt, city: notification.city, timeZone: result.timeZone }) : Promise.resolve(null),
@@ -286,6 +309,11 @@ async function resendMariaStatusEmailAction(bookingId: string, formData: FormDat
   try {
     const rows = await sql`
       select b.status,b.service,b.city,b.starts_at,b.ends_at,
+        date_trunc('milliseconds',b.updated_at) as booking_revision,
+        (select e.id::text from customer_events e
+          where e.workspace_id=b.workspace_id and e.booking_id=b.id
+            and e.event_type='status_change' and e.metadata->>'new_status'=b.status
+          order by e.created_at desc,e.id desc limit 1) as notice_event_id,
         c.name as customer_name,c.email as customer_email,
         (select e.created_at from customer_events e
           where e.workspace_id=b.workspace_id and e.booking_id=b.id
@@ -339,9 +367,23 @@ async function resendMariaStatusEmailAction(bookingId: string, formData: FormDat
     service: String(row.service ?? ""), startsAt: postgresTimestampIso(row.starts_at),
     endsAt: postgresTimestampIso(row.ends_at),
     city: String(row.city ?? ""), timeZone: "Europe/Stockholm",
-    confirmedAt, language: row.booking_language === "ar" ? "ar"
+    confirmedAt, expectedRevision: postgresTimestampIso(row.booking_revision),
+    language: row.booking_language === "ar" ? "ar"
       : row.booking_language === "en" ? "en" : "sv",
   });
+  if (row.notice_event_id) {
+    try {
+      await sql`
+        update customer_events
+        set metadata=metadata || jsonb_build_object('notice_customer',${sent.ok ? "accepted" : "failed"}::text),
+            description=${sent.ok
+              ? "Maria status updated. Customer email accepted by provider."
+              : "Maria status updated. Customer email not confirmed; follow up manually."}
+        where id=${String(row.notice_event_id)}::uuid and workspace_id=${access.workspaceId}
+          and booking_id=${bookingId}::uuid and event_type='status_change'
+      `;
+    } catch (error) { console.error("Maria status retry outcome could not be recorded", error); }
+  }
   if (!sent.ok) redirect(withLang(`/dashboard/bokningar/${bookingId}?maria_mail=failed`, locale));
   redirect(withLang(`/dashboard/bokningar/${bookingId}?maria_mail=resent`, locale));
 }
@@ -355,7 +397,7 @@ async function resendMariaRescheduleNoticeAction(bookingId: string, formData: Fo
     redirectWithError(bookingId, "maria_preview", locale);
   }
   const outcome = await retryMariaRescheduleNotice(bookingId, access.workspaceId);
-  redirect(withLang(`/dashboard/bokningar/${bookingId}?maria_reschedule_mail=${outcome.ok ? "resent" : "failed"}`, locale));
+  redirect(withLang(`/dashboard/bokningar/${bookingId}?maria_reschedule_mail=${outcome.ok || ("alreadySent" in outcome && outcome.alreadySent) ? "resent" : "failed"}`, locale));
 }
 
 async function rescheduleBookingAction(bookingId: string, formData: FormData) {
@@ -383,7 +425,7 @@ async function rescheduleBookingAction(bookingId: string, formData: FormData) {
       if (isMaria) {
         // Delivery is journaled with the booking change; a failed send remains retryable.
         const delivery = await retryMariaRescheduleNotice(bookingId, workspaceAccess.workspaceId);
-        mariaRescheduleMailFailed = !delivery.ok;
+        mariaRescheduleMailFailed = !delivery.ok && !("alreadySent" in delivery && delivery.alreadySent);
       } else {
         await Promise.allSettled([
           notification.customerEmail ? sendBookingRescheduleEmail({ customerName: notification.customerName, customerEmail: notification.customerEmail, companyName: workspaceAccess.workspaceName, service: notification.service, previousStartsAt: notification.previousStartsAt, startsAt: notification.startsAt, endsAt: notification.endsAt, city: notification.city, timeZone: result.timeZone }) : Promise.resolve(null),
@@ -422,8 +464,11 @@ export default async function BookingDetailPage({ params, searchParams }: Bookin
     && !mariaProductionReady && Boolean(getMariaExistingBookingPortalBase());
   const mariaBookingDetailReadOnly = isMariaBookingDetailReadOnly(access.workspaceSlug, process.env.VERCEL_ENV)
     && !mariaProductionReady && !mariaCancellationOnly;
-  const manualSwish = mariaManagerEnabled ? await readMariaManualSwishStatuses() : null;
-  const mariaQrEligibility = mariaManagerEnabled && manualSwish?.ok === true && manualSwish.entries[booking.id]
+  const mariaSwishControlsEnabled = mariaManager && (mariaPreview || (
+    process.env.VERCEL_ENV === "production" && isMariaProductionSwishAuthorized()
+      && isMariaProductionExistingBookingLifecycleAuthorized()));
+  const manualSwish = mariaSwishControlsEnabled ? await readMariaManualSwishStatuses() : null;
+  const mariaQrEligibility = mariaSwishControlsEnabled && manualSwish?.ok === true && manualSwish.entries[booking.id]
     ? await readMariaSwishQrEligibility(booking.id).catch((error) => {
         console.error("Maria Preview Swish QR eligibility could not be read", error);
         return "unavailable" as const;
@@ -509,12 +554,12 @@ export default async function BookingDetailPage({ params, searchParams }: Bookin
     <DashboardPageHeader eyebrow={isEnglish ? "Booking profile" : "Bokningsprofil"} title={booking.title} description={isEnglish ? "View the booking details, connected customer and history. Change the status or reschedule the time securely." : "Se bokningens viktigaste uppgifter, kopplad kund och historik. Ändra status eller flytta tiden kontrollerat."} icon={CalendarClock} actions={<Link href={withLang("/dashboard/bokningar", locale)} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-control border border-[#d5ddd3] bg-surface px-4 py-2.5 text-sm font-bold text-brand"><ArrowLeft className="h-4 w-4" />{isEnglish ? "Back to bookings" : "Tillbaka till bokningar"}</Link>} />
     <DashboardActionFeedback statusMessage={successMessage} alertMessage={errorMessage ?? mariaRescheduleMailWarning ?? mariaEmailWarning} />
     <DashboardMetricGrid items={metrics} />
-    {mariaManagerEnabled && manualSwish?.ok === false ? (
+    {mariaSwishControlsEnabled && manualSwish?.ok === false ? (
       <p role="alert" className="rounded-lg bg-[#fff0ee] p-3 text-sm font-semibold text-[#a33b2f]">
         {isEnglish ? "Swish payment status could not be read. Try again." : "Swish-betalningsstatus kunde inte läsas. Försök igen."}
       </p>
     ) : null}
-    {mariaManagerEnabled && manualSwish?.entries[booking.id] ? (
+    {mariaSwishControlsEnabled && manualSwish?.entries[booking.id] ? (
       <section className="rounded-card border border-[#e8d9dc] bg-[#fff9f8] p-5 shadow-sm sm:p-6">
         <h2 className="font-serif text-xl font-bold text-[#704858]">{isEnglish ? `Makeup by Maria · Swish deposit${mariaPreview ? " (Preview)" : ""}` : `Makeup by Maria · Swish-handpenning${mariaPreview ? " (Preview)" : ""}`}</h2>
         <p className="mt-2 text-sm text-[#6a525b]">
@@ -617,7 +662,7 @@ export default async function BookingDetailPage({ params, searchParams }: Bookin
         {(mariaManagerEnabled || mariaCancellationOnly)
           && (booking.source === "public_booking"
             || (mariaPreview && booking.source === "dashboard_manual")
-            || (mariaCancellationOnly && booking.source === "dashboard_manual"))
+            || ((mariaCancellationOnly || (mariaProductionReady && booking.status === "cancelled")) && booking.source === "dashboard_manual"))
           && customer?.email
           && (booking.status === "cancelled"
             ? isMariaExistingBookingRecipientAllowed(customer.email)
@@ -632,7 +677,7 @@ export default async function BookingDetailPage({ params, searchParams }: Bookin
             </p>
             <form action={resendStatusAction} className="mt-4">
               <input type="hidden" name="lang" value={locale} />
-              <MariaStatusEmailRetryButton isEnglish={isEnglish} />
+              <MariaStatusEmailRetryButton isEnglish={isEnglish} isPreview={mariaPreview} />
             </form>
           </article>
         ) : null}
