@@ -137,7 +137,48 @@ export async function saveMariaScheduleAction(formData: FormData) {
     ]);
   } catch(error) {
     console.error("Maria booking schedule could not be updated",error);
-    redirect("/dashboard/maria?error=schedule");
+    // Diagnostics run only after the locked write was rejected; never bypass the guard.
+    let cause: "schedule" | "schedule_hold" | "schedule_duration" = "schedule";
+    try {
+      const activeHolds = await sql`
+        select exists(select 1 from public_booking_verifications h
+          where h.workspace_id=${access.workspaceId}::uuid
+            and h.consumed_at is null and h.expires_at>now()
+            and (${serviceChanged}::boolean or not exists (
+              select 1 from jsonb_to_recordset(${proposedHours}::jsonb)
+                as d(weekday integer,is_closed boolean,first_minute integer,last_minute integer)
+              where d.is_closed=false
+                and d.weekday=extract(dow from (h.starts_at at time zone 'Europe/Stockholm'))::int
+                and (extract(hour from (h.starts_at at time zone 'Europe/Stockholm'))*60
+                  +extract(minute from (h.starts_at at time zone 'Europe/Stockholm')))
+                    between d.first_minute and d.last_minute
+            ))) as conflict
+      `;
+      if (activeHolds[0]?.conflict) cause = "schedule_hold";
+    } catch (diagnosticError) { console.error("Maria hold conflict diagnosis failed", diagnosticError); }
+    if (cause === "schedule") {
+      try {
+        const durationConflicts = await sql`
+          select 1 from workspace_services s
+          cross join jsonb_to_recordset(${proposedHours}::jsonb)
+            as d(weekday integer,is_closed boolean,first_minute integer,last_minute integer)
+          where s.workspace_id=${access.workspaceId}
+            and s.public_slug ~ '^maria-bridal-(trial|without-trial)-(202[6-9]|203[0-6])
+  revalidatePath("/dashboard/maria");
+  revalidatePath("/api/makeup-by-maria/config");
+  redirect("/dashboard/maria?updated=schedule#tider");
+}
+
+            and d.is_closed=false
+            and d.last_minute
+              +(case when ${serviceChanged}::boolean then ${duration} else s.duration_minutes end)
+              +(case when ${serviceChanged}::boolean then ${buffer} else s.buffer_after_minutes end)>1439
+          limit 1
+        `;
+        if (durationConflicts.length) cause = "schedule_duration";
+      } catch (diagnosticError) { console.error("Maria duration conflict diagnosis failed", diagnosticError); }
+    }
+    redirect(`/dashboard/maria?error=${cause}`);
   }
   revalidatePath("/dashboard/maria");
   revalidatePath("/api/makeup-by-maria/config");

@@ -55,10 +55,10 @@ describe("Maria Production manual booking safety", () => {
     },
   );
 
-  it("rejects Maria Production booking status changes before any SQL query", async () => {
+  it("rejects Maria Production confirmation without Swish authorization before any SQL query", async () => {
     vi.stubEnv("VERCEL_ENV", "production");
     await expect(updateDashboardBookingStatus("synthetic-booking", "confirmed"))
-      .rejects.toThrow("Maria booking status changes are disabled in Production");
+      .rejects.toThrow("Maria Swish deposit email is not authorized in Production");
     expect(fixture.sqlCalls).toBe(0);
   });
 

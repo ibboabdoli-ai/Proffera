@@ -105,7 +105,15 @@ export async function inspectProductionSchema(
             'g'
           ) = 'primary_directory_service_slugisnotnull'
       ) as index_present,
-      to_regclass('public.proffera_schema_migrations') is not null as ledger_present
+      to_regclass('public.proffera_schema_migrations') is not null as ledger_present,
+       (select count(*)=6 from information_schema.columns
+         where table_schema='public' and table_name='workspace_booking_reminder_settings'
+           and is_nullable='NO'
+           and ((column_name in ('customer_reschedule_enabled','customer_cancel_enabled',
+             'no_show_enabled','auto_complete_enabled','company_confirmation_required')
+             and data_type='boolean')
+             or (column_name='cancel_notice_hours' and data_type='integer')))
+         as lifecycle_columns_ready
   `);
 
   const row = contract.rows[0] as {
@@ -113,6 +121,7 @@ export async function inspectProductionSchema(
     foreign_key_validated?: boolean;
     index_present?: boolean;
     ledger_present?: boolean;
+    lifecycle_columns_ready?: boolean;
   } | undefined;
 
   const ledgerPresent = row?.ledger_present === true;
@@ -146,6 +155,7 @@ export async function inspectProductionSchema(
       && columnPresent
       && foreignKeyValidated
       && indexPresent
+      && row?.lifecycle_columns_ready === true
       && missingMigrations.length === 0,
     databaseReachable: true,
     ledgerPresent,

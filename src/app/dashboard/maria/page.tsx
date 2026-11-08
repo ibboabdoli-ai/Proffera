@@ -28,15 +28,23 @@ export default async function MariaSiteDashboardPage({ searchParams }: { searchP
     redirect("/dashboard");
   }
 
+  const productionEditorReady = isProduction ? await isMariaProductionYearEditorReady() : false;
+  let translationStorageReady = true;
   const [services, bookingHours, bookingReadiness, cardTranslations] = await Promise.all([
     // When the Production editor is enabled, never render editable default
     // values if the existing services could not be fetched reliably.
     getDashboardWorkspaceServices({
-      strict: isProduction && process.env.PROFFERA_MARIA_PRODUCTION_YEAR_EDITOR_ENABLED === "true",
+      strict: isProduction && productionEditorReady,
     }),
     getDashboardWorkspaceBookingHours(),
     getMariaBookingReadiness(),
-    readMariaCardTranslations(access.workspaceId, { strict: true }),
+    (isProduction && !productionEditorReady)
+      ? Promise.resolve(new Map())
+      : readMariaCardTranslations(access.workspaceId, { strict: true }).catch((error) => {
+          console.error("Maria translations could not be read", error);
+          translationStorageReady = false;
+          return new Map();
+        }),
   ]);
   const packages = expectedKeys.map((slug) =>
     services.find((service) => service.publicSlug === slug) ?? null,
@@ -67,12 +75,14 @@ export default async function MariaSiteDashboardPage({ searchParams }: { searchP
   const schedulePackage = services.find(item => /^maria-bridal-(trial|without-trial)-(202[6-9]|203[0-6])$/.test(item.publicSlug));
   const savedDuration = schedulePackage?.durationMinutes ?? 180;
   const savedBuffer = schedulePackage?.bufferAfterMinutes ?? 0;
+  const scheduleServiceDetails = services
+    .filter(item => /^maria-bridal-(trial|without-trial)-(202[6-9]|203[0-6])$/.test(item.publicSlug))
+    .map(item => `${item.name}: ${item.durationMinutes} min + ${item.bufferAfterMinutes} min paus`)
+    .join("; ");
   const editHours = [5,6,0].map(day=>{
     const h = weekendHours.find(hour=>hour.weekday===day);
     return {day,first:h?.opensAt?.slice(0,5)??"06:00",last:h?.closesAt?.slice(0,5)??"10:00",closed:h?.isClosed??false};
   });
-
-  const productionEditorReady = isProduction ? await isMariaProductionYearEditorReady() : false;
 
   // Exactly the same year/price/SV-EN-AR editor in Preview and approved
   // Production; only the server writer differs. Production never renders or
@@ -301,7 +311,7 @@ export default async function MariaSiteDashboardPage({ searchParams }: { searchP
         </div>
       </div>
 
-{!isProduction || productionEditorReady ? renderYearEditor(isProduction) : (
+{translationStorageReady && (!isProduction || productionEditorReady) ? renderYearEditor(isProduction) : (
   <p role="status" className="rounded-xl border border-[#dec6cd] bg-[#fbf0ef] p-4 text-sm text-[#684956]">
     Pris- och textredigering väntar på verifierad databasmigrering.
   </p>
@@ -312,11 +322,15 @@ export default async function MariaSiteDashboardPage({ searchParams }: { searchP
           Bokningstider och behandlingstid har sparats.
         </p>
       ) : null}
-      {q.error === "schedule" || q.error === "database" ? (
+      {q.error === "schedule" || q.error === "database" || q.error === "schedule_hold" || q.error === "schedule_duration" ? (
         <p role="alert" className="rounded-lg bg-[#fff0ee] px-4 py-3 text-sm font-semibold text-[#9d3333]">
           {q.error === "database"
             ? "Databasen kunde inte nås. Inga bokningstider sparades."
-            : "Bokningstiderna kunde inte sparas. Kontrollera tiderna och försök igen."}
+            : q.error === "schedule_hold"
+              ? "En aktiv verifieringskod håller en bokningstid. Vänta tills koden löper ut och försök igen."
+              : q.error === "schedule_duration"
+                ? `En pakettid ryms inte inom valda öppettider. Kontrollera tjänsternas längder: ${scheduleServiceDetails}`
+                : "Bokningstiderna kunde inte sparas. Kontrollera tiderna och försök igen."}
         </p>
       ) : null}
       <section id="tider" className="scroll-mt-6 rounded-2xl border border-[#e8d9dc] bg-white p-4 sm:p-8">

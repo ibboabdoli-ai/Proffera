@@ -139,8 +139,8 @@ describe("Maria-only Swish confirmation and cancellation email", () => {
     expect(await sendMariaBookingStatusEmail({...booking,expectedRevision})).toEqual({ok:true});
     const [parts,...values]=dbQuery.mock.calls[0] as [TemplateStringsArray,...unknown[]];
     const sqlText=parts.join("?");
-    expect(sqlText).toContain("b.starts_at=?::timestamptz");
-    expect(sqlText).toContain("b.ends_at=?::timestamptz");
+    expect(sqlText).toContain("date_trunc('milliseconds',b.starts_at)=date_trunc('milliseconds',?::timestamptz)");
+    expect(sqlText).toContain("date_trunc('milliseconds',b.ends_at)=date_trunc('milliseconds',?::timestamptz)");
     expect(sqlText).toContain("date_trunc('milliseconds',b.updated_at)=?::timestamptz");
     expect(values).toContain(expectedRevision);
     expect(values).toContain(booking.startsAt);

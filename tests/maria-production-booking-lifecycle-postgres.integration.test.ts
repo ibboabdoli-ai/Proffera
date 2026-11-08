@@ -221,7 +221,7 @@ function compileSql(strings: TemplateStringsArray, values: unknown[]): Query {
   it("rejects a second published from-priced or null-priced Maria package in real PostgreSQL", async () => {
     expect(await getMariaBookingReadiness()).toMatchObject({enabled:true,workspaceId});
     const year = day.slice(0,4);
-    for (const [priceType,amount] of [["from",550000],[null,null]] as const) {
+    for (const [priceType,amount] of [["from",550000],[null,null],[null,550000]] as const) {
       const id = (await db!.query<{id:string}>(
         `insert into workspace_services
            (workspace_id,name,public_slug,duration_minutes,buffer_before_minutes,
@@ -261,7 +261,7 @@ function compileSql(strings: TemplateStringsArray, values: unknown[]): Query {
 
     // Customers may ask for a fresh code after a genuine 30-second cooldown.
     await db!.query("update public_booking_verifications set updated_at=now()-interval '45 seconds' where id=$1::uuid",[id]);
-    const resent=await resendPublicBookingCode(id,"ar");
+    const resent=await resendPublicBookingCode(id.toUpperCase(),"ar");
     expect(resent).toMatchObject({ok:true,delivery:"email"});
     const resendBody=JSON.parse(String(vi.mocked(fetch).mock.calls.at(-1)?.[1]?.body)) as {subject:string;to:{email:string}[]};
     expect(resendBody.to[0]?.email).toBe("bride@example.invalid");
@@ -287,7 +287,7 @@ function compileSql(strings: TemplateStringsArray, values: unknown[]): Query {
         ? new Response("Synthetic email outage",{status:503}) : successResponse;
     });
     // Canonical UUID hashing must work with equivalent uppercase URL IDs.
-    const verified=await verifyPublicBookingCode(id.toUpperCase(),resentCode!,"ar");
+    const verified=await verifyPublicBookingCode(id,resentCode!,"ar");
     expect(verified).toMatchObject({ok:true,slug:"makeup-by-maria"});
     expect(verified.ok && verified.portalUrl).toMatch(/^https:\/\/makeupbymaria\.se\/mina-bokningar\//);
     const bookings=await db!.query<{id:string;status:string}>(
@@ -296,7 +296,7 @@ function compileSql(strings: TemplateStringsArray, values: unknown[]): Query {
     const bookingId=bookings.rows[0]!.id;
     expect(bookings.rows[0]!.status).toBe("requested");
     const beforeRetryEmailCount=vi.mocked(fetch).mock.calls.length;
-    const again=await verifyPublicBookingCode(id,resentCode!,"ar");
+    const again=await verifyPublicBookingCode(id.toUpperCase(),resentCode!,"ar");
     expect(again).toMatchObject({ok:true,slug:"makeup-by-maria"});
     expect(again.ok && again.portalUrl).toBe(verified.ok && verified.portalUrl);
     expect(vi.mocked(fetch).mock.calls.length).toBe(beforeRetryEmailCount);
@@ -544,6 +544,10 @@ function compileSql(strings: TemplateStringsArray, values: unknown[]): Query {
           [eventId],
         )).rows[0];
         expect(sent?.state).toBe("sent");
+        // An already delivered notice is idempotent and never triggers another send.
+        expect(await retryMariaRescheduleNotice(booking!.id,workspaceId))
+          .toEqual({ok:false,alreadySent:true});
+        expect(sender).toHaveBeenCalledOnce();
 
         // A live lease is not stealable, but an expired lease is recoverable.
         await setState("sending",new Date().toISOString());

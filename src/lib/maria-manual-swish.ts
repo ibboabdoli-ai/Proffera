@@ -3,7 +3,7 @@ import "server-only";
 import { getSql } from "@/lib/db/server";
 import { getMariaBookingReadiness } from "@/lib/maria-booking-runtime";
 import { MARIA_DEPOSIT_AMOUNT_SEK, mariaBookingNumber } from "@/lib/maria-deposit";
-import { isMariaProductionSwishAuthorized } from "@/lib/maria-production-activation-policy";
+import { isMariaProductionSwishAuthorized, isMariaProductionExistingBookingLifecycleAuthorized } from "@/lib/maria-production-activation-policy";
 import { isMariaPreviewTestRecipient } from "@/lib/maria-preview-customer-safety";
 import { canManageWorkspaceSettings, getUserWorkspaceAccess } from "@/lib/workspace-access";
 import { hasDashboardModuleAccess } from "@/lib/workspace-module-access";
@@ -23,13 +23,18 @@ async function requireMariaManager() {
   const access = await getUserWorkspaceAccess();
   const preview = process.env.VERCEL_ENV === "preview";
   const production = process.env.VERCEL_ENV === "production";
+  const existingProductionSwish = production && isMariaProductionSwishAuthorized()
+    && isMariaProductionExistingBookingLifecycleAuthorized();
   if ((!preview && !production)
     || !access.ok || access.workspaceSlug !== "makeup-by-maria"
     || !canManageWorkspaceSettings(access)
-    || !(await hasDashboardModuleAccess("online_booking"))) {
+    || (!(await hasDashboardModuleAccess("online_booking")) && !existingProductionSwish)) {
     throw new Error("MARIA_MANUAL_SWISH_FORBIDDEN");
   }
   if (production) {
+    if (process.env.PROFFERA_MARIA_PRODUCTION_MANAGER_ENABLED !== "true") {
+      throw new Error("MARIA_MANUAL_SWISH_FORBIDDEN");
+    }
     const ready = await getMariaBookingReadiness();
     if ((!ready.enabled || ready.workspaceId !== access.workspaceId)
       && !isMariaProductionSwishAuthorized()) {
@@ -53,7 +58,7 @@ export async function readMariaManualSwishStatuses(): Promise<ManualSwishStatusR
         latest.created_at::text as marked_at
       from bookings b
       join customers c on c.id=b.customer_id and c.workspace_id=b.workspace_id
-        and (${process.env.VERCEL_ENV !== "preview"}::boolean or lower(trim(c.email))=${approvedRecipient ?? ""})
+        and (${process.env.VERCEL_ENV !== "preview"}::boolean or lower(btrim(c.email, chr(9) || chr(10) || chr(13) || ' '))=${approvedRecipient ?? ""})
       left join lateral (
         select e.metadata, e.created_at
         from customer_events e
@@ -115,7 +120,7 @@ export async function setMariaManualSwishStatus(bookingId: string, state: Manual
         join workspaces w on w.id::text = b.workspace_id
         join customers c on c.id=b.customer_id and c.workspace_id=b.workspace_id
         where b.workspace_id = ${access.workspaceId}
-          and (${process.env.VERCEL_ENV !== "preview"}::boolean or lower(trim(c.email))=${approvedRecipient ?? ""})
+          and (${process.env.VERCEL_ENV !== "preview"}::boolean or lower(btrim(c.email, chr(9) || chr(10) || chr(13) || ' '))=${approvedRecipient ?? ""})
           and w.slug = 'makeup-by-maria'
           and w.status in ('active', 'trial')
           and b.id = ${normalizedBookingId}::uuid

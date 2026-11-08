@@ -27,7 +27,9 @@ export async function withMariaBookingNotificationLock<T>(
     await client.query("BEGIN");
     transactionOpen = true;
     await client.query("SET LOCAL lock_timeout = '5000ms'");
-    await client.query("SET LOCAL idle_in_transaction_session_timeout = '15000ms'");
+    // Never let PostgreSQL silently release this transaction lock while the
+    // callback could still send; provider requests have their own deadlines.
+    await client.query("SET LOCAL idle_in_transaction_session_timeout = '0'");
     await client.query(
       "SELECT pg_advisory_xact_lock(hashtextextended($1::text, 713))",
       [workspaceId],

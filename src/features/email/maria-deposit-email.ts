@@ -310,8 +310,8 @@ export async function sendMariaBookingStatusEmail(input: MariaBookingStatusEmail
               || (cancellation ? Boolean(getMariaExistingBookingPortalBase()) : isMariaProductionSwishAuthorized())}::boolean)
               and b.source='dashboard_manual'))
           and b.status=${input.status}
-          and b.starts_at=${input.startsAt}::timestamptz
-          and b.ends_at=${input.endsAt}::timestamptz
+          and date_trunc('milliseconds',b.starts_at)=date_trunc('milliseconds',${input.startsAt}::timestamptz)
+          and date_trunc('milliseconds',b.ends_at)=date_trunc('milliseconds',${input.endsAt}::timestamptz)
           and (${!input.expectedRevision}::boolean
             or date_trunc('milliseconds',b.updated_at)=${input.expectedRevision ?? "1970-01-01T00:00:00.000Z"}::timestamptz)
           and lower(btrim(c.email, chr(9) || chr(10) || chr(13) || ' '))=${customerEmail}

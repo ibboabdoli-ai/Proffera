@@ -5,6 +5,7 @@ import { neon } from "@neondatabase/serverless";
 import { resolveDatabaseUrl } from "@/lib/db/database-url";
 import { getMariaExistingBookingPortalBase, isMariaExistingBookingRecipientAllowed, isMariaPreviewTestRecipient } from "@/lib/maria-preview-customer-safety";
 import { getMariaBookingReadiness } from "@/lib/maria-booking-runtime";
+import { isMariaProductionSwishAuthorized } from "@/lib/maria-production-activation-policy";
 
 import { resolveBookingTimeZone } from "@/lib/public-booking-policy";
 import { postgresTimestampIso } from "@/lib/postgres-timestamp";
@@ -33,6 +34,7 @@ export type DashboardBookingStatusUpdateResult = {
     language?: "sv" | "en" | "ar";
     confirmedAt?: string;
     revision?: string;
+    noticeEventId?: string;
   } | null;
   reviewInvitationDelivery: "sent" | "failed" | "skipped" | null;
 };
@@ -83,6 +85,9 @@ export async function updateDashboardBookingStatus(
   // the separate existing-booking lifecycle authorization or customer scope.
   const existingMariaCancellation = mariaProduction && status === "cancelled"
     && Boolean(getMariaExistingBookingPortalBase());
+  if (mariaProduction && status === "confirmed" && !isMariaProductionSwishAuthorized()) {
+    throw new Error("Maria Swish deposit email is not authorized in Production");
+  }
   if (mariaProduction && !existingMariaCancellation) {
     const ready = await getMariaBookingReadiness();
     if (!ready.enabled || ready.workspaceId !== workspaceId) {
@@ -386,7 +391,10 @@ export async function updateDashboardBookingStatus(
           'old_status', existing_booking.old_status,
           'new_status', updated_booking.new_status,
           'service_job_id', (select id from created_job limit 1)
-        )
+        ) || case when ${mariaWorkspace}::boolean and updated_booking.new_status in ('confirmed','cancelled')
+          then jsonb_build_object('notice_customer','pending',
+            'notice_revision',updated_booking.notification_revision::text)
+          else '{}'::jsonb end
       from updated_booking
       join existing_booking on existing_booking.id = updated_booking.id
       returning id, created_at
@@ -405,6 +413,7 @@ export async function updateDashboardBookingStatus(
       (select ends_at from existing_booking limit 1) as ends_at,
       (select booking_language from existing_booking limit 1) as booking_language,
       (select created_at from inserted_event limit 1) as confirmed_at,
+       (select id::text from inserted_event limit 1) as notice_event_id,
       (select notification_revision from updated_booking limit 1) as notification_revision
   `;
 
@@ -438,6 +447,7 @@ export async function updateDashboardBookingStatus(
           : result.booking_language === "en" ? "en" as const : "sv" as const,
         revision: result.notification_revision
           ? postgresTimestampIso(result.notification_revision) : undefined,
+        noticeEventId: result.notice_event_id ? String(result.notice_event_id) : undefined,
         confirmedAt: status === "confirmed" && result.confirmed_at
           ? postgresTimestampIso(result.confirmed_at) : undefined,
       }
