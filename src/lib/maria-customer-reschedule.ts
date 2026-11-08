@@ -221,7 +221,7 @@ export async function rescheduleMariaCustomerBooking(input: MariaChangeInput) {
     const booking = changed?.[0];
     if (!booking) return { ok: false as const, error: "conflict" as const };
     try {
-      return await withMariaBookingNotificationLock(input.workspaceId, async () => {
+      return await withMariaBookingNotificationLock(input.workspaceId, async (signal) => {
         const current = await sql`
           select 1 from bookings b
           join customers c on c.id=b.customer_id and c.workspace_id=b.workspace_id
@@ -232,6 +232,7 @@ export async function rescheduleMariaCustomerBooking(input: MariaChangeInput) {
             and lower(btrim(c.email, chr(9) || chr(10) || chr(13) || ' '))=lower(${String(booking.customer_email).trim()})
           limit 1
         `;
+        if (signal?.aborted) return { ok: true as const, emailWarning: true };
         if (!current[0]) {
           await sql`
             update customer_events set metadata=metadata||jsonb_build_object(
@@ -260,6 +261,7 @@ export async function rescheduleMariaCustomerBooking(input: MariaChangeInput) {
       portalUrl: `${base}/mina-bokningar/${encodeURIComponent(input.token)}?lang=${input.language}`,
       timeZone: "Europe/Stockholm",
       language: input.language,
+      ...(signal ? {signal} : {}),
     });
     const delivered = (result: (typeof notices)[number] | undefined) =>
       result?.status === "fulfilled"

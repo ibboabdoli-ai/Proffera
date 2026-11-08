@@ -218,6 +218,45 @@ function compileSql(strings: TemplateStringsArray, values: unknown[]): Query {
     }
   }, 30_000);
 
+
+  it("expires a stalled notification lock and stops a late provider dispatch", async () => {
+    let entered!: () => void;
+    let release!: () => void;
+    let sentAfterRelease = false;
+    const started = new Promise<void>(resolve => { entered = resolve; });
+    const blockedQuery = new Promise<void>(resolve => { release = resolve; });
+    const held = withMariaBookingNotificationLock(workspaceId, async (signal) => {
+      entered();
+      await blockedQuery;
+      if (signal.aborted) return false;
+      sentAfterRelease = true;
+      return true;
+    }, 250);
+    try {
+      await Promise.race([started, delay(4_000).then(() => { throw new Error("Synthetic lock entry failed"); })]);
+      await expect(held).rejects.toThrow("Maria notification deadline exceeded");
+      // A bounded failure releases the real PostgreSQL advisory lock.
+      const probe = new Client({ connectionString });
+      try {
+        await probe.connect();
+        await probe.query("BEGIN");
+        const row = await probe.query<{ acquired: boolean }>(
+          "select pg_try_advisory_xact_lock(hashtextextended($1::text,713)) as acquired",
+          [workspaceId],
+        );
+        expect(row.rows[0]?.acquired).toBe(true);
+      } finally {
+        await probe.query("ROLLBACK").catch(() => undefined);
+        await probe.end().catch(() => undefined);
+      }
+    } finally {
+      release();
+      await held.catch(() => undefined);
+    }
+    await delay(25);
+    expect(sentAfterRelease).toBe(false);
+  }, 12_000);
+
   it("rejects a second published from-priced or null-priced Maria package in real PostgreSQL", async () => {
     expect(await getMariaBookingReadiness()).toMatchObject({enabled:true,workspaceId});
     const year = day.slice(0,4);
@@ -405,6 +444,88 @@ function compileSql(strings: TemplateStringsArray, values: unknown[]): Query {
       [workspaceId]);
     expect(closed.rowCount).toBeGreaterThan(0);
   },120_000);
+
+
+  it("holds the workspace email lock until a concurrent manual Swish update can proceed", async () => {
+    const booking = (await db!.query<{ id: string }>(
+      "select id::text from bookings where workspace_id=$1 and status='confirmed' and source='public_booking' order by created_at desc limit 1",
+      [workspaceId],
+    )).rows[0];
+    expect(booking?.id).toBeTruthy();
+    await setMariaManualSwishStatus(booking!.id, "paid");
+
+    let entered!: () => void;
+    let release!: () => void;
+    const started = new Promise<void>(resolve => { entered = resolve; });
+    const pendingProvider = new Promise<void>(resolve => { release = resolve; });
+    const first = withMariaBookingNotificationLock(workspaceId, async () => {
+      entered();
+      await pendingProvider;
+      return "email-provider-accepted";
+    });
+    let completed = false;
+    let update: Promise<{ changed: boolean }> | undefined;
+    try {
+      await Promise.race([started, delay(5_000).then(() => { throw new Error("Synthetic provider lock unavailable"); })]);
+      update = setMariaManualSwishStatus(booking!.id, "unverified")
+        .then(result => { completed = true; return result; });
+      await delay(150);
+      expect(completed).toBe(false);
+      const state = await db!.query<{ state: string }>(
+        "select metadata->>'state' as state from customer_events where booking_id=$1::uuid and metadata->>'source'='maria_swish_manual_deposit_v1' order by created_at desc,id desc limit 1",
+        [booking!.id],
+      );
+      expect(state.rows[0]?.state).toBe("paid");
+    } finally {
+      release();
+      await first.catch(() => undefined);
+    }
+    expect(await update).toMatchObject({ changed: true });
+    await setMariaManualSwishStatus(booking!.id, "paid");
+  }, 30_000);
+
+  it("matches millisecond timestamps from real PostgreSQL but refuses altered start and end times", async () => {
+    const row = (await db!.query<{ id: string; starts_at: Date; ends_at: Date; customer_email: string }>(
+      `select b.id::text,b.starts_at,b.ends_at,c.email as customer_email
+       from bookings b join customers c on c.id=b.customer_id and c.workspace_id=b.workspace_id
+       where b.workspace_id=$1 and b.status='confirmed' and b.source='public_booking'
+       order by b.created_at desc limit 1`, [workspaceId],
+    )).rows[0];
+    expect(row?.id).toBeTruthy();
+    const start = new Date(row!.starts_at).toISOString();
+    const end = new Date(row!.ends_at).toISOString();
+    try {
+      await db!.query(
+        "update bookings set starts_at=$2::timestamptz+interval '0.0004 seconds',ends_at=$3::timestamptz+interval '0.0004 seconds' where id=$1::uuid",
+        [row!.id, start, end],
+      );
+      const input = {
+        bookingId:row!.id, workspaceId,status:"confirmed" as const,
+        customerName:"Synthetic Bride",customerEmail:row!.customer_email,
+        companyName:"Makeup by Maria",service:"Brudmakeup med prov",
+        startsAt:start,endsAt:end,city:"Södertälje",
+        timeZone:"Europe/Stockholm" as const,
+      };
+      const provider = vi.mocked(fetch);
+      provider.mockClear();
+      expect(await sendMariaBookingStatusEmail(input)).toEqual({ ok: true });
+      expect(provider).toHaveBeenCalledOnce();
+      provider.mockClear();
+      expect(await sendMariaBookingStatusEmail({
+        ...input, startsAt:new Date(Date.parse(start)+60_000).toISOString(),
+      })).toMatchObject({ ok: false, error:"invalid_booking" });
+      expect(provider).not.toHaveBeenCalled();
+      expect(await sendMariaBookingStatusEmail({
+        ...input, endsAt:new Date(Date.parse(end)+60_000).toISOString(),
+      })).toMatchObject({ ok: false, error:"invalid_booking" });
+      expect(provider).not.toHaveBeenCalled();
+    } finally {
+      await db!.query(
+        "update bookings set starts_at=$2::timestamptz,ends_at=$3::timestamptz where id=$1::uuid",
+        [row!.id,start,end],
+      );
+    }
+  }, 30_000);
 
   it("delivers an authorized manager cancellation to a padded stored email through real PostgreSQL", async () => {
     const booking = (await db!.query<{

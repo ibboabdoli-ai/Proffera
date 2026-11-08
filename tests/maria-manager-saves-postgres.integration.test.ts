@@ -965,7 +965,7 @@ function compileSql(strings: TemplateStringsArray, values: unknown[]): Query {
     // The form considers 22:00 + 60 minutes valid. Persisted packages still
     // require 180+ minutes and must veto the hours-only save under DB lock.
     await expect(saveMariaScheduleAction(form))
-      .rejects.toThrow("TEST_REDIRECT:/dashboard/maria?error=schedule");
+      .rejects.toThrow("TEST_REDIRECT:/dashboard/maria?error=schedule_duration");
     const after = await db!.query(
       "select weekday,opens_at::text,closes_at::text,is_closed from workspace_booking_hours where workspace_id=$1 order by weekday",
       [workspaceId],
@@ -1004,7 +1004,7 @@ function compileSql(strings: TemplateStringsArray, values: unknown[]): Query {
         form.set(`day_${weekday}_last`,"18:00");
       }
       await expect(saveMariaScheduleAction(form))
-        .rejects.toThrow("TEST_REDIRECT:/dashboard/maria?error=schedule");
+        .rejects.toThrow("TEST_REDIRECT:/dashboard/maria?error=schedule_hold");
       const remaining = await db!.query(
         "select id from public_booking_verifications where id=$1::uuid and consumed_at is null",[holdId],
       );

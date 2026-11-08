@@ -309,7 +309,7 @@ export async function cancelCustomerCalendarBooking(
     ? String(booking.owner_email).trim() : undefined;
   // The booking and its pending notice were committed together. A provider
   // outage must not make an already-successful cancellation appear rolled back.
-  const sendCancellation = () => sendBookingChangeEmails({
+  const sendCancellation = (signal?: AbortSignal) => sendBookingChangeEmails({
     kind: "cancelled",
     branding: isMaria ? "makeup-by-maria" : undefined,
     customerName: String(booking.customer_name),
@@ -323,11 +323,12 @@ export async function cancelCustomerCalendarBooking(
     portalUrl: `${base}/mina-bokningar/${encodeURIComponent(token)}?lang=${language}`,
     timeZone: resolveBookingTimeZone(booking.time_zone),
     language,
+    ...(signal ? {signal} : {}),
   });
   let cancellationSuperseded = false;
   let deliveries: Awaited<ReturnType<typeof sendBookingChangeEmails>> = [];
   try {
-    deliveries = isMaria ? await withMariaBookingNotificationLock(payload.workspaceId, async () => {
+    deliveries = isMaria ? await withMariaBookingNotificationLock(payload.workspaceId, async (signal) => {
       const latest = await sql`
         select 1 from bookings b
         join customers c on c.id=b.customer_id and c.workspace_id=b.workspace_id
@@ -343,11 +344,12 @@ export async function cancelCustomerCalendarBooking(
           and lower(btrim(c.email, chr(9) || chr(10) || chr(13) || ' '))=lower(${String(booking.customer_email).trim()})
         limit 1
       `;
+      if (signal?.aborted) throw new Error("Maria notification lock expired before cancellation email");
       if (!latest[0]) {
         cancellationSuperseded = true;
         return [];
       }
-      return sendCancellation();
+      return sendCancellation(signal);
     }) : await sendCancellation();
   } catch (error) {
     console.error("Cancellation notice serialization failed after booking commit", error);

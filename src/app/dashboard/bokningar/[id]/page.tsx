@@ -253,15 +253,22 @@ async function updateBookingStatusAction(bookingId: string, formData: FormData) 
           try {
             const sql = getSql();
             if (!sql) throw new Error("Maria notice outcome database unavailable");
-            await sql`
+            const journalRows = await sql`
               update customer_events
-              set metadata=metadata || jsonb_build_object('notice_customer',${delivery.ok ? "accepted" : "failed"}::text),
-                  description=${delivery.ok
-                    ? "Maria status updated. Customer email accepted by provider."
-                    : "Maria status updated. Customer email not confirmed; follow up manually."}
+              set metadata=metadata || jsonb_build_object('notice_customer',
+                    case when metadata->>'notice_customer'='accepted' then 'accepted'
+                         else ${delivery.ok ? "accepted" : "failed"}::text end),
+                  description=case when metadata->>'notice_customer'='accepted' or ${delivery.ok}::boolean
+                    then 'Maria status updated. Customer email accepted by provider.'
+                    else 'Maria status updated. Customer email not confirmed; follow up manually.' end
               where id=${notification.noticeEventId}::uuid and workspace_id=${workspaceAccess.workspaceId}
                 and booking_id=${bookingId}::uuid and event_type='status_change'
+                and metadata->>'notice_revision' is not null
+                and (metadata->>'notice_revision')::timestamptz=${notification.revision ?? "1970-01-01T00:00:00.000Z"}::timestamptz
+              returning metadata->>'notice_customer' as notice_state
             `;
+            // A prior accepted attempt must never become a failed notice.
+            if (journalRows[0]?.notice_state === "accepted") mariaMailFailed = false;
           } catch (error) {
             // The pending booking-history entry survives any outcome write failure.
             console.error("Maria status email outcome could not be recorded", error);
@@ -313,6 +320,8 @@ async function resendMariaStatusEmailAction(bookingId: string, formData: FormDat
         (select e.id::text from customer_events e
           where e.workspace_id=b.workspace_id and e.booking_id=b.id
             and e.event_type='status_change' and e.metadata->>'new_status'=b.status
+            and e.metadata->>'notice_revision' is not null
+            and (e.metadata->>'notice_revision')::timestamptz=date_trunc('milliseconds',b.updated_at)
           order by e.created_at desc,e.id desc limit 1) as notice_event_id,
         c.name as customer_name,c.email as customer_email,
         (select e.created_at from customer_events e
@@ -371,20 +380,30 @@ async function resendMariaStatusEmailAction(bookingId: string, formData: FormDat
     language: row.booking_language === "ar" ? "ar"
       : row.booking_language === "en" ? "en" : "sv",
   });
+  let previouslyAccepted = false;
   if (row.notice_event_id) {
     try {
-      await sql`
+      const journalRows = await sql`
         update customer_events
-        set metadata=metadata || jsonb_build_object('notice_customer',${sent.ok ? "accepted" : "failed"}::text),
-            description=${sent.ok
-              ? "Maria status updated. Customer email accepted by provider."
-              : "Maria status updated. Customer email not confirmed; follow up manually."}
+        set metadata=metadata || jsonb_build_object('notice_customer',
+              case when metadata->>'notice_customer'='accepted' then 'accepted'
+                   else ${sent.ok ? "accepted" : "failed"}::text end),
+            description=case when metadata->>'notice_customer'='accepted' or ${sent.ok}::boolean
+              then 'Maria status updated. Customer email accepted by provider.'
+              else 'Maria status updated. Customer email not confirmed; follow up manually.' end
         where id=${String(row.notice_event_id)}::uuid and workspace_id=${access.workspaceId}
           and booking_id=${bookingId}::uuid and event_type='status_change'
+          and metadata->>'notice_revision' is not null
+          and (metadata->>'notice_revision')::timestamptz=${postgresTimestampIso(row.booking_revision)}::timestamptz
+          and exists(select 1 from bookings b where b.id=${bookingId}::uuid
+            and b.workspace_id=${access.workspaceId} and b.status=${String(row.status)}
+            and date_trunc('milliseconds',b.updated_at)=${postgresTimestampIso(row.booking_revision)}::timestamptz)
+        returning metadata->>'notice_customer' as notice_state
       `;
+      previouslyAccepted = journalRows[0]?.notice_state === "accepted";
     } catch (error) { console.error("Maria status retry outcome could not be recorded", error); }
   }
-  if (!sent.ok) redirect(withLang(`/dashboard/bokningar/${bookingId}?maria_mail=failed`, locale));
+  if (!sent.ok) redirect(withLang(`/dashboard/bokningar/${bookingId}?maria_mail=${previouslyAccepted ? "already_sent" : "failed"}`, locale));
   redirect(withLang(`/dashboard/bokningar/${bookingId}?maria_mail=resent`, locale));
 }
 
@@ -464,8 +483,10 @@ export default async function BookingDetailPage({ params, searchParams }: Bookin
     && !mariaProductionReady && Boolean(getMariaExistingBookingPortalBase());
   const mariaBookingDetailReadOnly = isMariaBookingDetailReadOnly(access.workspaceSlug, process.env.VERCEL_ENV)
     && !mariaProductionReady && !mariaCancellationOnly;
-  const mariaSwishControlsEnabled = mariaManager && (mariaPreview || (
-    process.env.VERCEL_ENV === "production" && isMariaProductionSwishAuthorized()
+  const mariaSwishControlsEnabled = mariaManager
+    && await hasDashboardModuleAccess("online_booking")
+    && (mariaPreview || (process.env.VERCEL_ENV === "production"
+      && isMariaProductionSwishAuthorized()
       && isMariaProductionExistingBookingLifecycleAuthorized()));
   const manualSwish = mariaSwishControlsEnabled ? await readMariaManualSwishStatuses() : null;
   const mariaQrEligibility = mariaSwishControlsEnabled && manualSwish?.ok === true && manualSwish.entries[booking.id]
@@ -528,7 +549,11 @@ export default async function BookingDetailPage({ params, searchParams }: Bookin
     { label: "Åtgärd", value: "Tillgänglig", helper: "Status och tid kan uppdateras", icon: RefreshCw, tone: "bg-[#f0ece8] text-[#6d5948]" },
   ] as const;
   const fieldClass = "rounded-control border border-[#dce4ee] px-4 py-3 text-sm font-normal text-ink outline-none transition focus:border-[#1469d8] focus:ring-2 focus:ring-[#1469d8]/20";
-  const successMessage = value("maria_reschedule_mail") === "resent"
+  const successMessage = value("maria_mail") === "already_sent"
+    ? (isEnglish
+      ? "An earlier booking notice was accepted by the email provider. This retry was not confirmed."
+      : "Ett tidigare bokningsmejl har redan godkänts av e-postleverantören. Denna omsändning är inte bekräftad.")
+    : value("maria_reschedule_mail") === "resent"
     ? (isEnglish
       ? "Unconfirmed reschedule emails were retried for eligible recipients."
       : "Oklara ombokningsmejl har skickats om till behöriga mottagare.")

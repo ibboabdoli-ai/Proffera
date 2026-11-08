@@ -279,6 +279,39 @@ describe("Maria Preview booking status action on a deleted booking", () => {
     expect(query).toContain("lower(btrim(c.email, chr(9) || chr(10) || chr(13) || ' '))=?");
   });
 
+  it("binds a status retry to the current notice revision and preserves accepted delivery state", async () => {
+    const revision = new Date("2027-06-18T07:30:00.789Z");
+    runtime.loadDetail.mockResolvedValue({
+      ...detail("qa@example.invalid"),
+      booking: { ...detail("qa@example.invalid").booking, status: "cancelled" },
+    });
+    runtime.retrySql.mockResolvedValueOnce([{
+      status: "cancelled", service: "Synthetic QA service", city: "Stockholm",
+      starts_at: new Date("2027-06-18T09:00:00.123Z"),
+      ends_at: new Date("2027-06-18T12:00:00.456Z"),
+      booking_revision: revision,
+      notice_event_id: "00000000-0000-4000-8000-000000000987",
+      customer_name: "Synthetic QA customer", customer_email: "qa@example.invalid",
+      booking_language: "sv", confirmed_at: null,
+    }]).mockResolvedValueOnce([{ notice_state: "accepted" }]);
+    runtime.sendStatusEmail.mockResolvedValue({ ok: false });
+    const action = await getStatusRetryAction();
+    const form = new FormData();
+    form.set("lang", "en");
+    await expect(action(form)).rejects.toThrow(
+      `REDIRECT:/dashboard/bokningar/${id}?maria_mail=already_sent&lang=en`,
+    );
+    const selected = (runtime.retrySql.mock.calls[0]![0] as TemplateStringsArray).join("?");
+    const journal = (runtime.retrySql.mock.calls[1]![0] as TemplateStringsArray).join("?");
+    expect(selected).toContain("e.metadata->>'notice_revision'");
+    expect(selected).toContain("date_trunc('milliseconds',b.updated_at)");
+    expect(journal).toContain("case when metadata->>'notice_customer'='accepted'");
+    expect(journal).toContain("date_trunc('milliseconds',b.updated_at)");
+    expect(runtime.sendStatusEmail).toHaveBeenCalledWith(expect.objectContaining({
+      expectedRevision: "2027-06-18T07:30:00.789Z",
+    }));
+  });
+
   it("does not falsely claim email delivery when a Maria reschedule notification fails", async () => {
     const page = await BookingDetailPage({
       params: Promise.resolve({ id }),

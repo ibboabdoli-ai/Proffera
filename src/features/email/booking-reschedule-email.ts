@@ -17,6 +17,8 @@ type SendBookingRescheduleEmailInput = {
   city: string;
   timeZone?: WorkspaceTimeZone;
   language?: "sv" | "en" | "ar";
+  /** Abort dispatch when the Maria notification lock is no longer held. */
+  signal?: AbortSignal;
 };
 
 type BrevoResponse = {
@@ -59,6 +61,7 @@ export async function sendBookingRescheduleEmail(input: SendBookingRescheduleEma
       return { ok: false as const, message: "Maria booking is not ready." };
     }
   }
+  if (input.signal?.aborted) return { ok: false as const, message: "Maria notification lock expired before dispatch." };
   const apiKey = resolveBrevoApiKey();
   const from = process.env.LEAD_FROM_EMAIL;
   if (!apiKey || !from) return { ok: false as const, message: "Brevo är inte konfigurerat." };
@@ -131,10 +134,11 @@ export async function sendBookingRescheduleEmail(input: SendBookingRescheduleEma
     </div>
   `;
 
+  if (input.signal?.aborted) return { ok: false as const, message: "Maria notification lock expired before dispatch." };
   try {
     const response = await fetch("https://api.brevo.com/v3/smtp/email", {
       method: "POST",
-      signal: AbortSignal.timeout(8_000),
+      signal: input.signal ? AbortSignal.any([input.signal, AbortSignal.timeout(8_000)]) : AbortSignal.timeout(8_000),
       headers: { "api-key": apiKey, "Content-Type": "application/json" },
       body: JSON.stringify({
         sender: parseSender(from),

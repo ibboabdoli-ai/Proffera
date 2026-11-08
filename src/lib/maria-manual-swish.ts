@@ -3,7 +3,7 @@ import "server-only";
 import { getSql } from "@/lib/db/server";
 import { getMariaBookingReadiness } from "@/lib/maria-booking-runtime";
 import { MARIA_DEPOSIT_AMOUNT_SEK, mariaBookingNumber } from "@/lib/maria-deposit";
-import { isMariaProductionSwishAuthorized, isMariaProductionExistingBookingLifecycleAuthorized } from "@/lib/maria-production-activation-policy";
+import { isMariaProductionSwishAuthorized } from "@/lib/maria-production-activation-policy";
 import { isMariaPreviewTestRecipient } from "@/lib/maria-preview-customer-safety";
 import { canManageWorkspaceSettings, getUserWorkspaceAccess } from "@/lib/workspace-access";
 import { hasDashboardModuleAccess } from "@/lib/workspace-module-access";
@@ -23,12 +23,10 @@ async function requireMariaManager() {
   const access = await getUserWorkspaceAccess();
   const preview = process.env.VERCEL_ENV === "preview";
   const production = process.env.VERCEL_ENV === "production";
-  const existingProductionSwish = production && isMariaProductionSwishAuthorized()
-    && isMariaProductionExistingBookingLifecycleAuthorized();
   if ((!preview && !production)
     || !access.ok || access.workspaceSlug !== "makeup-by-maria"
     || !canManageWorkspaceSettings(access)
-    || (!(await hasDashboardModuleAccess("online_booking")) && !existingProductionSwish)) {
+    || !(await hasDashboardModuleAccess("online_booking"))) {
     throw new Error("MARIA_MANUAL_SWISH_FORBIDDEN");
   }
   if (production) {
@@ -110,8 +108,11 @@ export async function setMariaManualSwishStatus(bookingId: string, state: Manual
   const description = state === "paid"
     ? "Administratören har kontrollerat Swish och markerat handpenning 2 000 kr som mottagen."
     : "Administratören har återställt betalningsstatus till ej verifierad.";
-  // One transaction and one per-booking lock: concurrent clicks cannot create duplicate status events.
+  // Match the status-email dispatch lock BEFORE the per-booking Swish lock:
+  // payment state cannot change after status-email preflight but before Brevo.
+  // A paused intake flag does not bypass the required booking entitlement.
   const results = await sql.transaction([
+    sql`select pg_advisory_xact_lock(hashtextextended(${access.workspaceId}::text, 713))`,
     sql`select pg_advisory_xact_lock(hashtextextended(${normalizedBookingId}::text, 62004))`,
     sql`
       with eligible as (
@@ -162,7 +163,7 @@ export async function setMariaManualSwishStatus(bookingId: string, state: Manual
         (select count(*)::int from inserted) as inserted_count
     `,
   ]);
-  const row = results[1]?.[0];
+  const row = results[2]?.[0];
   if (Number(row?.eligible_count ?? 0) !== 1) throw new Error("MARIA_MANUAL_SWISH_INELIGIBLE");
   return { changed: Number(row?.inserted_count ?? 0) === 1 };
 }
