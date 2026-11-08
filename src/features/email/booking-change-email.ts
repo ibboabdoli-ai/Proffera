@@ -10,6 +10,8 @@ type BookingChangeEmailInput = {
   kind: "cancelled" | "rescheduled";
   customerName: string;
   customerEmail: string;
+  /** Allows a retry of only an owner notification already marked failed. */
+  sendCustomer?: boolean;
   ownerEmail?: string;
   companyName: string;
   branding?: "makeup-by-maria";
@@ -103,7 +105,11 @@ export async function sendBookingChangeEmails(input: BookingChangeEmailInput) {
   const ownerOldTime = `${formatTime(input.oldStartsAt, input.timeZone, ownerLanguage)}–${formatTime(input.oldEndsAt, input.timeZone, ownerLanguage)}`;
   const ownerNewTime = input.newStartsAt && input.newEndsAt
     ? `${formatTime(input.newStartsAt, input.timeZone, ownerLanguage)}–${formatTime(input.newEndsAt, input.timeZone, ownerLanguage)}` : null;
-  const jobs: Promise<unknown>[] = [send({ email: input.customerEmail, name: input.customerName }, customerSubject, customerText, customerHtml)];
+  const jobs: Promise<unknown>[] = [
+    input.sendCustomer === false
+      ? Promise.resolve({ ok: true as const, skipped: true as const })
+      : send({ email: input.customerEmail, name: input.customerName }, customerSubject, customerText, customerHtml),
+  ];
   if (input.ownerEmail) {
     const ownerSubject = isEnglish
       ? changed ? `Customer rescheduled – ${input.service}` : `Customer cancelled – ${input.service}`
