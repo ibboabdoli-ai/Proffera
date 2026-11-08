@@ -196,7 +196,7 @@ export async function cancelCustomerCalendarBooking(
         and b.source not in ('dashboard_availability_block', 'dashboard_availability_recurring_block')
       returning
         b.id,
-        b.updated_at as cancellation_revision,
+        date_trunc('milliseconds',b.updated_at) as cancellation_revision,
         b.workspace_id,
         b.customer_id,
         b.service,

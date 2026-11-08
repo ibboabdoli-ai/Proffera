@@ -223,7 +223,7 @@ export async function updateDashboardBookingStatus(
         workspace_id,
         customer_id,
         status as new_status,
-        updated_at as notification_revision
+        date_trunc('milliseconds',updated_at) as notification_revision
     ),
     created_job as (
       insert into workspace_service_jobs (

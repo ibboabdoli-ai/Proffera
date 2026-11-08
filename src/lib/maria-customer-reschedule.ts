@@ -175,7 +175,7 @@ export async function rescheduleMariaCustomerBooking(input: MariaChangeInput) {
           from eligible
           where b.id=eligible.id and b.starts_at=eligible.old_starts_at
             and b.status in ('requested','confirmed')
-          returning b.id,b.workspace_id,b.customer_id,b.status,b.updated_at as notice_revision,
+          returning b.id,b.workspace_id,b.customer_id,b.status,date_trunc('milliseconds',b.updated_at) as notice_revision,
             eligible.old_starts_at,eligible.old_ends_at,eligible.customer_name,
             eligible.customer_email,eligible.company_name,eligible.owner_email,
             eligible.time_zone,eligible.service_name,eligible.city
