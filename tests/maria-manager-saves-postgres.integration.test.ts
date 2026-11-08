@@ -10,6 +10,7 @@ type Query = { text: string; values: unknown[] };
 type QueryResponse = Record<string, unknown>[];
 const runtime = vi.hoisted(() => ({
   makeSql: undefined as undefined | (() => unknown),
+  databaseUrl: "",
   workspaceId: "",
   workspaceSlug: "makeup-by-maria",
   userId: "maria-qa-manager",
@@ -25,6 +26,7 @@ vi.mock("@neondatabase/serverless", () => ({
 }));
 vi.mock("@/lib/db/database-url", () => ({
   resolveDatabaseUrl: () => "postgresql://synthetic-manager-test-only.invalid",
+  resolveNodePostgresDatabaseUrl: () => runtime.databaseUrl,
 }));
 vi.mock("@/lib/db/server", () => ({
   getSql: () => runtime.makeSql?.() ?? null,
@@ -100,6 +102,7 @@ function compileSql(strings: TemplateStringsArray, values: unknown[]): Query {
     const port = docker(["port", container, "5432/tcp"]).split(/\r?\n/u)[0]?.match(/:(\d+)$/u)?.[1];
     if (!port) throw new Error("Maria PostgreSQL test port missing");
     connectionString = "postgres://postgres:postgres@127.0.0.1:" + port + "/proffera_test";
+    runtime.databaseUrl = connectionString;
     let ready = false;
     for (let attempt = 0; attempt < 80; attempt++) {
       const probe = new Client({ connectionString });

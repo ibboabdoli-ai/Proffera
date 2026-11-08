@@ -4,6 +4,7 @@ import crypto from "node:crypto";
 import { neon } from "@neondatabase/serverless";
 
 import { sendBookingChangeEmails } from "@/features/email/booking-change-email";
+import { withMariaBookingNotificationLock } from "@/lib/maria-booking-notification-lock";
 import { resolveCustomerPortalSecret } from "@/lib/auth-secret";
 import { resolveDatabaseUrl } from "@/lib/db/database-url";
 import { getMariaExistingBookingPortalBase, isMariaExistingBookingRecipientAllowed } from "@/lib/maria-preview-customer-safety";
@@ -195,6 +196,7 @@ export async function cancelCustomerCalendarBooking(
         and b.source not in ('dashboard_availability_block', 'dashboard_availability_recurring_block')
       returning
         b.id,
+        b.updated_at as cancellation_revision,
         b.workspace_id,
         b.customer_id,
         b.service,
@@ -286,6 +288,7 @@ export async function cancelCustomerCalendarBooking(
       company_name,
       owner_email,
       time_zone,
+      cancellation_revision,
       (select id::text from customer_event limit 1) as cancellation_notice_event_id
     from cancelled_booking
   `;
@@ -305,7 +308,7 @@ export async function cancelCustomerCalendarBooking(
     ? String(booking.owner_email) : undefined;
   // The booking and its pending notice were committed together. A provider
   // outage must not make an already-successful cancellation appear rolled back.
-  const deliveries = await sendBookingChangeEmails({
+  const sendCancellation = () => sendBookingChangeEmails({
     kind: "cancelled",
     branding: isMaria ? "makeup-by-maria" : undefined,
     customerName: String(booking.customer_name),
@@ -319,17 +322,38 @@ export async function cancelCustomerCalendarBooking(
     portalUrl: `${base}/mina-bokningar/${encodeURIComponent(token)}?lang=${language}`,
     timeZone: resolveBookingTimeZone(booking.time_zone),
     language,
-  }).catch((error) => {
-    console.error("Cancellation notice provider failed after booking commit", error);
-    return [];
   });
+  let cancellationSuperseded = false;
+  let deliveries: Awaited<ReturnType<typeof sendBookingChangeEmails>> = [];
+  try {
+    deliveries = isMaria ? await withMariaBookingNotificationLock(payload.workspaceId, async () => {
+      const latest = await sql`
+        select 1 from bookings b
+        join customers c on c.id=b.customer_id and c.workspace_id=b.workspace_id
+        where b.workspace_id=${payload.workspaceId} and b.id=${bookingId}::uuid
+          and b.status='cancelled'
+          and b.starts_at=${new Date(String(booking.starts_at)).toISOString()}::timestamptz
+          and b.ends_at=${new Date(String(booking.ends_at)).toISOString()}::timestamptz
+          and date_trunc('milliseconds',b.updated_at)=date_trunc('milliseconds',${new Date(String(booking.cancellation_revision)).toISOString()}::timestamptz)
+          and lower(btrim(c.email, chr(9) || chr(10) || chr(13) || ' '))=lower(${String(booking.customer_email).trim()})
+        limit 1
+      `;
+      if (!latest[0]) {
+        cancellationSuperseded = true;
+        return [];
+      }
+      return sendCancellation();
+    }) : await sendCancellation();
+  } catch (error) {
+    console.error("Cancellation notice serialization failed after booking commit", error);
+  }
 
   if (isMaria && booking.cancellation_notice_event_id) {
     // 'accepted' means the provider accepted the request, NOT inbox delivery.
     const accepted = (index: number) => deliveries[index]?.status === "fulfilled"
       && (deliveries[index].value as { ok?: boolean })?.ok === true;
-    const customerState = accepted(0) ? "accepted" : "failed";
-    const ownerState = !ownerEmail ? "skipped" : accepted(1) ? "accepted" : "failed";
+    const customerState = cancellationSuperseded ? "superseded" : accepted(0) ? "accepted" : "failed";
+    const ownerState = !ownerEmail ? "skipped" : cancellationSuperseded ? "superseded" : accepted(1) ? "accepted" : "failed";
     const needsFollowup = customerState === "failed" || ownerState === "failed";
     const summary = needsFollowup
       ? "Kunden avbokade bokningen via Mina bokningar. E-post kunde inte bekräftas; kontakta kunden eller Maria manuellt."

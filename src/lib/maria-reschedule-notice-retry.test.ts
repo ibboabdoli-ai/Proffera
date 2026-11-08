@@ -1,6 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("server-only",()=>({}));
+vi.mock("@/lib/maria-booking-notification-lock",()=>({
+  withMariaBookingNotificationLock:async(_workspaceId:string,action:()=>Promise<unknown>)=>action(),
+}));
 const m=vi.hoisted(()=>({sql:vi.fn(),send:vi.fn(),sendManager:vi.fn(),ready:vi.fn()}));
 vi.mock("@/lib/db/server",()=>({getSql:()=>m.sql}));
 vi.mock("@/lib/maria-booking-runtime",()=>({getMariaBookingReadiness:m.ready}));

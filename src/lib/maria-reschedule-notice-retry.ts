@@ -5,6 +5,7 @@ import { sendBookingRescheduleEmail } from "@/features/email/booking-reschedule-
 import { createCustomerCalendarToken } from "@/lib/customer-calendar";
 import { getSql } from "@/lib/db/server";
 import { getMariaBookingReadiness } from "@/lib/maria-booking-runtime";
+import { withMariaBookingNotificationLock } from "@/lib/maria-booking-notification-lock";
 import { getMariaBookingPortalBase, isMariaBookingRecipientAllowed } from "@/lib/maria-preview-customer-safety";
 
 const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -43,6 +44,8 @@ async function currentNotice(id:string,workspaceId:string):Promise<Notice|null>{
       and b.status in ('requested','confirmed') and w.slug='makeup-by-maria'
       and b.starts_at=(n.metadata->>'starts_at')::timestamptz
       and b.ends_at=(n.metadata->>'ends_at')::timestamptz
+      and (n.metadata->>'notice_revision' is null
+        or date_trunc('milliseconds',b.updated_at)=(n.metadata->>'notice_revision')::timestamptz)
     limit 1
   `;
   return rows[0] as Notice|undefined ?? null;
@@ -68,6 +71,7 @@ export async function retryMariaRescheduleNotice(id:string,workspaceId:string){
   const readiness=await getMariaBookingReadiness();
   if(!base||!readiness.enabled||readiness.workspaceId!==workspaceId)return {ok:false as const};
   try{
+    return await withMariaBookingNotificationLock(workspaceId,async()=>{
     const sql=getSql();if(!sql)return {ok:false as const};
     const row=await currentNotice(id,workspaceId);
     if(!row)return {ok:false as const};
@@ -146,5 +150,6 @@ export async function retryMariaRescheduleNotice(id:string,workspaceId:string){
       returning id
     `;
     return {ok:updated.length===1 &&cs!=="failed" &&os!=="failed"};
+    });
   }catch(error){console.error("Maria notification retry failed closed",error);return {ok:false as const};}
 }

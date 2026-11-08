@@ -232,7 +232,8 @@ async function updateBookingStatusAction(bookingId: string, formData: FormData) 
           : isMariaBookingRecipientAllowed(notification.customerEmail);
         const delivery = recipientAllowed
           ? await sendMariaBookingStatusEmail({
-              bookingId, status, customerName: notification.customerName,
+              bookingId, workspaceId: workspaceAccess.workspaceId,
+              status, customerName: notification.customerName,
               customerEmail: notification.customerEmail, companyName: workspaceAccess.workspaceName,
               service: notification.service, startsAt: notification.startsAt,
               endsAt: notification.endsAt, city: notification.city, timeZone: result.timeZone,
@@ -329,7 +330,8 @@ async function resendMariaStatusEmailAction(bookingId: string, formData: FormDat
     redirectWithError(bookingId, "save", locale);
   }
   const sent = await sendMariaBookingStatusEmail({
-    bookingId, status: row.status === "confirmed" ? "confirmed" : "cancelled",
+    bookingId, workspaceId: access.workspaceId,
+    status: row.status === "confirmed" ? "confirmed" : "cancelled",
     customerName: String(row.customer_name ?? ""),
     customerEmail: String(row.customer_email ?? ""),
     companyName: access.workspaceName,

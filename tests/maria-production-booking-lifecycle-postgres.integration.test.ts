@@ -10,11 +10,15 @@ type Query = { text: string; values: unknown[] };
 const runtime = vi.hoisted(() => ({
   makeSql: undefined as undefined | (() => unknown),
   workspaceId: "",
+  databaseUrl: "",
   userId: "synthetic-maria-manager",
 }));
 vi.mock("server-only", () => ({}));
 vi.mock("@neondatabase/serverless", () => ({ neon: () => runtime.makeSql?.() ?? null }));
-vi.mock("@/lib/db/database-url", () => ({ resolveDatabaseUrl: () => "postgresql://synthetic-isolated-pg-test.invalid" }));
+vi.mock("@/lib/db/database-url", () => ({
+  resolveDatabaseUrl: () => "postgresql://synthetic-isolated-pg-test.invalid",
+  resolveNodePostgresDatabaseUrl: () => runtime.databaseUrl,
+}));
 vi.mock("@/lib/db/server", () => ({ getSql: () => runtime.makeSql?.() ?? null }));
 vi.mock("@/lib/workspace-feature-entitlement-db", () => ({
   hasWorkspaceFeatureAccessForWorkspace: async (id: string) => id === runtime.workspaceId,
@@ -52,6 +56,7 @@ import { changeMariaManualCalendar } from "@/lib/maria-manual-calendar";
 import { sendMariaBookingStatusEmail } from "@/features/email/maria-deposit-email";
 import { sendBookingChangeEmails } from "@/features/email/booking-change-email";
 import { retryMariaRescheduleNotice } from "@/lib/maria-reschedule-notice-retry";
+import { withMariaBookingNotificationLock } from "@/lib/maria-booking-notification-lock";
 
 const RUN = process.env.GITHUB_ACTIONS === "true" || process.env.PROFFERA_POSTGRES_INTEGRATION === "1";
 function docker(args: string[]) { return execFileSync("docker", args, { encoding: "utf8" }).trim(); }
@@ -81,6 +86,7 @@ function compileSql(strings: TemplateStringsArray, values: unknown[]): Query {
     const port = docker(["port", container, "5432/tcp"]).split(/\r?\n/u)[0]?.match(/:(\d+)$/u)?.[1];
     if (!port) throw Error("Isolated Maria PostgreSQL port missing");
     connectionString = "postgres://postgres:postgres@127.0.0.1:" + port + "/proffera_test";
+    runtime.databaseUrl = connectionString;
     let ready = false;
     for(let attempt=0;attempt<80;attempt++) {
       const probe=new Client({connectionString});
@@ -172,6 +178,39 @@ function compileSql(strings: TemplateStringsArray, values: unknown[]): Query {
       new Response(JSON.stringify({messageId:"synthetic-only"}),{status:201})));
   });
   afterEach(()=>{vi.unstubAllEnvs();vi.unstubAllGlobals();});
+
+  it("serializes in-flight provider requests against booking writers on real PostgreSQL", async () => {
+    let entered!: () => void;
+    let release!: () => void;
+    const acquired = new Promise<void>(resolve => { entered = resolve; });
+    const delayedProvider = new Promise<void>(resolve => { release = resolve; });
+    const first = withMariaBookingNotificationLock(workspaceId, async () => {
+      entered();
+      await delayedProvider;
+      return "synthetic-provider-accepted";
+    });
+    await acquired;
+    const writer = new Client({ connectionString });
+    let acquiredWriterLock = false;
+    try {
+      await writer.connect();
+      await writer.query("BEGIN");
+      const second = writer.query(
+        "select pg_advisory_xact_lock(hashtextextended($1::text, 713))", [workspaceId],
+      ).then(() => { acquiredWriterLock = true; });
+      await delay(80);
+      expect(acquiredWriterLock).toBe(false);
+      release();
+      expect(await first).toBe("synthetic-provider-accepted");
+      await second;
+      expect(acquiredWriterLock).toBe(true);
+    } finally {
+      release();
+      await first.catch(() => undefined);
+      await writer.query("ROLLBACK").catch(() => undefined);
+      await writer.end().catch(() => undefined);
+    }
+  }, 30_000);
 
   it("rejects a second published from-priced or null-priced Maria package in real PostgreSQL", async () => {
     expect(await getMariaBookingReadiness()).toMatchObject({enabled:true,workspaceId});
@@ -341,7 +380,7 @@ function compileSql(strings: TemplateStringsArray, values: unknown[]): Query {
     expect(paid.entries[bookingId]?.state).toBe("paid");
 
     const statusEmail=await sendMariaBookingStatusEmail({
-      bookingId,status:"confirmed",customerName:"Synthetic Bride",
+      bookingId,workspaceId,status:"confirmed",customerName:"Synthetic Bride",
       customerEmail:"bride@example.invalid",companyName:"Makeup by Maria",
       service:"Brudmakeup med prov",startsAt,endsAt,city:"Södertälje",language:"ar",
       timeZone:"Europe/Stockholm",

@@ -1,12 +1,16 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("server-only", () => ({}));
+vi.mock("@/lib/maria-booking-notification-lock", () => ({
+  withMariaBookingNotificationLock: async (_workspaceId: string, action: () => Promise<unknown>) => action(),
+}));
 const dbQuery = vi.hoisted(() => vi.fn());
 vi.mock("@/lib/db/server", () => ({ getSql: () => (...args: unknown[]) => dbQuery(...args) }));
 
 import { buildMariaBookingStatusEmail, sendMariaBookingStatusEmail } from "./maria-deposit-email";
 
 const booking = {
+  workspaceId: "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee",
   bookingId: "00000000-0000-0000-0000-000000000001",
   status: "confirmed" as const,
   customerName: "QA <Bride>",

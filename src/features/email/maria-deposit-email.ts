@@ -7,6 +7,7 @@ import { resolveBrevoApiKey } from "@/lib/email-runtime-config";
 
 import { getMariaBookingPortalBase, getMariaExistingBookingPortalBase, isMariaBookingRecipientAllowed, isMariaExistingBookingRecipientAllowed } from "@/lib/maria-preview-customer-safety";
 import { getMariaBookingReadiness } from "@/lib/maria-booking-runtime";
+import { withMariaBookingNotificationLock } from "@/lib/maria-booking-notification-lock";
 import { MARIA_CANONICAL_PRODUCTION_ORIGIN, isMariaProductionSwishAuthorized } from "@/lib/maria-production-activation-policy";
 import {
   MARIA_DEPOSIT_AMOUNT_SEK, MARIA_SWISH_NUMBER, mariaSwishPaymentPagePath,
@@ -16,6 +17,8 @@ import type { WorkspaceTimeZone } from "@/lib/workspace-market";
 
 export type MariaBookingStatusEmailInput = {
   bookingId: string;
+  /** Mandatory at dispatch; pure rendering may omit workspace identity. */
+  workspaceId?: string;
   status: "confirmed" | "cancelled";
   customerName: string;
   customerEmail: string;
@@ -276,6 +279,8 @@ export async function sendMariaBookingStatusEmail(input: MariaBookingStatusEmail
   const apiKey = resolveBrevoApiKey();
   const from = process.env.LEAD_FROM_EMAIL;
   if (!apiKey || !from) return { ok: false as const, error: "email_not_configured" as const };
+  try {
+    return await withMariaBookingNotificationLock(input.workspaceId ?? "", async () => {
   let content: ReturnType<typeof buildMariaBookingStatusEmail>;
   try {
     // Read the current booking status on every send. An old confirmation
@@ -294,7 +299,8 @@ export async function sendMariaBookingStatusEmail(input: MariaBookingStatusEmail
         from bookings b
         join customers c on c.id=b.customer_id and c.workspace_id=b.workspace_id
         join workspaces w on w.id::text=b.workspace_id
-        where b.id=${input.bookingId}::uuid and w.slug='makeup-by-maria'
+        where b.id=${input.bookingId}::uuid and b.workspace_id=${input.workspaceId}
+          and w.slug='makeup-by-maria'
           and w.status in ('active','trial')
           and (b.source='public_booking'
             or ((${process.env.VERCEL_ENV === "preview"
@@ -332,5 +338,10 @@ export async function sendMariaBookingStatusEmail(input: MariaBookingStatusEmail
     return { ok: true as const };
   } catch {
     return { ok: false as const, error: "email_delivery_uncertain" as const };
+  }
+    });
+  } catch (error) {
+    console.error("Maria status email serialization failed", error);
+    return { ok: false as const, error: "booking_state_unavailable" as const };
   }
 }

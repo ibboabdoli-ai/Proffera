@@ -174,7 +174,7 @@ export async function rescheduleMariaDashboardBooking(input: {
           from eligible
           where b.id=eligible.id and b.starts_at=eligible.previous_starts_at
             and b.status in ('requested','confirmed')
-          returning b.id,b.workspace_id,b.customer_id,eligible.customer_name,
+          returning b.id,b.workspace_id,b.customer_id,b.updated_at as notice_revision,eligible.customer_name,
             eligible.customer_email,eligible.customer_phone,eligible.service_name,
             eligible.city,eligible.booking_language,eligible.previous_starts_at,eligible.previous_ends_at
         ),
@@ -202,6 +202,7 @@ export async function rescheduleMariaDashboardBooking(input: {
               'previous_starts_at',previous_starts_at::text,
               'previous_ends_at',previous_ends_at::text,
               'language',coalesce(booking_language,'sv'),
+              'notice_revision',date_trunc('milliseconds',notice_revision)::text,
               'notice_customer','pending','notice_owner','skipped')
           from moved returning id
         )
