@@ -39,6 +39,7 @@ export async function getRescheduleBooking(token: string, bookingId: string): Pr
       case when w.slug='makeup-by-maria' then exists (
         select 1 from workspace_services svc
         where svc.id=b.service_id and svc.workspace_id=b.workspace_id
+          and b.staff_id is null and b.source='public_booking'
           and svc.is_active=true and svc.public_status='published'
       ) else true end as service_reschedule_available,
       coalesce(nullif(ws.time_zone, ''), 'Europe/Stockholm') as time_zone

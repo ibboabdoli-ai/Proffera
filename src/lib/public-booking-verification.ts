@@ -377,6 +377,7 @@ export async function resendPublicBookingCode(id: string, language: "sv" | "en" 
 export async function verifyPublicBookingCode(id: string, code: string, language?: "sv" | "en" | "ar") {
   const sql = getSql();
   if (!sql || !/^[0-9a-f-]{36}$/i.test(id) || !/^\d{6}$/.test(code)) return { ok: false as const, error: "invalid" };
+  const canonicalId = id.toLowerCase();
 
   const rows = await sql`
     select v.*, w.slug as workspace_slug, coalesce(nullif(ws.company_name, ''), w.company_name, w.name) as company_name,
@@ -419,7 +420,7 @@ export async function verifyPublicBookingCode(id: string, code: string, language
       returning code_hash
     `;
     if (reserved.length !== 1) return { ok: false as const, error: "invalid" };
-    if (hashCode(id, code) !== String(reserved[0]?.code_hash)) {
+    if (hashCode(canonicalId, code) !== String(reserved[0]?.code_hash)) {
       return { ok: false as const, error: "code" };
     }
     const portalBase = getMariaBookingPortalBase();
@@ -433,7 +434,7 @@ export async function verifyPublicBookingCode(id: string, code: string, language
         and b.customer_id=e.customer_id
       where e.workspace_id=${String(challenge.workspace_id)}
         and e.event_type='booking' and e.metadata->>'source'='public_booking'
-        and e.metadata->>'verification_id'=${id}
+        and e.metadata->>'verification_id'=${canonicalId}
         and b.source='public_booking'
       order by e.created_at desc limit 1
     `;
@@ -462,7 +463,7 @@ export async function verifyPublicBookingCode(id: string, code: string, language
   if (new Date(String(challenge.expires_at)) <= new Date()) return { ok: false as const, error: "expired" };
   if (Number(challenge.attempts) >= Number(challenge.max_attempts)) return { ok: false as const, error: "attempts" };
 
-  if (hashCode(id, code) !== String(challenge.code_hash)) {
+  if (hashCode(canonicalId, code) !== String(challenge.code_hash)) {
     await sql`
       update public_booking_verifications set attempts=attempts+1,updated_at=now()
       where id=${id}::uuid and consumed_at is null and verified_at is null
@@ -505,8 +506,8 @@ export async function verifyPublicBookingCode(id: string, code: string, language
     // publication, buffer and all Maria bookings/holds under the same
     // workspace-scoped transaction lock used when a hold is created.
     const confirmed = await finalizeMariaVerifiedBooking({
-      verificationId: id,
-      expectedCodeHash: hashCode(id, code),
+      verificationId: canonicalId,
+      expectedCodeHash: hashCode(canonicalId, code),
       bookingNote,
       bookingLanguage: language === "en" || language === "ar" ? language : "sv",
     });

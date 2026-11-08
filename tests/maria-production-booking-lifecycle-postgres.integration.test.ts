@@ -240,7 +240,8 @@ function compileSql(strings: TemplateStringsArray, values: unknown[]): Query {
       return payload.subject?.includes("تم استلام طلب حجزك")
         ? new Response("Synthetic email outage",{status:503}) : successResponse;
     });
-    const verified=await verifyPublicBookingCode(id,resentCode!,"ar");
+    // Canonical UUID hashing must work with equivalent uppercase URL IDs.
+    const verified=await verifyPublicBookingCode(id.toUpperCase(),resentCode!,"ar");
     expect(verified).toMatchObject({ok:true,slug:"makeup-by-maria"});
     expect(verified.ok && verified.portalUrl).toMatch(/^https:\/\/makeupbymaria\.se\/mina-bokningar\//);
     const bookings=await db!.query<{id:string;status:string}>(

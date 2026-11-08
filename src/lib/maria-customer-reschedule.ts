@@ -122,7 +122,7 @@ export async function rescheduleMariaCustomerBooking(input: MariaChangeInput) {
             and b.starts_at<>${start}::timestamptz
             and w.slug='makeup-by-maria' and w.public_booking_slug='makeup-by-maria'
             and w.status in ('active','trial')
-            and (${process.env.VERCEL_ENV !== "preview"}::boolean or lower(trim(c.email))=lower(${process.env.PROFFERA_MARIA_PREVIEW_TEST_EMAIL?.trim() ?? ""}))
+            and (${process.env.VERCEL_ENV !== "preview"}::boolean or lower(btrim(c.email, chr(9) || chr(10) || chr(13) || ' '))=lower(${process.env.PROFFERA_MARIA_PREVIEW_TEST_EMAIL?.trim() ?? ""}))
             and coalesce(ps.customer_reschedule_enabled,true)=true
             and s.public_slug=${slug} and s.is_active=true and s.public_status='published'
             and s.duration_minutes between 1 and 1440
