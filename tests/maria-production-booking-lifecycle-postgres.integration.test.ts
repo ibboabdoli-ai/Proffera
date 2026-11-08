@@ -2,7 +2,7 @@ import { execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { setTimeout as delay } from "node:timers/promises";
 
-import { Client } from "pg";
+import { Client, Pool } from "pg";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { applyCanonicalProfferaMigrations } from "./helpers/postgres-canonical-schema";
 
@@ -35,6 +35,7 @@ vi.mock("@/lib/workspace-module-access", () => ({
   hasDashboardModuleAccess: async (id: string) => id === "online_booking",
 }));
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
+vi.mock("@/features/email/booking-change-email", () => ({ sendBookingChangeEmails: vi.fn() }));
 vi.mock("next/navigation", () => ({ redirect: (url: string) => { throw new Error("TEST_REDIRECT:" + url); } }));
 vi.mock("@/features/sms/booking-sms", () => ({
   sendBookingVerificationSms: () => { throw new Error("Maria must never send verification SMS"); },
@@ -49,6 +50,8 @@ import { readMariaSwishQrEligibility } from "@/lib/maria-swish-qr-eligibility";
 import { mariaBookingNumber } from "@/lib/maria-deposit";
 import { changeMariaManualCalendar } from "@/lib/maria-manual-calendar";
 import { sendMariaBookingStatusEmail } from "@/features/email/maria-deposit-email";
+import { sendBookingChangeEmails } from "@/features/email/booking-change-email";
+import { retryMariaRescheduleNotice } from "@/lib/maria-reschedule-notice-retry";
 
 const RUN = process.env.GITHUB_ACTIONS === "true" || process.env.PROFFERA_POSTGRES_INTEGRATION === "1";
 function docker(args: string[]) { return execFileSync("docker", args, { encoding: "utf8" }).trim(); }
@@ -135,6 +138,21 @@ function compileSql(strings: TemplateStringsArray, values: unknown[]): Query {
     await db?.end().catch(()=>undefined);
     if(container){try{docker(["stop",container]);}catch{/* cleaned automatically */}}
   },30_000);
+
+  // Exercise real PostgreSQL contention with independent connections.
+  async function withParallelSql<T>(action: () => Promise<T>): Promise<T> {
+    const pool = new Pool({ connectionString, max: 16 });
+    const previous = runtime.makeSql;
+    runtime.makeSql = () => (parts: TemplateStringsArray, ...values: unknown[]) => {
+      const query = compileSql(parts, values);
+      return Object.assign(query, {
+        then: (resolve: (rows: Record<string, unknown>[]) => unknown, reject: (error: unknown) => unknown) =>
+          pool.query(query.text, query.values).then(result => resolve(result.rows as Record<string, unknown>[]), reject),
+      });
+    };
+    try { return await action(); }
+    finally { runtime.makeSql = previous; await pool.end(); }
+  }
 
   beforeEach(()=>{
     const flags:Record<string,string>={
@@ -225,7 +243,8 @@ function compileSql(strings: TemplateStringsArray, values: unknown[]): Query {
     );
     const wrongCode=resentCode==="000000"?"111111":"000000";
     const guesses=[resentCode!,...Array.from({length:10},()=>wrongCode)];
-    const outcomes=await Promise.all(guesses.map(value=>verifyPublicBookingCode(id,value,"ar")));
+    const outcomes=await withParallelSql(() =>
+      Promise.all(guesses.map(value=>verifyPublicBookingCode(id,value,"ar"))));
     expect(outcomes.filter(outcome=>outcome.ok).length).toBeLessThanOrEqual(1);
     const attempts=(await db!.query<{attempts:number;max_attempts:number}>(
       "select attempts,max_attempts from public_booking_verifications where id=$1::uuid",[id],
@@ -355,4 +374,89 @@ function compileSql(strings: TemplateStringsArray, values: unknown[]): Query {
       await db!.query("delete from customers where id=$1::uuid", [customerId]);
     }
   },30_000);
+  it("serializes Maria retry claims and lease recovery on real concurrent PostgreSQL connections", async () => {
+    const booking = (await db!.query<{
+      id: string; customer_id: string; starts_at: string; ends_at: string;
+    }>("select id::text,customer_id::text,starts_at::text,ends_at::text from bookings where workspace_id=$1 and source='public_booking' order by created_at desc limit 1",[workspaceId])).rows[0];
+    expect(booking?.id).toBeTruthy();
+    const eventId = (await db!.query<{id:string}>(
+      `insert into customer_events(workspace_id,customer_id,booking_id,event_type,title,description,metadata)
+       values($1,$2::uuid,$3::uuid,'booking','Synthetic retry','Synthetic only',$4::jsonb) returning id::text`,
+      [workspaceId,booking!.customer_id,booking!.id,JSON.stringify({
+        source:"maria_preview_reschedule",
+        previous_starts_at:new Date(new Date(booking!.starts_at).getTime()-604800000).toISOString(),
+        previous_ends_at:new Date(new Date(booking!.ends_at).getTime()-604800000).toISOString(),
+        starts_at:new Date(booking!.starts_at).toISOString(),
+        ends_at:new Date(booking!.ends_at).toISOString(),
+        language:"en",notice_customer:"failed",notice_owner:"sent",
+        notice_attempted_at:"2026-01-01T00:00:00Z",
+      })],
+    )).rows[0]!.id;
+    const sender=vi.mocked(sendBookingChangeEmails);
+    const successful=[
+      {status:"fulfilled" as const,value:{ok:true as const}},
+      {status:"fulfilled" as const,value:{ok:true as const}},
+    ] as Awaited<ReturnType<typeof sendBookingChangeEmails>>;
+    const setState=async (customer:string,attempted:string)=>db!.query(
+      `update customer_events set metadata=metadata||jsonb_build_object(
+        'notice_customer',$2::text,'notice_owner','sent','notice_attempted_at',$3::text)
+       where id=$1::uuid`,[eventId,customer,attempted],
+    );
+    try {
+      await withParallelSql(async()=>{
+        sender.mockReset().mockImplementation(async()=>{await delay(90);return successful;});
+        const results=await Promise.all([
+          retryMariaRescheduleNotice(booking!.id,workspaceId),
+          retryMariaRescheduleNotice(booking!.id,workspaceId),
+        ]);
+        expect(results.filter(result=>result.ok)).toHaveLength(1);
+        expect(sender).toHaveBeenCalledOnce();
+        const sent=(await db!.query<{state:string}>(
+          "select metadata->>'notice_customer' as state from customer_events where id=$1::uuid",
+          [eventId],
+        )).rows[0];
+        expect(sent?.state).toBe("sent");
+
+        // A live lease is not stealable, but an expired lease is recoverable.
+        await setState("sending",new Date().toISOString());
+        sender.mockClear();
+        expect(await retryMariaRescheduleNotice(booking!.id,workspaceId)).toEqual({ok:false});
+        expect(sender).not.toHaveBeenCalled();
+        await setState("sending","2026-01-01T00:00:00Z");
+        expect(await retryMariaRescheduleNotice(booking!.id,workspaceId)).toEqual({ok:true});
+        expect(sender).toHaveBeenCalledOnce();
+
+        // A stale sender must not overwrite a newer claim's result.
+        await setState("failed","2026-01-01T00:00:00Z");
+        sender.mockReset();
+        let signalStarted!:()=>void,release!:()=>void;
+        const started=new Promise<void>(resolve=>{signalStarted=resolve;});
+        const hold=new Promise<void>(resolve=>{release=resolve;});
+        sender.mockImplementationOnce(async()=>{signalStarted();await hold;return successful;});
+        const pending=retryMariaRescheduleNotice(booking!.id,workspaceId);
+        await started;
+        await setState("sending","2099-01-01T00:00:00Z");
+        release();
+        expect(await pending).toEqual({ok:false});
+        expect((await db!.query<{state:string;attempt:string}>(
+          "select metadata->>'notice_customer' as state,metadata->>'notice_attempted_at' as attempt from customer_events where id=$1::uuid",
+          [eventId],
+        )).rows[0]).toMatchObject({state:"sending",attempt:"2099-01-01T00:00:00Z"});
+
+        // The latest event cannot be retried once its booking time is obsolete.
+        await setState("failed","2026-01-01T00:00:00Z");
+        await db!.query(
+          `update customer_events set metadata=jsonb_set(metadata,'{starts_at}',to_jsonb('2099-01-01T00:00:00Z'::text)) where id=$1::uuid`,
+          [eventId],
+        );
+        sender.mockClear();
+        expect(await retryMariaRescheduleNotice(booking!.id,workspaceId)).toEqual({ok:false});
+        expect(sender).not.toHaveBeenCalled();
+      });
+    } finally {
+      sender.mockReset();
+      await db!.query("delete from customer_events where id=$1::uuid",[eventId]);
+    }
+  },60_000);
+
 });
