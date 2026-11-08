@@ -376,22 +376,9 @@ async function rescheduleBookingAction(bookingId: string, formData: FormData) {
     if (result.changed && result.notification) {
       const notification = result.notification;
       if (isMaria) {
-        // Maria reschedules send authorized email only; never send SMS.
-        if (isMariaBookingRecipientAllowed(notification.customerEmail)) {
-          const delivery = await sendBookingRescheduleEmail({
-            customerName: notification.customerName, customerEmail: notification.customerEmail,
-            companyName: workspaceAccess.workspaceName, branding: "makeup-by-maria", service: notification.service,
-            previousStartsAt: notification.previousStartsAt, startsAt: notification.startsAt,
-            endsAt: notification.endsAt, city: notification.city, timeZone: result.timeZone,
-            language: notification.language,
-          }).catch((error) => {
-            console.error("Maria reschedule email could not be delivered", error);
-            return { ok: false as const };
-          });
-          mariaRescheduleMailFailed = !delivery.ok;
-        } else {
-          mariaRescheduleMailFailed = true;
-        }
+        // Delivery is journaled with the booking change; a failed send remains retryable.
+        const delivery = await retryMariaRescheduleNotice(bookingId, workspaceAccess.workspaceId);
+        mariaRescheduleMailFailed = !delivery.ok;
       } else {
         await Promise.allSettled([
           notification.customerEmail ? sendBookingRescheduleEmail({ customerName: notification.customerName, customerEmail: notification.customerEmail, companyName: workspaceAccess.workspaceName, service: notification.service, previousStartsAt: notification.previousStartsAt, startsAt: notification.startsAt, endsAt: notification.endsAt, city: notification.city, timeZone: result.timeZone }) : Promise.resolve(null),

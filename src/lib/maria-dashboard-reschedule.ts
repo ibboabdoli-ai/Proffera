@@ -195,7 +195,11 @@ export async function rescheduleMariaDashboardBooking(input: {
           select workspace_id,customer_id,id,'booking',
             'Bokning ombokad','Maria dashboard changed the booking time.',
             jsonb_build_object('source','maria_manager_dashboard_reschedule',
-              'starts_at',${newStartIso}::text,'ends_at',${newEndIso}::text)
+              'starts_at',${newStartIso}::text,'ends_at',${newEndIso}::text,
+              'previous_starts_at',previous_starts_at::text,
+              'previous_ends_at',previous_ends_at::text,
+              'language',coalesce(booking_language,'sv'),
+              'notice_customer','pending','notice_owner','skipped')
           from moved returning id
         )
         select * from moved

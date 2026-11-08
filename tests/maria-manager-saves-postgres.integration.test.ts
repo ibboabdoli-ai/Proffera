@@ -827,6 +827,16 @@ function compileSql(strings: TemplateStringsArray, values: unknown[]): Query {
       [bookingId],
     );
     expect(String(persisted.rows[0]?.starts_local)).toContain(day + " 06:00:00");
+    // Persist the notification before a provider request, so the owner can retry.
+    const savedNotice=await db!.query<{metadata:Record<string,unknown>}>(
+      "select metadata from customer_events where workspace_id=$1 and booking_id=$2::uuid and metadata->>'source'='maria_manager_dashboard_reschedule' order by created_at desc,id desc limit 1",
+      [workspaceId,bookingId],
+    );
+    expect(savedNotice.rows[0]?.metadata).toMatchObject({
+      source:"maria_manager_dashboard_reschedule",notice_customer:"pending",
+      notice_owner:"skipped",language:"sv",
+      previous_starts_at:expect.any(String),previous_ends_at:expect.any(String),
+    });
 
     const hold = await db!.query<{id:string}>(
       "insert into public_booking_verifications (workspace_id,public_booking_slug,customer_name,customer_email,service_id,service_name,starts_at,ends_at,code_hash,expires_at) values ($1::uuid,'makeup-by-maria','QA Hold','qa@example.invalid',$2::uuid,'Synthetic hold',($3::timestamp at time zone 'Europe/Stockholm'),($3::timestamp at time zone 'Europe/Stockholm') + interval '3 hours','synthetic-only',now()+interval '30 minutes') returning id::text",
