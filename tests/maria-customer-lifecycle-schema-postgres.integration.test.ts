@@ -106,6 +106,14 @@ function compileSql(parts: TemplateStringsArray, values: unknown[]): Query {
       [workspaceId],
     );
 
+    // Use the canonical published service contract: the real public_booking
+    // trigger refuses an appointment whose stored service has no active row.
+    const serviceYear = new Date(Date.now() + 35 * 86_400_000).getUTCFullYear();
+    await db.query(
+      "insert into workspace_services(workspace_id,name,public_slug,duration_minutes,buffer_before_minutes,buffer_after_minutes,minimum_notice_minutes,maximum_advance_days,is_active,public_status,price_type,price_amount_minor) values($1,'Synthetic makeup',$2,120,0,0,0,730,true,'published','fixed',690000)",
+      [workspaceId, "maria-bridal-trial-" + serviceYear],
+    );
+
     runtime.workspaceId = workspaceId;
     runtime.makeSql = () => Object.assign(
       (parts: TemplateStringsArray, ...values: unknown[]) => {
