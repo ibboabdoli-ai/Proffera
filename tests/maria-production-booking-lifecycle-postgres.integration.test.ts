@@ -306,8 +306,17 @@ function compileSql(strings: TemplateStringsArray, values: unknown[]): Query {
     expect(linkedJobBefore.rowCount).toBe(1);
     const originalJobId=linkedJobBefore.rows[0]!.id;
     expect(["new","assigned"]).toContain(linkedJobBefore.rows[0]?.status);
+    // Stopping new-booking intake must NOT strand an existing confirmed booking.
+    vi.stubEnv("PROFFERA_MARIA_PRODUCTION_BOOKING_ENABLED","false");
+    expect(await getMariaBookingReadiness()).toEqual({enabled:false});
+    // Removing existing-lifecycle email permission still fails closed.
+    vi.stubEnv("PROFFERA_MARIA_PRODUCTION_CUSTOMER_EMAIL_ENABLED","false");
+    await expect(updateDashboardBookingStatus(bookingId,"cancelled"))
+      .rejects.toThrow("Maria booking status changes are disabled in Production");
+    vi.stubEnv("PROFFERA_MARIA_PRODUCTION_CUSTOMER_EMAIL_ENABLED","true");
     const cancelled=await updateDashboardBookingStatus(bookingId,"cancelled");
     expect(cancelled.changed).toBe(true);
+    vi.stubEnv("PROFFERA_MARIA_PRODUCTION_BOOKING_ENABLED","true");
     const cancelledJob=await db!.query<{status:string;cancelled_at:string|null}>(
       "select status,cancelled_at::text from workspace_service_jobs where id=$1::uuid",[originalJobId]);
     expect(cancelledJob.rows[0]?.status).toBe("cancelled");

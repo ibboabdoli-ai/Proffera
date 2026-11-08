@@ -3,7 +3,7 @@ import "server-only";
 import { neon } from "@neondatabase/serverless";
 
 import { resolveDatabaseUrl } from "@/lib/db/database-url";
-import { isMariaPreviewTestRecipient } from "@/lib/maria-preview-customer-safety";
+import { getMariaExistingBookingPortalBase, isMariaExistingBookingRecipientAllowed, isMariaPreviewTestRecipient } from "@/lib/maria-preview-customer-safety";
 import { getMariaBookingReadiness } from "@/lib/maria-booking-runtime";
 
 import { resolveBookingTimeZone } from "@/lib/public-booking-policy";
@@ -77,11 +77,31 @@ export async function updateDashboardBookingStatus(
   if (mariaWorkspace && !mariaPreview && !mariaProduction) {
     throw new Error("Maria booking status changes are unavailable outside Preview or Production");
   }
-  if (mariaProduction) {
+  // An already-booked customer may be cancelled by their manager while
+  // NEW intake is paused. This bypasses only new-booking readiness, never
+  // the separate existing-booking lifecycle authorization or customer scope.
+  const existingMariaCancellation = mariaProduction && status === "cancelled"
+    && Boolean(getMariaExistingBookingPortalBase());
+  if (mariaProduction && !existingMariaCancellation) {
     const ready = await getMariaBookingReadiness();
     if (!ready.enabled || ready.workspaceId !== workspaceId) {
       throw new Error("Maria booking status changes are disabled in Production");
     }
+  }
+  let existingMariaCancellationEmail = "";
+  if (existingMariaCancellation) {
+    const customers = await sql`
+      select c.email from bookings b
+      join customers c on c.id=b.customer_id and c.workspace_id=b.workspace_id
+      where b.workspace_id=${workspaceId} and b.id=${bookingId}::uuid
+        and b.source in ('public_booking','dashboard_manual')
+      limit 1
+    `;
+    const storedEmail = String(customers[0]?.email ?? "");
+    if (!isMariaExistingBookingRecipientAllowed(storedEmail)) {
+      throw new Error("Maria cancellation recipient is not authorized");
+    }
+    existingMariaCancellationEmail = storedEmail.trim().toLowerCase();
   }
   const mariaRecipient = process.env.PROFFERA_MARIA_PREVIEW_TEST_EMAIL?.trim().toLowerCase() ?? "";
   // Preview may mutate only the approved QA customer; Production cannot
@@ -141,6 +161,13 @@ export async function updateDashboardBookingStatus(
           select 1 from customers c
           where c.id=bookings.customer_id and c.workspace_id=bookings.workspace_id
             and lower(trim(c.email))=${mariaRecipient}
+        ))
+        -- Revalidate the same existing customer's email inside the locked
+        -- write, so a preflight lookup cannot authorize a different address.
+        and (${!existingMariaCancellation}::boolean or exists (
+          select 1 from customers c
+          where c.id=bookings.customer_id and c.workspace_id=bookings.workspace_id
+            and lower(btrim(c.email, chr(9) || chr(10) || chr(13) || ' '))=${existingMariaCancellationEmail}
         ))
         -- Reopening an inactive Maria booking (cancelled/no_show) into any
         -- occupying status is an activation. Under lock 713, reject live
