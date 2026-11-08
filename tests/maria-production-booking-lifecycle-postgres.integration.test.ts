@@ -293,6 +293,13 @@ function compileSql(strings: TemplateStringsArray, values: unknown[]): Query {
     const customerId = randomUUID();
     const start = new Date(startsAt).getTime();
     const end = new Date(endsAt).getTime();
+    // Canonical policy resolves the service by exact stored name.
+    const service = await db!.query<{ name: string }>(
+      "select name from workspace_services where id=$1::uuid and workspace_id=$2",
+      [serviceId, workspaceId],
+    );
+    const serviceName = service.rows[0]?.name;
+    expect(serviceName).toBeTruthy();
     await db!.query(
       "insert into customers(id,workspace_id,name,email,status,source) values($1::uuid,$2,'Synthetic collision customer','collision@example.invalid','active','dashboard_manual')",
       [customerId, workspaceId],
@@ -303,8 +310,8 @@ function compileSql(strings: TemplateStringsArray, values: unknown[]): Query {
         await db!.query(
           `insert into bookings(id,workspace_id,customer_id,service_id,title,service,status,source,starts_at,ends_at)
            values($1::uuid,$2,$3::uuid,$4::uuid,'Synthetic payment reference collision',
-             'Brudmakeup med prov','confirmed','public_booking',$5::timestamptz,$6::timestamptz)`,
-          [ids[index], workspaceId, customerId, serviceId,
+             $5::text,'confirmed','public_booking',$6::timestamptz,$7::timestamptz)`,
+          [ids[index], workspaceId, customerId, serviceId, serviceName,
             new Date(start + offset).toISOString(), new Date(end + offset).toISOString()],
         );
       }
