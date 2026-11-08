@@ -4,7 +4,7 @@ import { Client } from "pg";
 
 import { resolveNodePostgresDatabaseUrl } from "@/lib/db/database-url";
 
-const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /**
  * Coordinate Maria notifications with existing booking writers (workspace
