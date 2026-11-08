@@ -35,7 +35,7 @@ function escapeHtml(value: string) {
 }
 
 function parseSender(value: string) {
-  const match = value.match(/^(.+?)\s*<([^>]+)>$/);
+  const match = value.trim().match(/^(.+?)\s*<([^>]+)>$/);
   if (!match) return { name: "Proffera", email: value.trim() };
   return { name: match[1].trim(), email: match[2].trim() };
 }
@@ -134,6 +134,7 @@ export async function sendBookingRescheduleEmail(input: SendBookingRescheduleEma
   try {
     const response = await fetch("https://api.brevo.com/v3/smtp/email", {
       method: "POST",
+      signal: AbortSignal.timeout(8_000),
       headers: { "api-key": apiKey, "Content-Type": "application/json" },
       body: JSON.stringify({
         sender: parseSender(from),
@@ -146,7 +147,10 @@ export async function sendBookingRescheduleEmail(input: SendBookingRescheduleEma
     const data = (await response.json().catch(() => ({}))) as BrevoResponse;
     if (!response.ok) return { ok: false as const, message: data.message ?? data.code ?? "Kunde inte skicka ombokningsmejl." };
     return { ok: true as const, providerId: data.messageId ?? null };
-  } catch {
-    return { ok: false as const, message: "Kunde inte kontakta Brevo." };
+  } catch (error) {
+    const timedOut = error instanceof Error && (error.name === "TimeoutError" || error.name === "AbortError");
+    return { ok: false as const, message: timedOut
+      ? "Brevo request timed out; email delivery is unconfirmed."
+      : "Kunde inte kontakta Brevo." };
   }
 }

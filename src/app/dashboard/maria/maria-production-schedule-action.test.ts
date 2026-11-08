@@ -73,6 +73,23 @@ describe("Maria manager's Production weekend schedule is disabled until the real
     expect(strings.some(s=>s.includes("update workspace_services"))).toBe(true);
     expect(strings.filter(s=>s.includes("insert into workspace_booking_hours"))).toHaveLength(3);
   });
+  it("never updates service durations on an hours-only save",async()=>{
+    vi.stubEnv("VERCEL_ENV","preview");
+    const data=form();
+    data.set("original_duration_minutes","180");
+    data.set("original_buffer_after_minutes","30");
+    await expect(saveMariaScheduleAction(data)).rejects.toThrow("REDIRECT:/dashboard/maria?updated=schedule#tider");
+    const statements=state.query.mock.calls.map(c=>Array.from(c[0] as TemplateStringsArray).join("?"));
+    expect(statements.some(s=>s.includes("update workspace_services"))).toBe(false);
+    expect(statements.filter(s=>s.includes("insert into workspace_booking_hours"))).toHaveLength(3);
+    expect(state.transaction.mock.calls[0]?.[0]).toHaveLength(6);
+  });
+  it("checks for active verification holds before a duration edit",async()=>{
+    vi.stubEnv("VERCEL_ENV","preview");
+    await expect(saveMariaScheduleAction(form())).rejects.toThrow("REDIRECT:/dashboard/maria?updated=schedule#tider");
+    const statements=state.query.mock.calls.map(c=>Array.from(c[0] as TemplateStringsArray).join("?"));
+    expect(statements.some(s=>s.includes("public_booking_verifications hold"))).toBe(true);
+  });
   it("preserves isolated Preview manager schedule behavior",async()=>{
     vi.stubEnv("VERCEL_ENV","preview");
     await expect(saveMariaScheduleAction(form())).rejects.toThrow("REDIRECT:/dashboard/maria?updated=schedule#tider");

@@ -261,7 +261,7 @@ export async function updateDashboardBookingStatus(
         and ((updated_booking.new_status in ('completed', 'cancelled')
           and job.status not in ('completed', 'cancelled'))
           or (${mariaWorkspace}::boolean
-            and updated_booking.new_status = 'confirmed'
+            and updated_booking.new_status in ('confirmed','completed')
             and job.status = 'cancelled'))
     ),
     source_job_sync as (
@@ -281,8 +281,8 @@ export async function updateDashboardBookingStatus(
           else job.completed_at end,
         cancelled_at = case
           when source_job_candidate.booking_status = 'cancelled' then now()
-          when source_job_candidate.booking_status = 'confirmed' then null
-          else job.cancelled_at end,
+          when source_job_candidate.booking_status in ('confirmed','completed') then null
+           else job.cancelled_at end,
         scheduled_starts_at = case when source_job_candidate.booking_status = 'confirmed'
           then source_job_candidate.booking_starts_at else job.scheduled_starts_at end,
         scheduled_ends_at = case when source_job_candidate.booking_status = 'confirmed'

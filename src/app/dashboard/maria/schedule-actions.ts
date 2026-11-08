@@ -36,6 +36,10 @@ export async function saveMariaScheduleAction(formData: FormData) {
 
   const duration=Number(formData.get("duration_minutes"));
   const buffer=Number(formData.get("buffer_after_minutes"));
+  const previousDuration=formData.get("original_duration_minutes");
+  const previousBuffer=formData.get("original_buffer_after_minutes");
+  const serviceChanged=previousDuration===null||previousBuffer===null
+    ||duration!==Number(previousDuration)||buffer!==Number(previousBuffer);
   if (!Number.isInteger(duration)||duration<30||duration>720||duration%30!==0
     || !Number.isInteger(buffer)||buffer<0||buffer>120||buffer%15!==0) {
     redirect("/dashboard/maria?error=schedule");
@@ -62,7 +66,11 @@ export async function saveMariaScheduleAction(formData: FormData) {
           where w.id=${access.workspaceId}::uuid and w.slug='makeup-by-maria'
             and w.status in ('active','trial')
             and s.public_slug ~ '^maria-bridal-(trial|without-trial)-(202[6-9]|203[0-6])$'
-        ) then 1 else 0 end) as maria_package_guard
+        ) and (${!serviceChanged}::boolean or not exists (
+          select 1 from public_booking_verifications hold
+          where hold.workspace_id=${access.workspaceId}::uuid
+            and hold.consumed_at is null and hold.expires_at>now()
+        )) then 1 else 0 end) as maria_package_guard
       `,
       ...days.map(d=>sql`
         insert into workspace_booking_hours
@@ -74,20 +82,20 @@ export async function saveMariaScheduleAction(formData: FormData) {
         on conflict (workspace_id,weekday)
         do update set opens_at=excluded.opens_at,closes_at=excluded.closes_at,is_closed=excluded.is_closed
       `),
-      sql`
+      ...(serviceChanged ? [sql`
         update workspace_services s
         set duration_minutes=${duration},buffer_after_minutes=${buffer},updated_at=now()
         from workspaces w
         where w.id=${access.workspaceId}::uuid and w.slug='makeup-by-maria'
         and s.workspace_id=w.id::text
         and s.public_slug ~ '^maria-bridal-(trial|without-trial)-(202[6-9]|203[0-6])$'
-      `,
+      `] : []),
       sql`
         insert into admin_audit_logs(admin_user_id,workspace_id,action,reason,new_value)
         values(${access.userId},${access.workspaceId}::uuid,
           'maria.booking_schedule.updated',
           'Workspace manager changed Maria appointment start windows, service duration and buffer',
-          ${JSON.stringify({durationMinutes:duration,bufferAfterMinutes:buffer,
+          ${JSON.stringify({durationMinutes:duration,bufferAfterMinutes:buffer,serviceChanged,
             days:days.map(d=>({weekday:d.day,closed:d.closed,firstMinute:d.first,lastStartMinute:d.last}))})}::jsonb)
       `,
     ]);

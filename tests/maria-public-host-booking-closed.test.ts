@@ -55,6 +55,14 @@ function runBookingNavigation(mariaPublicHost: boolean, bookingEnabled: boolean)
 }
 
 describe("Maria closed branded site never offers synthetic booking dates or times", () => {
+  it("keeps Preview demo defaults off the public branded site before config loads", () => {
+    const initializer = segment("let workspaceConfig={", "function isValidYearPrice(amount){");
+    const years = (branded: boolean) => runInNewContext(
+      initializer + "\nworkspaceConfig.years", { mariaPublicHost: branded }, { timeout: 1500 },
+    ) as Array<{year:number}>;
+    expect(years(true)).toHaveLength(0);
+    expect(Array.from(years(false), year => year.year)).toEqual([2026, 2027, 2028]);
+  });
   it("preserves year-specific price browsing while preventing progression to contact and fake slots", async () => {
     const view = runBookingNavigation(true,false);
     view.handlers.renderPackageAvailability();

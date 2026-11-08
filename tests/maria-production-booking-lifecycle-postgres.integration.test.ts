@@ -45,6 +45,8 @@ import { beginBookingEmailVerification, resendPublicBookingCode, verifyPublicBoo
 import { getMariaBookingReadiness } from "@/lib/maria-booking-runtime";
 import { updateDashboardBookingStatus } from "@/lib/dashboard-booking-status";
 import { setMariaManualSwishStatus, readMariaManualSwishStatuses } from "@/lib/maria-manual-swish";
+import { readMariaSwishQrEligibility } from "@/lib/maria-swish-qr-eligibility";
+import { mariaBookingNumber } from "@/lib/maria-deposit";
 import { changeMariaManualCalendar } from "@/lib/maria-manual-calendar";
 import { sendMariaBookingStatusEmail } from "@/features/email/maria-deposit-email";
 
@@ -246,7 +248,9 @@ function compileSql(strings: TemplateStringsArray, values: unknown[]): Query {
     expect(revivedJob.rows[0]?.cancelled_at).toBeNull();
     expect(revivedJob.rows[0]?.completed_at).toBeNull();
 
+    expect(await readMariaSwishQrEligibility(bookingId)).toBe("eligible");
     expect(await setMariaManualSwishStatus(bookingId,"paid")).toEqual({changed:true});
+    expect(await readMariaSwishQrEligibility(bookingId)).toBe("unavailable");
     const paid=await readMariaManualSwishStatuses();
     expect(paid.entries[bookingId]?.state).toBe("paid");
 
@@ -270,4 +274,54 @@ function compileSql(strings: TemplateStringsArray, values: unknown[]): Query {
       [workspaceId]);
     expect(closed.rowCount).toBeGreaterThan(0);
   },120_000);
+
+  it("normalizes tabs in Preview email using PostgreSQL's actual btrim predicate", async () => {
+    const result = await db!.query<{ matches: boolean; mismatch: boolean }>(
+      `select
+        lower(btrim($1::text, chr(9) || chr(10) || chr(13) || ' ')) = lower($2::text) as matches,
+        lower(btrim($3::text, chr(9) || chr(10) || chr(13) || ' ')) = lower($2::text) as mismatch`,
+      ["\tQA@example.invalid  \r", "qa@example.invalid", "different@example.invalid"],
+    );
+    expect(result.rows[0]).toMatchObject({ matches: true, mismatch: false });
+  });
+
+  it("keeps two real PostgreSQL bookings with the same old six-digit prefix independently payable", async () => {
+    const ids = [
+      "abcdef00-1111-4111-8111-111111111111",
+      "abcdef99-2222-4222-8222-222222222222",
+    ];
+    const customerId = randomUUID();
+    const start = new Date(startsAt).getTime();
+    const end = new Date(endsAt).getTime();
+    // Canonical policy resolves the service by exact stored name.
+    const service = await db!.query<{ name: string }>(
+      "select name from workspace_services where id=$1::uuid and workspace_id=$2",
+      [serviceId, workspaceId],
+    );
+    const serviceName = service.rows[0]?.name;
+    expect(serviceName).toBeTruthy();
+    await db!.query(
+      "insert into customers(id,workspace_id,name,email,status,source) values($1::uuid,$2,'Synthetic collision customer','collision@example.invalid','active','dashboard_manual')",
+      [customerId, workspaceId],
+    );
+    try {
+      for (let index = 0; index < ids.length; index++) {
+        const offset = (index + 2) * 7 * 86_400_000;
+        await db!.query(
+          `insert into bookings(id,workspace_id,customer_id,service_id,title,service,status,source,starts_at,ends_at)
+           values($1::uuid,$2,$3::uuid,$4::uuid,'Synthetic payment reference collision',
+             $5::text,'confirmed','public_booking',$6::timestamptz,$7::timestamptz)`,
+          [ids[index], workspaceId, customerId, serviceId, serviceName,
+            new Date(start + offset).toISOString(), new Date(end + offset).toISOString()],
+        );
+      }
+      expect(mariaBookingNumber(ids[0]!).slice(0, 10)).toBe(mariaBookingNumber(ids[1]!).slice(0, 10));
+      expect(mariaBookingNumber(ids[0]!)).not.toBe(mariaBookingNumber(ids[1]!));
+      expect(await readMariaSwishQrEligibility(ids[0]!)).toBe("eligible");
+      expect(await readMariaSwishQrEligibility(ids[1]!)).toBe("eligible");
+    } finally {
+      await db!.query("delete from bookings where id=any($1::uuid[])", [ids]);
+      await db!.query("delete from customers where id=$1::uuid", [customerId]);
+    }
+  },30_000);
 });

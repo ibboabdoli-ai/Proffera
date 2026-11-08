@@ -57,7 +57,7 @@ describe("resolveCustomerPortalLanguage", () => {
   });
 
   it("keeps Maria Swedish, English and Arabic available only on an approved Production origin",()=>{
-    const maria={...base,publicBookingSlug:"makeup-by-maria",defaultLanguage:"sv" as const,
+    const maria={...base,publicBookingSlug:"makeup-by-maria",workspaceSlug:"makeup-by-maria",defaultLanguage:"sv" as const,
       swedishEnabled:true,englishEnabled:false};
     vi.stubEnv("VERCEL_ENV","production");
     expect(resolveCustomerPortalLanguage("ar",maria)).toBe("sv");
@@ -73,6 +73,7 @@ describe("resolveCustomerPortalLanguage", () => {
     expect(resolveCustomerPortalLanguage("en",maria)).toBe("en");
     expect(resolveCustomerPortalLanguage("sv",maria)).toBe("sv");
     expect(resolveCustomerPortalLanguage("ar",{...maria,publicBookingSlug:"other-business"})).toBe("sv");
+    expect(resolveCustomerPortalLanguage("ar",{...maria,workspaceSlug:"other-business"})).toBe("sv");
     vi.unstubAllEnvs();
   });
 

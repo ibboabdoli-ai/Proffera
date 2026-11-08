@@ -61,11 +61,12 @@ export default async function MariaSiteDashboardPage({ searchParams }: { searchP
   const isYearEnabled = (year: number) => {
     const trial = savedPackage(year, "trial");
     const without = savedPackage(year, "without-trial");
-    return !trial && !without ? year <= 2028 : Boolean(trial?.isActive && without?.isActive);
+    return !trial && !without ? year <= 2028 : Boolean(trial?.isActive || without?.isActive);
   };
 
-  const savedDuration = packages.find(item=>item?.durationMinutes != null)?.durationMinutes ?? 180;
-  const savedBuffer = packages.find(item=>item)?.bufferAfterMinutes ?? 0;
+  const schedulePackage = services.find(item => /^maria-bridal-(trial|without-trial)-(202[6-9]|203[0-6])$/.test(item.publicSlug));
+  const savedDuration = schedulePackage?.durationMinutes ?? 180;
+  const savedBuffer = schedulePackage?.bufferAfterMinutes ?? 0;
   const editHours = [5,6,0].map(day=>{
     const h = weekendHours.find(hour=>hour.weekday===day);
     return {day,first:h?.opensAt?.slice(0,5)??"06:00",last:h?.closesAt?.slice(0,5)??"10:00",closed:h?.isClosed??false};
@@ -117,6 +118,9 @@ export default async function MariaSiteDashboardPage({ searchParams }: { searchP
           {displayedYears.map((year) => (
             <form key={year} action={contentOnly ? saveMariaProductionYearAction : saveMariaYearAction} className="rounded-xl border border-[#e6d7db] bg-[#fefafa] p-4 sm:p-5">
               <input type="hidden" name="year" value={year} />
+               {!contentOnly && (savedPackage(year, "trial") || savedPackage(year, "without-trial"))
+                 ? <input type="hidden" name="enabled_original" value={String(isYearEnabled(year))} />
+                 : null}
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <h3 className="font-serif text-2xl text-[#51313e]">{year}</h3>
                 {contentOnly
@@ -323,6 +327,8 @@ export default async function MariaSiteDashboardPage({ searchParams }: { searchP
           Ingen extra paus läggs till om du väljer 0 minuter. Själva bokningen skyddas mot dubbelbokning.
         </p>
         <form action={saveMariaScheduleAction} className="mt-6 space-y-5">
+           <input type="hidden" name="original_duration_minutes" value={savedDuration} />
+           <input type="hidden" name="original_buffer_after_minutes" value={savedBuffer} />
           <div className="grid gap-4 sm:grid-cols-2">
             <label className="grid gap-2 text-sm font-semibold text-[#634853]">
               Hur lång tid tar sminkningen?

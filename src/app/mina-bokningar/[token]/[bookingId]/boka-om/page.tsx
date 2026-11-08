@@ -8,11 +8,12 @@ import { CalendarClock, Clock3, UserRound } from "lucide-react";
 import { readableBookingTextColor } from "@/lib/booking-theme-contract";
 import { localizeMariaPreviewServiceName } from "@/lib/maria-preview-service-copy";
 import { getMariaBookingPortalBase } from "@/lib/maria-preview-customer-safety";
+import { getMariaBookingReadiness } from "@/lib/maria-booking-runtime";
 import { bookingDateLocale } from "@/lib/booking-date-locale";
 import { getRescheduleBooking, rescheduleCustomerBooking } from "@/lib/customer-booking-reschedule";
 import { getCustomerPortalPresentation, resolveCustomerPortalLanguage, type CustomerPortalLanguage } from "@/lib/customer-portal-language";
 import { getAvailableRescheduleSlots, getUpcomingRescheduleDays } from "@/lib/customer-reschedule-slots";
-import { isMariaHost, isPrimeViewHost } from "@/lib/public-site-domains";
+import { isCustomerPortalHostAllowedForWorkspace, isPrimeViewHost } from "@/lib/public-site-domains";
 import styles from "../../../customer-portal.module.css";
 import { RescheduleSlotPicker } from "./reschedule-slot-picker";
 
@@ -77,8 +78,9 @@ export default async function ReschedulePage({ params, searchParams }: PageProps
     getCustomerPortalPresentation(token),
     headers(),
   ]);
-  if (isMariaHost(requestHeaders.get("host"))
-    && presentation?.publicBookingSlug !== "makeup-by-maria") notFound();
+  if (!isCustomerPortalHostAllowedForWorkspace(
+    requestHeaders.get("host"), presentation?.workspaceSlug, presentation?.publicBookingSlug, process.env.VERCEL_ENV,
+  )) notFound();
   const language = resolveCustomerPortalLanguage(first(query?.lang), presentation);
   const isEnglish = language === "en";
   const isArabic = language === "ar";
@@ -96,16 +98,21 @@ export default async function ReschedulePage({ params, searchParams }: PageProps
   const booking = await getRescheduleBooking(token, bookingId);
   if (!booking) notFound();
 
-  const isMaria = presentation?.publicBookingSlug === "makeup-by-maria"
-    && Boolean(getMariaBookingPortalBase());
-  const days = isMaria ? [] : getUpcomingRescheduleDays(booking.timeZone, 7);
+  const mariaWorkspace = presentation?.workspaceSlug === "makeup-by-maria"
+    && presentation.publicBookingSlug === "makeup-by-maria";
+  const isMaria = mariaWorkspace && Boolean(getMariaBookingPortalBase());
+  const mariaServiceUnavailable = mariaWorkspace && booking.serviceRescheduleAvailable === false;
+  const mariaUnavailable = mariaServiceUnavailable || (mariaWorkspace && process.env.VERCEL_ENV === "production"
+    && (await getMariaBookingReadiness().catch(() => ({ enabled: false }))).enabled !== true);
+  const days = mariaWorkspace ? [] : getUpcomingRescheduleDays(booking.timeZone, 7);
   const slotEntries = await Promise.all(
     days.map(async (day) => [day.date, await getAvailableRescheduleSlots(token, bookingId, day.date)] as const),
   );
   const slotsByDate = new Map(slotEntries);
   // Bridal appointments may be months away: show an explicit date selector
   // rather than requesting 730 separate day availability queries.
-  const mariaHorizon = isMaria ? getUpcomingRescheduleDays(booking.timeZone, 731) : [];
+  const mariaHorizon = mariaWorkspace && !mariaUnavailable
+    ? getUpcomingRescheduleDays(booking.timeZone, 731) : [];
   const earliestMariaDate = mariaHorizon[0]?.date;
   const latestMariaDate = mariaHorizon[mariaHorizon.length - 1]?.date;
   const originalLocalParts = new Intl.DateTimeFormat("en-GB", {
@@ -120,13 +127,13 @@ export default async function ReschedulePage({ params, searchParams }: PageProps
     : originalDate >= (earliestMariaDate ?? "") && originalDate <= (latestMariaDate ?? "")
       ? originalDate : earliestMariaDate;
   const firstAvailableDate = days.find((day) => (slotsByDate.get(day.date)?.length ?? 0) > 0)?.date;
-  const requestedDate = isMaria ? selectedMariaDate : queryDate && (slotsByDate.get(queryDate)?.length ?? 0) > 0
+  const requestedDate = mariaWorkspace ? selectedMariaDate : queryDate && (slotsByDate.get(queryDate)?.length ?? 0) > 0
     ? queryDate : firstAvailableDate ?? days[0]?.date;
-  const slots = isMaria
-    ? requestedDate ? await getAvailableRescheduleSlots(token, bookingId, requestedDate) : []
+  const slots = mariaWorkspace
+    ? !mariaUnavailable && requestedDate ? await getAvailableRescheduleSlots(token, bookingId, requestedDate) : []
     : requestedDate ? slotsByDate.get(requestedDate) ?? [] : [];
   const selectedDay = days.find((day) => day.date === requestedDate);
-  const selectedDayLabel = isMaria && requestedDate
+  const selectedDayLabel = mariaWorkspace && requestedDate
     ? new Intl.DateTimeFormat(bookingDateLocale(language), {
         timeZone: "UTC", weekday: "long", day: "numeric", month: "long", year: "numeric",
       }).format(new Date(`${requestedDate}T12:00:00Z`))
@@ -136,8 +143,9 @@ export default async function ReschedulePage({ params, searchParams }: PageProps
     "use server";
     const startsAtLocal = String(formData.get("startsAtLocal") ?? "");
     const currentPresentation = await getCustomerPortalPresentation(token);
-    if (isMariaHost((await headers()).get("host"))
-      && currentPresentation?.publicBookingSlug !== "makeup-by-maria") notFound();
+    if (!isCustomerPortalHostAllowedForWorkspace(
+      (await headers()).get("host"), currentPresentation?.workspaceSlug, currentPresentation?.publicBookingSlug, process.env.VERCEL_ENV,
+    )) notFound();
     const currentLanguage = resolveCustomerPortalLanguage(language, currentPresentation);
     const result = await rescheduleCustomerBooking(token, bookingId, startsAtLocal, currentLanguage);
     const langSuffix = `&lang=${currentLanguage}`;
@@ -186,8 +194,18 @@ export default async function ReschedulePage({ params, searchParams }: PageProps
           {errorKey ? <p role="alert" className={styles.noticeError}>{errors[errorKey] ?? t("Tiden kunde inte ändras.", "The appointment could not be changed.", "تعذّر تغيير الموعد.")}</p> : null}
 
           <h2 className={styles.subheading}>{t("Välj dag", "Choose a day", "اختر يومًا")}</h2>
-          {isMaria ? (
-            <form method="get" className="mt-3 flex flex-wrap items-end gap-3">
+          {mariaWorkspace ? (
+            mariaUnavailable ? (
+              <p role="alert" className={styles.noticeError}>
+                {mariaServiceUnavailable
+                  ? t("Den bokade tjänsten erbjuds inte längre för ombokning. Kontakta Maria direkt.",
+                      "This booked service is no longer available for rescheduling. Contact Maria directly.",
+                      "الخدمة المحجوزة لم تعد متاحة لتغيير الموعد. تواصلي مع ماريا مباشرة.")
+                  : t("Ombokning online är tillfälligt stängd. Kontakta Maria direkt för en ny tid.",
+                      "Online rescheduling is temporarily unavailable. Contact Maria directly for another time.",
+                      "تغيير الموعد عبر الإنترنت غير متاح مؤقتًا. تواصلي مع ماريا مباشرة لتحديد موعد جديد.")}
+              </p>
+            ) : <form method="get" className="mt-3 flex flex-wrap items-end gap-3">
               <input type="hidden" name="lang" value={language} />
               <label className="flex flex-col gap-2 text-sm">
                 {t("Datum för brudsminkning", "Wedding appointment date", "تاريخ موعد العروس")}
@@ -233,10 +251,10 @@ export default async function ReschedulePage({ params, searchParams }: PageProps
               <span className={styles.portalLabel}>{t("Endast bokningsbara tider", "Bookable times only", "الأوقات القابلة للحجز فقط")}</span>
             </div>
 
-            {slots.length > 0 ? (
+            {mariaUnavailable ? null : slots.length > 0 ? (
               <RescheduleSlotPicker action={reschedule} slots={slots} selectedDayLabel={selectedDayLabel} language={language} />
             ) : (
-              <p className={styles.empty}>{isMaria
+              <p className={styles.empty}>{mariaWorkspace
                 ? t("Inga lediga starttider detta datum. Välj en annan fredag, lördag eller söndag.", "No available starts on this date. Choose another Friday, Saturday or Sunday.", "لا توجد أوقات متاحة في هذا اليوم. اختر يوم جمعة أو سبت أو أحد آخر.")
                 : t("Inga lediga tider under de kommande sju dagarna. Kontakta företaget om du behöver hjälp med en ny tid.", "No available times during the next seven days. Contact the company if you need help finding another time.", "لا توجد أوقات متاحة خلال الأيام السبعة القادمة. تواصل مع الشركة للمساعدة.")}</p>
             )}

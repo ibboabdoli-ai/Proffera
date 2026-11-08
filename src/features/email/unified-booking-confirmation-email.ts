@@ -41,7 +41,7 @@ function escapeHtml(value: string) {
 }
 
 function parseSender(value: string) {
-  const match = value.match(/^(.+?)\s*<([^>]+)>$/);
+  const match = value.trim().match(/^(.+?)\s*<([^>]+)>$/);
   if (!match) return { name: "Proffera", email: value.trim() };
   return { name: match[1].trim(), email: match[2].trim() };
 }
@@ -276,6 +276,7 @@ export async function sendUnifiedBookingConfirmationEmail(input: Input) {
   try {
     const response = await fetch("https://api.brevo.com/v3/smtp/email", {
       method: "POST",
+      signal: AbortSignal.timeout(8_000),
       headers: { "api-key": apiKey, "Content-Type": "application/json" },
       body: JSON.stringify({
         sender,

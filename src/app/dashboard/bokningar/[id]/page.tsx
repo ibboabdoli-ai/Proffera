@@ -454,8 +454,8 @@ export default async function BookingDetailPage({ params, searchParams }: Bookin
       : mariaPreview ? "Statusmejlet skickades om till godkänd QA-inkorg." : "Statusmejlet skickades om till kunden.")
     : value("rescheduled") === "1"
     ? isEnglish
-      ? "The booking was rescheduled. The previous and new times were saved, and the customer was notified when contact details were available."
-      : "Bokningen flyttades. Den tidigare och nya tiden sparades i historiken och kunden notifierades när kontaktuppgifter fanns."
+      ? "The booking was rescheduled. The previous and new times were saved in the booking history."
+      : "Bokningen flyttades. Den tidigare och nya tiden sparades i bokningshistoriken."
     : value("updated") === "1"
       ? isEnglish
         ? "The status was updated and saved in the history."

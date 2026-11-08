@@ -17,8 +17,10 @@ const demo = { connected: false, previewOnly: true, bookingEnabled: false, price
 ], hours: [] };
 
 export async function GET() {
+  const unavailable = process.env.VERCEL_ENV === "production"
+    ? { ...demo, previewOnly: false, years: [], prices2026: {} } : demo;
   const sql = getSql();
-  if (!sql) return NextResponse.json(demo, { headers });
+  if (!sql) return NextResponse.json(unavailable, { headers });
 
   try {
     const workspaceRows = await sql`
@@ -29,12 +31,12 @@ export async function GET() {
     `;
     const workspace = workspaceRows[0];
     if (!workspace || !["active", "trial"].includes(String(workspace.status))) {
-      return NextResponse.json(demo, { headers });
+      return NextResponse.json(unavailable, { headers });
     }
 
     const workspaceId = String(workspace.id);
     const access = await getUserWorkspaceAccess();
-    const canPreviewDrafts = access.ok
+    const canPreviewDrafts = process.env.VERCEL_ENV === "preview" && access.ok
       && access.workspaceId === workspaceId
       && canManageWorkspaceSettings(access);
 
@@ -47,7 +49,7 @@ export async function GET() {
           and public_slug ~ '^maria-bridal-(trial|without-trial)-(202[6-9]|203[0-6])$'
           and (
             public_status = 'published'
-            or (${canPreviewDrafts || process.env.VERCEL_ENV === "preview"}::boolean and public_status = 'draft')
+            or (${process.env.VERCEL_ENV === "preview"}::boolean and public_status = 'draft')
           )
       `,
       sql`
@@ -70,13 +72,17 @@ export async function GET() {
     // This endpoint exposes only the approved Maria demo's year/price values,
     // never customer data. Draft values may be viewed publicly on Preview only.
     type CardDescriptions = {sv: string; en: string; ar: string};
-    const defaults = new Map<number, {year: number; enabled: boolean; trial: number | null; without: number | null; trialDescription?: string; withoutDescription?: string; trialDescriptions?: CardDescriptions; withoutDescriptions?: CardDescriptions}>([
-      [2026, {year:2026, enabled:true, trial:6900, without:5800}],
-      [2027, {year:2027, enabled:true, trial:null, without:null}],
-      [2028, {year:2028, enabled:true, trial:null, without:null}],
-    ]);
+    const defaults = new Map<number, {year: number; enabled: boolean; trial: number | null; without: number | null; trialDescription?: string; withoutDescription?: string; trialDescriptions?: CardDescriptions; withoutDescriptions?: CardDescriptions}>(
+      process.env.VERCEL_ENV === "production" ? [] : [
+        [2026, {year:2026, enabled:true, trial:6900, without:5800}],
+        [2027, {year:2027, enabled:true, trial:null, without:null}],
+        [2028, {year:2028, enabled:true, trial:null, without:null}],
+      ],
+    );
     const saved = new Map<number, {trial?: {enabled: boolean; value: number | null; description: string; translations: {en: string; ar: string}}; without?: {enabled: boolean; value: number | null; description: string; translations: {en: string; ar: string}}}>();
     for (const row of services) {
+      // Production never exposes disabled or unpublished packages as active pricing.
+      if (process.env.VERCEL_ENV === "production" && (row.public_status !== "published" || row.is_active !== true)) continue;
       const match = /^maria-bridal-(trial|without-trial)-(202[6-9]|203[0-6])$/.exec(String(row.public_slug));
       if (!match) continue;
       const year = Number(match[2]);
@@ -169,6 +175,6 @@ export async function GET() {
     }, { headers });
   } catch (error) {
     console.error("Maria preview settings could not be read", error);
-    return NextResponse.json(demo, { headers });
+    return NextResponse.json(unavailable, { headers });
   }
 }

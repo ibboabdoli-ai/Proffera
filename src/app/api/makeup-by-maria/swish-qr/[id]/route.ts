@@ -25,10 +25,7 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
   if (!uuid.test(id)) return unavailable();
   try {
     const eligibility = await readMariaSwishQrEligibility(id);
-    if (eligibility === "unavailable") return unavailable();
-    if (eligibility === "ambiguous") {
-      return new NextResponse(null, { status: 409, headers });
-    }
+    if (eligibility !== "eligible") return unavailable();
 
     const png = await QRCode.toBuffer(mariaSwishQrPayload(id), {
       type: "png", width: 380, margin: 3, errorCorrectionLevel: "M",

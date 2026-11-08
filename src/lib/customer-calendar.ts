@@ -195,7 +195,7 @@ export async function cancelCustomerCalendarBooking(
         and c.workspace_id = b.workspace_id
         and w.id::text = b.workspace_id
         and coalesce(ps.customer_cancel_enabled, true) = true
-        and (${!isMaria || process.env.VERCEL_ENV !== "preview"}::boolean or lower(trim(c.email))=lower(${process.env.PROFFERA_MARIA_PREVIEW_TEST_EMAIL?.trim() ?? ""}))
+        and (${!isMaria || process.env.VERCEL_ENV !== "preview"}::boolean or lower(btrim(c.email, chr(9) || chr(10) || chr(13) || ' '))=lower(${process.env.PROFFERA_MARIA_PREVIEW_TEST_EMAIL?.trim() ?? ""}))
         and b.status in ('requested', 'confirmed')
         and b.starts_at > now() + (coalesce(ps.cancel_notice_hours, 0) || ' hours')::interval
         and b.source not in ('dashboard_availability_block', 'dashboard_availability_recurring_block')

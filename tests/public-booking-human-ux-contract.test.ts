@@ -21,6 +21,7 @@ const mocks = vi.hoisted(() => ({
   resendPublicBookingCode: vi.fn(),
   publicBookingSuccessRedirect: vi.fn(),
   getPublicWorkspaceExperienceSettings: vi.fn(),
+  getMariaBookingReadiness: vi.fn(),
 }));
 
 vi.mock("server-only", () => ({}));
@@ -47,6 +48,7 @@ vi.mock("@/lib/public-booking-verification", () => ({
 }));
 vi.mock("@/lib/public-booking-success-redirect", () => ({ publicBookingSuccessRedirect: mocks.publicBookingSuccessRedirect }));
 vi.mock("@/lib/workspace-feature-entitlement-db", () => ({ hasWorkspaceFeatureAccessForWorkspace: vi.fn() }));
+vi.mock("@/lib/maria-booking-runtime", () => ({ getMariaBookingReadiness: mocks.getMariaBookingReadiness }));
 vi.mock("@/lib/workspace-experience", () => ({ getPublicWorkspaceExperienceSettings: mocks.getPublicWorkspaceExperienceSettings }));
 vi.mock("@/lib/booking-theme-templates", () => ({ resolveBookingThemeContent: vi.fn() }));
 vi.mock("@/components/service-ai-chat-widget", () => ({ BookingAiChatWidget: () => null }));
@@ -215,6 +217,19 @@ describe("public booking human-designed UX contract", () => {
     expect(controls).toContain("select[aria-label] { order: 30; }");
   });
 
+  it("renders Maria's unavailable notice in Arabic without opening public booking", async () => {
+    mocks.getMariaBookingReadiness.mockResolvedValue({enabled:false});
+    const element=await PublicBookingPage({
+      params:Promise.resolve({slug:"makeup-by-maria"}),
+      searchParams:Promise.resolve({lang:"ar"}),
+    });
+    const html=renderToStaticMarkup(element);
+    expect(html).toContain('lang="ar"');
+    expect(html).toContain('dir="rtl"');
+    expect(html).toContain("الحجز غير متاح حاليًا");
+    expect(mocks.getSql).not.toHaveBeenCalled();
+  });
+
   it("keeps real tenant media and published booking data contracts", () => {
     const page = source("src/app/boka/[slug]/page.tsx");
 
@@ -273,6 +288,66 @@ describe("public booking human-designed UX contract", () => {
     expect(svReschedule).toContain('href="/mina-bokningar/customer-token/booking-1/boka-om?lang=sv&amp;date=2099-05-15"');
     expect(enReschedule).toContain('href="/mina-bokningar/customer-token?lang=en"');
     expect(enReschedule).toContain('href="/mina-bokningar/customer-token/booking-1/boka-om?lang=en&amp;date=2099-05-15"');
+  });
+
+  it("does not offer closed Maria Production self-service or fake replacement dates", async () => {
+    vi.stubEnv("VERCEL_ENV", "production");
+    mocks.headers.mockResolvedValue(new Headers({ host: "makeupbymaria.se" }));
+    mocks.getCustomerPortalPresentation.mockResolvedValue({
+      ...presentation, workspaceSlug: "makeup-by-maria", publicBookingSlug: "makeup-by-maria",
+    });
+    mocks.getCustomerCalendar.mockResolvedValue({
+      ...calendar, policy: { ...calendar.policy, customerCancelEnabled: true, customerRescheduleEnabled: true },
+    });
+    mocks.getMariaBookingReadiness.mockResolvedValue({ enabled: false });
+    const page = await CustomerPortalPage({
+      params: Promise.resolve({ token: "customer-token" }),
+      searchParams: Promise.resolve({ lang: "en" }),
+    });
+    const cards = findElements(page, element => typeof element.type === "function"
+      && element.type.name === "BookingCard");
+    expect(cards).toHaveLength(1);
+    expect(cards[0]?.props.canCancel).toBe(false);
+    expect(cards[0]?.props.canReschedule).toBe(false);
+    expect(renderToStaticMarkup(page)).toContain("Online rescheduling and cancellation are temporarily unavailable");
+    const moved = await ReschedulePage({
+      params: Promise.resolve({ token: "customer-token", bookingId: "booking-1" }),
+      searchParams: Promise.resolve({ lang: "en" }),
+    });
+    const html = renderToStaticMarkup(moved);
+    expect(html).toContain("Online rescheduling is temporarily unavailable");
+    expect(html).not.toContain('type="date"');
+    expect(mocks.getAvailableRescheduleSlots).not.toHaveBeenCalled();
+
+    mocks.getMariaBookingReadiness.mockResolvedValue({ enabled: true });
+    const readyPage = await CustomerPortalPage({
+      params: Promise.resolve({ token: "customer-token" }),
+      searchParams: Promise.resolve({ lang: "en" }),
+    });
+    const readyCard = findElements(readyPage, element => typeof element.type === "function"
+      && element.type.name === "BookingCard")[0];
+    expect(readyCard?.props.canCancel).toBe(true);
+    expect(readyCard?.props.canReschedule).toBe(true);
+  });
+
+  it("explains inactive Maria services rather than offering other weekend dates", async () => {
+    vi.stubEnv("VERCEL_ENV", "production");
+    mocks.headers.mockResolvedValue(new Headers({ host: "makeupbymaria.se" }));
+    mocks.getCustomerPortalPresentation.mockResolvedValue({
+      ...presentation, workspaceSlug: "makeup-by-maria", publicBookingSlug: "makeup-by-maria",
+    });
+    mocks.getMariaBookingReadiness.mockResolvedValue({ enabled: true });
+    mocks.getRescheduleBooking.mockResolvedValue({
+      ...rescheduleBooking, serviceRescheduleAvailable: false,
+    });
+    const page = await ReschedulePage({
+      params: Promise.resolve({ token: "customer-token", bookingId: "booking-1" }),
+      searchParams: Promise.resolve({ lang: "en" }),
+    });
+    const html = renderToStaticMarkup(page);
+    expect(html).toContain("This booked service is no longer available for rescheduling");
+    expect(html).not.toContain('type="date"');
+    expect(mocks.getAvailableRescheduleSlots).not.toHaveBeenCalled();
   });
 
   it("preserves the active locale in PrimeView redirects", async () => {

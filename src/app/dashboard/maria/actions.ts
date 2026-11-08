@@ -24,6 +24,11 @@ export async function saveMariaYearAction(formData: FormData) {
     redirect("/dashboard/maria?error=year");
   }
   const enabled = formData.get("enabled") === "on";
+  const originalEnabled = formData.get("enabled_original");
+  // An unchanged year checkbox is not a command to activate/deactivate its
+  // individual packages. Explicit toggles retain the prior year-wide behavior.
+  const preserveActivity = (originalEnabled === "true" || originalEnabled === "false")
+    && enabled === (originalEnabled === "true");
   let trial: number | null;
   let without: number | null;
   let trialDescription: string;
@@ -101,7 +106,14 @@ export async function saveMariaYearAction(formData: FormData) {
         coalesce((select max(s.buffer_after_minutes) from workspace_services s
           where s.workspace_id = ${access.workspaceId}
             and s.public_slug ~ '^maria-bridal-(trial|without-trial)-(202[6-9]|203[0-6])$'), 0),
-        ${enabled}, ${year * 10 + (withTrial ? 0 : 1)}, ${slug}, 'draft', 'quote',
+        case when ${preserveActivity}::boolean and exists (
+          select 1 from workspace_services prior
+          where prior.workspace_id=${access.workspaceId}
+            and prior.public_slug in (
+              ${`maria-bridal-trial-${year}`},${`maria-bridal-without-trial-${year}`}
+            ) and prior.is_active=true
+        ) then false else ${enabled}::boolean end,
+        ${year * 10 + (withTrial ? 0 : 1)}, ${slug}, 'draft', 'quote',
         'Södertälje', 730
       where exists (
         select 1 from workspaces
@@ -114,7 +126,8 @@ export async function saveMariaYearAction(formData: FormData) {
         price_type=excluded.price_type,
         price_amount_minor=excluded.price_amount_minor,
         base_price_sek=excluded.base_price_sek,
-        is_active=excluded.is_active,
+        is_active=case when ${preserveActivity}::boolean
+          then workspace_services.is_active else excluded.is_active end,
         public_slug=excluded.public_slug,
         -- Keep an already published service published when editing its price.
         -- New services remain drafts until intentionally published.
@@ -169,13 +182,13 @@ export async function saveMariaYearAction(formData: FormData) {
                 and s.short_description=${trialDescription}
                 and s.price_amount_minor is not distinct from ${trial === null ? null : Math.round(trial*100)}::bigint
                 and s.base_price_sek is not distinct from ${trial !== null && Number.isInteger(trial) ? trial : null}::integer
-                and s.is_active=${enabled})
+                and (${preserveActivity}::boolean or s.is_active=${enabled}))
               or (s.name=${`Brudsmink utan prov ${year}`}
                 and s.public_slug=${`maria-bridal-without-trial-${year}`}
                 and s.short_description=${withoutDescription}
                 and s.price_amount_minor is not distinct from ${without === null ? null : Math.round(without*100)}::bigint
                 and s.base_price_sek is not distinct from ${without !== null && Number.isInteger(without) ? without : null}::integer
-                and s.is_active=${enabled})
+                and (${preserveActivity}::boolean or s.is_active=${enabled}))
             )
         ) = 2 then 1 else 0 end) as maria_year_guard
       `,

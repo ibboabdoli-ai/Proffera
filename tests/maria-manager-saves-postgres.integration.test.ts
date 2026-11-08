@@ -52,6 +52,7 @@ vi.mock("next/navigation", () => ({
 import { readMariaManualSwishStatuses, setMariaManualSwishStatus } from "@/lib/maria-manual-swish";
 import { mariaBookingNumber } from "@/lib/maria-deposit";
 import { saveMariaYearAction } from "@/app/dashboard/maria/actions";
+import { GET as getMariaPublicConfig } from "@/app/api/makeup-by-maria/config/route";
 import { saveMariaProductionYearAction } from "@/app/dashboard/maria/production-year-actions";
 import { mariaDefaultCardCopy } from "@/lib/maria-default-card-copy";
 import { readMariaCardTranslations } from "@/lib/maria-card-translations-db";
@@ -300,6 +301,76 @@ function compileSql(strings: TemplateStringsArray, values: unknown[]): Query {
     expect((await readMariaCardTranslations(workspaceId)).get("maria-bridal-trial-2026"))
       .toEqual({ en: "Bridal makeup with trial QA", ar: "" });
   });
+  it("preserves a single active package when its year's price or text is saved", async () => {
+    const year = 2031;
+    const slugs = [`maria-bridal-trial-${year}`, `maria-bridal-without-trial-${year}`];
+    await db!.query(
+      `insert into workspace_services(workspace_id,name,public_slug,short_description,
+         price_type,price_amount_minor,base_price_sek,is_active,public_status)
+       values($1,$2,$3,'Synthetic QA trial','fixed',690000,6900,true,'published')`,
+      [workspaceId,`Brudsmink med prov ${year}`,slugs[0]],
+    );
+    const form = (initial: string, active: boolean) => {
+      const data = new FormData();
+      data.set("year",String(year));
+      data.set("enabled_original",initial);
+      if(active)data.set("enabled","on");
+      data.set("trial","6900.50");
+      data.set("without","5800");
+      for(const field of ["trial_description","without_description","trial_description_en",
+        "trial_description_ar","without_description_en","without_description_ar"]) {
+        data.set(field,"Synthetic QA content");
+      }
+      return data;
+    };
+    const statuses = async () => (await db!.query<{public_slug:string;is_active:boolean}>(
+      "select public_slug,is_active from workspace_services where workspace_id=$1 and public_slug=any($2::text[]) order by public_slug",
+      [workspaceId,slugs],
+    )).rows;
+    try {
+      await expect(saveMariaYearAction(form("true",true)))
+        .rejects.toThrow("TEST_REDIRECT:/dashboard/maria?updated=2031&year=2031#priser");
+      expect((await statuses()).map(row=>row.is_active)).toEqual([true,false]);
+      await expect(saveMariaYearAction(form("true",false)))
+        .rejects.toThrow("TEST_REDIRECT:/dashboard/maria?updated=2031&year=2031#priser");
+      expect((await statuses()).map(row=>row.is_active)).toEqual([false,false]);
+      await expect(saveMariaYearAction(form("false",true)))
+        .rejects.toThrow("TEST_REDIRECT:/dashboard/maria?updated=2031&year=2031#priser");
+      expect((await statuses()).map(row=>row.is_active)).toEqual([true,true]);
+    } finally {
+      await db!.query("delete from workspace_services where workspace_id=$1 and public_slug=any($2::text[])",[workspaceId,slugs]);
+    }
+  });
+
+  it("Production public config excludes drafts and never invents unpublished 2026 prices", async () => {
+    const draft = "maria-bridal-trial-2033";
+    const published = "maria-bridal-without-trial-2033";
+    await db!.query(
+      `insert into workspace_services(workspace_id,name,public_slug,price_type,
+         price_amount_minor,is_active,public_status,duration_minutes)
+       values($1,'QA unpublished 2033',$2,'fixed',990000,true,'draft',180),
+             ($1,'QA published 2033',$3,'fixed',680000,true,'published',180)`,
+      [workspaceId,draft,published],
+    );
+    try {
+      vi.stubEnv("VERCEL_ENV","production");
+      const payload = await (await getMariaPublicConfig()).json();
+      const item = (payload.years as Array<{year:number;trial:number|null;without:number|null}>)
+        .find(year=>year.year===2033);
+      expect(payload.previewOnly).toBe(false);
+      expect(item).toMatchObject({year:2033,trial:null,without:6800});
+      expect(payload.editorPreview).toBe(false);
+      vi.stubEnv("VERCEL_ENV","preview");
+      const preview = await (await getMariaPublicConfig()).json();
+      const draftYear = (preview.years as Array<{year:number;trial:number|null;without:number|null}>)
+        .find(year=>year.year===2033);
+      expect(draftYear).toMatchObject({trial:9900,without:6800});
+    } finally {
+      await db!.query("delete from workspace_services where workspace_id=$1 and public_slug in ($2,$3)",
+        [workspaceId,draft,published]);
+    }
+  });
+
   it("hides and refuses a booking when the approved Preview recipient changes", async () => {
     const count = () => db!.query<{ count: number }>(
       "select count(*)::int as count from customer_events where workspace_id=$1 and booking_id=$2::uuid and metadata->>'source'='maria_swish_manual_deposit_v1'",
@@ -729,14 +800,25 @@ function compileSql(strings: TemplateStringsArray, values: unknown[]): Query {
   });
 
   it("saves open days while ignoring invalid hidden clock values for closed days", async () => {
+    const saved = await db!.query<{duration_minutes:number;buffer_after_minutes:number}>(
+      "select duration_minutes,buffer_after_minutes from workspace_services where workspace_id=$1 and public_slug='maria-bridal-trial-2026' limit 1",
+      [workspaceId],
+    );
+    expect(saved.rows).toHaveLength(1);
+    const duration = String(saved.rows[0]!.duration_minutes);
+    const buffer = String(saved.rows[0]!.buffer_after_minutes);
     const form = new FormData();
-    form.set("duration_minutes", "720");
-    form.set("buffer_after_minutes", "120");
+    form.set("duration_minutes", duration);
+    form.set("buffer_after_minutes", buffer);
+    form.set("original_duration_minutes", duration);
+    form.set("original_buffer_after_minutes", buffer);
     for (const day of [5, 6, 0]) {
       form.set("day_" + day + "_first", "06:00");
       form.set("day_" + day + "_last", day === 0 ? "10:00" : "08:00");
     }
     form.set("day_0_closed", "on");
+    form.set("day_0_first", "invalid-hidden-time");
+    form.set("day_0_last", "invalid-hidden-time");
     await expect(saveMariaScheduleAction(form))
       .rejects.toThrow("TEST_REDIRECT:/dashboard/maria?updated=schedule#tider");
     const results = await db!.query<{

@@ -125,6 +125,14 @@ export async function getMariaBookingReadiness(): Promise<MariaBookingReadiness>
             and s.price_type='fixed' and s.price_amount_minor between 0 and 25000000
             and s.public_slug ~ '^maria-bridal-(trial|without-trial)-(202[6-9]|203[0-6])$'
         )
+        and not exists (
+          select 1 from workspace_services unsafe
+          where unsafe.workspace_id=w.id::text and unsafe.is_active=true
+            and unsafe.public_status='published'
+            and unsafe.public_slug ~ '^maria-bridal-(trial|without-trial)-(202[6-9]|203[0-6])$'
+            and (unsafe.price_type <> 'fixed' or unsafe.price_amount_minor is null
+              or unsafe.price_amount_minor not between 0 and 25000000)
+        )
       limit 2
     `;
     if (rows.length !== 1) return { enabled: false };

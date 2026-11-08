@@ -19,6 +19,8 @@ export type RescheduleBookingData = {
   staffId: string | null;
   staffName: string | null;
   timeZone: string;
+  /** Whether the existing Maria service still permits rescheduling. */
+  serviceRescheduleAvailable?: boolean;
 };
 
 export async function getRescheduleBooking(token: string, bookingId: string): Promise<RescheduleBookingData | null> {
@@ -34,8 +36,14 @@ export async function getRescheduleBooking(token: string, bookingId: string): Pr
       b.ends_at,
       b.staff_id,
       s.name as staff_name,
+      case when w.slug='makeup-by-maria' then exists (
+        select 1 from workspace_services svc
+        where svc.id=b.service_id and svc.workspace_id=b.workspace_id
+          and svc.is_active=true and svc.public_status='published'
+      ) else true end as service_reschedule_available,
       coalesce(nullif(ws.time_zone, ''), 'Europe/Stockholm') as time_zone
     from bookings b
+    join workspaces w on w.id::text = b.workspace_id
     left join workspace_staff s on s.id = b.staff_id and s.workspace_id = b.workspace_id
     left join workspace_settings ws on ws.workspace_id = b.workspace_id
     left join workspace_booking_reminder_settings ps on ps.workspace_id = b.workspace_id
@@ -59,6 +67,7 @@ export async function getRescheduleBooking(token: string, bookingId: string): Pr
         staffId: row.staff_id ? String(row.staff_id) : null,
         staffName: row.staff_name ? String(row.staff_name) : null,
         timeZone: String(row.time_zone),
+        serviceRescheduleAvailable: row.service_reschedule_available === true,
       }
     : null;
 }

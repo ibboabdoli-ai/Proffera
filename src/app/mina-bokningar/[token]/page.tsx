@@ -9,10 +9,11 @@ import { CalendarClock, CalendarDays, Clock3, History, MapPin, XCircle } from "l
 import { readableBookingTextColor } from "@/lib/booking-theme-contract";
 import { localizeMariaPreviewServiceName } from "@/lib/maria-preview-service-copy";
 import { getMariaBookingPortalBase } from "@/lib/maria-preview-customer-safety";
+import { getMariaBookingReadiness } from "@/lib/maria-booking-runtime";
 import { bookingDateLocale } from "@/lib/booking-date-locale";
 import { cancelCustomerCalendarBooking, getCustomerCalendar, type CustomerCalendarBooking } from "@/lib/customer-calendar";
 import { getCustomerPortalPresentation, resolveCustomerPortalLanguage, type CustomerPortalLanguage } from "@/lib/customer-portal-language";
-import { isMariaHost, isPrimeViewHost } from "@/lib/public-site-domains";
+import { isCustomerPortalHostAllowedForWorkspace, isPrimeViewHost } from "@/lib/public-site-domains";
 import type { WorkspaceTimeZone } from "@/lib/workspace-market";
 import styles from "../customer-portal.module.css";
 
@@ -61,11 +62,14 @@ async function cancelBooking(formData: FormData) {
   const id = String(formData.get("booking_id") ?? "");
   const presentation = await getCustomerPortalPresentation(token);
   const language = resolveCustomerPortalLanguage(String(formData.get("lang") ?? ""), presentation);
-  if (isMariaHost((await headers()).get("host"))
-    && presentation?.publicBookingSlug !== "makeup-by-maria") notFound();
+  if (!isCustomerPortalHostAllowedForWorkspace(
+    (await headers()).get("host"), presentation?.workspaceSlug, presentation?.publicBookingSlug, process.env.VERCEL_ENV,
+  )) notFound();
   const result = await cancelCustomerCalendarBooking(token, id, language);
   if (result.ok) redirect(portalHref(token, language, { cancelled: "1" }));
-  redirect(portalHref(token, language, { error: "cancel" }));
+  const unavailable = presentation?.workspaceSlug === "makeup-by-maria"
+    && process.env.VERCEL_ENV === "production" && result.error === "not_allowed";
+  redirect(portalHref(token, language, { error: unavailable ? "unavailable" : "cancel" }));
 }
 
 export function BookingCard({
@@ -145,8 +149,9 @@ export default async function Page({ params, searchParams }: PageProps) {
     getCustomerPortalPresentation(token),
     headers(),
   ]);
-  if (isMariaHost(requestHeaders.get("host"))
-    && presentation?.publicBookingSlug !== "makeup-by-maria") notFound();
+  if (!isCustomerPortalHostAllowedForWorkspace(
+    requestHeaders.get("host"), presentation?.workspaceSlug, presentation?.publicBookingSlug, process.env.VERCEL_ENV,
+  )) notFound();
   const language = resolveCustomerPortalLanguage(first(query?.lang), presentation);
   const isEnglish = language === "en";
   const isArabic = language === "ar";
@@ -165,22 +170,29 @@ export default async function Page({ params, searchParams }: PageProps) {
   const data = await getCustomerCalendar(token);
   if (!data) notFound();
 
+  const mariaProductionWorkspace = presentation?.workspaceSlug === "makeup-by-maria"
+    && presentation.publicBookingSlug === "makeup-by-maria"
+    && process.env.VERCEL_ENV === "production";
+  const mariaSelfServiceReady = !mariaProductionWorkspace
+    || (await getMariaBookingReadiness().catch(() => ({ enabled: false }))).enabled === true;
+
   const card = (booking: CustomerCalendarBooking) => (
     <BookingCard
       key={booking.id}
       booking={booking}
       token={token}
       timeZone={data.timeZone}
-      canReschedule={data.policy.customerRescheduleEnabled}
-      canCancel={data.policy.customerCancelEnabled}
+      canReschedule={data.policy.customerRescheduleEnabled && mariaSelfServiceReady}
+      canCancel={data.policy.customerCancelEnabled && mariaSelfServiceReady}
       cancelNoticeHours={data.policy.cancelNoticeHours}
       language={language}
-      isMariaPreview={presentation?.publicBookingSlug === "makeup-by-maria" && Boolean(getMariaBookingPortalBase())}
+      isMariaPreview={presentation?.workspaceSlug === "makeup-by-maria" && presentation.publicBookingSlug === "makeup-by-maria" && Boolean(getMariaBookingPortalBase())}
     />
   );
 
   const companyName = presentation?.companyName || (isPrimeView ? "PrimeView Window Care" : "Proffera");
-  const isMaria = presentation?.publicBookingSlug === "makeup-by-maria"
+  const isMaria = presentation?.workspaceSlug === "makeup-by-maria"
+    && presentation.publicBookingSlug === "makeup-by-maria"
     && Boolean(getMariaBookingPortalBase());
   const portalPrimary = isMaria ? "#845363" : presentation?.primaryColor || (isPrimeView ? "#1769c2" : "#0a2e63");
   const style = {
@@ -228,8 +240,22 @@ export default async function Page({ params, searchParams }: PageProps) {
           {isPrimeView ? <Link href="/" className={styles.websiteLink}>{isEnglish ? "PrimeView website" : "PrimeViews webbplats"}</Link> : null}
         </header>
 
+        {mariaProductionWorkspace && !mariaSelfServiceReady ? (
+          <p role="alert" className={styles.noticeError}>
+            {t("Ombokning och avbokning online är tillfälligt stängda. Kontakta Maria direkt för hjälp.",
+              "Online rescheduling and cancellation are temporarily unavailable. Contact Maria directly for help.",
+              "تغيير الموعد والإلغاء عبر الإنترنت غير متاحين مؤقتًا. تواصلي مع ماريا مباشرة للمساعدة.")}
+          </p>
+        ) : null}
         {first(query?.changed) === "1" ? <p className={styles.noticeSuccess}>{t("Tiden har ändrats.", "The appointment time has been changed.", "تم تغيير موعد الحجز.")}</p> : null}
         {first(query?.cancelled) === "1" ? <p className={styles.noticeSuccess}>{t("Bokningen har avbokats.", "The booking has been cancelled.", "تم إلغاء الحجز.")}</p> : null}
+        {first(query?.error) === "unavailable" ? (
+          <p role="alert" className={styles.noticeError}>
+            {t("Avbokning online är inte tillgänglig just nu. Kontakta Maria direkt.",
+              "Online cancellation is currently unavailable. Contact Maria directly.",
+              "الإلغاء عبر الإنترنت غير متاح حاليًا. تواصلي مع ماريا مباشرة.")}
+          </p>
+        ) : null}
         {first(query?.error) === "cancel" ? <p role="alert" className={styles.noticeError}>{t("Bokningen kunde inte avbokas. Den kan redan vara avbokad eller ligga för nära starttiden.", "The booking could not be cancelled. It may already be cancelled or too close to the appointment time.", "تعذّر إلغاء الحجز. ربما أُلغي مسبقًا أو اقترب موعده.")}</p> : null}
 
         <section className={styles.section}>
