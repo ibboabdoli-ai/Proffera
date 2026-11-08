@@ -193,6 +193,19 @@ describe("Maria Preview booking status action on a deleted booking", () => {
     },
   );
 
+  it("does not falsely claim email delivery when a Maria reschedule notification fails", async () => {
+    const page = await BookingDetailPage({
+      params: Promise.resolve({ id }),
+      searchParams: Promise.resolve({ lang: "en", rescheduled: "1", maria_reschedule_mail: "failed" }),
+    });
+    const feedback = collectElements(page)
+      .map(element => element.props as { statusMessage?: string; alertMessage?: string })
+      .find(props => typeof props.alertMessage === "string" && props.alertMessage.includes("could not be delivered"));
+    expect(feedback?.statusMessage).toContain("saved in the booking history");
+    expect(feedback?.statusMessage).not.toContain("notified");
+    expect(feedback?.alertMessage).toContain("could not be delivered");
+  });
+
   it("confirms a changed status with the standard success redirect", async () => {
     const action = await getStatusAction();
     runtime.updateStatus.mockResolvedValue({ changed: true, previousStatus: "requested" });

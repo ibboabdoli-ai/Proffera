@@ -290,6 +290,46 @@ describe("public booking human-designed UX contract", () => {
     expect(enReschedule).toContain('href="/mina-bokningar/customer-token/booking-1/boka-om?lang=en&amp;date=2099-05-15"');
   });
 
+  it("does not offer closed Maria Production self-service or fake replacement dates", async () => {
+    vi.stubEnv("VERCEL_ENV", "production");
+    mocks.headers.mockResolvedValue(new Headers({ host: "makeupbymaria.se" }));
+    mocks.getCustomerPortalPresentation.mockResolvedValue({
+      ...presentation, workspaceSlug: "makeup-by-maria", publicBookingSlug: "makeup-by-maria",
+    });
+    mocks.getCustomerCalendar.mockResolvedValue({
+      ...calendar, policy: { ...calendar.policy, customerCancelEnabled: true, customerRescheduleEnabled: true },
+    });
+    mocks.getMariaBookingReadiness.mockResolvedValue({ enabled: false });
+    const page = await CustomerPortalPage({
+      params: Promise.resolve({ token: "customer-token" }),
+      searchParams: Promise.resolve({ lang: "en" }),
+    });
+    const cards = findElements(page, element => typeof element.type === "function"
+      && element.type.name === "BookingCard");
+    expect(cards).toHaveLength(1);
+    expect(cards[0]?.props.canCancel).toBe(false);
+    expect(cards[0]?.props.canReschedule).toBe(false);
+    expect(renderToStaticMarkup(page)).toContain("Online rescheduling and cancellation are temporarily unavailable");
+    const moved = await ReschedulePage({
+      params: Promise.resolve({ token: "customer-token", bookingId: "booking-1" }),
+      searchParams: Promise.resolve({ lang: "en" }),
+    });
+    const html = renderToStaticMarkup(moved);
+    expect(html).toContain("Online rescheduling is temporarily unavailable");
+    expect(html).not.toContain('type="date"');
+    expect(mocks.getAvailableRescheduleSlots).not.toHaveBeenCalled();
+
+    mocks.getMariaBookingReadiness.mockResolvedValue({ enabled: true });
+    const readyPage = await CustomerPortalPage({
+      params: Promise.resolve({ token: "customer-token" }),
+      searchParams: Promise.resolve({ lang: "en" }),
+    });
+    const readyCard = findElements(readyPage, element => typeof element.type === "function"
+      && element.type.name === "BookingCard")[0];
+    expect(readyCard?.props.canCancel).toBe(true);
+    expect(readyCard?.props.canReschedule).toBe(true);
+  });
+
   it("preserves the active locale in PrimeView redirects", async () => {
     mocks.getCustomerPortalPresentation.mockResolvedValue({ ...presentation, publicBookingSlug: "primeview" });
 
