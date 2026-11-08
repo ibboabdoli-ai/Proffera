@@ -330,7 +330,7 @@ export default async function MariaSiteDashboardPage({ searchParams }: { searchP
               ? "En aktiv verifieringskod håller en bokningstid. Vänta tills koden löper ut och försök igen."
               : q.error === "schedule_duration"
                 ? `En pakettid ryms inte inom valda öppettider. Kontrollera tjänsternas längder: ${scheduleServiceDetails}`
-                : "Bokningstiderna kunde inte sparas. Kontrollera tiderna och försök igen."
+                : "Bokningstiderna kunde inte sparas. Kontrollera tiderna och försök igen."}
         </p>
       ) : null}
       <section id="tider" className="scroll-mt-6 rounded-2xl border border-[#e8d9dc] bg-white p-4 sm:p-8">

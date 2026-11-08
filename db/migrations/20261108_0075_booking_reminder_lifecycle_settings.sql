@@ -18,7 +18,7 @@ ALTER TABLE workspace_booking_reminder_settings
   ADD COLUMN IF NOT EXISTS company_confirmation_required boolean NOT NULL DEFAULT true;
 
 -- ADD COLUMN IF NOT EXISTS must not silently accept incompatible existing columns.
-DO $
+DO $maria0075$
 BEGIN
   IF (select count(*) from information_schema.columns
       where table_schema='public' and table_name='workspace_booking_reminder_settings'
@@ -36,7 +36,7 @@ BEGIN
     where customer_cancel_enabled is null) THEN
     RAISE EXCEPTION 'Migration 0075 customer cancellation setting contains NULL';
   END IF;
-END $;
+END $maria0075$;
 
 INSERT INTO proffera_schema_migrations (
   migration_key, filename, checksum, git_sha, applied_by, execution_mode, notes
