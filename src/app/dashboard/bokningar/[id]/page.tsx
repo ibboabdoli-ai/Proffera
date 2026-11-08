@@ -222,6 +222,7 @@ async function updateBookingStatusAction(bookingId: string, formData: FormData) 
               service: notification.service, startsAt: notification.startsAt,
               endsAt: notification.endsAt, city: notification.city, timeZone: result.timeZone,
               language: notification.language,
+              expectedRevision: notification.revision,
               confirmedAt: notification.confirmedAt ? new Date(notification.confirmedAt) : undefined,
             })
           : { ok: false as const };

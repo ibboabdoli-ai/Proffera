@@ -128,6 +128,21 @@ describe("Maria-only Swish confirmation and cancellation email", () => {
     expect(dbQuery.mock.calls.length).toBe(before);
   });
 
+  it("checks status update revision and appointment times before Brevo delivery", async () => {
+    const fetchMock=vi.fn().mockResolvedValue({ok:true});
+    vi.stubGlobal("fetch",fetchMock);
+    const expectedRevision="2026-11-08T09:00:00.123Z";
+    expect(await sendMariaBookingStatusEmail({...booking,expectedRevision})).toEqual({ok:true});
+    const [parts,...values]=dbQuery.mock.calls[0] as [TemplateStringsArray,...unknown[]];
+    const sqlText=parts.join("?");
+    expect(sqlText).toContain("b.starts_at=?::timestamptz");
+    expect(sqlText).toContain("b.ends_at=?::timestamptz");
+    expect(sqlText).toContain("date_trunc('milliseconds',b.updated_at)=?::timestamptz");
+    expect(values).toContain(expectedRevision);
+    expect(values).toContain(booking.startsAt);
+    expect(values).toContain(booking.endsAt);
+  });
+
   it("reads the latest booking-scoped manual payment state before sending a confirmation", async () => {
     dbQuery.mockResolvedValueOnce([{ deposit_state: "paid" }]);
     const fetchMock = vi.fn().mockResolvedValue({ ok: true });

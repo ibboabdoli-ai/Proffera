@@ -31,6 +31,7 @@ export type DashboardBookingStatusUpdateResult = {
     endsAt: string;
     language?: "sv" | "en" | "ar";
     confirmedAt?: string;
+    revision?: string;
   } | null;
   reviewInvitationDelivery: "sent" | "failed" | "skipped" | null;
 };
@@ -194,7 +195,8 @@ export async function updateDashboardBookingStatus(
         id,
         workspace_id,
         customer_id,
-        status as new_status
+        status as new_status,
+        updated_at as notification_revision
     ),
     created_job as (
       insert into workspace_service_jobs (
@@ -374,7 +376,8 @@ export async function updateDashboardBookingStatus(
       (select starts_at from existing_booking limit 1) as starts_at,
       (select ends_at from existing_booking limit 1) as ends_at,
       (select booking_language from existing_booking limit 1) as booking_language,
-      (select created_at from inserted_event limit 1) as confirmed_at
+      (select created_at from inserted_event limit 1) as confirmed_at,
+      (select notification_revision from updated_booking limit 1) as notification_revision
   `;
 
   // Lock the entire Maria status mutation (including job creation) against
@@ -405,6 +408,8 @@ export async function updateDashboardBookingStatus(
         endsAt: new Date(String(result.ends_at)).toISOString(),
         language: result.booking_language === "ar" ? "ar" as const
           : result.booking_language === "en" ? "en" as const : "sv" as const,
+        revision: result.notification_revision
+          ? new Date(String(result.notification_revision)).toISOString() : undefined,
         confirmedAt: status === "confirmed" && result.confirmed_at
           ? new Date(String(result.confirmed_at)).toISOString() : undefined,
       }

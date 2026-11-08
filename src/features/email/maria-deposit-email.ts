@@ -27,6 +27,8 @@ export type MariaBookingStatusEmailInput = {
   timeZone?: WorkspaceTimeZone;
   confirmedAt?: Date;
   language?: "sv" | "en" | "ar";
+  /** Persisted status-write revision prevents sending an obsolete email. */
+  expectedRevision?: string;
   /** Caller-provided only for pure render tests; sender always reads DB state. */
   depositAlreadyPaid?: boolean;
 };
@@ -292,6 +294,10 @@ export async function sendMariaBookingStatusEmail(input: MariaBookingStatusEmail
           and (b.source='public_booking'
             or (${process.env.VERCEL_ENV === "preview"}::boolean and b.source='dashboard_manual'))
           and b.status=${input.status}
+          and b.starts_at=${input.startsAt}::timestamptz
+          and b.ends_at=${input.endsAt}::timestamptz
+          and (${!input.expectedRevision}::boolean
+            or date_trunc('milliseconds',b.updated_at)=${input.expectedRevision ?? "1970-01-01T00:00:00.000Z"}::timestamptz)
           and lower(trim(c.email))=${input.customerEmail.trim().toLowerCase()}
         limit 1
       `;
