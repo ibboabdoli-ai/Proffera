@@ -332,8 +332,12 @@ export async function cancelCustomerCalendarBooking(
         join customers c on c.id=b.customer_id and c.workspace_id=b.workspace_id
         where b.workspace_id=${payload.workspaceId} and b.id=${bookingId}::uuid
           and b.status='cancelled'
-          and b.starts_at=${new Date(String(booking.starts_at)).toISOString()}::timestamptz
-          and b.ends_at=${new Date(String(booking.ends_at)).toISOString()}::timestamptz
+          -- PostgreSQL can retain microseconds in a stored timestamp;
+          -- a JavaScript Date round-trip retains only milliseconds.
+          -- Compare to the same precision rather than suppressing a current
+          -- cancellation notice as falsely superseded.
+          and date_trunc('milliseconds',b.starts_at)=date_trunc('milliseconds',${new Date(String(booking.starts_at)).toISOString()}::timestamptz)
+          and date_trunc('milliseconds',b.ends_at)=date_trunc('milliseconds',${new Date(String(booking.ends_at)).toISOString()}::timestamptz)
           and date_trunc('milliseconds',b.updated_at)=date_trunc('milliseconds',${new Date(String(booking.cancellation_revision)).toISOString()}::timestamptz)
           and lower(btrim(c.email, chr(9) || chr(10) || chr(13) || ' '))=lower(${String(booking.customer_email).trim()})
         limit 1
