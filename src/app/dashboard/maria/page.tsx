@@ -36,7 +36,7 @@ export default async function MariaSiteDashboardPage({ searchParams }: { searchP
     }),
     getDashboardWorkspaceBookingHours(),
     getMariaBookingReadiness(),
-    readMariaCardTranslations(access.workspaceId),
+    readMariaCardTranslations(access.workspaceId, { strict: true }),
   ]);
   const packages = expectedKeys.map((slug) =>
     services.find((service) => service.publicSlug === slug) ?? null,

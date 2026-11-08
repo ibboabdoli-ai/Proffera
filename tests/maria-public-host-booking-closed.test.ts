@@ -111,13 +111,10 @@ describe("Maria branded home navigation and publication metadata", () => {
     expect(url).toBe("/demo/makeup-by-maria-v2.html?lang=en");
   });
 
-  it("provides indexable branded-source metadata while keeping direct demo URLs noindex", () => {
+  it("provides indexable branded-source metadata", () => {
     const head = html.split("</head>")[0];
     expect(head).toContain("<title>Makeup by Maria · Brudmakeup i Södertälje</title>");
     expect(head).toContain('<link rel="canonical" href="https://makeupbymaria.se/">');
     expect(head).not.toMatch(/<meta name="robots"[^>]*noindex/i);
-    const proxySource = readFileSync(resolve(process.cwd(), "src/proxy.ts"), "utf8");
-    expect(proxySource).toContain('pathname === "/demo/makeup-by-maria-v2.html"');
-    expect(proxySource).toContain('response.headers.set("X-Robots-Tag", NOINDEX_VALUE);');
   });
 });

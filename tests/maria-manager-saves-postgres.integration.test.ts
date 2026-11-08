@@ -371,6 +371,31 @@ function compileSql(strings: TemplateStringsArray, values: unknown[]): Query {
     }
   });
 
+  it("does not publish 2026 draft prices through the Production public config", async () => {
+    const existing = (await db!.query<{public_slug:string;public_status:string}>(
+      "select public_slug,public_status from workspace_services where workspace_id=$1 and public_slug in ('maria-bridal-trial-2026','maria-bridal-without-trial-2026')",
+      [workspaceId],
+    )).rows;
+    expect(existing.length).toBe(2);
+    try {
+      await db!.query(
+        "update workspace_services set public_status='draft' where workspace_id=$1 and public_slug in ('maria-bridal-trial-2026','maria-bridal-without-trial-2026')",
+        [workspaceId],
+      );
+      vi.stubEnv("VERCEL_ENV","production");
+      const payload = await (await getMariaPublicConfig()).json();
+      expect((payload.years as Array<{year:number}>).find(row=>row.year===2026)).toBeUndefined();
+      expect(payload.prices2026).toEqual({});
+    } finally {
+      for (const row of existing) {
+        await db!.query(
+          "update workspace_services set public_status=$3 where workspace_id=$1 and public_slug=$2",
+          [workspaceId,row.public_slug,row.public_status],
+        );
+      }
+    }
+  });
+
   it("hides and refuses a booking when the approved Preview recipient changes", async () => {
     const count = () => db!.query<{ count: number }>(
       "select count(*)::int as count from customer_events where workspace_id=$1 and booking_id=$2::uuid and metadata->>'source'='maria_swish_manual_deposit_v1'",
@@ -498,6 +523,9 @@ function compileSql(strings: TemplateStringsArray, values: unknown[]): Query {
       await expect(saveMariaYearAction(form))
         .rejects.toThrow("TEST_REDIRECT:/dashboard/maria?error=translation_setup");
       expect(await readMariaCardTranslations(workspaceId)).toEqual(new Map());
+      // The public display may fall back, but the editable manager must not.
+      await expect(readMariaCardTranslations(workspaceId, {strict:true}))
+        .rejects.toMatchObject({code:"42P01"});
       const created = await db!.query<{count:number}>(
         "select count(*)::int as count from workspace_services where workspace_id=$1 and public_slug in ('maria-bridal-trial-2035','maria-bridal-without-trial-2035')",
         [workspaceId],
