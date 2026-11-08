@@ -203,8 +203,9 @@ export async function rescheduleMariaCustomerBooking(input: MariaChangeInput) {
               'previous_starts_at',old_starts_at::text,
               'previous_ends_at',old_ends_at::text,
               'language',${input.language}::text,
-              'notice_customer','pending',
-              'notice_owner',case when owner_email is not null then 'pending' else 'skipped' end)
+              'notice_customer','sending',
+              'notice_owner',case when owner_email is not null then 'sending' else 'skipped' end,
+              'notice_attempted_at',now()::text)
           from changed_booking returning id
         )
         select cb.*, (select id from customer_event limit 1) as notice_event_id
