@@ -156,19 +156,3 @@ export async function saveMariaScheduleAction(formData: FormData) {
   revalidatePath("/api/makeup-by-maria/config");
   redirect("/dashboard/maria?updated=schedule#tider");
 }
-
-            and d.is_closed=false
-            and d.last_minute
-              +(case when ${serviceChanged}::boolean then ${duration} else s.duration_minutes end)
-              +(case when ${serviceChanged}::boolean then ${buffer} else s.buffer_after_minutes end)>1439
-          limit 1
-        `;
-        if (durationConflicts.length) cause = "schedule_duration";
-      } catch (diagnosticError) { console.error("Maria duration conflict diagnosis failed", diagnosticError); }
-    }
-    redirect(`/dashboard/maria?error=${cause}`);
-  }
-  revalidatePath("/dashboard/maria");
-  revalidatePath("/api/makeup-by-maria/config");
-  redirect("/dashboard/maria?updated=schedule#tider");
-}

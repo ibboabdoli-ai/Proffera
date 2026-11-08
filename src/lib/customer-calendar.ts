@@ -341,7 +341,10 @@ export async function cancelCustomerCalendarBooking(
           and date_trunc('milliseconds',b.starts_at)=date_trunc('milliseconds',${postgresTimestampIso(booking.starts_at)}::timestamptz)
           and date_trunc('milliseconds',b.ends_at)=date_trunc('milliseconds',${postgresTimestampIso(booking.ends_at)}::timestamptz)
           and date_trunc('milliseconds',b.updated_at)=date_trunc('milliseconds',${postgresTimestampIso(booking.cancellation_revision)}::timestamptz)
-          and lower(btrim(c.email, chr(9) || chr(10) || chr(13) || ' '))=lower(${String(booking.customer_email).trim()})
+          -- Compare the exact persisted recipient snapshot. JavaScript
+          -- trim() accepts Unicode whitespace that PostgreSQL btrim() does not.
+          -- A genuinely changed stored recipient must not receive a stale email.
+          and c.email=${String(booking.customer_email)}
         limit 1
       `;
       if (signal?.aborted) throw new Error("Maria notification lock expired before cancellation email");
