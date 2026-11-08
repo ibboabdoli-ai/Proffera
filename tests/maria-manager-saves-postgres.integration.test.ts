@@ -882,6 +882,16 @@ function compileSql(strings: TemplateStringsArray, values: unknown[]): Query {
         [paddedBookingId,workspaceId],
       );
       expect(state.rows[0]?.status).toBe("cancelled");
+      // Brevo is disabled: a durable failure/follow-up event must remain,
+      // without cancelling the already committed customer action.
+      const notice=await db!.query<{metadata:Record<string,unknown>;description:string}>(
+        "select metadata,description from customer_events where workspace_id=$1 and booking_id=$2::uuid and metadata->>'source'='customer_portal' and metadata->>'new_status'='cancelled' order by created_at desc limit 1",
+        [workspaceId,paddedBookingId],
+      );
+      expect(notice.rows[0]?.metadata).toMatchObject({
+        notice_customer:"failed",notice_owner:"skipped",
+      });
+      expect(notice.rows[0]?.description).toContain("kontakta");
     } finally {
       await db!.query("delete from customer_events where booking_id=$1::uuid",[paddedBookingId]);
       await db!.query("delete from bookings where id=$1::uuid",[paddedBookingId]);

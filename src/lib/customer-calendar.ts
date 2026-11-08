@@ -264,8 +264,14 @@ export async function cancelCustomerCalendarBooking(
         id,
         'status_change',
         'Bokning avbokad av kund',
-        'Kunden avbokade bokningen via Mina bokningar.',
+        case when ${isMaria}::boolean
+          then 'Kunden avbokade bokningen via Mina bokningar. E-postavisering väntar på bekräftelse; följ upp manuellt vid behov.'
+          else 'Kunden avbokade bokningen via Mina bokningar.' end,
         jsonb_build_object('source', 'customer_portal', 'new_status', 'cancelled')
+          || case when ${isMaria}::boolean
+             then jsonb_build_object('notice_customer','pending','notice_owner',
+               case when nullif(owner_email,'') is null then 'skipped' else 'pending' end)
+             else '{}'::jsonb end
       from cancelled_booking
       returning id
     )
@@ -279,7 +285,8 @@ export async function cancelCustomerCalendarBooking(
       customer_email,
       company_name,
       owner_email,
-      time_zone
+      time_zone,
+      (select id::text from customer_event limit 1) as cancellation_notice_event_id
     from cancelled_booking
   `;
   const rows = isMaria
@@ -293,13 +300,17 @@ export async function cancelCustomerCalendarBooking(
   if (!booking) return { ok: false as const, error: "not_allowed" };
 
   const base = mariaBase ?? (process.env.NEXT_PUBLIC_APP_URL ?? process.env.APP_URL ?? "https://www.proffera.se").replace(/\/$/, "");
-  await sendBookingChangeEmails({
+  const ownerEmail = booking.owner_email && (!isMaria
+    || isMariaExistingBookingRecipientAllowed(String(booking.owner_email)))
+    ? String(booking.owner_email) : undefined;
+  // The booking and its pending notice were committed together. A provider
+  // outage must not make an already-successful cancellation appear rolled back.
+  const deliveries = await sendBookingChangeEmails({
     kind: "cancelled",
     branding: isMaria ? "makeup-by-maria" : undefined,
     customerName: String(booking.customer_name),
     customerEmail: String(booking.customer_email),
-    ownerEmail: booking.owner_email && (!isMaria || isMariaExistingBookingRecipientAllowed(String(booking.owner_email)))
-      ? String(booking.owner_email) : undefined,
+    ownerEmail,
     companyName: String(booking.company_name),
     service: String(booking.service ?? "Bokning"),
     city: String(booking.city ?? ""),
@@ -308,7 +319,40 @@ export async function cancelCustomerCalendarBooking(
     portalUrl: `${base}/mina-bokningar/${encodeURIComponent(token)}?lang=${language}`,
     timeZone: resolveBookingTimeZone(booking.time_zone),
     language,
+  }).catch((error) => {
+    console.error("Cancellation notice provider failed after booking commit", error);
+    return [];
   });
+
+  if (isMaria && booking.cancellation_notice_event_id) {
+    // 'accepted' means the provider accepted the request, NOT inbox delivery.
+    const accepted = (index: number) => deliveries[index]?.status === "fulfilled"
+      && (deliveries[index].value as { ok?: boolean })?.ok === true;
+    const customerState = accepted(0) ? "accepted" : "failed";
+    const ownerState = !ownerEmail ? "skipped" : accepted(1) ? "accepted" : "failed";
+    const needsFollowup = customerState === "failed" || ownerState === "failed";
+    const summary = needsFollowup
+      ? "Kunden avbokade bokningen via Mina bokningar. E-post kunde inte bekräftas; kontakta kunden eller Maria manuellt."
+      : "Kunden avbokade bokningen via Mina bokningar.";
+    try {
+      await sql`
+        update customer_events
+        set description=${summary},
+            metadata=jsonb_set(jsonb_set(metadata,
+              '{notice_customer}',to_jsonb(${customerState}::text)),
+              '{notice_owner}',to_jsonb(${ownerState}::text))
+              || jsonb_build_object('notice_checked_at',now()::text)
+        where id=${String(booking.cancellation_notice_event_id)}::uuid
+          and workspace_id=${payload.workspaceId}
+          and booking_id=${bookingId}::uuid
+          and metadata->>'source'='customer_portal'
+          and metadata->>'new_status'='cancelled'
+      `;
+    } catch (error) {
+      // Leave the durable 'pending' follow-up message; do not undo cancellation.
+      console.error("Cancellation notice outcome could not be persisted", error);
+    }
+  }
 
   return { ok: true as const };
 }
