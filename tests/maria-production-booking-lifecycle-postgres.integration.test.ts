@@ -172,6 +172,28 @@ function compileSql(strings: TemplateStringsArray, values: unknown[]): Query {
   });
   afterEach(()=>{vi.unstubAllEnvs();vi.unstubAllGlobals();});
 
+  it("rejects a second published from-priced or null-priced Maria package in real PostgreSQL", async () => {
+    expect(await getMariaBookingReadiness()).toMatchObject({enabled:true,workspaceId});
+    const year = day.slice(0,4);
+    for (const [priceType,amount] of [["from",550000],[null,null]] as const) {
+      const id = (await db!.query<{id:string}>(
+        `insert into workspace_services
+           (workspace_id,name,public_slug,duration_minutes,buffer_before_minutes,
+            buffer_after_minutes,minimum_notice_minutes,maximum_advance_days,
+            is_active,public_status,price_type,price_amount_minor)
+         values($1,'Synthetic unsafe second package',$2,180,0,0,0,730,true,'published',$3,$4)
+         returning id::text`,
+        [workspaceId,`maria-bridal-without-trial-${year}`,priceType,amount],
+      )).rows[0]!.id;
+      try {
+        expect(await getMariaBookingReadiness()).toEqual({enabled:false});
+      } finally {
+        await db!.query("delete from workspace_services where id=$1::uuid",[id]);
+      }
+    }
+    expect(await getMariaBookingReadiness()).toMatchObject({enabled:true,workspaceId});
+  },30_000);
+
   it("issues, resends, verifies and consumes one Production OTP, then lets Maria confirm and mark Swish manually",async()=>{
     const ready=await getMariaBookingReadiness();
     expect(ready).toMatchObject({enabled:true,workspaceId});

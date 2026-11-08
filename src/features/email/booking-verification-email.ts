@@ -33,7 +33,7 @@ function parseSender(value: string) {
   return match ? { name: match[1] || "Proffera", email: match[2] } : { name: "Proffera", email: value.trim() };
 }
 
-function resolveBookingSender() {
+export function resolveBookingSender() {
   return parseSender(process.env.BOOKING_FROM_EMAIL?.trim() || DEFAULT_BOOKING_FROM_EMAIL);
 }
 

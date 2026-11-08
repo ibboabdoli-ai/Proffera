@@ -3,6 +3,7 @@ import "server-only";
 import { getSql } from "@/lib/db/server";
 import { resolveAuthSecret, resolveCustomerPortalSecret } from "@/lib/auth-secret";
 import { resolveBrevoApiKey } from "@/lib/email-runtime-config";
+import { resolveBookingSender } from "@/features/email/booking-verification-email";
 import { inspectMariaProductionActivationRequest } from "@/lib/maria-production-activation-policy";
 import { getMariaPreviewBookingReadiness } from "@/lib/maria-preview-booking";
 import { hasWorkspaceFeatureAccessForWorkspace } from "@/lib/workspace-feature-entitlement-db";
@@ -25,9 +26,13 @@ export async function getMariaBookingReadiness(): Promise<MariaBookingReadiness>
   // Customer OTPs must be non-predictably hashed and the personal booking
   // portal must be signable BEFORE a booking/hold can be committed. Status
   // emails also need an actual configured sender.
+  // Validate the actual OTP sender, not only the independent status-mail sender.
+  // resolveBookingSender is also used by the Brevo OTP request itself.
+  const otpSenderAddress = resolveBookingSender().email;
   const from = process.env.LEAD_FROM_EMAIL?.trim();
   const senderAddress = from?.match(/<([^<>]+)>$/)?.[1]?.trim() ?? from;
-  if (!senderAddress || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(senderAddress)) {
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(otpSenderAddress)
+    || !senderAddress || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(senderAddress)) {
     return { enabled: false };
   }
 
@@ -130,7 +135,7 @@ export async function getMariaBookingReadiness(): Promise<MariaBookingReadiness>
           where unsafe.workspace_id=w.id::text and unsafe.is_active=true
             and unsafe.public_status='published'
             and unsafe.public_slug ~ '^maria-bridal-(trial|without-trial)-(202[6-9]|203[0-6])$'
-            and (unsafe.price_type <> 'fixed' or unsafe.price_amount_minor is null
+            and (unsafe.price_type IS DISTINCT FROM 'fixed' or unsafe.price_amount_minor is null
               or unsafe.price_amount_minor not between 0 and 25000000)
         )
       limit 2
