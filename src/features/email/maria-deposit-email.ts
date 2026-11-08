@@ -289,7 +289,8 @@ export async function sendMariaBookingStatusEmail(input: MariaBookingStatusEmail
         join workspaces w on w.id::text=b.workspace_id
         where b.id=${input.bookingId}::uuid and w.slug='makeup-by-maria'
           and w.status in ('active','trial')
-          and b.source='public_booking'
+          and (b.source='public_booking'
+            or (${process.env.VERCEL_ENV === "preview"}::boolean and b.source='dashboard_manual'))
           and b.status=${input.status}
           and lower(trim(c.email))=${input.customerEmail.trim().toLowerCase()}
         limit 1

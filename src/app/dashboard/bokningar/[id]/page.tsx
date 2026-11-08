@@ -283,7 +283,9 @@ async function resendMariaStatusEmailAction(bookingId: string, formData: FormDat
       from bookings b
       join customers c on c.id=b.customer_id and c.workspace_id=b.workspace_id
       where b.workspace_id=${access.workspaceId} and b.id=${bookingId}::uuid
-        and b.source='public_booking' and b.status in ('confirmed','cancelled')
+        and (b.source='public_booking'
+          or (${process.env.VERCEL_ENV === "preview"}::boolean and b.source='dashboard_manual'))
+        and b.status in ('confirmed','cancelled')
         and (${process.env.VERCEL_ENV !== "preview"}::boolean or lower(trim(c.email))=${approved})
       limit 1
     `;
@@ -573,7 +575,8 @@ export default async function BookingDetailPage({ params, searchParams }: Bookin
           </article>
         )}
 
-        {mariaManagerEnabled && booking.source === "public_booking"
+        {mariaManagerEnabled && (booking.source === "public_booking"
+          || (mariaPreview && booking.source === "dashboard_manual"))
           && customer?.email && isMariaBookingRecipientAllowed(customer.email)
           && (booking.status === "confirmed" || booking.status === "cancelled") ? (
           <article className="rounded-card border border-line bg-surface p-6 shadow-sm">

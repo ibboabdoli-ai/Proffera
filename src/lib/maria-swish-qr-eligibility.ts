@@ -40,7 +40,8 @@ export async function readMariaSwishQrEligibility(bookingId: string, expectedWor
       and w.status in ('active','trial')
       and b.id=${bookingId}::uuid
       and b.status in ('confirmed','completed')
-      and b.source='public_booking'
+      and (b.source='public_booking'
+        or (${preview}::boolean and b.source='dashboard_manual'))
       and (${!preview}::boolean or lower(trim(c.email))=${approved ?? ""})
       and (${!scopedWorkspaceId}::boolean or b.workspace_id=${scopedWorkspaceId ?? ""})
       and coalesce((

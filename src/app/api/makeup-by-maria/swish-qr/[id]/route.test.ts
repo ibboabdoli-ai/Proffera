@@ -59,11 +59,13 @@ describe("Maria Preview booking-specific Swish QR", () => {
     expect(text).toContain("b.id=$1::uuid");
     expect(text).toContain("b.status in ('confirmed','completed')");
     expect(text).toContain("b.source='public_booking'");
+    expect(text).toContain("b.source='dashboard_manual'");
+    expect(bound).toContain(true);
     expect(text).toContain("lower(trim(c.email))=$3");
     expect(text).toContain("b.workspace_id=$5");
     expect(text).toContain("maria_swish_manual_deposit_v1");
     expect(text).toContain("<> 'paid'");
-    expect(bound).toEqual([id, false, "qa@example.invalid", false, "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee"]);
+    expect(bound).toEqual([id, true, false, "qa@example.invalid", false, "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee"]);
   });
 
   it("supports a Production PNG for an existing confirmed unpaid booking with a unique reference", async () => {

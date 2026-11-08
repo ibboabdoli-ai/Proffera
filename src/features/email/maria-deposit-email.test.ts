@@ -111,6 +111,23 @@ describe("Maria-only Swish confirmation and cancellation email", () => {
     expect(output.text).toContain("MBM-00000000000000000000000000000001");
   });
 
+  it("permits only Preview manager-created QA bookings as an additional status-mail source", async () => {
+    const fetchMock=vi.fn().mockResolvedValue({ok:true});
+    vi.stubGlobal("fetch",fetchMock);
+    expect(await sendMariaBookingStatusEmail(booking)).toEqual({ok:true});
+    const [parts,...values]=dbQuery.mock.calls[0] as [TemplateStringsArray,...unknown[]];
+    const sqlText=parts.join(" ? ");
+    expect(sqlText).toContain("b.source='public_booking'");
+    expect(sqlText).toContain("b.source='dashboard_manual'");
+    expect(values).toContain(true);
+    expect(values).toContain("confirmed");
+    expect(values).toContain("qa@example.invalid");
+    vi.stubEnv("VERCEL_ENV","production");
+    const before=dbQuery.mock.calls.length;
+    await sendMariaBookingStatusEmail(booking);
+    expect(dbQuery.mock.calls.length).toBe(before);
+  });
+
   it("reads the latest booking-scoped manual payment state before sending a confirmation", async () => {
     dbQuery.mockResolvedValueOnce([{ deposit_state: "paid" }]);
     const fetchMock = vi.fn().mockResolvedValue({ ok: true });
