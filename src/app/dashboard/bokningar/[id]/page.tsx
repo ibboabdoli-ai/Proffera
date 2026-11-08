@@ -208,7 +208,9 @@ async function updateBookingStatusAction(bookingId: string, formData: FormData) 
           redirectWithError(bookingId, "maria_preview", locale);
         }
       }
-      if ((status === "confirmed" || status === "cancelled") && !deliveryReady) {
+      // A permitted existing cancellation must still commit when Brevo is
+      // unavailable; the manager sees a delivery warning after the write.
+      if ((status === "confirmed" || (status === "cancelled" && !existingCancellation)) && !deliveryReady) {
         redirectWithError(bookingId, "maria_email_setup", locale);
       }
     }

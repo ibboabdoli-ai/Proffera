@@ -8,7 +8,7 @@ import { CalendarClock, CalendarDays, Clock3, History, MapPin, XCircle } from "l
 
 import { readableBookingTextColor } from "@/lib/booking-theme-contract";
 import { localizeMariaPreviewServiceName } from "@/lib/maria-preview-service-copy";
-import { getMariaBookingPortalBase } from "@/lib/maria-preview-customer-safety";
+import { getMariaBookingPortalBase, getMariaExistingBookingPortalBase } from "@/lib/maria-preview-customer-safety";
 import { getMariaBookingReadiness } from "@/lib/maria-booking-runtime";
 import { bookingDateLocale } from "@/lib/booking-date-locale";
 import { cancelCustomerCalendarBooking, getCustomerCalendar, type CustomerCalendarBooking } from "@/lib/customer-calendar";
@@ -175,6 +175,10 @@ export default async function Page({ params, searchParams }: PageProps) {
     && process.env.VERCEL_ENV === "production";
   const mariaSelfServiceReady = !mariaProductionWorkspace
     || (await getMariaBookingReadiness().catch(() => ({ enabled: false }))).enabled === true;
+  // New bookings and customer rescheduling remain OFF; only an independently
+  // authorized EXISTING booking may still be cancelled during an intake pause.
+  const mariaExistingCancellationReady = !mariaProductionWorkspace
+    || Boolean(getMariaExistingBookingPortalBase());
 
   const card = (booking: CustomerCalendarBooking) => (
     <BookingCard
@@ -183,17 +187,17 @@ export default async function Page({ params, searchParams }: PageProps) {
       token={token}
       timeZone={data.timeZone}
       canReschedule={data.policy.customerRescheduleEnabled && mariaSelfServiceReady}
-      canCancel={data.policy.customerCancelEnabled && mariaSelfServiceReady}
+      canCancel={data.policy.customerCancelEnabled && mariaExistingCancellationReady}
       cancelNoticeHours={data.policy.cancelNoticeHours}
       language={language}
-      isMariaPreview={presentation?.workspaceSlug === "makeup-by-maria" && presentation.publicBookingSlug === "makeup-by-maria" && Boolean(getMariaBookingPortalBase())}
+      isMariaPreview={presentation?.workspaceSlug === "makeup-by-maria" && presentation.publicBookingSlug === "makeup-by-maria" && Boolean(getMariaBookingPortalBase() || getMariaExistingBookingPortalBase())}
     />
   );
 
   const companyName = presentation?.companyName || (isPrimeView ? "PrimeView Window Care" : "Proffera");
   const isMaria = presentation?.workspaceSlug === "makeup-by-maria"
     && presentation.publicBookingSlug === "makeup-by-maria"
-    && Boolean(getMariaBookingPortalBase());
+    && Boolean(getMariaBookingPortalBase() || getMariaExistingBookingPortalBase());
   const portalPrimary = isMaria ? "#845363" : presentation?.primaryColor || (isPrimeView ? "#1769c2" : "#0a2e63");
   const style = {
     "--portal-primary": portalPrimary,
@@ -242,9 +246,13 @@ export default async function Page({ params, searchParams }: PageProps) {
 
         {mariaProductionWorkspace && !mariaSelfServiceReady ? (
           <p role="alert" className={styles.noticeError}>
-            {t("Ombokning och avbokning online är tillfälligt stängda. Kontakta Maria direkt för hjälp.",
-              "Online rescheduling and cancellation are temporarily unavailable. Contact Maria directly for help.",
-              "تغيير الموعد والإلغاء عبر الإنترنت غير متاحين مؤقتًا. تواصلي مع ماريا مباشرة للمساعدة.")}
+            {mariaExistingCancellationReady
+              ? t("Ombokning online är tillfälligt stängd. Befintliga bokningar kan fortfarande avbokas enligt avbokningsreglerna.",
+                  "Online rescheduling is temporarily unavailable. Existing bookings may still be cancelled under the cancellation policy.",
+                  "تغيير الموعد عبر الإنترنت غير متاح مؤقتًا. لا يزال إلغاء الحجوزات الحالية ممكنًا وفق سياسة الإلغاء.")
+              : t("Ombokning och avbokning online är tillfälligt stängda. Kontakta Maria direkt för hjälp.",
+                  "Online rescheduling and cancellation are temporarily unavailable. Contact Maria directly for help.",
+                  "تغيير الموعد والإلغاء عبر الإنترنت غير متاحين مؤقتًا. تواصلي مع ماريا مباشرة للمساعدة.")}
           </p>
         ) : null}
         {first(query?.changed) === "1" ? <p className={styles.noticeSuccess}>{t("Tiden har ändrats.", "The appointment time has been changed.", "تم تغيير موعد الحجز.")}</p> : null}
