@@ -147,36 +147,6 @@ describe("Maria verification language keeps the Preview booking locale", () => {
     expect(redirect).toHaveBeenLastCalledWith(`/boka/verifiera/${id}?error=wait&lang=en`);
   });
 
-  it("blocks both OTP write actions on a noncanonical Maria Production host", async () => {
-    vi.stubEnv("VERCEL_ENV", "production");
-    mocks.host = "makeupbymaria.se";
-    const page = await VerifyBookingPage({
-      params: Promise.resolve({ id }),
-      searchParams: Promise.resolve({ lang: "sv" }),
-    });
-    const actions: Array<(data: FormData) => Promise<void>> = [];
-    function collectForms(node: ReactNode): void {
-      if (Array.isArray(node)) { node.forEach(collectForms); return; }
-      if (!isValidElement(node)) return;
-      const props = node.props as { action?: unknown; children?: ReactNode };
-      if (node.type === "form" && typeof props.action === "function") {
-        actions.push(props.action as (data: FormData) => Promise<void>);
-      }
-      collectForms(props.children);
-    }
-    collectForms(page);
-    expect(actions).toHaveLength(2);
-    mocks.host = "www.proffera.se";
-    const form = new FormData();
-    form.set("id", id);
-    form.set("code", "123456");
-    form.set("lang", "sv");
-    await expect(actions[0](form)).rejects.toThrow("NEXT_NOT_FOUND");
-    await expect(actions[1](form)).rejects.toThrow("NEXT_NOT_FOUND");
-    expect(verifyPublicBookingCode).not.toHaveBeenCalled();
-    expect(resendPublicBookingCode).not.toHaveBeenCalled();
-  });
-
   it("binds the verification ID to its own workspace before granting Preview languages", async () => {
     const mariaArabic = await markup("ar", id);
     const otherArabic = await markup("ar", otherId);

@@ -864,7 +864,7 @@ function compileSql(strings: TemplateStringsArray, values: unknown[]): Query {
     const paddedBookingId=randomUUID();
     await db!.query(
       "insert into customers (id,workspace_id,name,email,status,source) values ($1::uuid,$2,'Synthetic Preview QA',$3,'active','dashboard_manual')",
-      [paddedCustomerId,workspaceId,"\\tQA@example.invalid  \\r".replaceAll("\\t","\t").replaceAll("\\r","\r")],
+      [paddedCustomerId,workspaceId,"\tQA@example.invalid  \r"],
     );
     try {
       await db!.query(
