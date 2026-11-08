@@ -406,6 +406,53 @@ function compileSql(strings: TemplateStringsArray, values: unknown[]): Query {
     expect(closed.rowCount).toBeGreaterThan(0);
   },120_000);
 
+  it("delivers an authorized manager cancellation to a padded stored email through real PostgreSQL", async () => {
+    const booking = (await db!.query<{
+      id: string; customer_id: string; email: string; status: string;
+      starts_at: Date; ends_at: Date;
+    }>(`
+      select b.id::text,c.id::text as customer_id,c.email,b.status,
+        b.starts_at,b.ends_at
+      from bookings b join customers c on c.id=b.customer_id and c.workspace_id=b.workspace_id
+      where b.workspace_id=$1 and b.source='public_booking'
+      order by b.created_at desc limit 1
+    `,[workspaceId])).rows[0];
+    expect(booking?.status).toBe("confirmed");
+    const padded = "\tBRIDE@example.invalid  \r";
+    await db!.query(
+      "update customers set email=$1 where id=$2::uuid and workspace_id=$3",
+      [padded,booking!.customer_id,workspaceId],
+    );
+    let changed = false;
+    try {
+      // Existing bookings remain cancellable while new intake is paused.
+      vi.stubEnv("PROFFERA_MARIA_PRODUCTION_BOOKING_ENABLED","false");
+      const result = await updateDashboardBookingStatus(booking!.id,"cancelled");
+      expect(result.changed).toBe(true);
+      changed = true;
+      expect(await sendMariaBookingStatusEmail({
+        bookingId: booking!.id,workspaceId,status:"cancelled",
+        customerName:"Synthetic Bride",customerEmail:padded,
+        companyName:"Makeup by Maria",service:"Brudmakeup med prov",
+        startsAt:new Date(booking!.starts_at).toISOString(),
+        endsAt:new Date(booking!.ends_at).toISOString(),
+        city:"Södertälje",timeZone:"Europe/Stockholm",
+      })).toEqual({ok:true});
+      const sent = JSON.parse(String(vi.mocked(fetch).mock.calls.at(-1)?.[1]?.body)) as {
+        to: Array<{email:string}>; textContent: string;
+      };
+      expect(sent.to[0]?.email).toBe("bride@example.invalid");
+      expect(sent.textContent).not.toContain("Pay within 24 hours");
+    } finally {
+      vi.stubEnv("PROFFERA_MARIA_PRODUCTION_BOOKING_ENABLED","true");
+      await db!.query(
+        "update customers set email=$1 where id=$2::uuid and workspace_id=$3",
+        [booking!.email,booking!.customer_id,workspaceId],
+      );
+      if (changed) expect((await updateDashboardBookingStatus(booking!.id,"confirmed")).changed).toBe(true);
+    }
+  },30_000);
+
   it("normalizes tabs in Preview email using PostgreSQL's actual btrim predicate", async () => {
     const result = await db!.query<{ matches: boolean; mismatch: boolean }>(
       `select

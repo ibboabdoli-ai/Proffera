@@ -24,6 +24,7 @@ import { sendMariaBookingStatusEmail } from "@/features/email/maria-deposit-emai
 import { sendBookingCustomerSms } from "@/features/sms/booking-sms";
 import { getDashboardBookingDetailInStockholm } from "@/lib/dashboard-booking-detail-db";
 import { getSql } from "@/lib/db/server";
+import { postgresTimestampIso } from "@/lib/postgres-timestamp";
 import { resolveBrevoApiKey } from "@/lib/email-runtime-config";
 import { BookingRescheduleValidationError, rescheduleDashboardBooking } from "@/lib/dashboard-booking-reschedule";
 import { isDashboardBookingStatus, updateDashboardBookingStatus, type DashboardBookingStatus } from "@/lib/dashboard-booking-status";
@@ -302,7 +303,7 @@ async function resendMariaStatusEmailAction(bookingId: string, formData: FormDat
           or (${process.env.VERCEL_ENV === "preview" || Boolean(getMariaExistingBookingPortalBase())}::boolean
           and b.source='dashboard_manual'))
         and b.status in ('confirmed','cancelled')
-        and (${process.env.VERCEL_ENV !== "preview"}::boolean or lower(trim(c.email))=${approved})
+        and (${process.env.VERCEL_ENV !== "preview"}::boolean or lower(btrim(c.email, chr(9) || chr(10) || chr(13) || ' '))=${approved})
       limit 1
     `;
     row = rows[0] as Record<string, unknown> | undefined;
@@ -323,8 +324,8 @@ async function resendMariaStatusEmailAction(bookingId: string, formData: FormDat
     }
   }
   // Resending must not reset the customer's original 24-hour deposit deadline.
-  const confirmedAt = row.status === "confirmed"
-    ? new Date(String(row.confirmed_at ?? "")) : undefined;
+  const confirmedAt = row.status === "confirmed" && row.confirmed_at
+    ? new Date(postgresTimestampIso(row.confirmed_at)) : undefined;
   if (row.status === "confirmed"
     && (!row.confirmed_at || !confirmedAt || !Number.isFinite(confirmedAt.getTime()))) {
     redirectWithError(bookingId, "save", locale);
@@ -333,10 +334,10 @@ async function resendMariaStatusEmailAction(bookingId: string, formData: FormDat
     bookingId, workspaceId: access.workspaceId,
     status: row.status === "confirmed" ? "confirmed" : "cancelled",
     customerName: String(row.customer_name ?? ""),
-    customerEmail: String(row.customer_email ?? ""),
+    customerEmail: String(row.customer_email ?? "").trim().toLowerCase(),
     companyName: access.workspaceName,
-    service: String(row.service ?? ""), startsAt: new Date(String(row.starts_at)).toISOString(),
-    endsAt: new Date(String(row.ends_at)).toISOString(),
+    service: String(row.service ?? ""), startsAt: postgresTimestampIso(row.starts_at),
+    endsAt: postgresTimestampIso(row.ends_at),
     city: String(row.city ?? ""), timeZone: "Europe/Stockholm",
     confirmedAt, language: row.booking_language === "ar" ? "ar"
       : row.booking_language === "en" ? "en" : "sv",

@@ -263,10 +263,13 @@ export function buildMariaBookingStatusEmail(input: MariaBookingStatusEmailInput
  */
 export async function sendMariaBookingStatusEmail(input: MariaBookingStatusEmailInput) {
   const cancellation = input.status === "cancelled";
+  // Match the booking writer's full whitespace trimming; never hand Brevo
+  // the padded string persisted in a legacy/customer-imported record.
+  const customerEmail = input.customerEmail.trim().toLowerCase();
   const base = cancellation ? getMariaExistingBookingPortalBase() : getMariaBookingPortalBase();
   const recipientAllowed = cancellation
-    ? isMariaExistingBookingRecipientAllowed(input.customerEmail)
-    : isMariaBookingRecipientAllowed(input.customerEmail);
+    ? isMariaExistingBookingRecipientAllowed(customerEmail)
+    : isMariaBookingRecipientAllowed(customerEmail);
   if (!base || !recipientAllowed) {
     return { ok: false as const, error: "recipient_not_approved" as const };
   }
@@ -311,7 +314,7 @@ export async function sendMariaBookingStatusEmail(input: MariaBookingStatusEmail
           and b.ends_at=${input.endsAt}::timestamptz
           and (${!input.expectedRevision}::boolean
             or date_trunc('milliseconds',b.updated_at)=${input.expectedRevision ?? "1970-01-01T00:00:00.000Z"}::timestamptz)
-          and lower(trim(c.email))=${input.customerEmail.trim().toLowerCase()}
+          and lower(btrim(c.email, chr(9) || chr(10) || chr(13) || ' '))=${customerEmail}
         limit 1
       `;
     if (!rows[0]) return { ok: false as const, error: "invalid_booking" as const };
@@ -330,7 +333,7 @@ export async function sendMariaBookingStatusEmail(input: MariaBookingStatusEmail
       signal: AbortSignal.timeout(10_000),
       headers: { "api-key": apiKey, "Content-Type": "application/json" },
       body: JSON.stringify({
-        sender, to: [{ email: input.customerEmail, name: input.customerName }],
+        sender, to: [{ email: customerEmail, name: input.customerName }],
         subject: content.subject, textContent: content.text, htmlContent: content.html,
       }),
     });

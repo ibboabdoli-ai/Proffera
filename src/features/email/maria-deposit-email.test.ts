@@ -147,6 +147,19 @@ describe("Maria-only Swish confirmation and cancellation email", () => {
     expect(values).toContain(booking.endsAt);
   });
 
+  it("trims tabs, carriage returns and spaces for the SQL recipient gate and Brevo recipient", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true });
+    vi.stubGlobal("fetch", fetchMock);
+    expect(await sendMariaBookingStatusEmail({
+      ...booking, customerEmail: "\tQA@example.invalid  \r",
+    })).toEqual({ ok: true });
+    const sqlText = (dbQuery.mock.calls[0]![0] as TemplateStringsArray).join("?");
+    expect(sqlText).toContain("lower(btrim(c.email, chr(9) || chr(10) || chr(13) || ' '))=?");
+    expect(dbQuery.mock.calls[0]).toContain("qa@example.invalid");
+    const sent = JSON.parse(String(fetchMock.mock.calls[0]![1].body)) as { to: Array<{email: string}> };
+    expect(sent.to).toEqual([{ email: "qa@example.invalid", name: "QA <Bride>" }]);
+  });
+
   it("reads the latest booking-scoped manual payment state before sending a confirmation", async () => {
     dbQuery.mockResolvedValueOnce([{ deposit_state: "paid" }]);
     const fetchMock = vi.fn().mockResolvedValue({ ok: true });
