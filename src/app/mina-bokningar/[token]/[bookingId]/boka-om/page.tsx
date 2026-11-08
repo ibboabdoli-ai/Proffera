@@ -153,7 +153,8 @@ export default async function ReschedulePage({ params, searchParams }: PageProps
       const date = startsAtLocal.slice(0, 10);
       redirect(`/mina-bokningar/${encodeURIComponent(token)}/${bookingId}/boka-om?date=${encodeURIComponent(date)}&error=${result.error}${langSuffix}`);
     }
-    redirect(`/mina-bokningar/${encodeURIComponent(token)}?changed=1${langSuffix}`);
+    const warning = "emailWarning" in result && result.emailWarning ? "&error=reschedule_email" : "";
+    redirect(`/mina-bokningar/${encodeURIComponent(token)}?changed=1${warning}${langSuffix}`);
   }
 
   const errors = isArabic ? errorsAr : isEnglish ? errorsEn : errorsSv;

@@ -199,10 +199,16 @@ export async function rescheduleMariaCustomerBooking(input: MariaChangeInput) {
           select workspace_id,customer_id,id,'booking',
             'Bokning ombokad av kund','Customer changed Maria preview booking time.',
             jsonb_build_object('source','maria_preview_reschedule',
-              'starts_at',${start}::text,'ends_at',${end}::text)
+              'starts_at',${start}::text,'ends_at',${end}::text,
+              'previous_starts_at',old_starts_at::text,
+              'previous_ends_at',old_ends_at::text,
+              'language',${input.language}::text,
+              'notice_customer','pending',
+              'notice_owner',case when owner_email is not null then 'pending' else 'skipped' end)
           from changed_booking returning id
         )
-        select * from changed_booking
+        select cb.*, (select id from customer_event limit 1) as notice_event_id
+        from changed_booking cb
       `,
     ]);
     const booking = changed?.[0];
@@ -226,16 +232,42 @@ export async function rescheduleMariaCustomerBooking(input: MariaChangeInput) {
       timeZone: "Europe/Stockholm",
       language: input.language,
     });
-    for (const [index, result] of notices.entries()) {
-      if (result.status === "rejected" || (result.status === "fulfilled"
-        && (!result.value || typeof result.value !== "object" || !("ok" in result.value) || result.value.ok !== true))) {
-        console.error("Maria reschedule email was not delivered", {
-          target: index === 0 ? "customer" : "owner",
-          outcome: result.status === "rejected" ? "rejected" : "provider_failure",
-        });
-      }
+    const delivered = (result: (typeof notices)[number] | undefined) =>
+      result?.status === "fulfilled"
+        && Boolean(result.value && typeof result.value === "object"
+          && "ok" in result.value && result.value.ok === true);
+    const customerNotice = delivered(notices[0]) ? "sent" : "failed";
+    const ownerPermitted = Boolean(booking.owner_email
+      && isMariaBookingRecipientAllowed(String(booking.owner_email)));
+    const ownerNotice = !ownerPermitted ? "skipped"
+      : delivered(notices[1]) ? "sent" : "failed";
+    const emailWarning = customerNotice !== "sent" || ownerNotice === "failed";
+    let journalSaved = false;
+    try {
+      // The pending record was inserted atomically with the booking change.
+      // On provider failure/crash it remains available for explicit owner retry.
+      const logged = await sql`
+        update customer_events
+        set metadata = metadata || jsonb_build_object(
+          'notice_customer',${customerNotice}::text,
+          'notice_owner',${ownerNotice}::text,
+          'notice_attempted_at',now()::text)
+        where id=${String(booking.notice_event_id)}::uuid
+          and workspace_id=${input.workspaceId}
+          and booking_id=${input.bookingId}::uuid
+          and metadata->>'source'='maria_preview_reschedule'
+        returning id
+      `;
+      journalSaved = logged.length === 1;
+    } catch (error) {
+      console.error("Maria reschedule notification outcome remains pending", error);
     }
-    return { ok: true as const };
+    if (emailWarning) {
+      console.error("Maria reschedule notification requires manager follow-up", {
+        bookingId: input.bookingId, customerNotice, ownerNotice,
+      });
+    }
+    return { ok: true as const, emailWarning: emailWarning || !journalSaved };
   } catch (error) {
     console.error("Maria customer reschedule failed closed", error);
     return { ok: false as const, error: "conflict" as const };

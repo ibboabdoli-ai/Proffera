@@ -256,6 +256,13 @@ export default async function Page({ params, searchParams }: PageProps) {
               "الإلغاء عبر الإنترنت غير متاح حاليًا. تواصلي مع ماريا مباشرة.")}
           </p>
         ) : null}
+        {first(query?.error) === "reschedule_email" ? (
+          <p role="alert" className={styles.noticeError}>
+            {t("Din bokningstid är sparad, men mejlet kanske inte nådde fram. Kontakta Maria om du behöver bekräftelse.",
+              "Your new appointment time is saved, but the notification email may not have arrived. Contact Maria if you need confirmation.",
+              "تم حفظ موعدك الجديد، لكن قد لا يكون البريد الإلكتروني وصل. تواصلي مع ماريا إذا احتجتِ تأكيدًا.")}
+          </p>
+        ) : null}
         {first(query?.error) === "cancel" ? <p role="alert" className={styles.noticeError}>{t("Bokningen kunde inte avbokas. Den kan redan vara avbokad eller ligga för nära starttiden.", "The booking could not be cancelled. It may already be cancelled or too close to the appointment time.", "تعذّر إلغاء الحجز. ربما أُلغي مسبقًا أو اقترب موعده.")}</p> : null}
 
         <section className={styles.section}>
