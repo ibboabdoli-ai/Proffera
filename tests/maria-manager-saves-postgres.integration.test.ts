@@ -828,14 +828,20 @@ function compileSql(strings: TemplateStringsArray, values: unknown[]): Query {
     );
     expect(String(persisted.rows[0]?.starts_local)).toContain(day + " 06:00:00");
 
-    await db!.query(
-      "insert into public_booking_verifications (workspace_id,public_booking_slug,customer_name,customer_email,service_id,service_name,starts_at,ends_at,code_hash,expires_at) values ($1::uuid,'makeup-by-maria','QA Hold','qa@example.invalid',$2::uuid,'Synthetic hold',($3::timestamp at time zone 'Europe/Stockholm'),($3::timestamp at time zone 'Europe/Stockholm') + interval '3 hours','synthetic-only',now()+interval '30 minutes')",
+    const hold = await db!.query<{id:string}>(
+      "insert into public_booking_verifications (workspace_id,public_booking_slug,customer_name,customer_email,service_id,service_name,starts_at,ends_at,code_hash,expires_at) values ($1::uuid,'makeup-by-maria','QA Hold','qa@example.invalid',$2::uuid,'Synthetic hold',($3::timestamp at time zone 'Europe/Stockholm'),($3::timestamp at time zone 'Europe/Stockholm') + interval '3 hours','synthetic-only',now()+interval '30 minutes') returning id::text",
       [workspaceId, service.rows[0]!.id, day + " 09:30"],
     );
-    const conflicted = await rescheduleMariaDashboardBooking({
-      bookingId, workspaceId, localStartsAt: day + "T09:30",
-    });
-    expect(conflicted).toMatchObject({ ok: false, error: "conflict" });
+    try {
+      const conflicted = await rescheduleMariaDashboardBooking({
+        bookingId, workspaceId, localStartsAt: day + "T09:30",
+      });
+      expect(conflicted).toMatchObject({ ok: false, error: "conflict" });
+    } finally {
+      // A synthetic hold must not leak into the following independent
+      // schedule-saving regression and falsely reject otherwise valid hours.
+      await db!.query("delete from public_booking_verifications where id=$1::uuid", [hold.rows[0]!.id]);
+    }
   });
 
   it("saves open days while ignoring invalid hidden clock values for closed days", async () => {
