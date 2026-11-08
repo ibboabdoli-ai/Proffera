@@ -119,7 +119,7 @@ describe("Makeup by Maria Preview deposit safety", () => {
     expect(query).toContain("pg_advisory_xact_lock");
     expect(query).toContain("insert into customer_events");
     expect(query).toContain("join workspaces w");
-    expect(query).toContain("lower(trim(c.email))");
+    expect(query).toContain("lower(btrim(c.email, chr(9) || chr(10) || chr(13) || ' '))");
     expect(statements[1]?.values).toContain(workspaceId);
     expect(statements[1]?.values).toContain("qa@example.invalid");
   });

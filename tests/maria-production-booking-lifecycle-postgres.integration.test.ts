@@ -544,6 +544,10 @@ function compileSql(strings: TemplateStringsArray, values: unknown[]): Query {
           [eventId],
         )).rows[0];
         expect(sent?.state).toBe("sent");
+        // An already delivered notice is idempotent and never triggers another send.
+        expect(await retryMariaRescheduleNotice(booking!.id,workspaceId))
+          .toEqual({ok:false,alreadySent:true});
+        expect(sender).toHaveBeenCalledOnce();
 
         // A live lease is not stealable, but an expired lease is recoverable.
         await setState("sending",new Date().toISOString());

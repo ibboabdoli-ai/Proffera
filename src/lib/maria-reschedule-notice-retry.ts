@@ -79,7 +79,11 @@ export async function retryMariaRescheduleNotice(id:string,workspaceId:string){
     const eventId=String(row.event_id??"");
     if(!uuid.test(eventId))return {ok:false as const};
     if (!customer && !owner) {
-      return {ok:false as const, alreadySent: m.notice_customer==="sent" && (m.notice_owner==="sent" || m.notice_owner==="skipped")};
+      // Only fully accepted notices count as already sent; live leases and
+      // superseded notices must continue to report a regular failed retry.
+      const alreadySent = m.notice_customer === "sent"
+        && (m.notice_owner === "sent" || m.notice_owner === "skipped");
+      return alreadySent ? {ok:false as const, alreadySent:true as const} : {ok:false as const};
     }
     // Only one concurrent sender can claim a failed/pending/expired delivery.
     const claims=await sql`

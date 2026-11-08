@@ -256,6 +256,7 @@ describe("Maria Preview booking status action on a deleted booking", () => {
       status: "cancelled", service: "Synthetic QA service", city: "Stockholm",
       starts_at: new Date("2027-06-18T09:00:00.123Z"),
       ends_at: new Date("2027-06-18T12:00:00.456Z"),
+      booking_revision: new Date("2027-06-18T07:30:00.789Z"),
       customer_name: "Synthetic QA customer",
       customer_email: "\tQA@example.invalid  \r",
       booking_language: "sv", confirmed_at: null,
@@ -271,6 +272,7 @@ describe("Maria Preview booking status action on a deleted booking", () => {
       customerEmail: "qa@example.invalid",
       startsAt: "2027-06-18T09:00:00.123Z",
       endsAt: "2027-06-18T12:00:00.456Z",
+      expectedRevision: "2027-06-18T07:30:00.789Z",
       status: "cancelled",
     }));
     const query = (runtime.retrySql.mock.calls[0]![0] as TemplateStringsArray).join("?");
