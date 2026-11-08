@@ -319,6 +319,21 @@ describe("public booking human-designed UX contract", () => {
     expect(html).not.toContain('type="date"');
     expect(mocks.getAvailableRescheduleSlots).not.toHaveBeenCalled();
 
+    // A paused intake must not block cancellation of an EXISTING booking,
+    // but the independent Production lifecycle switches must remain mandatory.
+    vi.stubEnv("PROFFERA_MARIA_PUBLIC_SITE_ENABLED", "true");
+    vi.stubEnv("PROFFERA_MARIA_PRODUCTION_MANAGER_ENABLED", "true");
+    vi.stubEnv("PROFFERA_MARIA_PRODUCTION_CUSTOMER_EMAIL_ENABLED", "true");
+    vi.stubEnv("PROFFERA_MARIA_PRODUCTION_ORIGIN", "https://makeupbymaria.se");
+    const pausedPage = await CustomerPortalPage({
+      params: Promise.resolve({ token: "customer-token" }),
+      searchParams: Promise.resolve({ lang: "en" }),
+    });
+    const pausedCard = findElements(pausedPage, element => typeof element.type === "function"
+      && element.type.name === "BookingCard")[0];
+    expect(pausedCard?.props.canCancel).toBe(true);
+    expect(pausedCard?.props.canReschedule).toBe(false);
+
     mocks.getMariaBookingReadiness.mockResolvedValue({ enabled: true });
     const readyPage = await CustomerPortalPage({
       params: Promise.resolve({ token: "customer-token" }),
