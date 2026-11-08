@@ -161,6 +161,9 @@ function compileSql(strings: TemplateStringsArray, values: unknown[]): Query {
   }
 
   beforeEach(()=>{
+    // Preserve the isolated Docker URL across all Vitest cases; the
+    // notification lock runs on a dedicated PostgreSQL Client.
+    runtime.databaseUrl = connectionString;
     const flags:Record<string,string>={
       VERCEL_ENV:"production",PROFFERA_MARIA_PUBLIC_SITE_ENABLED:"true",
       PROFFERA_MARIA_PRODUCTION_BOOKING_ENABLED:"true",
@@ -182,6 +185,9 @@ function compileSql(strings: TemplateStringsArray, values: unknown[]): Query {
   it("serializes in-flight provider requests against booking writers on real PostgreSQL", async () => {
     let entered!: () => void;
     let release!: () => void;
+    // Fail immediately on a fixture mismatch instead of hanging on
+    // an unresolved provider gate while a detached promise rejects.
+    expect(runtime.databaseUrl).toBe(connectionString);
     const acquired = new Promise<void>(resolve => { entered = resolve; });
     const delayedProvider = new Promise<void>(resolve => { release = resolve; });
     const first = withMariaBookingNotificationLock(workspaceId, async () => {
@@ -189,7 +195,7 @@ function compileSql(strings: TemplateStringsArray, values: unknown[]): Query {
       await delayedProvider;
       return "synthetic-provider-accepted";
     });
-    await acquired;
+    await Promise.race([acquired, delay(5_000).then(() => { throw new Error("Maria synthetic lock entry timed out"); })]);
     const writer = new Client({ connectionString });
     let acquiredWriterLock = false;
     try {

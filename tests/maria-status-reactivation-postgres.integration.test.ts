@@ -11,6 +11,7 @@ type Rows = Record<string, unknown>[];
 
 const runtime = vi.hoisted(() => ({
   workspaceId: "",
+  databaseUrl: "",
   makeSql: undefined as undefined | (() => unknown),
 }));
 vi.mock("server-only", () => ({}));
@@ -19,6 +20,7 @@ vi.mock("@neondatabase/serverless", () => ({
 }));
 vi.mock("@/lib/db/database-url", () => ({
   resolveDatabaseUrl: () => "postgresql://synthetic-test-only.invalid",
+  resolveNodePostgresDatabaseUrl: () => runtime.databaseUrl,
 }));
 vi.mock("@/lib/db/server", () => ({ getSql: () => runtime.makeSql?.() ?? null }));
 vi.mock("@/lib/workspace-access", () => ({
@@ -90,6 +92,7 @@ function compileSql(parts: TemplateStringsArray, values: unknown[]): Query {
     if (!port) throw new Error("Maria reactivation PostgreSQL port missing");
     connectionString = "postgres://postgres:postgres@127.0.0.1:" +
       port + "/proffera_test";
+    runtime.databaseUrl = connectionString;
     let ready = false;
     for (let attempt = 0; attempt < 80; attempt++) {
       const check = new Client({ connectionString });
@@ -338,6 +341,7 @@ function compileSql(parts: TemplateStringsArray, values: unknown[]): Query {
     vi.stubGlobal("fetch", fetchMock);
     const input = {
       bookingId: cancelledId,
+      workspaceId,
       status: "confirmed" as const,
       customerName: "Synthetic QA Customer",
       customerEmail,
