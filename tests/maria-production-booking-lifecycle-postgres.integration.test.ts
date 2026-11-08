@@ -162,6 +162,7 @@ function compileSql(strings: TemplateStringsArray, values: unknown[]): Query {
       PROFFERA_MARIA_PRODUCTION_CUSTOMER_EMAIL_ENABLED:"true",
       PROFFERA_MARIA_PRODUCTION_YEAR_EDITOR_ENABLED:"true",
       PROFFERA_MARIA_PRODUCTION_ORIGIN:"https://makeupbymaria.se",
+      PROFFERA_MARIA_PRODUCTION_SWISH_ENABLED:"true",
       BREVO_API_KEY:"synthetic-production-email-key",
       LEAD_FROM_EMAIL:"Makeup by Maria <noreply@example.invalid>",
       BETTER_AUTH_SECRET:"synthetic-only-for-isolated-postgres-test",
@@ -322,6 +323,9 @@ function compileSql(strings: TemplateStringsArray, values: unknown[]): Query {
     expect(revivedJob.rows[0]?.completed_at).toBeNull();
 
     expect(await readMariaSwishQrEligibility(bookingId)).toBe("eligible");
+    vi.stubEnv("PROFFERA_MARIA_PRODUCTION_SWISH_ENABLED","false");
+    expect(await readMariaSwishQrEligibility(bookingId)).toBe("unavailable");
+    vi.stubEnv("PROFFERA_MARIA_PRODUCTION_SWISH_ENABLED","true");
     expect(await setMariaManualSwishStatus(bookingId,"paid")).toEqual({changed:true});
     expect(await readMariaSwishQrEligibility(bookingId)).toBe("unavailable");
     const paid=await readMariaManualSwishStatuses();

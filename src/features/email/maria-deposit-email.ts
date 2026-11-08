@@ -7,7 +7,7 @@ import { resolveBrevoApiKey } from "@/lib/email-runtime-config";
 
 import { getMariaBookingPortalBase, isMariaBookingRecipientAllowed } from "@/lib/maria-preview-customer-safety";
 import { getMariaBookingReadiness } from "@/lib/maria-booking-runtime";
-import { MARIA_CANONICAL_PRODUCTION_ORIGIN } from "@/lib/maria-production-activation-policy";
+import { MARIA_CANONICAL_PRODUCTION_ORIGIN, isMariaProductionSwishAuthorized } from "@/lib/maria-production-activation-policy";
 import {
   MARIA_DEPOSIT_AMOUNT_SEK, MARIA_SWISH_NUMBER, mariaSwishPaymentPagePath,
   mariaSwishQrPath, mariaBookingNumber, mariaDepositDeadline,
@@ -292,7 +292,8 @@ export async function sendMariaBookingStatusEmail(input: MariaBookingStatusEmail
         where b.id=${input.bookingId}::uuid and w.slug='makeup-by-maria'
           and w.status in ('active','trial')
           and (b.source='public_booking'
-            or (${process.env.VERCEL_ENV === "preview"}::boolean and b.source='dashboard_manual'))
+            or ((${process.env.VERCEL_ENV === "preview" || isMariaProductionSwishAuthorized()}::boolean)
+              and b.source='dashboard_manual'))
           and b.status=${input.status}
           and b.starts_at=${input.startsAt}::timestamptz
           and b.ends_at=${input.endsAt}::timestamptz

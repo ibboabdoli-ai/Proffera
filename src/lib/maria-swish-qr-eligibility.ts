@@ -2,6 +2,7 @@ import "server-only";
 
 import { getSql } from "@/lib/db/server";
 import { getMariaBookingReadiness } from "@/lib/maria-booking-runtime";
+import { isMariaProductionSwishAuthorized } from "@/lib/maria-production-activation-policy";
 import { isMariaPreviewTestRecipient } from "@/lib/maria-preview-customer-safety";
 
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -14,6 +15,9 @@ export async function readMariaSwishQrEligibility(bookingId: string, expectedWor
   const preview = process.env.VERCEL_ENV === "preview";
   const production = process.env.VERCEL_ENV === "production";
   if (!preview && !production) return "unavailable";
+  // Payment exposure needs its own explicit authorization. Never infer
+  // permission from a booking UUID or from a prior intake switch.
+  if (production && !isMariaProductionSwishAuthorized()) return "unavailable";
   // Existing unpaid confirmed bookings retain their payment link if intake is
   // temporarily paused. Preview still requires the isolated QA gate.
   const readiness = preview ? await getMariaBookingReadiness() : null;
@@ -41,7 +45,8 @@ export async function readMariaSwishQrEligibility(bookingId: string, expectedWor
       and b.id=${bookingId}::uuid
       and b.status in ('confirmed','completed')
       and (b.source='public_booking'
-        or (${preview}::boolean and b.source='dashboard_manual'))
+        or ((${preview}::boolean or ${isMariaProductionSwishAuthorized()}::boolean)
+          and b.source='dashboard_manual'))
       and (${!preview}::boolean or lower(btrim(c.email, chr(9) || chr(10) || chr(13) || ' '))=${approved ?? ""})
       and (${!scopedWorkspaceId}::boolean or b.workspace_id=${scopedWorkspaceId ?? ""})
       and coalesce((

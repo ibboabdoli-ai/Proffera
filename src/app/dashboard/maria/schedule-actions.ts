@@ -51,6 +51,9 @@ export async function saveMariaScheduleAction(formData: FormData) {
   }));
   if(days.some(d=>!d.closed && (d.first===null||d.last===null||d.last<=d.first
     ||d.last+duration+buffer>1439))) redirect("/dashboard/maria?error=schedule");
+  const proposedHours = JSON.stringify(days.map(d => ({
+    weekday:d.day, is_closed:d.closed, first_minute:d.first, last_minute:d.last,
+  })));
   const sql=getSql();
   if (!sql) redirect("/dashboard/maria?error=database");
   try {
@@ -70,7 +73,79 @@ export async function saveMariaScheduleAction(formData: FormData) {
           select 1 from public_booking_verifications hold
           where hold.workspace_id=${access.workspaceId}::uuid
             and hold.consumed_at is null and hold.expires_at>now()
-        )) then 1 else 0 end) as maria_package_guard
+        )) and not exists (
+          -- A stale form must never validate against its old duration while
+          -- preserving a longer duration in the database.
+          select 1 from workspace_services s
+          cross join jsonb_to_recordset(${proposedHours}::jsonb)
+            as d(weekday integer,is_closed boolean,first_minute integer,last_minute integer)
+          where s.workspace_id=${access.workspaceId}
+            and s.public_slug ~ '^maria-bridal-(trial|without-trial)-(202[6-9]|203[0-6])
+      `,
+      ...days.map(d=>sql`
+        insert into workspace_booking_hours
+          (workspace_id,weekday,opens_at,closes_at,is_closed)
+        select w.id::text,${d.day},${d.closed ? null : clock(d.first!)}::time,
+          ${d.closed ? null : clock(d.last!)}::time,${d.closed}
+        from workspaces w
+        where w.id=${access.workspaceId}::uuid and w.slug='makeup-by-maria'
+        on conflict (workspace_id,weekday)
+        do update set opens_at=excluded.opens_at,closes_at=excluded.closes_at,is_closed=excluded.is_closed
+      `),
+      ...(serviceChanged ? [sql`
+        update workspace_services s
+        set duration_minutes=${duration},buffer_after_minutes=${buffer},updated_at=now()
+        from workspaces w
+        where w.id=${access.workspaceId}::uuid and w.slug='makeup-by-maria'
+        and s.workspace_id=w.id::text
+        and s.public_slug ~ '^maria-bridal-(trial|without-trial)-(202[6-9]|203[0-6])$'
+      `] : []),
+      sql`
+        insert into admin_audit_logs(admin_user_id,workspace_id,action,reason,new_value)
+        values(${access.userId},${access.workspaceId}::uuid,
+          'maria.booking_schedule.updated',
+          'Workspace manager changed Maria appointment start windows, service duration and buffer',
+          ${JSON.stringify({durationMinutes:duration,bufferAfterMinutes:buffer,serviceChanged,
+            days:days.map(d=>({weekday:d.day,closed:d.closed,firstMinute:d.first,lastStartMinute:d.last}))})}::jsonb)
+      `,
+    ]);
+  } catch(error) {
+    console.error("Maria booking schedule could not be updated",error);
+    redirect("/dashboard/maria?error=schedule");
+  }
+  revalidatePath("/dashboard/maria");
+  revalidatePath("/api/makeup-by-maria/config");
+  redirect("/dashboard/maria?updated=schedule#tider");
+}
+
+            and d.is_closed=false
+            and (
+              coalesce((case when ${serviceChanged}::boolean then ${duration}
+                else s.duration_minutes end),-1) < 1
+              or coalesce((case when ${serviceChanged}::boolean then ${buffer}
+                else s.buffer_after_minutes end),-1) < 0
+              or d.last_minute
+                + (case when ${serviceChanged}::boolean then ${duration} else s.duration_minutes end)
+                + (case when ${serviceChanged}::boolean then ${buffer} else s.buffer_after_minutes end)
+                > 1439
+            )
+        ) and not exists (
+          -- Only preserve active OTP starts that remain within the submitted
+          -- open-day start windows. No booking or challenge is modified here.
+          select 1 from public_booking_verifications hold
+          where hold.workspace_id=${access.workspaceId}::uuid
+            and hold.consumed_at is null and hold.expires_at>now()
+            and not exists (
+              select 1 from jsonb_to_recordset(${proposedHours}::jsonb)
+                as d(weekday integer,is_closed boolean,first_minute integer,last_minute integer)
+              where d.is_closed=false
+                and d.weekday=extract(dow from
+                  (hold.starts_at at time zone 'Europe/Stockholm'))::int
+                and (extract(hour from (hold.starts_at at time zone 'Europe/Stockholm'))*60
+                  +extract(minute from (hold.starts_at at time zone 'Europe/Stockholm')))
+                  between d.first_minute and d.last_minute
+            )
+        ) then 1 else 0 end) as maria_package_guard
       `,
       ...days.map(d=>sql`
         insert into workspace_booking_hours

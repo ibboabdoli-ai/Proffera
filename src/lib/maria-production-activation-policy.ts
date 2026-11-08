@@ -43,3 +43,15 @@ export function inspectMariaProductionActivationRequest(
     portalOrigin: blockers.length === 0 ? MARIA_CANONICAL_PRODUCTION_ORIGIN : null,
   };
 }
+
+/**
+ * Separate, default-OFF authorization for customer-visible Swish requests.
+ * It is independent of new-booking intake so existing approved unpaid
+ * bookings retain payment instructions during an authorized intake pause.
+ */
+export function isMariaProductionSwishAuthorized(env: NodeJS.ProcessEnv = process.env): boolean {
+  return env.VERCEL_ENV === "production"
+    && env.PROFFERA_MARIA_PUBLIC_SITE_ENABLED === "true"
+    && env.PROFFERA_MARIA_PRODUCTION_ORIGIN === MARIA_CANONICAL_PRODUCTION_ORIGIN
+    && env.PROFFERA_MARIA_PRODUCTION_SWISH_ENABLED === "true";
+}
