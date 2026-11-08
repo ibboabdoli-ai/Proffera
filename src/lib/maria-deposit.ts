@@ -1,6 +1,6 @@
 /**
  * Preview-only Maria Swish deposit: booking-specific QR with recipient, amount
- * and short reference. Does not initiate or verify payment.
+ * and booking-unique reference. Does not initiate or verify payment.
  */
 export const MARIA_SWISH_NUMBER = "123-581 86 53";
 export const MARIA_SWISH_LINK = "https://app.swish.nu/1/p/sw/?sw=1235818653&src=qr";
@@ -10,11 +10,11 @@ export const MARIA_DEPOSIT_DEADLINE_HOURS = 24;
 
 const uuidPattern = /^[a-f\d]{8}-[a-f\d]{4}-[a-f\d]{4}-[a-f\d]{4}-[a-f\d]{12}$/i;
 
-/** Build a short customer reference from a validated booking UUID; not globally unique. */
+/** Deterministic Swish reference: the entire UUID is unique by the existing bookings primary key. */
 export function mariaBookingNumber(bookingId: string) {
   if (!uuidPattern.test(bookingId)) throw new Error("INVALID_MARIA_BOOKING_ID");
-  // Six readable characters. Preview QR retrieval refuses an ambiguous match.
-  return `MBM-${bookingId.slice(0, 6).toUpperCase()}`;
+  // MBM- + 32 hex chars fits in Swish's 50-character message field.
+  return `MBM-${bookingId.replaceAll("-", "").toUpperCase()}`;
 }
 
 /** Swish C2B format: receiver, amount in SEK, reference and locked fields. */

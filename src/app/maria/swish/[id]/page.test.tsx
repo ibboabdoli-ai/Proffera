@@ -43,10 +43,10 @@ afterEach(() => { vi.unstubAllEnvs(); vi.clearAllMocks(); });
 
 describe("Maria Preview first-party Swish payment information page", () => {
   it("shows a direct untracked Swish action and two accessible copy controls", async () => {
-    const sql = vi.fn().mockResolvedValueOnce([{ id }]).mockResolvedValueOnce([{ count: 0 }]);
+    const sql = vi.fn().mockResolvedValueOnce([{ id }]);
     vi.mocked(getSql).mockReturnValue(sql as never);
     const html = renderToStaticMarkup(await MariaSwishPaymentPage(props));
-    expect(html).toContain("MBM-111111");
+    expect(html).toContain("MBM-11111111222243338444555555555555");
     expect(html).toContain("123-581 86 53");
     expect(html).toContain(`${(2000).toLocaleString("sv-SE")} kr`);
     expect(html).toContain("Öppna Swish");
@@ -55,16 +55,16 @@ describe("Maria Preview first-party Swish payment information page", () => {
     expect(html).toContain("Endast test");
     expect(html).toContain('aria-label="Kopiera Swish-nummer"');
     expect(html).toContain('aria-label="Kopiera bokningsnummer"');
-    expect(html).toContain("https://app.swish.nu/1/p/sw/?sw=1235818653&amp;amt=2000&amp;cur=SEK&amp;msg=MBM-111111&amp;src=qr");
+    expect(html).toContain("https://app.swish.nu/1/p/sw/?sw=1235818653&amp;amt=2000&amp;cur=SEK&amp;msg=MBM-11111111222243338444555555555555&amp;src=qr");
     expect(html).toContain(`/api/makeup-by-maria/swish-qr/${id}`);
     expect(html).not.toContain("sendibt3.com");
-    expect(sql).toHaveBeenCalledTimes(2);
+    expect(sql).toHaveBeenCalledOnce();
   });
 
   it("renders English in the requested locale and falls back to Swedish for unknown languages", async () => {
     const sql = vi.fn()
-      .mockResolvedValueOnce([{ id }]).mockResolvedValueOnce([{ count: 0 }])
-      .mockResolvedValueOnce([{ id }]).mockResolvedValueOnce([{ count: 0 }]);
+      .mockResolvedValueOnce([{ id }])
+      .mockResolvedValueOnce([{ id }]);
     vi.mocked(getSql).mockReturnValue(sql as never);
     const english = renderToStaticMarkup(await MariaSwishPaymentPage({
       ...props, searchParams: Promise.resolve({ lang: "en" }),
@@ -104,30 +104,21 @@ describe("Maria Preview first-party Swish payment information page", () => {
 
   it("shows an eligible Production Swish payment without the Preview-only warning", async () => {
     vi.stubEnv("VERCEL_ENV", "production");
-    const sql = vi.fn().mockResolvedValueOnce([{ id }]).mockResolvedValueOnce([{ count: 0 }]);
+    const sql = vi.fn().mockResolvedValueOnce([{ id }]);
     vi.mocked(getSql).mockReturnValue(sql as never);
     const html = renderToStaticMarkup(await MariaSwishPaymentPage(props));
     expect(html).toContain("Swish-handpenning");
     expect(html).not.toContain("Endast test");
-    expect(sql).toHaveBeenCalledTimes(2);
+    expect(sql).toHaveBeenCalledOnce();
   });
 
-  it("fails closed for missing bookings and reference collisions, using the shared QR rules", async () => {
+  it("fails closed for missing bookings while keeping SQL scoped to the expected Maria workspace", async () => {
     const missing = vi.fn().mockResolvedValueOnce([]);
     vi.mocked(getSql).mockReturnValue(missing as never);
     await expect(MariaSwishPaymentPage(props)).rejects.toThrow("NEXT_NOT_FOUND");
-    expect(missing).toHaveBeenCalledTimes(1);
-
-    const ambiguous = vi.fn()
-      .mockResolvedValueOnce([{ id }])
-      .mockResolvedValueOnce([{ count: 1 }]);
-    vi.mocked(getSql).mockReturnValue(ambiguous as never);
-    await expect(MariaSwishPaymentPage(props)).rejects.toThrow("NEXT_NOT_FOUND");
-    expect(ambiguous).toHaveBeenCalledTimes(2);
-    const scopedQuery = Array.from(ambiguous.mock.calls[0][0] as TemplateStringsArray).join(" ?");
+    expect(missing).toHaveBeenCalledOnce();
+    const scopedQuery = Array.from(missing.mock.calls[0][0] as TemplateStringsArray).join(" ?");
     expect(scopedQuery).toMatch(/b\.workspace_id=\s*\?/);
-    expect(ambiguous.mock.calls[0].slice(1)).toContain("aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee");
-    const collisionQuery = Array.from(ambiguous.mock.calls[1][0] as TemplateStringsArray).join(" ?");
-    expect(collisionQuery).toContain("left(replace(b.id::text, '-', ''), 6)");
+    expect(missing.mock.calls[0].slice(1)).toContain("aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee");
   });
 });

@@ -14,25 +14,27 @@ describe("Maria Swish booking reference and deposit policy", () => {
     expect(MARIA_SWISH_QR_PATH).toBe("/demo/makeup-by-maria/assets/maria-swish-qr.jpg");
     expect(MARIA_DEPOSIT_AMOUNT_SEK).toBe(2000);
   });
-  it("uses the agreed six-character reference for Maria booking numbers", () => {
-    const first = mariaBookingNumber("c0eb47ac-cecf-4bd4-98c3-1b8b6deeb2ff");
-    const second = mariaBookingNumber("123456ac-cecf-4bd4-98c3-1b8b6deeb2ff");
-    expect(first).toBe("MBM-C0EB47");
-    expect(second).toBe("MBM-123456");
-    expect(first).toMatch(/^MBM-[0-9A-F]{6}$/);
+  it("uses the entire immutable booking UUID, preventing collisions of short prefixes", () => {
+    const first = mariaBookingNumber("abcdef00-1111-4111-8111-111111111111");
+    const second = mariaBookingNumber("abcdef99-2222-4222-8222-222222222222");
+    expect(first).toBe("MBM-ABCDEF00111141118111111111111111");
+    expect(second).toBe("MBM-ABCDEF99222242228222222222222222");
+    expect(first).not.toBe(second);
+    expect(first).toMatch(/^MBM-[0-9A-F]{32}$/);
+    expect(first.length).toBeLessThanOrEqual(50);
     expect(() => mariaBookingNumber("short")).toThrow("INVALID_MARIA_BOOKING_ID");
   });
 
   it("prefills the Swish QR and app link with the correct receiver, amount and message", () => {
     const id = "c0eb47ac-cecf-4bd4-98c3-1b8b6deeb2ff";
-    expect(mariaSwishQrPayload(id)).toBe("C1235818653;2000,00;MBM-C0EB47;0");
+    expect(mariaSwishQrPayload(id)).toBe("C1235818653;2000,00;MBM-C0EB47ACCECF4BD498C31B8B6DEEB2FF;0");
     expect(mariaSwishQrPath(id)).toBe(`/api/makeup-by-maria/swish-qr/${id}`);
     expect(mariaSwishPaymentPagePath(id)).toBe(`/maria/swish/${id}`);
     const link = new URL(mariaSwishPaymentLink(id));
     expect(link.searchParams.get("sw")).toBe("1235818653");
     expect(link.searchParams.get("amt")).toBe("2000");
     expect(link.searchParams.get("cur")).toBe("SEK");
-    expect(link.searchParams.get("msg")).toBe("MBM-C0EB47");
+    expect(link.searchParams.get("msg")).toBe("MBM-C0EB47ACCECF4BD498C31B8B6DEEB2FF");
     expect(link.searchParams.get("src")).toBe("qr");
   });
   it("sets 24 hours from manual confirmation and rejects bad dates", () => {

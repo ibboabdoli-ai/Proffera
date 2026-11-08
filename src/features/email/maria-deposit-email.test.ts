@@ -37,9 +37,9 @@ afterEach(() => {
 });
 
 describe("Maria-only Swish confirmation and cancellation email", () => {
-  it("shows 2000 SEK, the 24h deadline, booking-specific QR and short payment reference", () => {
+  it("shows 2000 SEK, the 24h deadline, booking-specific QR and unique payment reference", () => {
     const result = buildMariaBookingStatusEmail(booking, "https://qa.vercel.app");
-    expect(result.reference).toBe("MBM-000000");
+    expect(result.reference).toBe("MBM-00000000000000000000000000000001");
     expect(result.html).toContain('src="https://qa.vercel.app/demo/makeup-by-maria/assets/maria-client-logo.jpg"');
     expect(result.html).toContain('alt="Makeup by Maria"');
     expect(result.html.indexOf("maria-client-logo.jpg")).toBeLessThan(result.html.indexOf("Din bokning är bekräftad"));
@@ -47,7 +47,7 @@ describe("Maria-only Swish confirmation and cancellation email", () => {
     expect(result.text).toContain("24 timmar");
     expect(result.text).toContain("123-581 86 53");
     expect(result.text).toContain("senast tisdag 3 november 2026");
-    expect(result.text).toContain("Meddelande: MBM-000000");
+    expect(result.text).toContain("Meddelande: MBM-00000000000000000000000000000001");
     expect(result.text.match(/Kontrollera alltid mottagaren i Swish/g)).toHaveLength(1);
     expect(result.html).toContain('src="https://qa.vercel.app/api/makeup-by-maria/swish-qr/00000000-0000-0000-0000-000000000001"');
     expect(result.html).toContain('href="https://qa.vercel.app/maria/swish/00000000-0000-0000-0000-000000000001"');
@@ -64,7 +64,7 @@ describe("Maria-only Swish confirmation and cancellation email", () => {
     const result = buildMariaBookingStatusEmail({ ...booking, status: "cancelled" }, "https://qa.vercel.app");
     expect(result.subject).toContain("Din bokning är avbokad");
     expect(result.text).toContain("Du får gärna komma tillbaka med en ny bokning.");
-    expect(result.text).toContain("MBM-000000");
+    expect(result.text).toContain("MBM-00000000000000000000000000000001");
     expect(result.text).not.toContain("Handpenning");
     expect(result.html).not.toContain("/api/makeup-by-maria/swish-qr/");
     expect(result.html).toContain('src="https://qa.vercel.app/demo/makeup-by-maria/assets/maria-client-logo.jpg"');
@@ -108,7 +108,7 @@ describe("Maria-only Swish confirmation and cancellation email", () => {
     expect(output.text).not.toContain("24 timmar");
     expect(output.text).not.toContain("Pay within 24 hours");
     expect(output.text).not.toContain("يُدفع خلال");
-    expect(output.text).toContain("MBM-000000");
+    expect(output.text).toContain("MBM-00000000000000000000000000000001");
   });
 
   it("reads the latest booking-scoped manual payment state before sending a confirmation", async () => {
@@ -238,7 +238,7 @@ describe("Maria-only Swish confirmation and cancellation email", () => {
     expect(payload.htmlContent).toContain("/api/makeup-by-maria/swish-qr/");
     expect(payload.htmlContent).toContain("/maria/swish/");
     expect(payload.htmlContent).not.toContain("app.swish.nu");
-    expect(payload.textContent).toContain("MBM-000000");
+    expect(payload.textContent).toContain("MBM-00000000000000000000000000000001");
   });
 
   it("reports provider errors without assuming payment or delivery", async () => {

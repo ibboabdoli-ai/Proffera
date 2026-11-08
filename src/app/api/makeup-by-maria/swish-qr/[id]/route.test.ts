@@ -31,14 +31,14 @@ afterEach(() => { vi.unstubAllEnvs(); vi.clearAllMocks(); });
 
 describe("Maria Preview booking-specific Swish QR", () => {
   it("generates a real PNG only for a confirmed QA booking with an unambiguous reference", async () => {
-    const sql = vi.fn().mockResolvedValueOnce([{ id }]).mockResolvedValueOnce([{ count: 0 }]);
+    const sql = vi.fn().mockResolvedValueOnce([{ id }]);
     vi.mocked(getSql).mockReturnValue(sql as never);
     const response = await GET(request, params);
     expect(response.status).toBe(200);
     expect(response.headers.get("content-type")).toBe("image/png");
     expect(response.headers.get("cache-control")).toContain("no-store");
     expect([...new Uint8Array(await response.arrayBuffer()).slice(0, 8)]).toEqual([137, 80, 78, 71, 13, 10, 26, 10]);
-    expect(sql).toHaveBeenCalledTimes(2);
+    expect(sql).toHaveBeenCalledOnce();
   });
 
   it("keeps tenant, booking-state, source, and QA-email constraints in the actual eligibility query", async () => {
@@ -68,13 +68,13 @@ describe("Maria Preview booking-specific Swish QR", () => {
 
   it("supports a Production PNG for an existing confirmed unpaid booking with a unique reference", async () => {
     vi.stubEnv("VERCEL_ENV", "production");
-    const sql = vi.fn().mockResolvedValueOnce([{ id }]).mockResolvedValueOnce([{ count: 0 }]);
+    const sql = vi.fn().mockResolvedValueOnce([{ id }]);
     vi.mocked(getSql).mockReturnValue(sql as never);
     const response = await GET(request, params);
     expect(response.status).toBe(200);
     expect(response.headers.get("content-type")).toBe("image/png");
     expect([...new Uint8Array(await response.arrayBuffer()).slice(0, 8)]).toEqual([137, 80, 78, 71, 13, 10, 26, 10]);
-    expect(sql).toHaveBeenCalledTimes(2);
+    expect(sql).toHaveBeenCalledOnce();
   });
 
   it("refuses missing or paid Production bookings, malformed IDs, and disabled Preview intake", async () => {
@@ -95,16 +95,13 @@ describe("Maria Preview booking-specific Swish QR", () => {
     expect(sql).not.toHaveBeenCalled();
   });
 
-  it("rejects absent bookings, ambiguous short references and unauthorized recipients", async () => {
-    let sql = vi.fn().mockResolvedValueOnce([]);
+  it("rejects absent bookings and unauthorized recipients without a duplicate-prefix lookup", async () => {
+    const sql = vi.fn().mockResolvedValueOnce([]);
     vi.mocked(getSql).mockReturnValue(sql as never);
     expect((await GET(request, params)).status).toBe(404);
-
-    sql = vi.fn().mockResolvedValueOnce([{ id }]).mockResolvedValueOnce([{ count: 1 }]);
-    vi.mocked(getSql).mockReturnValue(sql as never);
-    expect((await GET(request, params)).status).toBe(409);
-
+    expect(sql).toHaveBeenCalledOnce();
     vi.stubEnv("PROFFERA_MARIA_PREVIEW_TEST_EMAIL", "other@example.invalid");
     expect((await GET(request, params)).status).toBe(404);
+    expect(sql).toHaveBeenCalledOnce();
   });
 });

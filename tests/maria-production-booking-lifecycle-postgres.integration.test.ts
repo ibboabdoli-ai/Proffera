@@ -46,6 +46,7 @@ import { getMariaBookingReadiness } from "@/lib/maria-booking-runtime";
 import { updateDashboardBookingStatus } from "@/lib/dashboard-booking-status";
 import { setMariaManualSwishStatus, readMariaManualSwishStatuses } from "@/lib/maria-manual-swish";
 import { readMariaSwishQrEligibility } from "@/lib/maria-swish-qr-eligibility";
+import { mariaBookingNumber } from "@/lib/maria-deposit";
 import { changeMariaManualCalendar } from "@/lib/maria-manual-calendar";
 import { sendMariaBookingStatusEmail } from "@/features/email/maria-deposit-email";
 
@@ -273,4 +274,37 @@ function compileSql(strings: TemplateStringsArray, values: unknown[]): Query {
       [workspaceId]);
     expect(closed.rowCount).toBeGreaterThan(0);
   },120_000);
+
+  it("keeps two real PostgreSQL bookings with the same old six-digit prefix independently payable", async () => {
+    const ids = [
+      "abcdef00-1111-4111-8111-111111111111",
+      "abcdef99-2222-4222-8222-222222222222",
+    ];
+    const customerId = randomUUID();
+    const start = new Date(startsAt).getTime();
+    const end = new Date(endsAt).getTime();
+    await db!.query(
+      "insert into customers(id,workspace_id,name,email,status,source) values($1::uuid,$2,'Synthetic collision customer','collision@example.invalid','active','dashboard_manual')",
+      [customerId, workspaceId],
+    );
+    try {
+      for (let index = 0; index < ids.length; index++) {
+        const offset = (index + 2) * 7 * 86_400_000;
+        await db!.query(
+          `insert into bookings(id,workspace_id,customer_id,service_id,title,service,status,source,starts_at,ends_at)
+           values($1::uuid,$2,$3::uuid,$4::uuid,'Synthetic payment reference collision',
+             'Brudmakeup med prov','confirmed','public_booking',$5::timestamptz,$6::timestamptz)`,
+          [ids[index], workspaceId, customerId, serviceId,
+            new Date(start + offset).toISOString(), new Date(end + offset).toISOString()],
+        );
+      }
+      expect(mariaBookingNumber(ids[0]!).slice(0, 10)).toBe(mariaBookingNumber(ids[1]!).slice(0, 10));
+      expect(mariaBookingNumber(ids[0]!)).not.toBe(mariaBookingNumber(ids[1]!));
+      expect(await readMariaSwishQrEligibility(ids[0]!)).toBe("eligible");
+      expect(await readMariaSwishQrEligibility(ids[1]!)).toBe("eligible");
+    } finally {
+      await db!.query("delete from bookings where id=any($1::uuid[])", [ids]);
+      await db!.query("delete from customers where id=$1::uuid", [customerId]);
+    }
+  },30_000);
 });

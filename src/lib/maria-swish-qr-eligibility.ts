@@ -2,12 +2,11 @@ import "server-only";
 
 import { getSql } from "@/lib/db/server";
 import { getMariaBookingReadiness } from "@/lib/maria-booking-runtime";
-import { mariaBookingNumber } from "@/lib/maria-deposit";
 import { isMariaPreviewTestRecipient } from "@/lib/maria-preview-customer-safety";
 
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-export type MariaSwishQrEligibility = "eligible" | "unavailable" | "ambiguous";
+export type MariaSwishQrEligibility = "eligible" | "unavailable";
 
 /** Shared fail-closed eligibility for Maria QR and its dashboard image. */
 export async function readMariaSwishQrEligibility(bookingId: string, expectedWorkspaceId?: string): Promise<MariaSwishQrEligibility> {
@@ -56,15 +55,7 @@ export async function readMariaSwishQrEligibility(bookingId: string, expectedWor
   `;
   if (eligible.length !== 1) return "unavailable";
 
-  // The public reference uses six UUID characters; never display a QR when
-  // another Maria booking could be confused with this booking's reference.
-  const duplicate = await sql`
-    select count(*)::int as count
-    from bookings b
-    join workspaces w on w.id::text=b.workspace_id
-    where w.slug='makeup-by-maria'
-      and b.id<>${bookingId}::uuid
-      and left(replace(b.id::text, '-', ''), 6)=${mariaBookingNumber(bookingId).slice(4).toLowerCase()}
-  `;
-  return Number(duplicate[0]?.count ?? 0) === 0 ? "eligible" : "ambiguous";
+  // The payment message contains the entire UUID, so distinct persisted
+  // booking IDs cannot share a payment reference. No second SQL query needed.
+  return "eligible";
 }
