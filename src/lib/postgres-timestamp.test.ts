@@ -15,3 +15,4 @@ describe("PostgreSQL booking timestamp precision", () => {
     expect(() => postgresTimestampIso("not a timestamp"))
       .toThrow("Invalid PostgreSQL booking timestamp");
   });
+});
