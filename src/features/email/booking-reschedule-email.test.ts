@@ -35,6 +35,19 @@ describe("bounded booking reschedule email delivery", () => {
     const request = fetchMock.mock.calls[0]?.[1] as RequestInit | undefined;
     expect(request?.signal).toBeInstanceOf(AbortSignal);
   });
+  it("does not report success when a 2xx response body times out", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => { throw new DOMException("Synthetic body timeout", "TimeoutError"); },
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    expect(await sendBookingRescheduleEmail(booking)).toEqual({
+      ok: false,
+      message: "Brevo response body could not be read; email delivery is unconfirmed.",
+    });
+    expect(fetchMock).toHaveBeenCalledOnce();
+  });
+
   it("does not mislabel an explicit Brevo rejection as uncertain", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
       ok: false, json: async () => ({ message: "Synthetic provider rejection" }),
