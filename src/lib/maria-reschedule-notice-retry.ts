@@ -70,7 +70,7 @@ export async function retryMariaRescheduleNotice(id:string,workspaceId:string){
   const base=getMariaBookingPortalBase();
   const readiness=await getMariaBookingReadiness();
   if(!base||!readiness.enabled||readiness.workspaceId!==workspaceId)return {ok:false as const};
-  let claimedAttempt: {eventId:string; attemptedAt:string}|null = null;
+  const claimedAttempt = { eventId: "", attemptedAt: "" };
   let providerRequestStarted = false;
   try{
     return await withMariaBookingNotificationLock(workspaceId,async(signal)=>{
@@ -108,7 +108,8 @@ export async function retryMariaRescheduleNotice(id:string,workspaceId:string){
       returning e.metadata->>'notice_attempted_at' as attempted_at
     `;
     if(claims.length===1) {
-      claimedAttempt = {eventId, attemptedAt:String(claims[0]?.attempted_at)};
+      claimedAttempt.eventId = eventId;
+      claimedAttempt.attemptedAt = String(claims[0]?.attempted_at);
     }
     if(signal?.aborted||claims.length!==1)return {ok:false as const};
     const day=86_400;
@@ -176,7 +177,7 @@ export async function retryMariaRescheduleNotice(id:string,workspaceId:string){
     // Only a callback that never began an HTTP request can be safely freed
     // for retry. If a request may have reached Brevo, hold for reconciliation.
     try {
-      if (claimedAttempt) {
+      if (claimedAttempt.eventId) {
         const sql=getSql();
         if (sql) {
           const finalState=providerRequestStarted?"uncertain":"failed";
