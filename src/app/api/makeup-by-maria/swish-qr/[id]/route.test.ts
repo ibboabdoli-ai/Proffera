@@ -2,6 +2,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("server-only", () => ({}));
 vi.mock("@/lib/db/server", () => ({ getSql: vi.fn() }));
+vi.mock("@/lib/maria-booking-reference-db", () => ({
+  readMariaBookingReference: vi.fn(async () => "MBM-C0EB47ACCECF4BD498C31B8B6DEEB2FF"),
+}));
 vi.mock("@/lib/maria-booking-runtime", () => ({
   // Exercise the QR eligibility SQL directly with synthetic, scoped bookings.
   // Existing confirmed unpaid Production bookings can pay when intake is paused.
@@ -16,6 +19,7 @@ vi.mock("@/lib/maria-preview-customer-safety", () => ({
 }));
 
 import { getSql } from "@/lib/db/server";
+import { readMariaBookingReference } from "@/lib/maria-booking-reference-db";
 import { GET } from "./route";
 
 const id = "c0eb47ac-cecf-4bd4-98c3-1b8b6deeb2ff";
@@ -38,6 +42,16 @@ describe("Maria Preview booking-specific Swish QR", () => {
     expect(response.headers.get("content-type")).toBe("image/png");
     expect(response.headers.get("cache-control")).toContain("no-store");
     expect([...new Uint8Array(await response.arrayBuffer()).slice(0, 8)]).toEqual([137, 80, 78, 71, 13, 10, 26, 10]);
+    expect(sql).toHaveBeenCalledOnce();
+  });
+
+  it("generates a QR for an assigned short reference without changing recipient or amount", async () => {
+    vi.mocked(readMariaBookingReference).mockResolvedValueOnce("MBM-2026111001");
+    const sql = vi.fn().mockResolvedValueOnce([{ id }]);
+    vi.mocked(getSql).mockReturnValue(sql as never);
+    const response = await GET(request, params);
+    expect(response.status).toBe(200);
+    expect(readMariaBookingReference).toHaveBeenCalledWith(id);
     expect(sql).toHaveBeenCalledOnce();
   });
 
