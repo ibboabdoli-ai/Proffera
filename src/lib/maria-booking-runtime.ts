@@ -46,13 +46,16 @@ export async function getMariaBookingReadiness(): Promise<MariaBookingReadiness>
         to_regclass('public.proffera_schema_migrations') is not null as ledger,
         to_regclass('public.maria_manual_closed_starts') is not null as closed_starts,
         to_regclass('public.maria_service_card_translations') is not null as translations,
+        to_regclass('public.maria_booking_references') is not null as booking_references,
+        to_regclass('public.maria_booking_reference_counters') is not null as reference_counters,
         to_regclass('public.public_booking_verifications') is not null as verifications,
         (select count(*) from information_schema.columns
          where table_schema='public' and table_name='public_booking_verifications'
            and column_name in ('address','postcode','booking_details')) = 3 as contact_columns
     `;
     const s = schema[0];
-    if (!s || ![s.ledger, s.closed_starts, s.translations, s.verifications, s.contact_columns]
+    if (!s || ![s.ledger, s.closed_starts, s.translations, s.booking_references,
+      s.reference_counters, s.verifications, s.contact_columns]
       .every(value => value === true)) return { enabled: false };
 
     // A migration receipt and relation name do not prove CREATE TABLE IF NOT
@@ -107,9 +110,9 @@ export async function getMariaBookingReadiness(): Promise<MariaBookingReadiness>
     const ledger = await sql`
       select count(distinct migration_key)::int as count
       from proffera_schema_migrations
-      where migration_key in ('20261103_0072', '20261105_0073', '20261107_0074')
+      where migration_key in ('20261103_0072', '20261105_0073', '20261107_0074', '20261110_0076')
     `;
-    if (Number(ledger[0]?.count) !== 3) return { enabled: false };
+    if (Number(ledger[0]?.count) !== 4) return { enabled: false };
 
     const rows = await sql`
       select w.id::text as workspace_id, w.public_booking_slug,
