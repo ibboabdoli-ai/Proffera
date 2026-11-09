@@ -215,7 +215,7 @@ describe("Maria Preview booking status action on a deleted booking", () => {
     runtime.sendStatusEmail.mockResolvedValue({ ok: false, error: "email_delivery_uncertain" });
     runtime.retrySql.mockResolvedValueOnce([{ notice_state: "uncertain" }]);
     await expect(action(statusForm("cancelled"))).rejects.toThrow(
-      `REDIRECT:/dashboard/bokningar/${id}?updated=1&maria_mail=failed&lang=en`,
+      `REDIRECT:/dashboard/bokningar/${id}?updated=1&maria_mail=uncertain&lang=en`,
     );
     const journal = (runtime.retrySql.mock.calls[0]![0] as TemplateStringsArray).join("?");
     expect(journal).toContain("update customer_events");
