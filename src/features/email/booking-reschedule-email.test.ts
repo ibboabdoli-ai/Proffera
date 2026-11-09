@@ -1,6 +1,18 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("server-only", () => ({}));
+const guards = vi.hoisted(() => ({
+  portal: vi.fn((): string | null => "https://maria-qa.vercel.app"),
+  allowed: vi.fn(() => true),
+  readiness: vi.fn(async () => ({ enabled: true })),
+}));
+vi.mock("@/lib/maria-preview-customer-safety", () => ({
+  getMariaBookingPortalBase: guards.portal,
+  isMariaBookingRecipientAllowed: guards.allowed,
+}));
+vi.mock("@/lib/maria-booking-runtime", () => ({
+  getMariaBookingReadiness: guards.readiness,
+}));
 import { sendBookingRescheduleEmail } from "./booking-reschedule-email";
 
 const booking = {
@@ -25,6 +37,28 @@ afterEach(() => {
 });
 
 describe("bounded booking reschedule email delivery", () => {
+  it("marks Maria portal, recipient, and readiness pre-dispatch failures as definitely unsent", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    const onRequestStart = vi.fn();
+    const input = { ...booking, branding: "makeup-by-maria" as const, onRequestStart };
+
+    guards.portal.mockReturnValueOnce(null);
+    expect(await sendBookingRescheduleEmail(input)).toEqual({
+      ok: false, notSent: true, message: "Maria booking recipient is not allowed.",
+    });
+    guards.allowed.mockReturnValueOnce(false);
+    expect(await sendBookingRescheduleEmail(input)).toEqual({
+      ok: false, notSent: true, message: "Maria booking recipient is not allowed.",
+    });
+    guards.readiness.mockResolvedValueOnce({ enabled: false });
+    expect(await sendBookingRescheduleEmail(input)).toEqual({
+      ok: false, notSent: true, message: "Maria booking is not ready.",
+    });
+    expect(onRequestStart).not.toHaveBeenCalled();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it("bounds a provider wait and labels a timeout as uncertain delivery", async () => {
     const fetchMock = vi.fn().mockRejectedValue(new DOMException("Synthetic timeout", "TimeoutError"));
     vi.stubGlobal("fetch", fetchMock);
