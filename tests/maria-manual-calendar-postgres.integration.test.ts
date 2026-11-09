@@ -528,6 +528,12 @@ function futureFriday() {
       [saved.bookingId],
     );
     expect(savedLocale.rows[0]?.language).toBe("ar");
+    const assigned = await db!.query<{reference:string}>(
+      "select reference from maria_booking_references where booking_id=$1::uuid",
+      [saved.bookingId],
+    );
+    expect(assigned.rows[0]?.reference).toMatch(/^MBM-[0-9]{10,}$/);
+    expect(assigned.rows[0]?.reference).not.toContain(saved.bookingId.replaceAll("-", "").toUpperCase());
     expect((await manualBlocks())).toHaveLength(intervals.length-1);
 
     // Physical appointments still cannot overlap. The canonical exclusion
