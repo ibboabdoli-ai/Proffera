@@ -17,16 +17,16 @@ vi.mock("@/components/performance/web-vitals-reporter", () => ({
   WebVitalsReporter: () => "WEB_VITALS_RENDERED",
 }));
 vi.mock("@/components/layout/app-shell", () => ({
-  AppShell: ({ children }: { children: React.ReactNode }) => children,
+  AppShell: ({ children }: { children: React.ReactNode }) => createElement("div", { "data-testid": "proffera-shell" }, children),
 }));
 vi.mock("@/components/analytics/primeview-google-ads-analytics", () => ({
   PrimeViewGoogleAdsAnalytics: () => null,
 }));
 vi.mock("@/components/service-ai-chat-widget", () => ({
-  ServiceAiChatWidget: () => null,
+  ServiceAiChatWidget: () => "PROFFERA_CHAT_RENDERED",
 }));
 vi.mock("@/components/pwa-service-worker", () => ({
-  PwaServiceWorker: () => null,
+  PwaServiceWorker: () => "PROFFERA_PWA_RENDERED",
 }));
 
 import RootLayout from "@/app/layout";
@@ -43,8 +43,8 @@ beforeEach(() => {
 
 afterEach(() => vi.unstubAllEnvs());
 
-async function renderRoot(standalone: boolean) {
-  const headers = new Headers({ host });
+async function renderRoot(standalone: boolean, siteHost = host) {
+  const headers = new Headers({ host: siteHost });
   if (standalone) headers.set(MARIA_PAYMENT_SHELL_HEADER, "1");
   mock.requestHeaders.mockReturnValue(headers);
   return renderToStaticMarkup(await RootLayout({
@@ -59,6 +59,26 @@ describe("Maria Preview payment shell analytics privacy", () => {
     expect(html).not.toContain("POSTHOG_RENDERED");
     expect(html).not.toContain("CONSENT_RENDERED");
     expect(html).not.toContain("WEB_VITALS_RENDERED");
+  });
+
+  it("renders only Maria branding in Production on its canonical payment origin", async () => {
+    vi.stubEnv("VERCEL_ENV", "production");
+    vi.stubEnv("PROFFERA_MARIA_PUBLIC_SITE_ENABLED", "true");
+    const html = await renderRoot(true, "makeupbymaria.se");
+    expect(html).toContain("synthetic-payment-page");
+    expect(html).not.toContain("proffera-shell");
+    expect(html).not.toContain("PROFFERA_CHAT_RENDERED");
+    expect(html).not.toContain("PROFFERA_PWA_RENDERED");
+    expect(html).not.toContain("CONSENT_RENDERED");
+    expect(html).not.toContain("WEB_VITALS_RENDERED");
+  });
+
+  it("never trusts a standalone marker on the Production Proffera host", async () => {
+    vi.stubEnv("VERCEL_ENV", "production");
+    vi.stubEnv("PROFFERA_MARIA_PUBLIC_SITE_ENABLED", "true");
+    const html = await renderRoot(true, "www.proffera.se");
+    expect(html).toContain("proffera-shell");
+    expect(html).toContain("PROFFERA_CHAT_RENDERED");
   });
 
   it("keeps the normal Preview analytics and consent gate on the platform", async () => {
