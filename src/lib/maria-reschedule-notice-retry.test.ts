@@ -194,6 +194,59 @@ describe("Maria customer-reschedule notification retry",()=>{
     },
   );
 
+  it("keeps a settled customer success and owner rejection after lock Abort", async()=>{
+    const bothFailed={...row,metadata:{...row.metadata,
+      notice_customer:"failed",notice_owner:"failed"}};
+    const attemptedAt="2026-11-08 11:02:00+00";
+    m.sql.mockResolvedValueOnce([bothFailed])
+      .mockResolvedValueOnce([{attempted_at:attemptedAt}])
+      .mockResolvedValueOnce([{id:eventId}]);
+    m.send.mockImplementationOnce(async(input:{
+      onRequestStart?:(recipient:"customer"|"owner")=>void;
+      onDeliveryResult?:(recipient:"customer"|"owner",
+        outcome:{ok:boolean;notSent?:boolean})=>void;
+    })=>{
+      input.onRequestStart?.("customer");
+      input.onRequestStart?.("owner");
+      input.onDeliveryResult?.("customer",{ok:true});
+      input.onDeliveryResult?.("owner",{ok:false,notSent:true});
+      m.abortController?.abort();
+      return [
+        {status:"fulfilled",value:{ok:true}},
+        {status:"fulfilled",value:{ok:false,notSent:true}},
+      ];
+    });
+    expect(await retryMariaRescheduleNotice(id,workspaceId)).toEqual({ok:false});
+    const recovery=m.sql.mock.calls[2]!;
+    const query=(recovery[0] as TemplateStringsArray).join("?");
+    expect(query).toContain("notice_attempted_at");
+    expect(recovery).toContain(attemptedAt);
+    expect(recovery).toContain("sent");
+    expect(recovery).toContain("failed");
+    expect(recovery).not.toContain("uncertain");
+    expect(m.send).toHaveBeenCalledOnce();
+  });
+
+  it("keeps an accepted manager notice settled after lock Abort", async()=>{
+    const manager={...row,metadata:{...row.metadata,
+      source:"maria_manager_dashboard_reschedule",
+      notice_customer:"failed",notice_owner:"skipped"}};
+    const attemptedAt="2026-11-08 11:03:00+00";
+    m.sql.mockResolvedValueOnce([manager])
+      .mockResolvedValueOnce([{attempted_at:attemptedAt}])
+      .mockResolvedValueOnce([{id:eventId}]);
+    m.sendManager.mockImplementationOnce(async(input:{onRequestStart?:()=>void})=>{
+      input.onRequestStart?.();
+      m.abortController?.abort();
+      return {ok:true};
+    });
+    expect(await retryMariaRescheduleNotice(id,workspaceId)).toEqual({ok:false});
+    const recovery=m.sql.mock.calls[2]!;
+    expect(recovery).toContain("sent");
+    expect(recovery).not.toContain("uncertain");
+    expect(recovery).toContain(attemptedAt);
+  });
+
   it("does not operate when Maria activation has been disabled",async()=>{
     m.ready.mockResolvedValue({enabled:false});
     expect(await retryMariaRescheduleNotice(id,workspaceId)).toEqual({ok:false});

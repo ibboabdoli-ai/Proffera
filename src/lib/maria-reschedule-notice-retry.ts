@@ -71,7 +71,11 @@ export async function retryMariaRescheduleNotice(id:string,workspaceId:string){
   const readiness=await getMariaBookingReadiness();
   if(!base||!readiness.enabled||readiness.workspaceId!==workspaceId)return {ok:false as const};
   const claimedAttempt = { eventId: "", attemptedAt: "" };
-  let providerRequestStarted = false;
+  type NoticeState = "sent" | "failed" | "uncertain";
+  const started = { customer: false, owner: false };
+  const settled: { customer?: NoticeState; owner?: NoticeState } = {};
+  const classify = (result: {ok:boolean;notSent?:boolean;deliveryUncertain?:boolean}): NoticeState =>
+    result.ok ? "sent" : result.notSent ? "failed" : "uncertain";
   try{
     return await withMariaBookingNotificationLock(workspaceId,async(signal)=>{
     const sql=getSql();if(!sql)return {ok:false as const};
@@ -133,7 +137,10 @@ export async function retryMariaRescheduleNotice(id:string,workspaceId:string){
           endsAt:new Date(String(row.ends_at)).toISOString(),
           timeZone:"Europe/Stockholm",language,
           ...(signal ? {signal} : {}),
-          onRequestStart: () => { providerRequestStarted = true; },
+          onRequestStart: () => { started.customer = true; },
+        }).then(outcome => {
+          settled.customer = classify(outcome);
+          return outcome;
         })])
       : await sendBookingChangeEmails({
       kind:"rescheduled",branding:"makeup-by-maria",
@@ -149,23 +156,21 @@ export async function retryMariaRescheduleNotice(id:string,workspaceId:string){
       portalUrl:`${base}/mina-bokningar/${encodeURIComponent(token)}?lang=${language}`,
       timeZone:"Europe/Stockholm",language,
       ...(signal ? {signal} : {}),
-      onRequestStart: () => { providerRequestStarted = true; },
+      onRequestStart: (recipient) => { started[recipient] = true; },
+      onDeliveryResult: (recipient, outcome) => { settled[recipient] = classify(outcome); },
     });
-    if (signal.aborted) throw new Error("Maria reschedule retry lock expired during provider dispatch");
-    const sent=(item:(typeof res)[number]|undefined)=>item?.status==="fulfilled"
-      &&!!item.value &&typeof item.value==="object"
-      &&"ok" in item.value &&item.value.ok===true;
-    const state = (item:(typeof res)[number]|undefined) => {
-      if (sent(item)) return "sent";
-      if (item?.status === "rejected"
-        || (item?.status === "fulfilled" && item.value
-          && typeof item.value === "object" && "deliveryUncertain" in item.value
-          && item.value.deliveryUncertain === true)) return "uncertain";
-      return "failed";
+    const fromSettled = (item:(typeof res)[number]|undefined, recipient:"customer"|"owner"):NoticeState => {
+      if (item?.status === "fulfilled" && item.value && typeof item.value === "object"
+        && "ok" in item.value) {
+        return classify(item.value as {ok:boolean;notSent?:boolean;deliveryUncertain?:boolean});
+      }
+      return settled[recipient] ?? (item?.status === "rejected" || started[recipient] ? "uncertain" : "failed");
     };
-    const cs=customer?state(res[0]):String(m.notice_customer??"skipped");
-    const os=owner?state(res[1]):String(m.notice_owner??"skipped");
+    if (customer) settled.customer = fromSettled(res[0],"customer");
+    if (owner) settled.owner = fromSettled(res[1],"owner");
     if (signal.aborted) throw new Error("Maria reschedule retry lock expired during provider dispatch");
+    const cs=customer?(settled.customer??"uncertain"):String(m.notice_customer??"skipped");
+    const os=owner?(settled.owner??"uncertain"):String(m.notice_owner??"skipped");
     const updated=await sql`
       update customer_events e set metadata=e.metadata||jsonb_build_object(
         'notice_customer',${cs}::text,'notice_owner',${os}::text)
@@ -183,13 +188,14 @@ export async function retryMariaRescheduleNotice(id:string,workspaceId:string){
       if (claimedAttempt.eventId) {
         const sql=getSql();
         if (sql) {
-          const finalState=providerRequestStarted?"uncertain":"failed";
+          const customerRecovery = settled.customer ?? (started.customer ? "uncertain" : "failed");
+          const ownerRecovery = settled.owner ?? (started.owner ? "uncertain" : "failed");
           await sql`
             update customer_events e set metadata=e.metadata||jsonb_build_object(
               'notice_customer',case when e.metadata->>'notice_customer'='sending'
-                then ${finalState}::text else e.metadata->>'notice_customer' end,
+                then ${customerRecovery}::text else e.metadata->>'notice_customer' end,
               'notice_owner',case when e.metadata->>'notice_owner'='sending'
-                then ${finalState}::text else e.metadata->>'notice_owner' end)
+                then ${ownerRecovery}::text else e.metadata->>'notice_owner' end)
             where e.id=${claimedAttempt.eventId}::uuid
               and e.workspace_id=${workspaceId} and e.booking_id=${id}::uuid
               and e.metadata->>'notice_attempted_at'=${claimedAttempt.attemptedAt}

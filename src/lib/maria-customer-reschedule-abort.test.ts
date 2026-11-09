@@ -110,6 +110,54 @@ describe("Maria reschedule pre-dispatch timeout safety", () => {
     expect(recoveryCall).toContain("failed");
   });
 
+  it("preserves accepted customer and definitely rejected owner notice after a lock Abort", async () => {
+    const owner = "qa-owner@example.invalid";
+    fixture.transaction.mockResolvedValueOnce([[], [{
+      notice_event_id: noticeEventId, notice_attempted_at: attempt,
+      notice_revision: "2027-06-17T08:00:00.000Z",
+      customer_email: "qa@example.invalid", customer_name: "Synthetic customer",
+      owner_email: owner, company_name: "Makeup by Maria",
+      service_name: "Brudsmink",old_starts_at:"2027-06-11T09:00:00.000Z",
+      old_ends_at:"2027-06-11T11:00:00.000Z",city:"Södertälje",
+    }]]);
+    let controller: AbortController | undefined;
+    fixture.locked.mockImplementationOnce(async (_workspace: string,
+      action: (signal: AbortSignal) => Promise<unknown>) => {
+      controller = new AbortController();
+      return action(controller.signal);
+    });
+    fixture.send.mockImplementationOnce(async (input: {
+      onRequestStart?: (recipient: "customer" | "owner") => void;
+      onDeliveryResult?: (recipient: "customer" | "owner",
+        outcome: {ok:boolean;notSent?:boolean}) => void;
+    }) => {
+      input.onRequestStart?.("customer");
+      input.onRequestStart?.("owner");
+      input.onDeliveryResult?.("customer", {ok:true});
+      input.onDeliveryResult?.("owner", {ok:false,notSent:true});
+      controller!.abort();
+      return [
+        {status:"fulfilled",value:{ok:true}},
+        {status:"fulfilled",value:{ok:false,notSent:true}},
+      ];
+    });
+    expect(await rescheduleMariaCustomerBooking({
+      workspaceId, customerId, bookingId, startsAtLocal:"2027-06-18T09:00",
+      token:"synthetic-token",language:"en",
+    })).toEqual({ok:true,emailWarning:true});
+    const recovery = fixture.sql.mock.calls.find(([parts]) =>
+      (parts as TemplateStringsArray).join("?").includes("update customer_events e"));
+    expect(recovery).toBeDefined();
+    const sql = (recovery![0] as TemplateStringsArray).join("?");
+    expect(sql).toContain("notice_attempted_at");
+    expect(recovery).toContain(noticeEventId);
+    expect(recovery).toContain(attempt);
+    expect(recovery).toContain("sent");
+    expect(recovery).toContain("failed");
+    expect(recovery).not.toContain("uncertain");
+    expect(fixture.send).toHaveBeenCalledOnce();
+  });
+
   it("cannot overwrite a newer sending attempt after an older pre-dispatch abort", async () => {
     fixture.locked.mockImplementationOnce(async (_workspace: string,
       action: (signal: AbortSignal) => Promise<unknown>) => {

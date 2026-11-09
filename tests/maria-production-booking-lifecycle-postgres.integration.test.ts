@@ -672,7 +672,7 @@ function compileSql(strings: TemplateStringsArray, values: unknown[]): Query {
     }
   },30_000);
 
-  it("keeps uncertain and sending notices blocked despite a later failed event in PostgreSQL", async () => {
+  it("keeps uncertain, pending and sending notices blocked despite a later failed event in PostgreSQL", async () => {
     const b=await makeIsolatedRetryBooking();
     const revision=new Date(b.updated_at).toISOString(), ids:string[]=[];
     const add=async (state:string)=>{
@@ -687,6 +687,11 @@ function compileSql(strings: TemplateStringsArray, values: unknown[]): Query {
     try {
       const first=await add("uncertain");
       await add("failed");
+      expect(await getMariaStatusRetryGate(input)).toBe("uncertain");
+      expect(await claimMariaStatusRetry(input)).toBeNull();
+      // A current-revision PENDING notice must also block the read gate and
+      // the atomic claim, even when a later separate attempt is failed.
+      await db!.query("update customer_events set metadata=jsonb_set(metadata,'{notice_customer}',to_jsonb('pending'::text)) where id=$1::uuid",[first]);
       expect(await getMariaStatusRetryGate(input)).toBe("uncertain");
       expect(await claimMariaStatusRetry(input)).toBeNull();
       await db!.query("update customer_events set metadata=jsonb_set(metadata,'{notice_customer}',to_jsonb('sending'::text)) where id=$1::uuid",[first]);

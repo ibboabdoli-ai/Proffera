@@ -46,7 +46,7 @@ function parseSender(value: string) {
 async function send(to: { email: string; name: string }, subject: string, text: string, html: string, signal?: AbortSignal, onRequestStart?: () => void) {
   const apiKey = resolveBrevoApiKey();
   const from = process.env.LEAD_FROM_EMAIL;
-  if (!apiKey || !from) return { ok: false as const, message: "Brevo är inte konfigurerat." };
+  if (!apiKey || !from) return { ok: false as const, notSent: true as const, message: "Brevo är inte konfigurerat." };
   if (signal?.aborted) return { ok: false as const, notSent: true as const, message: "Maria notification lock expired before dispatch." };
   try {
     onRequestStart?.();
