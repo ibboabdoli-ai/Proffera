@@ -1,5 +1,7 @@
 import { execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 
 import { Client } from "pg";
@@ -210,6 +212,26 @@ function compileSql(parts: TemplateStringsArray, values: unknown[]): Query {
       autoCompleteEnabled: false,
       companyConfirmationRequired: true,
     });
+  });
+
+  it("reinstates the 0075 range CHECK when lifecycle columns already existed", async () => {
+    // The real Production-shaped schema already has all six columns but may
+    // lack this CHECK. Re-run the exact canonical migration in isolated PG.
+    await db!.query(
+      "alter table public.workspace_booking_reminder_settings drop constraint if exists workspace_booking_reminder_settings_cancel_notice_hours_check",
+    );
+    const sql = readFileSync(resolve(process.cwd(),
+      "db/migrations/20261108_0075_booking_reminder_lifecycle_settings.sql"), "utf8");
+    await db!.query(sql);
+    const check = await db!.query<{ definition: string }>(
+      "select pg_get_constraintdef(oid) as definition from pg_constraint where conrelid = 'public.workspace_booking_reminder_settings'::regclass and conname = 'workspace_booking_reminder_settings_cancel_notice_hours_check'",
+    );
+    expect(check.rows).toHaveLength(1);
+    expect(check.rows[0]?.definition).toContain("cancel_notice_hours");
+    await expect(db!.query(
+      "update public.workspace_booking_reminder_settings set cancel_notice_hours=$1 where workspace_id=$2",
+      [-1, workspaceId],
+    )).rejects.toMatchObject({ code: "23514" });
   });
 
   it("cancels an existing booking through the real backend while new intake is paused", async () => {
