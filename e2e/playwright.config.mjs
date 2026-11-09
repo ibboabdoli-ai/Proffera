@@ -11,6 +11,11 @@ const parsedBaseUrl = new URL(baseURL);
 const localHosts = new Set(["127.0.0.1", "localhost", "[::1]"]);
 const productionHosts = new Set(["proffera.se", "www.proffera.se", "chat.proffera.se"]);
 const isLocal = localHosts.has(parsedBaseUrl.hostname);
+const exactCandidate = process.env.PROFFERA_EXACT_CANDIDATE_E2E === "1";
+if (exactCandidate && (!isLocal || parsedBaseUrl.username || parsedBaseUrl.password
+  || parsedBaseUrl.pathname !== "/" || parsedBaseUrl.search || parsedBaseUrl.hash)) {
+  throw new Error("Exact-candidate E2E requires a plain local origin.");
+}
 const marketplacePreviewLifecycle = process.env.E2E_MARKETPLACE_PREVIEW_LIFECYCLE === "true";
 const previewOidcToken = String(process.env.PROFFERA_PREVIEW_E2E_OIDC_TOKEN ?? "").trim();
 const previewOidcTokenPattern = /^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/u;
@@ -91,11 +96,13 @@ export default defineConfig({
   ],
   webServer: isLocal
     ? {
-        command: `npm run dev -- --hostname ${localServerHost} --port ${localServerPort}`,
+        command: exactCandidate
+          ? `npm run build && npm run start -- --hostname ${localServerHost} --port ${localServerPort}`
+          : `npm run dev -- --hostname ${localServerHost} --port ${localServerPort}`,
         cwd: repositoryRoot,
         url: localServerUrl,
-        reuseExistingServer: !process.env.CI,
-        timeout: 120_000,
+        reuseExistingServer: !process.env.CI && !exactCandidate,
+        timeout: exactCandidate ? 720_000 : 120_000,
         stdout: "ignore",
         stderr: "pipe",
       }

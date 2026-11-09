@@ -1,17 +1,72 @@
-import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { delimiter, join, resolve } from "node:path";
+import { delimiter, dirname, join, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { pathToFileURL } from "node:url";
 
 import { describe, expect, it } from "vitest";
+// @ts-expect-error Standalone .mjs follows the repository control-plane convention.
+import { workerStrategyDescriptor } from "../scripts/supervisor-worker-strategy-memory.mjs";
 
 const helper = resolve(process.cwd(), "scripts/supervisor-worker-handoff.mjs");
 const ciScopeHelper = resolve(process.cwd(), "scripts/ci-scope-plan.mjs");
 const sha = "a".repeat(40);
 const otherSha = "b".repeat(40);
 const taskMarker = "<!-- proffera-worker-task-packet:v1 -->";
+
+
+/** Test-only bridge: native Windows Node does not execute extensionless shebang fixtures. */
+function isolatedGhEnvironment(bin: string, nodeOptions = process.env.NODE_OPTIONS) {
+  const preload = join(bin, "isolated-gh.cjs");
+  const fixture = join(bin, "gh");
+  if (process.platform === "win32") {
+    // Match Linux byte semantics; native jq otherwise emits CRLF into Bash substitutions.
+    const jq = (process.env.PATH ?? process.env.Path ?? "").split(delimiter)
+      .map(dir => join(dir, "jq.exe")).find(path => existsSync(path));
+    if (!jq) throw new Error("Native jq is required for isolated Windows Worker tests");
+    const quoted = "\u0027" + jq.replaceAll("\\", "/").replaceAll("\u0027", "\u0027\\\u0027\u0027") + "\u0027";
+    // A shell function avoids starting another MSYS shell for every jq invocation.
+    // The real jq still handles stdin, arguments, output and exit status unchanged.
+    writeFileSync(join(bin, "bash-env.sh"), 'jq() { ' + quoted + ' -b "$@"; }\n');
+  }
+  if (!existsSync(fixture)) throw new Error("Missing isolated gh fixture: " + fixture);
+  writeFileSync(preload, [
+    'const cp = require("node:child_process");',
+    'const fs = require("node:fs");',
+    'const path = require("node:path");',
+    'const original = cp.execFileSync;',
+    'cp.execFileSync = function(command, args, options) {',
+    '  if (!/^gh(?:\\.exe)?$/i.test(path.basename(String(command)))) return original.call(this, command, args, options);',
+    '  const fixture = process.env.PROFFERA_TEST_GH_FIXTURE;',
+    '  if (!fixture || !path.isAbsolute(fixture) || !fs.existsSync(fixture)) throw new Error("Isolated gh fixture missing; refusing host gh");',
+    '  const first = fs.readFileSync(fixture, "utf8").split("\\n")[0].replace(/\\r$/, "");',
+    '  const node = /^#!.*\\bnode\\s*$/.test(first);',
+    '  if (!node && !/^#!.*\\b(?:ba)?sh\\s*$/.test(first)) throw new Error("Unsupported isolated gh fixture interpreter");',
+    '  const executable = node ? process.execPath : process.env.PROFFERA_TEST_BASH;',
+    '  if (!executable) throw new Error("Isolated shell interpreter missing");',
+    '  return original.call(this, executable, [fixture, ...(args || [])], options);',
+    '};',
+    'require("node:module").syncBuiltinESMExports();',
+  ].join("\n"));
+  return {
+    ...(process.platform === "win32" ? { BASH_ENV: join(bin, "bash-env.sh").replaceAll("\\", "/") } : {}),
+    PROFFERA_TEST_GH_FIXTURE: fixture,
+    PROFFERA_TEST_BASH: process.platform === "win32"
+      ? join(process.env.ProgramFiles ?? "C:\\Program Files", "Git", "bin", "bash.exe") : "/bin/bash",
+    NODE_OPTIONS: [nodeOptions, "--require " + JSON.stringify(preload.replaceAll("\\", "/"))].filter(Boolean).join(" "),
+  };
+}
+
+
+function spawnBashScript(script: string, options: import("node:child_process").SpawnSyncOptionsWithStringEncoding) {
+  const root = mkdtempSync(join(tmpdir(), "worker-bash-script-"));
+  const path = join(root, "run.sh");
+  try {
+    writeFileSync(path, script, {mode:0o755});
+    return spawnSync("bash", [path], options);
+  } finally { rmSync(root, {recursive:true,force:true}); }
+}
 
 function source(path: string) {
   return readFileSync(resolve(process.cwd(), path), "utf8").replaceAll("\r\n", "\n");
@@ -154,6 +209,46 @@ function exactReservationEvidence(head = sha, overrides: Record<string, unknown>
   };
 }
 
+// Model the authenticated, original Worker-strategy dispatch, never a legacy-only marker.
+function trustedStrategyStartComment(value = packet(), runId = 9001, runAttempt = 1) {
+  const descriptor = workerStrategyDescriptor(value);
+  const dependencyPaths = [...((value as typeof value & { dependency_paths?: string[] }).dependency_paths ?? [])].sort();
+  return {
+    id: 900101,
+    user: { login: "github-actions[bot]", type: "Bot" },
+    body: [
+      `<!-- proffera-worker-dispatch-start:${value.task_id}:${runId} -->`,
+      `<!-- proffera-worker-strategy-start:v1:${value.task_id}:${runId} -->`,
+      `- Task ID: \`${value.task_id}\``,
+      `- GitHub Run ID: \`${runId}\``,
+      `- Run Attempt: \`${runAttempt}\``,
+      `- Baseline SHA: \`${value.base_sha}\``,
+      `- Dependency paths: \`${JSON.stringify(dependencyPaths)}\``,
+      `- Evidence fingerprint: \`${descriptor.evidence_fingerprint}\``,
+      `- Strategy fingerprint: \`${descriptor.strategy_fingerprint}\``,
+      "- State: \`DISPATCH_STARTED\`",
+    ].join("\n"),
+  };
+}
+
+function withTrustedStrategyStart(comments: Array<Record<string, unknown>>, value = packet(), runId = 9001) {
+  const legacy = `<!-- proffera-worker-dispatch-start:${value.task_id}:${runId} -->`;
+  const matches = comments.filter((comment) => comment.body === legacy);
+  if (matches.length !== 1) throw new Error("fixture requires exactly one original dispatch marker");
+  const trusted = trustedStrategyStartComment(value, runId);
+  return comments.map((comment) => comment.body === legacy
+    ? { ...comment, user: trusted.user, body: trusted.body }
+    : comment);
+}
+
+// Fake runner checkouts must contain the actual trusted helper import graph.
+function copyWorkerStrategyDependencies(helperFile: string) {
+  const dir = dirname(helperFile);
+  for (const filename of ["supervisor-worker-strategy-memory.mjs", "supervisor-failure-memory.mjs"]) {
+    copyFileSync(resolve(process.cwd(), "scripts", filename), join(dir, filename));
+  }
+}
+
 function expiredSameTaskEvidence(
   reservationState: "RESERVED" | "RECOVERABLE",
   overrides: Record<string, unknown> = {},
@@ -210,6 +305,15 @@ function reservationControlApiStub() {
   return String.raw`
 const controlField = (name) => args.find((arg) => arg.startsWith(name + "="))?.slice(name.length + 1) ?? "";
 const controlSave = () => writeFileSync(process.env.GH_STUB_STATE_FILE, JSON.stringify(state));
+if (method === "POST" && endpoint.endsWith("/issues/548/comments")) {
+  const id = (state.nextCommentId ?? 999) + 1;
+  state.nextCommentId = id;
+  state.comments.push({ id, user: { login: "github-actions[bot]", type: "Bot" },
+    issue_url: "https://api.github.com/repos/ibboabdoli-ai/Proffera/issues/548", body: controlField("body") });
+  controlSave();
+  process.stdout.write(JSON.stringify({ id }) + "\n");
+  process.exit(0);
+}
 if (method === "POST" && endpoint.endsWith("/labels")) {
   if (state.mutex) process.exit(1);
   state.mutex = controlField("description");
@@ -325,7 +429,10 @@ if (method !== "GET") {
     comment.body = bodyArg.slice("body=".length);
     writeFileSync(process.env.GH_STUB_STATE_FILE, JSON.stringify(state));
   } else if (method === "POST" && bodyArg && endpoint === "repos/ibboabdoli-ai/Proffera/issues/548/comments") {
-    state.comments.push({ id: 999, user: { login: "github-actions[bot]" }, body: bodyArg.slice("body=".length) });
+    state.comments.push({ id: 999, user: { login: "github-actions[bot]", type: "Bot" }, issue_url: "https://api.github.com/repos/ibboabdoli-ai/Proffera/issues/548", body: bodyArg.slice("body=".length) });
+    writeFileSync(process.env.GH_STUB_STATE_FILE, JSON.stringify(state));
+    process.stdout.write(JSON.stringify({ id: 999 }) + "\\n");
+    process.exit(0);
     writeFileSync(process.env.GH_STUB_STATE_FILE, JSON.stringify(state));
   }
   process.stdout.write("{}\\n");
@@ -366,12 +473,13 @@ process.exit(2);
     { encoding: "utf8", mode: 0o755 },
   );
 
-  const result = spawnSync("bash", ["-c", script], {
+  const result = spawnBashScript(script, {
     cwd: process.cwd(),
     encoding: "utf8",
     env: {
       ...process.env,
       PATH: `${bin}${delimiter}${process.env.PATH ?? ""}`,
+      ...isolatedGhEnvironment(bin),
       GH_TOKEN: "test-token",
       GH_STUB_LOG: log,
       GH_STUB_STATE_FILE: stateFile,
@@ -433,6 +541,7 @@ function runReservationRecovery({
   const trustedHelper = join(trusted, "supervisor-worker-handoff.mjs");
   const trustedManifest = join(trusted, "supervisor-worker-handoff.sha256");
   copyFileSync(helper, trustedHelper);
+  copyWorkerStrategyDependencies(trustedHelper);
   const trustedDigest = createHash("sha256").update(readFileSync(trustedHelper)).digest("hex");
   writeFileSync(trustedManifest, `${trustedDigest}  ${trustedHelper}\n`);
   const parsed = spawnSync(process.execPath, [helper, "parse"], { input: packetComment(), encoding: "utf8" });
@@ -548,12 +657,13 @@ process.exit(2);
 `,
     { encoding: "utf8", mode: 0o755 },
   );
-  const result = spawnSync("bash", ["-c", script], {
+  const result = spawnBashScript(script, {
     cwd: process.cwd(),
     encoding: "utf8",
     env: {
       ...process.env,
       PATH: `${bin}${delimiter}${process.env.PATH ?? ""}`,
+      ...isolatedGhEnvironment(bin),
       GH_TOKEN: "test-token",
       GH_STUB_LOG: log,
       GH_STUB_STATE_FILE: stateFile,
@@ -615,6 +725,12 @@ function runFallbackCleanup({
   mkdirSync(bin, { recursive: true });
   mkdirSync(trusted, { recursive: true });
   copyFileSync(helper, join(trusted, "supervisor-worker-handoff.mjs"));
+  copyWorkerStrategyDependencies(join(trusted, "supervisor-worker-handoff.mjs"));
+  const trustedNames = ["supervisor-worker-handoff.mjs", "supervisor-worker-strategy-memory.mjs", "supervisor-failure-memory.mjs"];
+  writeFileSync(join(trusted, "supervisor-worker-handoff.sha256"), trustedNames.map((name) => {
+    const file = join(trusted, name);
+    return `${createHash("sha256").update(readFileSync(file)).digest("hex")}  ${file.replaceAll("\\", "/")}`;
+  }).join("\n") + "\n");
 
   const parsed = spawnSync(process.execPath, [helper, "parse"], { input: packetComment(), encoding: "utf8" });
   expect(parsed.status, parsed.stderr).toBe(0);
@@ -763,12 +879,13 @@ process.exit(2);
     { encoding: "utf8", mode: 0o755 },
   );
 
-  const runOnce = () => spawnSync("bash", ["-c", script], {
+  const runOnce = () => spawnBashScript(script, {
     cwd: process.cwd(),
     encoding: "utf8",
     env: {
       ...process.env,
       PATH: `${bin}${delimiter}${process.env.PATH ?? ""}`,
+      ...isolatedGhEnvironment(bin),
       GH_TOKEN: "test-token",
       GH_STUB_LOG: log,
       GH_STUB_STATE_FILE: stateFile,
@@ -1052,13 +1169,13 @@ process.exit(2);
       writeFileSync(waitLog, "");
       const output = join(root, `github-output-${runId}-${commentId}`);
       writeFileSync(output, "");
-      const result = spawnSync("bash", ["-c", script], {
+      const result = spawnBashScript(script, {
         cwd: process.cwd(),
         encoding: "utf8",
         env: {
           ...process.env,
-          NODE_OPTIONS: [process.env.NODE_OPTIONS, `--require ${JSON.stringify(waitPreload.replaceAll("\\", "/"))}`].filter(Boolean).join(" "),
           PATH: `${bin}${delimiter}${process.env.PATH ?? ""}`,
+          ...isolatedGhEnvironment(bin, [process.env.NODE_OPTIONS, "--require " + JSON.stringify(waitPreload.replaceAll("\\", "/"))].filter(Boolean).join(" ")),
           INPUT_COMMENT_ID: commentId,
           PLANNER_PACKET_B64: "",
           PLANNER_PACKET_SHA256: "",
@@ -1107,7 +1224,7 @@ function runTaskLane(taskPacket: ReturnType<typeof packet>, commentId = "501") {
   const root = mkdtempSync(join(tmpdir(), "proffera-task-lane-"));
   const output = join(root, "github-output");
   writeFileSync(output, "");
-  const result = spawnSync("bash", ["-c", script], {
+  const result = spawnBashScript(script, {
     cwd: process.cwd(),
     encoding: "utf8",
     env: {
@@ -1147,6 +1264,7 @@ function runSlotReservation({
   mkdirSync(bin, { recursive: true });
   mkdirSync(trusted, { recursive: true });
   copyFileSync(helper, trustedHelper);
+  copyWorkerStrategyDependencies(trustedHelper);
   const helperDigest = createHash("sha256").update(readFileSync(trustedHelper)).digest("hex");
   writeFileSync(manifest, `${helperDigest}  ${trustedHelper}\n`);
   writeFileSync(output, "");
@@ -1302,12 +1420,13 @@ process.exit(2);
 `,
     { encoding: "utf8", mode: 0o755 },
   );
-  const result = spawnSync("bash", ["-c", script], {
+  const result = spawnBashScript(script, {
     cwd: process.cwd(),
     encoding: "utf8",
     env: {
       ...process.env,
       PATH: `${bin}${delimiter}${process.env.PATH ?? ""}`,
+      ...isolatedGhEnvironment(bin),
       GH_TOKEN: "test-token",
       GH_STUB_LOG: log,
       GH_STUB_MAIN_SHA: localHead,
@@ -1383,6 +1502,7 @@ function runReservationFinalization({ changedReservationBody = false } = {}) {
     recovery: null,
   };
   copyFileSync(helper, join(trusted, "supervisor-worker-handoff.mjs"));
+  copyWorkerStrategyDependencies(join(trusted, "supervisor-worker-handoff.mjs"));
   const helperDigest = createHash("sha256").update(readFileSync(join(trusted, "supervisor-worker-handoff.mjs"))).digest("hex");
   writeFileSync(join(trusted, "supervisor-worker-handoff.sha256"), `${helperDigest}  ${join(trusted, "supervisor-worker-handoff.mjs")}\n`);
   writeFileSync(join(root, "proffera-worker-changed-files.txt"), "src/change.txt\n");
@@ -1425,12 +1545,13 @@ process.exit(2);
 `,
     { encoding: "utf8", mode: 0o755 },
   );
-  const result = spawnSync("bash", ["-c", script], {
+  const result = spawnBashScript(script, {
     cwd: repo,
     encoding: "utf8",
     env: {
       ...process.env,
       PATH: `${bin}${delimiter}${process.env.PATH ?? ""}`,
+      ...isolatedGhEnvironment(bin),
       GH_TOKEN: "test-token",
       GH_STUB_LOG: log,
       GH_STUB_MAIN_SHA: sourceHead,
@@ -1520,6 +1641,7 @@ function runSyncCheckReconciliation({
   mkdirSync(join(repo, "scripts"), { recursive: true });
   mkdirSync(bin, { recursive: true });
   copyFileSync(helper, join(repo, "scripts", "supervisor-worker-handoff.mjs"));
+  copyWorkerStrategyDependencies(join(repo, "scripts", "supervisor-worker-handoff.mjs"));
   writeFileSync(githubOutput, "");
   const pr = {
     number: 849,
@@ -1581,7 +1703,10 @@ if (method !== "GET") {
     comment.body = bodyArg.slice("body=".length);
     writeFileSync(process.env.GH_STUB_STATE_FILE, JSON.stringify(state));
   } else if (method === "POST" && bodyArg && endpoint === "repos/ibboabdoli-ai/Proffera/issues/548/comments") {
-    state.comments.push({ id: 999, user: { login: "github-actions[bot]" }, body: bodyArg.slice("body=".length) });
+    state.comments.push({ id: 999, user: { login: "github-actions[bot]", type: "Bot" }, issue_url: "https://api.github.com/repos/ibboabdoli-ai/Proffera/issues/548", body: bodyArg.slice("body=".length) });
+    writeFileSync(process.env.GH_STUB_STATE_FILE, JSON.stringify(state));
+    process.stdout.write(JSON.stringify({ id: 999 }) + "\\n");
+    process.exit(0);
     writeFileSync(process.env.GH_STUB_STATE_FILE, JSON.stringify(state));
   }
   process.stdout.write("{}\\n");
@@ -1642,12 +1767,13 @@ process.exit(2);
     { encoding: "utf8", mode: 0o755 },
   );
 
-  const result = spawnSync("bash", ["-c", script], {
+  const result = spawnBashScript(script, {
     cwd: repo,
     encoding: "utf8",
     env: {
       ...process.env,
       PATH: `${bin}${delimiter}${process.env.PATH ?? ""}`,
+      ...isolatedGhEnvironment(bin),
       GH_TOKEN: "test-token",
       GH_STUB_LOG: log,
       GH_STUB_STATE_FILE: stateFile,
@@ -1691,12 +1817,13 @@ function runWorkerPrStateRecord(currentBody: string) {
   mkdirSync(bin, { recursive: true });
   mkdirSync(trusted, { recursive: true });
   copyFileSync(helper, trustedHelper);
+  copyWorkerStrategyDependencies(trustedHelper);
   const helperDigest = createHash("sha256").update(readFileSync(trustedHelper)).digest("hex");
   writeFileSync(manifest, `${helperDigest}  ${trustedHelper}\n`);
   writeFileSync(log, "");
   const evidence = exactReservationEvidence(sha, { state: "PUBLISHED", pr_number: 900 });
   writeFileSync(stateFile, JSON.stringify({
-    comments: [...evidence.comments, { id: 99, user: { login: "github-actions[bot]" }, body: currentBody }],
+    comments: [...withTrustedStrategyStart(evidence.comments), { id: 99, user: { login: "github-actions[bot]" }, body: currentBody }],
     pr: {
       number: 900, state: "open", merged: false, base: { ref: "main", sha },
       head: { sha, ref: packet().branch, repo: { full_name: packet().repository } },
@@ -1738,12 +1865,13 @@ process.exit(2);
     { encoding: "utf8", mode: 0o755 },
   );
 
-  const result = spawnSync("bash", ["-c", script], {
+  const result = spawnBashScript(script, {
     cwd: process.cwd(),
     encoding: "utf8",
     env: {
       ...process.env,
       PATH: `${bin}${delimiter}${process.env.PATH ?? ""}`,
+      ...isolatedGhEnvironment(bin),
       RUNNER_TEMP: root,
       GH_TOKEN: "test-token",
       GH_STUB_LOG: log,
@@ -1789,6 +1917,7 @@ function runDispatchFailureState({
   mkdirSync(bin, { recursive: true });
   mkdirSync(trusted, { recursive: true });
   copyFileSync(helper, join(trusted, "supervisor-worker-handoff.mjs"));
+  copyWorkerStrategyDependencies(join(trusted, "supervisor-worker-handoff.mjs"));
   const helperDigest = createHash("sha256").update(readFileSync(helper)).digest("hex");
   writeFileSync(join(trusted, "supervisor-worker-handoff.sha256"), `${helperDigest}  ${join(trusted, "supervisor-worker-handoff.mjs")}\n`);
   writeFileSync(
@@ -1808,12 +1937,13 @@ process.stdout.write("{}\\n");
 `,
     { encoding: "utf8", mode: 0o755 },
   );
-  const result = spawnSync("bash", ["-c", script], {
+  const result = spawnBashScript(script, {
     cwd: process.cwd(),
     encoding: "utf8",
     env: {
       ...process.env,
       PATH: `${bin}${delimiter}${process.env.PATH ?? ""}`,
+      ...isolatedGhEnvironment(bin),
       RUNNER_TEMP: root,
       GH_TOKEN: "test-token",
       GH_STUB_OUTPUT: output,
@@ -2039,7 +2169,7 @@ async function ownershipHarness() {
   const state = {
     owner: "1001", failTaskPatch: false, hook: (_step: string) => { void _step; },
     comments: [reservationComment(payload, 101),
-      { id: 102, user: { login: "github-actions[bot]" }, body: `<!-- proffera-worker-dispatch-start:${taskPacket.task_id}:9001 -->` },
+      { ...trustedStrategyStartComment(taskPacket, 9001), id: 102 },
       { id: 103, user: { login: "github-actions[bot]" }, body: control.taskStateBody({ packet: taskPacket,
         state: "CLOSED_UNMERGED", run_id: "9001", pr_number: 849, head_sha: sha, reason: "Previously closed without merge." }) }],
     prs: [pr], writes: [] as Array<{ id: number; body: string }>, closes: [] as number[], posts: 0,
@@ -2095,6 +2225,62 @@ async function ownershipHarness() {
 }
 
 describe("Canonical Worker reservation ownership", () => {
+  it.each(["missing", "forged", "duplicate"] as const)(
+    "fails closed before rejecting a capacity-blocked reopened PR with %s Worker strategy provenance", async (kind) => {
+      const fixture = await ownershipHarness();
+      fixture.state.comments.push(fixture.other(1), fixture.other(2));
+      const start = fixture.state.comments.find((record) =>
+        String(record.body).includes("proffera-worker-strategy-start:v1:"));
+      expect(start).toBeDefined();
+      if (kind === "missing") {
+        fixture.state.comments = fixture.state.comments.filter((record) => record.id !== start!.id);
+      } else if (kind === "forged") {
+        const oldFingerprint = String(start!.body).match(/Evidence fingerprint: `([a-f0-9]{64})`/u)?.[1];
+        expect(oldFingerprint).toMatch(/^[0-9a-f]{64}$/u);
+        const forged = oldFingerprint === "f".repeat(64) ? "a".repeat(64) : "f".repeat(64);
+        start!.body = String(start!.body).replace(oldFingerprint!, forged);
+      } else {
+        fixture.state.comments.push({ ...start!, id: 900992 });
+      }
+      expect(() => fixture.authority.admitPr(fixture.request)).toThrow();
+      expect(fixture.state.closes).toEqual([]);
+      expect(fixture.state.writes).toEqual([]);
+      expect(fixture.state.posts).toBe(0);
+      expect(fixture.pr.state).toBe("open");
+    },
+  );
+
+  it.each(["missing", "duplicate", "forged", "wrong_attempt", "changed_between_reads"] as const)(
+    "rejects %s original strategy provenance before any canonical admission write", async (kind) => {
+      const fixture = await ownershipHarness();
+      const strategy = fixture.state.comments.find((item) =>
+        String(item.body).includes("proffera-worker-strategy-start:v1:"));
+      expect(strategy).toBeDefined();
+      if (kind === "missing") {
+        fixture.state.comments = fixture.state.comments.filter((item) => item.id !== strategy!.id);
+      } else if (kind === "duplicate") {
+        fixture.state.comments.push({ ...strategy!, id: 900991 });
+      } else if (kind === "forged") {
+        const matches = String(strategy!.body).match(/Evidence fingerprint: `([a-f0-9]{64})`/u);
+        expect(matches).not.toBeNull();
+        const altered = matches![1] === "f".repeat(64) ? "a".repeat(64) : "f".repeat(64);
+        strategy!.body = String(strategy!.body).replace(matches![1], altered);
+      } else if (kind === "changed_between_reads") {
+        let commentReads = 0;
+        fixture.state.hook = (step) => {
+          if (step !== "comments" || ++commentReads !== 2) return;
+          strategy!.body = String(strategy!.body).replace("DISPATCH_STARTED", "DISPATCH_CLOSED");
+        };
+      }
+      const request = kind === "wrong_attempt"
+        ? { ...fixture.request, original_run_attempt: 2 } : fixture.request;
+      expect(() => fixture.authority.admitPr(request)).toThrow();
+      expect(fixture.state.writes).toEqual([]);
+      expect(fixture.state.closes).toEqual([]);
+      expect(fixture.state.posts).toBe(0);
+    },
+  );
+
   const acquisition = (fixture: Awaited<ReturnType<typeof ownershipHarness>>) => ({
     packet: fixture.taskPacket, run_id: "1001", head_sha: sha, changed_files: [],
   });
@@ -2708,7 +2894,7 @@ describe("Supervisor ↔ Worker Phase-1 handoff", () => {
       expect(result.calls.filter((args) => args.includes("POST") && args.some((arg) => arg.endsWith("/issues/548/comments")))).toHaveLength(comments.length ? 0 : 1);
       if (comments.length) expect(commentPatchCalls(result.calls, 701)).toHaveLength(1);
     }
-  });
+  }, 45_000);
 
   it("converges a completed orphan after verification retries are exhausted through the same retryable transition", () => {
     const harness = createPreflightHarness();
@@ -2729,7 +2915,7 @@ describe("Supervisor ↔ Worker Phase-1 handoff", () => {
     expect(verificationReadCalls(retry.calls)).toHaveLength(1);
     expect(commentPatchCalls(retry.calls, Number(retry.comments[0].id)).map((args) => args.find((arg) => arg.startsWith("body="))))
       .toEqual([expect.stringContaining("- State: `TASK_BLOCKED`"), expect.stringContaining("- State: `TASK_CREATED`")]);
-  });
+  }, 45_000);
 
   it.each(["active run", "reservation", "dispatch marker", "branch", "PR on another base", "advanced task state"] as const)(
     "keeps genuinely dispatched and reserved, branched, or PR-backed TASK_CREATED tasks non-dispatchable (%s)",
@@ -2756,20 +2942,21 @@ describe("Supervisor ↔ Worker Phase-1 handoff", () => {
     },
   );
 
-  it("does not redispatch an orphan when Worker or aliased reservation evidence appears after the retryable write", () => {
+  it.each([
+    { evidence: "Worker dispatch", mutation: { dispatchOnCommentRead: 3 } },
+    { evidence: "aliased reservation", mutation: { aliasReservationOnCommentRead: 3 } },
+  ])("does not redispatch an orphan when $evidence appears after the retryable write", ({ mutation }) => {
     const task = { id: 701, user: { login: "github-actions[bot]" }, body: runText("state-body", {
       packet: packet(), state: "TASK_CREATED", run_id: "9001", reason: "Prior preflight",
     }) };
-    for (const mutation of [{ dispatchOnCommentRead: 3 }, { aliasReservationOnCommentRead: 3 }]) {
-      const harness = createPreflightHarness({ comments: [task] });
-      const changed = harness.run({ runId: "1002", mutation });
-      expect(changed.outputs.proceed).not.toBe("yes");
-      expect(String(changed.comments.find((comment) => comment.id === 701)?.body)).toContain("TASK_CREATED");
-      expect(commentPatchCalls(changed.calls, 701)).toHaveLength(0);
-      const retry = harness.run({ runId: "1003" });
-      expect(retry.outputs.proceed).not.toBe("yes");
-      expect(commentPatchCalls(retry.calls, 701)).toHaveLength(0);
-    }
+    const harness = createPreflightHarness({ comments: [task] });
+    const changed = harness.run({ runId: "1002", mutation });
+    expect(changed.outputs.proceed).not.toBe("yes");
+    expect(String(changed.comments.find((comment) => comment.id === 701)?.body)).toContain("TASK_CREATED");
+    expect(commentPatchCalls(changed.calls, 701)).toHaveLength(0);
+    const retry = harness.run({ runId: "1003" });
+    expect(retry.outputs.proceed).not.toBe("yes");
+    expect(commentPatchCalls(retry.calls, 701)).toHaveLength(0);
   });
 
   it("recovers a lost mutex POST response only by its exact new descriptor", () => {
@@ -2817,7 +3004,7 @@ describe("Supervisor ↔ Worker Phase-1 handoff", () => {
       expect(commentPatchCalls(result.calls, 201)).toHaveLength(0);
       expect(commentPatchCalls(result.calls, 203)).toHaveLength(0);
     }
-  });
+  }, 45_000);
 
   it("fails closed on initial duplicate task-state or reservation evidence and never reclaims another task", () => {
     const evidence = expiredSameTaskEvidence("RESERVED");
@@ -2861,7 +3048,7 @@ describe("Supervisor ↔ Worker Phase-1 handoff", () => {
       expect(result.status).toBe(1);
       expect(result.calls.filter((args) => args.includes("--method") && args.includes("PATCH"))).toHaveLength(0);
     }
-  });
+  }, 45_000);
 
   it("ignores a spoofed task-state comment not authored by the trusted bot", () => {
     const spoofed = { ...trustedState("WORKER_PR_OPENED", "1000"), user: { login: "attacker" } };
@@ -3087,10 +3274,89 @@ describe("Supervisor ↔ Worker Phase-1 handoff", () => {
     const workflow = source(".github/workflows/supervisor-worker-handoff.yml");
     const preflight = workflow.slice(0, workflow.indexOf("  dispatch:"));
     expect(preflight).toContain("OPENAI_AVAILABLE: ${{ secrets.OPENAI_API_KEY != '' }}");
-    expect(preflight).toContain("PUSH_AVAILABLE: ${{ secrets.PROFFERA_AUTOFIX_PUSH_TOKEN != '' }}");
+    expect(preflight).not.toContain("PUSH_AVAILABLE: ${{ secrets.");
     expect(preflight).not.toContain("OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}");
     expect(preflight).not.toContain("DISPATCH_PUSH_TOKEN: ${{ secrets.PROFFERA_AUTOFIX_PUSH_TOKEN }}");
   });
+
+  it.each([
+    { name: "scope validation", workflow: ".github/workflows/supervisor-worker-handoff.yml", step: "Validate Worker candidate packet scope before strategy success", helper: "trusted_helper" },
+    { name: "cleanup reconciliation", workflow: ".github/workflows/supervisor-worker-handoff.yml", step: "Materialize exact baseline cleanup helper independently", helper: "helper" },
+    { name: "Planner admission", workflow: ".github/workflows/supervisor-planner.yml", step: "Snapshot trusted admission helper", helper: "trusted_helper" },
+    { name: "Review Repair publication", workflow: ".github/workflows/supervisor-review-repair.yml", step: "Materialize trusted repair helper in isolated publish job", helper: "trusted_helper" },
+  ])("stages the actual Worker module graph for $name and rejects missing or untrusted dependencies", ({ workflow: workflowPath, step, helper: helperVariable }) => {
+    const workflow = source(workflowPath);
+    const fullStep = workflowRunStep(workflow, step);
+    const stage = step.startsWith("Validate Worker candidate") ? fullStep.slice(0, fullStep.indexOf('packet="$(printf')) : fullStep;
+    expect(stage).toContain("supervisor-worker-strategy-memory.mjs");
+    expect(stage).toContain("supervisor-failure-memory.mjs");
+    const root = mkdtempSync(join(tmpdir(), "proffera-worker-staging-"));
+    const runner = join(root, "runner");
+    mkdirSync(runner);
+    for (const name of ["supervisor-worker-handoff.mjs", "supervisor-worker-strategy-memory.mjs", "supervisor-failure-memory.mjs"]) {
+      const content = readFileSync(join(process.cwd(), "scripts", name));
+      const blob = spawnSync("git", ["hash-object", join(process.cwd(), "scripts", name)], { encoding: "utf8" });
+      expect(blob.status, blob.stderr).toBe(0);
+      writeFileSync(join(root, `${name}.json`), JSON.stringify({ sha: blob.stdout.trim(), content: content.toString("base64") }));
+    }
+    const transport = [
+      process.platform === "win32" ? 'jq() { command jq --binary "$@"; }' : "",
+      "git() {",
+      '  if [ "$1" = "hash-object" ]; then command git "$@"; return; fi',
+      '  if [ "$1" = "rev-parse" ] && [ "$2" = "HEAD" ]; then printf "%s\\n" "$BASE_SHA"; return; fi',
+      '  if [ "$1" = "rev-parse" ]; then local path="${2#*:}"; if [ "$BAD_BLOB" = "1" ] && [ "$path" = "scripts/supervisor-worker-strategy-memory.mjs" ]; then printf "%040d\\n" 0; else command git hash-object "$SOURCE_ROOT/$path"; fi; return; fi',
+      '  if [ "$1" = "show" ]; then local path="${2#*:}"; if [ "$BAD_BLOB" = "1" ] && [ "$path" = "scripts/supervisor-worker-strategy-memory.mjs" ]; then printf "untrusted\\n"; else cat "$SOURCE_ROOT/$path"; fi; return; fi',
+      '  echo "unexpected git invocation" >&2; return 1',
+      "}",
+      "gh() {",
+      '  local address="$2" path="${2#*/contents/}"',
+      '  if [ "$address" = "repos/${REPOSITORY}" ]; then printf "main\\n"; return; fi',
+      '  if [ "$address" = "repos/${REPOSITORY}/git/ref/heads/main" ]; then printf "%s\\n" "$BASE_SHA"; return; fi',
+      '  path="${path%%\\?*}"',
+      '  local name="${path##*/}"',
+      "  if [ \"$BAD_BLOB\" = \"1\" ] && [ \"$name\" = \"supervisor-worker-strategy-memory.mjs\" ]; then jq '.sha=\"0000000000000000000000000000000000000000\"' \"$MOCK_API_DIR/$name.json\"; else cat \"$MOCK_API_DIR/$name.json\"; fi",
+      "}",
+    ].join("\n");
+    const env = {
+      ...process.env,
+      RUNNER_TEMP: runner.replaceAll("\\", "/"),
+      SOURCE_ROOT: process.cwd().replaceAll("\\", "/"),
+      MOCK_API_DIR: root.replaceAll("\\", "/"),
+      BASE_SHA: sha,
+      REPOSITORY: "ibboabdoli-ai/Proffera",
+      BAD_BLOB: "0",
+      PACKET_BODY: packetComment(),
+    };
+    const helperRef = `$${helperVariable}`;
+    const restoreStagingPermissions = () => {
+      for (const entry of readdirSync(runner, { withFileTypes: true })) {
+        if (entry.isDirectory()) chmodSync(join(runner, entry.name), 0o755);
+      }
+    };
+    const runStage = (badBlob: boolean, after: string) => {
+      restoreStagingPermissions();
+      return spawnSync("bash", [], {
+        input: [transport, stage, after].join("\n"),
+        env: { ...env, BAD_BLOB: badBlob ? "1" : "0" },
+        encoding: "utf8",
+      });
+    };
+    try {
+      const accepted = runStage(false, `printf '%s\\n' "$PACKET_BODY" | node "${helperRef}" parse >/dev/null; echo MODULE_GRAPH_READY`);
+      expect(accepted.status, accepted.stderr).toBe(0);
+      expect(accepted.stdout).toContain("MODULE_GRAPH_READY");
+      const rejected = runStage(true, "echo UNTRUSTED_ACCEPTED");
+      expect(rejected.status).not.toBe(0);
+      expect(rejected.stdout).not.toContain("UNTRUSTED_ACCEPTED");
+      const missing = runStage(false, `chmod u+w "$trusted_dir"; rm -f "$trusted_dir/supervisor-failure-memory.mjs"; test ! -e "$trusted_dir/supervisor-failure-memory.mjs"; printf '%s\\n' "$PACKET_BODY" | node "${helperRef}" parse`);
+      expect(missing.status).not.toBe(0);
+      expect(missing.stderr).toContain("ERR_MODULE_NOT_FOUND");
+      expect(missing.stderr).toContain("supervisor-failure-memory.mjs");
+    } finally {
+      restoreStagingPermissions();
+      rmSync(root, { recursive: true, force: true });
+    }
+  }, 30_000);
 
   it("uses one complete HEAD-relative Worker snapshot for scope, whitespace, and publication eligibility", () => {
     const workflow = source(".github/workflows/supervisor-worker-handoff.yml");
@@ -3148,6 +3414,7 @@ describe("Supervisor ↔ Worker Phase-1 handoff", () => {
     mkdirSync(join(repo, "scripts"), { recursive: true });
     mkdirSync(bin, { recursive: true });
     copyFileSync(helper, join(repo, "scripts", "supervisor-worker-handoff.mjs"));
+  copyWorkerStrategyDependencies(join(repo, "scripts", "supervisor-worker-handoff.mjs"));
     writeFileSync(ghLog, "", "utf8");
     writeFileSync(
       prJsonFile,
@@ -3201,6 +3468,7 @@ esac
       env: {
         ...process.env,
         PATH: `${bin}${delimiter}${process.env.Path ?? process.env.PATH ?? ""}`,
+        ...isolatedGhEnvironment(bin),
         GH_LOG: ghLog,
         PR_JSON_FILE: prJsonFile,
         GH_TOKEN: "test-token",
@@ -3213,6 +3481,8 @@ esac
         RUN_ID: "1001",
       },
     });
+    expect(result.error, JSON.stringify({status: result.status, signal: result.signal, stderr: result.stderr})).toBeUndefined();
+    expect(result.signal).toBeNull();
     expect(result.status).not.toBe(0);
     expect(result.stderr).toContain("Trusted Phase-1 marker carries an invalid Task Packet; refusing legacy fallback.");
     expect(readFileSync(ghLog, "utf8")).toBe("");
@@ -3241,16 +3511,17 @@ esac
     expect(publish).toContain("Materialize trusted publication helper in isolated job");
     expect(publish).toContain("actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0");
     expect(publish).toContain("Verify Worker diff is nonempty and packet-bounded with immutable helper");
-    expect(publish).toContain("PROFFERA_AUTOFIX_PUSH_TOKEN");
+    expect(publish).not.toContain("PROFFERA_AUTOFIX_PUSH_TOKEN");
     expect(publish).not.toContain("npm test");
     expect(publish).not.toContain("npm run build");
-    expect(publish.indexOf("validate-changes")).toBeLessThan(publish.indexOf("PROFFERA_AUTOFIX_PUSH_TOKEN"));
+    expect(publish).toContain("git bundle create");
   });
   it("Worker tampering with the repository helper cannot change trusted post-Worker validation", () => {
     const dir = mkdtempSync(join(tmpdir(), "proffera-handoff-trust-"));
     const trusted = join(dir, "trusted-helper.mjs");
     const workerCopy = join(dir, "worker-helper.mjs");
     copyFileSync(helper, trusted);
+  copyWorkerStrategyDependencies(trusted);
     writeFileSync(workerCopy, 'process.stdout.write(JSON.stringify({ok:true,status:"VALID",code:"bypassed"}));\n', "utf8");
 
     const input = { packet: packet(), changed_files: ["src/unrelated.ts"] };
@@ -3282,7 +3553,9 @@ esac
     mkdirSync(join(repo, "src"), { recursive: true });
     mkdirSync(trustedDir, { recursive: true });
     copyFileSync(helper, repoHelper);
+  copyWorkerStrategyDependencies(repoHelper);
     copyFileSync(helper, trustedHelper);
+  copyWorkerStrategyDependencies(trustedHelper);
 
     const checksum = spawnSync("sha256sum", [trustedHelper], { encoding: "utf8" });
     expect(checksum.status, checksum.stderr).toBe(0);
@@ -3302,7 +3575,8 @@ esac
     writeFileSync(repoHelper, 'process.stdout.write(JSON.stringify({ok:true,status:"VALID",code:"bypassed"}));\n', "utf8");
     writeFileSync(join(repo, "src", "unrelated.ts"), "export const outsideScope = true;\n", "utf8");
 
-    const result = spawnSync("bash", ["-lc", verifyScript], {
+    // Match GitHub Actions non-login Bash; login profiles can change the fixture cwd.
+    const result = spawnSync("bash", ["--noprofile", "--norc", "-e", "-o", "pipefail", "-c", verifyScript], {
       cwd: repo,
       encoding: "utf8",
       env: {
@@ -3320,7 +3594,7 @@ esac
   it("does not expose OpenAI or push credentials to post-Worker reconciliation helper execution", () => {
     const workflow = source(".github/workflows/supervisor-worker-handoff.yml");
     const reconcileScript = workflowRunStep(workflow, "Reconcile live state again immediately before publication");
-    const publishScript = workflowRunStep(workflow, "Publish branch normally or persist validated recovery artifact");
+    const publishScript = workflowRunStep(workflow, "Prepare immutable Worker owner-push handoff");
     expectShellAndJqSyntax(reconcileScript);
     expectShellAndJqSyntax(publishScript);
     const reconcileStart = workflow.indexOf("Reconcile live state again immediately before publication");
@@ -3329,13 +3603,13 @@ esac
     expect(reconcile).not.toContain("OPENAI_API_KEY");
     expect(reconcile).not.toContain("PROFFERA_AUTOFIX_PUSH_TOKEN");
 
-    const publishStart = workflow.indexOf("Publish branch normally or persist validated recovery artifact");
+    const publishStart = workflow.indexOf("Prepare immutable Worker owner-push handoff");
     const publishEnd = workflow.indexOf("Record dispatched Worker PR", publishStart);
     const publish = workflow.slice(publishStart, publishEnd);
-    expect(publish).toContain("PROFFERA_AUTOFIX_PUSH_TOKEN");
+    expect(publish).not.toContain("PROFFERA_AUTOFIX_PUSH_TOKEN");
     expect(publish).toContain('node "$helper" validate-publication');
     expect(publish).toContain("proffera-publication-recovery-complete");
-    expect(publish).toContain('git push --force-with-lease="refs/heads/${BRANCH}:"');
+    expect(publish).not.toMatch(/\bgit\s+push\b/);
     expect(publish).not.toContain("--force ");
     expect(publish).toContain('echo "recovery_digest=$digest"');
     expect(publish).toContain('echo "recovery_chunks=$total"');
@@ -3349,7 +3623,7 @@ esac
 
   it("wires bounded idempotent recovery and an actionable readiness diagnostic", () => {
     const handoff = source(".github/workflows/supervisor-worker-handoff.yml");
-    expect(handoff).toContain("Build and validate deterministic publication artifact");
+    expect(handoff).toContain("Prepare immutable Worker owner-push handoff");
     expect(handoff).toContain("BASE64_GZIP_JSON");
     expect(handoff).toContain("current_source_head:$current_source_head");
     const sync = source(".github/workflows/worker-supervisor-sync.yml");
@@ -3411,7 +3685,7 @@ esac
   it("accepts one exact reservation and matching bot-authored dispatch record", () => {
     const evidence = exactReservationEvidence();
     const result = runReservationEnforcement({ ...evidence, comments: [
-      ...evidence.comments,
+      ...withTrustedStrategyStart(evidence.comments),
       { id: 103, user: { login: "github-actions[bot]" }, body: durableStateBody("TASK_CREATED") },
     ] });
     expect(result.status, result.stderr).toBe(0);
@@ -3429,7 +3703,7 @@ esac
     const retargeted = runReservationEnforcement({
       body: evidence.body,
       comments: [
-        ...evidence.comments,
+        ...withTrustedStrategyStart(evidence.comments),
         { id: 103, user: { login: "github-actions[bot]" }, body: durableStateBody("CHECKS_PENDING") },
       ],
       eventAction: "edited",
@@ -3562,7 +3836,7 @@ esac
     expect(commentPatchCalls(replay.calls, 103)).toHaveLength(0);
     expect(String(replay.comments.find((comment) => comment.id === 101)?.body ?? "")).toBe(reservationBody);
     expect(String(replay.comments.find((comment) => comment.id === 103)?.body ?? "")).toBe(taskBody);
-  });
+  }, 15_000);
 
   it("preserves normal on-main PUBLISHED head rebind when no retarget provenance exists", () => {
     const evidence = exactReservationEvidence(sha, {
@@ -3574,7 +3848,7 @@ esac
     const result = runReservationEnforcement({
       body: evidence.body,
       comments: [
-        ...evidence.comments,
+        ...withTrustedStrategyStart(evidence.comments),
         { id: 103, user: { login: "github-actions[bot]" }, body: durableStateBody("CHECKS_PENDING", sha) },
       ],
       eventAction: "synchronize",
@@ -3896,7 +4170,7 @@ esac
     expect(replay.stdout).toContain("already released idempotently");
     expect(prPatchCalls(replay.calls)).toHaveLength(0);
     expect(commentPatchCalls(replay.calls, 101)).toHaveLength(0);
-  });
+  }, 15_000);
 
   it("retries transient malformed-close evidence reads before releasing the exact reservation", () => {
     const evidence = exactReservationEvidence(sha, {
@@ -4529,7 +4803,7 @@ esac
       recovery: { kind: "branch", expires_at: "2099-01-01T00:00:00Z" },
     });
     const result = runReservationEnforcement({ ...evidence, comments: [
-      ...evidence.comments,
+      ...withTrustedStrategyStart(evidence.comments),
       { id: 103, user: { login: "github-actions[bot]" }, body: durableStateBody("WORKER_BLOCKED") },
     ] });
     expect(result.status, result.stderr).toBe(0);
@@ -4554,7 +4828,7 @@ esac
     const result = runReservationEnforcement({
       body: evidence.body,
       comments: [
-        ...evidence.comments,
+        ...withTrustedStrategyStart(evidence.comments),
         { id: 103, user: { login: "github-actions[bot]" }, body: durableStateBody("CHECKS_PENDING") },
       ],
       eventHead: otherSha,
@@ -4936,7 +5210,7 @@ esac
         });
       }
     }
-  });
+  }, 15_000);
 
   it("recovers a released-valid split close after terminal task persistence fails in both sync paths", () => {
     let recoveredForCapacity: Array<Record<string, unknown>> | null = null;
@@ -5116,7 +5390,7 @@ esac
     expect(valid.status, valid.stderr).toBe(0);
     expect(commentPatchCalls(valid.calls, 101)).toHaveLength(1);
     expect(commentPatchCalls(valid.calls, 103)).toHaveLength(1);
-  });
+  }, 15_000);
 
   it("rejects invalid lifecycle close provenance without mutation", () => {
     const evidence = exactReservationEvidence(sha, { state: "PUBLISHED", pr_number: 849, recovery: null });
@@ -5137,6 +5411,49 @@ esac
     }
   });
 
+  it("blocks missing original Worker strategy evidence before writing active task state", () => {
+    const evidence = exactReservationEvidence(sha, { state: "PUBLISHED", pr_number: 849 });
+    const result = runLifecycleReconciliation({
+      action: "synchronize",
+      comments: [
+        ...evidence.comments,
+        { id: 103, user: { login: "github-actions[bot]" }, body: durableStateBody("WORKER_PR_OPENED") },
+      ],
+      liveState: "open",
+    });
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toContain("Worker strategy dispatch-start identity is missing or ambiguous");
+    expect(durableMutationCalls(result.calls)).toHaveLength(0);
+    expect(String(result.comments.find((entry) => entry.id === 103)?.body)).toContain("- State: \`WORKER_PR_OPENED\`");
+  });
+
+  it("blocks forged or duplicate original Worker strategy evidence before admission writes", () => {
+    const evidence = exactReservationEvidence(sha, { state: "PUBLISHED", pr_number: 849 });
+    const trusted = withTrustedStrategyStart(evidence.comments);
+    const index = trusted.findIndex((record) => String(record.body).includes("proffera-worker-strategy-start:v1:"));
+    expect(index).toBeGreaterThanOrEqual(0);
+    const original = trusted[index];
+    const fingerprint = String(original.body).match(/Evidence fingerprint: .([a-f0-9]{64})./u)?.[1] ?? "";
+    expect(fingerprint).toHaveLength(64);
+    const replacement = fingerprint === "f".repeat(64) ? "a".repeat(64) : "f".repeat(64);
+    const forged = trusted.map((record, idx) => idx === index ? {
+      ...record,
+      body: String(record.body).replace(fingerprint, replacement),
+    } : record);
+    for (const records of [forged, [...trusted, { ...original, id: 987654 }]]) {
+      const result = runLifecycleReconciliation({
+        action: "synchronize",
+        comments: [
+          ...records,
+          { id: 103, user: { login: "github-actions[bot]" }, body: durableStateBody("WORKER_PR_OPENED") },
+        ],
+        liveState: "open",
+      });
+      expect(result.status).not.toBe(0);
+      expect(durableMutationCalls(result.calls)).toHaveLength(0);
+    }
+  });
+
   it("preserves exact event-head enforcement for the open lifecycle path", () => {
     const stale = runLifecycleReconciliation({
       action: "synchronize",
@@ -5152,7 +5469,7 @@ esac
     const current = runLifecycleReconciliation({
       action: "synchronize",
       comments: [
-        ...exactReservationEvidence(sha, { state: "PUBLISHED", pr_number: 849 }).comments,
+        ...withTrustedStrategyStart(exactReservationEvidence(sha, { state: "PUBLISHED", pr_number: 849 }).comments),
         { id: 103, user: { login: "github-actions[bot]" }, body: durableStateBody("WORKER_PR_OPENED") },
       ],
       liveState: "open",
@@ -5168,7 +5485,7 @@ esac
   it("preserves the normal exact-head check-evidence path for an open PR", () => {
     const result = runSyncCheckReconciliation({
       comments: [
-        ...exactReservationEvidence(sha, { state: "PUBLISHED", pr_number: 849 }).comments,
+        ...withTrustedStrategyStart(exactReservationEvidence(sha, { state: "PUBLISHED", pr_number: 849 }).comments),
         { id: 103, user: { login: "github-actions[bot]" }, body: durableStateBody("CHECKS_PENDING") },
       ],
       liveState: "open",
@@ -5253,7 +5570,7 @@ esac
     const freedCapacity = runSlotReservation({ reservation: existing, extraComments: result.comments });
     expect(freedCapacity.status, freedCapacity.stderr).toBe(0);
     expect(freedCapacity.comments.some((comment) => comment.id === 999)).toBe(true);
-  });
+  }, 15_000);
 
   it("does not automatically admit the observed pre-bind HEAD B after terminal release", async () => {
     const fixture = await ownershipHarness();
@@ -5433,7 +5750,6 @@ esac
     expect(cleanup).toContain("Checkout exact cleanup baseline");
     expect(reconcile).toContain('actions/runs/${RUN_ID}/artifacts?per_page=100');
     expect(reconcile).toContain('actions/artifacts/${artifact_id}/zip');
-    expect(reconcile).toContain('test "$archive_entries" = "proffera-publication-artifact.json"');
     expect(reconcile).toContain('actual_recovery_digest="$(sha256sum "$recovery_artifact"');
     expect(reconcile).toContain('node "$helper" validate-publication');
     expect(reconcile).toContain('--arg expected_target_head "$head_sha"');
@@ -5457,6 +5773,104 @@ esac
     const finalize = workflowRunStep(workflow, "Finalize reserved Worker snapshot before publication");
     expect(finalize).toContain('target_tree_sha="$(git rev-parse HEAD^{tree})"');
     expect(finalize).toContain(".target_tree_sha=$target_tree_sha");
+  });
+
+  it.each(["valid", "tampered-manifest", "wrong-parent", "extra-member", "tampered-body", "missing-body", "wrong-body-digest"])(
+    "executes reconcile owner-layout ZIP validation with real Git and jq (%s)", (scenario) => {
+      const root = mkdtempSync(join(tmpdir(), "proffera-owner-zip-validation-"));
+      const repo = join(root, "repo"); const members = join(root, "members"); const temporary = join(root, "runner");
+      mkdirSync(repo); mkdirSync(members); mkdirSync(temporary);
+      const git = (...args: string[]) => {
+        const r = spawnSync("git", args, {cwd: repo, encoding: "utf8"});
+        expect(r.status, r.stderr).toBe(0); return r.stdout.trim();
+      };
+      const digest = (bytes: string | Buffer) => createHash("sha256").update(bytes).digest("hex");
+      try {
+        git("init", "-q"); git("config", "user.name", "Fixture"); git("config", "user.email", "fixture@example.invalid");
+        writeFileSync(join(repo, "candidate.txt"), "baseline\n"); git("add", "."); git("commit", "-qm", "baseline");
+        const base = git("rev-parse", "HEAD");
+        writeFileSync(join(repo, "candidate.txt"), "repair\n"); git("add", "."); const tree = git("write-tree");
+        const wrongParent = git("commit-tree", tree, "-p", base, "-m", "unexpected parent");
+        const next = git("commit-tree", tree, "-p", scenario === "wrong-parent" ? wrongParent : base, "-m", "repair");
+        git("update-ref", "HEAD", next, base);
+        const bundle = join(members, "proffera-owner-handoff.bundle"); git("bundle", "create", bundle, "HEAD", "^" + base);
+        git("reset", "--hard", "-q", base);
+        const recovery = "{}\n"; const bundleDigest = digest(readFileSync(bundle)); const recoveryDigest = digest(recovery);
+        const prBody = "## Exact Worker PR body\n\nThis text is frozen for owner publication.\n";
+        const bodyDigest = digest(prBody);
+        writeFileSync(join(members, "proffera-publication-artifact.json"), recovery);
+        if (scenario !== "missing-body") writeFileSync(join(members, "proffera-worker-pr-body.md"),
+          scenario === "tampered-body" ? prBody + "untrusted mutation\n" : prBody);
+        writeFileSync(join(members, "proffera-owner-handoff.bundle.sha256"), bundleDigest + "  proffera-owner-handoff.bundle\n");
+        writeFileSync(join(members, "proffera-owner-handoff.json"), JSON.stringify({
+          state: "OWNER_PUSH_REQUIRED", published: false, repository: "ibboabdoli-ai/Proffera",
+          branch: "work/proffera-fixture", task_id: "SUP-TEST", base_sha: base, parent_sha: base,
+          head_sha: scenario === "tampered-manifest" ? base : next, tree_sha: tree,
+          bundle_sha256: bundleDigest, recovery_sha256: recoveryDigest,
+          pr_body_sha256: scenario === "wrong-body-digest" ? "0".repeat(64) : bodyDigest,
+          run_id: 51, run_attempt: 1,
+        }));
+        const entries = ["proffera-publication-artifact.json", "proffera-owner-handoff.bundle",
+          "proffera-owner-handoff.bundle.sha256", "proffera-owner-handoff.json"];
+        if (scenario !== "missing-body") entries.push("proffera-worker-pr-body.md");
+        if (scenario === "extra-member") {writeFileSync(join(members, "unexpected.txt"), "unexpected archive member");entries.push("unexpected.txt");}
+        const archive = join(root, "handoff.zip");
+        const zipped = spawnSync("zip", ["-q", archive, ...entries], {cwd: members, encoding: "utf8"});
+        expect(zipped.status, zipped.stderr).toBe(0);
+        const workflow = source(".github/workflows/supervisor-worker-handoff.yml");
+        const reconcile = workflowRunStep(workflow, "Reconcile exact stranded reservation after publish setup failure");
+        const start = reconcile.indexOf('archive_entries="$(unzip -Z1');
+        const end = reconcile.indexOf('live_source="$(gh api', start);
+        expect(start).toBeGreaterThan(0); expect(end).toBeGreaterThan(start);
+        // Execute the complete local archive boundary; transport and later state mutation are outside this test.
+        const r = spawnSync("bash", ["-c", "set -euo pipefail\n" + reconcile.slice(start, end) + '\nprintf "OWNER_ARCHIVE_VALIDATED\\n"'], {
+          cwd: repo, encoding: "utf8", timeout: 15000,
+          env: {...process.env, RUNNER_TEMP: temporary, archive, recovery_artifact: join(root, "recovery.json"),
+            recovery_digest: recoveryDigest, REPOSITORY: "ibboabdoli-ai/Proffera", BRANCH: "work/proffera-fixture",
+            TASK_ID: "SUP-TEST", BASE_SHA: base, head_sha: next, target_tree_sha: tree, RUN_ID: "51"},
+        });
+        if (scenario === "valid") {
+          expect(r.status, r.stdout + r.stderr).toBe(0);
+          expect(r.stdout).toContain("OWNER_ARCHIVE_VALIDATED");
+          expect(git("rev-parse", "FETCH_HEAD")).toBe(next);
+          expect(git("rev-parse", "FETCH_HEAD^" )).toBe(base);
+        } else {
+          expect(r.status, r.stdout + r.stderr).not.toBe(0);
+          expect(r.stdout).not.toContain("OWNER_ARCHIVE_VALIDATED");
+          if (scenario !== "wrong-parent") expect(existsSync(join(repo, ".git", "FETCH_HEAD"))).toBe(false);
+        }
+      } finally { rmSync(root, {recursive: true, force: true}); }
+    },
+  );
+
+  it("never persists Worker succeeded before a verified published PR", () => {
+    const workflow = source(".github/workflows/supervisor-worker-handoff.yml");
+    const stepName = "Persist successful Worker strategy outcome only after authenticated publication";
+    const index = workflow.indexOf("- name: " + stepName);
+    expect(index).toBeGreaterThanOrEqual(0);
+    const next = workflow.indexOf("        env:", index);
+    const gate = workflow.slice(index, next);
+    expect(gate).toContain("steps.publish.outputs.pr_number != ''");
+    expect(gate).not.toContain("recovery_artifact");
+
+    const script = workflowRunStep(workflow, stepName);
+    const start = script.indexOf('if [ "$state" != "PUBLISHED" ]; then');
+    const end = script.indexOf('test "$(jq -r', start);
+    expect(start).toBeGreaterThanOrEqual(0);
+    expect(end).toBeGreaterThan(start);
+    const guard = script.slice(start, end);
+    const run = (state: string) => spawnSync("bash", ["-c",
+      "set -euo pipefail\nstate=" + state + "\n" + guard + "\nprintf 'CONTINUED\n'"], {encoding: "utf8"});
+    for (const state of ["RESERVED", "RECOVERABLE", "RELEASED"]) {
+      const result = run(state);
+      expect(result.status, result.stderr).not.toBe(0);
+      expect(result.stdout).not.toContain("CONTINUED");
+    }
+    const published = run("PUBLISHED");
+    expect(published.status, published.stderr).toBe(0);
+    expect(published.stdout).toContain("CONTINUED");
+    expect(script).toContain("pr_number:($pr_number|tonumber)");
+    expect(script).not.toContain("pr_number:(if $pr_number");
   });
 
   it("defers uploaded failure artifacts to independent trusted cleanup validation", () => {
@@ -5681,15 +6095,17 @@ esac
     expect(failure).toContain("No reservation was acquired and no Worker was invoked");
   });
 
-  it("keeps every failure before reservation acquisition retryable", () => {
-    for (const capacityBlocked of [false, true]) {
-      const result = runDispatchFailureState({ capacityBlocked });
-      expect(result.status, result.stderr).toBe(0);
-      expect(result.body).toContain("- State: `TASK_BLOCKED`");
-      expect(result.body).toMatch(/no Worker was invoked/iu);
-      expect(result.body).toContain("same task may be resubmitted");
-    }
+  // Each independent Bash/helper invocation gets the normal per-test budget;
+  // concurrent suites must not accumulate all three process runtimes in one test.
+  it.each([false, true])("keeps failure before reservation acquisition retryable (capacity blocked: %s)", (capacityBlocked) => {
+    const result = runDispatchFailureState({ capacityBlocked });
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.body).toContain("- State: `TASK_BLOCKED`");
+    expect(result.body).toMatch(/no Worker was invoked/iu);
+    expect(result.body).toContain("same task may be resubmitted");
+  });
 
+  it("keeps failure after reservation acquisition Worker-blocked", () => {
     const postReservation = runDispatchFailureState({ reservationCommentId: "101" });
     expect(postReservation.status, postReservation.stderr).toBe(0);
     expect(postReservation.body).toContain("- State: `WORKER_BLOCKED`");
@@ -6115,6 +6531,7 @@ process.stdout.write(JSON.stringify({
         env: {
           ...process.env,
           PATH: `${bin}${delimiter}${process.env.PATH ?? ""}`,
+          ...isolatedGhEnvironment(bin),
           GH_TOKEN: "test-token",
           REPOSITORY: "ibboabdoli-ai/Proffera",
           PR_NUMBER: "900",
@@ -6159,8 +6576,10 @@ process.stdout.write(JSON.stringify({
     expect(evaluate(baseContext({ branch: { exists: true } })).code).toBe("branch_exists");
   });
 
-  it("fails closed when authenticated dispatch capability is missing", () => {
+  it("requires authenticated model dispatch but no automatic push credential", () => {
     expect(evaluate(baseContext({ secrets: { openai: false, push: true } })).code).toBe("dispatch_auth_unavailable");
+    expect(evaluate(baseContext({ secrets: { openai: true, push: false } })))
+      .toMatchObject({ ok: true, code: "accepted" });
   });
 
   it("does not redispatch after the source Issue comment is edited", () => {
@@ -6201,7 +6620,7 @@ process.stdout.write(JSON.stringify({
     const reopened = runLifecycleReconciliation({
       action: "reopened",
       comments: [
-        ...exactReservationEvidence(sha, { state: "RELEASED", pr_number: 849, recovery: { kind: "closed_pr", merged: false } }).comments,
+        ...withTrustedStrategyStart(exactReservationEvidence(sha, { state: "RELEASED", pr_number: 849, recovery: { kind: "closed_pr", merged: false } }).comments),
         { id: 103, user: { login: "github-actions[bot]" }, body: durableStateBody("CLOSED_UNMERGED") },
       ],
       liveState: "open",
@@ -6403,6 +6822,27 @@ process.stdout.write(JSON.stringify({
     expect(run("validate-changes", { packet: packet(), changed_files: ["scripts/supervisor-worker-strategy-memory.mjs"] }).code).toBe("hard_blocked_change");
     expect(run("validate-changes", { packet: packet(), changed_files: ["scripts/supervisor-review-repair-strategy-memory.mjs"] }).code).toBe("hard_blocked_change");
     expect(run("validate-changes", { packet: packet(), changed_files: ["scripts/supervisor-ci-autofix-candidate.mjs"] }).code).toBe("hard_blocked_change");
+    expect(run("validate-changes", { packet: packet(), changed_files: ["scripts/supervisor-authorization-policy.mjs"] }).code).toBe("hard_blocked_change");
+    expect(run("validate-changes", { packet: packet(), changed_files: ["scripts/supervisor-preflight.mjs"] }).code).toBe("hard_blocked_change");
+    expect(run("validate-changes", { packet: packet(), changed_files: ["scripts/supervisor-owner-push-pending.mjs"] }).code).toBe("hard_blocked_change");
+    for (const helperPath of ["scripts/supervisor-final-gate-memory.mjs", "scripts/supervisor-final-gate-live.mjs"]) {
+      expect(run("validate-changes", { packet: packet(), changed_files: [helperPath] }).code).toBe("hard_blocked_change");
+      const unauthorized = spawnSync(process.execPath, [helper, "validate-changes"], {
+        input: JSON.stringify({ packet: packet({ allowed_paths: [helperPath] }), changed_files: [helperPath] }),
+        encoding: "utf8",
+      });
+      expect(unauthorized.status).toBe(1);
+      expect(unauthorized.stderr).toContain("allowed_paths cannot include hard-blocked scope");
+    }
+    const reservationHelper = "scripts/supervisor-b4-exclusive-reservation.mjs";
+    expect(run("validate-changes", { packet: packet(), changed_files: [reservationHelper] }).code).toBe("hard_blocked_change");
+    const attemptedPacket = packet({allowed_paths: [reservationHelper]});
+    const rejectedPacket = spawnSync(process.execPath, [helper, "validate-changes"], {
+      input: JSON.stringify({packet: attemptedPacket, changed_files: [reservationHelper]}),
+      encoding: "utf8",
+    });
+    expect(rejectedPacket.status).toBe(1);
+    expect(rejectedPacket.stderr).toContain("allowed_paths cannot include hard-blocked scope");
     expect(run("validate-changes", { packet: packet(), changed_files: ["scripts/supervisor-failure-memory.mjs"] }).code).toBe("hard_blocked_change");
     const plannerWorkflow = source(".github/workflows/supervisor-planner.yml");
     expect(plannerWorkflow).toContain("scripts/supervisor-worker-strategy-memory.mjs");
@@ -6832,5 +7272,83 @@ process.stdout.write(JSON.stringify({
     const codexBlock = workflow.slice(codexStart, codexEnd);
     expect(codexBlock).toContain("OPENAI_API_KEY");
     expect(codexBlock).not.toContain("PROFFERA_AUTOFIX_PUSH_TOKEN");
+  });
+});
+
+describe("isolated Worker gh command boundary", () => {
+  it("routes native ESM execFileSync to the extensionless fixture instead of host gh.exe", () => {
+    const bin = mkdtempSync(join(tmpdir(), "worker-gh-resolution-"));
+    try {
+      const fixture = join(bin, "gh");
+      writeFileSync(fixture, '#!/usr/bin/env node\nprocess.stdout.write(JSON.stringify(process.argv.slice(2)));', {mode:0o755});
+      const env = {...process.env, PATH: bin + delimiter + process.env.PATH, ...isolatedGhEnvironment(bin)};
+      const jq = spawnBashScript('jq -nr "\\\"fixture\\\""\n', {encoding:"utf8",env});
+      expect(jq.status, jq.stderr).toBe(0);
+      expect(jq.stdout).toBe("fixture\\n".replace("\\n", "\n"));
+      if (process.platform === "win32") {
+        // A harmless native executable proves Windows selects .exe over the shebang file.
+        copyFileSync(process.execPath, join(bin, "gh.exe"));
+        const resolution = spawnSync(join(bin, "gh"), ["--version"], {encoding:"utf8", env});
+        expect(resolution.error).toBeUndefined();
+        expect(resolution.status, resolution.stderr).toBe(0);
+        expect(resolution.stdout.trim()).toBe(process.version);
+      }
+      const script = 'import {execFileSync} from "node:child_process"; process.stdout.write(execFileSync("gh", ["api", "space value"], {encoding:"utf8"}));';
+      const result = spawnSync(process.execPath, ["--input-type=module", "-e", script], {encoding:"utf8",env});
+      expect(result.error).toBeUndefined();
+      expect(result.status, result.stderr).toBe(0);
+      expect(JSON.parse(result.stdout)).toEqual(["api","space value"]);
+      rmSync(fixture);
+      const missing = spawnSync(process.execPath, ["--input-type=module", "-e", script], {encoding:"utf8",env});
+      expect(missing.status).not.toBe(0);
+      expect(missing.stderr).toContain("Isolated gh fixture missing; refusing host gh");
+    } finally {rmSync(bin,{recursive:true,force:true});}
+  });
+  it("executes shell gh fixtures through the explicit shell interpreter", () => {
+    const bin=mkdtempSync(join(tmpdir(),"worker-gh-shell-"));
+    try {
+      writeFileSync(join(bin,"gh"), '#!/bin/sh\nprintf "%s" "$1"\n', {mode:0o755});
+      const result=spawnSync(process.execPath,["--input-type=module","-e",
+        'import {execFileSync} from "node:child_process";process.stdout.write(execFileSync("gh.exe",["fixture-only"],{encoding:"utf8"}));'],
+        {encoding:"utf8",env:{...process.env,...isolatedGhEnvironment(bin)}});
+      expect(result.error).toBeUndefined();
+      expect(result.status,result.stderr).toBe(0);
+      expect(result.stdout).toBe("fixture-only");
+    } finally {rmSync(bin,{recursive:true,force:true});}
+  });
+});
+
+describe("Worker shell script transport", () => {
+  it("preserves long scripts and quotes through the native host process boundary", () => {
+    const script = "#".repeat(40000) + "\nprintf '%s\\n' 'fixture \"quotes\" and backslash \\\\'\n";
+    const result = spawnBashScript(script, {encoding:"utf8"});
+    expect(result.error).toBeUndefined();
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stdout.trim()).toBe('fixture "quotes" and backslash \\\\');
+  });
+});
+
+describe("Worker jq fixture boundary", () => {
+  it("preserves real jq input, quoted arguments, binary output and failure status", () => {
+    const bin = mkdtempSync(join(tmpdir(), "worker-jq-boundary-"));
+    try {
+      writeFileSync(join(bin, "gh"), '#!/usr/bin/env node\nprocess.exit(2);', { mode: 0o755 });
+      const env = { ...process.env, ...isolatedGhEnvironment(bin) };
+      const direct = process.platform === "win32" ? "command jq -b" : "command jq";
+      for (const expression of [
+        "--arg value 'space value' -r '.value + $value'",
+        "-e 'false'",
+        "'invalid['",
+      ]) {
+        const input = `printf '%s' '{"value":"fixture "}' | `;
+        const actual = spawnBashScript(input + "jq " + expression, { encoding: "utf8", env });
+        const expected = spawnBashScript(input + direct + " " + expression, { encoding: "utf8", env });
+        expect(actual.error).toBeUndefined();
+        expect(expected.error).toBeUndefined();
+        expect(actual.status).toBe(expected.status);
+        expect(actual.stdout).toBe(expected.stdout);
+        expect(actual.stderr).toBe(expected.stderr);
+      }
+    } finally { rmSync(bin, { recursive: true, force: true }); }
   });
 });

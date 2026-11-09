@@ -5,9 +5,28 @@ import { delimiter, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
 import { describe, expect, it } from "vitest";
+import { codeContextExamples } from "./helpers/review-receipt-counterexamples";
 
 function source(path: string) {
   return readFileSync(resolve(process.cwd(), path), "utf8").replaceAll("\r\n", "\n");
+}
+
+function hiddenReviewBodies(head: string) {
+  const prefix = "Codex Review: Didn\u0027t find any major issues.\n";
+  const marker = "Reviewed commit: " + head;
+  return [
+    ...codeContextExamples(marker).filter(body => !body.includes("\r")).map(body => prefix + body),
+    prefix + "```\n" + marker + "\n```",
+    prefix + "~~~language\n" + marker + "\n~~~",
+    prefix + "<!--\n" + marker + "\n-->",
+    prefix + "<!-- unclosed\n" + marker,
+    prefix + "```\n" + marker,
+    prefix + "````\n```\n" + marker + "\n````",
+    prefix + "~~~\n```\n" + marker + "\n~~~",
+    prefix + "    " + marker,
+    prefix + "\t" + marker,
+    prefix + "> " + marker,
+  ].flatMap(body => [body, body.replaceAll("\n", "\r\n")]);
 }
 
 const reviewHead = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
@@ -32,7 +51,7 @@ function wakeupShellBlock() {
 
 function automergeAiReviewShellBlock() {
   const automerge = source(".github/workflows/proffera-automerge.yml");
-  const startMarker = '          file_count="$(grep -c . <<< "$changed_files" || true)"';
+  const startMarker = '          validate_codex_fallback() {';
   const endMarker = '          checks_json=""';
   const start = automerge.indexOf(startMarker);
   const end = automerge.indexOf(endMarker, start);
@@ -78,7 +97,7 @@ function toNdjson(items: Array<Record<string, unknown>> = []) {
   return items.map((item) => JSON.stringify(item)).join("\n");
 }
 
-function runWakeupFixture(fixture: WakeupFixture) {
+function runWakeupFixture(fixture: WakeupFixture, directAdapter = false) {
   const dir = mkdtempSync(join(tmpdir(), "proffera-wakeup-"));
   const script = join(dir, "wakeup.sh");
   const driver = join(dir, "github-fixture.mjs");
@@ -158,9 +177,10 @@ try {
 finally {writeFileSync(statePath, JSON.stringify(state));}
 `);
   writeFileSync(join(dir, "gh"), '#!/usr/bin/env bash\nexec "$FAKE_NODE_BINARY" "$FAKE_DRIVER" gh "$@"\n', { mode: 0o755 });
+  const jqBinaryOutput = process.platform === "win32" ? 'jq() { command jq.exe -b "$@"; }\n' : "";
   writeFileSync(script, `#!/usr/bin/env bash
 set -euo pipefail
-summary() { :; }
+${jqBinaryOutput}summary() { :; }
 node() { "$FAKE_NODE_BINARY" "$FAKE_DRIVER" adapter "$2"; }
 REPOSITORY=ibboabdoli-ai/Proffera
 EVENT_NAME=workflow_dispatch
@@ -180,10 +200,25 @@ INPUT_SOURCE_REVIEW_COMMIT='${fixture.sourceEvent === "pull_request_review" ? (f
 TRUSTED_CODEX_REQUESTER=ibboabdoli-ai
 ${wakeupShellBlock()}
 `, { mode: 0o755 });
-  const result = spawnSync("bash", [script], {
-    cwd: dir, encoding: "utf8",
-    env: { ...process.env, PATH: `${dir}${delimiter}${process.env.PATH ?? ""}`, FAKE_NODE_BINARY: process.execPath.replaceAll("\\", "/"), FAKE_DRIVER: driver.replaceAll("\\", "/"), FAKE_STATE_PATH: statePath },
-  });
+  const adapterInput = join(dir, "direct-adapter-input.json");
+  if (directAdapter) {
+    const createdAt = fixture.createdAt ?? "2099-09-05T12:03:00Z";
+    writeFileSync(adapterInput, JSON.stringify({
+      repository: "ibboabdoli-ai/Proffera", pr_number: 801,
+      source: { kind: "issue_comment", id: 9001, actor: fixture.actor ?? "coderabbitai[bot]",
+        observed_at: fixture.updatedAt ?? createdAt, created_at: createdAt,
+        review_commit: null, body: fixture.body, review_state: "" },
+      target: { workflow_path: ".github/workflows/ci.yml", run_id: 71, head: reviewHead, run_attempt: 1,
+        job: { id: 4, run_id: 71, head: reviewHead, run_attempt: 1, name: "E2E public smoke",
+          status: "completed", conclusion: "failure", started_at: "2099-09-05T12:01:00Z",
+          completed_at: "2099-09-05T12:02:00Z" } },
+    }));
+  }
+  const result = spawnSync(directAdapter ? process.execPath : "bash",
+    directAdapter ? [driver, "adapter", adapterInput] : [script], {
+      cwd: dir, encoding: "utf8",
+      env: { ...process.env, PATH: `${dir}${delimiter}${process.env.PATH ?? ""}`, FAKE_NODE_BINARY: process.execPath.replaceAll("\\", "/"), FAKE_DRIVER: driver.replaceAll("\\", "/"), FAKE_STATE_PATH: statePath },
+    });
   const state = JSON.parse(readFileSync(statePath, "utf8"));
   const intents = state.memory.length ? JSON.parse(state.memory[0].body.split("\n")[2]).intents : [];
   rmSync(dir, { recursive: true, force: true });
@@ -231,9 +266,10 @@ exit 92
 
   writeFileSync(script, `#!/usr/bin/env bash
 set -euo pipefail
-summary() { :; }
+summary() { printf "%s\\n" "$1"; }
 refuse() { printf 'REFUSED:%s\\n' "$1"; exit 0; }
 REPOSITORY=ibboabdoli-ai/Proffera
+${process.platform === "win32" ? 'jq() { command jq.exe -b "$@"; }' : ""}
 pr_number=695
 head_sha=${reviewHead}
 HUMAN_APPROVER=ibboabdoli-ai
@@ -269,6 +305,7 @@ function requestComment(createdAt = "2099-09-05T12:00:00Z") {
     user: { login: "github-actions[bot]" },
     body: `<!-- proffera-coderabbit-final-review-request:${reviewHead} -->\n@coderabbitai review`,
     created_at: createdAt,
+    updated_at: createdAt,
   };
 }
 
@@ -287,7 +324,7 @@ function codeRabbitCompletedReview(submittedAt = "2099-09-05T12:02:00Z", commitI
     id,
     user: { login: "coderabbitai[bot]" },
     commit_id: commitId,
-    state: "COMMENTED",
+    state: "APPROVED",
     submitted_at: submittedAt,
   };
 }
@@ -347,9 +384,10 @@ describe("event-driven final review gate", () => {
     expect(automerge).not.toContain("coderabbit_review_completion_time");
     expect(ci).toContain('terminal_count="$(jq -r');
     expect(automerge).toContain('terminal_count="$(jq -r');
+    expect(automerge).not.toContain('select(.state == "APPROVED" or .state == "COMMENTED")');
     expect(wakeup).toContain("EVENT_COMMENT_CREATED_AT");
     expect(wakeup).toContain("coderabbit_review_completion_time");
-    expect(wakeup).toContain('select(.state == "APPROVED" or .state == "COMMENTED")');
+    expect(wakeup).toContain('select(.state == "APPROVED" or (.state == "COMMENTED" and $clean_summary == "true"))');
     expect(wakeup).toContain('select((.submitted_at // "") >= $request_time)');
     expect(wakeup).toContain("<!-- CodeRabbit review command invocation: v2:");
     expect(wakeup).toContain("[0-9a-f]{64}");
@@ -424,11 +462,37 @@ describe("event-driven final review gate", () => {
       actor: "coderabbitai[bot]",
       body: "",
       createdAt: "2099-09-05T12:03:00Z",
-      reviewState: "COMMENTED",
+      reviewState: "APPROVED",
       reviewCommit: reviewHead,
+      comments: [requestComment()],
     });
     expect(trusted.result.status, trusted.result.stdout + trusted.result.stderr).toBe(0);
     expect(trusted.rerun).toBe(true);
+    const threadReply = runWakeupFixture({
+      sourceEvent: "pull_request_review", actor: "coderabbitai[bot]", body: "Thread reply",
+      createdAt: "2099-09-05T12:03:00Z", reviewState: "COMMENTED", reviewCommit: reviewHead,
+      comments: [requestComment()],
+    });
+    expect(threadReply.rerun).toBe(false);
+  });
+
+  it("does not wake the final gate for a persistent summary with only a thread-only COMMENTED review", () => {
+    const summary = `<!-- recent_review_start -->\nSummary for exact current head ${reviewHead}`;
+    const threaded = runWakeupFixture({
+      body: summary,
+      comments: [requestComment()],
+      firstReviews: [{...codeRabbitCompletedReview(), state: "COMMENTED", body: ""}],
+      updatedAt: "2099-09-05T12:03:00Z",
+    });
+    expect(threaded.result.status, threaded.result.stdout + threaded.result.stderr).toBe(0);
+    expect(threaded.rerun).toBe(false);
+    expect(threaded.posts).toBe(0);
+    expect(`${threaded.result.stdout}${threaded.result.stderr}`).toContain(
+      "CodeRabbit summary is not bound to a post-request completed current-head review",
+    );
+
+    // Successful review wakeups are covered separately with their full
+    // authenticated completion evidence; a summary alone is not sufficient.
   });
 
   it("fails closed when routed final-gate source provenance differs from fetched evidence", () => {
@@ -484,10 +548,10 @@ describe("event-driven final review gate", () => {
       body: cleanBody(),
       comments: [requestComment()],
     });
-    // CI accepts this authenticated clean exact-head comment independently.
+    // A bot comment without a completed PR review is insufficient.
     expect(commentBeforeReview.result.status, commentBeforeReview.result.stdout + commentBeforeReview.result.stderr).toBe(0);
-    expect(commentBeforeReview.rerun).toBe(true);
-    expect(commentBeforeReview.intents.map((i) => i.state)).toEqual(["ACCEPTED"]);
+    expect(commentBeforeReview.rerun).toBe(false);
+    expect(commentBeforeReview.intents).toEqual([]);
 
     const positive = runWakeupFixture({
       body: cleanBody(),
@@ -682,7 +746,69 @@ ${reviewHead}
       firstReviews: [codeRabbitCompletedReview("2099-09-05T12:02:00Z")],
     });
     expect(completedCurrentHeadReview.result.status, completedCurrentHeadReview.result.stdout + completedCurrentHeadReview.result.stderr).toBe(0);
-    expect(completedCurrentHeadReview.rerun).toBe(true);
+    expect(completedCurrentHeadReview.rerun).toBe(false);
+    const freshSummary = runWakeupFixture({
+      body: summaryBody, comments: [requestComment()],
+      firstReviews: [codeRabbitCompletedReview()],
+    });
+    expect(freshSummary.rerun).toBe(true);
+  }, 120000);
+
+  it("accepts the repository's ordinary clean persistent summary paired with current-head COMMENTED", () => {
+    const ordinary = `<!-- recent_review_start -->
+No actionable comments were generated in the recent review.
+${reviewHead}
+<!-- recent_review_end -->`;
+    const result = runWakeupFixture({
+      body: ordinary, comments: [requestComment()],
+      firstReviews: [{...codeRabbitCompletedReview(), state:"COMMENTED", body:""}],
+    });
+    expect(result.result.status, result.result.stderr).toBe(0);
+    expect(result.rerun).toBe(true);
+
+    const stale = runWakeupFixture({
+      body: ordinary.replace(reviewHead, oldHead), comments: [requestComment()],
+      firstReviews: [{...codeRabbitCompletedReview(), state:"COMMENTED", body:""}],
+    });
+    expect(stale.rerun).toBe(false);
+  }, 120000);
+
+  it("blocks an approved persistent summary when a newer change request arrives before rerun", () => {
+    const ordinary = `<!-- recent_review_start -->
+No actionable comments were generated in the recent review.
+${reviewHead}
+<!-- recent_review_end -->`;
+    const result = runWakeupFixture({
+      body: ordinary, comments: [requestComment()],
+      firstReviews: [codeRabbitCompletedReview()],
+      laterReviews: [codeRabbitCompletedReview(), {
+        ...codeRabbitCompletedReview("2099-09-05T12:04:00Z", reviewHead, 7999),
+        state: "CHANGES_REQUESTED",
+      }],
+    });
+    expect(result.result.status, result.result.stderr).toBe(0);
+    expect(result.rerun).toBe(false);
+    expect(`${result.result.stdout}${result.result.stderr}`).toContain("CodeRabbit changes were recorded before final-gate wakeup");
+  }, 120000);
+
+  it("accepts a clean current-head COMMENTED summary without bypassing newer change requests", () => {
+    const body = `Review completed for exact HEAD ${reviewHead}.
+I found no material findings.`;
+    const commented = { ...codeRabbitCompletedReview(), state: "COMMENTED", body: "" };
+    const positive = runWakeupFixture({
+      body, comments: [requestComment(), cleanIssueComment({ body })], firstReviews: [commented],
+    });
+    expect(positive.result.status, positive.result.stdout + positive.result.stderr).toBe(0);
+    expect(positive.rerun).toBe(true);
+
+    const denied = runWakeupFixture({
+      body, comments: [requestComment(), cleanIssueComment({ body })], firstReviews: [commented, {
+        ...codeRabbitCompletedReview("2099-09-05T12:02:30Z", reviewHead, 7002), state: "CHANGES_REQUESTED",
+      }],
+    });
+    expect(denied.result.status, denied.result.stdout + denied.result.stderr).toBe(0);
+    expect(denied.rerun).toBe(false);
+    expect(`${denied.result.stdout}${denied.result.stderr}`).toContain("CodeRabbit changes remain requested on the current head");
   }, 120000);
 
   it("does not classify availability/status comments as the new clean CodeRabbit decision", () => {
@@ -699,12 +825,94 @@ ${reviewHead}
     expect(cleanPredicate).toContain("| not");
   });
 
+  it("refuses clean CodeRabbit comments without a newer qualifying current-head PR review", () => {
+    const comments = [requestComment(), cleanIssueComment()];
+    const commentOnly = runAutomergeFixture({comments});
+    expect(commentOnly.status).toBe(0);
+    expect(commentOnly.stdout).toContain("clean comment has no completed current-head CodeRabbit PR review");
+    expect(commentOnly.stdout).not.toContain("AI_REVIEW_OK");
+
+    const oldReview = runAutomergeFixture({
+      comments,
+      firstReviews: [{...codeRabbitCompletedReview("2099-09-05T11:59:00Z"),state:"COMMENTED"}],
+    });
+    expect(oldReview.status).toBe(0);
+    expect(oldReview.stdout).toContain("clean comment has no completed current-head CodeRabbit PR review");
+    expect(oldReview.stdout).not.toContain("AI_REVIEW_OK");
+
+    const newerChanges = runAutomergeFixture({
+      comments,
+      firstReviews: [
+        {...codeRabbitCompletedReview("2099-09-05T12:02:00Z"),state:"COMMENTED"},
+        {...codeRabbitCompletedReview("2099-09-05T12:04:00Z",reviewHead,7002),state:"CHANGES_REQUESTED"},
+      ],
+    });
+    expect(newerChanges.status).toBe(0);
+    expect(newerChanges.stdout).toContain("CodeRabbit changes remain requested");
+    expect(newerChanges.stdout).not.toContain("AI_REVIEW_OK");
+  });
+
+  it("rejects an earlier unresolved same-head CodeRabbit inline finding before memory or rerun", () => {
+    const result = runWakeupFixture({
+      body: cleanBody(),
+      comments: [requestComment()],
+      firstReviews: [{ ...codeRabbitCompletedReview(), state: "COMMENTED" }],
+      inlineComments: [{
+        id: 9102,
+        user: { login: "coderabbitai[bot]" },
+        original_commit_id: reviewHead,
+        commit_id: reviewHead,
+        created_at: "2099-09-05T11:59:59Z",
+        body: "[P1] Unresolved authorization bypass",
+        path: "src/example.ts",
+        line: 1,
+      }],
+    }, true);
+    expect(result.result.status).not.toBe(0);
+    expect(result.result.stderr).toContain("final_gate_live:clean_comment_findings");
+    expect(result.posts).toBe(0);
+  });
+
   it("recognizes the same trusted clean exact-head CodeRabbit evidence in gated automerge", () => {
     const positive = runAutomergeFixture({
       comments: [requestComment(), cleanIssueComment()],
+      firstReviews: [{ ...codeRabbitCompletedReview(), state: "COMMENTED" }],
     });
     expect(positive.status).toBe(0);
     expect(positive.stdout).toContain("AI_REVIEW_OK");
+
+    const alternativeClean = runAutomergeFixture({
+      firstReviews: [{ ...codeRabbitCompletedReview(), state: "COMMENTED" }],
+      comments: [requestComment(), cleanIssueComment({
+        body: `Review completed for exact HEAD ${reviewHead}.
+I found no material findings.`,
+      })],
+    });
+    expect(alternativeClean.status).toBe(0);
+    expect(alternativeClean.stdout).toContain("AI_REVIEW_OK");
+
+    // A COMMENTED review can be generated by a bot replying to a resolved
+    // thread. It does not attest that the full exact-head PR was reviewed.
+    const threadOnlyReply = runAutomergeFixture({
+      comments: [requestComment()],
+      firstReviews: [{ ...codeRabbitCompletedReview(), state: "COMMENTED", body: "" }],
+    });
+    expect(threadOnlyReply.status).toBe(0);
+    expect(threadOnlyReply.stdout).toContain(
+      "Refused: no completed CodeRabbit review exists for the current PR head and the bounded Codex fallback is not active.",
+    );
+    expect(threadOnlyReply.stdout).not.toContain("AI_REVIEW_OK");
+
+    const threadReplyWithText = runAutomergeFixture({
+      comments: [requestComment()],
+      firstReviews: [{ ...codeRabbitCompletedReview(), state: "COMMENTED",
+        body: "A reply to a resolved inline review thread; not a full review." }],
+    });
+    expect(threadReplyWithText.status).toBe(0);
+    expect(threadReplyWithText.stdout).toContain(
+      "Refused: no completed CodeRabbit review exists for the current PR head and the bounded Codex fallback is not active.",
+    );
+    expect(threadReplyWithText.stdout).not.toContain("AI_REVIEW_OK");
 
     const commentedReviewWithInlineFinding = runAutomergeFixture({
       comments: [requestComment()],
@@ -736,7 +944,7 @@ ${reviewHead}
       "Refused: CodeRabbit posted current-head review findings; review acceptance is blocked.",
     );
 
-    const reanchoredOldInlineFinding = runAutomergeFixture({
+    const currentHeadReplyToOldThread = runAutomergeFixture({
       comments: [requestComment()],
       firstReviews: [codeRabbitCompletedReview("2099-09-05T12:02:00Z")],
       inlineComments: [{
@@ -746,8 +954,20 @@ ${reviewHead}
         created_at: "2099-09-05T12:02:00Z",
       }],
     });
-    expect(reanchoredOldInlineFinding.status).toBe(0);
-    expect(reanchoredOldInlineFinding.stdout).toContain("AI_REVIEW_OK");
+    expect(currentHeadReplyToOldThread.status).toBe(0);
+    expect(currentHeadReplyToOldThread.stdout).toContain(
+      "Refused: CodeRabbit posted current-head review findings; review acceptance is blocked.",
+    );
+    // A genuinely old carry-forward (created before this HEAD's request) is not
+    // a new finding and must not trap subsequent fully reviewed commits.
+    const oldCarried = runAutomergeFixture({
+      comments: [requestComment()],
+      firstReviews: [codeRabbitCompletedReview("2099-09-05T12:02:00Z")],
+      inlineComments: [{user:{login:"coderabbitai[bot]"},original_commit_id:oldHead,
+        commit_id:reviewHead,created_at:"2099-09-05T11:59:59Z"}],
+    });
+    expect(oldCarried.status).toBe(0);
+    expect(oldCarried.stdout).toContain("AI_REVIEW_OK");
 
     const preRequestInlineFinding = runAutomergeFixture({
       comments: [requestComment("2099-09-05T12:00:00Z")],
@@ -760,7 +980,8 @@ ${reviewHead}
       }],
     });
     expect(preRequestInlineFinding.status).toBe(0);
-    expect(preRequestInlineFinding.stdout).toContain("AI_REVIEW_OK");
+    expect(preRequestInlineFinding.stdout).not.toContain("AI_REVIEW_OK");
+    expect(preRequestInlineFinding.stdout).toContain("CodeRabbit posted current-head review findings");
 
     const summaryBody = `<!-- recent_review_start -->\nNo actionable comments were generated in the recent review.\n${reviewHead}\n<!-- recent_review_end -->`;
     const editedSummary = {
@@ -786,9 +1007,36 @@ ${reviewHead}
 
     const summaryWithCompletedCurrentHeadReview = runAutomergeFixture({
       comments: [requestComment("2099-09-05T12:00:00Z"), editedSummary],
-      firstReviews: [codeRabbitCompletedReview("2099-09-05T12:02:00Z")],
+      firstReviews: [{ ...codeRabbitCompletedReview("2099-09-05T12:02:00Z"), state: "COMMENTED" }],
     });
-    expect(summaryWithCompletedCurrentHeadReview.stdout).toContain("AI_REVIEW_OK");
+    expect(summaryWithCompletedCurrentHeadReview.stdout).not.toContain("AI_REVIEW_OK");
+
+    const editedCleanAfterReview = runAutomergeFixture({
+      comments: [requestComment(), cleanIssueComment({ updated_at: "2099-09-05T12:04:00Z" })],
+      firstReviews: [{ ...codeRabbitCompletedReview(), state: "COMMENTED" }],
+    });
+    expect(editedCleanAfterReview.stdout).not.toContain("AI_REVIEW_OK");
+
+    const freshCleanAfterReview = runAutomergeFixture({
+      comments: [requestComment(), cleanIssueComment()],
+      firstReviews: [{ ...codeRabbitCompletedReview(), state: "COMMENTED" }],
+    });
+    expect(freshCleanAfterReview.stdout).toContain("AI_REVIEW_OK");
+
+    const preRequestApproval = runAutomergeFixture({
+      comments: [requestComment()],
+      firstReviews: [codeRabbitCompletedReview("2099-09-05T11:59:00Z")],
+    });
+    expect(preRequestApproval.stdout).not.toContain("AI_REVIEW_OK");
+
+    const laterApproval = runAutomergeFixture({
+      comments: [requestComment()],
+      firstReviews: [
+        { ...codeRabbitCompletedReview("2099-09-05T12:01:00Z"), state: "CHANGES_REQUESTED" },
+        codeRabbitCompletedReview("2099-09-05T12:02:00Z", reviewHead, 7002),
+      ],
+    });
+    expect(laterApproval.stdout).toContain("AI_REVIEW_OK");
 
     const negatives = [
       runAutomergeFixture({
@@ -907,16 +1155,16 @@ ${reviewHead}
     const codexRequest = {
       id: 50, user: { login: "ibboabdoli-ai" },
       body: `<!-- proffera-codex-fallback-review-request:${reviewHead} -->\n@codex review`,
-      created_at: "2099-09-05T12:01:00Z",
+      created_at: "2026-10-18T21:01:00Z", updated_at: "2026-10-18T21:01:00Z",
     };
     const comments = [
-      requestComment(),
+      requestComment("2026-10-18T20:59:00Z"),
       { id: 49, user: { login: "coderabbitai[bot]" }, body: "Review rate limited",
-        created_at: "2099-09-05T12:00:30Z", updated_at: "2099-09-05T12:00:30Z" },
+        created_at: "2026-10-18T21:00:00Z", updated_at: "2026-10-18T21:00:00Z" },
       codexRequest,
       { id: 51, user: { login: "chatgpt-codex-connector[bot]" },
         body: `<!-- codex-review-receipt:v1 -->\n\nCodex Review: Didn't find any major issues.\n\n**Reviewed commit:** \`${reviewHead.slice(0, 10)}\``,
-        created_at: "2099-09-05T12:02:00Z", updated_at: "2099-09-05T12:02:00Z" },
+        created_at: "2026-10-18T21:02:00Z", updated_at: "2026-10-18T21:02:00Z" },
     ];
     const clean = runAutomergeFixture({ comments });
     expect(clean.status, clean.stdout + clean.stderr).toBe(0);
@@ -927,7 +1175,7 @@ ${reviewHead}
       inlineComments: [{
         user: { login: "chatgpt-codex-connector[bot]" },
         commit_id: reviewHead, original_commit_id: reviewHead,
-        created_at: "2099-09-05T12:02:30Z", body: "Synthetic review finding",
+        created_at: "2026-10-18T21:02:30Z", body: "Synthetic review finding",
       }],
     });
     expect(withFinding.status, withFinding.stdout + withFinding.stderr).toBe(0);
@@ -942,7 +1190,7 @@ ${reviewHead}
     expect(wakeup).toContain('EVENT_ACTOR:-}" = "chatgpt-codex-connector[bot]"');
     expect(wakeup).toContain("Codex Review: Didn\\u0027t find any major issues.");
     expect(wakeup).toContain("Reviewed commit:");
-    expect(wakeup).toContain("[0-9a-fA-F]{7,40}");
+    expect(wakeup).toContain("[0-9a-fA-F]{10,40}");
     expect(wakeup).toContain('[[ "$head_sha" != "$reviewed_prefix"* ]]');
     expect(wakeup).toContain('coderabbit_marker="<!-- proffera-coderabbit-final-review-request:${head_sha} -->"');
     expect(wakeup).toContain('select(.user.login == "github-actions[bot]")');
@@ -969,9 +1217,9 @@ ${reviewHead}
   });
 });
 describe("complete wakeup shell to durable adapter", () => {
-  it.each(["second_clean_form", "trailing_newlines", "comment_without_review", "missing_job_head"])("executes one verified durable POST for %s", (mode) => {
+  it.each(["second_clean_form", "trailing_newlines", "missing_job_head"])("executes one verified durable POST for %s", (mode) => {
     const body = mode === "second_clean_form" ? `Review completed for exact HEAD ${reviewHead}.\nI found no material findings.` : cleanBody() + (mode === "trailing_newlines" ? "\n\n" : "");
-    const result = runWakeupFixture({ body, comments: [requestComment()], adapterFault: mode === "missing_job_head" ? "missing_job_head" : undefined });
+    const result = runWakeupFixture({ body, comments: [requestComment()], firstReviews: [codeRabbitCompletedReview()], adapterFault: mode === "missing_job_head" ? "missing_job_head" : undefined });
     expect(result.result.status, result.result.stdout + result.result.stderr).toBe(0);
     expect(result.posts).toBe(1); expect(result.intents.map((i) => i.state)).toEqual(["ACCEPTED"]);
     const post = result.ops.findIndex((op) => op.endpoint.endsWith("/rerun"));
@@ -980,13 +1228,13 @@ describe("complete wakeup shell to durable adapter", () => {
     expect(result.ops.slice(0, post).some((op) => op.method === "GET" && op.endpoint.includes("/issues/548/comments") && op.states.includes("PREPARED"))).toBe(true);
   }, 30000);
   it.each(["blocking_review", "new_attempt", "wrong_job_head"] as const)("does not cross POST after %s", (adapterFault) => {
-    const result = runWakeupFixture({ body: cleanBody(), comments: [requestComment()], adapterFault });
+    const result = runWakeupFixture({ body: cleanBody(), comments: [requestComment()], firstReviews: [codeRabbitCompletedReview()], adapterFault });
     expect(result.posts).toBe(0);
     expect(result.intents).toEqual([]);
     if (adapterFault !== "wrong_job_head") expect(result.result.stdout).toContain("FAIL_CLOSED_MISMATCH");
   }, 30000);
   it("retains uncertain side effects after POST response loss", () => {
-    const result = runWakeupFixture({ body: cleanBody(), comments: [requestComment()], adapterFault: "post_timeout" });
+    const result = runWakeupFixture({ body: cleanBody(), comments: [requestComment()], firstReviews: [codeRabbitCompletedReview()], adapterFault: "post_timeout" });
     expect(result.result.status, result.result.stdout + result.result.stderr).toBe(0);
     expect(result.posts).toBe(1); expect(result.intents.map((i) => i.state)).toEqual(["UNCERTAIN"]);
   }, 30000);
@@ -994,44 +1242,137 @@ describe("complete wakeup shell to durable adapter", () => {
     const request = { id: 50, user: { login: "ibboabdoli-ai" }, body: `<!-- proffera-codex-fallback-review-request:${reviewHead} -->\n@codex review`, created_at: "2099-09-05T12:01:00Z" };
     const receipt = `<!-- codex-review-receipt:v1 -->\n\nCodex Review: Didn't find any major issues. Another round soon, please!\n\n**Reviewed commit:** \`${reviewHead.slice(0, 10)}\``;
     const base = { actor: "chatgpt-codex-connector[bot]", body: receipt, comments: [requestComment(), request] };
-    for (const body of [receipt, `Codex Review: Didn't find any major issues. Reviewed commit: ${reviewHead}`]) {
+    for (const body of [receipt, `Codex Review: Didn't find any major issues.\nReviewed commit: ${reviewHead}`]) {
       const fresh = runWakeupFixture({ ...base, body });
       expect(fresh.result.status, fresh.result.stdout + fresh.result.stderr).toBe(0);
       expect(fresh.posts).toBe(1);
     }
     const edited = runWakeupFixture({ ...base, createdAt: "2099-09-05T12:00:30Z", updatedAt: "2099-09-05T12:03:00Z" });
     expect(edited.posts).toBe(0); expect(edited.intents).toEqual([]);
-    const badBodies = [
-      `<!-- codex-review-receipt:v2 -->\n\nCodex Review: Didn't find any major issues. Reviewed commit: ${reviewHead}`,
-      `<!-- codex-review-receipt:v1 -->\n\nCodex Review: Didn't find any major issues. Reviewed commit: ${oldHead}`,
-      `Untrusted preface\n${receipt}`,
-      receipt + "\n\nReviewed commit: " + reviewHead + "c",
-      receipt + "\n\nReviewed commit: MALFORMED",
-      `<!-- codex-review-receipt:v1 -->\n\nCodex Review: Needs fixes. Reviewed commit: ${reviewHead}`,
+  }, 30000);
+  it("keeps the Wakeup and Live Adapter Codex token decision fail closed", () => {
+    const request = { id: 50, user: { login: "ibboabdoli-ai" }, body: `<!-- proffera-codex-fallback-review-request:${reviewHead} -->\n@codex review`, created_at: "2099-09-05T12:01:00Z" };
+    const reviewed = (sha: string) => `Codex Review: Didn't find any major issues.\nReviewed commit: ${sha}`;
+    const valid = [
+      reviewed(reviewHead),
+      reviewed(reviewHead.slice(0, 10)),
+      `Codex Review: Didn't find any major issues.\n Reviewed commit: ${reviewHead}`,
+      `Codex Review: Didn't find any major issues.\nReviewed commit:\t${reviewHead}`,
+      `Codex Review: Didn't find any major issues.\n**Reviewed commit:** \`${reviewHead.toUpperCase()}\``,
+      reviewed(reviewHead).replaceAll("\n", "\r\n"),
     ];
-    for (const body of badBodies) {
-      const denied = runWakeupFixture({ ...base, body });
-      expect(denied.posts).toBe(0);
+    const invalid = [
+      ...hiddenReviewBodies(reviewHead),
+      ...[7, 9, 11, 39].map((length) => reviewed(reviewHead.slice(0, length))),
+      reviewed(reviewHead + "a"),
+      reviewed(reviewHead + "a".repeat(24)),
+      reviewed(reviewHead.slice(0, 10) + "g"),
+      reviewed(reviewHead + "-extra"),
+      reviewed(reviewHead.slice(0, 10) + " " + oldHead),
+      `Codex Review: Didn't find any major issues.\nNotReviewed commit: ${reviewHead}`,
+      `Codex Review: Didn't find any major issues.\nNot Reviewed commit: ${reviewHead}`,
+      ...["\u00a0", "\u2003", "\u3000", "\u202f"].map((space) => `Codex Review: Didn't find any major issues.\n${space}Reviewed commit: ${reviewHead}`),
+      ...["\u00a0", "\u2003"].map((space) => `Codex Review: Didn't find any major issues.\nReviewed commit:${space}${reviewHead}`),
+      `Codex Review: Didn't find any major issues.\nDo not trust Reviewed commit: ${reviewHead}`,
+      `Codex Review: Didn't find any major issues.\nPlease ignore Reviewed commit: ${reviewHead}`,
+      `Codex Review: Didn't find any major issues. Reviewed commit: ${reviewHead}`,
+      `Codex Review: Didn't find any major issues.\nReviewed commit:\n${reviewHead}`,
+      reviewed(oldHead),
+      reviewed(reviewHead) + "\nReviewed commit: " + oldHead,
+      reviewed(oldHead) + "\nReviewed commit: " + reviewHead,
+      reviewed(reviewHead) + "\nReviewed commit: " + reviewHead,
+      `<!-- codex-review-receipt:v2 -->\n\n${reviewed(reviewHead)}`,
+    ];
+    for (const body of valid) {
+      const result = runWakeupFixture({ actor: "chatgpt-codex-connector[bot]", body, comments: [requestComment(), request] });
+      expect(result.result.status, body + result.result.stdout + result.result.stderr).toBe(0);
+      expect(result.posts, body + result.result.stdout + result.result.stderr).toBe(1);
     }
-    for (const deniedFixture of [
-      { ...base, actor: "ibboabdoli-ai" },
-      { ...base, comments: [requestComment()] },
-      { ...base, comments: [requestComment(), { ...request, created_at: "2099-09-05T11:59:00Z" }] },
-      { ...base, comments: [requestComment("2099-09-05T12:04:00Z"), request] },
-      { ...base, inlineComments: [{
-        user: { login: "chatgpt-codex-connector[bot]" },
-        commit_id: reviewHead, original_commit_id: reviewHead,
-        created_at: "2099-09-05T12:02:30Z", body: "Synthetic active review finding",
-      }] },
-      { ...base, firstReviews: [{
-        user: { login: "coderabbitai[bot]" }, commit_id: reviewHead,
-        state: "CHANGES_REQUESTED", submitted_at: "2099-09-05T12:02:30Z",
-      }] },
-    ]) {
-      const denied = runWakeupFixture(deniedFixture);
-      expect(denied.posts).toBe(0);
+    for (const body of invalid) {
+      const result = runWakeupFixture({ actor: "chatgpt-codex-connector[bot]", body, comments: [requestComment(), request] });
+      expect(result.result.status, body + result.result.stdout + result.result.stderr).toBe(0);
+      expect(result.posts, body + result.result.stdout + result.result.stderr).toBe(0);
     }
-  }, 120000);
+    const spoofed = runWakeupFixture({ actor: "untrusted-user", body: reviewed(reviewHead), comments: [requestComment(), request] });
+    expect(spoofed.posts).toBe(0);
+    const stale = runWakeupFixture({ actor: "chatgpt-codex-connector[bot]", body: reviewed(reviewHead),
+      createdAt: "2099-09-05T12:00:30Z", updatedAt: "2099-09-05T12:03:00Z", comments: [requestComment(), request] });
+    expect(stale.posts).toBe(0);
+    const blocked = runWakeupFixture({ actor: "chatgpt-codex-connector[bot]", body: reviewed(reviewHead),
+      comments: [requestComment(), request], firstReviews: [{
+        user: { login: "coderabbitai[bot]" }, commit_id: reviewHead, state: "CHANGES_REQUESTED",
+        submitted_at: "2099-09-05T12:02:00Z",
+      }] });
+    expect(blocked.posts).toBe(0);
+  }, 180000);
+  it("rejects Unicode-indented markers in the actual Live Adapter without the Wakeup prefilter", () => {
+    const request = { id: 50, user: { login: "ibboabdoli-ai" }, body: `<!-- proffera-codex-fallback-review-request:${reviewHead} -->\n@codex review`, created_at: "2099-09-05T12:01:00Z" };
+    const prefix = "Codex Review: Didn't find any major issues.\n";
+    for (const space of [" "]) {
+      const body = `${prefix}${space}Reviewed commit: ${reviewHead}`;
+      const result = runWakeupFixture({ actor: "chatgpt-codex-connector[bot]", body, comments: [requestComment(), request] }, true);
+      expect(result.result.status, body + result.result.stderr).toBe(0);
+      expect(result.posts, body + result.result.stderr).toBe(1);
+    }
+    for (const space of ["\t", "    ", "\u00a0", "\u2003", "\u3000", "\u202f"]) {
+      const body = `${prefix}${space}Reviewed commit: ${reviewHead}`;
+      const result = runWakeupFixture({ actor: "chatgpt-codex-connector[bot]", body, comments: [requestComment(), request] }, true);
+      expect(result.result.status, body + result.result.stderr).not.toBe(0);
+      expect(result.result.stderr).toContain("final_gate_live:clean_head");
+      expect(result.posts).toBe(0);
+    }
+  }, 60000);
+  it("rejects hidden markers in the actual Live Adapter without the Wakeup prefilter", () => {
+    const request = { id: 50, user: { login: "ibboabdoli-ai" }, body: "<!-- proffera-codex-fallback-review-request:" + reviewHead + " -->\n@codex review", created_at: "2099-09-05T12:01:00Z" };
+    for (const body of hiddenReviewBodies(reviewHead)) {
+      const result = runWakeupFixture({ actor: "chatgpt-codex-connector[bot]", body, comments: [requestComment(), request] }, true);
+      expect(result.result.status, body + result.result.stderr).not.toBe(0);
+      expect(result.result.stderr).toContain("final_gate_live:clean_head");
+      expect(result.posts).toBe(0);
+    }
+  }, 60000);
+  it("accepts official LF and CRLF Codex receipts through Wakeup and Live Adapter", () => {
+    const request = { id: 50, user: { login: "ibboabdoli-ai" }, body: `<!-- proffera-codex-fallback-review-request:${reviewHead} -->\n@codex review`, created_at: "2099-09-05T12:01:00Z" };
+    const lfBody = `<!-- codex-review-receipt:v1 -->\n\nCodex Review: Didn't find any major issues.\nReviewed commit: ${reviewHead}`;
+    for (const body of [lfBody, lfBody.replaceAll("\n", "\r\n")]) {
+      const result = runWakeupFixture({ actor: "chatgpt-codex-connector[bot]", body, comments: [requestComment(), request] });
+      expect(result.result.status, body + result.result.stdout + result.result.stderr).toBe(0);
+      expect(result.posts, body + result.result.stdout + result.result.stderr).toBe(1);
+    }
+  }, 30000);
+  it("rejects earlier current-head Codex findings after a repeat fallback request", () => {
+    const request = { id: 50, user: { login: "ibboabdoli-ai" },
+      body: "<!-- proffera-codex-fallback-review-request:" + reviewHead + " -->\n@codex review",
+      created_at: "2099-09-05T12:01:00Z" };
+    const body = "Codex Review: Didn't find any major issues.\nReviewed commit: " + reviewHead;
+    for (const createdAt of ["2099-09-05T12:00:30Z", "2099-09-05T12:02:00Z"]) {
+      const result = runWakeupFixture({
+        actor: "chatgpt-codex-connector[bot]", body, comments: [requestComment(), request],
+        inlineComments: [{ id: 91, user: { login: "chatgpt-codex-connector[bot]" },
+          original_commit_id: reviewHead, commit_id: reviewHead, created_at: createdAt,
+          body: "[P1] Unresolved same-head authorization issue" }],
+      }, true);
+      expect(result.result.status, result.result.stdout + result.result.stderr).not.toBe(0);
+      expect(result.result.stderr).toContain("final_gate_live:clean_comment_findings");
+      expect(result.posts).toBe(0);
+    }
+    const unrelatedHead = runWakeupFixture({
+      actor: "chatgpt-codex-connector[bot]", body, comments: [requestComment(), request],
+      inlineComments: [{ id: 91, user: { login: "chatgpt-codex-connector[bot]" },
+        original_commit_id: oldHead, commit_id: oldHead, created_at: "2099-09-05T12:00:30Z",
+        body: "[P1] Finding for a different commit" }],
+    }, true);
+    expect(unrelatedHead.result.status, unrelatedHead.result.stdout + unrelatedHead.result.stderr).toBe(0);
+    expect(unrelatedHead.posts).toBe(1);
+    const carriedForward = runWakeupFixture({
+      actor: "chatgpt-codex-connector[bot]", body, comments: [requestComment(), request],
+      inlineComments: [{ id: 92, user: { login: "chatgpt-codex-connector[bot]" },
+        original_commit_id: oldHead, commit_id: reviewHead, created_at: "2099-09-05T12:00:30Z",
+        body: "[P1] Previous-head finding (already superseded by exact-head review)" }],
+    }, true);
+    expect(carriedForward.result.status, carriedForward.result.stdout + carriedForward.result.stderr).toBe(0);
+    expect(carriedForward.posts).toBe(1);
+  }, 30000);
   it("does not turn disabled automatic review into an outage, while recognized post-request rate limits reach the adapter", () => {
     const skipped = runWakeupFixture({ body: "Review skipped: automatic reviews are disabled", comments: [requestComment()] });
     expect(skipped.posts).toBe(0); expect(skipped.intents).toEqual([]);
@@ -1040,6 +1381,16 @@ describe("complete wakeup shell to durable adapter", () => {
     const stale = runWakeupFixture({ body: "Review rate limited", createdAt: "2099-09-05T11:59:00Z", comments: [requestComment()] });
     expect(stale.posts).toBe(0);
   }, 30000);
+  it.each(["The service unavailable error is fixed.", "> Review rate limited", "Code example:\n```text\nReview rate limited\n```"])("ignores availability examples without creating a rerun intent: %s", (body) => {
+    const result = runWakeupFixture({ body, comments: [requestComment()] });
+    expect(result.result.status, result.result.stdout + result.result.stderr).toBe(0);
+    expect(result.posts).toBe(0); expect(result.intents).toEqual([]);
+  });
+  it.each(["<!-- This is an auto-generated reply by CodeRabbit -->\n<!-- CodeRabbit review command invocation: v2:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa -->\n<details>\n<summary>⚠️ Action not completed</summary>\n\nReview rate limited.\n\nPlease retry later.\n</details>", "<!-- This is an auto-generated reply by CodeRabbit -->\r\n<!-- CodeRabbit review command invocation: v2:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa -->\r\n<details>\r\n<summary>⚠️ Action not completed</summary>\r\n\r\nReview rate limited.\r\n\r\nPlease retry later.\r\n</details>"])(("accepts the observed provider availability reply wrapper: %s"), (body) => {
+    const result = runWakeupFixture({ body, comments: [requestComment()] });
+    expect(result.result.status, result.result.stdout + result.result.stderr).toBe(0);
+    expect(result.posts).toBe(1);
+  });
   it("routes both independently accepted CodeRabbit clean formats through the existing router", () => {
     const router = source(".github/workflows/supervisor-event-router.yml");
     const match = router.match(/grep -Eqi '(recent_review_start\|[^']+)' <<< "\$\{COMMENT_BODY:-\}"/);
@@ -1050,3 +1401,287 @@ describe("complete wakeup shell to durable adapter", () => {
     }
   });
 });
+
+// PR #941: exercise the exact jq predicates shipped in AutoMerge.
+describe("AutoMerge CodeRabbit review provenance (adversarial)", () => {
+  const workflow = source(".github/workflows/proffera-automerge.yml");
+  const extract = (begin: string, end: string, text = workflow) => {
+    const a = text.indexOf(begin), b = text.indexOf(end,a);
+    expect(a).toBeGreaterThanOrEqual(0);
+    expect(b).toBeGreaterThan(a);
+    return text.slice(a+begin.length,b);
+  };
+  const jq = (filter: string, input: unknown, params: Record<string,string>) => {
+    const args = ["-c",...Object.entries(params).flatMap(([k,v])=>["--arg",k,v]),filter];
+    const r = spawnSync("jq",args,{input:JSON.stringify(input),encoding:"utf8"});
+    expect(r.status,r.stderr).toBe(0);
+    return r.stdout.trim() ? JSON.parse(r.stdout) : null;
+  };
+  const request = "2026-10-18T21:00:00Z";
+  const completed = "2026-10-18T21:02:00Z";
+  const summary = "2026-10-18T21:03:00Z";
+  const clean = [{
+    user:{login:"coderabbitai[bot]"},created_at:summary,updated_at:summary,
+    body:"Review completed for exact HEAD "+reviewHead+".\nI found no material findings.",
+  }];
+  const cleanFilter = extract(
+    'clean_final_comments_json="$(jq -c --arg sha "$head_sha" --arg request_time "$coderabbit_request_time" \x27\n',
+    '\x27 <<< "$comments_json")"',
+  );
+  it("accepts only authenticated current-head persistent clean summaries across CI and AutoMerge", () => {
+    const ci = source(".github/workflows/ci.yml");
+    const ciFilter = extract(
+      'clean_final_comments_json="$(jq -c --arg sha "$HEAD_SHA" --arg request_time "$coderabbit_request_time" \x27\n',
+      '\x27 <<< "$comments_json")"', ci,
+    );
+    const body = `<!-- recent_review_start -->\nNo actionable comments were generated in the recent review.\n${reviewHead}\n<!-- recent_review_end -->`;
+    const valid = {...clean[0],body};
+    for (const filter of [ciFilter,cleanFilter]) {
+      const count = (rows: unknown[]) => (jq(filter,rows,{sha:reviewHead,request_time:request}) as unknown[]).length;
+      expect(count([valid])).toBe(1);
+      expect(count([{...valid,body:body.replace(reviewHead,oldHead)}])).toBe(0);
+      expect(count([{...valid,body:"> "+body}])).toBe(0);
+      expect(count([{...valid,user:{login:"attacker"}}])).toBe(0);
+      expect(count([{...valid,updated_at:"2026-10-18T21:04:00Z"}])).toBe(0);
+      expect(count([{...valid,created_at:"2026-10-18T20:59:00Z"}])).toBe(0);
+    }
+    const accepted=runAutomergeFixture({
+      comments:[requestComment(),cleanIssueComment({body})],
+      firstReviews:[{...codeRabbitCompletedReview(),state:"COMMENTED"}],
+    });
+    expect(accepted.stdout,accepted.stdout+accepted.stderr).toContain("AI_REVIEW_OK");
+    const noWitness=runAutomergeFixture({
+      comments:[requestComment(),cleanIssueComment({body})],firstReviews:[],
+    });
+    expect(noWitness.stdout).not.toContain("AI_REVIEW_OK");
+  },45000);
+  const reviewFilter = extract(
+    'guard_review_completion_time="$(jq -r --arg request_time "$coderabbit_request_time" \x27\n',
+    '\x27 <<< "$guard_current_reviews")"',
+  );
+  const currentFilter = extract(
+    'guard_current_reviews="$(jq -c --arg sha "$head_sha" \x27',
+    '\x27 <<< "$guard_reviews_json")"',
+  );
+  const afterFilter = extract(
+    'guard_clean_after_review_count="$(jq -r --arg review_time "$guard_review_completion_time" \x27\n',
+    '\x27 <<< "$clean_final_comments_json")"',
+  );
+  it("counts pre-request current-head Codex inline findings in CI and AutoMerge jq gates", () => {
+    const ci = source(".github/workflows/ci.yml");
+    const initialCi = extract(
+      'codex_inline_count="$(jq -r --arg sha "$HEAD_SHA" --arg request_time "$codex_request_time" \x27\n',
+      '\x27 <<< "$codex_inline_json")"', ci,
+    );
+    const guardCi = extract(
+      'guard_blocking_inline_count="$(jq -r --arg sha "$HEAD_SHA" --arg request_time "$codex_request_time" --arg coderabbit_request_time "$coderabbit_request_time" \x27\n',
+      '\x27 <<< "$guard_inline_json")"', ci,
+    );
+    const initialAutomerge = extract(
+      'codex_inline_count="$(jq -r --arg sha "$head_sha" --arg request_time "$codex_request_time" \x27\n',
+      '\x27 <<< "$codex_inline_json")"',
+    );
+    const nearMergeAutomerge = extract(
+      'near_merge_codex_inline_count="$(jq -r --arg sha "$head_sha" --arg request_time "$codex_request_time" \x27\n',
+      '\x27 <<< "$near_merge_inline_json")"',
+    );
+    const priorFinding = [{
+      user: { login: "chatgpt-codex-connector[bot]" }, original_commit_id: reviewHead,
+      commit_id: oldHead, created_at: "2026-10-18T20:59:59Z", body: "[P1] Pending finding",
+    }];
+    for (const filter of [initialCi, guardCi, initialAutomerge, nearMergeAutomerge]) {
+      expect(jq(filter, priorFinding, {
+        sha: reviewHead, request_time: "2026-10-18T21:00:00Z",
+        coderabbit_request_time: "2026-10-18T21:00:00Z",
+      })).toBe(1);
+    }
+  });
+  it("counts both current-head inline ID forms in the actual CI review predicates", () => {
+    const ci = source(".github/workflows/ci.yml");
+    const initialFilter = extract(
+      'coderabbit_inline_count="$(jq -r --arg sha "$HEAD_SHA" --arg request_time "$coderabbit_request_time" \x27\n',
+      '\x27 <<< "$coderabbit_inline_json")"', ci,
+    );
+    const fallbackFilter = extract(
+      'guard_blocking_inline_count="$(jq -r --arg sha "$HEAD_SHA" --arg request_time "$codex_request_time" --arg coderabbit_request_time "$coderabbit_request_time" \x27\n',
+      '\x27 <<< "$guard_inline_json")"', ci,
+    );
+    const entry = (original_commit_id: string, commit_id: string, created_at = summary) => ({
+      user: { login: "coderabbitai[bot]" }, original_commit_id, commit_id, created_at,
+    });
+    for (const finding of [entry(reviewHead, oldHead), entry(reviewHead, reviewHead),
+      {user:{login:"coderabbitai[bot]"},commit_id:reviewHead,created_at:summary}]) {
+      expect(jq(initialFilter, [finding], { sha: reviewHead, request_time: request })).toBe(1);
+      expect(jq(fallbackFilter, [finding], { sha: reviewHead, request_time: request, coderabbit_request_time: request })).toBe(1);
+    }
+    // A comment made on an earlier commit must not become a new-head finding
+    // just because GitHub's commit_id follows an unchanged diff position.
+    const carriedForward = entry(oldHead, reviewHead, "2026-10-18T20:59:00Z");
+    expect(jq(initialFilter, [carriedForward], { sha: reviewHead, request_time: request })).toBe(0);
+    expect(jq(fallbackFilter, [carriedForward], { sha: reviewHead, request_time: request, coderabbit_request_time: request })).toBe(0);
+    const freshReply = entry(oldHead, reviewHead, summary);
+    expect(jq(initialFilter, [freshReply], { sha: reviewHead, request_time: request })).toBe(1);
+    expect(jq(fallbackFilter, [freshReply], { sha: reviewHead, request_time: request, coderabbit_request_time: request })).toBe(1);
+    const genuinelyStale = entry(oldHead, oldHead);
+    expect(jq(initialFilter, [genuinelyStale], { sha: reviewHead, request_time: request })).toBe(0);
+    expect(jq(fallbackFilter, [genuinelyStale], { sha: reviewHead, request_time: request, coderabbit_request_time: request })).toBe(0);
+    const earlierSameHeadFinding = entry(reviewHead, oldHead, "2026-10-18T20:59:00Z");
+    expect(jq(initialFilter, [earlierSameHeadFinding], { sha: reviewHead, request_time: request })).toBe(1);
+    expect(jq(fallbackFilter, [earlierSameHeadFinding], { sha: reviewHead, request_time: request, coderabbit_request_time: request })).toBe(1);
+  });
+  it("blocks earlier same-head findings across every AutoMerge CodeRabbit checkpoint", () => {
+    const finding = {
+      user: { login: "coderabbitai[bot]" },
+      original_commit_id: reviewHead,
+      commit_id: oldHead,
+      created_at: "2026-10-18T20:59:00Z",
+    };
+    for (const [name, variable] of [
+      ["coderabbit_inline_count", "coderabbit_inline_json"],
+      ["final_coderabbit_inline_count", "final_coderabbit_inline_json"],
+      ["near_merge_coderabbit_inline_count", "near_merge_inline_json"],
+    ]) {
+      const marker = name + '="$(jq -r --arg sha "$head_sha" --arg request_time "$coderabbit_request_time" ' + String.fromCharCode(39) + "\n";
+      const closing = String.fromCharCode(39) + ' <<< "$' + variable + '")"';
+      const start = workflow.indexOf(marker);
+      expect(start, name).toBeGreaterThan(0);
+      const end = workflow.indexOf(closing, start);
+      expect(end, name).toBeGreaterThan(start);
+      const filter = workflow.slice(start + marker.length, end);
+      expect(jq(filter, [finding], { sha: reviewHead, request_time: request }), name).toBe(1);
+      expect(jq(filter, [{...finding,original_commit_id:oldHead,commit_id:reviewHead}],
+        { sha: reviewHead, request_time: request }), name+" carried forward").toBe(0);
+      expect(jq(filter, [{...finding,original_commit_id:oldHead,commit_id:reviewHead,created_at:summary}],
+        { sha: reviewHead, request_time: request }), name+" fresh reply").toBe(1);
+    }
+  });
+  const qualify = (reviews: unknown[], comments = clean) => {
+    const summaries = jq(cleanFilter,comments,{sha:reviewHead,request_time:request}) as unknown[];
+    const reviewTime = jq(reviewFilter,reviews,{request_time:request}) as string | null;
+    const matches = reviewTime
+      ? jq(afterFilter,summaries,{review_time:reviewTime}) as number : 0;
+    return {summaries:summaries.length,matches};
+  };
+  const review = (state:string,time=completed) => ({user:{login:"coderabbitai[bot]"},commit_id:reviewHead,state,submitted_at:time});
+  it("rejects comment-only clean evidence",() => {
+    expect(qualify([])).toEqual({summaries:1,matches:0});
+  });
+  it("rejects stale-HEAD or pre-request reviews",() => {
+    expect(qualify([review("COMMENTED","2026-10-18T20:55:00Z")]).matches).toBe(0);
+    const stale = jq(currentFilter,[{...review("COMMENTED"),commit_id:oldHead}],{sha:reviewHead}) as unknown[];
+    expect(stale).toEqual([]);
+    expect(qualify(stale).matches).toBe(0);
+  });
+  it("rejects clean summaries older than review completion",() => {
+    expect(qualify([review("COMMENTED","2026-10-18T21:04:00Z")]).matches).toBe(0);
+  });
+  it("accepts qualifying COMMENTED and APPROVED only with later clean summaries",() => {
+    expect(qualify([review("COMMENTED")]).matches).toBe(1);
+    expect(qualify([review("APPROVED")]).matches).toBe(1);
+  });
+  it("retains the current-head CHANGES_REQUESTED hard block",() => {
+    expect(workflow).toContain("guard_latest_changes");
+    expect(workflow).toContain("CodeRabbit changes were recorded before clean-comment automerge acceptance");
+  });
+  it("requires the CI-equivalent Codex receipt and reviewed-commit predicate",() => {
+    const codexFilter = extract(
+      'codex_clean_comment_count="$(jq -r --arg sha "$head_sha" --arg request_time "$codex_request_time" \x27\n',
+      '\x27 <<< "$comments_json")"',
+    );
+    const ciFilter = extract(
+      'codex_clean_comment_count="$(jq -r --arg sha "$HEAD_SHA" --arg request_time "$codex_request_time" \x27\n',
+      '\x27 <<< "$comments_json")"',
+      source(".github/workflows/ci.yml"),
+    );
+    const reviewed = (sha:string) => `Codex Review: Didn't find any major issues.\nReviewed commit: ${sha}`;
+    const comment = (body:string, created_at=summary, actor="chatgpt-codex-connector[bot]") => ({
+      user:{login:actor},created_at,updated_at:created_at,body,
+    });
+    const count = (comments:unknown[]) => [
+      jq(codexFilter,comments,{sha:reviewHead,request_time:request}),
+      jq(ciFilter,comments,{sha:reviewHead,request_time:request}),
+    ];
+    const accepted = [
+      reviewed(reviewHead),
+      reviewed(reviewHead.slice(0,10)),
+      `Codex Review: Didn't find any major issues.\n Reviewed commit: ${reviewHead}`,
+      `Codex Review: Didn't find any major issues.\nReviewed commit:\t${reviewHead}`,
+      `<!-- codex-review-receipt:v1 -->\n\n${reviewed(reviewHead)}`,
+      `Codex Review: Didn't find any major issues.\n**Reviewed commit:** \`${reviewHead.toUpperCase()}\``,
+      reviewed(reviewHead).replaceAll("\n", "\r\n"),
+      `<!-- codex-review-receipt:v1 -->\r\n\r\n${reviewed(reviewHead).replaceAll("\n", "\r\n")}`,
+    ];
+    for (const body of accepted) expect(count([comment(body)]),body).toEqual([1,1]);
+    for (const body of accepted) expect(count([{...comment(body),updated_at:"2026-11-01T00:00:00Z"}]),body).toEqual([0,0]);
+    const rejected = [
+      ...hiddenReviewBodies(reviewHead),
+      ...[7,9,11,39,41].map((length) => reviewed(reviewHead.slice(0,length) + (length === 41 ? "a" : ""))),
+      reviewed(reviewHead + "a".repeat(24)),
+      reviewed(reviewHead.slice(0,10) + "g"),
+      reviewed(reviewHead + "-extra"),
+      reviewed(reviewHead.slice(0,10) + " " + oldHead),
+      `Codex Review: Didn't find any major issues.\nNotReviewed commit: ${reviewHead}`,
+      `Codex Review: Didn't find any major issues.\nNot Reviewed commit: ${reviewHead}`,
+      ...["\u00a0", "\u2003", "\u3000", "\u202f"].map((space) => `Codex Review: Didn't find any major issues.\n${space}Reviewed commit: ${reviewHead}`),
+      ...["\u00a0", "\u2003"].map((space) => `Codex Review: Didn't find any major issues.\nReviewed commit:${space}${reviewHead}`),
+      `Codex Review: Didn't find any major issues.\nDo not trust Reviewed commit: ${reviewHead}`,
+      `Codex Review: Didn't find any major issues.\nPlease ignore Reviewed commit: ${reviewHead}`,
+      `Codex Review: Didn't find any major issues. Reviewed commit: ${reviewHead}`,
+      `Codex Review: Didn't find any major issues.\nReviewed commit:\n${reviewHead}`,
+      reviewed(oldHead),
+      reviewed(reviewHead) + "\nReviewed commit: " + oldHead,
+      reviewed(oldHead) + "\nReviewed commit: " + reviewHead,
+      reviewed(reviewHead) + "\nReviewed commit: " + reviewHead,
+      `<!-- codex-review-receipt:v2 -->\n\n${reviewed(reviewHead)}`,
+    ];
+    for (const body of rejected) expect(count([comment(body)]),body).toEqual([0,0]);
+    expect(count([comment(reviewed(reviewHead),"2026-10-18T20:55:00Z")])).toEqual([0,0]);
+    expect(count([comment(reviewed(reviewHead),summary,"spoofed-user")])).toEqual([0,0]);
+  });
+});
+
+describe("v5 complete review authority lifecycle", () => {
+  const completed = () => ({ ...codeRabbitCompletedReview(), state: "COMMENTED" });
+  it("rejects CodeRabbit examples across AutoMerge, Wakeup and direct Live", () => {
+    const receipts = [cleanBody(), `Review completed for exact HEAD ${reviewHead}.\nI found no material findings.`];
+    for (const receipt of receipts) {
+      for (const body of codeContextExamples(receipt)) {
+        const merge = runAutomergeFixture({ comments: [requestComment(), cleanIssueComment({ body })], firstReviews: [completed()] });
+        expect(merge.stdout, body + merge.stderr).not.toContain("AI_REVIEW_OK");
+        for (const direct of [false, true]) {
+          const wake = runWakeupFixture({ body, comments: [requestComment()], firstReviews: [completed()] }, direct);
+          expect(wake.posts, body + wake.result.stdout + wake.result.stderr).toBe(0);
+        }
+      }
+    }
+  }, 120000);
+  it("retains a clean witness across unrelated replies and rejects a dismissed witness", () => {
+    for (const state of ["COMMENTED", "DISMISSED"]) {
+      const reviews = [{ ...completed(), state }, { ...codeRabbitCompletedReview("2099-09-05T12:04:00Z", reviewHead, 7002), state: "COMMENTED" }];
+      const merge = runAutomergeFixture({ comments: [requestComment(), cleanIssueComment()], firstReviews: reviews });
+      expect(merge.stdout.includes("AI_REVIEW_OK"), merge.stdout + merge.stderr).toBe(state === "COMMENTED");
+      for (const body of [cleanBody(), `<!-- recent_review_start -->\nNo actionable comments were generated in the recent review.\n${reviewHead}\n<!-- recent_review_end -->`]) {
+        for (const direct of [false, true]) {
+          const wake = runWakeupFixture({ body, comments: [requestComment()], firstReviews: reviews }, direct);
+          expect(wake.posts, wake.result.stdout + wake.result.stderr).toBe(state === "COMMENTED" ? 1 : 0);
+        }
+      }
+    }
+  }, 60000);
+  it("distinguishes a disabled or skipped review from provider failure in AutoMerge", () => {
+    for (const body of ["Review skipped", "Review skipped: automatic reviews are disabled", "Review rate limited: automatic reviews are disabled", "Review rate limited"]) {
+      const merge = runAutomergeFixture({ comments: [requestComment(), cleanIssueComment({ body })] });
+      const output = merge.stdout + merge.stderr;
+      expect(output.includes("CodeRabbit availability failure after exact-head request"), output).toBe(body === "Review rate limited");
+      expect(output).not.toContain("AI_REVIEW_OK");
+    }
+  }, 30000);
+});
+
+it("requires a primary request for persistent summaries at the direct Live boundary", () => {
+  const body = "<!-- recent_review_start -->\nNo actionable comments were generated.\n" + reviewHead + "\n<!-- recent_review_end -->";
+  for (const comments of [[], [requestComment()]]) {
+    const result = runWakeupFixture({ body, comments, firstReviews: [{ ...codeRabbitCompletedReview(), state: "COMMENTED" }] }, true);
+    expect(result.posts, result.result.stdout + result.result.stderr).toBe(comments.length ? 1 : 0);
+  }
+}, 10000);

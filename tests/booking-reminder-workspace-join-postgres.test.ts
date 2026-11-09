@@ -416,4 +416,8 @@ if (RUN_POSTGRES_INTEGRATION) {
       expect(deliveryCountAfterRetry.rows[0]?.count).toBe(4);
     }, 30_000);
   });
+} else {
+  describe.skip("booking reminder PostgreSQL delivery claim", () => {
+    it("requires explicit PROFFERA_POSTGRES_INTEGRATION=1 opt-in", () => undefined);
+  });
 }
