@@ -29,6 +29,16 @@ describe("Maria copyable Swish booking reference", () => {
     expect(html).toContain(">Kopiera</button>");
   });
 
+  it("labels both copy actions in Arabic when requested", () => {
+    for (const kind of ["booking", "swish"] as const) {
+      const html = renderToStaticMarkup(
+        createElement(MariaBookingReferenceCopy, { reference: "MBM-EB95CE", isEnglish: false, language: "ar", kind }),
+      );
+      expect(html).toContain(kind === "swish" ? 'aria-label="نسخ رقم Swish"' : 'aria-label="نسخ رقم الحجز"');
+      expect(html).toContain(">نسخ</button>");
+    }
+  });
+
   it("labels the copy action in English when the dashboard uses English", () => {
     const html = renderToStaticMarkup(
       createElement(MariaBookingReferenceCopy, {

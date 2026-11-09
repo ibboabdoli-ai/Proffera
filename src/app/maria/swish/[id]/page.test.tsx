@@ -61,15 +61,16 @@ describe("Maria Preview first-party Swish payment information page", () => {
     expect(sql).toHaveBeenCalledOnce();
   });
 
-  it("renders English in the requested locale and falls back to Swedish for unknown languages", async () => {
+  it("renders English and Arabic in the requested locale and falls back to Swedish for unknown languages", async () => {
     const sql = vi.fn()
+      .mockResolvedValueOnce([{ id }])
       .mockResolvedValueOnce([{ id }])
       .mockResolvedValueOnce([{ id }]);
     vi.mocked(getSql).mockReturnValue(sql as never);
     const english = renderToStaticMarkup(await MariaSwishPaymentPage({
       ...props, searchParams: Promise.resolve({ lang: "en" }),
     }));
-    expect(english).toContain('<main lang="en"');
+    expect(english).toContain('<main lang="en" dir="ltr"');
     expect(english).toContain("Swish deposit");
     expect(english).toContain("Test only. Do not make a real Swish payment");
     expect(english).toContain("Open Swish");
@@ -80,10 +81,24 @@ describe("Maria Preview first-party Swish payment information page", () => {
     expect(english).toContain('/maria/swish/' + id + '?lang=en');
     expect(english).toContain('/maria/swish/' + id + '?lang=sv');
     expect(english).not.toContain("sendibt3.com");
-    const fallback = renderToStaticMarkup(await MariaSwishPaymentPage({
+    const arabic = renderToStaticMarkup(await MariaSwishPaymentPage({
       ...props, searchParams: Promise.resolve({ lang: "ar" }),
     }));
-    expect(fallback).toContain('<main lang="sv"');
+    expect(arabic).toContain('<main lang="ar" dir="rtl"');
+    expect(arabic).toContain("دفع العربون عبر Swish");
+    expect(arabic).toContain("فتح Swish");
+    expect(arabic).toContain("للاختبار فقط");
+    expect(arabic).toContain('aria-label="نسخ رقم Swish"');
+    expect(arabic).toContain('aria-label="نسخ رقم الحجز"');
+    expect(arabic).toContain("MBM-11111111222243338444555555555555");
+    expect(arabic).toContain("123-581 86 53");
+    expect(arabic).toContain("/maria/swish/" + id + "?lang=ar");
+    expect(arabic).toContain('dir="ltr"');
+    expect(arabic).not.toContain("sendibt3.com");
+    const fallback = renderToStaticMarkup(await MariaSwishPaymentPage({
+      ...props, searchParams: Promise.resolve({ lang: "xx" }),
+    }));
+    expect(fallback).toContain('<main lang="sv" dir="ltr"');
     expect(fallback).toContain("Swish-handpenning");
     expect(fallback).toContain('aria-label="Kopiera bokningsnummer"');
   });

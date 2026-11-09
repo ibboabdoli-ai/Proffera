@@ -48,6 +48,20 @@ const paymentText = {
     "qrHeading": "Swish QR code",
     "qrAltPrefix": "Swish QR with SEK 2,000 and booking message",
     "qrHelp": "Scan the code with Swish from another screen. Always check the recipient and amount before approving any real payment."
+  },
+  "ar": {
+    "languageLabel": "اللغة",
+    "previewLabel": "Swish · نسخة تجريبية",
+    "heading": "دفع العربون عبر Swish",
+    "testWarning": "للاختبار فقط. لا تجري أي دفع حقيقي عبر Swish ولا توقّعي باستخدام BankID.",
+    "amount": "المبلغ",
+    "merchant": "رقم Swish للشركة",
+    "message": "الرسالة في Swish",
+    "open": "فتح Swish",
+    "help": "يفتح هذا الزر تطبيق Swish مباشرةً دون رابط تتبّع البريد الإلكتروني. إذا ظهرت الصفحة الرئيسية فقط، افتحي الرابط في Safari أو انسخي رقم Swish ورقم الحجز وأدخليهما يدويًا.",
+    "qrHeading": "رمز QR للدفع عبر Swish",
+    "qrAltPrefix": "رمز QR بمبلغ 2,000 كرونة ورقم الحجز",
+    "qrHelp": "امسحي الرمز باستخدام Swish من شاشة أخرى. تحققي دائمًا من المستلم والمبلغ قبل الموافقة على أي دفع حقيقي."
   }
 } as const;
 
@@ -82,7 +96,8 @@ export default async function MariaSwishPaymentPage({
   }
   if (!eligible) notFound();
 
-  const language = (await searchParams)?.lang === "en" ? "en" : "sv";
+  const requestedLanguage = (await searchParams)?.lang;
+  const language = requestedLanguage === "en" || requestedLanguage === "ar" ? requestedLanguage : "sv";
   const isEnglish = language === "en";
   const words = paymentText[language];
   const paymentPagePath = "/maria/swish/" + id;
@@ -90,7 +105,7 @@ export default async function MariaSwishPaymentPage({
   const swishDigits = MARIA_SWISH_NUMBER.replace(/\D/g, "");
 
   return (
-    <main lang={language} className="min-h-screen bg-[#fcfaf8] px-4 py-10 text-[#352a2c]">
+    <main lang={language} dir={language === "ar" ? "rtl" : "ltr"} className="min-h-screen bg-[#fcfaf8] px-4 py-10 text-[#352a2c]">
       <article className="mx-auto max-w-lg rounded-2xl border border-[#e9dedc] bg-white p-5 shadow-sm sm:p-8">
         <header className="flex items-center gap-3 border-b border-[#e9dedc] pb-5">
           <Image
@@ -113,6 +128,9 @@ export default async function MariaSwishPaymentPage({
           <Link href={paymentPagePath + "?lang=en"} lang="en"
             aria-current={isEnglish ? "page" : undefined}
             className={isEnglish ? "text-[#6d3e4e] underline" : "text-[#76545f] hover:underline"}>English</Link>
+          <Link href={paymentPagePath + "?lang=ar"} lang="ar"
+            aria-current={language === "ar" ? "page" : undefined}
+            className={language === "ar" ? "text-[#6d3e4e] underline" : "text-[#76545f] hover:underline"}>العربية</Link>
         </nav>
         <h1 className="mt-3 font-serif text-3xl text-[#6d3e4e]">{words.heading}</h1>
         {preview ? <p role="alert" className="mt-5 rounded-lg border border-[#e6c4cb] bg-[#faefed] p-4 text-sm font-bold text-[#8b2d39]">
@@ -122,20 +140,20 @@ export default async function MariaSwishPaymentPage({
         <div className="mt-6 space-y-5">
           <div>
             <p className="text-sm text-[#76545f]">{words.amount}</p>
-            <p className="text-3xl font-bold">{MARIA_DEPOSIT_AMOUNT_SEK.toLocaleString(isEnglish ? "en-GB" : "sv-SE")} {isEnglish ? "SEK" : "kr"}</p>
+            <p className="text-3xl font-bold">{MARIA_DEPOSIT_AMOUNT_SEK.toLocaleString(language === "sv" ? "sv-SE" : "en-GB")} {language === "sv" ? "kr" : "SEK"}</p>
           </div>
           <div>
             <p className="text-sm font-semibold text-[#76545f]">{words.merchant}</p>
             <div className="flex flex-wrap items-center gap-2">
-              <code className="select-all text-lg font-bold">{MARIA_SWISH_NUMBER}</code>
-              <MariaBookingReferenceCopy reference={swishDigits} kind="swish" isEnglish={isEnglish} />
+              <code dir="ltr" className="select-all text-lg font-bold">{MARIA_SWISH_NUMBER}</code>
+              <MariaBookingReferenceCopy reference={swishDigits} kind="swish" isEnglish={isEnglish} language={language} />
             </div>
           </div>
           <div>
             <p className="text-sm font-semibold text-[#76545f]">{words.message}</p>
             <div className="flex flex-wrap items-center gap-2">
-              <code className="select-all text-lg font-bold">{reference}</code>
-              <MariaBookingReferenceCopy reference={reference} isEnglish={isEnglish} />
+              <code dir="ltr" className="select-all text-lg font-bold">{reference}</code>
+              <MariaBookingReferenceCopy reference={reference} isEnglish={isEnglish} language={language} />
             </div>
           </div>
         </div>
