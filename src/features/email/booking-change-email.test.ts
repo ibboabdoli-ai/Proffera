@@ -62,11 +62,22 @@ describe("booking change email locale", () => {
       let rejectPending!: (reason: unknown) => void;
       const pendingResponse = new Promise<Response>((_resolve,reject) => { rejectPending=reject; });
       const observed: Array<{recipient: "customer" | "owner"; ok:boolean; uncertain:boolean}> = [];
+      const requestSignals: Partial<Record<"customer" | "owner", AbortSignal>> = {};
       let notifySettled!: () => void;
       const firstSettled = new Promise<void>(resolve => { notifySettled=resolve; });
       const fetchMock=vi.fn(async (_url: unknown, init?: RequestInit): Promise<Response> => {
         const body=JSON.parse(String(init?.body)) as {to:Array<{email:string}>};
         const recipient=body.to[0]?.email==="customer@example.invalid" ? "customer" : "owner";
+        const signal=init?.signal;
+        if(signal){
+          requestSignals[recipient]=signal;
+          if(recipient!==settledRecipient){
+            // Exercise the real sender's AbortSignal propagation to the pending HTTP request.
+            signal.addEventListener("abort",()=>{
+              rejectPending(new DOMException("Synthetic pending request aborted","AbortError"));
+            },{once:true});
+          }
+        }
         return recipient===settledRecipient
           ? new Response(JSON.stringify({messageId:"synthetic-accepted"}),{status:201})
           : pendingResponse;
@@ -91,13 +102,22 @@ describe("booking change email locale", () => {
       await firstSettled;
       expect(observed).toEqual([{recipient:settledRecipient,ok:true,uncertain:false}]);
       expect(finished).toBe(false);
-      // The lock has expired while the second HTTP request remains in flight.
+      // The owner dispatch must observe the same lock's cancellation, including
+      // when the owner request is the one still in flight.
+      const ownerSignal=requestSignals.owner;
+      const ownerWasActive=ownerSignal?.aborted===false;
       controller.abort();
-      rejectPending(new DOMException("Synthetic pending request aborted","AbortError"));
+      const ownerAborted=ownerSignal?.aborted===true;
+      const pendingRecipient=settledRecipient==="customer" ? "owner" : "customer";
+      const pendingAborted=requestSignals[pendingRecipient]?.aborted===true;
+      // Finish the synthetic fetch promptly if a regression drops signal forwarding.
+      if(!pendingAborted)rejectPending(new DOMException("Synthetic fallback cleanup","AbortError"));
       const results=await sending;
+      expect(ownerWasActive).toBe(true);
+      expect(ownerAborted).toBe(true);
+      expect(pendingAborted).toBe(true);
       expect(finished).toBe(true);
       expect(fetchMock).toHaveBeenCalledTimes(2);
-      const pendingRecipient=settledRecipient==="customer" ? "owner" : "customer";
       expect(observed).toEqual(expect.arrayContaining([
         {recipient:settledRecipient,ok:true,uncertain:false},
         {recipient:pendingRecipient,ok:false,uncertain:true},
