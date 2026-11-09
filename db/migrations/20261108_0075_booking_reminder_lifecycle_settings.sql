@@ -36,6 +36,18 @@ BEGIN
     where customer_cancel_enabled is null) THEN
     RAISE EXCEPTION 'Migration 0075 customer cancellation setting contains NULL';
   END IF;
+  -- ADD COLUMN IF NOT EXISTS does not install the inline CHECK when the
+  -- column already exists (as on some upgraded Production schemas).
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conrelid = 'public.workspace_booking_reminder_settings'::regclass
+      AND conname = 'workspace_booking_reminder_settings_cancel_notice_hours_check'
+      AND contype = 'c'
+  ) THEN
+    ALTER TABLE public.workspace_booking_reminder_settings
+      ADD CONSTRAINT workspace_booking_reminder_settings_cancel_notice_hours_check
+      CHECK (cancel_notice_hours BETWEEN 0 AND 720);
+  END IF;
 END $maria0075$;
 
 INSERT INTO proffera_schema_migrations (
