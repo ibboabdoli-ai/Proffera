@@ -129,7 +129,7 @@ export function buildMariaBookingStatusEmail(input: MariaBookingStatusEmailInput
     const due = isConfirmation ? formatTime(mariaDepositDeadline(input.confirmedAt ?? new Date()), input.timeZone, language) : "";
     const qrUrl = isConfirmation ? new URL(mariaSwishQrPath(input.bookingId), origin).toString() : "";
     const paymentPageUrl = isConfirmation
-      ? new URL(mariaSwishPaymentPagePath(input.bookingId) + "?lang=en", origin).toString() : "";
+      ? new URL(mariaSwishPaymentPagePath(input.bookingId) + `?lang=${language}`, origin).toString() : "";
     const payment = MARIA_DEPOSIT_AMOUNT_SEK.toLocaleString("sv-SE");
     const subject = isConfirmation
       ? `${copy.confirmed} – ${copy.deposit} ${payment} SEK – ${reference}`
@@ -184,7 +184,7 @@ export function buildMariaBookingStatusEmail(input: MariaBookingStatusEmailInput
   if (!isConfirmation) {
     const text = [
       `Hej ${input.customerName},`, "",
-      "Din bokning är avbokad. Du får gärna komma tillbaka med en ny bokning.",
+      "Din bokning är avbokad. Du är varmt välkommen att boka igen.",
       `Bokningsnummer: ${reference}`,
       `Tjänst: ${input.service}`, `Tid: ${start} – ${end}`,
       "", "Välkommen åter!", input.companyName,
@@ -193,7 +193,7 @@ export function buildMariaBookingStatusEmail(input: MariaBookingStatusEmailInput
       ${logo}
       <h1 style="color:#845363">Din bokning är avbokad</h1>
       <p>Hej ${escapeHtml(input.customerName)},</p>
-      <p>Din bokning är avbokad. <strong>Du får gärna komma tillbaka med en ny bokning.</strong></p>
+      <p>Din bokning är avbokad. <strong>Du är varmt välkommen att boka igen.</strong></p>
       <p><strong>Bokningsnummer:</strong> ${escapeHtml(reference)}<br/>
       <strong>Tjänst:</strong> ${escapeHtml(input.service)}<br/>
       <strong>Tid:</strong> ${escapeHtml(start)} – ${escapeHtml(end)}</p>
