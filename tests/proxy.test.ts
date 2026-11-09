@@ -1,12 +1,13 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { NextRequest } from "next/server";
+import { MARIA_PAYMENT_SHELL_HEADER } from "../src/lib/maria-payment-standalone";
 
 vi.mock("../src/lib/public-site-domain-routing", () => ({
   resolvePublicCustomDomain: vi.fn(async () => null),
 }));
 
 import { resolvePublicCustomDomain } from "../src/lib/public-site-domain-routing";
-import { proxy } from "../src/proxy";
+import { config, proxy } from "../src/proxy";
 
 const resolvePublicCustomDomainMock = vi.mocked(resolvePublicCustomDomain);
 const requestId = "123e4567-e89b-42d3-a456-426614174000";
@@ -28,6 +29,44 @@ describe("proxy request boundary", () => {
     resolvePublicCustomDomainMock.mockReset();
     resolvePublicCustomDomainMock.mockResolvedValue(null);
   });
+
+  afterEach(() => vi.unstubAllEnvs());
+
+  it("removes a forged standalone payment marker on unrelated routes", async () => {
+    vi.stubEnv("VERCEL_ENV", "preview");
+    const forged = { [MARIA_PAYMENT_SHELL_HEADER]: "1" };
+    const forwarded = "x-middleware-request-" + MARIA_PAYMENT_SHELL_HEADER;
+    for (const path of [
+      "/dashboard",
+      "/en/pricing",
+      "/maria/swish/not-a-uuid",
+      // A valid booking UUID with a descendant must never activate the payment shell.
+      "/maria/swish/3dd71085-9f11-49d1-8996-663e3135d115/extra",
+    ]) {
+      const response = await proxy(request(path, forged));
+      expect(response.status, path).toBe(200);
+      expect(response.headers.get(forwarded), path).toBeNull();
+      expect(response.headers.get("x-middleware-override-headers")?.split(","), path)
+        .not.toContain(MARIA_PAYMENT_SHELL_HEADER);
+    }
+  });
+
+  it("adds the payment shell marker only for an exact Swish booking in Preview", async () => {
+    const validPath = "/maria/swish/3dd71085-9f11-49d1-8996-663e3135d115";
+    const forwarded = "x-middleware-request-" + MARIA_PAYMENT_SHELL_HEADER;
+    vi.stubEnv("VERCEL_ENV", "preview");
+    const preview = await proxy(request(validPath));
+    expect(preview.status).toBe(200);
+    expect(preview.headers.get(forwarded)).toBe("1");
+
+    vi.stubEnv("VERCEL_ENV", "production");
+    const production = await proxy(request(validPath, {
+      [MARIA_PAYMENT_SHELL_HEADER]: "1",
+    }));
+    expect(production.status).toBe(200);
+    expect(production.headers.get(forwarded)).toBeNull();
+  });
+
   it("passes the exact admin path to session and role authorization", async () => {
     const response = await proxy(request("/admin/billing/alerts"));
 
@@ -87,6 +126,82 @@ describe("proxy request boundary", () => {
     expect(location).toBe(
       "https://chat.proffera.se/app/inbox?conversation=123&tenant=proffera",
     );
+  });
+
+  it("keeps Maria's public host disabled until the Production site switch is enabled", async () => {
+    for (const host of ["makeupbymaria.se", "www.makeupbymaria.se"]) {
+      vi.stubEnv("VERCEL_ENV", "preview");
+      vi.stubEnv("PROFFERA_MARIA_PUBLIC_SITE_ENABLED", "true");
+      expect((await proxy(hostRequest(host, "/"))).status).toBe(404);
+
+      vi.stubEnv("VERCEL_ENV", "production");
+      vi.stubEnv("PROFFERA_MARIA_PUBLIC_SITE_ENABLED", "false");
+      expect((await proxy(hostRequest(host, "/"))).status).toBe(404);
+
+      vi.stubEnv("PROFFERA_MARIA_PUBLIC_SITE_ENABLED", "true");
+      const live = await proxy(hostRequest(host, "/"));
+      if (host.startsWith("www.")) {
+        expect(live.status).toBe(307);
+        expect(live.headers.get("location")).toBe("https://makeupbymaria.se/");
+        expect(live.headers.get("x-middleware-rewrite")).toBeNull();
+      } else {
+        expect(live.status).toBe(200);
+        expect(live.headers.get("x-middleware-rewrite")).toBe(
+          "https://" + host + "/demo/makeup-by-maria-v2.html",
+        );
+        expect(live.headers.get("x-robots-tag")).toBeNull();
+      }
+      for (const pathname of ["/dashboard", "/admin", "/boka/primeview", "/boka/other", "/tjanster", "/booking"]) {
+        expect((await proxy(hostRequest(host, pathname))).status, pathname).toBe(404);
+      }
+      const verification = await proxy(hostRequest(host, "/boka/verifiera/00000000-0000-4000-8000-000000000010"));
+      if (host.startsWith("www.")) {
+        expect(verification.status).toBe(307);
+        expect(verification.headers.get("location")).toBe(
+          "https://makeupbymaria.se/boka/verifiera/00000000-0000-4000-8000-000000000010",
+        );
+      } else {
+        expect(verification.status).toBe(200);
+      }
+    }
+    expect(resolvePublicCustomDomainMock).not.toHaveBeenCalled();
+  });
+
+  it("redirects the dotted Maria apex to the canonical booking origin without exposing forbidden paths", async () => {
+    vi.stubEnv("VERCEL_ENV", "production");
+    vi.stubEnv("PROFFERA_MARIA_PUBLIC_SITE_ENABLED", "true");
+    for (const [path, destination] of [
+      ["/?lang=en", "https://makeupbymaria.se/?lang=en"],
+      ["/boka/makeup-by-maria", "https://makeupbymaria.se/boka/makeup-by-maria"],
+    ]) {
+      const response = await proxy(hostRequest("makeupbymaria.se.", path));
+      expect(response.status, path).toBe(307);
+      expect(response.headers.get("location"), path).toBe(destination);
+      expect(response.headers.get("x-middleware-rewrite")).toBeNull();
+    }
+    expect((await proxy(hostRequest("makeupbymaria.se.", "/dashboard"))).status).toBe(404);
+    vi.stubEnv("PROFFERA_MARIA_PUBLIC_SITE_ENABLED", "false");
+    expect((await proxy(hostRequest("makeupbymaria.se.", "/"))).status).toBe(404);
+  });
+
+  it("enforces Maria host restrictions for direct dotted demo HTML requests", async () => {
+    const htmlPaths = ["/demo/makeup-by-maria.html", "/demo/makeup-by-maria-v2.html"];
+    for (const path of htmlPaths) {
+      // These exact paths would otherwise be excluded by the generic dotted-file matcher.
+      expect(config.matcher).toContain(path);
+      for (const host of ["makeupbymaria.se", "www.makeupbymaria.se"]) {
+        for (const flag of ["false", "true"]) {
+          vi.stubEnv("VERCEL_ENV", "production");
+          vi.stubEnv("PROFFERA_MARIA_PUBLIC_SITE_ENABLED", flag);
+          const response = await proxy(hostRequest(host, path));
+          expect(response.status, host + path).toBe(404);
+        }
+      }
+      // Direct demo URLs remain accessible for testing but must not be indexed.
+      const demoResponse = await proxy(hostRequest("www.proffera.se", path));
+      expect(demoResponse.status).toBe(200);
+      expect(demoResponse.headers.get("x-robots-tag")).toBe("noindex, nofollow");
+    }
   });
 
   it("rewrites the PrimeView root without changing the customer-facing URL", async () => {

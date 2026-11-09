@@ -38,6 +38,14 @@ async function getActiveWorkspaceAccess(requireManager = false) {
   return access;
 }
 
+// Maria's Production workspace is read-only until separate launch approval.
+// Protect shared server writers, including direct service-job action URLs.
+function assertServiceJobWriteAllowed(workspaceSlug: string) {
+  if (workspaceSlug === "makeup-by-maria" && process.env.VERCEL_ENV === "production") {
+    throw new Error("Maria service job changes are disabled in Production");
+  }
+}
+
 export type WorkspaceServiceJobSourceType = "quote_offer" | "booking";
 
 export type DashboardWorkspaceServiceJob = {
@@ -291,6 +299,7 @@ export async function assignDashboardWorkspaceServiceJob(jobId: string, staffId:
   const sql = getSqlClient();
   if (!sql) throw new Error("Missing database connection for service job assignment");
   const access = await getActiveWorkspaceAccess(true);
+  assertServiceJobWriteAllowed(access.workspaceSlug);
 
   const rows = await sql`
     with current_job as (
@@ -368,6 +377,7 @@ export async function transitionDashboardWorkspaceServiceJob(
   const sql = getSqlClient();
   if (!sql) throw new Error("Missing database connection for service job status update");
   const access = await getActiveWorkspaceAccess(true);
+  assertServiceJobWriteAllowed(access.workspaceSlug);
   const currentRows = await sql`
     select status
     from workspace_service_jobs
@@ -500,6 +510,7 @@ export async function addDashboardWorkspaceServiceJobNote(jobId: string, body: s
   const sql = getSqlClient();
   if (!sql) throw new Error("Missing database connection for service job notes");
   const access = await getActiveWorkspaceAccess(true);
+  assertServiceJobWriteAllowed(access.workspaceSlug);
 
   const rows = await sql`
     with inserted_note as (

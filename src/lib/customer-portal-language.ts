@@ -4,13 +4,15 @@ import { neon } from "@neondatabase/serverless";
 
 import { verifyCustomerCalendarToken } from "@/lib/customer-calendar";
 import { resolveDatabaseUrl } from "@/lib/db/database-url";
+import { getMariaExistingBookingPortalBase } from "@/lib/maria-preview-customer-safety";
 
-export type CustomerPortalLanguage = "sv" | "en";
+export type CustomerPortalLanguage = "sv" | "en" | "ar";
 
 export type CustomerPortalPresentation = {
   publicBookingSlug: string;
+  workspaceSlug?: string;
   companyName: string;
-  defaultLanguage: CustomerPortalLanguage;
+  defaultLanguage: "sv" | "en";
   swedishEnabled: boolean;
   englishEnabled: boolean;
   primaryColor: string;
@@ -27,6 +29,7 @@ export async function getCustomerPortalPresentation(token: string): Promise<Cust
   const rows = await sql`
     select
       coalesce(w.public_booking_slug, '') as public_booking_slug,
+      w.slug as workspace_slug,
       coalesce(nullif(ws.company_name, ''), w.company_name, w.name) as company_name,
       coalesce(x.default_language, 'sv') as default_language,
       coalesce(x.swedish_enabled, true) as swedish_enabled,
@@ -45,6 +48,7 @@ export async function getCustomerPortalPresentation(token: string): Promise<Cust
 
   return {
     publicBookingSlug: String(row.public_booking_slug ?? ""),
+    workspaceSlug: String(row.workspace_slug ?? ""),
     companyName: String(row.company_name ?? "Proffera"),
     defaultLanguage: row.default_language === "en" ? "en" : "sv",
     swedishEnabled: row.swedish_enabled !== false,
@@ -58,6 +62,12 @@ export function resolveCustomerPortalLanguage(
   requested: string | undefined,
   presentation: CustomerPortalPresentation | null,
 ): CustomerPortalLanguage {
+  // Keep Maria's three languages in Preview and on the separately approved
+  // Production origin. Other workspaces retain their existing language flags.
+  if (presentation?.workspaceSlug === "makeup-by-maria"
+    && presentation.publicBookingSlug === "makeup-by-maria"
+    && Boolean(getMariaExistingBookingPortalBase())
+    && (requested === "ar" || requested === "sv" || requested === "en")) return requested;
   if (requested === "en" && presentation?.englishEnabled) return "en";
   if (requested === "sv" && presentation?.swedishEnabled) return "sv";
   if (presentation?.defaultLanguage === "en" && presentation.englishEnabled) return "en";

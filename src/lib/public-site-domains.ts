@@ -1,3 +1,5 @@
+const mariaHosts = new Set(["makeupbymaria.se", "www.makeupbymaria.se"]);
+
 const primeViewHosts = new Set([
   "primeviewwindowcare.co.uk",
   "www.primeviewwindowcare.co.uk",
@@ -36,6 +38,29 @@ export function hostnameFromHostHeader(host: string | null | undefined) {
   }
 
   return value.split(":", 1)[0].replace(/\.$/, "");
+}
+
+/** A reserved brand host, never generic customer tenancy. */
+export function isMariaHost(host: string | null | undefined) {
+  return mariaHosts.has(hostnameFromHostHeader(host));
+}
+
+/** Bind customer self-service URLs to the actual workspace, not a public alias. */
+export function isCustomerPortalHostAllowedForWorkspace(
+  host: string | null | undefined,
+  workspaceSlug: string | null | undefined,
+  publicBookingSlug: string | null | undefined,
+  environment: string | undefined,
+) {
+  const isMariaWorkspace = workspaceSlug === "makeup-by-maria";
+  if (isMariaWorkspace && publicBookingSlug !== "makeup-by-maria") return false;
+  if (isMariaHost(host)) {
+    return isMariaWorkspace
+      && (environment !== "production" || hostnameFromHostHeader(host) === "makeupbymaria.se");
+  }
+  // Maria's real Production customer portal must not render on Proffera or
+  // a second tenant's public domain, even with a valid signed customer token.
+  return !(isMariaWorkspace && environment === "production");
 }
 
 export function isPrimeViewHost(host: string | null | undefined) {
@@ -108,6 +133,14 @@ export function isPublicPageRouteAllowedForHost(
       return localDevelopmentHosts.has(hostnameFromHostHeader(host));
     }
     return !isPrimeViewPublicRoute(path);
+  }
+
+  if (isMariaHost(host)) {
+    return path === "/"
+      || path === "/boka/makeup-by-maria"
+      || matchesRouteFamily(path, "/boka/verifiera")
+      || matchesRouteFamily(path, "/mina-bokningar")
+      || matchesRouteFamily(path, "/maria/swish");
   }
 
   if (isPrimeViewHost(host)) {

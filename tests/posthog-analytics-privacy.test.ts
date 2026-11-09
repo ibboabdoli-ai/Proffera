@@ -139,10 +139,9 @@ describe("PostHog privacy-safe analytics", () => {
   });
 
   it("provides a neutral user-facing way to set and later change analytics consent", () => {
-    const layout = source("src/app/layout.tsx");
+    // Actual RootLayout rendering (including the standalone payment shell)
+    // is covered by maria-payment-layout-analytics.behavior.test.tsx.
     const control = source("src/components/analytics/analytics-consent-control.tsx");
-
-    expect(layout).toContain("{isPlatformSite && <AnalyticsConsentControl />}");
     expect(control).toContain("Analysinställningar");
     expect(control).toContain("Inget skickas innan");
     expect(control).toContain("reklamspårning");
@@ -315,7 +314,7 @@ describe("PostHog privacy-safe analytics", () => {
     const reporter = source("src/components/performance/web-vitals-reporter.tsx");
     const endpointTests = source("tests/web-vitals-route.test.ts");
 
-    expect(layout).toContain("{isPlatformSite && <WebVitalsReporter />}");
+    expect(layout).toContain("{!mariaPaymentStandalone && isPlatformSite && <WebVitalsReporter />}");
     expect(reporter).toContain("useReportWebVitals(sendMetric)");
     expect(reporter).toContain('fetch("/api/observability/web-vitals"');
     expect(reporter).not.toContain("posthog");

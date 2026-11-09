@@ -232,9 +232,12 @@ function previousOwnerServiceAreaCleanupQuery(
   `;
 }
 
-export async function getDashboardWorkspaceServices(): Promise<DashboardWorkspaceService[]> {
+export async function getDashboardWorkspaceServices(options?: { strict?: boolean }): Promise<DashboardWorkspaceService[]> {
   const sql = getSqlClient();
-  if (!sql) return [];
+  if (!sql) {
+    if (options?.strict) throw new Error("Workspace services could not be loaded: no database connection");
+    return [];
+  }
 
   try {
     const workspaceId = await getActiveWorkspaceId();
@@ -306,6 +309,9 @@ export async function getDashboardWorkspaceServices(): Promise<DashboardWorkspac
     }));
   } catch (error) {
     console.error("Failed to read workspace services", error);
+    // A writable editor must never mistake a transient DB failure for an
+    // empty service list and then overwrite existing prices or descriptions.
+    if (options?.strict) throw error;
     return [];
   }
 }

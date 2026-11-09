@@ -1,4 +1,5 @@
 import type { WorkspaceTimeZone } from "@/lib/workspace-market";
+import { resolveBrevoApiKey } from "@/lib/email-runtime-config";
 
 type SendLeadEmailInput = {
   leadRef: string;
@@ -93,7 +94,7 @@ function escapeHtml(value: string) {
 }
 
 function parseSender(value: string) {
-  const match = value.match(/^(.+?)\s*<([^>]+)>$/);
+  const match = value.trim().match(/^(.+?)\s*<([^>]+)>$/);
   if (!match) {
     return { name: "Proffera", email: value.trim() };
   }
@@ -517,7 +518,7 @@ export async function sendBookingConfirmationEmail(input: SendBookingConfirmatio
 }
 
 export async function sendBookingOwnerNotificationEmail(input: SendBookingOwnerNotificationEmailInput) {
-  const apiKey = process.env.BREVO_API_KEY;
+  const apiKey = resolveBrevoApiKey();
   const from = process.env.LEAD_FROM_EMAIL;
   if (!apiKey || !from) return { ok: false as const, message: "Brevo är inte konfigurerat." };
 
@@ -527,6 +528,7 @@ export async function sendBookingOwnerNotificationEmail(input: SendBookingOwnerN
   try {
     const response = await fetch("https://api.brevo.com/v3/smtp/email", {
       method: "POST",
+      signal: AbortSignal.timeout(8_000),
       headers: { "api-key": apiKey, "Content-Type": "application/json" },
       body: JSON.stringify({
         sender,
