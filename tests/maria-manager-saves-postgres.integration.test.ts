@@ -62,6 +62,7 @@ import { readMariaSwishQrEligibility } from "@/lib/maria-swish-qr-eligibility";
 import { saveMariaYearAction } from "@/app/dashboard/maria/actions";
 import { GET as getMariaPublicConfig } from "@/app/api/makeup-by-maria/config/route";
 import { saveMariaProductionYearAction } from "@/app/dashboard/maria/production-year-actions";
+import { setMariaProductionYearVisibilityAction } from "@/app/dashboard/maria/production-year-visibility-actions";
 import { mariaDefaultCardCopy } from "@/lib/maria-default-card-copy";
 import { readMariaCardTranslations } from "@/lib/maria-card-translations-db";
 import { saveMariaScheduleAction } from "@/app/dashboard/maria/schedule-actions";
@@ -1248,5 +1249,55 @@ function compileSql(strings: TemplateStringsArray, values: unknown[]): Query {
       if (pending) await pending.catch(() => undefined);
     }
   }, 30_000);
+
+  it("lets Maria publish and later hide a prepared wedding year without deleting bookings", async () => {
+    vi.stubEnv("VERCEL_ENV", "production");
+    vi.stubEnv("PROFFERA_MARIA_PRODUCTION_YEAR_EDITOR_ENABLED", "true");
+    const year = 2030;
+    const create = new FormData();
+    create.set("year", String(year));
+    create.set("trial", "6000"); create.set("without", "5000");
+    create.set("trial_description", "Provsminkning 2030");
+    create.set("without_description", "Brudsminkning 2030");
+    create.set("trial_description_en", "Wedding trial 2030");
+    create.set("trial_description_ar", "تجربة ٢٠٣٠");
+    create.set("without_description_en", "Wedding makeup 2030");
+    create.set("without_description_ar", "مكياج ٢٠٣٠");
+    const before = await db!.query<{count:number}>(
+      "select count(*)::int as count from bookings where workspace_id=$1", [workspaceId],
+    );
+    await expect(saveMariaProductionYearAction(create))
+      .rejects.toThrow("TEST_REDIRECT:/dashboard/maria?updated=2030&year=2030#priser");
+    const visibility = new FormData();
+    visibility.set("year", "2030"); visibility.set("visibility", "show");
+    await expect(setMariaProductionYearVisibilityAction(visibility))
+      .rejects.toThrow("TEST_REDIRECT:/dashboard/maria?year=2030&updated=visibility#priser");
+    const published = await db!.query<{is_active:boolean;public_status:string}>(
+      "select is_active,public_status from workspace_services where workspace_id=$1 and public_slug in ('maria-bridal-trial-2030','maria-bridal-without-trial-2030')",
+      [workspaceId],
+    );
+    expect(published.rowCount).toBe(2);
+    expect(published.rows.every(row => row.is_active && row.public_status === "published")).toBe(true);
+    const publicYears = await getMariaPublicConfig();
+    const publicJson = await publicYears.json() as {years:Array<{year:number}>};
+    expect(publicJson.years.some(item => item.year === year)).toBe(true);
+
+    visibility.set("visibility", "hide");
+    await expect(setMariaProductionYearVisibilityAction(visibility))
+      .rejects.toThrow("TEST_REDIRECT:/dashboard/maria?year=2030&updated=visibility#priser");
+    const hidden = await db!.query<{is_active:boolean}>(
+      "select is_active from workspace_services where workspace_id=$1 and public_slug in ('maria-bridal-trial-2030','maria-bridal-without-trial-2030')",
+      [workspaceId],
+    );
+    expect(hidden.rows).toHaveLength(2);
+    expect(hidden.rows.every(row => row.is_active === false)).toBe(true);
+    const hiddenJson = await (await getMariaPublicConfig()).json() as {years:Array<{year:number}>};
+    expect(hiddenJson.years.some(item => item.year === year)).toBe(false);
+    const after = await db!.query<{count:number}>(
+      "select count(*)::int as count from bookings where workspace_id=$1", [workspaceId],
+    );
+    expect(after.rows).toEqual(before.rows);
+  });
+
 
 });
