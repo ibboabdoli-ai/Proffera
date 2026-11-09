@@ -30,6 +30,7 @@ describe("bounded booking reschedule email delivery", () => {
     vi.stubGlobal("fetch", fetchMock);
     expect(await sendBookingRescheduleEmail(booking)).toMatchObject({
       ok: false,
+      deliveryUncertain: true,
       message: "Brevo request timed out; email delivery is unconfirmed.",
     });
     const request = fetchMock.mock.calls[0]?.[1] as RequestInit | undefined;
@@ -43,17 +44,28 @@ describe("bounded booking reschedule email delivery", () => {
     vi.stubGlobal("fetch", fetchMock);
     expect(await sendBookingRescheduleEmail(booking)).toEqual({
       ok: false,
+      deliveryUncertain: true,
       message: "Brevo response body could not be read; email delivery is unconfirmed.",
     });
     expect(fetchMock).toHaveBeenCalledOnce();
   });
 
-  it("does not mislabel an explicit Brevo rejection as uncertain", async () => {
+  it("refuses a send after the notification deadline without calling Brevo", async () => {
+    const controller = new AbortController();
+    controller.abort();
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    expect(await sendBookingRescheduleEmail({ ...booking, signal: controller.signal }))
+      .toMatchObject({ ok: false, notSent: true });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("treats provider rejection as unconfirmed rather than inventing non-delivery", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
       ok: false, json: async () => ({ message: "Synthetic provider rejection" }),
     }));
     expect(await sendBookingRescheduleEmail(booking)).toEqual({
-      ok: false, message: "Synthetic provider rejection",
+      ok: false, deliveryUncertain: true, message: "Synthetic provider rejection",
     });
   });
 });

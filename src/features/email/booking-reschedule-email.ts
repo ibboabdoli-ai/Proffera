@@ -19,6 +19,7 @@ type SendBookingRescheduleEmailInput = {
   language?: "sv" | "en" | "ar";
   /** Abort dispatch when the Maria notification lock is no longer held. */
   signal?: AbortSignal;
+  onRequestStart?: () => void;
 };
 
 type BrevoResponse = {
@@ -61,7 +62,7 @@ export async function sendBookingRescheduleEmail(input: SendBookingRescheduleEma
       return { ok: false as const, message: "Maria booking is not ready." };
     }
   }
-  if (input.signal?.aborted) return { ok: false as const, message: "Maria notification lock expired before dispatch." };
+  if (input.signal?.aborted) return { ok: false as const, notSent: true as const, message: "Maria notification lock expired before dispatch." };
   const apiKey = resolveBrevoApiKey();
   const from = process.env.LEAD_FROM_EMAIL;
   if (!apiKey || !from) return { ok: false as const, message: "Brevo är inte konfigurerat." };
@@ -134,8 +135,9 @@ export async function sendBookingRescheduleEmail(input: SendBookingRescheduleEma
     </div>
   `;
 
-  if (input.signal?.aborted) return { ok: false as const, message: "Maria notification lock expired before dispatch." };
+  if (input.signal?.aborted) return { ok: false as const, notSent: true as const, message: "Maria notification lock expired before dispatch." };
   try {
+    input.onRequestStart?.();
     const response = await fetch("https://api.brevo.com/v3/smtp/email", {
       method: "POST",
       signal: input.signal ? AbortSignal.any([input.signal, AbortSignal.timeout(8_000)]) : AbortSignal.timeout(8_000),
@@ -156,16 +158,17 @@ export async function sendBookingRescheduleEmail(input: SendBookingRescheduleEma
       // Brevo recorded the message. Never show a false delivery success.
       if (response.ok) return {
         ok: false as const,
+        deliveryUncertain: true as const,
         message: "Brevo response body could not be read; email delivery is unconfirmed.",
       };
       data = {};
     }
-    if (!response.ok) return { ok: false as const, message: data.message ?? data.code ?? "Kunde inte skicka ombokningsmejl." };
+    if (!response.ok) return { ok: false as const, deliveryUncertain: true as const, message: data.message ?? data.code ?? "Kunde inte skicka ombokningsmejl." };
     return { ok: true as const, providerId: data.messageId ?? null };
   } catch (error) {
     const timedOut = error instanceof Error && (error.name === "TimeoutError" || error.name === "AbortError");
-    return { ok: false as const, message: timedOut
+    return { ok: false as const, deliveryUncertain: true as const, message: timedOut
       ? "Brevo request timed out; email delivery is unconfirmed."
-      : "Kunde inte kontakta Brevo." };
+      : "Kunde inte bekräfta leverans från Brevo." };
   }
 }

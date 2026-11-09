@@ -212,14 +212,18 @@ export async function rescheduleMariaCustomerBooking(input: MariaChangeInput) {
               'notice_customer','sending',
               'notice_owner',case when owner_email is not null then 'sending' else 'skipped' end,
               'notice_attempted_at',now()::text)
-          from changed_booking returning id
+          from changed_booking returning id, metadata->>'notice_attempted_at' as attempted_at
         )
-        select cb.*, (select id from customer_event limit 1) as notice_event_id
+        select cb.*, (select id from customer_event limit 1) as notice_event_id,
+          (select attempted_at from customer_event limit 1) as notice_attempted_at
         from changed_booking cb
       `,
     ]);
     const booking = changed?.[0];
     if (!booking) return { ok: false as const, error: "conflict" as const };
+    // Only actual HTTP dispatch may create an uncertain outcome. An aborted
+    // booking read does not contact Brevo and can be retried after CAS cleanup.
+    let providerRequestStarted = false;
     try {
       return await withMariaBookingNotificationLock(input.workspaceId, async (signal) => {
         const current = await sql`
@@ -262,17 +266,26 @@ export async function rescheduleMariaCustomerBooking(input: MariaChangeInput) {
       timeZone: "Europe/Stockholm",
       language: input.language,
       ...(signal ? {signal} : {}),
+      onRequestStart: () => { providerRequestStarted = true; },
     });
+    if (signal.aborted) return { ok: true as const, emailWarning: true };
     const delivered = (result: (typeof notices)[number] | undefined) =>
       result?.status === "fulfilled"
         && Boolean(result.value && typeof result.value === "object"
           && "ok" in result.value && result.value.ok === true);
-    const customerNotice = delivered(notices[0]) ? "sent" : "failed";
+    const noticeState = (item: (typeof notices)[number] | undefined) => {
+      if (delivered(item)) return "sent";
+      if (item?.status === "fulfilled" && item.value
+        && typeof item.value === "object" && "deliveryUncertain" in item.value
+        && item.value.deliveryUncertain === true) return "uncertain";
+      return item?.status === "rejected" ? "uncertain" : "failed";
+    };
+    const customerNotice = noticeState(notices[0]);
     const ownerPermitted = Boolean(booking.owner_email
       && isMariaBookingRecipientAllowed(String(booking.owner_email)));
-    const ownerNotice = !ownerPermitted ? "skipped"
-      : delivered(notices[1]) ? "sent" : "failed";
-    const emailWarning = customerNotice !== "sent" || ownerNotice === "failed";
+    const ownerNotice = !ownerPermitted ? "skipped" : noticeState(notices[1]);
+    const emailWarning = customerNotice !== "sent" || (ownerNotice !== "sent" && ownerNotice !== "skipped");
+    if (signal.aborted) return { ok: true as const, emailWarning: true };
     let journalSaved = false;
     try {
       // The pending record was inserted atomically with the booking change.
@@ -287,6 +300,8 @@ export async function rescheduleMariaCustomerBooking(input: MariaChangeInput) {
           and workspace_id=${input.workspaceId}
           and booking_id=${input.bookingId}::uuid
           and metadata->>'source'='maria_preview_reschedule'
+          and metadata->>'notice_attempted_at'=${String(booking.notice_attempted_at)}
+          and metadata->>'notice_customer'='sending'
         returning id
       `;
       journalSaved = logged.length === 1;
@@ -301,6 +316,34 @@ export async function rescheduleMariaCustomerBooking(input: MariaChangeInput) {
     return { ok: true as const, emailWarning: emailWarning || !journalSaved };
       });
     } catch (error) {
+      // The booking has already committed. The original notice event remains
+      // the recovery journal, with a per-attempt compare-and-swap guard.
+      // Only proven pre-dispatch failures are retryable. An in-flight HTTP
+      // request may have been accepted despite timeout: require reconciliation.
+      try {
+        if (booking.notice_event_id && booking.notice_attempted_at) {
+          const finalState = providerRequestStarted ? "uncertain" : "failed";
+          await sql`
+            update customer_events e
+            set metadata=e.metadata || jsonb_build_object(
+              'notice_customer',case when e.metadata->>'notice_customer'='sending'
+                then ${finalState}::text else e.metadata->>'notice_customer' end,
+              'notice_owner',case when e.metadata->>'notice_owner'='sending'
+                then ${finalState}::text else e.metadata->>'notice_owner' end)
+            where e.id=${String(booking.notice_event_id)}::uuid
+              and e.workspace_id=${input.workspaceId}
+              and e.booking_id=${input.bookingId}::uuid
+              and e.metadata->>'source'='maria_preview_reschedule'
+              and e.metadata->>'notice_attempted_at'=${String(booking.notice_attempted_at)}
+              and (e.metadata->>'notice_customer'='sending'
+                or e.metadata->>'notice_owner'='sending')
+          `;
+        }
+      } catch (journalError) {
+        // Leave "sending" blocked for provider reconciliation rather than
+        // guessing the message was not sent.
+        console.error("Maria reschedule notice recovery journal update failed", journalError);
+      }
       console.error("Committed Maria reschedule notification requires follow-up", error);
       return { ok: true as const, emailWarning: true };
     }

@@ -246,6 +246,21 @@ function compileSql(parts: TemplateStringsArray, values: unknown[]): Query {
     expect(event.rows[0]?.state).toBe("accepted");
   });
 
+  it("keeps cancellation notice uncertain when a provider request may have been accepted", async () => {
+    vi.mocked(sendBookingChangeEmails).mockResolvedValueOnce([
+      {status:"fulfilled",value:{ok:false,deliveryUncertain:true}},
+      {status:"fulfilled",value:{ok:true}},
+    ] as Awaited<ReturnType<typeof sendBookingChangeEmails>>);
+    expect(await cancelCustomerCalendarBooking(token, bookingId, "en")).toEqual({ok:true});
+    const state = await db!.query<{customer:string;owner:string}>(
+      `select metadata->>'notice_customer' as customer,
+         metadata->>'notice_owner' as owner
+       from customer_events where booking_id=$1::uuid and event_type='status_change'
+       order by created_at desc limit 1`, [bookingId],
+    );
+    expect(state.rows[0]).toMatchObject({customer:"uncertain",owner:"accepted"});
+  });
+
   it("rejects cancellation after lifecycle authorization is revoked without changing the booking", async () => {
     vi.stubEnv("PROFFERA_MARIA_PRODUCTION_CUSTOMER_EMAIL_ENABLED", "false");
     expect(await cancelCustomerCalendarBooking(token, bookingId, "sv"))

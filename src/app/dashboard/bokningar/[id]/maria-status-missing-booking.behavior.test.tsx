@@ -200,6 +200,28 @@ describe("Maria Preview booking status action on a deleted booking", () => {
     },
   );
 
+  it("preserves an uncertain provider outcome for the current notice", async () => {
+    const action = await getStatusAction();
+    runtime.updateStatus.mockResolvedValue({
+      changed: true, previousStatus: "requested", timeZone: "Europe/Stockholm",
+      notification: {
+        customerEmail: "qa@example.invalid", customerName: "Synthetic QA customer",
+        service: "Synthetic QA service", startsAt: "2027-06-18T09:00:00.123Z",
+        endsAt: "2027-06-18T12:00:00.456Z", city: "Stockholm", language: "en",
+        revision: "2027-06-18T07:30:00.789Z",
+        noticeEventId: "00000000-0000-4000-8000-000000000987",
+      },
+    });
+    runtime.sendStatusEmail.mockResolvedValue({ ok: false, error: "email_delivery_uncertain" });
+    runtime.retrySql.mockResolvedValueOnce([{ notice_state: "uncertain" }]);
+    await expect(action(statusForm("cancelled"))).rejects.toThrow(
+      `REDIRECT:/dashboard/bokningar/${id}?updated=1&maria_mail=uncertain&lang=en`,
+    );
+    const journal = (runtime.retrySql.mock.calls[0]![0] as TemplateStringsArray).join("?");
+    expect(journal).toContain("update customer_events");
+    expect(runtime.retrySql.mock.calls[0]).toContain("uncertain");
+  });
+
   it.each(["PROFFERA_PREVIEW_BREVO_API_KEY", "LEAD_FROM_EMAIL"])(
     "blocks confirmation with a missing %s before the writer",
     async (key) => {
@@ -260,7 +282,8 @@ describe("Maria Preview booking status action on a deleted booking", () => {
       customer_name: "Synthetic QA customer",
       customer_email: "\tQA@example.invalid  \r",
       booking_language: "sv", confirmed_at: null,
-    }]);
+    }]).mockResolvedValueOnce([{ gate: "retryable" }])
+      .mockResolvedValueOnce([{ id: "00000000-0000-4000-8000-000000000998" }]);
     const action = await getStatusRetryAction();
     const form = new FormData();
     form.set("lang", "en");
@@ -291,9 +314,10 @@ describe("Maria Preview booking status action on a deleted booking", () => {
       ends_at: new Date("2027-06-18T12:00:00.456Z"),
       booking_revision: revision,
       notice_event_id: "00000000-0000-4000-8000-000000000987",
+      retry_gate: "accepted",
       customer_name: "Synthetic QA customer", customer_email: "qa@example.invalid",
       booking_language: "sv", confirmed_at: null,
-    }]).mockResolvedValueOnce([{ notice_state: "accepted" }]);
+    }]).mockResolvedValueOnce([{ gate: "accepted" }]);
     runtime.sendStatusEmail.mockResolvedValue({ ok: false });
     const action = await getStatusRetryAction();
     const form = new FormData();
@@ -302,14 +326,87 @@ describe("Maria Preview booking status action on a deleted booking", () => {
       `REDIRECT:/dashboard/bokningar/${id}?maria_mail=already_sent&lang=en`,
     );
     const selected = (runtime.retrySql.mock.calls[0]![0] as TemplateStringsArray).join("?");
-    const journal = (runtime.retrySql.mock.calls[1]![0] as TemplateStringsArray).join("?");
-    expect(selected).toContain("e.metadata->>'notice_revision'");
-    expect(selected).toContain("date_trunc('milliseconds',b.updated_at)");
-    expect(journal).toContain("case when metadata->>'notice_customer'='accepted'");
-    expect(journal).toContain("date_trunc('milliseconds',b.updated_at)");
-    expect(runtime.sendStatusEmail).toHaveBeenCalledWith(expect.objectContaining({
-      expectedRevision: "2027-06-18T07:30:00.789Z",
-    }));
+    const gateSql = (runtime.retrySql.mock.calls[1]![0] as TemplateStringsArray).join("?");
+    expect(gateSql).toContain("e.metadata->>'notice_revision'");
+    expect(gateSql).toContain("date_trunc('milliseconds',b.updated_at)");
+    expect(gateSql).toContain("e.metadata->>'notice_customer'='accepted'");
+    expect(runtime.retrySql).toHaveBeenCalledTimes(2);
+    expect(runtime.sendStatusEmail).not.toHaveBeenCalled();
+  });
+
+  it("blocks retry after an uncertain provider acceptance instead of emailing again", async () => {
+    const current = detail("qa@example.invalid");
+    runtime.loadDetail.mockResolvedValue({
+      ...current, booking: { ...current.booking, status: "cancelled" },
+    });
+    runtime.retrySql.mockResolvedValueOnce([{
+      status: "cancelled", retry_gate: "uncertain",
+      starts_at: new Date("2027-06-18T09:00:00.123Z"),
+      ends_at: new Date("2027-06-18T12:00:00.456Z"),
+      booking_revision: new Date("2027-06-18T07:30:00.789Z"),
+      customer_name: "Synthetic QA customer", customer_email: "qa@example.invalid",
+      confirmed_at: null,
+    }]).mockResolvedValueOnce([{ gate: "uncertain" }]);
+    const action = await getStatusRetryAction();
+    const form = new FormData();
+    form.set("lang", "en");
+    await expect(action(form)).rejects.toThrow(
+      `REDIRECT:/dashboard/bokningar/${id}?maria_mail=uncertain&lang=en`,
+    );
+    expect(runtime.sendStatusEmail).not.toHaveBeenCalled();
+    expect(runtime.retrySql).toHaveBeenCalledTimes(2);
+  });
+
+  it("appends retry history to the loaded revision without overwriting earlier status changes", async () => {
+    const current = detail("qa@example.invalid");
+    runtime.loadDetail.mockResolvedValue({
+      ...current, booking: { ...current.booking, status: "cancelled" },
+    });
+    runtime.retrySql.mockResolvedValueOnce([{
+      status: "cancelled", retry_gate: "retryable",
+      starts_at: new Date("2027-06-18T09:00:00.123Z"),
+      ends_at: new Date("2027-06-18T12:00:00.456Z"),
+      booking_revision: new Date("2027-06-18T07:30:00.789Z"),
+      notice_event_id: null,
+      customer_name: "Synthetic QA customer", customer_email: "qa@example.invalid",
+      confirmed_at: null,
+    }]).mockResolvedValueOnce([{ gate: "retryable" }])
+      .mockResolvedValueOnce([{ id: "00000000-0000-4000-8000-000000000998" }]);
+    const action = await getStatusRetryAction();
+    const form = new FormData();
+    form.set("lang", "en");
+    await expect(action(form)).rejects.toThrow(
+      `REDIRECT:/dashboard/bokningar/${id}?maria_mail=resent&lang=en`,
+    );
+    const auditSql = (runtime.retrySql.mock.calls[2]![0] as TemplateStringsArray).join("?");
+    expect(auditSql).toContain("insert into customer_events");
+    expect(auditSql).toContain("'maria_status_retry'");
+    expect(auditSql).toContain("'is_current_revision'");
+    expect(auditSql).not.toContain("update customer_events");
+    expect(runtime.retrySql.mock.calls[2]).toContain("2027-06-18T07:30:00.789Z");
+  });
+
+  it("never sends when the booking revision changed before the retry gate", async () => {
+    const current = detail("qa@example.invalid");
+    runtime.loadDetail.mockResolvedValue({
+      ...current, booking: { ...current.booking, status: "cancelled" },
+    });
+    runtime.retrySql.mockResolvedValueOnce([{
+      status: "cancelled", service: "Synthetic QA service",
+      starts_at: new Date("2027-06-18T09:00:00.123Z"),
+      ends_at: new Date("2027-06-18T12:00:00.456Z"),
+      booking_revision: new Date("2027-06-18T07:30:00.789Z"),
+      customer_name: "Synthetic QA customer",
+      customer_email: "qa@example.invalid",
+      confirmed_at: null,
+    }]).mockResolvedValueOnce([]);
+    const action = await getStatusRetryAction();
+    const form = new FormData();
+    form.set("lang", "en");
+    await expect(action(form)).rejects.toThrow(
+      `REDIRECT:/dashboard/bokningar/${id}?error=save&lang=en`,
+    );
+    expect(runtime.sendStatusEmail).not.toHaveBeenCalled();
   });
 
   it("does not falsely claim email delivery when a Maria reschedule notification fails", async () => {

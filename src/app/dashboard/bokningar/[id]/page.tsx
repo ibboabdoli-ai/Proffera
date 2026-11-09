@@ -25,6 +25,7 @@ import { sendBookingCustomerSms } from "@/features/sms/booking-sms";
 import { getDashboardBookingDetailInStockholm } from "@/lib/dashboard-booking-detail-db";
 import { getSql } from "@/lib/db/server";
 import { postgresTimestampIso } from "@/lib/postgres-timestamp";
+import { getMariaStatusRetryGate, recordMariaStatusRetryAudit } from "@/lib/maria-status-retry-journal";
 import { resolveBrevoApiKey } from "@/lib/email-runtime-config";
 import { BookingRescheduleValidationError, rescheduleDashboardBooking } from "@/lib/dashboard-booking-reschedule";
 import { isDashboardBookingStatus, updateDashboardBookingStatus, type DashboardBookingStatus } from "@/lib/dashboard-booking-status";
@@ -223,6 +224,7 @@ async function updateBookingStatusAction(bookingId: string, formData: FormData) 
   }
 
   let mariaMailFailed = false;
+  let mariaMailUncertain = false;
   let statusChanged = false;
   let previousStatus: string | null = null;
   try {
@@ -249,6 +251,15 @@ async function updateBookingStatusAction(bookingId: string, formData: FormData) 
             })
           : { ok: false as const };
         mariaMailFailed = !delivery.ok;
+        // An HTTP timeout or lost lock does not prove the provider did not
+        // accept the mail. Preserve uncertainty so retry cannot duplicate it.
+        const deliveryError = "error" in delivery ? delivery.error : undefined;
+        const noticeOutcome = delivery.ok ? "accepted"
+          : deliveryError === "email_delivery_uncertain"
+            || deliveryError === "booking_state_unavailable"
+            || deliveryError === "email_provider_rejected"
+              ? "uncertain" : "failed";
+        mariaMailUncertain = noticeOutcome === "uncertain";
         if (notification.noticeEventId) {
           try {
             const sql = getSql();
@@ -257,7 +268,7 @@ async function updateBookingStatusAction(bookingId: string, formData: FormData) 
               update customer_events
               set metadata=metadata || jsonb_build_object('notice_customer',
                     case when metadata->>'notice_customer'='accepted' then 'accepted'
-                         else ${delivery.ok ? "accepted" : "failed"}::text end),
+                         else ${noticeOutcome}::text end),
                   description=case when metadata->>'notice_customer'='accepted' or ${delivery.ok}::boolean
                     then 'Maria status updated. Customer email accepted by provider.'
                     else 'Maria status updated. Customer email not confirmed; follow up manually.' end
@@ -292,7 +303,8 @@ async function updateBookingStatusAction(bookingId: string, formData: FormData) 
     // Unchanged statuses, including an already-cancelled booking, are not successful updates.
     redirect(withLang(`/dashboard/bokningar/${bookingId}`, locale));
   }
-  redirect(withLang(`/dashboard/bokningar/${bookingId}?updated=1${mariaMailFailed ? "&maria_mail=failed" : ""}`, locale));
+  redirect(withLang(`/dashboard/bokningar/${bookingId}?updated=1${mariaMailUncertain
+    ? "&maria_mail=uncertain" : mariaMailFailed ? "&maria_mail=failed" : ""}`, locale));
 }
 
 
@@ -349,6 +361,22 @@ async function resendMariaStatusEmailAction(bookingId: string, formData: FormDat
     redirectWithError(bookingId, "save", locale);
   }
   if (!row) redirectWithError(bookingId, "maria_preview", locale);
+  // A previous provider acceptance, unknown delivery, or live attempt must
+  // never be retried automatically. Verify the provider record first.
+  const retryGate = await getMariaStatusRetryGate({
+    workspaceId: access.workspaceId, bookingId,
+    status: String(row.status) === "confirmed" ? "confirmed" : "cancelled",
+    revision: postgresTimestampIso(row.booking_revision),
+  });
+  if (retryGate === "revision_changed") {
+    redirectWithError(bookingId, "save", locale);
+  }
+  if (retryGate === "accepted") {
+    redirect(withLang(`/dashboard/bokningar/${bookingId}?maria_mail=already_sent`, locale));
+  }
+  if (retryGate === "uncertain") {
+    redirect(withLang(`/dashboard/bokningar/${bookingId}?maria_mail=uncertain`, locale));
+  }
   const cancellation = row.status === "cancelled";
   const recipientAllowed = cancellation
     ? isMariaExistingBookingRecipientAllowed(String(row.customer_email ?? ""))
@@ -380,30 +408,30 @@ async function resendMariaStatusEmailAction(bookingId: string, formData: FormDat
     language: row.booking_language === "ar" ? "ar"
       : row.booking_language === "en" ? "en" : "sv",
   });
-  let previouslyAccepted = false;
-  if (row.notice_event_id) {
-    try {
-      const journalRows = await sql`
-        update customer_events
-        set metadata=metadata || jsonb_build_object('notice_customer',
-              case when metadata->>'notice_customer'='accepted' then 'accepted'
-                   else ${sent.ok ? "accepted" : "failed"}::text end),
-            description=case when metadata->>'notice_customer'='accepted' or ${sent.ok}::boolean
-              then 'Maria status updated. Customer email accepted by provider.'
-              else 'Maria status updated. Customer email not confirmed; follow up manually.' end
-        where id=${String(row.notice_event_id)}::uuid and workspace_id=${access.workspaceId}
-          and booking_id=${bookingId}::uuid and event_type='status_change'
-          and metadata->>'notice_revision' is not null
-          and (metadata->>'notice_revision')::timestamptz=${postgresTimestampIso(row.booking_revision)}::timestamptz
-          and exists(select 1 from bookings b where b.id=${bookingId}::uuid
-            and b.workspace_id=${access.workspaceId} and b.status=${String(row.status)}
-            and date_trunc('milliseconds',b.updated_at)=${postgresTimestampIso(row.booking_revision)}::timestamptz)
-        returning metadata->>'notice_customer' as notice_state
-      `;
-      previouslyAccepted = journalRows[0]?.notice_state === "accepted";
-    } catch (error) { console.error("Maria status retry outcome could not be recorded", error); }
+  // Append a revision-tagged retry record, even if the booking changed while
+  // Brevo was processing the request. Never rewrite an older attempt or mark
+  // the newer booking revision's notice as delivered.
+  const retryError = "error" in sent ? sent.error : undefined;
+  const retryState = sent.ok ? "accepted"
+    : retryError === "email_delivery_uncertain"
+      || retryError === "booking_state_unavailable"
+      || retryError === "email_provider_rejected"
+        ? "uncertain" : "failed";
+  let recorded = false;
+  try {
+    recorded = await recordMariaStatusRetryAudit({
+      workspaceId: access.workspaceId, bookingId,
+      status: String(row.status) === "confirmed" ? "confirmed" : "cancelled",
+      revision: postgresTimestampIso(row.booking_revision),
+      outcome: retryState, parentEventId: row.notice_event_id ? String(row.notice_event_id) : null,
+    });
+  } catch (error) {
+    console.error("Maria status retry history could not be recorded",error);
   }
-  if (!sent.ok) redirect(withLang(`/dashboard/bokningar/${bookingId}?maria_mail=${previouslyAccepted ? "already_sent" : "failed"}`, locale));
+  if (!recorded || retryState === "uncertain") {
+    redirect(withLang(`/dashboard/bokningar/${bookingId}?maria_mail=uncertain`, locale));
+  }
+  if (!sent.ok) redirect(withLang(`/dashboard/bokningar/${bookingId}?maria_mail=failed`, locale));
   redirect(withLang(`/dashboard/bokningar/${bookingId}?maria_mail=resent`, locale));
 }
 
@@ -504,7 +532,11 @@ export default async function BookingDetailPage({ params, searchParams }: Bookin
   const isEnglish = locale === "en";
   const errorValue = value("error") as ErrorKey | undefined;
   const errorMessage = errorValue ? errorMessages[locale][errorValue] : undefined;
-  const mariaEmailWarning = value("maria_mail") === "failed"
+  const mariaEmailWarning = value("maria_mail") === "uncertain"
+    ? (isEnglish
+      ? "Email delivery is uncertain. Check Brevo before attempting another send."
+      : "Mejlets leverans är osäker. Kontrollera Brevo innan du skickar igen.")
+    : value("maria_mail") === "failed"
     ? isEnglish
       ? mariaPreview
         ? "The booking status was saved, but the Maria customer email could not be delivered. Contact the approved QA recipient manually."

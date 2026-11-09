@@ -13,9 +13,9 @@ type Notice=Record<string,unknown>;
 type Meta=Record<string,unknown>;
 const metadata=(value:unknown):Meta=>value && typeof value==="object" && !Array.isArray(value)
   ? value as Meta : {};
-const retryable=(state:unknown,attempt:unknown)=>state==="pending" || state==="failed"
-  || (state==="sending" && Number.isFinite(Date.parse(String(attempt??"")))
-    && Date.parse(String(attempt))<Date.now()-120_000);
+// Age alone is never proof of non-delivery: a timed-out HTTP request may
+// have been accepted by Brevo. Only proven unsent/pending notices can retry.
+const retryable=(state:unknown,_attempt:unknown)=>state==="pending" || state==="failed";
 
 async function currentNotice(id:string,workspaceId:string):Promise<Notice|null>{
   if(!uuid.test(id)||!uuid.test(workspaceId))return null;
@@ -70,6 +70,8 @@ export async function retryMariaRescheduleNotice(id:string,workspaceId:string){
   const base=getMariaBookingPortalBase();
   const readiness=await getMariaBookingReadiness();
   if(!base||!readiness.enabled||readiness.workspaceId!==workspaceId)return {ok:false as const};
+  const claimedAttempt = { eventId: "", attemptedAt: "" };
+  let providerRequestStarted = false;
   try{
     return await withMariaBookingNotificationLock(workspaceId,async(signal)=>{
     const sql=getSql();if(!sql)return {ok:false as const};
@@ -85,7 +87,8 @@ export async function retryMariaRescheduleNotice(id:string,workspaceId:string){
         && (m.notice_owner === "sent" || m.notice_owner === "skipped");
       return alreadySent ? {ok:false as const, alreadySent:true as const} : {ok:false as const};
     }
-    // Only one concurrent sender can claim a failed/pending/expired delivery.
+    // Only one concurrent sender can claim a *proven* failed/pending notice.
+    // Never steal a stale 'sending' lease: HTTP delivery may be uncertain.
     const claims=await sql`
       update customer_events e set metadata=e.metadata||jsonb_build_object(
         'notice_customer',case when ${customer}::boolean then 'sending'
@@ -96,20 +99,18 @@ export async function retryMariaRescheduleNotice(id:string,workspaceId:string){
       where e.id=${eventId}::uuid and e.workspace_id=${workspaceId}
         and e.booking_id=${id}::uuid
         and e.metadata->>'source' in ('maria_preview_reschedule','maria_manager_dashboard_reschedule')
-        and (${!customer}::boolean or
-          e.metadata->>'notice_customer' in ('pending','failed') or
-          (e.metadata->>'notice_customer'='sending'
-            and (e.metadata->>'notice_attempted_at')::timestamptz < now()-interval '2 minutes'))
-        and (${!owner}::boolean or
-          e.metadata->>'notice_owner' in ('pending','failed') or
-          (e.metadata->>'notice_owner'='sending'
-            and (e.metadata->>'notice_attempted_at')::timestamptz < now()-interval '2 minutes'))
+        and (${!customer}::boolean or e.metadata->>'notice_customer' in ('pending','failed'))
+        and (${!owner}::boolean or e.metadata->>'notice_owner' in ('pending','failed'))
         and exists(select 1 from bookings b where b.id=e.booking_id
           and b.workspace_id=e.workspace_id and b.status in ('requested','confirmed')
           and b.starts_at=(e.metadata->>'starts_at')::timestamptz
           and b.ends_at=(e.metadata->>'ends_at')::timestamptz)
       returning e.metadata->>'notice_attempted_at' as attempted_at
     `;
+    if(claims.length===1) {
+      claimedAttempt.eventId = eventId;
+      claimedAttempt.attemptedAt = String(claims[0]?.attempted_at);
+    }
     if(signal?.aborted||claims.length!==1)return {ok:false as const};
     const day=86_400;
     const endsAt=new Date(String(row.ends_at)).getTime();
@@ -129,6 +130,7 @@ export async function retryMariaRescheduleNotice(id:string,workspaceId:string){
           endsAt:new Date(String(row.ends_at)).toISOString(),
           timeZone:"Europe/Stockholm",language,
           ...(signal ? {signal} : {}),
+          onRequestStart: () => { providerRequestStarted = true; },
         })])
       : await sendBookingChangeEmails({
       kind:"rescheduled",branding:"makeup-by-maria",
@@ -144,12 +146,23 @@ export async function retryMariaRescheduleNotice(id:string,workspaceId:string){
       portalUrl:`${base}/mina-bokningar/${encodeURIComponent(token)}?lang=${language}`,
       timeZone:"Europe/Stockholm",language,
       ...(signal ? {signal} : {}),
+      onRequestStart: () => { providerRequestStarted = true; },
     });
+    if (signal.aborted) return {ok:false as const};
     const sent=(item:(typeof res)[number]|undefined)=>item?.status==="fulfilled"
       &&!!item.value &&typeof item.value==="object"
       &&"ok" in item.value &&item.value.ok===true;
-    const cs=customer?(sent(res[0])?"sent":"failed"):String(m.notice_customer??"skipped");
-    const os=owner?(sent(res[1])?"sent":"failed"):String(m.notice_owner??"skipped");
+    const state = (item:(typeof res)[number]|undefined) => {
+      if (sent(item)) return "sent";
+      if (item?.status === "rejected"
+        || (item?.status === "fulfilled" && item.value
+          && typeof item.value === "object" && "deliveryUncertain" in item.value
+          && item.value.deliveryUncertain === true)) return "uncertain";
+      return "failed";
+    };
+    const cs=customer?state(res[0]):String(m.notice_customer??"skipped");
+    const os=owner?state(res[1]):String(m.notice_owner??"skipped");
+    if (signal.aborted) return {ok:false as const};
     const updated=await sql`
       update customer_events e set metadata=e.metadata||jsonb_build_object(
         'notice_customer',${cs}::text,'notice_owner',${os}::text)
@@ -158,7 +171,32 @@ export async function retryMariaRescheduleNotice(id:string,workspaceId:string){
         and e.metadata->>'notice_attempted_at'=${String(claims[0]?.attempted_at)}
       returning id
     `;
-    return {ok:updated.length===1 &&cs!=="failed" &&os!=="failed"};
+    return {ok:updated.length===1 &&cs==="sent" &&(os==="sent"||os==="skipped")};
     });
-  }catch(error){console.error("Maria notification retry failed closed",error);return {ok:false as const};}
+  }catch(error){
+    // Only a callback that never began an HTTP request can be safely freed
+    // for retry. If a request may have reached Brevo, hold for reconciliation.
+    try {
+      if (claimedAttempt.eventId) {
+        const sql=getSql();
+        if (sql) {
+          const finalState=providerRequestStarted?"uncertain":"failed";
+          await sql`
+            update customer_events e set metadata=e.metadata||jsonb_build_object(
+              'notice_customer',case when e.metadata->>'notice_customer'='sending'
+                then ${finalState}::text else e.metadata->>'notice_customer' end,
+              'notice_owner',case when e.metadata->>'notice_owner'='sending'
+                then ${finalState}::text else e.metadata->>'notice_owner' end)
+            where e.id=${claimedAttempt.eventId}::uuid
+              and e.workspace_id=${workspaceId} and e.booking_id=${id}::uuid
+              and e.metadata->>'notice_attempted_at'=${claimedAttempt.attemptedAt}
+              and (e.metadata->>'notice_customer'='sending'
+                or e.metadata->>'notice_owner'='sending')
+          `;
+        }
+      }
+    } catch (journalError) { console.error("Maria retry journal recovery failed",journalError); }
+    console.error("Maria notification retry failed closed",error);
+    return {ok:false as const};
+  }
 }
