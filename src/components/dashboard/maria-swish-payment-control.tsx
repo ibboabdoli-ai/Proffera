@@ -15,15 +15,16 @@ type Props = {
 /** Maria Preview only. Parent pages must check the Maria workspace before rendering. */
 export function MariaSwishPaymentControl({ bookingId, bookingStatus, readOk, entry, returnTo, isEnglish }: Props) {
   const paid = entry?.state === "paid";
+  const reference = mariaBookingNumber(bookingId, entry?.reference);
   const canMarkPaid = bookingStatus === "confirmed" || bookingStatus === "completed";
   return (
     <section className="min-w-0 rounded-xl border border-[#e9d6df] bg-[#fff9f8] p-3 sm:p-4">
       <p className="text-sm font-semibold text-[#704858]">{isEnglish ? "Booking number · Swish" : "Bokningsnummer · Swish"}</p>
       <div className="mt-2 flex flex-wrap items-center gap-2">
         <code className="select-all break-all font-mono text-sm font-semibold text-[#49313c]">
-          {mariaBookingNumber(bookingId)}
+          {reference}
         </code>
-        <MariaBookingReferenceCopy key={bookingId} reference={mariaBookingNumber(bookingId)} isEnglish={isEnglish} />
+        <MariaBookingReferenceCopy key={bookingId} reference={reference} isEnglish={isEnglish} />
       </div>
       <p className="mt-2 text-xs leading-5 text-[#76545f]">
         {isEnglish
