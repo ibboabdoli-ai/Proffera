@@ -30,6 +30,8 @@ export type MariaBookingStatusEmailInput = {
   timeZone?: WorkspaceTimeZone;
   confirmedAt?: Date;
   language?: "sv" | "en" | "ar";
+  /** DB-assigned immutable short reference, absent only for legacy reservations. */
+  reference?: string;
   /** Persisted status-write revision prevents sending an obsolete email. */
   expectedRevision?: string;
   /** Caller-provided only for pure render tests; sender always reads DB state. */
@@ -64,7 +66,7 @@ function checkedMariaOrigin(value: string, production: boolean) {
 export function buildMariaBookingStatusEmail(input: MariaBookingStatusEmailInput, bookingOrigin: string, production = false) {
   const origin = checkedMariaOrigin(bookingOrigin, production);
   const logo = mariaEmailLogoHtml(origin);
-  const reference = mariaBookingNumber(input.bookingId);
+  const reference = mariaBookingNumber(input.bookingId, input.reference);
   const language = input.language === "en" || input.language === "ar" ? input.language : "sv";
   const start = formatTime(input.startsAt, input.timeZone, language);
   const end = formatTime(input.endsAt, input.timeZone, language);
@@ -294,7 +296,8 @@ export async function sendMariaBookingStatusEmail(input: MariaBookingStatusEmail
     const sql = getSql();
     if (!sql) return { ok: false as const, error: "booking_state_unavailable" as const };
     const rows = await sql`
-        select coalesce((
+        select ref.reference as booking_reference,
+          coalesce((
           select e.metadata->>'state' from customer_events e
           where e.workspace_id=b.workspace_id and e.booking_id=b.id
             and e.event_type='note'
@@ -305,6 +308,7 @@ export async function sendMariaBookingStatusEmail(input: MariaBookingStatusEmail
         from bookings b
         join customers c on c.id=b.customer_id and c.workspace_id=b.workspace_id
         join workspaces w on w.id::text=b.workspace_id
+        left join maria_booking_references ref on ref.booking_id=b.id
         where b.id=${input.bookingId}::uuid and b.workspace_id=${input.workspaceId}
           and w.slug='makeup-by-maria'
           and w.status in ('active','trial')
@@ -323,7 +327,11 @@ export async function sendMariaBookingStatusEmail(input: MariaBookingStatusEmail
     if (signal?.aborted) return { ok: false as const, error: "booking_state_unavailable" as const };
     if (!rows[0]) return { ok: false as const, error: "invalid_booking" as const };
     const depositAlreadyPaid = input.status === "confirmed" && rows[0].deposit_state === "paid";
-    content = buildMariaBookingStatusEmail({ ...input, depositAlreadyPaid }, base, process.env.VERCEL_ENV === "production");
+    content = buildMariaBookingStatusEmail({
+      ...input, depositAlreadyPaid,
+      reference: typeof rows[0].booking_reference === "string"
+        ? rows[0].booking_reference : undefined,
+    }, base, process.env.VERCEL_ENV === "production");
   } catch {
     return { ok: false as const, error: "invalid_booking" as const };
   }
