@@ -9,6 +9,9 @@ vi.mock("next/navigation", () => ({
   notFound: () => { throw new Error("NEXT_NOT_FOUND"); },
 }));
 vi.mock("@/lib/db/server", () => ({ getSql: vi.fn() }));
+vi.mock("@/lib/maria-booking-reference-db", () => ({
+  readMariaBookingReference: vi.fn(),
+}));
 vi.mock("@/lib/maria-preview-booking", () => ({
   getMariaPreviewBookingReadiness: vi.fn(),
 }));
@@ -17,6 +20,7 @@ vi.mock("@/lib/maria-preview-customer-safety", () => ({
 }));
 
 import { getSql } from "@/lib/db/server";
+import { readMariaBookingReference } from "@/lib/maria-booking-reference-db";
 import { getMariaPreviewBookingReadiness } from "@/lib/maria-preview-booking";
 import MariaSwishPaymentPage from "./page";
 
@@ -25,6 +29,8 @@ const props = { params: Promise.resolve({ id }) };
 
 beforeEach(() => {
   vi.resetAllMocks();
+  vi.mocked(readMariaBookingReference)
+    .mockResolvedValue("MBM-11111111222243338444555555555555");
   vi.stubEnv("VERCEL_ENV", "preview");
   vi.stubEnv("PROFFERA_MARIA_PREVIEW_BOOKING_ENABLED", "true");
   vi.stubEnv("PROFFERA_MARIA_PREVIEW_TEST_EMAIL", "qa@example.invalid");
@@ -58,6 +64,17 @@ describe("Maria Preview first-party Swish payment information page", () => {
     expect(html).toContain("https://app.swish.nu/1/p/sw/?sw=1235818653&amp;amt=2000&amp;cur=SEK&amp;msg=MBM-11111111222243338444555555555555&amp;src=qr");
     expect(html).toContain(`/api/makeup-by-maria/swish-qr/${id}`);
     expect(html).not.toContain("sendibt3.com");
+    expect(sql).toHaveBeenCalledOnce();
+  });
+
+  it("uses a short, immutable booking-specific message instead of the UUID when assigned", async () => {
+    vi.mocked(readMariaBookingReference).mockResolvedValueOnce("MBM-2026111001");
+    const sql = vi.fn().mockResolvedValueOnce([{ id }]);
+    vi.mocked(getSql).mockReturnValue(sql as never);
+    const html = renderToStaticMarkup(await MariaSwishPaymentPage(props));
+    expect(html).toContain("MBM-2026111001");
+    expect(html).toContain("msg=MBM-2026111001");
+    expect(html).not.toContain("MBM-11111111222243338444555555555555");
     expect(sql).toHaveBeenCalledOnce();
   });
 
