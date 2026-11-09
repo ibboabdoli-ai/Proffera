@@ -133,8 +133,15 @@ function allowAdminWithPath(request: NextRequest, requestId: string) {
 function allowPublicPath(request: NextRequest, requestId: string) {
   const requestHeaders = requestHeadersWithRequestId(request, requestId);
   requestHeaders.delete("x-proffera-locale");
-  // Only the exact Maria Preview payment URL gets a standalone brand shell.
-  if (process.env.VERCEL_ENV === "preview" && isMariaPaymentStandalonePath(request.nextUrl.pathname)) {
+  // Only an exact Maria payment URL receives the trusted standalone shell.
+  // Production MUST be on Maria's branded host, never the Proffera platform.
+  const paymentPath = isMariaPaymentStandalonePath(request.nextUrl.pathname);
+  const previewPayment = process.env.VERCEL_ENV === "preview"
+    && isPlatformHost(request.headers.get("host") ?? request.nextUrl.host);
+  const brandedProductionPayment = process.env.VERCEL_ENV === "production"
+    && isMariaHost(request.headers.get("host") ?? request.nextUrl.host)
+    && process.env.PROFFERA_MARIA_PUBLIC_SITE_ENABLED === "true";
+  if (paymentPath && (previewPayment || brandedProductionPayment)) {
     requestHeaders.set(MARIA_PAYMENT_SHELL_HEADER, "1");
   }
 
