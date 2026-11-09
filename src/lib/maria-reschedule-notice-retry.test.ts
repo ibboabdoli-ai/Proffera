@@ -276,6 +276,7 @@ describe("Maria customer-reschedule notification retry",()=>{
       });
       expect(await retryMariaRescheduleNotice(id,workspaceId)).toEqual({ok:false});
       expect(m.abortController?.signal.aborted).toBe(true);
+      expect(m.send.mock.calls[0]![0].signal).toBe(m.abortController?.signal);
       const recovery=m.sql.mock.calls[2]!;
       const sql=(recovery[0] as TemplateStringsArray).join("?");
       expect(sql).toContain("notice_attempted_at");
