@@ -12,7 +12,7 @@ CREATE TABLE IF NOT EXISTS maria_booking_reference_counters (
 );
 
 CREATE TABLE IF NOT EXISTS maria_booking_references (
-  booking_id uuid PRIMARY KEY REFERENCES bookings(id) ON DELETE RESTRICT,
+  booking_id uuid PRIMARY KEY REFERENCES bookings(id) ON DELETE CASCADE,
   day_key text NOT NULL REFERENCES maria_booking_reference_counters(day_key),
   day_number bigint NOT NULL CHECK (day_number BETWEEN 1 AND 999999999),
   reference text NOT NULL UNIQUE CHECK (reference ~ '^MBM-[0-9]{10,}$'),
