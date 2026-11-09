@@ -304,7 +304,17 @@ function validatedSource(input, source, execute) {
       ? at(fallback.created_at) : primaryTime;
     const currentInline = pages(`repos/${input.repository}/pulls/${input.pr_number}/comments`, execute)
       .filter((c) => (c.original_commit_id ?? c.commit_id) === head
-        || (c.commit_id === head && (reviewRequestTime === null || at(c.created_at) >= reviewRequestTime)));
+        || (c.commit_id === head && (reviewRequestTime === null || at(c.created_at) >= reviewRequestTime)))
+      // A linked prior-head acknowledgement is not a new finding. Unknown
+      // reply bodies and new finding markers continue to block (fail-closed).
+      .filter((c) => !(c.user?.login === "coderabbitai[bot]"
+        && c.in_reply_to_id != null
+        && (c.original_commit_id ?? c.commit_id) !== head
+        && c.commit_id === head
+        && /^@ibboabdoli-ai (?:Thanks for|Verified|The supplied workflow addresses this finding)/m.test(c.body ?? "")
+        && /(?:This addresses the finding[.]|I withdraw this finding|confirmed assertions address this finding)/i.test(c.body ?? "")
+        && !(c.body ?? "").includes("<!-- cr-comment:v1:")
+        && !/(?:\b(?:P0|P1|P2|critical|major)\b|(?:new|additional|another|unresolved) (?:finding|issue|bug|defect)|not (?:fixed|addressed)|still (?:broken|failing))/i.test(c.body ?? "")));
     const inline = currentInline.filter((c) => c.user?.login === source.actor);
     // A later APPROVED can change authority after a blocking decision. Preserve
     // that material transition without making a new review ID a retry budget.

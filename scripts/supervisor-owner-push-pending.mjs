@@ -637,6 +637,22 @@ function proveAbandonedClaim(claim,comments,pr){
    &&s.run_attempt===claim.run_attempt),"abandoned_handoff_exists");
  return true;
 }
+// A prior owner claim is consumed only with bound, authenticated durable
+// handoff evidence. Otherwise it still needs the skipped-model proof.
+function consumedClaim(claim,ledger){
+ const matches=p=>p.lane===claim.lane&&p.run_id===claim.run_id
+  &&p.run_attempt===claim.run_attempt&&p.parent_sha===claim.head;
+ const stages=ledger.staged.filter(matches),pending=ledger.pending.filter(matches);
+ if(!stages.length&&!pending.length)return false;
+ for(const stage of stages)verifyStagedProvenance(stage);
+ for(const p of pending){
+  const auth=trustedRun(p);
+  check(p.workflow_id===auth.run.workflow_id&&p.publish_job_id===auth.publish.id
+   &&p.model_job_id===auth.model.id&&p.validation_job_id===auth.validate.id,
+   "consumed_claim_binding");
+ }
+ return true;
+}
 function establishReentryClaim(ledger,comments,attempt,pr){
  check(attempt&&Object.hasOwn(LANES,attempt.lane)&&pos(attempt.run_id)
   &&pos(attempt.run_attempt)&&hex(attempt.head,40),"reentry_attempt");
@@ -645,7 +661,7 @@ function establishReentryClaim(ledger,comments,attempt,pr){
    &&c.lane===attempt.lane&&c.run_id===attempt.run_id
    &&c.run_attempt===attempt.run_attempt&&c.head===attempt.head))continue;
   for(const previous of ledger.claims.filter(c=>c.retirement_digest===retired.retirement_digest)){
-   proveAbandonedClaim(previous,comments,pr);
+   if(!consumedClaim(previous,ledger))proveAbandonedClaim(previous,comments,pr);
   }
   const bodyText=marker("reentry",retired.retirement_digest+":"+attempt.lane+":"+
    attempt.run_id+":"+attempt.run_attempt+":"+attempt.head);
@@ -663,7 +679,7 @@ function establishReentryClaim(ledger,comments,attempt,pr){
   for(const previous of current.claims.filter(c=>c.retirement_digest===retired.retirement_digest)){
    check(!(previous.lane===attempt.lane&&previous.run_id===attempt.run_id
     &&previous.run_attempt===attempt.run_attempt),"reentry_claim_race");
-   proveAbandonedClaim(previous,issueComments(),pr);
+   if(!consumedClaim(previous,current))proveAbandonedClaim(previous,issueComments(),pr);
   }
   const after=assertCancellationUnpublished(stage);
   check(before.branch===after.branch&&before.main===after.main,"reentry_state_changed");
@@ -737,7 +753,7 @@ export function gate(env){
  for(const claim of ledger.claims){
   if(claim.lane===currentAttempt.lane&&claim.run_id===currentAttempt.run_id
    &&claim.run_attempt===currentAttempt.run_attempt&&claim.head===currentAttempt.head)continue;
-  proveAbandonedClaim(claim,finalComments,pr);
+  if(!consumedClaim(claim,ledger))proveAbandonedClaim(claim,finalComments,pr);
  }
  const phase=env.OWNER_GATE_PHASE;
  const attempt=ledger.retirements.length?{

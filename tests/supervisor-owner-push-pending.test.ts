@@ -792,7 +792,7 @@ describe("production gate with a retained artifact and an advanced branch",()=>{
 describe("executed Stage -> owner retirement -> one-shot re-entry gate",()=>{
  it.each(["success","late_pending","late_publish","unknown_commit","claim_write_error",
   "safe_reissue","strategy_rejected","old_model_ran","old_run_active","old_start_late",
-  "old_pending_late","old_api_uncertain","new_head_changed","cross_lane_reissue"] as const)(
+  "old_pending_late","old_api_uncertain","new_head_changed","cross_lane_reissue","consumed_prior_pending"] as const)(
   "holds the exact historical attempt and fails closed on %s",async scenario=>{
    const actual=await vi.importActual<typeof import("node:child_process")>("node:child_process");
    const f=fixture(),stage=bot(make("staged","review_repair:81:1",f.value),1300);
@@ -821,10 +821,21 @@ describe("executed Stage -> owner retirement -> one-shot re-entry gate",()=>{
      if(args[1]==="--paginate"&&args[2]==="--slurp"){
       if(args[3].includes("/issues/548/comments"))return good(JSON.stringify([comments]));
       if(args[3].includes("/jobs?")){
-       if(args[3].includes("/runs/202/"))return good(JSON.stringify([{jobs:[{
-        name:"Bounded Codex CI autofix",status:"completed",
-        conclusion:scenario==="old_model_ran"?"success":"skipped",steps:[]
-       }]}]));
+       if(args[3].includes("/runs/202/")){
+        if(scenario==="consumed_prior_pending")return good(JSON.stringify([{jobs:[
+         {id:302,name:"Bounded Codex CI autofix",status:"completed",conclusion:"success",
+          steps:[completed("Run one bounded Codex repair attempt")]},
+         {id:303,name:"Validate CI Autofix candidate",status:"completed",conclusion:"success",steps:[]},
+         {id:301,name:"Stage CI Autofix owner-push handoff (no publication)",
+          status:"completed",conclusion:"success",
+          steps:[completed("Stage CI Autofix commit for owner push"),
+           completed("Upload CI Autofix owner handoff")]}
+        ]}]));
+        return good(JSON.stringify([{jobs:[{
+         name:"Bounded Codex CI autofix",status:"completed",
+         conclusion:scenario==="old_model_ran"?"success":"skipped",steps:[]
+        }]}]));
+       }
        return good(JSON.stringify([{jobs}]));
       }
      }
@@ -885,7 +896,7 @@ describe("executed Stage -> owner retirement -> one-shot re-entry gate",()=>{
     if(scenario==="late_pending")comments.push(f.comment);
     if(scenario==="late_publish")commitKnown=true;
     if(scenario==="unknown_commit")failLookup=true;
-    if(["safe_reissue","strategy_rejected","old_model_ran","old_run_active","old_start_late",
+    if(["safe_reissue","strategy_rejected","old_model_ran","consumed_prior_pending","old_run_active","old_start_late",
       "old_pending_late","old_api_uncertain","new_head_changed","cross_lane_reissue"].includes(scenario)){
      expect(gate(attempt).allow).toBe(true); // first claim, no Start
      expect(posts).toBe(2);
@@ -894,13 +905,17 @@ describe("executed Stage -> owner retirement -> one-shot re-entry gate",()=>{
       "<!-- proffera-ci-autofix-start:v1:941:202:1 -->",1705));
      if(scenario==="old_pending_late")comments.push(
       bot(make("pending","ci_autofix:202:1",fixture(202,"ci_autofix").value),1706));
+     if(scenario==="consumed_prior_pending"){
+      const prior=fixture(202,"ci_autofix"),proof=resolution(prior,"push_confirmed");
+      comments.push(prior.comment,proof.command,proof.result);
+     }
      if(scenario==="new_head_changed")currentHead="9".repeat(40);
      const nextLane=scenario==="cross_lane_reissue"?"review_repair":"ci_autofix";
      if(scenario!=="cross_lane_reissue")comments.push(owner(
       "<!-- proffera-owner-push-reentry:v1:"+digest+":"+nextLane+":203:1:"+
        f.value.parent_sha+" -->",1501));
      const next={...attempt,LANE:nextLane,GITHUB_RUN_ID:"203"};
-     if(scenario==="safe_reissue"||scenario==="strategy_rejected"){
+     if(scenario==="safe_reissue"||scenario==="strategy_rejected"||scenario==="consumed_prior_pending"){
       // A normal strategy-level suppression ends the admitted workflow with a
       // skipped model job, but cannot consume the owner's NEXT authorization.
       expect(gate(next).allow).toBe(true);

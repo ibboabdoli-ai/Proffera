@@ -978,3 +978,31 @@ describe("review authority after the last memory read", () => {
     expect(f.run().decision).toBe("ALLOW_RERUN"); expect(f.posts).toBe(1);
   });
 });
+
+
+describe("linked older-head CodeRabbit acknowledgements", () => {
+  const record = { ...findingRecord(), in_reply_to_id: 422,
+    original_commit_id: "b".repeat(40), commit_id: head,
+    created_at: at(13),
+    body: "@ibboabdoli-ai Verified by inspection. This addresses the finding." };
+  function fixtureWithInline(body: string) {
+    const f = liveFixture({ ...source(), actor: "coderabbitai[bot]", body: cleanBody });
+    f.sourceCreatedAt = at(13);
+    f.src.observed_at = at(13);
+    f.reviews = [reviewRecord(6001, "COMMENTED", at(6))];
+    f.inline = [{ ...record, body }];
+    return f;
+  }
+  it("does not elevate an authenticated old-thread acknowledgement to a new finding", () => {
+    const f = fixtureWithInline(record.body);
+    expect(f.run().decision).toBe("ALLOW_RERUN");
+  });
+  it.each([
+    "**Major**: new issue\n<!-- cr-comment:v1:abc -->",
+    "@ibboabdoli-ai Thanks for reviewing. This addresses the finding. However a new P1 issue remains.",
+  ])("keeps new findings in old-thread replies blocking", (body) => {
+    const f = fixtureWithInline(body);
+    expect(() => f.run()).toThrow();
+    expect(f.posts).toBe(0);
+  });
+});

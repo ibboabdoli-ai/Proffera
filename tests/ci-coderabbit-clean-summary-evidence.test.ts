@@ -90,3 +90,38 @@ describe("CI CodeRabbit clean-summary immutable evidence guard", () => {
     expect(guard([summary])).toBe(0);
   });
 });
+
+
+describe("CI linked older-head acknowledgement", () => {
+  const source = workflow.slice(workflow.indexOf('coderabbit_inline_count="$(jq -r'));
+  const extracted = source.match(/'\n([\s\S]*?)\n\s*' <<< "\$coderabbit_inline_json"\)/);
+  const inlineFilter = extracted?.[1] ?? "";
+  const old = "b".repeat(40);
+  const linked = {
+    id: 500, user: { login: "coderabbitai[bot]" }, in_reply_to_id: 400,
+    original_commit_id: old, commit_id: head,
+    created_at: "2026-11-07T10:00:03Z",
+    body: "@ibboabdoli-ai Verified by inspection. This addresses the finding.",
+  };
+  function count(rows: unknown[]) {
+    const result = spawnSync("jq", ["-r", "--arg", "sha", head, "--arg", "request_time", requestTime, inlineFilter],
+      { input: JSON.stringify(rows), encoding: "utf8" });
+    expect(result.status, result.stderr).toBe(0);
+    return Number(result.stdout.trim());
+  }
+  it("ignores only linked older-head acknowledgements", () => {
+    expect(inlineFilter).toContain("in_reply_to_id");
+    expect(count([linked])).toBe(0);
+    expect(count([{ ...linked, commit_id: old }])).toBe(0);
+  });
+  it("retains new findings and untrusted or unlinked replies as blocking", () => {
+    for (const row of [
+      { ...linked, body: "**Major**: New issue.\\n<!-- cr-comment:v1:abc -->" },
+      { ...linked, body: "@ibboabdoli-ai Thanks for checking, but P1 new vulnerability remains." },
+      { ...linked, body: "@ibboabdoli-ai Thanks for checking. This addresses the finding. However a new P1 bug exists." },
+      { ...linked, body: "Unknown new information" },
+      { ...linked, in_reply_to_id: null },
+      { ...linked, original_commit_id: head },
+    ]) expect(count([row])).toBe(1);
+  });
+});
