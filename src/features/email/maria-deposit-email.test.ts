@@ -85,7 +85,7 @@ describe("Maria-only Swish confirmation and cancellation email", () => {
   it("sends a friendly manual cancellation without deposit demands", () => {
     const result = buildMariaBookingStatusEmail({ ...booking, status: "cancelled" }, "https://qa.vercel.app");
     expect(result.subject).toContain("Din bokning är avbokad");
-    expect(result.text).toContain("Du får gärna komma tillbaka med en ny bokning.");
+    expect(result.text).toContain("Du är varmt välkommen att boka igen.");
     expect(result.text).toContain("MBM-00000000000000000000000000000001");
     expect(result.text).not.toContain("Handpenning");
     expect(result.html).not.toContain("/api/makeup-by-maria/swish-qr/");
@@ -97,6 +97,7 @@ describe("Maria-only Swish confirmation and cancellation email", () => {
     const confirmed = buildMariaBookingStatusEmail({ ...booking, language: "en" }, "https://qa.vercel.app");
     expect(confirmed.subject).toContain("Your booking is confirmed");
     expect(confirmed.text).toContain("Pay within 24 hours");
+    expect(confirmed.text).toContain("?lang=en");
     expect(confirmed.text).toContain("Preview test only");
     expect(confirmed.html).toContain('lang="en"');
     expect(confirmed.html).toContain("QA &lt;Bride&gt;");
@@ -114,8 +115,8 @@ describe("Maria-only Swish confirmation and cancellation email", () => {
     expect(confirmed.text).toContain("٢٤ ساعة");
     expect(confirmed.html).toContain('lang="ar" dir="rtl"');
     expect(confirmed.text).toMatch(/٢٠٢٧|2027/);
-    expect(confirmed.html).toContain("https://qa.vercel.app/maria/swish/00000000-0000-0000-0000-000000000001?lang=en");
-    expect(confirmed.text).toContain("https://qa.vercel.app/maria/swish/00000000-0000-0000-0000-000000000001?lang=en");
+    expect(confirmed.html).toContain("https://qa.vercel.app/maria/swish/00000000-0000-0000-0000-000000000001?lang=ar");
+    expect(confirmed.text).toContain("https://qa.vercel.app/maria/swish/00000000-0000-0000-0000-000000000001?lang=ar");
     expect(confirmed.html).not.toContain("app.swish.nu");
     const cancelled = buildMariaBookingStatusEmail({ ...booking, status: "cancelled", language: "ar" }, "https://qa.vercel.app");
     expect(cancelled.subject).toContain("تم إلغاء حجزك");
