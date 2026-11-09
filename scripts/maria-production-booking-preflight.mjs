@@ -1,6 +1,6 @@
 import { pathToFileURL } from "node:url";
 
-const migrations = ["20261103_0072", "20261105_0073", "20261107_0074"];
+const migrations = ["20261103_0072", "20261105_0073", "20261107_0074", "20261108_0075"];
 const prices = { "maria-bridal-trial-2026": 690000, "maria-bridal-without-trial-2026": 580000 };
 
 /** SELECT-only Maria database preflight. Does not authorize public booking. */
@@ -15,15 +15,34 @@ export async function inspectMariaProductionBookingDatabase(query) {
     "to_regclass('public.public_booking_verifications') is not null as verifications,",
     "to_regclass('public.maria_manual_closed_starts') is not null as manual_closed_starts,",
     "to_regclass('public.maria_service_card_translations') is not null as card_translations,",
+    "to_regclass('public.workspace_booking_reminder_settings') is not null as lifecycle_settings,",
+    "(select count(*) from information_schema.columns where table_schema='public'",
+    "and table_name='workspace_booking_reminder_settings' and (",
+    "(column_name='customer_reschedule_enabled' and data_type='boolean' and is_nullable='NO') or",
+    "(column_name='customer_cancel_enabled' and data_type='boolean' and is_nullable='NO') or",
+    "(column_name='cancel_notice_hours' and data_type='integer' and is_nullable='NO') or",
+    "(column_name='no_show_enabled' and data_type='boolean' and is_nullable='NO') or",
+    "(column_name='auto_complete_enabled' and data_type='boolean' and is_nullable='NO') or",
+    "(column_name='company_confirmation_required' and data_type='boolean' and is_nullable='NO')",
+    ")) = 6 as lifecycle_settings_columns,",
+    // The canonical 0075 CHECK was missing on upgraded schemas with existing columns.
+    "exists (select 1 from pg_constraint c",
+    "where c.conrelid=to_regclass('public.workspace_booking_reminder_settings')",
+    "and c.contype='c' and c.convalidated",
+    "and c.conname='workspace_booking_reminder_settings_cancel_notice_hours_check'",
+    "and pg_get_constraintdef(c.oid) like '%cancel_notice_hours >= 0%'",
+    "and pg_get_constraintdef(c.oid) like '%cancel_notice_hours <= 720%') as lifecycle_cancel_notice_check,",
     "(select count(*) from information_schema.columns where table_schema='public'",
     "and table_name='public_booking_verifications'",
     "and column_name in ('address','postcode','booking_details')) = 3 as verification_contact_columns",
   ].join(" ");
   const schema = (await query(schemaSql)).rows?.[0];
   if (!schema) return { databaseReady: false, blockers: ["schema_unreadable"], appliedMigrations: [] };
-  const tables = ["ledger", "workspaces", "workspace_settings", "workspace_services", "booking_hours", "verifications", "manual_closed_starts", "card_translations"];
+  const tables = ["ledger", "workspaces", "workspace_settings", "workspace_services", "booking_hours", "verifications", "manual_closed_starts", "card_translations", "lifecycle_settings"];
   for (const table of tables) if (schema[table] !== true) blockers.push("missing_" + table);
   if (schema.verification_contact_columns !== true) blockers.push("missing_verification_contact_columns");
+  if (schema.lifecycle_settings_columns !== true) blockers.push("invalid_lifecycle_settings_columns");
+  if (schema.lifecycle_cancel_notice_check !== true) blockers.push("invalid_lifecycle_cancel_notice_check");
 
   // Existing relation names and migration receipts do not prove that the
   // IF NOT EXISTS tables have their required columns or constraints.
@@ -72,7 +91,7 @@ export async function inspectMariaProductionBookingDatabase(query) {
 
   let appliedMigrations = [];
   if (schema.ledger === true) {
-    const rows = await query("select migration_key from proffera_schema_migrations where migration_key in ('20261103_0072','20261105_0073','20261107_0074')");
+    const rows = await query("select migration_key from proffera_schema_migrations where migration_key in ('20261103_0072','20261105_0073','20261107_0074','20261108_0075')");
     appliedMigrations = rows.rows.map(row => String(row.migration_key));
     for (const key of migrations) if (!appliedMigrations.includes(key)) blockers.push("missing_migration_" + key);
   }
@@ -128,7 +147,7 @@ async function main() {
     const result = await inspectMariaProductionBookingDatabase((sql, params) => client.query(sql, params));
     process.stdout.write(JSON.stringify({ ...result, requiredMigrations: migrations,
       productionBookingEnabled: false,
-      note: "Read-only data check. Booking, OTP recipient policy and Maria manager writes are still Preview-only; separate release approval is required.",
+      note: "Read-only data check only; all Production booking, OTP recipient and manager actions require independent flag and release authorization.",
     }, null, 2) + "\n");
     if (!result.databaseReady) process.exitCode = 2;
   } finally {

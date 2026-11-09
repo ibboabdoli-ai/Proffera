@@ -5,6 +5,7 @@ const schemaReady = {
   ledger: true, workspaces: true, workspace_settings: true, workspace_services: true,
   booking_hours: true, verifications: true, manual_closed_starts: true,
   card_translations: true, verification_contact_columns: true,
+  lifecycle_settings: true, lifecycle_settings_columns: true, lifecycle_cancel_notice_check: true,
 };
 const integrityReady = {
   manual_closed_columns: true, card_translations_columns: true,
@@ -12,7 +13,7 @@ const integrityReady = {
   manual_closed_fk: true, card_translations_fk: true,
 };
 
-function mockReadOnlyQuery({ schema = schemaReady, migrations = ["20261103_0072", "20261105_0073", "20261107_0074"],
+function mockReadOnlyQuery({ schema = schemaReady, migrations = ["20261103_0072", "20261105_0073", "20261107_0074", "20261108_0075"],
   workspaceReady = true, priceOverride = null, hoursReady = true,
   billingCurrency = "SEK", integrity = integrityReady } = {}) {
   const executed = [];
@@ -47,7 +48,7 @@ function mockReadOnlyQuery({ schema = schemaReady, migrations = ["20261103_0072"
 }
 
 describe("Maria Production booking release is inspection-only", () => {
-  it("reports database readiness only after all three migrations, matching services and opening hours", async () => {
+  it("reports database readiness only after all four migrations, matching services and opening hours", async () => {
     const { query, executed } = mockReadOnlyQuery();
     const result = await inspectMariaProductionBookingDatabase(query);
     expect(result.databaseReady).toBe(true);
@@ -76,13 +77,29 @@ describe("Maria Production booking release is inspection-only", () => {
     expect(executed.some(item => item.statement.includes("from proffera_schema_migrations"))).toBe(false);
   });
 
-  it("requires migration 0072, 0073 and 0074 to be recorded independently", async () => {
+  it("requires migrations 0072 through 0075 to be recorded independently", async () => {
     const result = await inspectMariaProductionBookingDatabase(mockReadOnlyQuery({
       migrations: ["20261105_0073"],
     }).query);
     expect(result.databaseReady).toBe(false);
     expect(result.blockers).toContain("missing_migration_20261103_0072");
     expect(result.blockers).toContain("missing_migration_20261107_0074");
+    expect(result.blockers).toContain("missing_migration_20261108_0075");
+  });
+
+  it("fails closed on absent 0075 lifecycle columns or range constraint", async () => {
+    const result = await inspectMariaProductionBookingDatabase(mockReadOnlyQuery({
+      schema: {
+        ...schemaReady, lifecycle_settings: false,
+        lifecycle_settings_columns: false, lifecycle_cancel_notice_check: false,
+      },
+    }).query);
+    expect(result.databaseReady).toBe(false);
+    expect(result.blockers).toEqual(expect.arrayContaining([
+      "missing_lifecycle_settings",
+      "invalid_lifecycle_settings_columns",
+      "invalid_lifecycle_cancel_notice_check",
+    ]));
   });
 
   it("does not confuse old Production prices or missing owner data with publishable readiness", async () => {

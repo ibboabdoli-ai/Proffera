@@ -89,14 +89,31 @@ function docker(args) {
     await db?.query("ROLLBACK");
   });
 
-  it("passes canonical 0072/0073/0074 tables with real PostgreSQL catalog queries in a READ ONLY transaction", async () => {
+  it("passes canonical 0072/0073/0074/0075 with real PostgreSQL catalog queries in a READ ONLY transaction", async () => {
     await db.query("BEGIN READ ONLY");
     const result = await inspect();
     expect(result.databaseReady).toBe(true);
     expect(result.blockers).toEqual([]);
     expect(result.appliedMigrations).toEqual(expect.arrayContaining([
-      "20261103_0072", "20261105_0073", "20261107_0074",
+      "20261103_0072", "20261105_0073", "20261107_0074", "20261108_0075",
     ]));
+  });
+
+  it("rejects an existing-column 0075 schema with its range CHECK missing", async () => {
+    await db.query("BEGIN");
+    await db.query("ALTER TABLE workspace_booking_reminder_settings DROP CONSTRAINT IF EXISTS workspace_booking_reminder_settings_cancel_notice_hours_check");
+    const result = await inspect();
+    expect(result.databaseReady).toBe(false);
+    expect(result.blockers).toContain("invalid_lifecycle_cancel_notice_check");
+    expect(result.appliedMigrations).toContain("20261108_0075");
+  });
+
+  it("rejects a missing 0075 ledger receipt despite complete columns", async () => {
+    await db.query("BEGIN");
+    await db.query("DELETE FROM proffera_schema_migrations WHERE migration_key='20261108_0075'");
+    const result = await inspect();
+    expect(result.databaseReady).toBe(false);
+    expect(result.blockers).toContain("missing_migration_20261108_0075");
   });
 
   it("rejects a real 0072 table missing starts_at, even when migration is recorded", async () => {
