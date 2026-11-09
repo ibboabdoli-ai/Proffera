@@ -48,6 +48,7 @@ vi.mock("@/lib/dashboard-db",()=>({
 }));
 vi.mock("./actions",()=>({saveMariaYearAction:async()=>{}}));
 vi.mock("./production-year-actions",()=>({saveMariaProductionYearAction:async()=>{}}));
+vi.mock("./production-year-visibility-actions",()=>({setMariaProductionYearVisibilityAction:async()=>{}}));
 vi.mock("./schedule-actions",()=>({saveMariaScheduleAction:async()=>{}}));
 
 import MariaSiteDashboardPage from "./page";
@@ -116,6 +117,8 @@ describe("Maria preview calendar visible without paid booking",()=>{
     expect(html).toContain('href="/dashboard/maria/kalender"');
     expect(html).toContain("Spara bokningstider");
     expect(html).toContain("Spara 2030");
+    expect(html).toContain("Visa 2030 på webbplatsen");
+    expect(html).toContain('name="visibility"');
     expect(html).toContain("Riktiga kundbokningar är aktiverade");
     expect(html).not.toContain("Endast intern förhandsvisning.");
     expect(html).not.toContain("Onlinebokningen är ännu inte aktiverad.");
