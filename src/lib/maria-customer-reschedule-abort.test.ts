@@ -152,11 +152,64 @@ describe("Maria reschedule pre-dispatch timeout safety", () => {
     expect(sql).toContain("notice_attempted_at");
     expect(recovery).toContain(noticeEventId);
     expect(recovery).toContain(attempt);
-    expect(recovery).toContain("sent");
-    expect(recovery).toContain("failed");
+    // Check positional bindings: a swap would resend the already-accepted
+    // customer notice and suppress the owner's safe retry.
+    expect(recovery![1]).toBe("sent");
+    expect(recovery![2]).toBe("failed");
     expect(recovery).not.toContain("uncertain");
     expect(fixture.send).toHaveBeenCalledOnce();
   });
+
+  it.each(["customer", "owner"] as const)(
+    "recovers a settled %s acceptance and leaves the other in-flight delivery uncertain",
+    async (settledRecipient) => {
+      fixture.transaction.mockResolvedValueOnce([[], [{
+        notice_event_id:noticeEventId, notice_attempted_at:attempt,
+        notice_revision:"2027-06-17T08:00:00.000Z",
+        customer_email:"qa@example.invalid",customer_name:"Synthetic customer",
+        owner_email:"qa-owner@example.invalid",company_name:"Makeup by Maria",
+        service_name:"Brudsmink",old_starts_at:"2027-06-11T09:00:00.000Z",
+        old_ends_at:"2027-06-11T11:00:00.000Z",city:"Södertälje",
+      }]]);
+      let abortLock!: () => void;
+      fixture.locked.mockImplementationOnce(async (_workspace:string,
+        action:(signal:AbortSignal)=>Promise<unknown>) => {
+        const controller=new AbortController();
+        abortLock=()=>controller.abort();
+        return Promise.race([
+          action(controller.signal),
+          new Promise<never>((_resolve,reject) => controller.signal.addEventListener(
+            "abort",()=>reject(new Error("Synthetic lock expired")),{once:true},
+          )),
+        ]);
+      });
+      fixture.send.mockImplementationOnce(async (input:{
+        onRequestStart?:(recipient:"customer"|"owner")=>void;
+        onDeliveryResult?:(recipient:"customer"|"owner",outcome:{ok:boolean})=>void;
+      })=>{
+        input.onRequestStart?.("customer");
+        input.onRequestStart?.("owner");
+        input.onDeliveryResult?.(settledRecipient,{ok:true});
+        abortLock();
+        // The second provider response never settles while the lock is alive.
+        return new Promise<never>(()=>{});
+      });
+      expect(await rescheduleMariaCustomerBooking({
+        workspaceId,customerId,bookingId,startsAtLocal:"2027-06-18T09:00",
+        token:"synthetic-token",language:"en",
+      })).toEqual({ok:true,emailWarning:true});
+      const recovery=fixture.sql.mock.calls.find(([parts]) =>
+        (parts as TemplateStringsArray).join("?").includes("update customer_events e"));
+      expect(recovery).toBeDefined();
+      const query=(recovery![0] as TemplateStringsArray).join("?");
+      expect(query).toContain("notice_attempted_at");
+      expect(recovery).toContain(attempt);
+      // Exact positional SQL binding; a customer/owner swap must fail.
+      expect(recovery![1]).toBe(settledRecipient==="customer" ? "sent" : "uncertain");
+      expect(recovery![2]).toBe(settledRecipient==="owner" ? "sent" : "uncertain");
+      expect(fixture.send).toHaveBeenCalledOnce();
+    },
+  );
 
   it("cannot overwrite a newer sending attempt after an older pre-dispatch abort", async () => {
     fixture.locked.mockImplementationOnce(async (_workspace: string,

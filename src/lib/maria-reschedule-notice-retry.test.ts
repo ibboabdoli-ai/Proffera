@@ -5,12 +5,19 @@ vi.mock("@/lib/maria-booking-notification-lock",()=>({
   withMariaBookingNotificationLock:async(_workspaceId:string,action:(signal:AbortSignal)=>Promise<unknown>)=>{
     const controller=new AbortController();
     m.abortController=controller;
-    return action(controller.signal);
+    const work=action(controller.signal);
+    return m.raceOnAbort ? Promise.race([
+      work,
+      new Promise<never>((_resolve,reject)=>controller.signal.addEventListener(
+        "abort",()=>reject(new Error("Synthetic lock expired")),{once:true},
+      )),
+    ]) : work;
   },
 }));
 const m=vi.hoisted(()=>({
   sql:vi.fn(),send:vi.fn(),sendManager:vi.fn(),ready:vi.fn(),
   abortController:null as AbortController|null,
+  raceOnAbort:false,
 }));
 vi.mock("@/lib/db/server",()=>({getSql:()=>m.sql}));
 vi.mock("@/lib/maria-booking-runtime",()=>({getMariaBookingReadiness:m.ready}));
@@ -53,6 +60,7 @@ const row={
 beforeEach(()=>{
   vi.clearAllMocks();
   m.abortController=null;
+  m.raceOnAbort=false;
   m.ready.mockResolvedValue({enabled:true,workspaceId});
 });
 afterEach(()=>{vi.unstubAllEnvs();});
@@ -126,6 +134,24 @@ describe("Maria customer-reschedule notification retry",()=>{
     const readSql=m.sql.mock.calls[0]![0] as TemplateStringsArray;
     expect(readSql.join("?")).toContain("maria_manager_dashboard_reschedule");
     expect(m.send).not.toHaveBeenCalled();
+  });
+
+  it("keeps a definitely unsent manager email retryable after Brevo configuration is corrected", async()=>{
+    const manager={...row,metadata:{...row.metadata,
+      source:"maria_manager_dashboard_reschedule",notice_customer:"failed",notice_owner:"skipped"}};
+    const attemptedAt="2026-11-08 10:01:00+00";
+    m.sql.mockResolvedValueOnce([manager])
+      .mockResolvedValueOnce([{attempted_at:attemptedAt}])
+      .mockResolvedValueOnce([{id:eventId}]);
+    // The sender has not called fetch, e.g. its Brevo API key was missing.
+    m.sendManager.mockResolvedValueOnce({ok:false,notSent:true});
+    expect(await retryMariaRescheduleNotice(id,workspaceId)).toEqual({ok:false});
+    const persisted=m.sql.mock.calls[2]!;
+    const query=(persisted[0] as TemplateStringsArray).join("?");
+    expect(query).toContain("notice_attempted_at");
+    expect(persisted[1]).toBe("failed");
+    expect(persisted[2]).toBe("skipped");
+    expect(m.sendManager).toHaveBeenCalledOnce();
   });
 
   it("refuses a concurrently claimed or obsolete booking without sending anything",async()=>{
@@ -221,11 +247,43 @@ describe("Maria customer-reschedule notification retry",()=>{
     const query=(recovery[0] as TemplateStringsArray).join("?");
     expect(query).toContain("notice_attempted_at");
     expect(recovery).toContain(attemptedAt);
-    expect(recovery).toContain("sent");
-    expect(recovery).toContain("failed");
+    // Verify customer and owner SQL positions, not just unordered values.
+    expect(recovery[1]).toBe("sent");
+    expect(recovery[2]).toBe("failed");
     expect(recovery).not.toContain("uncertain");
     expect(m.send).toHaveBeenCalledOnce();
   });
+
+  it.each(["customer","owner"] as const)(
+    "retains %s acceptance while the other recipient hangs and the lock expires",
+    async(settledRecipient)=>{
+      const bothFailed={...row,metadata:{...row.metadata,
+        notice_customer:"failed",notice_owner:"failed"}};
+      const attemptedAt="2026-11-08 11:04:00+00";
+      m.sql.mockResolvedValueOnce([bothFailed])
+        .mockResolvedValueOnce([{attempted_at:attemptedAt}])
+        .mockResolvedValueOnce([{id:eventId}]);
+      m.raceOnAbort=true;
+      m.send.mockImplementationOnce(async(input:{
+        onRequestStart?:(recipient:"customer"|"owner")=>void;
+        onDeliveryResult?:(recipient:"customer"|"owner",outcome:{ok:boolean})=>void;
+      })=>{
+        input.onRequestStart?.("customer");
+        input.onRequestStart?.("owner");
+        input.onDeliveryResult?.(settledRecipient,{ok:true});
+        m.abortController?.abort();
+        return new Promise<never>(()=>{});
+      });
+      expect(await retryMariaRescheduleNotice(id,workspaceId)).toEqual({ok:false});
+      const recovery=m.sql.mock.calls[2]!;
+      const sql=(recovery[0] as TemplateStringsArray).join("?");
+      expect(sql).toContain("notice_attempted_at");
+      expect(recovery).toContain(attemptedAt);
+      expect(recovery[1]).toBe(settledRecipient==="customer" ? "sent" : "uncertain");
+      expect(recovery[2]).toBe(settledRecipient==="owner" ? "sent" : "uncertain");
+      expect(m.send).toHaveBeenCalledOnce();
+    },
+  );
 
   it("keeps an accepted manager notice settled after lock Abort", async()=>{
     const manager={...row,metadata:{...row.metadata,

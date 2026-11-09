@@ -65,7 +65,7 @@ export async function sendBookingRescheduleEmail(input: SendBookingRescheduleEma
   if (input.signal?.aborted) return { ok: false as const, notSent: true as const, message: "Maria notification lock expired before dispatch." };
   const apiKey = resolveBrevoApiKey();
   const from = process.env.LEAD_FROM_EMAIL;
-  if (!apiKey || !from) return { ok: false as const, message: "Brevo är inte konfigurerat." };
+  if (!apiKey || !from) return { ok: false as const, notSent: true as const, message: "Brevo är inte konfigurerat." };
 
   const logo = input.branding === "makeup-by-maria"
     ? mariaEmailLogoHtml(getMariaBookingPortalBase()) : "";

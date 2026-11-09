@@ -62,6 +62,31 @@ describe("bounded booking reschedule email delivery", () => {
     expect(fetchMock).toHaveBeenCalledOnce();
   });
 
+  it("keeps missing Brevo configuration safely retryable in Preview before HTTP starts", async () => {
+    vi.stubEnv("VERCEL_ENV", "preview");
+    vi.stubEnv("PROFFERA_PREVIEW_BREVO_API_KEY", undefined);
+    const fetchMock=vi.fn().mockResolvedValue({
+      ok:true,status:201,json:async()=>({messageId:"synthetic-success"}),
+    });
+    vi.stubGlobal("fetch",fetchMock);
+    let started=0;
+    const input={...booking,onRequestStart:()=>{started++;}};
+    expect(await sendBookingRescheduleEmail(input)).toEqual({
+      ok:false,notSent:true,message:"Brevo är inte konfigurerat.",
+    });
+    expect(started).toBe(0);
+    expect(fetchMock).not.toHaveBeenCalled();
+
+    // Once configuration is fixed, the same safe, proven-unsent notice can
+    // be explicitly retried. No production or real network egress is involved.
+    vi.stubEnv("PROFFERA_PREVIEW_BREVO_API_KEY", "synthetic-preview-only-key");
+    expect(await sendBookingRescheduleEmail(input)).toEqual({
+      ok:true,providerId:"synthetic-success",
+    });
+    expect(started).toBe(1);
+    expect(fetchMock).toHaveBeenCalledOnce();
+  });
+
   it("refuses a send after the notification deadline without calling Brevo", async () => {
     const controller = new AbortController();
     controller.abort();
