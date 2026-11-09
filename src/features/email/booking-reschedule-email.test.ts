@@ -50,6 +50,18 @@ describe("bounded booking reschedule email delivery", () => {
     expect(fetchMock).toHaveBeenCalledOnce();
   });
 
+  it("treats definite Brevo permission rejection as unsent and retryable after fixing permissions", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok:false,status:403,
+      json:async()=>({message:"Synthetic Brevo permission denied"}),
+    });
+    vi.stubGlobal("fetch",fetchMock);
+    expect(await sendBookingRescheduleEmail(booking)).toEqual({
+      ok:false,notSent:true,message:"Synthetic Brevo permission denied",
+    });
+    expect(fetchMock).toHaveBeenCalledOnce();
+  });
+
   it("refuses a send after the notification deadline without calling Brevo", async () => {
     const controller = new AbortController();
     controller.abort();
@@ -60,7 +72,7 @@ describe("bounded booking reschedule email delivery", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it("treats provider rejection as unconfirmed rather than inventing non-delivery", async () => {
+  it("treats unknown provider rejection as unconfirmed rather than inventing non-delivery", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
       ok: false, json: async () => ({ message: "Synthetic provider rejection" }),
     }));

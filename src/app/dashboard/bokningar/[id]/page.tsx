@@ -25,7 +25,7 @@ import { sendBookingCustomerSms } from "@/features/sms/booking-sms";
 import { getDashboardBookingDetailInStockholm } from "@/lib/dashboard-booking-detail-db";
 import { getSql } from "@/lib/db/server";
 import { postgresTimestampIso } from "@/lib/postgres-timestamp";
-import { getMariaStatusRetryGate, recordMariaStatusRetryAudit } from "@/lib/maria-status-retry-journal";
+import { getMariaStatusRetryGate, claimMariaStatusRetry, finishMariaStatusRetry } from "@/lib/maria-status-retry-journal";
 import { resolveBrevoApiKey } from "@/lib/email-runtime-config";
 import { BookingRescheduleValidationError, rescheduleDashboardBooking } from "@/lib/dashboard-booking-reschedule";
 import { isDashboardBookingStatus, updateDashboardBookingStatus, type DashboardBookingStatus } from "@/lib/dashboard-booking-status";
@@ -255,10 +255,7 @@ async function updateBookingStatusAction(bookingId: string, formData: FormData) 
         // accept the mail. Preserve uncertainty so retry cannot duplicate it.
         const deliveryError = "error" in delivery ? delivery.error : undefined;
         const noticeOutcome = delivery.ok ? "accepted"
-          : deliveryError === "email_delivery_uncertain"
-            || deliveryError === "booking_state_unavailable"
-            || deliveryError === "email_provider_rejected"
-              ? "uncertain" : "failed";
+          : deliveryError === "email_delivery_uncertain" ? "uncertain" : "failed";
         mariaMailUncertain = noticeOutcome === "uncertain";
         if (notification.noticeEventId) {
           try {
@@ -395,6 +392,24 @@ async function resendMariaStatusEmailAction(bookingId: string, formData: FormDat
     && (!row.confirmed_at || !confirmedAt || !Number.isFinite(confirmedAt.getTime()))) {
     redirectWithError(bookingId, "save", locale);
   }
+  // The read-only gate is informative; the durable claim is authoritative.
+  // An advisory-locked PostgreSQL transaction rejects simultaneous retries
+  // for the exact same booking revision BEFORE any provider request starts.
+  const revision = postgresTimestampIso(row.booking_revision);
+  const claimStatus = row.status === "confirmed" ? "confirmed" as const : "cancelled" as const;
+  let claimId: string | null = null;
+  try {
+    claimId = await claimMariaStatusRetry({
+      workspaceId: access.workspaceId, bookingId,
+      status: claimStatus, revision,
+      parentEventId: row.notice_event_id ? String(row.notice_event_id) : null,
+    });
+  } catch (error) {
+    console.error("Maria email retry could not be claimed", error);
+  }
+  if (!claimId) {
+    redirect(withLang(`/dashboard/bokningar/${bookingId}?maria_mail=uncertain`, locale));
+  }
   const sent = await sendMariaBookingStatusEmail({
     bookingId, workspaceId: access.workspaceId,
     status: row.status === "confirmed" ? "confirmed" : "cancelled",
@@ -413,20 +428,16 @@ async function resendMariaStatusEmailAction(bookingId: string, formData: FormDat
   // the newer booking revision's notice as delivered.
   const retryError = "error" in sent ? sent.error : undefined;
   const retryState = sent.ok ? "accepted"
-    : retryError === "email_delivery_uncertain"
-      || retryError === "booking_state_unavailable"
-      || retryError === "email_provider_rejected"
-        ? "uncertain" : "failed";
+    : retryError === "email_delivery_uncertain" ? "uncertain" : "failed";
   let recorded = false;
   try {
-    recorded = await recordMariaStatusRetryAudit({
-      workspaceId: access.workspaceId, bookingId,
-      status: String(row.status) === "confirmed" ? "confirmed" : "cancelled",
-      revision: postgresTimestampIso(row.booking_revision),
-      outcome: retryState, parentEventId: row.notice_event_id ? String(row.notice_event_id) : null,
+    recorded = await finishMariaStatusRetry({
+      workspaceId: access.workspaceId, bookingId, claimId,
+      status: claimStatus, revision, outcome: retryState,
     });
   } catch (error) {
-    console.error("Maria status retry history could not be recorded",error);
+    // Leave the durable 'sending' claim blocking all further retries.
+    console.error("Maria status email outcome could not be persisted", error);
   }
   if (!recorded || retryState === "uncertain") {
     redirect(withLang(`/dashboard/bokningar/${bookingId}?maria_mail=uncertain`, locale));

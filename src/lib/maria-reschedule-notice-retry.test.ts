@@ -2,9 +2,16 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("server-only",()=>({}));
 vi.mock("@/lib/maria-booking-notification-lock",()=>({
-  withMariaBookingNotificationLock:async(_workspaceId:string,action:(signal:AbortSignal)=>Promise<unknown>)=>action(new AbortController().signal),
+  withMariaBookingNotificationLock:async(_workspaceId:string,action:(signal:AbortSignal)=>Promise<unknown>)=>{
+    const controller=new AbortController();
+    m.abortController=controller;
+    return action(controller.signal);
+  },
 }));
-const m=vi.hoisted(()=>({sql:vi.fn(),send:vi.fn(),sendManager:vi.fn(),ready:vi.fn()}));
+const m=vi.hoisted(()=>({
+  sql:vi.fn(),send:vi.fn(),sendManager:vi.fn(),ready:vi.fn(),
+  abortController:null as AbortController|null,
+}));
 vi.mock("@/lib/db/server",()=>({getSql:()=>m.sql}));
 vi.mock("@/lib/maria-booking-runtime",()=>({getMariaBookingReadiness:m.ready}));
 vi.mock("@/lib/maria-preview-customer-safety",()=>({
@@ -45,6 +52,7 @@ const row={
 };
 beforeEach(()=>{
   vi.clearAllMocks();
+  m.abortController=null;
   m.ready.mockResolvedValue({enabled:true,workspaceId});
 });
 afterEach(()=>{vi.unstubAllEnvs();});
@@ -125,6 +133,66 @@ describe("Maria customer-reschedule notification retry",()=>{
     expect(await retryMariaRescheduleNotice(id,workspaceId)).toEqual({ok:false});
     expect(m.send).not.toHaveBeenCalled();
   });
+
+  it.each(["customer","manager"] as const)(
+    "recovers a provably unsent %s claim when the notification lock disconnects",
+    async(source)=>{
+      const current=source==="manager"
+        ? {...row,metadata:{...row.metadata,
+            source:"maria_manager_dashboard_reschedule",notice_customer:"failed",notice_owner:"skipped"}}
+        : row;
+      const attemptedAt="2026-11-08 11:00:00+00";
+      m.sql.mockResolvedValueOnce([current])
+        .mockImplementationOnce(async()=>{
+          m.abortController?.abort();
+          return [{attempted_at:attemptedAt}];
+        })
+        .mockResolvedValueOnce([{id:eventId}]);
+      expect(await retryMariaRescheduleNotice(id,workspaceId)).toEqual({ok:false});
+      expect(m.send).not.toHaveBeenCalled();
+      expect(m.sendManager).not.toHaveBeenCalled();
+      const recovery=m.sql.mock.calls[2]!;
+      const sql=(recovery[0] as TemplateStringsArray).join("?");
+      expect(sql).toContain("notice_attempted_at");
+      expect(sql).toContain("notice_customer'='sending'");
+      expect(recovery).toContain(attemptedAt);
+      expect(recovery).toContain("failed");
+    },
+  );
+
+  it.each(["customer","manager"] as const)(
+    "keeps a potentially delivered %s claim uncertain on a provider-time lock abort",
+    async(source)=>{
+      const current=source==="manager"
+        ? {...row,metadata:{...row.metadata,
+            source:"maria_manager_dashboard_reschedule",notice_customer:"failed",notice_owner:"skipped"}}
+        : row;
+      const attemptedAt="2026-11-08 11:01:00+00";
+      m.sql.mockResolvedValueOnce([current])
+        .mockResolvedValueOnce([{attempted_at:attemptedAt}])
+        .mockResolvedValueOnce([{id:eventId}]);
+      const abortDuringSend=async(input:{onRequestStart?:(recipient:"customer"|"owner")=>void})=>{
+        input.onRequestStart?.("customer");
+        m.abortController?.abort();
+        return [{status:"fulfilled",value:{ok:false,deliveryUncertain:true}}];
+      };
+      if(source==="manager"){
+        m.sendManager.mockImplementationOnce(async(input:{onRequestStart?:()=>void})=>{
+          input.onRequestStart?.();
+          m.abortController?.abort();
+          return {ok:false,deliveryUncertain:true};
+        });
+      } else {
+        m.send.mockImplementationOnce(abortDuringSend);
+      }
+      expect(await retryMariaRescheduleNotice(id,workspaceId)).toEqual({ok:false});
+      const recovery=m.sql.mock.calls[2]!;
+      const sql=(recovery[0] as TemplateStringsArray).join("?");
+      expect(sql).toContain("notice_attempted_at");
+      expect(recovery).toContain(attemptedAt);
+      expect(recovery).toContain("uncertain");
+    },
+  );
 
   it("does not operate when Maria activation has been disabled",async()=>{
     m.ready.mockResolvedValue({enabled:false});

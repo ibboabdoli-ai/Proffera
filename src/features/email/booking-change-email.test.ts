@@ -18,6 +18,28 @@ afterEach(() => {
 });
 
 describe("booking change email locale", () => {
+  it("does not retry a definite Brevo 403 rejection as uncertain", async () => {
+    process.env.BREVO_API_KEY="synthetic-test-only";
+    process.env.LEAD_FROM_EMAIL="Proffera <noreply@example.invalid>";
+    const fetchMock=vi.fn().mockResolvedValue({
+      ok:false,status:403,
+      json:async()=>({message:"Synthetic permission denied"}),
+    });
+    global.fetch=fetchMock;
+    const results=await sendBookingChangeEmails({
+      kind:"rescheduled",customerName:"Synthetic",customerEmail:"qa@example.invalid",
+      companyName:"Synthetic Maria",service:"Brudsmink",
+      oldStartsAt:"2027-06-18T08:00:00.000Z",oldEndsAt:"2027-06-18T11:00:00.000Z",
+      newStartsAt:"2027-06-19T08:00:00.000Z",newEndsAt:"2027-06-19T11:00:00.000Z",
+      portalUrl:"https://preview.example.invalid/mina-bokningar/test",
+      timeZone:"Europe/Stockholm",language:"sv",
+    });
+    expect(results[0]).toMatchObject({
+      status:"fulfilled",value:{ok:false,notSent:true},
+    });
+    expect(fetchMock).toHaveBeenCalledOnce();
+  });
+
   it("does not call Brevo after the notification lock signal expires", async () => {
     process.env.BREVO_API_KEY = "synthetic-test-only";
     process.env.LEAD_FROM_EMAIL = "Proffera <noreply@example.invalid>";

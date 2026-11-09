@@ -282,6 +282,9 @@ export async function sendMariaBookingStatusEmail(input: MariaBookingStatusEmail
   const apiKey = resolveBrevoApiKey();
   const from = process.env.LEAD_FROM_EMAIL;
   if (!apiKey || !from) return { ok: false as const, error: "email_not_configured" as const };
+  // The outer lock catch must distinguish a proven pre-dispatch failure
+  // from a possible in-flight provider acceptance.
+  let providerRequestStarted = false;
   try {
     return await withMariaBookingNotificationLock(input.workspaceId ?? "", async (signal) => {
   let content: ReturnType<typeof buildMariaBookingStatusEmail>;
@@ -330,6 +333,7 @@ export async function sendMariaBookingStatusEmail(input: MariaBookingStatusEmail
     : { name: input.companyName, email: from.trim() };
   if (signal?.aborted) return { ok: false as const, error: "booking_state_unavailable" as const };
   try {
+    providerRequestStarted = true;
     const response = await fetch("https://api.brevo.com/v3/smtp/email", {
       method: "POST",
       signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(10_000)]) : AbortSignal.timeout(10_000),
@@ -347,6 +351,8 @@ export async function sendMariaBookingStatusEmail(input: MariaBookingStatusEmail
     });
   } catch (error) {
     console.error("Maria status email serialization failed", error);
-    return { ok: false as const, error: "booking_state_unavailable" as const };
+    return { ok: false as const,
+      error: providerRequestStarted ? "email_delivery_uncertain" as const
+        : "booking_state_unavailable" as const };
   }
 }

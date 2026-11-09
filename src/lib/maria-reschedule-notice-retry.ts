@@ -111,7 +111,10 @@ export async function retryMariaRescheduleNotice(id:string,workspaceId:string){
       claimedAttempt.eventId = eventId;
       claimedAttempt.attemptedAt = String(claims[0]?.attempted_at);
     }
-    if(signal?.aborted||claims.length!==1)return {ok:false as const};
+    if (signal?.aborted && claimedAttempt.eventId) {
+      throw new Error("Maria reschedule retry lock aborted after claim");
+    }
+    if(claims.length!==1)return {ok:false as const};
     const day=86_400;
     const endsAt=new Date(String(row.ends_at)).getTime();
     const secs=Math.max(30*day,Math.min(400*day,
@@ -148,7 +151,7 @@ export async function retryMariaRescheduleNotice(id:string,workspaceId:string){
       ...(signal ? {signal} : {}),
       onRequestStart: () => { providerRequestStarted = true; },
     });
-    if (signal.aborted) return {ok:false as const};
+    if (signal.aborted) throw new Error("Maria reschedule retry lock expired during provider dispatch");
     const sent=(item:(typeof res)[number]|undefined)=>item?.status==="fulfilled"
       &&!!item.value &&typeof item.value==="object"
       &&"ok" in item.value &&item.value.ok===true;
@@ -162,7 +165,7 @@ export async function retryMariaRescheduleNotice(id:string,workspaceId:string){
     };
     const cs=customer?state(res[0]):String(m.notice_customer??"skipped");
     const os=owner?state(res[1]):String(m.notice_owner??"skipped");
-    if (signal.aborted) return {ok:false as const};
+    if (signal.aborted) throw new Error("Maria reschedule retry lock expired during provider dispatch");
     const updated=await sql`
       update customer_events e set metadata=e.metadata||jsonb_build_object(
         'notice_customer',${cs}::text,'notice_owner',${os}::text)
