@@ -264,6 +264,9 @@ export async function getPublishedDirectoryLocationSuggestions(limit = 50) {
         )
         and profile.is_active = true
         and profile.privacy_blocked = false
+        -- Both authority branches require one of these statuses. Keep the
+        -- redundant guard explicit so the planner can filter before EXISTS.
+        and profile.publication_status in ('published', 'claimed')
     ), resolved as (
       select
         case
