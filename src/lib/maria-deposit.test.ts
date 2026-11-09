@@ -37,6 +37,17 @@ describe("Maria Swish booking reference and deposit policy", () => {
     expect(link.searchParams.get("msg")).toBe("MBM-C0EB47ACCECF4BD498C31B8B6DEEB2FF");
     expect(link.searchParams.get("src")).toBe("qr");
   });
+  it("keeps an assigned short reference identical across Swish payloads", () => {
+    const bookingId = "c0eb47ac-cecf-4bd4-98c3-1b8b6deeb2ff";
+    const reference = "MBM-2026111001";
+    expect(mariaBookingNumber(bookingId, reference)).toBe(reference);
+    expect(mariaSwishQrPayload(bookingId, reference)).toBe(
+      "C1235818653;2000,00;MBM-2026111001;0"
+    );
+    expect(new URL(mariaSwishPaymentLink(bookingId, reference)).searchParams.get("msg")).toBe(reference);
+    expect(() => mariaBookingNumber(bookingId, "MBM-INVALID")).toThrow("INVALID_MARIA_BOOKING_REFERENCE");
+  });
+
   it("sets 24 hours from manual confirmation and rejects bad dates", () => {
     const confirmed = new Date("2026-11-02T15:00:00.000Z");
     expect(mariaDepositDeadline(confirmed).toISOString()).toBe("2026-11-03T15:00:00.000Z");
