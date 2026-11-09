@@ -18,6 +18,41 @@ afterEach(() => {
 });
 
 describe("booking change email locale", () => {
+  it("reports customer acceptance and definite owner rejection separately", async () => {
+    process.env.BREVO_API_KEY = "synthetic-only";
+    process.env.LEAD_FROM_EMAIL = "Proffera <booking@example.invalid>";
+    const requests:string[]=[];
+    global.fetch=vi.fn(async (_url,init) => {
+      const payload=JSON.parse(String((init as RequestInit).body)) as {to:{email:string}[]};
+      const email=payload.to[0]!.email;
+      requests.push(email);
+      return new Response(JSON.stringify({messageId:"synthetic"}),{
+        status:email==="customer@example.invalid" ? 201 : 403,
+      });
+    });
+    const observed:Array<{recipient:"customer"|"owner";ok:boolean;notSent?:boolean}>=[];
+    const result=await sendBookingChangeEmails({
+      kind:"rescheduled",language:"en",
+      customerName:"Synthetic customer",customerEmail:"customer@example.invalid",
+      ownerEmail:"owner@example.invalid",companyName:"Synthetic Studio",
+      service:"Bridal makeup",oldStartsAt:"2027-06-11T08:00:00.000Z",
+      oldEndsAt:"2027-06-11T11:00:00.000Z",
+      newStartsAt:"2027-06-18T08:00:00.000Z",
+      newEndsAt:"2027-06-18T11:00:00.000Z",
+      portalUrl:"https://example.invalid/bookings",
+      timeZone:"Europe/Stockholm",
+      onDeliveryResult:(recipient,outcome)=>{
+        observed.push({recipient,ok:outcome.ok,notSent:outcome.notSent});
+      },
+    });
+    expect(result).toHaveLength(2);
+    expect(requests.sort()).toEqual(["customer@example.invalid","owner@example.invalid"]);
+    expect(observed).toEqual(expect.arrayContaining([
+      {recipient:"customer",ok:true,notSent:undefined},
+      {recipient:"owner",ok:false,notSent:true},
+    ]));
+  });
+
   it("does not retry a definite Brevo 403 rejection as uncertain", async () => {
     process.env.BREVO_API_KEY="synthetic-test-only";
     process.env.LEAD_FROM_EMAIL="Proffera <noreply@example.invalid>";

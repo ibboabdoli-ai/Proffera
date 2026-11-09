@@ -28,6 +28,12 @@ type BookingChangeEmailInput = {
   signal?: AbortSignal;
   /** Called only when the provider HTTP request is about to begin. */
   onRequestStart?: (recipient: "customer" | "owner") => void;
+  /** Capture each recipient's settled provider response before the other
+   * recipient finishes; the workspace lock may expire in the meantime. */
+  onDeliveryResult?: (
+    recipient: "customer" | "owner",
+    outcome: {ok: boolean; notSent?: boolean; deliveryUncertain?: boolean},
+  ) => void;
 };
 
 function escapeHtml(value: string) {
@@ -46,7 +52,7 @@ function parseSender(value: string) {
 async function send(to: { email: string; name: string }, subject: string, text: string, html: string, signal?: AbortSignal, onRequestStart?: () => void) {
   const apiKey = resolveBrevoApiKey();
   const from = process.env.LEAD_FROM_EMAIL;
-  if (!apiKey || !from) return { ok: false as const, message: "Brevo är inte konfigurerat." };
+  if (!apiKey || !from) return { ok: false as const, notSent: true as const, message: "Brevo är inte konfigurerat." };
   if (signal?.aborted) return { ok: false as const, notSent: true as const, message: "Maria notification lock expired before dispatch." };
   try {
     onRequestStart?.();
@@ -122,7 +128,10 @@ export async function sendBookingChangeEmails(input: BookingChangeEmailInput) {
     input.sendCustomer === false
       ? Promise.resolve({ ok: true as const, skipped: true as const })
       : send({ email: input.branding === "makeup-by-maria" ? input.customerEmail.trim() : input.customerEmail, name: input.customerName }, customerSubject, customerText, customerHtml, input.signal,
-        () => input.onRequestStart?.("customer")),
+        () => input.onRequestStart?.("customer")).then((outcome) => {
+          input.onDeliveryResult?.("customer", outcome);
+          return outcome;
+        }),
   ];
   if (input.ownerEmail) {
     const ownerSubject = isEnglish
@@ -135,7 +144,10 @@ export async function sendBookingChangeEmails(input: BookingChangeEmailInput) {
       ? `<div style="font-family:Arial,sans-serif;line-height:1.6;color:#0b2a4a">${logo}<h2 style="color:#06183b">${escapeHtml(ownerSubject)}</h2><ul><li><strong>Customer:</strong> ${escapeHtml(input.customerName)}</li><li><strong>Email:</strong> ${escapeHtml(input.customerEmail)}</li><li><strong>Service:</strong> ${escapeHtml(input.service)}</li><li><strong>Previous time:</strong> ${escapeHtml(ownerOldTime)}</li>${ownerNewTime ? `<li><strong>New time:</strong> ${escapeHtml(ownerNewTime ?? "")}</li>` : ""}${input.city ? `<li><strong>Location:</strong> ${escapeHtml(input.city)}</li>` : ""}</ul><p>Open Proffera to manage the booking.</p></div>`
       : `<div style="font-family:Arial,sans-serif;line-height:1.6;color:#17201a">${logo}<h2>${escapeHtml(ownerSubject)}</h2><ul><li><strong>Kund:</strong> ${escapeHtml(input.customerName)}</li><li><strong>E-post:</strong> ${escapeHtml(input.customerEmail)}</li><li><strong>Tjänst:</strong> ${escapeHtml(input.service)}</li><li><strong>Tidigare tid:</strong> ${escapeHtml(ownerOldTime)}</li>${ownerNewTime ? `<li><strong>Ny tid:</strong> ${escapeHtml(ownerNewTime ?? "")}</li>` : ""}${input.city ? `<li><strong>Ort:</strong> ${escapeHtml(input.city)}</li>` : ""}</ul><p>Öppna Proffera för att hantera bokningen.</p></div>`;
     jobs.push(send({ email: input.branding === "makeup-by-maria" ? input.ownerEmail.trim() : input.ownerEmail, name: input.companyName }, ownerSubject, ownerText, ownerHtml, input.signal,
-      () => input.onRequestStart?.("owner")));
+      () => input.onRequestStart?.("owner")).then((outcome) => {
+        input.onDeliveryResult?.("owner", outcome);
+        return outcome;
+      }));
   }
   return Promise.allSettled(jobs);
 }

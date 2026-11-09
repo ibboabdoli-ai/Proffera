@@ -369,8 +369,23 @@ describe("Maria-only Swish confirmation and cancellation email", () => {
     expect(fetchMock).toHaveBeenCalledOnce();
   });
 
-  it("reports provider errors without assuming payment or delivery", async () => {
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: false }));
-    expect(await sendMariaBookingStatusEmail(booking)).toEqual({ ok: false, error: "email_provider_rejected" });
-  });
+  it.each([408, 429, 500, 502, 503, 504])(
+    "keeps Brevo HTTP %i uncertain to prevent duplicate status messages",
+    async (status) => {
+      vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: false, status }));
+      expect(await sendMariaBookingStatusEmail(booking)).toEqual({
+        ok: false, error: "email_delivery_uncertain",
+      });
+    },
+  );
+
+  it.each([400, 401, 403, 404, 422])(
+    "treats documented Brevo HTTP %i rejection as definitely not sent",
+    async (status) => {
+      vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: false, status }));
+      expect(await sendMariaBookingStatusEmail(booking)).toEqual({
+        ok: false, error: "email_provider_rejected",
+      });
+    },
+  );
 });

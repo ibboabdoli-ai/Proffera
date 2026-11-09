@@ -221,9 +221,16 @@ export async function rescheduleMariaCustomerBooking(input: MariaChangeInput) {
     ]);
     const booking = changed?.[0];
     if (!booking) return { ok: false as const, error: "conflict" as const };
-    // Only actual HTTP dispatch may create an uncertain outcome. An aborted
-    // booking read does not contact Brevo and can be retried after CAS cleanup.
-    let providerRequestStarted = false;
+    // Track each recipient separately: the other provider response may still
+    // be pending when the lock aborts. A known acceptance or rejection must
+    // survive recovery without making an unknown delivery retryable.
+    type NoticeState = "sent" | "failed" | "uncertain";
+    const started = { customer: false, owner: false };
+    const settled: { customer?: NoticeState; owner?: NoticeState } = {};
+    const classify = (result: { ok: boolean; notSent?: boolean; deliveryUncertain?: boolean }): NoticeState =>
+      result.ok ? "sent" : result.notSent ? "failed" : "uncertain";
+    const ownerPermitted = Boolean(booking.owner_email
+      && isMariaBookingRecipientAllowed(String(booking.owner_email)));
     try {
       return await withMariaBookingNotificationLock(input.workspaceId, async (signal) => {
         const current = await sql`
@@ -268,24 +275,23 @@ export async function rescheduleMariaCustomerBooking(input: MariaChangeInput) {
       timeZone: "Europe/Stockholm",
       language: input.language,
       ...(signal ? {signal} : {}),
-      onRequestStart: () => { providerRequestStarted = true; },
+      onRequestStart: (recipient) => { started[recipient] = true; },
+      onDeliveryResult: (recipient, outcome) => { settled[recipient] = classify(outcome); },
     });
-    if (signal.aborted) throw new Error("Maria customer reschedule lock expired during dispatch");
-    const delivered = (result: (typeof notices)[number] | undefined) =>
-      result?.status === "fulfilled"
-        && Boolean(result.value && typeof result.value === "object"
-          && "ok" in result.value && result.value.ok === true);
-    const noticeState = (item: (typeof notices)[number] | undefined) => {
-      if (delivered(item)) return "sent";
+    // Unit-test senders can return settled results without emitting callbacks.
+    // Capture them before inspecting the aborted lock signal.
+    const classifySettled = (item: (typeof notices)[number] | undefined, recipient: "customer" | "owner"): NoticeState => {
       if (item?.status === "fulfilled" && item.value
-        && typeof item.value === "object" && "deliveryUncertain" in item.value
-        && item.value.deliveryUncertain === true) return "uncertain";
-      return item?.status === "rejected" ? "uncertain" : "failed";
+        && typeof item.value === "object" && "ok" in item.value) {
+        return classify(item.value as { ok: boolean; notSent?: boolean; deliveryUncertain?: boolean });
+      }
+      return settled[recipient] ?? (item?.status === "rejected" || started[recipient] ? "uncertain" : "failed");
     };
-    const customerNotice = noticeState(notices[0]);
-    const ownerPermitted = Boolean(booking.owner_email
-      && isMariaBookingRecipientAllowed(String(booking.owner_email)));
-    const ownerNotice = !ownerPermitted ? "skipped" : noticeState(notices[1]);
+    settled.customer = classifySettled(notices[0], "customer");
+    if (ownerPermitted) settled.owner = classifySettled(notices[1], "owner");
+    if (signal.aborted) throw new Error("Maria customer reschedule lock expired during dispatch");
+    const customerNotice = settled.customer;
+    const ownerNotice = !ownerPermitted ? "skipped" : settled.owner ?? "uncertain";
     const emailWarning = customerNotice !== "sent" || (ownerNotice !== "sent" && ownerNotice !== "skipped");
     if (signal.aborted) throw new Error("Maria customer reschedule lock expired during dispatch");
     let journalSaved = false;
@@ -324,14 +330,15 @@ export async function rescheduleMariaCustomerBooking(input: MariaChangeInput) {
       // request may have been accepted despite timeout: require reconciliation.
       try {
         if (booking.notice_event_id && booking.notice_attempted_at) {
-          const finalState = providerRequestStarted ? "uncertain" : "failed";
+          const customerRecovery = settled.customer ?? (started.customer ? "uncertain" : "failed");
+          const ownerRecovery = settled.owner ?? (started.owner ? "uncertain" : "failed");
           await sql`
             update customer_events e
             set metadata=e.metadata || jsonb_build_object(
               'notice_customer',case when e.metadata->>'notice_customer'='sending'
-                then ${finalState}::text else e.metadata->>'notice_customer' end,
+                then ${customerRecovery}::text else e.metadata->>'notice_customer' end,
               'notice_owner',case when e.metadata->>'notice_owner'='sending'
-                then ${finalState}::text else e.metadata->>'notice_owner' end)
+                then ${ownerRecovery}::text else e.metadata->>'notice_owner' end)
             where e.id=${String(booking.notice_event_id)}::uuid
               and e.workspace_id=${input.workspaceId}
               and e.booking_id=${input.bookingId}::uuid

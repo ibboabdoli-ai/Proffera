@@ -343,7 +343,12 @@ export async function sendMariaBookingStatusEmail(input: MariaBookingStatusEmail
         subject: content.subject, textContent: content.text, htmlContent: content.html,
       }),
     });
-    if (!response.ok) return { ok: false as const, error: "email_provider_rejected" as const };
+    if (!response.ok) {
+      // Only documented client rejections prove non-delivery. A gateway
+      // timeout (408/504), rate limit or server failure may follow acceptance.
+      return { ok: false as const, error: [400, 401, 403, 404, 422].includes(response.status)
+        ? "email_provider_rejected" as const : "email_delivery_uncertain" as const };
+    }
     return { ok: true as const };
   } catch {
     return { ok: false as const, error: "email_delivery_uncertain" as const };
