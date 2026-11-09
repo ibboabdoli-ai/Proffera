@@ -56,10 +56,10 @@ function formatBookingDate(value: string, timeZone: WorkspaceTimeZone = "Europe/
 export async function sendBookingRescheduleEmail(input: SendBookingRescheduleEmailInput) {
   if (input.branding === "makeup-by-maria") {
     if (!getMariaBookingPortalBase() || !isMariaBookingRecipientAllowed(input.customerEmail)) {
-      return { ok: false as const, message: "Maria booking recipient is not allowed." };
+      return { ok: false as const, notSent: true as const, message: "Maria booking recipient is not allowed." };
     }
     if (process.env.VERCEL_ENV === "production" && !(await getMariaBookingReadiness()).enabled) {
-      return { ok: false as const, message: "Maria booking is not ready." };
+      return { ok: false as const, notSent: true as const, message: "Maria booking is not ready." };
     }
   }
   if (input.signal?.aborted) return { ok: false as const, notSent: true as const, message: "Maria notification lock expired before dispatch." };

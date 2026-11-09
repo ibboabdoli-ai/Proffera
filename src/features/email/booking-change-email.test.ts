@@ -102,7 +102,14 @@ describe("booking change email locale", () => {
         {recipient:settledRecipient,ok:true,uncertain:false},
         {recipient:pendingRecipient,ok:false,uncertain:true},
       ]));
+      expect(observed).toHaveLength(2);
       expect(results).toHaveLength(2);
+      expect(results[settledRecipient === "customer" ? 0 : 1]).toMatchObject({
+        status: "fulfilled", value: { ok: true },
+      });
+      expect(results[pendingRecipient === "customer" ? 0 : 1]).toMatchObject({
+        status: "fulfilled", value: { ok: false, deliveryUncertain: true },
+      });
     },
   );
 
