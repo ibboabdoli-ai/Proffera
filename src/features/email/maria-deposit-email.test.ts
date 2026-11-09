@@ -1,8 +1,17 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("server-only", () => ({}));
+const notificationLockState = vi.hoisted(() => ({
+  abortBeforeCallback: false,
+  controller: null as AbortController | null,
+}));
 vi.mock("@/lib/maria-booking-notification-lock", () => ({
-  withMariaBookingNotificationLock: async (_workspaceId: string, action: () => Promise<unknown>) => action(),
+  withMariaBookingNotificationLock: async (_workspaceId: string, action: (signal: AbortSignal) => Promise<unknown>) => {
+    const controller = new AbortController();
+    notificationLockState.controller = controller;
+    if (notificationLockState.abortBeforeCallback) controller.abort();
+    return action(controller.signal);
+  },
 }));
 const dbQuery = vi.hoisted(() => vi.fn());
 vi.mock("@/lib/db/server", () => ({ getSql: () => (...args: unknown[]) => dbQuery(...args) }));
@@ -25,6 +34,8 @@ const booking = {
 };
 
 beforeEach(() => {
+  notificationLockState.abortBeforeCallback = false;
+  notificationLockState.controller = null;
   dbQuery.mockReset().mockResolvedValue([{ deposit_state: "unverified" }]);
   vi.stubEnv("VERCEL_ENV", "preview");
   vi.stubEnv("VERCEL_URL", "qa.vercel.app");
@@ -308,6 +319,25 @@ describe("Maria-only Swish confirmation and cancellation email", () => {
     expect(payload.htmlContent).toContain("/maria/swish/");
     expect(payload.htmlContent).not.toContain("app.swish.nu");
     expect(payload.textContent).toContain("MBM-00000000000000000000000000000001");
+  });
+
+  it("does not send status email when the lock is already expired", async () => {
+    notificationLockState.abortBeforeCallback = true;
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    expect(await sendMariaBookingStatusEmail(booking)).toMatchObject({ ok: false });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("does not send status email if PostgreSQL reading outlives the lock", async () => {
+    dbQuery.mockImplementationOnce(async () => {
+      notificationLockState.controller?.abort();
+      return [{ deposit_state: "unverified" }];
+    });
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    expect(await sendMariaBookingStatusEmail(booking)).toMatchObject({ ok: false });
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it("reports provider errors without assuming payment or delivery", async () => {

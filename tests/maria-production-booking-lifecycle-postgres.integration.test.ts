@@ -57,6 +57,7 @@ import { sendMariaBookingStatusEmail } from "@/features/email/maria-deposit-emai
 import { sendBookingChangeEmails } from "@/features/email/booking-change-email";
 import { retryMariaRescheduleNotice } from "@/lib/maria-reschedule-notice-retry";
 import { withMariaBookingNotificationLock } from "@/lib/maria-booking-notification-lock";
+import { getMariaStatusRetryGate, recordMariaStatusRetryAudit } from "@/lib/maria-status-retry-journal";
 
 const RUN = process.env.GITHUB_ACTIONS === "true" || process.env.PROFFERA_POSTGRES_INTEGRATION === "1";
 function docker(args: string[]) { return execFileSync("docker", args, { encoding: "utf8" }).trim(); }
@@ -574,6 +575,80 @@ function compileSql(strings: TemplateStringsArray, values: unknown[]): Query {
     }
   },30_000);
 
+  it("queries the real retry gate and journals older revisions without overwriting a newer notice", async () => {
+    const b = (await db!.query<{
+      id:string; customer_id:string; updated_at:Date; status:string;
+    }>(
+      "select id::text,customer_id::text,updated_at,status from bookings where workspace_id=$1 and source='public_booking' and status='confirmed' order by created_at desc limit 1",
+      [workspaceId],
+    )).rows[0];
+    expect(b?.id).toBeTruthy();
+    const revision = new Date(b!.updated_at).toISOString();
+    const originalId = (await db!.query<{id:string}>(
+      `insert into customer_events (workspace_id,customer_id,booking_id,event_type,title,metadata)
+       values ($1,$2::uuid,$3::uuid,'status_change','Synthetic old failed email',$4::jsonb)
+       returning id::text`,
+      [workspaceId,b!.customer_id,b!.id,JSON.stringify({
+        source:"dashboard_manual",new_status:"confirmed",
+        notice_revision:revision,notice_customer:"failed",
+      })],
+    )).rows[0]!.id;
+    try {
+      expect(await getMariaStatusRetryGate({
+        workspaceId,bookingId:b!.id,status:"confirmed",revision,
+      })).toBe("retryable");
+
+      expect(await recordMariaStatusRetryAudit({
+        workspaceId,bookingId:b!.id,status:"confirmed",revision,
+        outcome:"accepted",parentEventId:originalId,
+      })).toBe(true);
+      expect(await getMariaStatusRetryGate({
+        workspaceId,bookingId:b!.id,status:"confirmed",revision,
+      })).toBe("accepted");
+
+      // An older failure must remain an immutable audit fact. A later
+      // unsuccessful attempt cannot override the accepted same-revision gate.
+      expect(await recordMariaStatusRetryAudit({
+        workspaceId,bookingId:b!.id,status:"confirmed",revision,
+        outcome:"failed",parentEventId:originalId,
+      })).toBe(true);
+      expect(await getMariaStatusRetryGate({
+        workspaceId,bookingId:b!.id,status:"confirmed",revision,
+      })).toBe("accepted");
+      const original = (await db!.query<{state:string}>(
+        "select metadata->>'notice_customer' as state from customer_events where id=$1::uuid",
+        [originalId],
+      )).rows[0];
+      expect(original?.state).toBe("failed");
+
+      await db!.query("update bookings set updated_at=updated_at+interval '1 second' where id=$1::uuid", [b!.id]);
+      expect(await getMariaStatusRetryGate({
+        workspaceId,bookingId:b!.id,status:"confirmed",revision,
+      })).toBe("revision_changed");
+      expect(await recordMariaStatusRetryAudit({
+        workspaceId,bookingId:b!.id,status:"confirmed",revision,
+        outcome:"uncertain",parentEventId:originalId,
+      })).toBe(true);
+      const history = await db!.query<{state:string;current:boolean;revision:string}>(
+        `select metadata->>'notice_customer' as state,
+          (metadata->>'is_current_revision')::boolean as current,
+          metadata->>'notice_revision' as revision
+         from customer_events
+         where workspace_id=$1 and booking_id=$2::uuid
+           and metadata->>'source'='maria_status_retry'
+         order by created_at desc,id desc limit 1`,
+        [workspaceId,b!.id],
+      );
+      expect(history.rows[0]).toMatchObject({state:"uncertain",current:false,revision});
+    } finally {
+      await db!.query("update bookings set updated_at=$2::timestamptz where id=$1::uuid", [b!.id,revision]);
+      await db!.query(
+        "delete from customer_events where workspace_id=$1 and booking_id=$2::uuid and (id=$3::uuid or metadata->>'source'='maria_status_retry')",
+        [workspaceId,b!.id,originalId],
+      );
+    }
+  },30_000);
+
   it("normalizes tabs in Preview email using PostgreSQL's actual btrim predicate", async () => {
     const result = await db!.query<{ matches: boolean; mismatch: boolean }>(
       `select
@@ -670,12 +745,19 @@ function compileSql(strings: TemplateStringsArray, values: unknown[]): Query {
           .toEqual({ok:false,alreadySent:true});
         expect(sender).toHaveBeenCalledOnce();
 
-        // A live lease is not stealable, but an expired lease is recoverable.
+        // Even an EXPIRED 'sending' lease may mean Brevo accepted the mail.
+        // Time alone cannot authorize a duplicate delivery.
         await setState("sending",new Date().toISOString());
         sender.mockClear();
         expect(await retryMariaRescheduleNotice(booking!.id,workspaceId)).toEqual({ok:false});
-        expect(sender).not.toHaveBeenCalled();
         await setState("sending","2026-01-01T00:00:00Z");
+        expect(await retryMariaRescheduleNotice(booking!.id,workspaceId)).toEqual({ok:false});
+        await setState("uncertain","2026-01-01T00:00:00Z");
+        expect(await retryMariaRescheduleNotice(booking!.id,workspaceId)).toEqual({ok:false});
+        expect(sender).not.toHaveBeenCalled();
+        // Only after external evidence proves non-delivery may an authorized
+        // administrator reconcile the state to 'failed' for a controlled retry.
+        await setState("failed","2026-01-01T00:00:00Z");
         expect(await retryMariaRescheduleNotice(booking!.id,workspaceId)).toEqual({ok:true});
         expect(sender).toHaveBeenCalledOnce();
 
