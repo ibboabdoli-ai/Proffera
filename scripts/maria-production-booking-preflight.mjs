@@ -1,7 +1,8 @@
 import { pathToFileURL } from "node:url";
 
 const migrations = ["20261103_0072", "20261105_0073", "20261107_0074", "20261108_0075"];
-const prices = { "maria-bridal-trial-2026": 690000, "maria-bridal-without-trial-2026": 580000 };
+// Prices are owner-editable; a release check must validate their shape, not freeze a former price target.
+const required2026Services = ["maria-bridal-trial-2026", "maria-bridal-without-trial-2026"];
 
 /** SELECT-only Maria database preflight. Does not authorize public booking. */
 export async function inspectMariaProductionBookingDatabase(query) {
@@ -121,10 +122,12 @@ export async function inspectMariaProductionBookingDatabase(query) {
       const serviceRows = services.rows;
       const bySlug = new Map(serviceRows.map(service => [String(service.public_slug), service]));
       if (serviceRows.length !== 2 || bySlug.size !== 2) blockers.push("maria_services_ambiguous");
-      for (const [slug, initialPriceMinor] of Object.entries(prices)) {
+      for (const slug of required2026Services) {
         const s = bySlug.get(slug);
+        const priceMinor = Number(s?.price_amount_minor);
         if (!s || s.is_active !== true || s.public_status !== "published" || s.price_type !== "fixed"
-          || Number(s.price_amount_minor) !== initialPriceMinor
+          || s.price_amount_minor === null || s.price_amount_minor === undefined
+          || !Number.isSafeInteger(priceMinor) || priceMinor < 1 || priceMinor > 25000000
           || !Number.isInteger(Number(s.duration_minutes)) || Number(s.duration_minutes) < 1
           || Number(s.duration_minutes) > 1440) blockers.push("service_not_ready_" + slug);
       }

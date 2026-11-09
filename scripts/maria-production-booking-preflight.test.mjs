@@ -34,9 +34,9 @@ function mockReadOnlyQuery({ schema = schemaReady, migrations = ["20261103_0072"
       }] : [] };
     }
     if (statement.includes("from workspace_services")) return { rows: [
-      { public_slug: "maria-bridal-trial-2026", price_amount_minor: priceOverride ?? 690000,
+      { public_slug: "maria-bridal-trial-2026", price_amount_minor: priceOverride === null ? 600000 : priceOverride,
         price_type: "fixed", public_status: "published", is_active: true, duration_minutes: 180 },
-      { public_slug: "maria-bridal-without-trial-2026", price_amount_minor: 580000,
+      { public_slug: "maria-bridal-without-trial-2026", price_amount_minor: 500000,
         price_type: "fixed", public_status: "published", is_active: true, duration_minutes: 180 },
     ] };
     if (statement.includes("from workspace_booking_hours")) return { rows: hoursReady ? [
@@ -102,9 +102,20 @@ describe("Maria Production booking release is inspection-only", () => {
     ]));
   });
 
-  it("does not confuse old Production prices or missing owner data with publishable readiness", async () => {
-    const mismatch = await inspectMariaProductionBookingDatabase(mockReadOnlyQuery({ priceOverride: 600000 }).query);
-    expect(mismatch.blockers).toContain("service_not_ready_maria-bridal-trial-2026");
+  it("accepts approved and later edited prices without freezing the original launch amounts", async () => {
+    for (const approvedPrice of [600000, 675000, 690000]) {
+      const result = await inspectMariaProductionBookingDatabase(mockReadOnlyQuery({ priceOverride: approvedPrice }).query);
+      expect(result.databaseReady).toBe(true);
+      expect(result.blockers).toEqual([]);
+    }
+  });
+
+  it("rejects invalid fixed-price amounts without weakening service readiness", async () => {
+    for (const invalidPrice of [0, 25000001, "invalid-price"]) {
+      const result = await inspectMariaProductionBookingDatabase(mockReadOnlyQuery({ priceOverride: invalidPrice }).query);
+      expect(result.databaseReady).toBe(false);
+      expect(result.blockers).toContain("service_not_ready_maria-bridal-trial-2026");
+    }
     const missingOwner = await inspectMariaProductionBookingDatabase(mockReadOnlyQuery({ workspaceReady: false }).query);
     expect(missingOwner.blockers).toContain("maria_workspace_not_ready");
   });

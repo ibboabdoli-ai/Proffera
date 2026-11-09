@@ -4,9 +4,9 @@
 
 ## Source of truth and release scope
 
-- Use the single Draft pull request [#971](https://github.com/ibboabdoli-ai/Proffera/pull/971), whose review branch consolidates the older Maria Preview candidates (#943 and #960). **Do not merge those older PRs separately.**
+- Use the single Ready-for-review, unmerged pull request [#971](https://github.com/ibboabdoli-ai/Proffera/pull/971), whose review branch consolidates the older Maria Preview candidates (#943 and #960). **Do not merge those older PRs separately.**
 - Deliver the Swedish/English/Arabic public site and real, email-verified Maria bookings together, with manager controls at `https://www.proffera.se/dashboard`.
-- Intended initial 2026 service prices: bridal makeup **with trial 6,900 SEK** and **without trial 5,800 SEK**. Maria must retain the ability to edit each year's price and SV/EN/AR service descriptions for 2026–2036.
+- Owner-approved 2026 Production prices (2026-11-09): bridal makeup **with trial 6,000 SEK** and **without trial 5,000 SEK**. The previous 6,900/5,800 target is superseded; Maria must retain the ability to edit each year's price and SV/EN/AR service descriptions for 2026–2036. Release preflight validates safe positive fixed-price amounts rather than hardcoding a stale target.
 - No automatic Swish confirmation or charge. A customer booking starts as `requested`; Maria confirms or rejects it in her authenticated dashboard. Manual calendar closing/reopening is independent of actual bookings.
 - The owner's statement that no real customers or bookings exist is useful rollout context, **not** evidence that authentication, email, multi-tenant access, migrations, or rollback can be skipped.
 

@@ -68,7 +68,7 @@ function docker(args) {
       [workspaceId],
     );
     await db.query(
-      "insert into workspace_services (workspace_id,name,public_slug,duration_minutes,is_active,public_status,price_type,price_amount_minor) values ($1,'Synthetic bridal with trial','maria-bridal-trial-2026',180,true,'published','fixed',690000),($1,'Synthetic bridal without trial','maria-bridal-without-trial-2026',120,true,'published','fixed',580000)",
+      "insert into workspace_services (workspace_id,name,public_slug,duration_minutes,is_active,public_status,price_type,price_amount_minor) values ($1,'Synthetic bridal with trial','maria-bridal-trial-2026',180,true,'published','fixed',600000),($1,'Synthetic bridal without trial','maria-bridal-without-trial-2026',120,true,'published','fixed',500000)",
       [workspaceId],
     );
     await db.query(
@@ -97,6 +97,25 @@ function docker(args) {
     expect(result.appliedMigrations).toEqual(expect.arrayContaining([
       "20261103_0072", "20261105_0073", "20261107_0074", "20261108_0075",
     ]));
+  });
+
+  it("accepts authorized fixed-price edits and rejects an out-of-bounds price in isolated PostgreSQL", async () => {
+    await db.query("BEGIN");
+    await db.query(
+      "UPDATE workspace_services SET price_amount_minor=675000 WHERE workspace_id=$1 AND public_slug='maria-bridal-trial-2026'",
+      [workspaceId],
+    );
+    const valid = await inspect();
+    expect(valid.databaseReady).toBe(true);
+    expect(valid.blockers).toEqual([]);
+
+    await db.query(
+      "UPDATE workspace_services SET price_amount_minor=25000001 WHERE workspace_id=$1 AND public_slug='maria-bridal-trial-2026'",
+      [workspaceId],
+    );
+    const invalid = await inspect();
+    expect(invalid.databaseReady).toBe(false);
+    expect(invalid.blockers).toContain("service_not_ready_maria-bridal-trial-2026");
   });
 
   it("rejects an existing-column 0075 schema with its range CHECK missing", async () => {
