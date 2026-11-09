@@ -53,6 +53,59 @@ describe("booking change email locale", () => {
     ]));
   });
 
+  it.each(["customer", "owner"] as const)(
+    "preserves a settled %s outcome while the other Brevo request is still pending on lock abort",
+    async (settledRecipient) => {
+      process.env.BREVO_API_KEY = "synthetic-only";
+      process.env.LEAD_FROM_EMAIL = "Proffera <booking@example.invalid>";
+      const controller = new AbortController();
+      let rejectPending!: (reason: unknown) => void;
+      const pendingResponse = new Promise<Response>((_resolve,reject) => { rejectPending=reject; });
+      const observed: Array<{recipient: "customer" | "owner"; ok:boolean; uncertain:boolean}> = [];
+      let notifySettled!: () => void;
+      const firstSettled = new Promise<void>(resolve => { notifySettled=resolve; });
+      const fetchMock=vi.fn(async (_url: unknown, init?: RequestInit): Promise<Response> => {
+        const body=JSON.parse(String(init?.body)) as {to:Array<{email:string}>};
+        const recipient=body.to[0]?.email==="customer@example.invalid" ? "customer" : "owner";
+        return recipient===settledRecipient
+          ? new Response(JSON.stringify({messageId:"synthetic-accepted"}),{status:201})
+          : pendingResponse;
+      });
+      global.fetch=fetchMock;
+      let finished=false;
+      const sending=sendBookingChangeEmails({
+        kind:"rescheduled",language:"en",
+        customerName:"Synthetic customer",customerEmail:"customer@example.invalid",
+        ownerEmail:"owner@example.invalid",companyName:"Synthetic Studio",
+        service:"Bridal makeup",oldStartsAt:"2027-06-11T08:00:00.000Z",
+        oldEndsAt:"2027-06-11T11:00:00.000Z",
+        newStartsAt:"2027-06-18T08:00:00.000Z",
+        newEndsAt:"2027-06-18T11:00:00.000Z",
+        portalUrl:"https://example.invalid/bookings",
+        timeZone:"Europe/Stockholm",signal:controller.signal,
+        onDeliveryResult:(recipient,outcome)=>{
+          observed.push({recipient,ok:outcome.ok,uncertain:outcome.deliveryUncertain===true});
+          if(recipient===settledRecipient)notifySettled();
+        },
+      }).then(results=>{finished=true;return results;});
+      await firstSettled;
+      expect(observed).toEqual([{recipient:settledRecipient,ok:true,uncertain:false}]);
+      expect(finished).toBe(false);
+      // The lock has expired while the second HTTP request remains in flight.
+      controller.abort();
+      rejectPending(new DOMException("Synthetic pending request aborted","AbortError"));
+      const results=await sending;
+      expect(finished).toBe(true);
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      const pendingRecipient=settledRecipient==="customer" ? "owner" : "customer";
+      expect(observed).toEqual(expect.arrayContaining([
+        {recipient:settledRecipient,ok:true,uncertain:false},
+        {recipient:pendingRecipient,ok:false,uncertain:true},
+      ]));
+      expect(results).toHaveLength(2);
+    },
+  );
+
   it("does not retry a definite Brevo 403 rejection as uncertain", async () => {
     process.env.BREVO_API_KEY="synthetic-test-only";
     process.env.LEAD_FROM_EMAIL="Proffera <noreply@example.invalid>";
