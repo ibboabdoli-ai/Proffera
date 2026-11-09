@@ -11,6 +11,7 @@ import { isMariaProductionYearEditorReady } from "@/lib/maria-production-year-ed
 import { canManageWorkspaceSettings, getUserWorkspaceAccess } from "@/lib/workspace-access";
 import { saveMariaYearAction } from "./actions";
 import { saveMariaProductionYearAction } from "./production-year-actions";
+import { setMariaProductionYearVisibilityAction } from "./production-year-visibility-actions";
 import { saveMariaScheduleAction } from "./schedule-actions";
 
 export const dynamic = "force-dynamic";
@@ -71,6 +72,11 @@ export default async function MariaSiteDashboardPage({ searchParams }: { searchP
     const without = savedPackage(year, "without-trial");
     return !trial && !without ? year <= 2028 : Boolean(trial?.isActive || without?.isActive);
   };
+  const isYearPublic = (year: number) =>
+    (["trial", "without-trial"] as const).every(kind => {
+      const service = savedPackage(year, kind);
+      return service?.isActive === true && service?.publicStatus === "published";
+    });
 
   const schedulePackage = services.find(item => /^maria-bridal-(trial|without-trial)-(202[6-9]|203[0-6])$/.test(item.publicSlug));
   const savedDuration = schedulePackage?.durationMinutes ?? 180;
@@ -95,12 +101,12 @@ export default async function MariaSiteDashboardPage({ searchParams }: { searchP
           Varje fält visar den aktuella texten på bokningssidan. Radera ett språkfält och spara för att återställa standardtexten.
           Spara ett år i taget.
           {contentOnly
-            ? "Det här ändrar bara paketpris och text. Publicering, bokningar och kalendern ändras inte."
+            ? "Spara först pris och text. Visa eller dölj sedan året separat. Tidigare bokningar och betalningar behålls."
             : "Publicering kräver separat godkännande."}
         </p>
         {q.updated && q.updated !== "schedule" ? (
           <p role="status" className="mt-4 rounded-lg bg-[#ecf7f0] px-4 py-3 text-sm font-semibold text-[#256947]">
-            {q.updated === "schedule" ? "Bokningstider och behandlingstid har sparats." : `År ${q.updated} har sparats.`}
+            {q.updated === "visibility" ? "Årets synlighet har uppdaterats." : `År ${q.updated} har sparats.`}
           </p>
         ) : null}
         {q.error && q.error !== "schedule" && q.error !== "database" ? (
@@ -185,12 +191,30 @@ export default async function MariaSiteDashboardPage({ searchParams }: { searchP
               <button type="submit" className="mt-4 min-h-11 rounded-lg bg-[#845363] px-5 text-xs font-bold text-white hover:bg-[#6d3e4e]">
                 Spara {year}
               </button>
+              {contentOnly ? (
+                <div className="mt-5 flex flex-wrap items-center justify-between gap-3 border-t border-[#e6d7db] pt-4">
+                  <div>
+                    <p className="text-xs font-bold text-[#634853]">
+                      {isYearPublic(year) ? "Visas på bokningssidan" : "Dolt på bokningssidan"}
+                    </p>
+                    <p className="mt-1 text-xs text-[#795464]">
+                      Publicera först när båda paketen har sparade fasta priser och giltig behandlingstid.
+                      Dolda år bevarar tidigare bokningar.
+                    </p>
+                  </div>
+                  <button type="submit" formAction={setMariaProductionYearVisibilityAction}
+                    name="visibility" value={isYearPublic(year) ? "hide" : "show"}
+                    className="min-h-11 rounded-lg border border-[#845363] bg-white px-4 py-2 text-xs font-bold text-[#704858]">
+                    {isYearPublic(year) ? `Dölj ${year}` : `Visa ${year} på webbplatsen`}
+                  </button>
+                </div>
+              ) : null}
             </form>
           ))}
         </div>
         <p className="mt-3 text-xs text-[#705f65]">
           {contentOnly
-            ? "Välj år 2026–2036. Endast årets priser och beskrivningar ändras. Redan gjorda bokningar behåller sina sparade uppgifter."
+            ? "Välj år 2026–2036. Maria väljer vilka år som syns. Att dölja ett år tar inte bort gamla bokningar."
             : "Välj valfritt år 2026–2036 ovan. Ändringar syns i den anslutna förhandsvisningen när den öppnas eller uppdateras."}
         </p>
       </section>
