@@ -65,6 +65,23 @@ describe("proxy request boundary", () => {
     }));
     expect(production.status).toBe(200);
     expect(production.headers.get(forwarded)).toBeNull();
+
+    // Production standalone styling is granted only to the Maria branded host.
+    vi.stubEnv("PROFFERA_MARIA_PUBLIC_SITE_ENABLED", "true");
+    const maria = await proxy(hostRequest("makeupbymaria.se", validPath, {
+      [MARIA_PAYMENT_SHELL_HEADER]: "forged",
+    }));
+    expect(maria.status).toBe(200);
+    expect(maria.headers.get(forwarded)).toBe("1");
+
+    const unrelated = await proxy(hostRequest("primeviewwindowcare.co.uk", validPath, {
+      [MARIA_PAYMENT_SHELL_HEADER]: "1",
+    }));
+    expect(unrelated.headers.get(forwarded)).toBeNull();
+
+    vi.stubEnv("PROFFERA_MARIA_PUBLIC_SITE_ENABLED", "false");
+    const disabled = await proxy(hostRequest("makeupbymaria.se", validPath));
+    expect(disabled.headers.get(forwarded)).toBeNull();
   });
 
   it("passes the exact admin path to session and role authorization", async () => {
