@@ -30,8 +30,10 @@ export async function inspectMariaProductionBookingDatabase(query) {
     "where c.conrelid=to_regclass('public.workspace_booking_reminder_settings')",
     "and c.contype='c' and c.convalidated",
     "and c.conname='workspace_booking_reminder_settings_cancel_notice_hours_check'",
-    "and pg_get_constraintdef(c.oid) like '%cancel_notice_hours >= 0%'",
-    "and pg_get_constraintdef(c.oid) like '%cancel_notice_hours <= 720%') as lifecycle_cancel_notice_check,",
+    // Fail closed unless PostgreSQL deparses the complete canonical AND/range expression.
+    "and pg_get_constraintdef(c.oid) =",
+    "'CHECK (((cancel_notice_hours >= 0) AND (cancel_notice_hours <= 720)))'",
+    ") as lifecycle_cancel_notice_check,",
     "(select count(*) from information_schema.columns where table_schema='public'",
     "and table_name='public_booking_verifications'",
     "and column_name in ('address','postcode','booking_details')) = 3 as verification_contact_columns",

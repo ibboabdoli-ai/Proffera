@@ -108,6 +108,24 @@ function docker(args) {
     expect(result.appliedMigrations).toContain("20261108_0075");
   });
 
+  it("rejects a same-named validated OR constraint that allows every integer", async () => {
+    await db.query("BEGIN");
+    await db.query("ALTER TABLE workspace_booking_reminder_settings DROP CONSTRAINT IF EXISTS workspace_booking_reminder_settings_cancel_notice_hours_check");
+    await db.query("ALTER TABLE workspace_booking_reminder_settings ADD CONSTRAINT workspace_booking_reminder_settings_cancel_notice_hours_check CHECK (cancel_notice_hours >= 0 OR cancel_notice_hours <= 720)");
+    const result = await inspect();
+    expect(result.databaseReady).toBe(false);
+    expect(result.blockers).toContain("invalid_lifecycle_cancel_notice_check");
+  });
+
+  it("rejects a same-named validated CHECK with upper bound 7200", async () => {
+    await db.query("BEGIN");
+    await db.query("ALTER TABLE workspace_booking_reminder_settings DROP CONSTRAINT IF EXISTS workspace_booking_reminder_settings_cancel_notice_hours_check");
+    await db.query("ALTER TABLE workspace_booking_reminder_settings ADD CONSTRAINT workspace_booking_reminder_settings_cancel_notice_hours_check CHECK (cancel_notice_hours >= 0 AND cancel_notice_hours <= 7200)");
+    const result = await inspect();
+    expect(result.databaseReady).toBe(false);
+    expect(result.blockers).toContain("invalid_lifecycle_cancel_notice_check");
+  });
+
   it("rejects a missing 0075 ledger receipt despite complete columns", async () => {
     await db.query("BEGIN");
     await db.query("DELETE FROM proffera_schema_migrations WHERE migration_key='20261108_0075'");
