@@ -224,6 +224,7 @@ async function updateBookingStatusAction(bookingId: string, formData: FormData) 
   }
 
   let mariaMailFailed = false;
+  let mariaMailUncertain = false;
   let statusChanged = false;
   let previousStatus: string | null = null;
   try {
@@ -258,6 +259,7 @@ async function updateBookingStatusAction(bookingId: string, formData: FormData) 
             || deliveryError === "booking_state_unavailable"
             || deliveryError === "email_provider_rejected"
               ? "uncertain" : "failed";
+        mariaMailUncertain = noticeOutcome === "uncertain";
         if (notification.noticeEventId) {
           try {
             const sql = getSql();
@@ -301,7 +303,8 @@ async function updateBookingStatusAction(bookingId: string, formData: FormData) 
     // Unchanged statuses, including an already-cancelled booking, are not successful updates.
     redirect(withLang(`/dashboard/bokningar/${bookingId}`, locale));
   }
-  redirect(withLang(`/dashboard/bokningar/${bookingId}?updated=1${mariaMailFailed ? "&maria_mail=failed" : ""}`, locale));
+  redirect(withLang(`/dashboard/bokningar/${bookingId}?updated=1${mariaMailUncertain
+    ? "&maria_mail=uncertain" : mariaMailFailed ? "&maria_mail=failed" : ""}`, locale));
 }
 
 

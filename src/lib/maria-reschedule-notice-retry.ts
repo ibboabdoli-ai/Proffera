@@ -197,5 +197,5 @@ export async function retryMariaRescheduleNotice(id:string,workspaceId:string){
     } catch (journalError) { console.error("Maria retry journal recovery failed",journalError); }
     console.error("Maria notification retry failed closed",error);
     return {ok:false as const};
-  }}
+  }
 }

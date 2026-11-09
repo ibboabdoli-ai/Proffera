@@ -362,9 +362,19 @@ export async function cancelCustomerCalendarBooking(
     // 'accepted' means the provider accepted the request, NOT inbox delivery.
     const accepted = (index: number) => deliveries[index]?.status === "fulfilled"
       && (deliveries[index].value as { ok?: boolean })?.ok === true;
-    const customerState = cancellationSuperseded ? "superseded" : accepted(0) ? "accepted" : "failed";
-    const ownerState = !ownerEmail ? "skipped" : cancellationSuperseded ? "superseded" : accepted(1) ? "accepted" : "failed";
-    const needsFollowup = customerState === "failed" || ownerState === "failed";
+    const state = (index: number) => {
+      if (accepted(index)) return "accepted";
+      const item = deliveries[index];
+      // A timed-out or aborted provider request may already have been queued.
+      return item?.status === "rejected"
+        || (item?.status === "fulfilled" && item.value
+          && typeof item.value === "object" && "deliveryUncertain" in item.value
+          && item.value.deliveryUncertain === true) ? "uncertain" : "failed";
+    };
+    const customerState = cancellationSuperseded ? "superseded" : state(0);
+    const ownerState = !ownerEmail ? "skipped" : cancellationSuperseded ? "superseded" : state(1);
+    const needsFollowup = customerState === "failed" || customerState === "uncertain"
+      || ownerState === "failed" || ownerState === "uncertain";
     const summary = needsFollowup
       ? "Kunden avbokade bokningen via Mina bokningar. E-post kunde inte bekräftas; kontakta kunden eller Maria manuellt."
       : "Kunden avbokade bokningen via Mina bokningar.";
