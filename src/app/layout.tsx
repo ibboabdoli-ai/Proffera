@@ -83,11 +83,14 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
   const host = requestHeaders.get("host");
   const isCustomerSite = isPrimeViewHost(host);
   const isPlatformSite = isPlatformHost(host);
-  // The trusted proxy strips incoming overrides and sets this marker only on
-  // an exact booking-specific Maria Swish route in isolated Preview.
-  const mariaPaymentStandalone = process.env.VERCEL_ENV === "preview"
-    && isPlatformSite
-    && requestHeaders.get(MARIA_PAYMENT_SHELL_HEADER) === "1";
+  // The proxy strips untrusted client markers and sets this only on an
+  // exact Maria Swish booking page. Never apply the standalone shell to the
+  // Proffera dashboard, platform host or any unrelated customer domain.
+  const mariaPaymentStandalone = requestHeaders.get(MARIA_PAYMENT_SHELL_HEADER) === "1"
+    && ((process.env.VERCEL_ENV === "preview" && isPlatformSite)
+      || (process.env.VERCEL_ENV === "production"
+        && host === "makeupbymaria.se"
+        && process.env.PROFFERA_MARIA_PUBLIC_SITE_ENABLED === "true"));
   const postHogConfig = mariaPaymentStandalone ? null : resolvePostHogConfig();
   const shouldRenderAnalytics =
     postHogConfig !== null && isAnalyticsPlatformHost(host, postHogConfig.environment);
