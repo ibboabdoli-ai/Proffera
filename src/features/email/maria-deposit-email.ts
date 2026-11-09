@@ -283,7 +283,7 @@ export async function sendMariaBookingStatusEmail(input: MariaBookingStatusEmail
   const from = process.env.LEAD_FROM_EMAIL;
   if (!apiKey || !from) return { ok: false as const, error: "email_not_configured" as const };
   try {
-    return await withMariaBookingNotificationLock(input.workspaceId ?? "", async () => {
+    return await withMariaBookingNotificationLock(input.workspaceId ?? "", async (signal) => {
   let content: ReturnType<typeof buildMariaBookingStatusEmail>;
   try {
     // Read the current booking status on every send. An old confirmation
@@ -317,6 +317,7 @@ export async function sendMariaBookingStatusEmail(input: MariaBookingStatusEmail
           and lower(btrim(c.email, chr(9) || chr(10) || chr(13) || ' '))=${customerEmail}
         limit 1
       `;
+    if (signal?.aborted) return { ok: false as const, error: "booking_state_unavailable" as const };
     if (!rows[0]) return { ok: false as const, error: "invalid_booking" as const };
     const depositAlreadyPaid = input.status === "confirmed" && rows[0].deposit_state === "paid";
     content = buildMariaBookingStatusEmail({ ...input, depositAlreadyPaid }, base, process.env.VERCEL_ENV === "production");
@@ -327,10 +328,11 @@ export async function sendMariaBookingStatusEmail(input: MariaBookingStatusEmail
   const sender = senderParts
     ? { name: senderParts[1].trim(), email: senderParts[2].trim() }
     : { name: input.companyName, email: from.trim() };
+  if (signal?.aborted) return { ok: false as const, error: "booking_state_unavailable" as const };
   try {
     const response = await fetch("https://api.brevo.com/v3/smtp/email", {
       method: "POST",
-      signal: AbortSignal.timeout(10_000),
+      signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(10_000)]) : AbortSignal.timeout(10_000),
       headers: { "api-key": apiKey, "Content-Type": "application/json" },
       body: JSON.stringify({
         sender, to: [{ email: customerEmail, name: input.customerName }],

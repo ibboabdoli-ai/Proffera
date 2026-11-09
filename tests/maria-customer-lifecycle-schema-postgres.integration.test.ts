@@ -229,6 +229,23 @@ function compileSql(parts: TemplateStringsArray, values: unknown[]): Query {
     expect(vi.mocked(sendBookingChangeEmails)).toHaveBeenCalledOnce();
   });
 
+  it("sends to a normalized customer with vertical-tab and NBSP padding, using the exact DB snapshot", async () => {
+    const padded = "\u000b\u00a0BRIDE@example.invalid\u00a0\t";
+    await db!.query(
+      "update customers set email=$1 where id=$2::uuid and workspace_id=$3",
+      [padded, customerId, workspaceId],
+    );
+    expect(await cancelCustomerCalendarBooking(token, bookingId, "en")).toEqual({ ok: true });
+    expect(vi.mocked(sendBookingChangeEmails)).toHaveBeenCalledWith(
+      expect.objectContaining({ customerEmail: "BRIDE@example.invalid" }),
+    );
+    const event = await db!.query<{ state: string }>(
+      "select metadata->>'notice_customer' as state from customer_events where booking_id=$1::uuid and event_type='status_change' order by created_at desc limit 1",
+      [bookingId],
+    );
+    expect(event.rows[0]?.state).toBe("accepted");
+  });
+
   it("rejects cancellation after lifecycle authorization is revoked without changing the booking", async () => {
     vi.stubEnv("PROFFERA_MARIA_PRODUCTION_CUSTOMER_EMAIL_ENABLED", "false");
     expect(await cancelCustomerCalendarBooking(token, bookingId, "sv"))

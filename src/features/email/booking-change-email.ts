@@ -24,6 +24,8 @@ type BookingChangeEmailInput = {
   portalUrl: string;
   timeZone: WorkspaceTimeZone;
   language: "sv" | "en" | "ar";
+  /** Abort dispatch when the Maria workspace lock is no longer held. */
+  signal?: AbortSignal;
 };
 
 function escapeHtml(value: string) {
@@ -39,14 +41,15 @@ function parseSender(value: string) {
   return match ? { name: match[1].trim(), email: match[2].trim() } : { name: "Proffera", email: value.trim() };
 }
 
-async function send(to: { email: string; name: string }, subject: string, text: string, html: string) {
+async function send(to: { email: string; name: string }, subject: string, text: string, html: string, signal?: AbortSignal) {
   const apiKey = resolveBrevoApiKey();
   const from = process.env.LEAD_FROM_EMAIL;
   if (!apiKey || !from) return { ok: false as const, message: "Brevo är inte konfigurerat." };
+  if (signal?.aborted) return { ok: false as const, message: "Maria notification lock expired before dispatch." };
   try {
     const response = await fetch("https://api.brevo.com/v3/smtp/email", {
       method: "POST",
-      signal: AbortSignal.timeout(8_000),
+      signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(8_000)]) : AbortSignal.timeout(8_000),
       headers: { "api-key": apiKey, "Content-Type": "application/json" },
       body: JSON.stringify({ sender: parseSender(from), to: [to], subject, textContent: text, htmlContent: html }),
     });
@@ -108,7 +111,7 @@ export async function sendBookingChangeEmails(input: BookingChangeEmailInput) {
   const jobs: Promise<unknown>[] = [
     input.sendCustomer === false
       ? Promise.resolve({ ok: true as const, skipped: true as const })
-      : send({ email: input.branding === "makeup-by-maria" ? input.customerEmail.trim() : input.customerEmail, name: input.customerName }, customerSubject, customerText, customerHtml),
+      : send({ email: input.branding === "makeup-by-maria" ? input.customerEmail.trim() : input.customerEmail, name: input.customerName }, customerSubject, customerText, customerHtml, input.signal),
   ];
   if (input.ownerEmail) {
     const ownerSubject = isEnglish
@@ -120,7 +123,7 @@ export async function sendBookingChangeEmails(input: BookingChangeEmailInput) {
     const ownerHtml = isEnglish
       ? `<div style="font-family:Arial,sans-serif;line-height:1.6;color:#0b2a4a">${logo}<h2 style="color:#06183b">${escapeHtml(ownerSubject)}</h2><ul><li><strong>Customer:</strong> ${escapeHtml(input.customerName)}</li><li><strong>Email:</strong> ${escapeHtml(input.customerEmail)}</li><li><strong>Service:</strong> ${escapeHtml(input.service)}</li><li><strong>Previous time:</strong> ${escapeHtml(ownerOldTime)}</li>${ownerNewTime ? `<li><strong>New time:</strong> ${escapeHtml(ownerNewTime ?? "")}</li>` : ""}${input.city ? `<li><strong>Location:</strong> ${escapeHtml(input.city)}</li>` : ""}</ul><p>Open Proffera to manage the booking.</p></div>`
       : `<div style="font-family:Arial,sans-serif;line-height:1.6;color:#17201a">${logo}<h2>${escapeHtml(ownerSubject)}</h2><ul><li><strong>Kund:</strong> ${escapeHtml(input.customerName)}</li><li><strong>E-post:</strong> ${escapeHtml(input.customerEmail)}</li><li><strong>Tjänst:</strong> ${escapeHtml(input.service)}</li><li><strong>Tidigare tid:</strong> ${escapeHtml(ownerOldTime)}</li>${ownerNewTime ? `<li><strong>Ny tid:</strong> ${escapeHtml(ownerNewTime ?? "")}</li>` : ""}${input.city ? `<li><strong>Ort:</strong> ${escapeHtml(input.city)}</li>` : ""}</ul><p>Öppna Proffera för att hantera bokningen.</p></div>`;
-    jobs.push(send({ email: input.branding === "makeup-by-maria" ? input.ownerEmail.trim() : input.ownerEmail, name: input.companyName }, ownerSubject, ownerText, ownerHtml));
+    jobs.push(send({ email: input.branding === "makeup-by-maria" ? input.ownerEmail.trim() : input.ownerEmail, name: input.companyName }, ownerSubject, ownerText, ownerHtml, input.signal));
   }
   return Promise.allSettled(jobs);
 }

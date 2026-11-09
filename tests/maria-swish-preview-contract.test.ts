@@ -51,7 +51,7 @@ beforeEach(() => {
   guards.moduleAccess.mockResolvedValue(true);
   guards.approvedRecipient.mockReturnValue(true);
   guards.getSql.mockReturnValue(sql);
-  guards.transaction.mockResolvedValue([[], [{ eligible_count: 1, inserted_count: 1 }]]);
+  guards.transaction.mockResolvedValue([[], [], [{ eligible_count: 1, inserted_count: 1 }]]);
 });
 
 afterEach(() => { vi.unstubAllEnvs(); });
@@ -94,6 +94,20 @@ describe("Makeup by Maria Preview deposit safety", () => {
     expect(guards.getSql).not.toHaveBeenCalled();
   });
 
+  it("never writes after booking entitlement lapses even when Production Swish and lifecycle are enabled", async () => {
+    vi.stubEnv("VERCEL_ENV", "production");
+    vi.stubEnv("PROFFERA_MARIA_PUBLIC_SITE_ENABLED", "true");
+    vi.stubEnv("PROFFERA_MARIA_PRODUCTION_ORIGIN", "https://makeupbymaria.se");
+    vi.stubEnv("PROFFERA_MARIA_PRODUCTION_SWISH_ENABLED", "true");
+    vi.stubEnv("PROFFERA_MARIA_PRODUCTION_MANAGER_ENABLED", "true");
+    vi.stubEnv("PROFFERA_MARIA_PRODUCTION_CUSTOMER_EMAIL_ENABLED", "true");
+    guards.moduleAccess.mockResolvedValue(false);
+    await expect(setMariaManualSwishStatus(bookingId, "paid"))
+      .rejects.toThrow("MARIA_MANUAL_SWISH_FORBIDDEN");
+    expect(guards.getSql).not.toHaveBeenCalled();
+    expect(guards.transaction).not.toHaveBeenCalled();
+  });
+
   it("never writes when the QA recipient is not approved", async () => {
     guards.approvedRecipient.mockReturnValue(false);
     await expect(setMariaManualSwishStatus(bookingId, "paid"))
@@ -114,24 +128,27 @@ describe("Makeup by Maria Preview deposit safety", () => {
     expect(guards.transaction).toHaveBeenCalledTimes(1);
     const statements = guards.transaction.mock.calls[0]?.[0] as
       Array<{ strings: string[]; values: unknown[] }>;
-    expect(statements).toHaveLength(2);
+    expect(statements).toHaveLength(3);
     const query = statements.map((part) => part.strings.join("?")).join("\n");
+    expect(statements[0]?.strings.join("?")).toContain("hashtextextended(?::text, 713)");
+    expect(statements[0]?.values).toContain(workspaceId);
+    expect(statements[1]?.strings.join("?")).toContain("hashtextextended(?::text, 62004)");
     expect(query).toContain("pg_advisory_xact_lock");
     expect(query).toContain("insert into customer_events");
     expect(query).toContain("join workspaces w");
     expect(query).toContain("lower(btrim(c.email, chr(9) || chr(10) || chr(13) || ' '))");
-    expect(statements[1]?.values).toContain(workspaceId);
-    expect(statements[1]?.values).toContain("qa@example.invalid");
+    expect(statements[2]?.values).toContain(workspaceId);
+    expect(statements[2]?.values).toContain("qa@example.invalid");
   });
 
   it("does not claim an additional payment on an unchanged manual status", async () => {
-    guards.transaction.mockResolvedValue([[], [{ eligible_count: 1, inserted_count: 0 }]]);
+    guards.transaction.mockResolvedValue([[], [], [{ eligible_count: 1, inserted_count: 0 }]]);
     await expect(setMariaManualSwishStatus(bookingId, "paid"))
       .resolves.toEqual({ changed: false });
   });
 
   it("rejects an ineligible booking instead of reporting payment recorded", async () => {
-    guards.transaction.mockResolvedValue([[], [{ eligible_count: 0, inserted_count: 0 }]]);
+    guards.transaction.mockResolvedValue([[], [], [{ eligible_count: 0, inserted_count: 0 }]]);
     await expect(setMariaManualSwishStatus(bookingId, "paid"))
       .rejects.toThrow("MARIA_MANUAL_SWISH_INELIGIBLE");
   });

@@ -71,10 +71,10 @@ export async function retryMariaRescheduleNotice(id:string,workspaceId:string){
   const readiness=await getMariaBookingReadiness();
   if(!base||!readiness.enabled||readiness.workspaceId!==workspaceId)return {ok:false as const};
   try{
-    return await withMariaBookingNotificationLock(workspaceId,async()=>{
+    return await withMariaBookingNotificationLock(workspaceId,async(signal)=>{
     const sql=getSql();if(!sql)return {ok:false as const};
     const row=await currentNotice(id,workspaceId);
-    if(!row)return {ok:false as const};
+    if(signal?.aborted||!row)return {ok:false as const};
     const {m,customer,owner}=targets(row);
     const eventId=String(row.event_id??"");
     if(!uuid.test(eventId))return {ok:false as const};
@@ -110,7 +110,7 @@ export async function retryMariaRescheduleNotice(id:string,workspaceId:string){
           and b.ends_at=(e.metadata->>'ends_at')::timestamptz)
       returning e.metadata->>'notice_attempted_at' as attempted_at
     `;
-    if(claims.length!==1)return {ok:false as const};
+    if(signal?.aborted||claims.length!==1)return {ok:false as const};
     const day=86_400;
     const endsAt=new Date(String(row.ends_at)).getTime();
     const secs=Math.max(30*day,Math.min(400*day,
@@ -128,6 +128,7 @@ export async function retryMariaRescheduleNotice(id:string,workspaceId:string){
           startsAt:new Date(String(row.starts_at)).toISOString(),
           endsAt:new Date(String(row.ends_at)).toISOString(),
           timeZone:"Europe/Stockholm",language,
+          ...(signal ? {signal} : {}),
         })])
       : await sendBookingChangeEmails({
       kind:"rescheduled",branding:"makeup-by-maria",
@@ -142,6 +143,7 @@ export async function retryMariaRescheduleNotice(id:string,workspaceId:string){
       newEndsAt:new Date(String(row.ends_at)).toISOString(),
       portalUrl:`${base}/mina-bokningar/${encodeURIComponent(token)}?lang=${language}`,
       timeZone:"Europe/Stockholm",language,
+      ...(signal ? {signal} : {}),
     });
     const sent=(item:(typeof res)[number]|undefined)=>item?.status==="fulfilled"
       &&!!item.value &&typeof item.value==="object"

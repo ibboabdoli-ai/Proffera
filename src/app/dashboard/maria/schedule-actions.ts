@@ -60,53 +60,58 @@ export async function saveMariaScheduleAction(formData: FormData) {
     await sql.transaction([
       // The appointment-time edit must not race an in-flight confirmation.
       sql`select pg_advisory_xact_lock(hashtextextended(${access.workspaceId}::text, 713))`,
-      // Do not claim a saved schedule when there are no Maria packages.
-      // This assertion runs under the same transaction lock as the actual writes.
+      // Give the actual locked transaction an unambiguous failure marker.
+      // CAST is applied to the runtime CASE result, not a constant branch.
+      // This preserves the original reason even if an OTP hold expires later.
       sql`
-        select 1 / (case when exists(
-          select 1 from workspace_services s
-          join workspaces w on w.id::text=s.workspace_id
-          where w.id=${access.workspaceId}::uuid and w.slug='makeup-by-maria'
-            and w.status in ('active','trial')
-            and s.public_slug ~ '^maria-bridal-(trial|without-trial)-(202[6-9]|203[0-6])$'
-        ) and (${!serviceChanged}::boolean or not exists (
-          select 1 from public_booking_verifications hold
-          where hold.workspace_id=${access.workspaceId}::uuid
-            and hold.consumed_at is null and hold.expires_at>now()
-        )) and not exists (
-          -- Lock-scope check of the persisted duration for stale hours-only forms.
-          select 1 from workspace_services s
-          cross join jsonb_to_recordset(${proposedHours}::jsonb)
-            as d(weekday integer,is_closed boolean,first_minute integer,last_minute integer)
-          where s.workspace_id=${access.workspaceId}
-            and s.public_slug ~ '^maria-bridal-(trial|without-trial)-(202[6-9]|203[0-6])$'
-            and d.is_closed=false
-            and (
-              coalesce((case when ${serviceChanged}::boolean then ${duration}
-                else s.duration_minutes end),-1) < 1
-              or coalesce((case when ${serviceChanged}::boolean then ${buffer}
-                else s.buffer_after_minutes end),-1) < 0
-              or d.last_minute
-                + (case when ${serviceChanged}::boolean then ${duration} else s.duration_minutes end)
-                + (case when ${serviceChanged}::boolean then ${buffer} else s.buffer_after_minutes end)
-                > 1439
-            )
-        ) and not exists (
-          -- A submitted start window must preserve every active OTP hold start.
-          select 1 from public_booking_verifications hold
-          where hold.workspace_id=${access.workspaceId}::uuid
-            and hold.consumed_at is null and hold.expires_at>now()
-            and not exists (
-              select 1 from jsonb_to_recordset(${proposedHours}::jsonb)
-                as d(weekday integer,is_closed boolean,first_minute integer,last_minute integer)
-              where d.is_closed=false
-                and d.weekday=extract(dow from
-                  (hold.starts_at at time zone 'Europe/Stockholm'))::int
-                and (extract(hour from (hold.starts_at at time zone 'Europe/Stockholm'))*60
-                  +extract(minute from (hold.starts_at at time zone 'Europe/Stockholm')))
-                  between d.first_minute and d.last_minute
-            )
-        ) then 1 else 0 end) as maria_package_guard
+        select (case
+          when not exists (
+            select 1 from workspace_services s
+            join workspaces w on w.id::text=s.workspace_id
+            where w.id=${access.workspaceId}::uuid and w.slug='makeup-by-maria'
+              and w.status in ('active','trial')
+              and s.public_slug ~ '^maria-bridal-(trial|without-trial)-(202[6-9]|203[0-6])$'
+          ) then 'MARIA_SCHEDULE_NO_SERVICE'
+          when ${serviceChanged}::boolean and exists (
+            select 1 from public_booking_verifications hold
+            where hold.workspace_id=${access.workspaceId}::uuid
+              and hold.consumed_at is null and hold.expires_at>now()
+          ) then 'MARIA_SCHEDULE_HOLD_CONFLICT'
+          when exists (
+            select 1 from workspace_services s
+            cross join jsonb_to_recordset(${proposedHours}::jsonb)
+              as d(weekday integer,is_closed boolean,first_minute integer,last_minute integer)
+            where s.workspace_id=${access.workspaceId}
+              and s.public_slug ~ '^maria-bridal-(trial|without-trial)-(202[6-9]|203[0-6])$'
+              and d.is_closed=false
+              and (
+                coalesce((case when ${serviceChanged}::boolean then ${duration}
+                  else s.duration_minutes end),-1) < 1
+                or coalesce((case when ${serviceChanged}::boolean then ${buffer}
+                  else s.buffer_after_minutes end),-1) < 0
+                or d.last_minute
+                  + (case when ${serviceChanged}::boolean then ${duration} else s.duration_minutes end)
+                  + (case when ${serviceChanged}::boolean then ${buffer} else s.buffer_after_minutes end)
+                  > 1439
+              )
+          ) then 'MARIA_SCHEDULE_DURATION_CONFLICT'
+          when exists (
+            select 1 from public_booking_verifications hold
+            where hold.workspace_id=${access.workspaceId}::uuid
+              and hold.consumed_at is null and hold.expires_at>now()
+              and not exists (
+                select 1 from jsonb_to_recordset(${proposedHours}::jsonb)
+                  as d(weekday integer,is_closed boolean,first_minute integer,last_minute integer)
+                where d.is_closed=false
+                  and d.weekday=extract(dow from
+                    (hold.starts_at at time zone 'Europe/Stockholm'))::int
+                  and (extract(hour from (hold.starts_at at time zone 'Europe/Stockholm'))*60
+                    +extract(minute from (hold.starts_at at time zone 'Europe/Stockholm')))
+                    between d.first_minute and d.last_minute
+              )
+          ) then 'MARIA_SCHEDULE_HOLD_CONFLICT'
+          else '1'
+        end)::integer as maria_package_guard
       `,
       ...days.map(d=>sql`
         insert into workspace_booking_hours
@@ -137,48 +142,15 @@ export async function saveMariaScheduleAction(formData: FormData) {
     ]);
   } catch(error) {
     console.error("Maria booking schedule could not be updated",error);
-    // Diagnostics run only after the locked write was rejected; never bypass the guard.
-    let cause: "schedule" | "schedule_hold" | "schedule_duration" = "schedule";
-    try {
-      const activeHolds = await sql`
-        select exists(select 1 from public_booking_verifications h
-          where h.workspace_id=${access.workspaceId}::uuid
-            and h.consumed_at is null and h.expires_at>now()
-            and (${serviceChanged}::boolean or not exists (
-              select 1 from jsonb_to_recordset(${proposedHours}::jsonb)
-                as d(weekday integer,is_closed boolean,first_minute integer,last_minute integer)
-              where d.is_closed=false
-                and d.weekday=extract(dow from (h.starts_at at time zone 'Europe/Stockholm'))::int
-                and (extract(hour from (h.starts_at at time zone 'Europe/Stockholm'))*60
-                  +extract(minute from (h.starts_at at time zone 'Europe/Stockholm')))
-                    between d.first_minute and d.last_minute
-            ))) as conflict
-      `;
-      if (activeHolds[0]?.conflict) cause = "schedule_hold";
-    } catch (diagnosticError) { console.error("Maria hold conflict diagnosis failed", diagnosticError); }
-    if (cause === "schedule") {
-      try {
-        const durationConflicts = await sql`
-          select 1 from workspace_services s
-          cross join jsonb_to_recordset(${proposedHours}::jsonb)
-            as d(weekday integer,is_closed boolean,first_minute integer,last_minute integer)
-          where s.workspace_id=${access.workspaceId}
-            and s.public_slug ~ '^maria-bridal-(trial|without-trial)-(202[6-9]|203[0-6])
-  revalidatePath("/dashboard/maria");
-  revalidatePath("/api/makeup-by-maria/config");
-  redirect("/dashboard/maria?updated=schedule#tider");
-}
-
-            and d.is_closed=false
-            and d.last_minute
-              +(case when ${serviceChanged}::boolean then ${duration} else s.duration_minutes end)
-              +(case when ${serviceChanged}::boolean then ${buffer} else s.buffer_after_minutes end)>1439
-          limit 1
-        `;
-        if (durationConflicts.length) cause = "schedule_duration";
-      } catch (diagnosticError) { console.error("Maria duration conflict diagnosis failed", diagnosticError); }
-    }
-    redirect(`/dashboard/maria?error=${cause}`);
+    // The guard writes its reason into the PostgreSQL error in the locked
+    // transaction. Never diagnose a different database snapshot after rollback.
+    const failure = error instanceof Error ? error.message : String(error);
+    const reason = failure.includes("MARIA_SCHEDULE_HOLD_CONFLICT")
+      ? "schedule_hold"
+      : failure.includes("MARIA_SCHEDULE_DURATION_CONFLICT")
+        ? "schedule_duration"
+        : "schedule";
+    redirect(`/dashboard/maria?error=${reason}`);
   }
   revalidatePath("/dashboard/maria");
   revalidatePath("/api/makeup-by-maria/config");
