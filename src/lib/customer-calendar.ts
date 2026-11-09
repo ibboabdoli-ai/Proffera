@@ -272,7 +272,9 @@ export async function cancelCustomerCalendarBooking(
           else 'Kunden avbokade bokningen via Mina bokningar.' end,
         jsonb_build_object('source', 'customer_portal', 'new_status', 'cancelled')
           || case when ${isMaria}::boolean
-             then jsonb_build_object('notice_customer','pending','notice_owner',
+             then jsonb_build_object(
+               'notice_revision',date_trunc('milliseconds',cancellation_revision)::text,
+               'notice_customer','pending','notice_owner',
                case when nullif(owner_email,'') is null then 'skipped' else 'pending' end)
              else '{}'::jsonb end
       from cancelled_booking
@@ -307,6 +309,10 @@ export async function cancelCustomerCalendarBooking(
   const ownerEmail = booking.owner_email && (!isMaria
     || isMariaExistingBookingRecipientAllowed(String(booking.owner_email)))
     ? String(booking.owner_email).trim() : undefined;
+  // Capture each recipient's dispatch separately. A lost PostgreSQL lock
+  // after fetch starts cannot prove that Brevo did not accept the message.
+  const providerStarted = { customer: false, owner: false };
+  let notificationLockFailed = false;
   // The booking and its pending notice were committed together. A provider
   // outage must not make an already-successful cancellation appear rolled back.
   const sendCancellation = (signal?: AbortSignal) => sendBookingChangeEmails({
@@ -324,6 +330,7 @@ export async function cancelCustomerCalendarBooking(
     timeZone: resolveBookingTimeZone(booking.time_zone),
     language,
     ...(signal ? {signal} : {}),
+    onRequestStart: (recipient) => { providerStarted[recipient] = true; },
   });
   let cancellationSuperseded = false;
   let deliveries: Awaited<ReturnType<typeof sendBookingChangeEmails>> = [];
@@ -355,6 +362,7 @@ export async function cancelCustomerCalendarBooking(
       return sendCancellation(signal);
     }) : await sendCancellation();
   } catch (error) {
+    notificationLockFailed = true;
     console.error("Cancellation notice serialization failed after booking commit", error);
   }
 
@@ -365,8 +373,11 @@ export async function cancelCustomerCalendarBooking(
     const state = (index: number) => {
       if (accepted(index)) return "accepted";
       const item = deliveries[index];
-      // A timed-out or aborted provider request may already have been queued.
-      return item?.status === "rejected"
+      // If the lock expires after fetch starts, result arrays can be empty:
+      // do not downgrade this recipient to a safe-to-retry failure.
+      const started = index === 0 ? providerStarted.customer : providerStarted.owner;
+      return (notificationLockFailed && started)
+        || item?.status === "rejected"
         || (item?.status === "fulfilled" && item.value
           && typeof item.value === "object" && "deliveryUncertain" in item.value
           && item.value.deliveryUncertain === true) ? "uncertain" : "failed";

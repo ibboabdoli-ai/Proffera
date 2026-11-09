@@ -27,7 +27,7 @@ type BookingChangeEmailInput = {
   /** Abort dispatch when the Maria workspace lock is no longer held. */
   signal?: AbortSignal;
   /** Called only when the provider HTTP request is about to begin. */
-  onRequestStart?: () => void;
+  onRequestStart?: (recipient: "customer" | "owner") => void;
 };
 
 function escapeHtml(value: string) {
@@ -57,9 +57,13 @@ async function send(to: { email: string; name: string }, subject: string, text: 
       body: JSON.stringify({ sender: parseSender(from), to: [to], subject, textContent: text, htmlContent: html }),
     });
     const data = (await response.json().catch(() => ({}))) as { messageId?: string; message?: string };
-    return response.ok
-      ? { ok: true as const, providerId: data.messageId ?? null }
-      : { ok: false as const, deliveryUncertain: true as const, message: data.message ?? "Kunde inte skicka mejl." };
+    if (response.ok) return { ok: true as const, providerId: data.messageId ?? null };
+    // A documented client-side Brevo rejection proves the request was not
+    // queued. Timeout, 429 and 5xx never prove non-delivery.
+    const definitelyRejected = [400,401,403,404,422].includes(response.status);
+    return definitelyRejected
+      ? { ok: false as const, notSent: true as const, message: data.message ?? "Brevo avvisade mejlet." }
+      : { ok: false as const, deliveryUncertain: true as const, message: data.message ?? "Kunde inte bekräfta mejlet." };
   } catch {
     // Even an aborted HTTP request may have reached the provider.
     return { ok: false as const, deliveryUncertain: true as const, message: "Kunde inte bekräfta leverans från Brevo." };
@@ -117,7 +121,8 @@ export async function sendBookingChangeEmails(input: BookingChangeEmailInput) {
   const jobs: Promise<unknown>[] = [
     input.sendCustomer === false
       ? Promise.resolve({ ok: true as const, skipped: true as const })
-      : send({ email: input.branding === "makeup-by-maria" ? input.customerEmail.trim() : input.customerEmail, name: input.customerName }, customerSubject, customerText, customerHtml, input.signal, input.onRequestStart),
+      : send({ email: input.branding === "makeup-by-maria" ? input.customerEmail.trim() : input.customerEmail, name: input.customerName }, customerSubject, customerText, customerHtml, input.signal,
+        () => input.onRequestStart?.("customer")),
   ];
   if (input.ownerEmail) {
     const ownerSubject = isEnglish
@@ -129,7 +134,8 @@ export async function sendBookingChangeEmails(input: BookingChangeEmailInput) {
     const ownerHtml = isEnglish
       ? `<div style="font-family:Arial,sans-serif;line-height:1.6;color:#0b2a4a">${logo}<h2 style="color:#06183b">${escapeHtml(ownerSubject)}</h2><ul><li><strong>Customer:</strong> ${escapeHtml(input.customerName)}</li><li><strong>Email:</strong> ${escapeHtml(input.customerEmail)}</li><li><strong>Service:</strong> ${escapeHtml(input.service)}</li><li><strong>Previous time:</strong> ${escapeHtml(ownerOldTime)}</li>${ownerNewTime ? `<li><strong>New time:</strong> ${escapeHtml(ownerNewTime ?? "")}</li>` : ""}${input.city ? `<li><strong>Location:</strong> ${escapeHtml(input.city)}</li>` : ""}</ul><p>Open Proffera to manage the booking.</p></div>`
       : `<div style="font-family:Arial,sans-serif;line-height:1.6;color:#17201a">${logo}<h2>${escapeHtml(ownerSubject)}</h2><ul><li><strong>Kund:</strong> ${escapeHtml(input.customerName)}</li><li><strong>E-post:</strong> ${escapeHtml(input.customerEmail)}</li><li><strong>Tjänst:</strong> ${escapeHtml(input.service)}</li><li><strong>Tidigare tid:</strong> ${escapeHtml(ownerOldTime)}</li>${ownerNewTime ? `<li><strong>Ny tid:</strong> ${escapeHtml(ownerNewTime ?? "")}</li>` : ""}${input.city ? `<li><strong>Ort:</strong> ${escapeHtml(input.city)}</li>` : ""}</ul><p>Öppna Proffera för att hantera bokningen.</p></div>`;
-    jobs.push(send({ email: input.branding === "makeup-by-maria" ? input.ownerEmail.trim() : input.ownerEmail, name: input.companyName }, ownerSubject, ownerText, ownerHtml, input.signal, input.onRequestStart));
+    jobs.push(send({ email: input.branding === "makeup-by-maria" ? input.ownerEmail.trim() : input.ownerEmail, name: input.companyName }, ownerSubject, ownerText, ownerHtml, input.signal,
+      () => input.onRequestStart?.("owner")));
   }
   return Promise.allSettled(jobs);
 }

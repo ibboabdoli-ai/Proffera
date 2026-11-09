@@ -4,13 +4,18 @@ vi.mock("server-only", () => ({}));
 const notificationLockState = vi.hoisted(() => ({
   abortBeforeCallback: false,
   controller: null as AbortController | null,
+  rejectBeforeAction: false,
+  rejectAfterAction: false,
 }));
 vi.mock("@/lib/maria-booking-notification-lock", () => ({
   withMariaBookingNotificationLock: async (_workspaceId: string, action: (signal: AbortSignal) => Promise<unknown>) => {
     const controller = new AbortController();
     notificationLockState.controller = controller;
+    if (notificationLockState.rejectBeforeAction) throw new Error("Synthetic lock disconnected before provider request");
     if (notificationLockState.abortBeforeCallback) controller.abort();
-    return action(controller.signal);
+    const result = await action(controller.signal);
+    if (notificationLockState.rejectAfterAction) throw new Error("Synthetic lock disconnected after provider request");
+    return result;
   },
 }));
 const dbQuery = vi.hoisted(() => vi.fn());
@@ -36,6 +41,8 @@ const booking = {
 beforeEach(() => {
   notificationLockState.abortBeforeCallback = false;
   notificationLockState.controller = null;
+  notificationLockState.rejectBeforeAction = false;
+  notificationLockState.rejectAfterAction = false;
   dbQuery.mockReset().mockResolvedValue([{ deposit_state: "unverified" }]);
   vi.stubEnv("VERCEL_ENV", "preview");
   vi.stubEnv("VERCEL_URL", "qa.vercel.app");
@@ -338,6 +345,28 @@ describe("Maria-only Swish confirmation and cancellation email", () => {
     vi.stubGlobal("fetch", fetchMock);
     expect(await sendMariaBookingStatusEmail(booking)).toMatchObject({ ok: false });
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("marks a lock loss before dispatch as an unsent, retryable failure", async () => {
+    notificationLockState.rejectBeforeAction = true;
+    const fetchMock=vi.fn();
+    vi.stubGlobal("fetch",fetchMock);
+    expect(await sendMariaBookingStatusEmail(booking)).toEqual({
+      ok:false,error:"booking_state_unavailable",
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("keeps a lost lock after provider dispatch uncertain", async () => {
+    notificationLockState.rejectAfterAction = true;
+    const fetchMock=vi.fn().mockResolvedValue({
+      ok:true,json:async()=>({messageId:"synthetic-provider-accepted"}),
+    });
+    vi.stubGlobal("fetch",fetchMock);
+    expect(await sendMariaBookingStatusEmail(booking)).toEqual({
+      ok:false,error:"email_delivery_uncertain",
+    });
+    expect(fetchMock).toHaveBeenCalledOnce();
   });
 
   it("reports provider errors without assuming payment or delivery", async () => {

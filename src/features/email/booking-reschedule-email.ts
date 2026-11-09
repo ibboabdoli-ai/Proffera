@@ -163,7 +163,15 @@ export async function sendBookingRescheduleEmail(input: SendBookingRescheduleEma
       };
       data = {};
     }
-    if (!response.ok) return { ok: false as const, deliveryUncertain: true as const, message: data.message ?? data.code ?? "Kunde inte skicka ombokningsmejl." };
+    if (!response.ok) {
+      // Explicit permission/validation rejections are safe to retry only
+      // after configuration is fixed. Unknown, rate-limited and server-side
+      // failures remain uncertain to prevent duplicates.
+      const definitelyRejected = [400,401,403,404,422].includes(response.status);
+      return definitelyRejected
+        ? { ok: false as const, notSent: true as const, message: data.message ?? data.code ?? "Brevo avvisade ombokningsmejlet." }
+        : { ok: false as const, deliveryUncertain: true as const, message: data.message ?? data.code ?? "Kunde inte bekräfta ombokningsmejlet." };
+    }
     return { ok: true as const, providerId: data.messageId ?? null };
   } catch (error) {
     const timedOut = error instanceof Error && (error.name === "TimeoutError" || error.name === "AbortError");

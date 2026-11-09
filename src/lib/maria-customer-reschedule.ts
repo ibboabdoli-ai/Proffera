@@ -236,7 +236,7 @@ export async function rescheduleMariaCustomerBooking(input: MariaChangeInput) {
             and lower(btrim(c.email, chr(9) || chr(10) || chr(13) || ' '))=lower(${String(booking.customer_email).trim()})
           limit 1
         `;
-        if (signal?.aborted) return { ok: true as const, emailWarning: true };
+        if (signal?.aborted) throw new Error("Maria customer reschedule lock aborted before sending");
         if (!current[0]) {
           await sql`
             update customer_events set metadata=metadata||jsonb_build_object(
@@ -244,6 +244,8 @@ export async function rescheduleMariaCustomerBooking(input: MariaChangeInput) {
             where id=${String(booking.notice_event_id)}::uuid
               and workspace_id=${input.workspaceId} and booking_id=${input.bookingId}::uuid
               and metadata->>'source'='maria_preview_reschedule'
+              and metadata->>'notice_attempted_at'=${String(booking.notice_attempted_at)}
+              and metadata->>'notice_customer'='sending'
           `;
           return { ok: true as const, emailWarning: false };
         }
@@ -268,7 +270,7 @@ export async function rescheduleMariaCustomerBooking(input: MariaChangeInput) {
       ...(signal ? {signal} : {}),
       onRequestStart: () => { providerRequestStarted = true; },
     });
-    if (signal.aborted) return { ok: true as const, emailWarning: true };
+    if (signal.aborted) throw new Error("Maria customer reschedule lock expired during dispatch");
     const delivered = (result: (typeof notices)[number] | undefined) =>
       result?.status === "fulfilled"
         && Boolean(result.value && typeof result.value === "object"
@@ -285,7 +287,7 @@ export async function rescheduleMariaCustomerBooking(input: MariaChangeInput) {
       && isMariaBookingRecipientAllowed(String(booking.owner_email)));
     const ownerNotice = !ownerPermitted ? "skipped" : noticeState(notices[1]);
     const emailWarning = customerNotice !== "sent" || (ownerNotice !== "sent" && ownerNotice !== "skipped");
-    if (signal.aborted) return { ok: true as const, emailWarning: true };
+    if (signal.aborted) throw new Error("Maria customer reschedule lock expired during dispatch");
     let journalSaved = false;
     try {
       // The pending record was inserted atomically with the booking change.

@@ -57,7 +57,7 @@ import { sendMariaBookingStatusEmail } from "@/features/email/maria-deposit-emai
 import { sendBookingChangeEmails } from "@/features/email/booking-change-email";
 import { retryMariaRescheduleNotice } from "@/lib/maria-reschedule-notice-retry";
 import { withMariaBookingNotificationLock } from "@/lib/maria-booking-notification-lock";
-import { getMariaStatusRetryGate, recordMariaStatusRetryAudit } from "@/lib/maria-status-retry-journal";
+import { getMariaStatusRetryGate, recordMariaStatusRetryAudit, claimMariaStatusRetry, finishMariaStatusRetry } from "@/lib/maria-status-retry-journal";
 
 const RUN = process.env.GITHUB_ACTIONS === "true" || process.env.PROFFERA_POSTGRES_INTEGRATION === "1";
 function docker(args: string[]) { return execFileSync("docker", args, { encoding: "utf8" }).trim(); }
@@ -575,14 +575,36 @@ function compileSql(strings: TemplateStringsArray, values: unknown[]): Query {
     }
   },30_000);
 
+  // Independent booking prevents earlier test notices from contaminating
+  // the retry gate (a pending notice must correctly remain blocking).
+  async function makeIsolatedRetryBooking() {
+    const customerId=randomUUID(),bookingId=randomUUID();
+    const start=new Date(Date.parse(startsAt)+63*86_400_000).toISOString();
+    const end=new Date(Date.parse(endsAt)+63*86_400_000).toISOString();
+    const service=(await db!.query<{name:string}>(
+      "select name from workspace_services where id=$1::uuid and workspace_id=$2",
+      [serviceId,workspaceId],
+    )).rows[0]!.name;
+    await db!.query(
+      "insert into customers(id,workspace_id,name,email,status,source) values($1::uuid,$2,'Isolated retry QA','retry-qa@example.invalid','active','dashboard_manual')",
+      [customerId,workspaceId],
+    );
+    await db!.query(
+      "insert into bookings(id,workspace_id,customer_id,service_id,title,service,status,source,starts_at,ends_at) values($1::uuid,$2,$3::uuid,$4::uuid,'Synthetic retry booking',$5,'confirmed','dashboard_manual',$6::timestamptz,$7::timestamptz)",
+      [bookingId,workspaceId,customerId,serviceId,service,start,end],
+    );
+    const row=(await db!.query<{id:string;customer_id:string;updated_at:Date}>(
+      "select id::text,customer_id::text,updated_at from bookings where id=$1::uuid",[bookingId],
+    )).rows[0]!;
+    return {...row,cleanup:async()=>{
+      await db!.query("delete from customer_events where booking_id=$1::uuid",[bookingId]);
+      await db!.query("delete from bookings where id=$1::uuid",[bookingId]);
+      await db!.query("delete from customers where id=$1::uuid",[customerId]);
+    }};
+  }
+
   it("queries the real retry gate and journals older revisions without overwriting a newer notice", async () => {
-    const b = (await db!.query<{
-      id:string; customer_id:string; updated_at:Date; status:string;
-    }>(
-      "select id::text,customer_id::text,updated_at,status from bookings where workspace_id=$1 and source='public_booking' and status='confirmed' order by created_at desc limit 1",
-      [workspaceId],
-    )).rows[0];
-    expect(b?.id).toBeTruthy();
+    const b=await makeIsolatedRetryBooking();
     const revision = new Date(b!.updated_at).toISOString();
     const originalId = (await db!.query<{id:string}>(
       `insert into customer_events (workspace_id,customer_id,booking_id,event_type,title,metadata)
@@ -646,6 +668,94 @@ function compileSql(strings: TemplateStringsArray, values: unknown[]): Query {
         "delete from customer_events where workspace_id=$1 and booking_id=$2::uuid and (id=$3::uuid or metadata->>'source'='maria_status_retry')",
         [workspaceId,b!.id,originalId],
       );
+      await b.cleanup();
+    }
+  },30_000);
+
+  it("keeps uncertain and sending notices blocked despite a later failed event in PostgreSQL", async () => {
+    const b=await makeIsolatedRetryBooking();
+    const revision=new Date(b.updated_at).toISOString(), ids:string[]=[];
+    const add=async (state:string)=>{
+      const result=await db!.query<{id:string}>(
+        "insert into customer_events(workspace_id,customer_id,booking_id,event_type,title,metadata) values($1,$2::uuid,$3::uuid,'status_change','Synthetic gate',$4::jsonb) returning id::text",
+        [workspaceId,b.customer_id,b.id,JSON.stringify({
+          source:"dashboard_manual",new_status:"confirmed",notice_revision:revision,notice_customer:state,
+        })]);
+      const eventId=result.rows[0]!.id;ids.push(eventId);return eventId;
+    };
+    const input={workspaceId,bookingId:b.id,status:"confirmed" as const,revision,parentEventId:null};
+    try {
+      const first=await add("uncertain");
+      await add("failed");
+      expect(await getMariaStatusRetryGate(input)).toBe("uncertain");
+      expect(await claimMariaStatusRetry(input)).toBeNull();
+      await db!.query("update customer_events set metadata=jsonb_set(metadata,'{notice_customer}',to_jsonb('sending'::text)) where id=$1::uuid",[first]);
+      expect(await getMariaStatusRetryGate(input)).toBe("uncertain");
+      expect(await claimMariaStatusRetry(input)).toBeNull();
+    } finally {
+      await db!.query("delete from customer_events where id=any($1::uuid[])",[ids]);
+      await b.cleanup();
+    }
+  },30_000);
+
+  it("atomically claims one exact revision across competing PostgreSQL senders", async () => {
+    const b=await makeIsolatedRetryBooking();
+    const revision=new Date(b.updated_at).toISOString();
+    const origin=(await db!.query<{id:string}>(
+      "insert into customer_events(workspace_id,customer_id,booking_id,event_type,title,metadata) values($1,$2::uuid,$3::uuid,'status_change','Synthetic failed',$4::jsonb) returning id::text",
+      [workspaceId,b.customer_id,b.id,JSON.stringify({
+        source:"dashboard_manual",new_status:"confirmed",notice_revision:revision,notice_customer:"failed",
+      })])).rows[0]!.id;
+    let claimId:string|null=null;
+    const input={workspaceId,bookingId:b.id,status:"confirmed" as const,revision,parentEventId:origin};
+    try {
+      const claimed=await Promise.all([claimMariaStatusRetry(input),claimMariaStatusRetry(input)]);
+      expect(claimed.filter(Boolean)).toHaveLength(1);
+      claimId=claimed.find(Boolean)??null;
+      expect(claimId).toBeTruthy();
+      expect(await getMariaStatusRetryGate(input)).toBe("uncertain");
+      expect(await finishMariaStatusRetry({
+        workspaceId,bookingId:b.id,status:"confirmed",revision,claimId:claimId!,outcome:"accepted",
+      })).toBe(true);
+      expect(await finishMariaStatusRetry({
+        workspaceId,bookingId:b.id,status:"confirmed",revision,claimId:claimId!,outcome:"failed",
+      })).toBe(false);
+      expect(await getMariaStatusRetryGate(input)).toBe("accepted");
+      expect(await claimMariaStatusRetry(input)).toBeNull();
+      expect((await db!.query<{state:string}>(
+        "select metadata->>'notice_customer' as state from customer_events where id=$1::uuid",[origin]
+      )).rows[0]?.state).toBe("failed");
+    } finally {
+      await db!.query("delete from customer_events where id=any($1::uuid[])",[[origin,...(claimId?[claimId]:[])]]);
+      await b.cleanup();
+    }
+  },30_000);
+
+  it("blocks duplicate cancellation emails after portal accepted or legacy unversioned notices", async () => {
+    const b=await makeIsolatedRetryBooking();
+    const originalRevision=new Date(b.updated_at).toISOString();
+    const changed=await db!.query<{updated_at:Date}>(
+      "update bookings set status='cancelled',updated_at=now() where id=$1::uuid returning updated_at",[b.id]);
+    const revision=new Date(changed.rows[0]!.updated_at).toISOString();
+    const event=(await db!.query<{id:string}>(
+      "insert into customer_events(workspace_id,customer_id,booking_id,event_type,title,metadata) values($1,$2::uuid,$3::uuid,'status_change','Synthetic portal',$4::jsonb) returning id::text",
+      [workspaceId,b.customer_id,b.id,JSON.stringify({
+        source:"customer_portal",new_status:"cancelled",notice_revision:revision,notice_customer:"accepted",
+      })])).rows[0]!.id;
+    const input={workspaceId,bookingId:b.id,status:"cancelled" as const,revision,parentEventId:event};
+    try {
+      expect(await getMariaStatusRetryGate(input)).toBe("accepted");
+      expect(await claimMariaStatusRetry(input)).toBeNull();
+      await db!.query("update customer_events set metadata=jsonb_set(metadata,'{notice_customer}',to_jsonb('uncertain'::text)) where id=$1::uuid",[event]);
+      expect(await getMariaStatusRetryGate(input)).toBe("uncertain");
+      expect(await claimMariaStatusRetry(input)).toBeNull();
+      await db!.query("update customer_events set metadata=(metadata-'notice_revision')||jsonb_build_object('notice_customer','failed') where id=$1::uuid",[event]);
+      expect(await getMariaStatusRetryGate(input)).toBe("uncertain");
+      expect(await claimMariaStatusRetry(input)).toBeNull();
+    } finally {
+      await db!.query("delete from customer_events where id=$1::uuid",[event]);
+      await db!.query("update bookings set status='confirmed',updated_at=$2::timestamptz where id=$1::uuid",[b.id,originalRevision]);
+      await b.cleanup();
     }
   },30_000);
 

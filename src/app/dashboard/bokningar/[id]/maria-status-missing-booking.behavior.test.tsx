@@ -6,6 +6,9 @@ const runtime = vi.hoisted(() => ({
   updateStatus: vi.fn(),
   sendStatusEmail: vi.fn(),
   retrySql: vi.fn(),
+  retryGate: vi.fn(),
+  retryClaim: vi.fn(),
+  retryFinish: vi.fn(),
 }));
 
 vi.mock("server-only", () => ({}));
@@ -36,6 +39,11 @@ vi.mock("@/features/email/maria-deposit-email", () => ({
 }));
 vi.mock("@/lib/db/server", () => ({
   getSql: () => (...args: unknown[]) => runtime.retrySql(...args),
+}));
+vi.mock("@/lib/maria-status-retry-journal", () => ({
+  getMariaStatusRetryGate: runtime.retryGate,
+  claimMariaStatusRetry: runtime.retryClaim,
+  finishMariaStatusRetry: runtime.retryFinish,
 }));
 vi.mock("@/lib/maria-manual-swish", () => ({
   readMariaManualSwishStatuses: async () => ({ ok: true, entries: {} }),
@@ -122,6 +130,9 @@ beforeEach(() => {
   runtime.updateStatus.mockReset();
   runtime.sendStatusEmail.mockReset().mockResolvedValue({ ok: true });
   runtime.retrySql.mockReset();
+  runtime.retryGate.mockReset().mockResolvedValue("retryable");
+  runtime.retryClaim.mockReset().mockResolvedValue("00000000-0000-4000-8000-000000000998");
+  runtime.retryFinish.mockReset().mockResolvedValue(true);
 });
 
 afterEach(() => { vi.unstubAllEnvs(); });
@@ -300,6 +311,12 @@ describe("Maria Preview booking status action on a deleted booking", () => {
     }));
     const query = (runtime.retrySql.mock.calls[0]![0] as TemplateStringsArray).join("?");
     expect(query).toContain("lower(btrim(c.email, chr(9) || chr(10) || chr(13) || ' '))=?");
+    expect(runtime.retryClaim).toHaveBeenCalledWith(expect.objectContaining({
+      bookingId: id, revision: "2027-06-18T07:30:00.789Z",
+    }));
+    expect(runtime.retryFinish).toHaveBeenCalledWith(expect.objectContaining({
+      claimId: "00000000-0000-4000-8000-000000000998", outcome: "accepted",
+    }));
   });
 
   it("binds a status retry to the current notice revision and preserves accepted delivery state", async () => {
@@ -318,6 +335,7 @@ describe("Maria Preview booking status action on a deleted booking", () => {
       customer_name: "Synthetic QA customer", customer_email: "qa@example.invalid",
       booking_language: "sv", confirmed_at: null,
     }]).mockResolvedValueOnce([{ gate: "accepted" }]);
+    runtime.retryGate.mockResolvedValueOnce("accepted");
     runtime.sendStatusEmail.mockResolvedValue({ ok: false });
     const action = await getStatusRetryAction();
     const form = new FormData();
@@ -325,12 +343,11 @@ describe("Maria Preview booking status action on a deleted booking", () => {
     await expect(action(form)).rejects.toThrow(
       `REDIRECT:/dashboard/bokningar/${id}?maria_mail=already_sent&lang=en`,
     );
-    const selected = (runtime.retrySql.mock.calls[0]![0] as TemplateStringsArray).join("?");
-    const gateSql = (runtime.retrySql.mock.calls[1]![0] as TemplateStringsArray).join("?");
-    expect(gateSql).toContain("e.metadata->>'notice_revision'");
-    expect(gateSql).toContain("date_trunc('milliseconds',b.updated_at)");
-    expect(gateSql).toContain("e.metadata->>'notice_customer'='accepted'");
-    expect(runtime.retrySql).toHaveBeenCalledTimes(2);
+    expect(runtime.retryGate).toHaveBeenCalledWith(expect.objectContaining({
+      revision: "2027-06-18T07:30:00.789Z",
+    }));
+    expect(runtime.retryClaim).not.toHaveBeenCalled();
+    expect(runtime.retryFinish).not.toHaveBeenCalled();
     expect(runtime.sendStatusEmail).not.toHaveBeenCalled();
   });
 
@@ -346,7 +363,8 @@ describe("Maria Preview booking status action on a deleted booking", () => {
       booking_revision: new Date("2027-06-18T07:30:00.789Z"),
       customer_name: "Synthetic QA customer", customer_email: "qa@example.invalid",
       confirmed_at: null,
-    }]).mockResolvedValueOnce([{ gate: "uncertain" }]);
+    }]);
+    runtime.retryGate.mockResolvedValueOnce("uncertain");
     const action = await getStatusRetryAction();
     const form = new FormData();
     form.set("lang", "en");
@@ -354,7 +372,8 @@ describe("Maria Preview booking status action on a deleted booking", () => {
       `REDIRECT:/dashboard/bokningar/${id}?maria_mail=uncertain&lang=en`,
     );
     expect(runtime.sendStatusEmail).not.toHaveBeenCalled();
-    expect(runtime.retrySql).toHaveBeenCalledTimes(2);
+    expect(runtime.retryClaim).not.toHaveBeenCalled();
+    expect(runtime.sendStatusEmail).not.toHaveBeenCalled();
   });
 
   it("appends retry history to the loaded revision without overwriting earlier status changes", async () => {
@@ -378,12 +397,13 @@ describe("Maria Preview booking status action on a deleted booking", () => {
     await expect(action(form)).rejects.toThrow(
       `REDIRECT:/dashboard/bokningar/${id}?maria_mail=resent&lang=en`,
     );
-    const auditSql = (runtime.retrySql.mock.calls[2]![0] as TemplateStringsArray).join("?");
-    expect(auditSql).toContain("insert into customer_events");
-    expect(auditSql).toContain("'maria_status_retry'");
-    expect(auditSql).toContain("'is_current_revision'");
-    expect(auditSql).not.toContain("update customer_events");
-    expect(runtime.retrySql.mock.calls[2]).toContain("2027-06-18T07:30:00.789Z");
+    expect(runtime.retryClaim).toHaveBeenCalledWith(expect.objectContaining({
+      revision: "2027-06-18T07:30:00.789Z",
+      parentEventId: null,
+    }));
+    expect(runtime.retryFinish).toHaveBeenCalledWith(expect.objectContaining({
+      outcome: "accepted", revision: "2027-06-18T07:30:00.789Z",
+    }));
   });
 
   it("never sends when the booking revision changed before the retry gate", async () => {
@@ -399,7 +419,8 @@ describe("Maria Preview booking status action on a deleted booking", () => {
       customer_name: "Synthetic QA customer",
       customer_email: "qa@example.invalid",
       confirmed_at: null,
-    }]).mockResolvedValueOnce([]);
+    }]);
+    runtime.retryGate.mockResolvedValueOnce("revision_changed");
     const action = await getStatusRetryAction();
     const form = new FormData();
     form.set("lang", "en");
@@ -407,6 +428,27 @@ describe("Maria Preview booking status action on a deleted booking", () => {
       `REDIRECT:/dashboard/bokningar/${id}?error=save&lang=en`,
     );
     expect(runtime.sendStatusEmail).not.toHaveBeenCalled();
+  });
+
+  it("never sends when another manager has already claimed the same revision", async () => {
+    const current = detail("qa@example.invalid");
+    runtime.loadDetail.mockResolvedValue({
+      ...current, booking: { ...current.booking, status: "cancelled" },
+    });
+    runtime.retrySql.mockResolvedValueOnce([{
+      status: "cancelled", starts_at: new Date("2027-06-18T09:00:00.123Z"),
+      ends_at: new Date("2027-06-18T12:00:00.456Z"),
+      booking_revision: new Date("2027-06-18T07:30:00.789Z"),
+      customer_email: "qa@example.invalid", confirmed_at: null,
+    }]);
+    runtime.retryClaim.mockResolvedValueOnce(null);
+    const action = await getStatusRetryAction();
+    const form = new FormData(); form.set("lang","en");
+    await expect(action(form)).rejects.toThrow(
+      `REDIRECT:/dashboard/bokningar/${id}?maria_mail=uncertain&lang=en`,
+    );
+    expect(runtime.sendStatusEmail).not.toHaveBeenCalled();
+    expect(runtime.retryFinish).not.toHaveBeenCalled();
   });
 
   it("does not falsely claim email delivery when a Maria reschedule notification fails", async () => {

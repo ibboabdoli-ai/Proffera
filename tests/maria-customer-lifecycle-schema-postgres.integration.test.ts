@@ -226,6 +226,17 @@ function compileSql(parts: TemplateStringsArray, values: unknown[]): Query {
       [bookingId],
     );
     expect(event.rows[0]?.state).toBe("accepted");
+    // Actual portal cancellation must persist the exact notification revision
+    // used by the manager's duplicate-send prevention gate.
+    const revision = await db!.query<{event_revision:string;booking_revision:string}>(
+      `select (e.metadata->>'notice_revision')::timestamptz::text as event_revision,
+        date_trunc('milliseconds',b.updated_at)::text as booking_revision
+       from customer_events e join bookings b on b.id=e.booking_id
+       where e.booking_id=$1::uuid and e.event_type='status_change'
+         and e.metadata->>'source'='customer_portal'
+       order by e.created_at desc limit 1`,[bookingId],
+    );
+    expect(revision.rows[0]?.event_revision).toBe(revision.rows[0]?.booking_revision);
     expect(vi.mocked(sendBookingChangeEmails)).toHaveBeenCalledOnce();
   });
 
