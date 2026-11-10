@@ -89,14 +89,22 @@ function docker(args) {
     await db?.query("ROLLBACK");
   });
 
-  it("passes canonical 0072/0073/0074/0075 with real PostgreSQL catalog queries in a READ ONLY transaction", async () => {
+  it("passes canonical 0072/0073/0074/0075/0076 with real PostgreSQL catalog queries in a READ ONLY transaction", async () => {
     await db.query("BEGIN READ ONLY");
     const result = await inspect();
     expect(result.databaseReady).toBe(true);
     expect(result.blockers).toEqual([]);
     expect(result.appliedMigrations).toEqual(expect.arrayContaining([
-      "20261103_0072", "20261105_0073", "20261107_0074", "20261108_0075",
+      "20261103_0072", "20261105_0073", "20261107_0074", "20261108_0075", "20261110_0076",
     ]));
+  });
+
+  it("rejects missing 0076 ledger receipt against real PostgreSQL", async () => {
+    await db.query("BEGIN");
+    await db.query("delete from proffera_schema_migrations where migration_key='20261110_0076'");
+    const result = await inspect();
+    expect(result.databaseReady).toBe(false);
+    expect(result.blockers).toContain("missing_migration_20261110_0076");
   });
 
   it("accepts authorized fixed-price edits and rejects an out-of-bounds price in isolated PostgreSQL", async () => {
