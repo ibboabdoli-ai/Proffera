@@ -94,6 +94,57 @@ export async function inspectMariaProductionBookingDatabase(query) {
     }
   }
 
+  // IF NOT EXISTS can leave an incompatible existing table untouched.
+  // Never report release-ready if unique references or booking FK protection
+  // are missing, even when migration 0076 has a recorded receipt.
+  if (schema.booking_references === true && schema.reference_counters === true) {
+    const referenceIntegritySql = [
+      "select",
+      "(select count(*) from information_schema.columns where table_schema='public'",
+      "and table_name='maria_booking_reference_counters' and (",
+      "(column_name='day_key' and udt_name='text' and is_nullable='NO') or",
+      "(column_name='last_number' and udt_name='int8' and is_nullable='NO')",
+      ")) = 2 as reference_counter_columns,",
+      "(select count(*) from information_schema.columns where table_schema='public'",
+      "and table_name='maria_booking_references' and (",
+      "(column_name='booking_id' and udt_name='uuid' and is_nullable='NO') or",
+      "(column_name='day_key' and udt_name='text' and is_nullable='NO') or",
+      "(column_name='day_number' and udt_name='int8' and is_nullable='NO') or",
+      "(column_name='reference' and udt_name='text' and is_nullable='NO')",
+      ")) = 4 as booking_reference_columns,",
+      "exists (select 1 from pg_constraint c",
+      "where c.conrelid=to_regclass('public.maria_booking_reference_counters')",
+      "and c.contype='p' and c.conname='maria_booking_reference_counters_pkey') as reference_counter_pk,",
+      "exists (select 1 from pg_constraint c",
+      "where c.conrelid=to_regclass('public.maria_booking_references')",
+      "and c.contype='p' and c.conname='maria_booking_references_pkey') as booking_reference_pk,",
+      "exists (select 1 from pg_constraint c",
+      "where c.conrelid=to_regclass('public.maria_booking_references')",
+      "and c.contype='u' and c.conname='maria_booking_references_reference_key') as booking_reference_unique,",
+      "exists (select 1 from pg_constraint c",
+      "where c.conrelid=to_regclass('public.maria_booking_references')",
+      "and c.contype='u' and c.conname='maria_booking_reference_day_number_key') as booking_reference_day_unique,",
+      "exists (select 1 from pg_constraint c",
+      "where c.conrelid=to_regclass('public.maria_booking_references')",
+      "and c.confrelid=to_regclass('public.bookings')",
+      "and c.contype='f' and c.confdeltype='c'",
+      "and c.conname='maria_booking_references_booking_id_fkey') as booking_reference_booking_fk,",
+      "exists (select 1 from pg_constraint c",
+      "where c.conrelid=to_regclass('public.maria_booking_references')",
+      "and c.confrelid=to_regclass('public.maria_booking_reference_counters')",
+      "and c.contype='f'",
+      "and c.conname='maria_booking_references_day_key_fkey') as booking_reference_day_fk",
+    ].join(" ");
+    const integrity = (await query(referenceIntegritySql)).rows?.[0];
+    for (const key of [
+      "reference_counter_columns", "booking_reference_columns", "reference_counter_pk",
+      "booking_reference_pk", "booking_reference_unique", "booking_reference_day_unique",
+      "booking_reference_booking_fk", "booking_reference_day_fk",
+    ]) {
+      if (integrity?.[key] !== true) blockers.push("invalid_" + key);
+    }
+  }
+
   let appliedMigrations = [];
   if (schema.ledger === true) {
     const rows = await query("select migration_key from proffera_schema_migrations where migration_key in ('20261103_0072','20261105_0073','20261107_0074','20261108_0075','20261110_0076')");
