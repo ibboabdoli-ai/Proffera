@@ -2,6 +2,15 @@
 -- This additive migration does not update or renumber existing bookings.
 -- Production rollout REQUIRES separate explicit authorization and a DB backup.
 -- Apply this migration BEFORE deploying readers/writers of the new tables.
+-- ROLLBACK: after real reservations, retain BOTH reference tables permanently.
+-- Do not drop them or reset counters: customers may already hold short Swish
+-- messages in email and QR. Fix errors with additive forward migrations; roll
+-- back only application code while retaining stored payment references.
+-- ON DELETE CASCADE removes the mapping when a booking itself is deleted; never
+-- remove historical customer bookings to simplify rollback.
+-- Readers (Swish page, QR endpoint, status email and dashboard) fail closed if
+-- these tables are absent, including for existing confirmed bookings. This
+-- dependency requires migration-first deployment and a tested rollback plan.
 BEGIN;
 SET LOCAL lock_timeout = '5s';
 SET LOCAL statement_timeout = '30s';
