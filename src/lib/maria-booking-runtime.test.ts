@@ -115,6 +115,18 @@ describe("Maria Production readiness is independent and disabled by default", ()
     expect(await getMariaBookingReadiness()).toEqual({enabled:false});
   });
 
+  it("rejects missing Maria reference tables and a missing 0076 migration receipt", async () => {
+    enableProduction();
+    for (const missing of ["booking_references", "reference_counters"] as const) {
+      const query = stubSql([{ ...schema, [missing]: false }]);
+      expect(await getMariaBookingReadiness()).toEqual({ enabled: false });
+      expect(query).toHaveBeenCalledOnce();
+    }
+    const query = stubSql([schema], [schemaContract], [{ count: 3 }]);
+    expect(await getMariaBookingReadiness()).toEqual({ enabled: false });
+    expect(query).toHaveBeenCalledTimes(3);
+  });
+
   it("refuses missing published Maria workspace, non-SEK currency, or no entitlement", async () => {
     enableProduction();
     stubSql([schema], [schemaContract], [{count:4}], []);
