@@ -78,6 +78,7 @@ export const viewport: Viewport = {
   themeColor: "#0a2e63",
 };
 
+/** Select tenant-specific document shells; never render Proffera chat on a trusted Maria payment page. */
 export default async function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   const requestHeaders = await headers();
   const host = requestHeaders.get("host");
