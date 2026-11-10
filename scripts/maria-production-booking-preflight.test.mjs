@@ -15,7 +15,7 @@ const integrityReady = {
 
 function mockReadOnlyQuery({ schema = schemaReady, migrations = ["20261103_0072", "20261105_0073", "20261107_0074", "20261108_0075", "20261110_0076"],
   workspaceReady = true, priceOverride = null, hoursReady = true,
-  billingCurrency = "SEK", integrity = integrityReady } = {}) {
+  billingCurrency = "SEK", integrity = integrityReady, serviceRows = null } = {}) {
   const executed = [];
   async function query(sql, params) {
     const statement = sql.trim();
@@ -33,11 +33,11 @@ function mockReadOnlyQuery({ schema = schemaReady, migrations = ["20261103_0072"
         time_zone: "Europe/Stockholm", billing_currency: billingCurrency,
       }] : [] };
     }
-    if (statement.includes("from workspace_services")) return { rows: [
+    if (statement.includes("from workspace_services")) return { rows: serviceRows ?? [
       { public_slug: "maria-bridal-trial-2026", price_amount_minor: priceOverride === null ? 600000 : priceOverride,
-        price_type: "fixed", public_status: "published", is_active: true, duration_minutes: 180 },
+        price_type: "fixed", public_status: "published", is_active: true, duration_minutes: 180, maximum_advance_days: 365 },
       { public_slug: "maria-bridal-without-trial-2026", price_amount_minor: 500000,
-        price_type: "fixed", public_status: "published", is_active: true, duration_minutes: 180 },
+        price_type: "fixed", public_status: "published", is_active: true, duration_minutes: 180, maximum_advance_days: 365 },
     ] };
     if (statement.includes("from workspace_booking_hours")) return { rows: hoursReady ? [
       { weekday: 5, opens_at: "07:00:00", closes_at: "10:00:00", is_closed: false },
@@ -134,6 +134,46 @@ describe("Maria Production booking release is inspection-only", () => {
     }
     const missingOwner = await inspectMariaProductionBookingDatabase(mockReadOnlyQuery({ workspaceReady: false }).query);
     expect(missingOwner.blockers).toContain("maria_workspace_not_ready");
+  });
+
+  it("keeps release preflight ready after the owner hides 2026 and publishes 2027", async () => {
+    const future = {
+      public_slug: "maria-bridal-trial-2027",
+      price_amount_minor: 610000, price_type: "fixed",
+      is_active: true, public_status: "published",
+      duration_minutes: 180, maximum_advance_days: 365,
+    };
+    const result = await inspectMariaProductionBookingDatabase(mockReadOnlyQuery({
+      serviceRows: [future],
+    }).query);
+    expect(result.databaseReady).toBe(true);
+    expect(result.blockers).toEqual([]);
+    const noPublishedYear = await inspectMariaProductionBookingDatabase(mockReadOnlyQuery({
+      serviceRows: [],
+    }).query);
+    expect(noPublishedYear.databaseReady).toBe(false);
+    expect(noPublishedYear.blockers).toContain("maria_no_published_services");
+  });
+
+  it("rejects unsafe active packages in future years even when 2026 remains valid", async () => {
+    const older = [
+      {public_slug:"maria-bridal-trial-2026",price_amount_minor:600000,
+        price_type:"fixed",duration_minutes:180,maximum_advance_days:365},
+      {public_slug:"maria-bridal-without-trial-2026",price_amount_minor:500000,
+        price_type:"fixed",duration_minutes:180,maximum_advance_days:365},
+    ];
+    for (const invalid of [
+      {price_amount_minor:0,price_type:"fixed",duration_minutes:180,maximum_advance_days:365},
+      {price_amount_minor:550000,price_type:"quote",duration_minutes:180,maximum_advance_days:365},
+      {price_amount_minor:550000,price_type:"fixed",duration_minutes:0,maximum_advance_days:365},
+    ]) {
+      const service = {...invalid,public_slug:"maria-bridal-trial-2028"};
+      const result = await inspectMariaProductionBookingDatabase(mockReadOnlyQuery({
+        serviceRows: [...older, service],
+      }).query);
+      expect(result.databaseReady).toBe(false);
+      expect(result.blockers).toContain("service_not_ready_maria-bridal-trial-2028");
+    }
   });
 
   it("requires an open weekend window", async () => {
