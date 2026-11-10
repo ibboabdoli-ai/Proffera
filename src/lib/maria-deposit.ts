@@ -15,13 +15,16 @@ const uuidPattern = /^[a-f\d]{8}-[a-f\d]{4}-[a-f\d]{4}-[a-f\d]{4}-[a-f\d]{12}$/i
  */
 export function mariaBookingNumber(bookingId: string, storedReference?: string) {
   if (!uuidPattern.test(bookingId)) throw new Error("INVALID_MARIA_BOOKING_ID");
+  const legacy = `MBM-${bookingId.replaceAll("-", "").toUpperCase()}`;
   if (storedReference !== undefined) {
-    if (!/^MBM-[0-9]{10,17}$/.test(storedReference)) {
+    // Existing confirmed payments retain their original UUID-based message.
+    // Only accept that exact UUID for this booking, not another customer's ID.
+    if (storedReference !== legacy && !/^MBM-[0-9]{10,17}$/.test(storedReference)) {
       throw new Error("INVALID_MARIA_BOOKING_REFERENCE");
     }
     return storedReference;
   }
-  return `MBM-${bookingId.replaceAll("-", "").toUpperCase()}`;
+  return legacy;
 }
 
 /** Swish C2B format: receiver, amount in SEK, reference and locked fields. */
