@@ -80,6 +80,7 @@ describe("isolated Maria Production database proof route", () => {
     vi.stubEnv("VERCEL_PROJECT_ID", "wrong-vercel-project");
     expect((await GET(request())).status).toBe(409);
     expect(mock.connect).not.toHaveBeenCalled();
+    expect(mock.access).not.toHaveBeenCalled();
   });
 
   it("never falls back to another database when DATABASE_URL points elsewhere", async () => {
@@ -89,6 +90,7 @@ describe("isolated Maria Production database proof route", () => {
     expect(response.status).toBe(409);
     expect(await response.json()).toEqual({ targetVerified: false });
     expect(mock.connect).not.toHaveBeenCalled();
+    expect(mock.access).not.toHaveBeenCalled();
   });
 
   it("uses one SELECT in a READ ONLY transaction and returns only a boolean", async () => {
