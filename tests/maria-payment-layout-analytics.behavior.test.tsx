@@ -73,6 +73,22 @@ describe("Maria Preview payment shell analytics privacy", () => {
     expect(html).not.toContain("WEB_VITALS_RENDERED");
   });
 
+  it.each(["makeupbymaria.se", "www.makeupbymaria.se", "MAKEUPBYMARIA.SE", "makeupbymaria.se:443", "makeupbymaria.se."])(
+    "uses the isolated Maria payment shell for trusted host variant %s", async hostVariant => {
+      vi.stubEnv("VERCEL_ENV","production");
+      vi.stubEnv("PROFFERA_MARIA_PUBLIC_SITE_ENABLED","true");
+      const html=await renderRoot(true,hostVariant);
+      expect(html).not.toContain("proffera-shell");
+      expect(html).not.toContain("PROFFERA_CHAT_RENDERED");
+    },
+  );
+  it("keeps ordinary shell if Maria Public Site flag is not enabled",async()=>{
+    vi.stubEnv("VERCEL_ENV","production");
+    vi.stubEnv("PROFFERA_MARIA_PUBLIC_SITE_ENABLED","false");
+    const html=await renderRoot(true,"makeupbymaria.se");
+    expect(html).toContain("proffera-shell");
+  });
+
   it("never trusts a standalone marker on the Production Proffera host", async () => {
     vi.stubEnv("VERCEL_ENV", "production");
     vi.stubEnv("PROFFERA_MARIA_PUBLIC_SITE_ENABLED", "true");
