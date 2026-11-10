@@ -72,8 +72,9 @@ export default async function MariaSiteDashboardPage({ searchParams }: { searchP
     const without = savedPackage(year, "without-trial");
     return !trial && !without ? year <= 2028 : Boolean(trial?.isActive || without?.isActive);
   };
+  // Match public config: one active published package makes its year visible.
   const isYearPublic = (year: number) =>
-    (["trial", "without-trial"] as const).every(kind => {
+    (["trial", "without-trial"] as const).some(kind => {
       const service = savedPackage(year, kind);
       return service?.isActive === true && service?.publicStatus === "published";
     });
@@ -132,7 +133,8 @@ export default async function MariaSiteDashboardPage({ searchParams }: { searchP
         </form>
         <div className="mt-4 space-y-4">
           {displayedYears.map((year) => (
-            <form key={year} action={contentOnly ? saveMariaProductionYearAction : saveMariaYearAction} className="rounded-xl border border-[#e6d7db] bg-[#fefafa] p-4 sm:p-5">
+            <div key={year} className="rounded-xl border border-[#e6d7db] bg-[#fefafa] p-4 sm:p-5">
+            <form action={contentOnly ? saveMariaProductionYearAction : saveMariaYearAction}>
               <input type="hidden" name="year" value={year} />
                {!contentOnly && (savedPackage(year, "trial") || savedPackage(year, "without-trial"))
                  ? <input type="hidden" name="enabled_original" value={String(isYearEnabled(year))} />
@@ -191,25 +193,28 @@ export default async function MariaSiteDashboardPage({ searchParams }: { searchP
               <button type="submit" className="mt-4 min-h-11 rounded-lg bg-[#845363] px-5 text-xs font-bold text-white hover:bg-[#6d3e4e]">
                 Spara {year}
               </button>
-              {contentOnly ? (
-                <div className="mt-5 flex flex-wrap items-center justify-between gap-3 border-t border-[#e6d7db] pt-4">
+            </form>
+              {contentOnly && access.role === "owner" ? (
+                <form action={setMariaProductionYearVisibilityAction}
+                  className="mt-5 flex flex-wrap items-center justify-between gap-3 border-t border-[#e6d7db] pt-4">
+                  <input type="hidden" name="year" value={year} />
+                  <input type="hidden" name="visibility" value={isYearPublic(year) ? "hide" : "show"} />
                   <div>
                     <p className="text-xs font-bold text-[#634853]">
                       {isYearPublic(year) ? "Visas på bokningssidan" : "Dolt på bokningssidan"}
                     </p>
                     <p className="mt-1 text-xs text-[#795464]">
-                      Publicera först när båda paketen har sparade fasta priser och giltig behandlingstid.
-                      Dolda år bevarar tidigare bokningar.
+                      Spara pris och texter först, och välj sedan vilka år som ska synas.
+                      Dolda år behåller befintliga bokningar och betalningar.
                     </p>
                   </div>
-                  <input type="hidden" name="visibility" value={isYearPublic(year) ? "hide" : "show"} />
-                  <button type="submit" formAction={setMariaProductionYearVisibilityAction}
+                  <button type="submit"
                     className="min-h-11 rounded-lg border border-[#845363] bg-white px-4 py-2 text-xs font-bold text-[#704858]">
                     {isYearPublic(year) ? `Dölj ${year}` : `Visa ${year} på webbplatsen`}
                   </button>
-                </div>
+                </form>
               ) : null}
-            </form>
+            </div>
           ))}
         </div>
         <p className="mt-3 text-xs text-[#705f65]">
