@@ -15,22 +15,27 @@ type Props = {
 /** Maria Preview only. Parent pages must check the Maria workspace before rendering. */
 export function MariaSwishPaymentControl({ bookingId, bookingStatus, readOk, entry, returnTo, isEnglish }: Props) {
   const paid = entry?.state === "paid";
-  const reference = mariaBookingNumber(bookingId, entry?.reference);
+  // A failed status read cannot prove which payment reference was persisted.
+  const reference = readOk ? mariaBookingNumber(bookingId, entry?.reference) : null;
   const canMarkPaid = bookingStatus === "confirmed" || bookingStatus === "completed";
   return (
     <section className="min-w-0 rounded-xl border border-[#e9d6df] bg-[#fff9f8] p-3 sm:p-4">
-      <p className="text-sm font-semibold text-[#704858]">{isEnglish ? "Booking number · Swish" : "Bokningsnummer · Swish"}</p>
-      <div className="mt-2 flex flex-wrap items-center gap-2">
-        <code className="select-all break-all font-mono text-sm font-semibold text-[#49313c]">
-          {reference}
-        </code>
-        <MariaBookingReferenceCopy key={bookingId} reference={reference} isEnglish={isEnglish} />
-      </div>
-      <p className="mt-2 text-xs leading-5 text-[#76545f]">
-        {isEnglish
-          ? "Compare this booking number with the Swish payment message."
-          : "Jämför bokningsnumret med Meddelande i Swish."}
-      </p>
+      {reference ? (
+        <>
+          <p className="text-sm font-semibold text-[#704858]">{isEnglish ? "Booking number · Swish" : "Bokningsnummer · Swish"}</p>
+          <div className="mt-2 flex flex-wrap items-center gap-2">
+            <code className="select-all break-all font-mono text-sm font-semibold text-[#49313c]">
+              {reference}
+            </code>
+            <MariaBookingReferenceCopy key={bookingId} reference={reference} isEnglish={isEnglish} />
+          </div>
+          <p className="mt-2 text-xs leading-5 text-[#76545f]">
+            {isEnglish
+              ? "Compare this booking number with the Swish payment message."
+              : "Jämför bokningsnumret med Meddelande i Swish."}
+          </p>
+        </>
+      ) : null}
       {!readOk ? (
         <p role="alert" className="mt-3 text-sm font-semibold text-[#a33b2f]">
           {isEnglish ? "Cannot read payment status. Try again later." : "Betalningsstatus kunde inte läsas. Försök igen."}
