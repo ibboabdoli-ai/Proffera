@@ -41,6 +41,11 @@ describe("Maria Swish booking reference and deposit policy", () => {
     const bookingId = "c0eb47ac-cecf-4bd4-98c3-1b8b6deeb2ff";
     const reference = "MBM-2026111001";
     expect(mariaBookingNumber(bookingId, reference)).toBe(reference);
+    // Legacy references remain usable only for their original booking ID.
+    const original = mariaBookingNumber(bookingId);
+    expect(mariaBookingNumber(bookingId, original)).toBe(original);
+    expect(() => mariaBookingNumber("11111111-2222-4333-8444-555555555555", original))
+      .toThrow("INVALID_MARIA_BOOKING_REFERENCE");
     expect(mariaSwishQrPayload(bookingId, reference)).toBe(
       "C1235818653;2000,00;MBM-2026111001;0"
     );
