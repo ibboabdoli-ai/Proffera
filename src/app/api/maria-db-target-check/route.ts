@@ -54,11 +54,8 @@ export async function GET(request: Request) {
   if (!tokenAccepted(request.headers.get("x-maria-db-proof"),
     process.env.PROFFERA_MARIA_DB_PROOF_TOKEN)) return denied();
 
-  const access = await getUserWorkspaceAccess();
-  if (!access.ok || access.workspaceSlug !== "makeup-by-maria" || access.role !== "owner") {
-    return denied();
-  }
-
+  // Validate the destination BEFORE calling any DB-backed auth/session helper.
+  // Even a wrong URL must never be used for membership lookup.
   // Uses exactly the same precedence rules as getSql() in Production.
   const source = resolveDatabaseUrl();
   const destinationMatched = matchesMariaProductionDatabaseUrl(source);
@@ -67,6 +64,12 @@ export async function GET(request: Request) {
     && (!process.env.VERCEL_PROJECT_ID
       || process.env.VERCEL_PROJECT_ID === EXPECTED_MARIA_TARGET.vercelProjectId);
   if (!destinationMatched || !hintsMatched) return proofFailed();
+
+  // Only consult DB-backed session/membership after proving its destination.
+  const access = await getUserWorkspaceAccess();
+  if (!access.ok || access.workspaceSlug !== "makeup-by-maria" || access.role !== "owner") {
+    return denied();
+  }
 
   const connectionString = resolveNodePostgresDatabaseUrl();
   if (!connectionString) return proofFailed();
