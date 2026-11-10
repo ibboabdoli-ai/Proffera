@@ -12,7 +12,7 @@ import { WebVitalsReporter } from "@/components/performance/web-vitals-reporter"
 import { resolvePostHogConfig } from "@/lib/analytics/posthog-privacy";
 import { siteConfig } from "@/lib/site";
 import { MARIA_PAYMENT_SHELL_HEADER } from "@/lib/maria-payment-standalone";
-import { hostnameFromHostHeader, isAnalyticsPlatformHost, isPlatformHost, isPrimeViewHost } from "@/lib/public-site-domains";
+import { isMariaHost, isAnalyticsPlatformHost, isPlatformHost, isPrimeViewHost } from "@/lib/public-site-domains";
 
 const hankenGrotesk = Hanken_Grotesk({
   subsets: ["latin"],
@@ -89,7 +89,7 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
   const mariaPaymentStandalone = requestHeaders.get(MARIA_PAYMENT_SHELL_HEADER) === "1"
     && ((process.env.VERCEL_ENV === "preview" && isPlatformSite)
       || (process.env.VERCEL_ENV === "production"
-        && hostnameFromHostHeader(host) === "makeupbymaria.se"
+        && isMariaHost(host)
         && process.env.PROFFERA_MARIA_PUBLIC_SITE_ENABLED === "true"));
   const postHogConfig = mariaPaymentStandalone ? null : resolvePostHogConfig();
   const shouldRenderAnalytics =
