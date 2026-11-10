@@ -6,6 +6,7 @@ const runtime = vi.hoisted(() => ({
   refIndex: 0,
   refs: new Map<number, { current: unknown }>(),
   routeSearch: "",
+  nearbyCookieValue: null as string | null,
   redirectedTo: null as string | null,
   dispatched: [] as unknown[],
 }));
@@ -64,7 +65,7 @@ vi.mock("next/navigation", () => ({
 }));
 vi.mock("next/headers", () => ({
   headers: async () => new Headers(),
-  cookies: async () => ({ get: () => undefined }),
+  cookies: async () => ({ get: (name: string) => name === "nearby" && runtime.nearbyCookieValue ? { value: runtime.nearbyCookieValue } : undefined }),
 }));
 vi.mock("lucide-react", () => ({
   AlertCircle: () => null,
@@ -153,7 +154,7 @@ vi.mock("@/components/company-directory/public-directory-search-form", () => ({ 
 vi.mock("@/lib/company-directory-public-search", () => ({ normalizeDirectorySearchSort: () => "relevance" }));
 vi.mock("@/lib/company-directory-service-taxonomy", () => ({ DIRECTORY_SERVICES: [] }));
 vi.mock("@/lib/public-directory-nearby", () => ({
-  parsePublicDirectoryNearbyValue: () => null,
+  parsePublicDirectoryNearbyValue: (value: string | undefined) => value === "valid-private-nearby" ? { latitude: "59.195", longitude: "17.625" } : null,
   publicDirectoryNearbyCookieName: () => "nearby",
 }));
 
@@ -347,6 +348,7 @@ function findButton(root: unknown, label: string) {
 beforeEach(() => {
   vi.clearAllMocks();
   runtime.routeSearch = "";
+  runtime.nearbyCookieValue = null;
   runtime.redirectedTo = null;
   clearCaptured();
   resetHooks();
@@ -456,33 +458,68 @@ describe("Marketplace launch-funnel analytics contract", () => {
     });
   });
 
-  it("emits discovery once for each distinct completed search and deduplicates rerenders", async () => {
+  it("emits discovery once per completed nearby search and deduplicates rerenders", async () => {
+    runtime.nearbyCookieValue = "valid-private-nearby";
     mocks.directorySearch
-      .mockResolvedValueOnce({ totalCount: 7, nearbyEnabled: false, nearbyRequested: false, radiusKm: 25 })
-      .mockResolvedValueOnce({ totalCount: 2, nearbyEnabled: false, nearbyRequested: false, radiusKm: 25 });
+      .mockResolvedValueOnce({ totalCount: 7, nearbyEnabled: true, nearbyRequested: true, radiusKm: 25 })
+      .mockResolvedValueOnce({ totalCount: 2, nearbyEnabled: true, nearbyRequested: true, radiusKm: 25 });
 
     const firstTree = await PublicDirectorySearchPage({
       locale: "sv",
-      searchParams: Promise.resolve({ service: "cleaning" }),
+      searchParams: Promise.resolve({ service: "cleaning", nearby: "1", radius: "25" }),
     });
     const firstSignal = findElements(firstTree, MarketplaceFunnelSignal)[0];
+    expect(firstSignal).toBeDefined();
     resetHooks();
     invokeElement(firstSignal);
 
     const secondTree = await PublicDirectorySearchPage({
       locale: "sv",
-      searchParams: Promise.resolve({ service: "electrician" }),
+      searchParams: Promise.resolve({ service: "electrician", nearby: "1", radius: "25" }),
     });
     const secondSignal = findElements(secondTree, MarketplaceFunnelSignal)[0];
+    expect(secondSignal).toBeDefined();
     resetHooks();
     invokeElement(secondSignal);
     resetHooks();
     invokeElement(secondSignal);
 
+    expect(mocks.directorySearch).toHaveBeenCalledTimes(2);
+    expect(mocks.directorySearch).toHaveBeenCalledWith(expect.objectContaining({
+      latitude: "59.195",
+      longitude: "17.625",
+      radiusKm: "25",
+    }));
     expect(capturedDetails()).toEqual([
       { event: "marketplace_discovery_search_completed", properties: { locale: "sv", result_band: "6-20" } },
       { event: "marketplace_discovery_search_completed", properties: { locale: "sv", result_band: "1-5" } },
     ]);
+  });
+
+  it("does not query companies or emit discovery without a current private location", async () => {
+    const missing = await PublicDirectorySearchPage({
+      locale: "sv",
+      searchParams: Promise.resolve({ service: "cleaning", nearby: "1", radius: "25" }),
+    });
+    expect(findElements(missing, MarketplaceFunnelSignal)).toHaveLength(0);
+    expect(mocks.directorySearch).not.toHaveBeenCalled();
+
+    runtime.nearbyCookieValue = "expired-private-nearby";
+    const expired = await PublicDirectorySearchPage({
+      locale: "sv",
+      searchParams: Promise.resolve({ service: "cleaning", nearby: "1", radius: "25" }),
+    });
+    expect(findElements(expired, MarketplaceFunnelSignal)).toHaveLength(0);
+    expect(mocks.directorySearch).not.toHaveBeenCalled();
+
+    runtime.nearbyCookieValue = "valid-private-nearby";
+    const legacyCityOnly = await PublicDirectorySearchPage({
+      locale: "sv",
+      searchParams: Promise.resolve({ service: "cleaning", location: "Stockholm" }),
+    });
+    expect(findElements(legacyCityOnly, MarketplaceFunnelSignal)).toHaveLength(0);
+    expect(mocks.directorySearch).not.toHaveBeenCalled();
+    expect(capturedDetails()).toHaveLength(0);
   });
 
   it("blocks rapid quote-request double submit until the persisted request settles", async () => {
