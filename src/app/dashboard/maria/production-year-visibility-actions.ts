@@ -8,7 +8,7 @@ import { isMariaProductionYearEditorReady } from "@/lib/maria-production-year-ed
 import { canManageWorkspaceSettings, getUserWorkspaceAccess } from "@/lib/workspace-access";
 
 /**
- * Only Maria's owner/admin can publish or hide an EXISTING complete year.
+ * Only Maria's OWNER may publish or hide an EXISTING complete year.
  * Never delete a service or touch existing bookings, deposits or schedule.
  * Create/edit packages with the existing content-only year editor first.
  */
@@ -16,7 +16,7 @@ export async function setMariaProductionYearVisibilityAction(formData: FormData)
   const access = await getUserWorkspaceAccess();
   if (process.env.VERCEL_ENV !== "production"
     || !access.ok || access.workspaceSlug !== "makeup-by-maria"
-    || !canManageWorkspaceSettings(access)) {
+    || !canManageWorkspaceSettings(access) || access.role !== "owner") {
     redirect("/dashboard");
   }
   if (!(await isMariaProductionYearEditorReady())) {
