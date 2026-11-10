@@ -1342,12 +1342,13 @@ function compileSql(strings: TemplateStringsArray, values: unknown[]): Query {
     const before=(await count()).rows[0]?.count;
     try {
       for(const invalid of [
-        {kind:"quote",price:null},
-        {kind:"fixed",price:0},
+        {kind:"quote",price:null,duration:180},
+        {kind:"fixed",price:0,duration:180},
+        {kind:"fixed",price:600000,duration:1500},
       ]) {
         await db!.query(
-          "update workspace_services set price_type=$3,price_amount_minor=$4 where workspace_id=$1 and public_slug=$2",
-          [workspaceId,slug,invalid.kind,invalid.price],
+          "update workspace_services set price_type=$3,price_amount_minor=$4,duration_minutes=$5 where workspace_id=$1 and public_slug=$2",
+          [workspaceId,slug,invalid.kind,invalid.price,invalid.duration],
         );
         await expect(setMariaProductionYearVisibilityAction(form))
           .rejects.toThrow("TEST_REDIRECT:/dashboard/maria?year=2030&error=visibility#priser");
