@@ -1,10 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { resolveAdminArea } from "./lib/admin-navigation";
+import { isMariaPaymentStandalonePath, MARIA_PAYMENT_SHELL_HEADER } from "./lib/maria-payment-standalone";
 import { resolvePublicRequestLocale } from "./lib/public-locale";
 import { resolvePublicCustomDomain } from "./lib/public-site-domain-routing";
 import {
+  hostnameFromHostHeader,
   isPlatformHost,
+  isMariaHost,
   isPrimeViewHost,
   isPublicPageRouteAllowedForHost,
 } from "./lib/public-site-domains";
@@ -82,6 +85,8 @@ function resolveRequestId(request: NextRequest) {
 
 function requestHeadersWithRequestId(request: NextRequest, requestId: string) {
   const requestHeaders = new Headers(request.headers);
+  // Never trust a client-supplied shell override on dashboards or other routes.
+  requestHeaders.delete(MARIA_PAYMENT_SHELL_HEADER);
   requestHeaders.set(REQUEST_ID_HEADER, requestId);
   return requestHeaders;
 }
@@ -128,6 +133,10 @@ function allowAdminWithPath(request: NextRequest, requestId: string) {
 function allowPublicPath(request: NextRequest, requestId: string) {
   const requestHeaders = requestHeadersWithRequestId(request, requestId);
   requestHeaders.delete("x-proffera-locale");
+  // Only the exact Maria Preview payment URL gets a standalone brand shell.
+  if (process.env.VERCEL_ENV === "preview" && isMariaPaymentStandalonePath(request.nextUrl.pathname)) {
+    requestHeaders.set(MARIA_PAYMENT_SHELL_HEADER, "1");
+  }
 
   const locale = resolvePublicRequestLocale(
     request.nextUrl.pathname,
@@ -146,9 +155,48 @@ export async function proxy(request: NextRequest) {
   const { pathname, search } = request.nextUrl;
   const host = request.headers.get("host") ?? request.nextUrl.host;
   const requestId = resolveRequestId(request);
+  // A dotted DNS apex has a different browser Origin from the canonical host.
+  // Redirect before strict Production booking-origin validation rejects POSTs.
+  const dottedMariaApex = hostnameFromHostHeader(host) === "makeupbymaria.se"
+    && (host.trim().toLowerCase().split(":", 1)[0] === "makeupbymaria.se."
+      || request.nextUrl.hostname.toLowerCase() === "makeupbymaria.se.");
+
+  // Canonicalize public Maria pages BEFORE rendering or posting bookings.
+  // The www origin is deliberately not accepted by the Production booking API.
+  if (process.env.VERCEL_ENV === "production"
+    && process.env.PROFFERA_MARIA_PUBLIC_SITE_ENABLED === "true"
+    && (hostnameFromHostHeader(host) === "www.makeupbymaria.se" || dottedMariaApex)
+    && isPublicPageRouteAllowedForHost(host, pathname)) {
+    const canonical = request.nextUrl.clone();
+    canonical.protocol = "https:";
+    canonical.hostname = "makeupbymaria.se";
+    canonical.port = "";
+    return redirectWithRequestId(canonical, requestId);
+  }
 
   if (!isPublicPageRouteAllowedForHost(host, pathname)) {
     return notFound(requestId);
+  }
+
+  // Direct demo HTML keeps its own noindex response, while the branded root
+  // rewrites to the same template without inheriting demo-only metadata.
+  // Maria hosts cannot request these internal HTML paths directly.
+  if (pathname === "/demo/makeup-by-maria-v2.html" || pathname === "/demo/makeup-by-maria.html") {
+    const response = allowPublicPath(request, requestId);
+    response.headers.set("X-Robots-Tag", NOINDEX_VALUE);
+    return response;
+  }
+
+  // Branded landing is explicitly gated and independent of real bookings.
+  // Never redirect the existing holding-page domain during preparation.
+  if (isMariaHost(host) && pathname === "/") {
+    if (process.env.VERCEL_ENV !== "production"
+      || process.env.PROFFERA_MARIA_PUBLIC_SITE_ENABLED !== "true") {
+      return notFound(requestId);
+    }
+    const url = request.nextUrl.clone();
+    url.pathname = "/demo/makeup-by-maria-v2.html";
+    return rewriteWithRequestId(request, url, requestId);
   }
 
   // PrimeView keeps its bespoke public site while generic customer domains use
@@ -229,5 +277,9 @@ export const config = {
   matcher: [
     "/((?!api|_next/static|_next/image|favicon.ico|.*\\..*).*)",
     "/api/widget-config",
+    // Explicit HTML matcher entries prevent dotted static demo paths bypassing
+    // the Maria branded-host allowlist (other static assets remain excluded).
+    "/demo/makeup-by-maria.html",
+    "/demo/makeup-by-maria-v2.html",
   ],
 };

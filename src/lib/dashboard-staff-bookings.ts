@@ -75,6 +75,11 @@ export async function getStaffBookingAssignments(): Promise<StaffBookingAssignme
 
 export async function assignStaffToBooking(bookingId: string, staffId: string) {
   const access = await requireManager();
+  // Maria's Production workspace stays read-only until the separate launch
+  // authorization. Guard the shared writer, not just the staff-booking UI.
+  if (access.workspaceSlug === "makeup-by-maria" && process.env.VERCEL_ENV === "production") {
+    throw new Error("Maria booking assignments are disabled in Production");
+  }
   const sql = neon(connectionString!);
   const marketRows = await sql`
     select time_zone

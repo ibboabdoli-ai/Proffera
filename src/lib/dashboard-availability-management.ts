@@ -55,6 +55,11 @@ export async function getDashboardAvailabilityBlocks(): Promise<DashboardAvailab
 
 export async function deleteDashboardAvailabilityBlock(blockId: string) {
   const access = await requireManagerAccess();
+  // Maria Production remains read-only until the separately authorized launch.
+  // Guard the server writer because the generic deletion action is directly callable.
+  if (access.workspaceSlug === "makeup-by-maria" && process.env.VERCEL_ENV === "production") {
+    throw new Error("Maria availability block deletion is disabled in Production");
+  }
   const sql = neon(connectionString!);
   const rows = await sql`
     delete from bookings

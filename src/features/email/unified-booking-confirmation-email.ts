@@ -1,6 +1,10 @@
 import "server-only";
 
+import { resolveBrevoApiKey } from "@/lib/email-runtime-config";
+
 import type { WorkspaceTimeZone } from "@/lib/workspace-market";
+import { bookingDateLocale } from "@/lib/booking-date-locale";
+import { getMariaBookingPortalBase, isMariaBookingRecipientAllowed } from "@/lib/maria-preview-customer-safety";
 
 type Input = {
   customerName: string;
@@ -15,7 +19,8 @@ type Input = {
   timeZone?: WorkspaceTimeZone;
   portalUrl: string;
   rescheduleUrl: string;
-  language?: "sv" | "en";
+  language?: "sv" | "en" | "ar";
+  branding?: "makeup-by-maria";
 };
 
 type BrevoResponse = {
@@ -36,31 +41,58 @@ function escapeHtml(value: string) {
 }
 
 function parseSender(value: string) {
-  const match = value.match(/^(.+?)\s*<([^>]+)>$/);
+  const match = value.trim().match(/^(.+?)\s*<([^>]+)>$/);
   if (!match) return { name: "Proffera", email: value.trim() };
   return { name: match[1].trim(), email: match[2].trim() };
 }
 
-function formatBookingTime(value: string, timeZone: WorkspaceTimeZone = "Europe/Stockholm", language: "sv" | "en" = "sv") {
+function formatBookingTime(value: string, timeZone: WorkspaceTimeZone = "Europe/Stockholm", language: "sv" | "en" | "ar" = "sv") {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
-  return new Intl.DateTimeFormat(language === "en" ? "en-GB" : "sv-SE", {
+  return new Intl.DateTimeFormat(bookingDateLocale(language), {
     timeZone,
     dateStyle: "full",
     timeStyle: "short",
   }).format(date);
 }
 
+/** Build localized booking-confirmation email content without sending messages. */
 export function buildUnifiedBookingConfirmationEmail(input: Input) {
-  const language = input.language ?? (input.companyName.trim().toLowerCase() === "primeview window care" ? "en" : "sv");
+  // Arabic confirmation copy is available for Maria; other brands use the
+  // English fallback so message text and formatted dates share one locale.
+  const language = input.language === "ar" && input.branding !== "makeup-by-maria"
+    ? "en"
+    : input.language ?? (input.companyName.trim().toLowerCase() === "primeview window care" ? "en" : "sv");
   const isEnglish = language === "en";
+  const isArabic = language === "ar" && input.branding === "makeup-by-maria";
+  const isMaria = input.branding === "makeup-by-maria";
+  const isPrimeView = !isMaria && input.companyName.trim().toLowerCase() === "primeview window care";
+  const mariaLogoUrl = isMaria ? new URL("/demo/makeup-by-maria/assets/maria-client-logo.jpg", input.portalUrl).toString() : "";
+  const mariaEmailLogo = isMaria
+    ? `<div style="background:#fcfaf8;text-align:center;padding:18px 20px;border-bottom:1px solid #e9dedc;"><img src="${escapeHtml(mariaLogoUrl)}" alt="Makeup by Maria" width="215" height="215" style="display:block;width:215px;max-width:100%;height:auto;margin:auto;border-radius:9px;" /></div>`
+    : "";
   const start = formatBookingTime(input.startsAt, input.timeZone, language);
   const end = formatBookingTime(input.endsAt, input.timeZone, language);
-  const subject = isEnglish
+  const subject = isArabic ? `تم استلام طلب حجزك – ${input.companyName}` : isEnglish
     ? `Booking request received – ${input.companyName}`
     : `Bokningsförfrågan mottagen – ${input.companyName}`;
 
-  const text = isEnglish
+  const text = isArabic
+    ? [
+        `مرحبًا ${input.customerName}،`, "",
+        `لقد استلمنا طلب حجزك لدى ${input.companyName}.`, "",
+        `الخدمة: ${input.service}`,
+        input.address ? `العنوان: ${input.address}` : "",
+        input.postcode ? `الرمز البريدي: ${input.postcode}` : "",
+        `البداية: ${start}`, `النهاية: ${end}`,
+        input.city ? `المدينة: ${input.city}` : "", "",
+        "ستؤكد ماريا الموعد بشكل منفصل.",
+        "يمكنك عرض الحجز أو تغيير موعده أو إلغاؤه من الرابط الشخصي:",
+        input.portalUrl, "", "تغيير الموعد مباشرة:", input.rescheduleUrl, "",
+        "هذه الروابط شخصية، يُرجى عدم مشاركتها.", "",
+        "مع أطيب التحيات", input.companyName, "Powered by Proffera",
+      ].filter(Boolean).join("\n")
+    : isEnglish
     ? [
         `Hello ${input.customerName},`,
         "",
@@ -112,18 +144,45 @@ export function buildUnifiedBookingConfirmationEmail(input: Input) {
         "Powered by Proffera",
       ].filter(Boolean).join("\n");
 
-  const html = isEnglish ? `
+  const html = isArabic ? `
+    <div lang="ar" dir="rtl" style="direction:rtl;text-align:right;font-family:Arial,sans-serif;line-height:1.8;color:#352a2c;max-width:640px;margin:0 auto">
+      <div style="border:1px solid #e9dedc;border-radius:18px;overflow:hidden;background:#fff">
+        ${mariaEmailLogo}
+        <div style="background:#845363;color:#fff;padding:22px 26px"><small>طلب حجز</small><h1 style="margin:6px 0 0;font-size:24px;color:#fff">${escapeHtml(input.companyName)}</h1></div>
+        <div style="padding:24px">
+          <p>مرحبًا ${escapeHtml(input.customerName)}،</p>
+          <p>تم استلام طلب حجزك. ستؤكد <strong>${escapeHtml(input.companyName)}</strong> الموعد بشكل منفصل.</p>
+          <ul>
+            <li><strong>الخدمة:</strong> ${escapeHtml(input.service)}</li>
+            ${input.address ? `<li><strong>العنوان:</strong> ${escapeHtml(input.address)}</li>` : ""}
+            ${input.postcode ? `<li><strong>الرمز البريدي:</strong> ${escapeHtml(input.postcode)}</li>` : ""}
+            <li><strong>البداية:</strong> ${escapeHtml(start)}</li>
+            <li><strong>النهاية:</strong> ${escapeHtml(end)}</li>
+            ${input.city ? `<li><strong>المدينة:</strong> ${escapeHtml(input.city)}</li>` : ""}
+          </ul>
+          <h2 style="font-size:20px">إدارة حجزك</h2>
+          <p>يمكنك عرض الحجز أو تغيير موعده أو إلغاؤه دون إنشاء حساب.</p>
+          <p><a href="${escapeHtml(input.portalUrl)}" style="display:inline-block;border-radius:10px;background:#845363;color:#fff;padding:12px 18px;text-decoration:none">إدارة الحجز</a></p>
+          <p><a href="${escapeHtml(input.rescheduleUrl)}" style="display:inline-block;color:#845363;margin-inline-end:14px">تغيير الموعد</a><a href="${escapeHtml(input.portalUrl)}" style="color:#9d3429">إلغاء الحجز</a></p>
+          <p style="font-size:13px;color:#826f78">هذه الروابط شخصية، يُرجى عدم مشاركتها.</p>
+          <p>مع أطيب التحيات<br><strong>${escapeHtml(input.companyName)}</strong></p>
+        </div>
+      </div>
+      <p style="text-align:center;font-size:12px;color:#867681">${escapeHtml(input.companyName)} · Powered by Proffera</p>
+    </div>
+  ` : isEnglish ? `
     <div style="font-family:Arial,sans-serif;line-height:1.6;color:#0b2a4a;max-width:640px;margin:0 auto;">
       <div style="border:1px solid #d9e4ef;border-radius:20px;overflow:hidden;background:#ffffff;box-shadow:0 10px 30px rgba(11,42,74,.08);">
-        <div style="background:#06183b;color:#ffffff;padding:22px 28px;">
+        ${mariaEmailLogo}
+         <div style="background:${isMaria ? "#845363" : "#06183b"};color:#ffffff;padding:22px 28px;">
           <table role="presentation" style="width:100%;border-collapse:collapse;"><tr>
-            <td style="width:58px;vertical-align:middle;"><img src="${primeViewLogo}" width="48" height="48" alt="PrimeView Window Care" style="display:block;width:48px;height:48px;border-radius:11px;object-fit:cover;border:1px solid rgba(255,255,255,.25);" /></td>
+            ${isPrimeView ? `<td style="width:58px;vertical-align:middle;"><img src="${primeViewLogo}" width="48" height="48" alt="PrimeView Window Care" style="display:block;width:48px;height:48px;border-radius:11px;object-fit:cover;border:1px solid rgba(255,255,255,.25);" /></td>` : ""}
             <td style="vertical-align:middle;"><p style="margin:0;font-size:12px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:#b8ceff;">Booking request</p><h1 style="margin:5px 0 0;font-size:24px;line-height:1.25;color:#ffffff;">${escapeHtml(input.companyName)}</h1></td>
           </tr></table>
         </div>
         <div style="padding:26px 28px;">
           <p>Hello ${escapeHtml(input.customerName)},</p>
-          <p>We have received your booking request. PrimeView will confirm the appointment separately.</p>
+          <p>We have received your booking request. ${isPrimeView ? "PrimeView" : escapeHtml(input.companyName)} will confirm the appointment separately.</p>
           <table role="presentation" style="width:100%;border-collapse:collapse;margin:22px 0;background:#f4f7fb;border-radius:14px;">
             <tr><td style="padding:14px 16px 6px;font-weight:700;width:110px;color:#183e63;">Service</td><td style="padding:14px 16px 6px;">${escapeHtml(input.service)}</td></tr>
             ${input.address ? `<tr><td style="padding:6px 16px;font-weight:700;color:#183e63;">Address</td><td style="padding:6px 16px;">${escapeHtml(input.address)}</td></tr>` : ""}
@@ -145,12 +204,13 @@ export function buildUnifiedBookingConfirmationEmail(input: Input) {
           <p style="margin-top:26px;">Kind regards<br /><strong>${escapeHtml(input.companyName)}</strong></p>
         </div>
       </div>
-      <p style="text-align:center;font-size:12px;color:#8a98aa;margin-top:14px;">PrimeView Window Care · Powered by Proffera</p>
+      <p style="text-align:center;font-size:12px;color:#8a98aa;margin-top:14px;">${isPrimeView ? "PrimeView Window Care" : escapeHtml(input.companyName)} · Powered by Proffera</p>
     </div>
   ` : `
     <div style="font-family:Arial,sans-serif;line-height:1.6;color:#17201a;max-width:640px;margin:0 auto;">
       <div style="border:1px solid #dfe6df;border-radius:20px;overflow:hidden;background:#ffffff;">
-        <div style="background:#173e2b;color:#ffffff;padding:24px 28px;">
+        ${mariaEmailLogo}
+         <div style="background:${isMaria ? "#845363" : "#173e2b"};color:#ffffff;padding:24px 28px;">
           <p style="margin:0;font-size:12px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:#dce9df;">Bokningsförfrågan</p>
           <h1 style="margin:8px 0 0;font-size:25px;line-height:1.25;">${escapeHtml(input.companyName)}</h1>
         </div>
@@ -185,8 +245,28 @@ export function buildUnifiedBookingConfirmationEmail(input: Input) {
   return { subject, text, html };
 }
 
+/**
+ * Send a booking confirmation only to a recipient authorized for the current
+ * Maria environment. Production requires explicit site/email/booking switches;
+ * Preview remains locked to the single QA inbox.
+ */
 export async function sendUnifiedBookingConfirmationEmail(input: Input) {
-  const apiKey = process.env.BREVO_API_KEY;
+  if (input.branding === "makeup-by-maria") {
+    const origin = getMariaBookingPortalBase();
+    if (!origin || !isMariaBookingRecipientAllowed(input.customerEmail)) {
+      return { ok: false as const, message: "Maria Preview recipient not approved." };
+    }
+    // Never publish a portal link to another origin in a branded customer mail.
+    try {
+      if (new URL(input.portalUrl).origin !== origin
+        || new URL(input.rescheduleUrl).origin !== origin) {
+        return { ok: false as const, message: "Maria booking portal origin mismatch." };
+      }
+    } catch {
+      return { ok: false as const, message: "Maria booking portal origin mismatch." };
+    }
+  }
+  const apiKey = resolveBrevoApiKey();
   const from = process.env.LEAD_FROM_EMAIL;
   if (!apiKey || !from) return { ok: false as const, message: "Brevo är inte konfigurerat." };
 
@@ -196,6 +276,7 @@ export async function sendUnifiedBookingConfirmationEmail(input: Input) {
   try {
     const response = await fetch("https://api.brevo.com/v3/smtp/email", {
       method: "POST",
+      signal: AbortSignal.timeout(8_000),
       headers: { "api-key": apiKey, "Content-Type": "application/json" },
       body: JSON.stringify({
         sender,

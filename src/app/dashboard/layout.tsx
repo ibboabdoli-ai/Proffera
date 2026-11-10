@@ -44,7 +44,7 @@ export default async function DashboardLayout({ children }: Readonly<{ children:
   ]);
 
   return (
-    <DashboardShell workspaceName={access.workspaceName} workspaceId={access.workspaceId} workspaceOptions={workspaceOptions} moduleAccess={moduleAccess} enabledFeatures={enabledFeatures} canManageSettings={canManageSettings} restaurantEnabled={restaurantEnabled}>
+    <DashboardShell workspaceName={access.workspaceName} workspaceId={access.workspaceId} workspaceOptions={workspaceOptions} moduleAccess={moduleAccess} enabledFeatures={enabledFeatures} canManageSettings={canManageSettings} restaurantEnabled={restaurantEnabled} mariaEnabled={(process.env.VERCEL_ENV === "preview" || process.env.VERCEL_ENV === "production") && canManageSettings && access.workspaceSlug === "makeup-by-maria"}>
       <DashboardLanguageSwitchFix />
       <DashboardStripeCheckoutFix />
       <DashboardGlobalLocaleBoundary>

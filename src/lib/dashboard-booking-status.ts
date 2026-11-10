@@ -3,8 +3,12 @@ import "server-only";
 import { neon } from "@neondatabase/serverless";
 
 import { resolveDatabaseUrl } from "@/lib/db/database-url";
+import { getMariaExistingBookingPortalBase, isMariaExistingBookingRecipientAllowed, isMariaPreviewTestRecipient } from "@/lib/maria-preview-customer-safety";
+import { getMariaBookingReadiness } from "@/lib/maria-booking-runtime";
+import { isMariaProductionSwishAuthorized } from "@/lib/maria-production-activation-policy";
 
 import { resolveBookingTimeZone } from "@/lib/public-booking-policy";
+import { postgresTimestampIso } from "@/lib/postgres-timestamp";
 import { deliverVerifiedReviewInvitation } from "@/lib/verified-review-email-delivery";
 import { canManageWorkspaceSettings, getUserWorkspaceAccess } from "@/lib/workspace-access";
 
@@ -17,6 +21,7 @@ export type DashboardBookingStatus = (typeof allowedBookingStatuses)[number];
 
 export type DashboardBookingStatusUpdateResult = {
   changed: boolean;
+  previousStatus: string | null;
   timeZone: ReturnType<typeof resolveBookingTimeZone>;
   notification: {
     customerName: string;
@@ -26,6 +31,10 @@ export type DashboardBookingStatusUpdateResult = {
     city: string;
     startsAt: string;
     endsAt: string;
+    language?: "sv" | "en" | "ar";
+    confirmedAt?: string;
+    revision?: string;
+    noticeEventId?: string;
   } | null;
   reviewInvitationDelivery: "sent" | "failed" | "skipped" | null;
 };
@@ -64,6 +73,48 @@ export async function updateDashboardBookingStatus(
 
   const access = await getActiveWorkspaceAccess();
   const workspaceId = access.workspaceId;
+  const mariaWorkspace = access.workspaceSlug === "makeup-by-maria";
+  const mariaPreview = mariaWorkspace && process.env.VERCEL_ENV === "preview";
+  const mariaProduction = mariaWorkspace && process.env.VERCEL_ENV === "production";
+  // Direct server actions must not bypass the exact workspace/readiness gate.
+  if (mariaWorkspace && !mariaPreview && !mariaProduction) {
+    throw new Error("Maria booking status changes are unavailable outside Preview or Production");
+  }
+  // An already-booked customer may be cancelled by their manager while
+  // NEW intake is paused. This bypasses only new-booking readiness, never
+  // the separate existing-booking lifecycle authorization or customer scope.
+  const existingMariaCancellation = mariaProduction && status === "cancelled"
+    && Boolean(getMariaExistingBookingPortalBase());
+  if (mariaProduction && status === "confirmed" && !isMariaProductionSwishAuthorized()) {
+    throw new Error("Maria Swish deposit email is not authorized in Production");
+  }
+  if (mariaProduction && !existingMariaCancellation) {
+    const ready = await getMariaBookingReadiness();
+    if (!ready.enabled || ready.workspaceId !== workspaceId) {
+      throw new Error("Maria booking status changes are disabled in Production");
+    }
+  }
+  let existingMariaCancellationEmail = "";
+  if (existingMariaCancellation) {
+    const customers = await sql`
+      select c.email from bookings b
+      join customers c on c.id=b.customer_id and c.workspace_id=b.workspace_id
+      where b.workspace_id=${workspaceId} and b.id=${bookingId}::uuid
+        and b.source in ('public_booking','dashboard_manual')
+      limit 1
+    `;
+    const storedEmail = String(customers[0]?.email ?? "");
+    if (!isMariaExistingBookingRecipientAllowed(storedEmail)) {
+      throw new Error("Maria cancellation recipient is not authorized");
+    }
+    existingMariaCancellationEmail = storedEmail.trim().toLowerCase();
+  }
+  const mariaRecipient = process.env.PROFFERA_MARIA_PREVIEW_TEST_EMAIL?.trim().toLowerCase() ?? "";
+  // Preview may mutate only the approved QA customer; Production cannot
+  // inherit that email allowlist, but retains all tenant and conflict checks.
+  if (mariaPreview && !isMariaPreviewTestRecipient(mariaRecipient)) {
+    throw new Error("Maria status changes require the approved Preview recipient");
+  }
   const marketRows = await sql`
     select time_zone
     from workspace_settings
@@ -72,7 +123,7 @@ export async function updateDashboardBookingStatus(
   `;
   const timeZone = resolveBookingTimeZone(marketRows[0]?.time_zone);
 
-  const rows = await sql`
+  const updateQuery = sql`
     with existing_booking as (
       select
         b.id,
@@ -88,13 +139,21 @@ export async function updateDashboardBookingStatus(
         b.staff_id,
         c.name as customer_name,
         c.email as customer_email,
-        c.phone as customer_phone
+        c.phone as customer_phone,
+        case when ${mariaWorkspace}::boolean then coalesce((
+          select e.metadata->>'language' from customer_events e
+          where e.workspace_id=b.workspace_id and e.booking_id=b.id
+            and e.event_type='booking' and e.metadata->>'source'='public_booking'
+            and e.metadata->>'language' in ('sv','en','ar')
+          order by e.created_at desc,e.id desc limit 1
+        ),'sv') else 'sv' end as booking_language
       from bookings b
       left join customers c
         on c.id = b.customer_id
        and c.workspace_id = b.workspace_id
       where b.workspace_id = ${workspaceId}
         and b.id = ${bookingId}
+        and (${!mariaPreview}::boolean or lower(trim(c.email))=${mariaRecipient})
     ),
     updated_booking as (
       update bookings
@@ -104,11 +163,73 @@ export async function updateDashboardBookingStatus(
       where workspace_id = ${workspaceId}
         and id = ${bookingId}
         and status <> ${status}
+        and (${!mariaPreview}::boolean or exists (
+          select 1 from customers c
+          where c.id=bookings.customer_id and c.workspace_id=bookings.workspace_id
+            and lower(trim(c.email))=${mariaRecipient}
+        ))
+        -- Revalidate the same existing customer's email inside the locked
+        -- write, so a preflight lookup cannot authorize a different address.
+        and (${!existingMariaCancellation}::boolean or exists (
+          select 1 from customers c
+          where c.id=bookings.customer_id and c.workspace_id=bookings.workspace_id
+            and lower(btrim(c.email, chr(9) || chr(10) || chr(13) || ' '))=${existingMariaCancellationEmail}
+        ))
+        -- Reopening an inactive Maria booking (cancelled/no_show) into any
+        -- occupying status is an activation. Under lock 713, reject live
+        -- appointments, holds and closed starts before changing its status.
+        -- Unrelated workspaces retain their existing status semantics.
+        and (
+          ${!mariaWorkspace}::boolean or ${status}::text = 'cancelled'
+          or bookings.status not in ('cancelled','no_show')
+          or (
+            not exists (
+              select 1 from bookings other
+              left join workspace_services other_service
+                on other_service.id=other.service_id and other_service.workspace_id=other.workspace_id
+              left join workspace_services current_service
+                on current_service.id=bookings.service_id and current_service.workspace_id=bookings.workspace_id
+              where other.workspace_id=bookings.workspace_id and other.id<>bookings.id
+                and other.status not in ('cancelled','no_show')
+                and other.starts_at-(coalesce(other_service.buffer_before_minutes,0)*interval '1 minute')
+                    < bookings.ends_at+(coalesce(current_service.buffer_after_minutes,0)*interval '1 minute')
+                and other.ends_at+(coalesce(other_service.buffer_after_minutes,0)*interval '1 minute')
+                    > bookings.starts_at-(coalesce(current_service.buffer_before_minutes,0)*interval '1 minute')
+            )
+            and not exists (
+              select 1 from public_booking_verifications hold
+              left join workspace_services hold_service
+                on hold_service.id=hold.service_id and hold_service.workspace_id=hold.workspace_id::text
+              left join workspace_services current_service
+                on current_service.id=bookings.service_id and current_service.workspace_id=bookings.workspace_id
+              where hold.workspace_id=bookings.workspace_id::uuid
+                and hold.consumed_at is null and hold.expires_at>clock_timestamp()
+                and hold.starts_at-(coalesce(hold_service.buffer_before_minutes,0)*interval '1 minute')
+                    < bookings.ends_at+(coalesce(current_service.buffer_after_minutes,0)*interval '1 minute')
+                and hold.ends_at+(coalesce(hold_service.buffer_after_minutes,0)*interval '1 minute')
+                    > bookings.starts_at-(coalesce(current_service.buffer_before_minutes,0)*interval '1 minute')
+            )
+            and not exists (
+              select 1 from maria_manual_closed_starts manual
+              where manual.workspace_id = bookings.workspace_id::uuid
+                and manual.starts_at = bookings.starts_at
+            )
+            and exists (
+              select 1 from workspace_booking_hours hours
+              where hours.workspace_id = bookings.workspace_id
+                and hours.weekday = extract(dow from bookings.starts_at at time zone 'Europe/Stockholm')::int
+                and hours.is_closed = false
+                and (bookings.starts_at at time zone 'Europe/Stockholm')::time >= hours.opens_at
+                and (bookings.starts_at at time zone 'Europe/Stockholm')::time <= hours.closes_at
+            )
+          )
+        )
       returning
         id,
         workspace_id,
         customer_id,
-        status as new_status
+        status as new_status,
+        date_trunc('milliseconds',updated_at) as notification_revision
     ),
     created_job as (
       insert into workspace_service_jobs (
@@ -163,20 +284,44 @@ export async function updateDashboardBookingStatus(
         job.id,
         job.workspace_id,
         job.status as old_status,
-        updated_booking.new_status as booking_status
+        updated_booking.new_status as booking_status,
+        existing_booking.old_status as old_booking_status,
+        existing_booking.staff_id as booking_staff_id,
+        existing_booking.starts_at as booking_starts_at,
+        existing_booking.ends_at as booking_ends_at
       from workspace_service_jobs job
       join updated_booking on job.booking_id = updated_booking.id
+      join existing_booking on existing_booking.id = updated_booking.id
       where job.workspace_id = ${workspaceId}::uuid
-        and updated_booking.new_status in ('completed', 'cancelled')
-        and job.status not in ('completed', 'cancelled')
+        and ((updated_booking.new_status in ('completed', 'cancelled')
+          and job.status not in ('completed', 'cancelled'))
+          or (${mariaWorkspace}::boolean
+            and updated_booking.new_status in ('confirmed','completed')
+            and job.status = 'cancelled'))
     ),
     source_job_sync as (
       update workspace_service_jobs job
       set
-        status = case when source_job_candidate.booking_status = 'completed' then 'completed' else 'cancelled' end,
-        completion_summary = case when source_job_candidate.booking_status = 'completed' then 'Booking source marked completed.' else job.completion_summary end,
-        completed_at = case when source_job_candidate.booking_status = 'completed' then now() else job.completed_at end,
-        cancelled_at = case when source_job_candidate.booking_status = 'cancelled' then now() else job.cancelled_at end,
+        status = case
+          when source_job_candidate.booking_status = 'completed' then 'completed'
+          when source_job_candidate.booking_status = 'cancelled' then 'cancelled'
+          when source_job_candidate.booking_staff_id is null then 'new' else 'assigned' end,
+        completion_summary = case
+          when source_job_candidate.booking_status = 'completed' then 'Booking source marked completed.'
+          when source_job_candidate.booking_status = 'confirmed' then null
+          else job.completion_summary end,
+        completed_at = case
+          when source_job_candidate.booking_status = 'completed' then now()
+          when source_job_candidate.booking_status = 'confirmed' then null
+          else job.completed_at end,
+        cancelled_at = case
+          when source_job_candidate.booking_status = 'cancelled' then now()
+          when source_job_candidate.booking_status in ('confirmed','completed') then null
+           else job.cancelled_at end,
+        scheduled_starts_at = case when source_job_candidate.booking_status = 'confirmed'
+          then source_job_candidate.booking_starts_at else job.scheduled_starts_at end,
+        scheduled_ends_at = case when source_job_candidate.booking_status = 'confirmed'
+          then source_job_candidate.booking_ends_at else job.scheduled_ends_at end,
         updated_at = now()
       from source_job_candidate
       where job.id = source_job_candidate.id
@@ -246,13 +391,17 @@ export async function updateDashboardBookingStatus(
           'old_status', existing_booking.old_status,
           'new_status', updated_booking.new_status,
           'service_job_id', (select id from created_job limit 1)
-        )
+        ) || case when ${mariaWorkspace}::boolean and updated_booking.new_status in ('confirmed','cancelled')
+          then jsonb_build_object('notice_customer','pending',
+            'notice_revision',updated_booking.notification_revision::text)
+          else '{}'::jsonb end
       from updated_booking
       join existing_booking on existing_booking.id = updated_booking.id
-      returning id
+      returning id, created_at
     )
     select
       (select id from existing_booking limit 1) as booking_id,
+      (select old_status from existing_booking limit 1) as previous_status,
       (select count(*)::int from updated_booking) as updated_count,
       (select count(*)::int from inserted_event) as event_count,
       (select customer_name from existing_booking limit 1) as customer_name,
@@ -261,8 +410,22 @@ export async function updateDashboardBookingStatus(
       (select service from existing_booking limit 1) as service,
       (select city from existing_booking limit 1) as city,
       (select starts_at from existing_booking limit 1) as starts_at,
-      (select ends_at from existing_booking limit 1) as ends_at
+      (select ends_at from existing_booking limit 1) as ends_at,
+      (select booking_language from existing_booking limit 1) as booking_language,
+      (select created_at from inserted_event limit 1) as confirmed_at,
+       (select id::text from inserted_event limit 1) as notice_event_id,
+      (select notification_revision from updated_booking limit 1) as notification_revision
   `;
+
+  // Lock the entire Maria status mutation (including job creation) against
+  // Maria's locked reschedule/verification writers. Other tenants retain the
+  // original single-query path without acquiring Maria's workspace lock.
+  const rows = mariaWorkspace
+    ? (await sql.transaction([
+        sql`select pg_advisory_xact_lock(hashtextextended(${workspaceId}::text, 713))`,
+        updateQuery,
+      ]))[1]
+    : await updateQuery;
 
   const result = rows[0];
 
@@ -278,8 +441,15 @@ export async function updateDashboardBookingStatus(
         customerPhone: String(result.customer_phone ?? ""),
         service: String(result.service ?? "Bokning"),
         city: String(result.city ?? ""),
-        startsAt: new Date(String(result.starts_at)).toISOString(),
-        endsAt: new Date(String(result.ends_at)).toISOString(),
+        startsAt: postgresTimestampIso(result.starts_at),
+        endsAt: postgresTimestampIso(result.ends_at),
+        language: result.booking_language === "ar" ? "ar" as const
+          : result.booking_language === "en" ? "en" as const : "sv" as const,
+        revision: result.notification_revision
+          ? postgresTimestampIso(result.notification_revision) : undefined,
+        noticeEventId: result.notice_event_id ? String(result.notice_event_id) : undefined,
+        confirmedAt: status === "confirmed" && result.confirmed_at
+          ? postgresTimestampIso(result.confirmed_at) : undefined,
       }
     : null;
 
@@ -304,6 +474,7 @@ export async function updateDashboardBookingStatus(
 
   return {
     changed,
+    previousStatus: result.previous_status ? String(result.previous_status) : null,
     timeZone,
     notification,
     reviewInvitationDelivery,

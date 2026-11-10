@@ -8,6 +8,8 @@ import { JuliusBookingDemo } from "@/components/salon/julius-booking-demo";
 import { resolveBookingThemeContent } from "@/lib/booking-theme-templates";
 import { readableBookingTextColor } from "@/lib/booking-theme-contract";
 import { getSql } from "@/lib/db/server";
+import { getMariaBookingReadiness } from "@/lib/maria-booking-runtime";
+import { resolveMariaBookingLandingDestination } from "@/lib/maria-public-booking-locale";
 import { allowPublicSubmission } from "@/lib/public-form-protection";
 import { parseLocalDateTime, resolveBookingTimeZone, validatePublicBookingPolicy } from "@/lib/public-booking-policy";
 import { beginBookingEmailVerification } from "@/lib/public-booking-verification";
@@ -66,6 +68,10 @@ function formText(formData: FormData, key: string, maxLength = 1200) { return St
 async function requestPublicBooking(formData: FormData) {
   "use server";
   const slug = String(formData.get("slug") ?? "").trim();
+  // Maria's one-operator bookings must ONLY pass through her workspace-
+  // locked Preview endpoint. The generic booking action has different
+  // concurrency semantics and must not bypass that protection.
+  if (slug === "makeup-by-maria") redirect("/boka/makeup-by-maria?error=unavailable");
   let lang: WorkspaceLanguage = formData.get("lang") === "en" ? "en" : "sv";
   const name = formText(formData, "name", 160);
   const email = formText(formData, "email", 320);
@@ -207,6 +213,9 @@ async function requestPublicBooking(formData: FormData) {
     serviceId, serviceName, staffId: staffId || undefined, city: String(workspace.primary_city ?? ""), address: address || undefined, postcode: postcode || undefined,
     bookingDetails: bookingDetails || undefined, startsAt: start.toISOString(), endsAt: end.toISOString(), timeZone, language: lang,
   });
+  if (!result.ok && "verificationId" in result && result.delivery === "uncertain") {
+    redirect(`/boka/verifiera/${result.verificationId}?lang=${lang}&channel=uncertain`);
+  }
   if (!result.ok) redirect(withLang(slug, lang, `error=${result.error === "email" ? "email" : result.error === "service" ? "service" : "conflict"}`));
   redirect(`/boka/verifiera/${result.verificationId}?lang=${lang}`);
 }
@@ -215,6 +224,16 @@ export default async function PublicBookingPage({ params, searchParams }: PagePr
   const { slug } = await params;
   const query = searchParams ? await searchParams : undefined;
   const requestedQueryLocale: WorkspaceLanguage = firstParam(query?.lang) === "en" ? "en" : "sv";
+  // Maria requires the single-operator booking gate in both environments.
+  // Never fall through to the generic booking action, or use Preview readiness
+  // to reject a successfully verified Production customer.
+  if (slug === "makeup-by-maria") {
+    const readiness = await getMariaBookingReadiness();
+    if (!readiness.enabled) return <Unavailable locale={firstParam(query?.lang) === "ar" ? "ar" : requestedQueryLocale} />;
+    redirect(resolveMariaBookingLandingDestination(
+      query?.lang, firstParam(query?.booked) === "1", process.env.VERCEL_ENV,
+    ));
+  }
   const sql = getSql();
   if (!sql) return <Unavailable locale={requestedQueryLocale} />;
 
@@ -457,10 +476,13 @@ export default async function PublicBookingPage({ params, searchParams }: PagePr
   );
 }
 
-function Unavailable({ locale }: { locale: WorkspaceLanguage }) {
-  const t = copy[locale];
+function Unavailable({ locale }: { locale: WorkspaceLanguage | "ar" }) {
+  const t = locale === "ar" ? {
+    unavailableTitle: "الحجز غير متاح حاليًا",
+    unavailableBody: "الحجز الإلكتروني لم يُفتح بعد. يمكنكِ التواصل مع ماريا عبر إنستغرام.",
+  } : copy[locale];
   return (
-    <main className={styles.unavailablePage} lang={locale}>
+    <main className={styles.unavailablePage} lang={locale} dir={locale === "ar" ? "rtl" : "ltr"}>
       <section className={styles.unavailableCard}>
         <h1>{t.unavailableTitle}</h1>
         <p>{t.unavailableBody}</p>

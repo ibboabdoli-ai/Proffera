@@ -18,6 +18,8 @@ import { getDashboardStats } from "@/lib/dashboard-db";
 import { getDashboardEnabledFeatureKeys, getDashboardModuleAccess } from "@/lib/workspace-module-access";
 import { canManageWorkspaceSettings, getUserWorkspaceAccess } from "@/lib/workspace-access";
 
+import MariaSiteDashboardPage from "./maria/page";
+
 type DashboardLocale = "sv" | "en";
 
 type DashboardPageProps = {
@@ -140,10 +142,21 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
   const locale: DashboardLocale = first(params?.lang) === "en" ? "en" : "sv";
   const text = copy[locale];
 
-  const [moduleAccess, enabledFeatures, workspaceAccess] = await Promise.all([
+  const workspaceAccess = await getUserWorkspaceAccess();
+  // Maria's workspace has its own dashboard at /dashboard. Never route other
+  // tenants or users without manager permissions to this specialized view.
+  if (
+    workspaceAccess.ok
+    && workspaceAccess.workspaceSlug === "makeup-by-maria"
+    && canManageWorkspaceSettings(workspaceAccess)
+    && (process.env.VERCEL_ENV === "preview" || process.env.VERCEL_ENV === "production")
+  ) {
+    return <MariaSiteDashboardPage searchParams={searchParams} />;
+  }
+
+  const [moduleAccess, enabledFeatures] = await Promise.all([
     getDashboardModuleAccess(),
     getDashboardEnabledFeatureKeys(),
-    getUserWorkspaceAccess(),
   ]);
 
   const isModuleEnabled = (id: "customer_crm" | "online_booking") =>

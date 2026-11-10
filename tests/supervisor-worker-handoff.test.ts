@@ -1489,6 +1489,8 @@ type SyncCheckOptions = {
   mutateReservationOnCommentFetch?: number;
   mutateTaskOnCommentFetch?: number;
   stepName?: string;
+  simulateHungShell?: boolean;
+  reconciliationTimeoutMs?: number;
 };
 
 function runSyncCheckReconciliation({
@@ -1508,9 +1510,11 @@ function runSyncCheckReconciliation({
   mutateReservationOnCommentFetch = 0,
   mutateTaskOnCommentFetch = 0,
   stepName = "Reconcile required current-head workflow evidence",
+  simulateHungShell = false,
+  reconciliationTimeoutMs = 12_000,
 }: SyncCheckOptions) {
   const workflow = source(".github/workflows/worker-supervisor-sync.yml");
-  const script = workflowRunStep(workflow, stepName);
+  const script = simulateHungShell ? "exec sleep 30" : workflowRunStep(workflow, stepName);
   const root = mkdtempSync(join(tmpdir(), "proffera-sync-check-reconciliation-"));
   const repo = join(root, "repo");
   const bin = join(root, "bin");
@@ -1521,6 +1525,8 @@ function runSyncCheckReconciliation({
   mkdirSync(bin, { recursive: true });
   copyFileSync(helper, join(repo, "scripts", "supervisor-worker-handoff.mjs"));
   writeFileSync(githubOutput, "");
+  // Also present for the synthetic hang path, which never invokes the gh stub.
+  writeFileSync(log, "");
   const pr = {
     number: 849,
     state: liveState,
@@ -1645,6 +1651,8 @@ process.exit(2);
   const result = spawnSync("bash", ["-c", script], {
     cwd: repo,
     encoding: "utf8",
+    timeout: Math.max(100, Math.min(12_000, reconciliationTimeoutMs)),
+    killSignal: "SIGKILL",
     env: {
       ...process.env,
       PATH: `${bin}${delimiter}${process.env.PATH ?? ""}`,
@@ -4936,7 +4944,18 @@ esac
         });
       }
     }
-  });
+  }, 20_000);
+
+  it("terminates a hung reconciliation shell within its own deadline, not Vitest's", () => {
+    const start = Date.now();
+    const result = runSyncCheckReconciliation({
+      comments: [],
+      simulateHungShell: true,
+      reconciliationTimeoutMs: 350,
+    });
+    expect(result.error && "code" in result.error && result.error.code).toBe("ETIMEDOUT");
+    expect(Date.now() - start).toBeLessThan(3_000);
+  }, 5_000);
 
   it("recovers a released-valid split close after terminal task persistence fails in both sync paths", () => {
     let recoveredForCapacity: Array<Record<string, unknown>> | null = null;

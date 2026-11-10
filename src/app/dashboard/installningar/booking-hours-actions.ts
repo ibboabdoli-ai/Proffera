@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import { canManageWorkspaceSettings, getUserWorkspaceAccess } from "@/lib/workspace-access";
 import { bookingWeekdays } from "@/lib/workspace-booking-hours-db";
 import { getSql } from "@/lib/db/server";
+import { isMariaGenericBookingHoursReadOnly } from "@/lib/maria-manager-ui-policy";
 
 type BookingHoursError = "access" | "hours" | "save";
 function localized(path: string, formData: FormData) { return String(formData.get("lang") ?? "") === "en" ? `${path}${path.includes("?") ? "&" : "?"}lang=en` : path; }
@@ -16,6 +17,11 @@ function toMinutes(value: string) { const [hours, minutes] = value.split(":").ma
 export async function updateWorkspaceBookingHoursAction(formData: FormData) {
   const access = await getUserWorkspaceAccess();
   if (!access.ok || !canManageWorkspaceSettings(access)) redirectWithError("access", formData);
+  // Maria Preview working hours use the locked Maria writer; Production is
+  // read-only until launch. This generic writer lacks Maria advisory lock 713.
+  if (isMariaGenericBookingHoursReadOnly(access.workspaceSlug, process.env.VERCEL_ENV)) {
+    redirectWithError("access", formData);
+  }
   const hours = bookingWeekdays.map(({ value }) => {
     const isClosed = formData.get(`closed_${value}`) === "on";
     const opensAt = text(formData, `opens_at_${value}`);

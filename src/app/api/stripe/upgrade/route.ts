@@ -82,6 +82,10 @@ export async function POST(request: Request) {
       return jsonError("Stripe-abonnemanget använder ett okänt pris.", 409);
     }
 
+    if (subscription.cancel_at_period_end) {
+      return jsonError("Abonnemanget håller på att avslutas.", 409);
+    }
+
     if (subscription.pending_update) {
       return NextResponse.json(
         {
