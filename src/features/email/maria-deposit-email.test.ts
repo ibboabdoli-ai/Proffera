@@ -123,6 +123,38 @@ describe("Maria-only Swish confirmation and cancellation email", () => {
     expect(cancelled.html).not.toContain("/api/makeup-by-maria/swish-qr/");
   });
 
+  it.each(["sv", "en", "ar"] as const)(
+    "keeps the short persisted reference in every localized confirmation and cancellation (%s)",
+    language => {
+      const reference = "MBM-2026111001";
+      const confirmation = buildMariaBookingStatusEmail(
+        { ...booking, language, reference }, "https://qa.vercel.app",
+      );
+      expect(confirmation.reference).toBe(reference);
+      expect(confirmation.text).toContain(reference);
+      expect(confirmation.html).toContain(reference);
+      const cancelled = buildMariaBookingStatusEmail(
+        { ...booking, status: "cancelled", language, reference }, "https://qa.vercel.app",
+      );
+      expect(cancelled.text).toContain(reference);
+      expect(cancelled.text).not.toContain("MBM-00000000000000000000000000000001");
+    },
+  );
+
+  it("uses the saved reference from PostgreSQL before any Brevo send", async () => {
+    dbQuery.mockResolvedValueOnce([
+      { deposit_state: "unverified", booking_reference: "MBM-2026111001" },
+    ]);
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true });
+    vi.stubGlobal("fetch", fetchMock);
+    expect(await sendMariaBookingStatusEmail(booking)).toEqual({ ok: true });
+    const payload = JSON.parse(fetchMock.mock.calls[0]![1].body as string) as {
+      htmlContent: string; textContent: string;
+    };
+    expect(payload.textContent).toContain("MBM-2026111001");
+    expect(payload.htmlContent).toContain("MBM-2026111001");
+  });
+
   it.each(["sv", "en", "ar"] as const)("does not request Swish again after a manually paid booking (%s)", (language) => {
     const output = buildMariaBookingStatusEmail({ ...booking, language, depositAlreadyPaid: true }, "https://qa.vercel.app");
     expect(output.html).not.toContain("/api/makeup-by-maria/swish-qr/");

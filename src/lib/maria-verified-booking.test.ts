@@ -68,6 +68,11 @@ describe("Maria verified booking keeps the current Preview recipient boundary", 
     expect(eligibility.values).toContain("qa@example.invalid");
     expect(eligibility.values).toContain(input.verificationId);
     expect(eligibility.values).toContain(input.expectedCodeHash);
+    expect(eligibility.sql).toContain("maria_booking_reference_counters");
+    expect(eligibility.sql).toContain("maria_booking_references");
+    expect(eligibility.sql).toContain("on conflict (day_key) do update");
+    expect(eligibility.sql).toContain("join assigned_reference ref");
+    expect(eligibility.sql).toContain("'MBM-'");
   });
 
   it("requires the new inbox when the environment has changed", async () => {

@@ -117,6 +117,13 @@ export async function saveMariaProductionYearAction(formData: FormData) {
         updated_at = now()
       where workspace_services.workspace_id = ${access.workspaceId}
         and workspace_services.public_slug = ${slug}
+        -- A live service must never become quote-priced or zero-priced through
+        -- a content edit. Keep hidden/draft services free to use quote pricing.
+        -- Evaluated in the same locked upsert transaction as the price write.
+        and (not (workspace_services.is_active and workspace_services.public_status = 'published')
+          or (excluded.price_type = 'fixed'
+            and excluded.price_amount_minor > 0
+            and excluded.price_amount_minor <= 25000000))
       returning id
     `;
   };

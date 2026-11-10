@@ -11,6 +11,7 @@ import { isMariaProductionYearEditorReady } from "@/lib/maria-production-year-ed
 import { canManageWorkspaceSettings, getUserWorkspaceAccess } from "@/lib/workspace-access";
 import { saveMariaYearAction } from "./actions";
 import { saveMariaProductionYearAction } from "./production-year-actions";
+import { setMariaProductionYearVisibilityAction } from "./production-year-visibility-actions";
 import { saveMariaScheduleAction } from "./schedule-actions";
 
 export const dynamic = "force-dynamic";
@@ -20,6 +21,7 @@ const expectedKeys = [
   "maria-bridal-without-trial-2026",
 ];
 
+/** Render Maria's role-gated booking dashboard and yearly service editor. */
 export default async function MariaSiteDashboardPage({ searchParams }: { searchParams?: Promise<{ updated?: string; error?: string; year?: string; lang?: string | string[] }> }) {
   const access = await getUserWorkspaceAccess();
   const isPreview = process.env.VERCEL_ENV === "preview";
@@ -54,23 +56,33 @@ export default async function MariaSiteDashboardPage({ searchParams }: { searchP
   const availableYears = Array.from({ length: 11 }, (_, i) => 2026 + i);
   const editingYear = availableYears.includes(Number(q.year)) ? Number(q.year) : 2026;
   const displayedYears = [editingYear];
+  /** Find a previously stored service without manufacturing a published package. */
   const savedPackage = (year: number, kind: "trial" | "without-trial") =>
     services.find((item) => item.publicSlug === `maria-bridal-${kind}-${year}`);
+  /** Use saved localized service copy when available; keep other years isolated. */
   const savedCopy = (year: number, kind: "trial" | "without-trial", locale: "sv" | "en" | "ar") => {
     if (locale === "sv") return savedPackage(year, kind)?.shortDescription ?? "";
     return cardTranslations.get(`maria-bridal-${kind}-${year}`)?.[locale] ?? "";
   };
+  /** Convert the immutable minor-unit price into the editable SEK value. */
   const savedPrice = (year: number, kind: "trial" | "without-trial") => {
     const service = savedPackage(year, kind);
     return service?.priceType === "fixed" && service.priceAmountMinor !== null
       ? String(service.priceAmountMinor / 100)
       : "";
   };
+  /** Preserve Preview's existing year checkbox semantics for its stored packages. */
   const isYearEnabled = (year: number) => {
     const trial = savedPackage(year, "trial");
     const without = savedPackage(year, "without-trial");
     return !trial && !without ? year <= 2028 : Boolean(trial?.isActive || without?.isActive);
   };
+  /** Match public config: one active published package makes its year visible. */
+  const isYearPublic = (year: number) =>
+    (["trial", "without-trial"] as const).some(kind => {
+      const service = savedPackage(year, kind);
+      return service?.isActive === true && service?.publicStatus === "published";
+    });
 
   const schedulePackage = services.find(item => /^maria-bridal-(trial|without-trial)-(202[6-9]|203[0-6])$/.test(item.publicSlug));
   const savedDuration = schedulePackage?.durationMinutes ?? 180;
@@ -87,6 +99,7 @@ export default async function MariaSiteDashboardPage({ searchParams }: { searchP
   // Exactly the same year/price/SV-EN-AR editor in Preview and approved
   // Production; only the server writer differs. Production never renders or
   // submits the year-publication checkbox or booking/calendar controls.
+  /** Render the existing content editor and the separate owner-only visibility form. */
   const renderYearEditor = (contentOnly: boolean) => (
       <section id="priser" className="scroll-mt-6 rounded-2xl border border-[#e8d9dc] bg-white p-4 sm:p-8">
         <h2 className="font-serif text-2xl text-[#352a2c]">Bröllopsår och paketpriser</h2>
@@ -95,12 +108,12 @@ export default async function MariaSiteDashboardPage({ searchParams }: { searchP
           Varje fält visar den aktuella texten på bokningssidan. Radera ett språkfält och spara för att återställa standardtexten.
           Spara ett år i taget.
           {contentOnly
-            ? "Det här ändrar bara paketpris och text. Publicering, bokningar och kalendern ändras inte."
+            ? "Spara först pris och text. Visa eller dölj sedan året separat. Tidigare bokningar och betalningar behålls."
             : "Publicering kräver separat godkännande."}
         </p>
         {q.updated && q.updated !== "schedule" ? (
           <p role="status" className="mt-4 rounded-lg bg-[#ecf7f0] px-4 py-3 text-sm font-semibold text-[#256947]">
-            {q.updated === "schedule" ? "Bokningstider och behandlingstid har sparats." : `År ${q.updated} har sparats.`}
+            {q.updated === "visibility" ? "Årets synlighet har uppdaterats." : `År ${q.updated} har sparats.`}
           </p>
         ) : null}
         {q.error && q.error !== "schedule" && q.error !== "database" ? (
@@ -126,7 +139,8 @@ export default async function MariaSiteDashboardPage({ searchParams }: { searchP
         </form>
         <div className="mt-4 space-y-4">
           {displayedYears.map((year) => (
-            <form key={year} action={contentOnly ? saveMariaProductionYearAction : saveMariaYearAction} className="rounded-xl border border-[#e6d7db] bg-[#fefafa] p-4 sm:p-5">
+            <div key={year} className="rounded-xl border border-[#e6d7db] bg-[#fefafa] p-4 sm:p-5">
+            <form action={contentOnly ? saveMariaProductionYearAction : saveMariaYearAction}>
               <input type="hidden" name="year" value={year} />
                {!contentOnly && (savedPackage(year, "trial") || savedPackage(year, "without-trial"))
                  ? <input type="hidden" name="enabled_original" value={String(isYearEnabled(year))} />
@@ -186,11 +200,32 @@ export default async function MariaSiteDashboardPage({ searchParams }: { searchP
                 Spara {year}
               </button>
             </form>
+              {contentOnly && access.role === "owner" ? (
+                <form action={setMariaProductionYearVisibilityAction}
+                  className="mt-5 flex flex-wrap items-center justify-between gap-3 border-t border-[#e6d7db] pt-4">
+                  <input type="hidden" name="year" value={year} />
+                  <input type="hidden" name="visibility" value={isYearPublic(year) ? "hide" : "show"} />
+                  <div>
+                    <p className="text-xs font-bold text-[#634853]">
+                      {isYearPublic(year) ? "Visas på bokningssidan" : "Dolt på bokningssidan"}
+                    </p>
+                    <p className="mt-1 text-xs text-[#795464]">
+                      Spara pris och texter först, och välj sedan vilka år som ska synas.
+                      Dolda år behåller befintliga bokningar och betalningar.
+                    </p>
+                  </div>
+                  <button type="submit"
+                    className="min-h-11 rounded-lg border border-[#845363] bg-white px-4 py-2 text-xs font-bold text-[#704858]">
+                    {isYearPublic(year) ? `Dölj ${year}` : `Visa ${year} på webbplatsen`}
+                  </button>
+                </form>
+              ) : null}
+            </div>
           ))}
         </div>
         <p className="mt-3 text-xs text-[#705f65]">
           {contentOnly
-            ? "Välj år 2026–2036. Endast årets priser och beskrivningar ändras. Redan gjorda bokningar behåller sina sparade uppgifter."
+            ? "Välj år 2026–2036. Maria väljer vilka år som syns. Att dölja ett år tar inte bort gamla bokningar."
             : "Välj valfritt år 2026–2036 ovan. Ändringar syns i den anslutna förhandsvisningen när den öppnas eller uppdateras."}
         </p>
       </section>

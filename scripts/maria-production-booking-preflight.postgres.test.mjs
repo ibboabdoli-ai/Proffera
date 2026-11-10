@@ -89,14 +89,49 @@ function docker(args) {
     await db?.query("ROLLBACK");
   });
 
-  it("passes canonical 0072/0073/0074/0075 with real PostgreSQL catalog queries in a READ ONLY transaction", async () => {
+  it("passes canonical 0072/0073/0074/0075/0076 with real PostgreSQL catalog queries in a READ ONLY transaction", async () => {
     await db.query("BEGIN READ ONLY");
     const result = await inspect();
     expect(result.databaseReady).toBe(true);
     expect(result.blockers).toEqual([]);
     expect(result.appliedMigrations).toEqual(expect.arrayContaining([
-      "20261103_0072", "20261105_0073", "20261107_0074", "20261108_0075",
+      "20261103_0072", "20261105_0073", "20261107_0074", "20261108_0075", "20261110_0076",
     ]));
+  });
+
+  it("rejects missing 0076 ledger receipt against real PostgreSQL", async () => {
+    await db.query("BEGIN");
+    await db.query("delete from proffera_schema_migrations where migration_key='20261110_0076'");
+    const result = await inspect();
+    expect(result.databaseReady).toBe(false);
+    expect(result.blockers).toContain("missing_migration_20261110_0076");
+  });
+
+  it("rejects a 0076 reference table missing its unique payment number despite a migration receipt", async () => {
+    await db.query("BEGIN");
+    await db.query("ALTER TABLE maria_booking_references DROP CONSTRAINT maria_booking_references_reference_key");
+    const result = await inspect();
+    expect(result.databaseReady).toBe(false);
+    expect(result.blockers).toContain("invalid_booking_reference_unique");
+    expect(result.appliedMigrations).toContain("20261110_0076");
+  });
+
+  it("rejects same-named 0076 uniqueness on wrong columns", async () => {
+    await db.query("BEGIN");
+    await db.query("ALTER TABLE maria_booking_references DROP CONSTRAINT maria_booking_reference_day_number_key");
+    await db.query("ALTER TABLE maria_booking_references ADD CONSTRAINT maria_booking_reference_day_number_key UNIQUE (booking_id, day_number)");
+    const result=await inspect();
+    expect(result.databaseReady).toBe(false);
+    expect(result.blockers).toContain("invalid_booking_reference_day_unique");
+  });
+
+  it("rejects same-named weakened 0076 reference CHECK", async () => {
+    await db.query("BEGIN");
+    await db.query("ALTER TABLE maria_booking_references DROP CONSTRAINT maria_booking_references_reference_check");
+    await db.query("ALTER TABLE maria_booking_references ADD CONSTRAINT maria_booking_references_reference_check CHECK (reference IS NOT NULL)");
+    const result=await inspect();
+    expect(result.databaseReady).toBe(false);
+    expect(result.blockers).toContain("invalid_booking_reference_format_check");
   });
 
   it("accepts authorized fixed-price edits and rejects an out-of-bounds price in isolated PostgreSQL", async () => {
@@ -116,6 +151,26 @@ function docker(args) {
     const invalid = await inspect();
     expect(invalid.databaseReady).toBe(false);
     expect(invalid.blockers).toContain("service_not_ready_maria-bridal-trial-2026");
+  });
+
+  it("accepts a public 2027 after hiding 2026, but rejects an invalid later-year package", async () => {
+    await db.query("BEGIN");
+    await db.query("UPDATE workspace_services SET is_active=false WHERE workspace_id=$1", [workspaceId]);
+    await db.query(
+      "insert into workspace_services(workspace_id,name,public_slug,duration_minutes,is_active,public_status,price_type,price_amount_minor,maximum_advance_days) values($1,'Synthetic bridal trial 2027','maria-bridal-trial-2027',180,true,'published','fixed',610000,365)",
+      [workspaceId],
+    );
+    const valid = await inspect();
+    expect(valid.databaseReady).toBe(true);
+    expect(valid.blockers).toEqual([]);
+    await db.query(
+      "update workspace_services set price_amount_minor=0 where workspace_id=$1 and public_slug='maria-bridal-trial-2027'",
+      [workspaceId],
+    );
+    const invalid = await inspect();
+    expect(invalid.databaseReady).toBe(false);
+    expect(invalid.blockers).toContain("service_not_ready_maria-bridal-trial-2027");
+    // Transaction rollback restores the original published 2026 data.
   });
 
   it("rejects an existing-column 0075 schema with its range CHECK missing", async () => {

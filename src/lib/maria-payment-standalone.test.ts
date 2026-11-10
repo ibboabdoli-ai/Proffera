@@ -3,9 +3,9 @@ import { isMariaPaymentStandalonePath, MARIA_PAYMENT_SHELL_HEADER } from "./mari
 
 const bookingId = "3dd71085-9f11-49d1-8996-663e3135d115";
 
-describe("Maria payment Preview shell isolation", () => {
+describe("Maria payment shell isolation", () => {
   it("matches the exact booking-specific payment page only", () => {
-    expect(MARIA_PAYMENT_SHELL_HEADER).toBe("x-proffera-maria-preview-payment-shell");
+    expect(MARIA_PAYMENT_SHELL_HEADER).toBe("x-proffera-maria-standalone-payment-shell");
     expect(isMariaPaymentStandalonePath("/maria/swish/" + bookingId)).toBe(true);
     expect(isMariaPaymentStandalonePath("/maria/swish/" + bookingId.toUpperCase())).toBe(true);
   });
