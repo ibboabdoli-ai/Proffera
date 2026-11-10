@@ -1297,6 +1297,78 @@ function compileSql(strings: TemplateStringsArray, values: unknown[]): Query {
       "select count(*)::int as count from bookings where workspace_id=$1", [workspaceId],
     );
     expect(after.rows).toEqual(before.rows);
+    const audits=await db!.query<{count:number}>(
+      "select count(*)::int as count from admin_audit_logs where workspace_id=$1::uuid and action='maria.booking_year_visibility.updated' and new_value->>'year'='2030'",[workspaceId],
+    );
+    expect(audits.rows[0]?.count).toBe(2);
+  });
+
+  it("rejects non-owner roles and foreign workspace access before changing a wedding year", async () => {
+    vi.stubEnv("VERCEL_ENV","production");
+    vi.stubEnv("PROFFERA_MARIA_PRODUCTION_YEAR_EDITOR_ENABLED","true");
+    const form=new FormData();form.set("year","2030");form.set("visibility","show");
+    const count=()=>db!.query<{count:number}>(
+      "select count(*)::int as count from admin_audit_logs where workspace_id=$1::uuid and action='maria.booking_year_visibility.updated'",[workspaceId],
+    );
+    const before=(await count()).rows[0]?.count;
+    try {
+      for (const role of ["admin","staff"]) {
+        runtime.role=role;
+        await expect(setMariaProductionYearVisibilityAction(form)).rejects.toThrow("TEST_REDIRECT:/dashboard");
+      }
+      runtime.role="owner";runtime.workspaceSlug="different-workspace";
+      await expect(setMariaProductionYearVisibilityAction(form)).rejects.toThrow("TEST_REDIRECT:/dashboard");
+      runtime.workspaceSlug="makeup-by-maria";runtime.workspaceId=randomUUID();
+      await expect(setMariaProductionYearVisibilityAction(form))
+        .rejects.toThrow("TEST_REDIRECT:/dashboard/maria?year=2030&error=visibility#priser");
+    } finally {
+      runtime.role="owner";runtime.workspaceSlug="makeup-by-maria";runtime.workspaceId=workspaceId;
+    }
+    expect((await count()).rows[0]?.count).toBe(before);
+  });
+
+  it("rejects incomplete year packages atomically without changing other packages or writing an audit", async () => {
+    vi.stubEnv("VERCEL_ENV","production");
+    vi.stubEnv("PROFFERA_MARIA_PRODUCTION_YEAR_EDITOR_ENABLED","true");
+    const form=new FormData();form.set("year","2030");form.set("visibility","show");
+    const slug="maria-bridal-trial-2030";
+    const original=await db!.query<{price_type:string;price_amount_minor:string|null;duration_minutes:number;is_active:boolean}>(
+      "select price_type,price_amount_minor::text,duration_minutes,is_active from workspace_services where workspace_id=$1 and public_slug=$2",[workspaceId,slug],
+    );
+    expect(original.rowCount).toBe(1);
+    const count=()=>db!.query<{count:number}>(
+      "select count(*)::int as count from admin_audit_logs where workspace_id=$1::uuid and action='maria.booking_year_visibility.updated'",[workspaceId],
+    );
+    const before=(await count()).rows[0]?.count;
+    try {
+      for(const invalid of [
+        {kind:"quote",price:null},
+        {kind:"fixed",price:0},
+      ]) {
+        await db!.query(
+          "update workspace_services set price_type=$3,price_amount_minor=$4 where workspace_id=$1 and public_slug=$2",
+          [workspaceId,slug,invalid.kind,invalid.price],
+        );
+        await expect(setMariaProductionYearVisibilityAction(form))
+          .rejects.toThrow("TEST_REDIRECT:/dashboard/maria?year=2030&error=visibility#priser");
+        const statuses=await db!.query<{is_active:boolean}>(
+          "select is_active from workspace_services where workspace_id=$1 and public_slug in ('maria-bridal-trial-2030','maria-bridal-without-trial-2030')",[workspaceId],
+        );
+        expect(statuses.rows.every(row=>row.is_active===false)).toBe(true);
+      }
+      await db!.query(
+        "update workspace_services set price_type='fixed',price_amount_minor=600000,public_slug='synthetic-hidden-slug-2030' where workspace_id=$1 and public_slug=$2",[workspaceId,slug],
+      );
+      await expect(setMariaProductionYearVisibilityAction(form))
+        .rejects.toThrow("TEST_REDIRECT:/dashboard/maria?year=2030&error=visibility#priser");
+    } finally {
+      const prior=original.rows[0]!;
+      await db!.query(
+        "update workspace_services set price_type=$3,price_amount_minor=$4,duration_minutes=$5,public_slug=$2,is_active=$6 where workspace_id=$1 and name='Brudsmink med prov 2030'",
+        [workspaceId,slug,prior.price_type,prior.price_amount_minor,prior.duration_minutes,prior.is_active],
+      );
+    }
+    expect((await count()).rows[0]?.count).toBe(before);
   });
 
 
