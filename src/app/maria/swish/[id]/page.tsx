@@ -14,9 +14,16 @@ import { getMariaBookingReadiness } from "@/lib/maria-booking-runtime";
 
 export const dynamic = "force-dynamic";
 export const metadata: Metadata = {
-  // Do not inherit the root layout's "| Proffera" title suffix on Maria payments.
+  // Keep customer payment previews and "Add to Home Screen" independent of
+  // Proffera's root PWA manifest, Apple title and social sharing defaults.
   title: { absolute: "Swish-handpenning · Makeup by Maria" },
   applicationName: "Makeup by Maria",
+  metadataBase: new URL("https://makeupbymaria.se"),
+  description: "Swish-handpenning för din bokning hos Makeup by Maria.",
+  manifest: null,
+  appleWebApp: null,
+  openGraph: null,
+  twitter: null,
   robots: { index: false, follow: false },
   icons: { icon: "/demo/makeup-by-maria/assets/maria-client-logo.jpg", apple: "/demo/makeup-by-maria/assets/maria-apple-touch-icon.png" },
 };
