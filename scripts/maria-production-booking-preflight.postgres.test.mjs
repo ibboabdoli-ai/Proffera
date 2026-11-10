@@ -126,6 +126,26 @@ function docker(args) {
     expect(invalid.blockers).toContain("service_not_ready_maria-bridal-trial-2026");
   });
 
+  it("accepts a public 2027 after hiding 2026, but rejects an invalid later-year package", async () => {
+    await db.query("BEGIN");
+    await db.query("UPDATE workspace_services SET is_active=false WHERE workspace_id=$1", [workspaceId]);
+    await db.query(
+      "insert into workspace_services(workspace_id,name,public_slug,duration_minutes,is_active,public_status,price_type,price_amount_minor,maximum_advance_days) values($1,'Synthetic bridal trial 2027','maria-bridal-trial-2027',180,true,'published','fixed',610000,365)",
+      [workspaceId],
+    );
+    const valid = await inspect();
+    expect(valid.databaseReady).toBe(true);
+    expect(valid.blockers).toEqual([]);
+    await db.query(
+      "update workspace_services set price_amount_minor=0 where workspace_id=$1 and public_slug='maria-bridal-trial-2027'",
+      [workspaceId],
+    );
+    const invalid = await inspect();
+    expect(invalid.databaseReady).toBe(false);
+    expect(invalid.blockers).toContain("service_not_ready_maria-bridal-trial-2027");
+    // Transaction rollback restores the original published 2026 data.
+  });
+
   it("rejects an existing-column 0075 schema with its range CHECK missing", async () => {
     await db.query("BEGIN");
     await db.query("ALTER TABLE workspace_booking_reminder_settings DROP CONSTRAINT IF EXISTS workspace_booking_reminder_settings_cancel_notice_hours_check");
