@@ -14,7 +14,9 @@ import { getMariaBookingReadiness } from "@/lib/maria-booking-runtime";
 
 export const dynamic = "force-dynamic";
 export const metadata: Metadata = {
-  title: "Swish-handpenning · Makeup by Maria",
+  // Do not inherit the root layout's "| Proffera" title suffix on Maria payments.
+  title: { absolute: "Swish-handpenning · Makeup by Maria" },
+  applicationName: "Makeup by Maria",
   robots: { index: false, follow: false },
   icons: { icon: "/demo/makeup-by-maria/assets/maria-client-logo.jpg", apple: "/demo/makeup-by-maria/assets/maria-apple-touch-icon.png" },
 };
