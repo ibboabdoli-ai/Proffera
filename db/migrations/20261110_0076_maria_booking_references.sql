@@ -4,8 +4,12 @@
 -- Apply this migration BEFORE deploying readers/writers of the new tables.
 -- ROLLBACK: after real reservations, retain BOTH reference tables permanently.
 -- Do not drop them or reset counters: customers may already hold short Swish
--- messages in email and QR. Fix errors with additive forward migrations; roll
--- back only application code while retaining stored payment references.
+-- messages in email and QR. Fix errors with additive forward migrations.
+-- Application rollback is safe ONLY to code that continues reading persisted
+-- MBM references. The pre-0076 application derives a long UUID message and
+-- can disagree with already-sent short references. Do NOT blindly roll back
+-- to it after short references have been issued: pause affected payment flows
+-- and ship a reference-compatible forward fix instead. Retain both tables.
 -- ON DELETE CASCADE removes the mapping when a booking itself is deleted; never
 -- remove historical customer bookings to simplify rollback.
 -- Readers (Swish page, QR endpoint, status email and dashboard) fail closed if
