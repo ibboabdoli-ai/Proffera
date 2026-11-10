@@ -22,7 +22,7 @@ vi.mock("@/lib/maria-preview-customer-safety", () => ({
 import { getSql } from "@/lib/db/server";
 import { readMariaBookingReference } from "@/lib/maria-booking-reference-db";
 import { getMariaPreviewBookingReadiness } from "@/lib/maria-preview-booking";
-import MariaSwishPaymentPage from "./page";
+import MariaSwishPaymentPage, { metadata as mariaSwishMetadata } from "./page";
 
 const id = "11111111-2222-4333-8444-555555555555";
 const props = { params: Promise.resolve({ id }) };
@@ -48,6 +48,19 @@ beforeEach(() => {
 afterEach(() => { vi.unstubAllEnvs(); vi.clearAllMocks(); });
 
 describe("Maria Preview first-party Swish payment information page", () => {
+  it("clears inherited Proffera PWA and social metadata on the payment route", () => {
+    expect(mariaSwishMetadata.manifest).toBeNull();
+    expect(mariaSwishMetadata.appleWebApp).toBeNull();
+    expect(mariaSwishMetadata.applicationName).toBe("Makeup by Maria");
+    expect(mariaSwishMetadata.metadataBase?.origin).toBe("https://makeupbymaria.se");
+    expect(mariaSwishMetadata.openGraph).toBeNull();
+    expect(mariaSwishMetadata.twitter).toBeNull();
+    expect(mariaSwishMetadata.robots).toEqual({index:false,follow:false});
+    expect(mariaSwishMetadata.icons).toMatchObject({
+      icon: "/demo/makeup-by-maria/assets/maria-client-logo.jpg",
+    });
+  });
+
   it("shows a direct untracked Swish action and two accessible copy controls", async () => {
     const sql = vi.fn().mockResolvedValueOnce([{ id }]);
     vi.mocked(getSql).mockReturnValue(sql as never);
