@@ -52,26 +52,26 @@ BEGIN
             OR (column_name='day_key' AND udt_name='text')
             OR (column_name='day_number' AND udt_name='int8')
             OR (column_name='reference' AND udt_name='text'))) <> 4
-     OR NOT EXISTS (SELECT 1 FROM pg_constraint
-        WHERE conrelid='maria_booking_reference_counters'::regclass
-          AND contype='p' AND conname='maria_booking_reference_counters_pkey')
-     OR NOT EXISTS (SELECT 1 FROM pg_constraint
-        WHERE conrelid='maria_booking_references'::regclass
-          AND contype='p' AND conname='maria_booking_references_pkey')
-     OR NOT EXISTS (SELECT 1 FROM pg_constraint
-        WHERE conrelid='maria_booking_references'::regclass
-          AND contype='u' AND conname='maria_booking_references_reference_key')
-     OR NOT EXISTS (SELECT 1 FROM pg_constraint
-        WHERE conrelid='maria_booking_references'::regclass
-          AND contype='u' AND conname='maria_booking_reference_day_number_key')
-     OR NOT EXISTS (SELECT 1 FROM pg_constraint
-        WHERE conrelid='maria_booking_references'::regclass
-          AND confrelid='bookings'::regclass AND confdeltype='c'
-          AND contype='f' AND conname='maria_booking_references_booking_id_fkey')
-     OR NOT EXISTS (SELECT 1 FROM pg_constraint
-        WHERE conrelid='maria_booking_references'::regclass
-          AND confrelid='maria_booking_reference_counters'::regclass
-          AND contype='f' AND conname='maria_booking_references_day_key_fkey')
+     OR NOT EXISTS (SELECT 1 FROM pg_constraint c
+       WHERE c.conrelid=to_regclass('public.maria_booking_reference_counters') AND c.contype='p' AND c.conname='maria_booking_reference_counters_pkey' AND pg_get_constraintdef(c.oid) = 'PRIMARY KEY (day_key)')
+     OR NOT EXISTS (SELECT 1 FROM pg_constraint c
+       WHERE c.conrelid=to_regclass('public.maria_booking_references') AND c.contype='p' AND c.conname='maria_booking_references_pkey' AND pg_get_constraintdef(c.oid) = 'PRIMARY KEY (booking_id)')
+     OR NOT EXISTS (SELECT 1 FROM pg_constraint c
+       WHERE c.conrelid=to_regclass('public.maria_booking_references') AND c.contype='u' AND c.conname='maria_booking_references_reference_key' AND pg_get_constraintdef(c.oid) = 'UNIQUE (reference)')
+     OR NOT EXISTS (SELECT 1 FROM pg_constraint c
+       WHERE c.conrelid=to_regclass('public.maria_booking_references') AND c.contype='u' AND c.conname='maria_booking_reference_day_number_key' AND pg_get_constraintdef(c.oid) = 'UNIQUE (day_key, day_number)')
+     OR NOT EXISTS (SELECT 1 FROM pg_constraint c
+       WHERE c.conrelid=to_regclass('public.maria_booking_references') AND c.contype='f' AND c.conname='maria_booking_references_booking_id_fkey' AND c.confrelid=to_regclass('public.bookings') AND c.confdeltype='c' AND pg_get_constraintdef(c.oid) LIKE 'FOREIGN KEY (booking_id) REFERENCES %(id) ON DELETE CASCADE')
+     OR NOT EXISTS (SELECT 1 FROM pg_constraint c
+       WHERE c.conrelid=to_regclass('public.maria_booking_references') AND c.contype='f' AND c.conname='maria_booking_references_day_key_fkey' AND c.confrelid=to_regclass('public.maria_booking_reference_counters') AND c.confdeltype='a' AND pg_get_constraintdef(c.oid) LIKE 'FOREIGN KEY (day_key) REFERENCES %(day_key)')
+     OR NOT EXISTS (SELECT 1 FROM pg_constraint c
+       WHERE c.conrelid=to_regclass('public.maria_booking_reference_counters') AND c.contype='c' AND c.conname='maria_booking_reference_counters_day_key_check' AND c.convalidated AND pg_get_constraintdef(c.oid) = 'CHECK ((day_key ~ ''^[0-9]{8}$''::text))')
+     OR NOT EXISTS (SELECT 1 FROM pg_constraint c
+       WHERE c.conrelid=to_regclass('public.maria_booking_reference_counters') AND c.contype='c' AND c.conname='maria_booking_reference_counters_last_number_check' AND c.convalidated AND pg_get_constraintdef(c.oid) = 'CHECK (((last_number >= 1) AND (last_number <= 999999999)))')
+     OR NOT EXISTS (SELECT 1 FROM pg_constraint c
+       WHERE c.conrelid=to_regclass('public.maria_booking_references') AND c.contype='c' AND c.conname='maria_booking_references_day_number_check' AND c.convalidated AND pg_get_constraintdef(c.oid) = 'CHECK (((day_number >= 1) AND (day_number <= 999999999)))')
+     OR NOT EXISTS (SELECT 1 FROM pg_constraint c
+       WHERE c.conrelid=to_regclass('public.maria_booking_references') AND c.contype='c' AND c.conname='maria_booking_references_reference_check' AND c.convalidated AND pg_get_constraintdef(c.oid) = 'CHECK ((reference ~ ''^MBM-[0-9]{10,}$''::text))')
   THEN
     RAISE EXCEPTION 'Migration 0076 reference schema mismatch';
   END IF;

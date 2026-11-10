@@ -33,6 +33,8 @@ const schemaContract = {
   manual_closed_columns: true, card_translations_columns: true,
   manual_closed_pk: true, card_translations_pk: true,
   manual_closed_fk: true, card_translations_fk: true,
+  reference_counter_columns: true, booking_reference_columns: true,
+  reference_counter_pk: true, booking_reference_pk: true, booking_reference_unique: true, booking_reference_day_unique: true, booking_reference_booking_fk: true, booking_reference_day_fk: true, reference_counter_day_check: true, reference_counter_number_check: true, booking_reference_number_check: true, booking_reference_format_check: true,
 };
 const workspace = {
   workspace_id: "11111111-2222-4333-8444-555555555555",
@@ -148,6 +150,18 @@ describe("Maria Production readiness is independent and disabled by default", ()
       expect(await getMariaBookingReadiness()).toEqual({ enabled: false });
       expect(query).toHaveBeenCalledTimes(2);
       expect(query.mock.calls[1]?.[0]?.join(" ")).toContain("pg_constraint");
+    }
+  });
+
+  it("rejects malformed 0076 schema despite a migration receipt", async () => {
+    enableProduction();
+    for (const key of [
+      "reference_counter_columns", "booking_reference_columns", "booking_reference_day_unique",
+      "reference_counter_number_check", "booking_reference_format_check", "booking_reference_day_fk",
+    ] as const) {
+      const query=stubSql([schema], [{...schemaContract,[key]:false}]);
+      expect(await getMariaBookingReadiness()).toEqual({enabled:false});
+      expect(query).toHaveBeenCalledTimes(2);
     }
   });
 

@@ -17,6 +17,8 @@ const referenceIntegrityReady = {
   reference_counter_pk:true, booking_reference_pk:true,
   booking_reference_unique:true, booking_reference_day_unique:true,
   booking_reference_booking_fk:true, booking_reference_day_fk:true,
+  reference_counter_day_check:true, reference_counter_number_check:true,
+  booking_reference_number_check:true, booking_reference_format_check:true,
 };
 
 function mockReadOnlyQuery({ schema = schemaReady, migrations = ["20261103_0072", "20261105_0073", "20261107_0074", "20261108_0075", "20261110_0076"],
@@ -208,7 +210,9 @@ describe("Maria Production booking release is inspection-only", () => {
 
   it("rejects a malformed 0076 reference table despite valid migration receipts", async () => {
     for (const invalidKey of ["booking_reference_unique", "booking_reference_booking_fk",
-      "booking_reference_columns", "reference_counter_pk"]) {
+      "booking_reference_columns", "reference_counter_pk", "booking_reference_day_unique",
+      "reference_counter_day_check", "reference_counter_number_check",
+      "booking_reference_number_check", "booking_reference_format_check"]) {
       const {query} = mockReadOnlyQuery({
         referenceIntegrity: {...referenceIntegrityReady, [invalidKey]:false},
       });

@@ -98,13 +98,37 @@ export async function getMariaBookingReadiness(): Promise<MariaBookingReadiness>
             and c.contype='f' and c.confrelid=to_regclass('public.workspace_services')
             and c.confdeltype='c' and pg_get_constraintdef(c.oid)
               like 'FOREIGN KEY (service_id) REFERENCES %')
-          as card_translations_fk
+          as card_translations_fk,
+        (select count(*) from information_schema.columns where table_schema='public'
+          and table_name='maria_booking_reference_counters' and (
+          (column_name='day_key' and udt_name='text' and is_nullable='NO') or
+          (column_name='last_number' and udt_name='int8' and is_nullable='NO')
+        )) = 2 as reference_counter_columns,
+        (select count(*) from information_schema.columns where table_schema='public'
+          and table_name='maria_booking_references' and (
+          (column_name='booking_id' and udt_name='uuid' and is_nullable='NO') or
+          (column_name='day_key' and udt_name='text' and is_nullable='NO') or
+          (column_name='day_number' and udt_name='int8' and is_nullable='NO') or
+          (column_name='reference' and udt_name='text' and is_nullable='NO')
+        )) = 4 as booking_reference_columns,
+        exists (select 1 from pg_constraint c where c.conrelid=to_regclass('public.maria_booking_reference_counters') AND c.contype='p' AND c.conname='maria_booking_reference_counters_pkey' AND pg_get_constraintdef(c.oid) = 'PRIMARY KEY (day_key)') as reference_counter_pk,
+        exists (select 1 from pg_constraint c where c.conrelid=to_regclass('public.maria_booking_references') AND c.contype='p' AND c.conname='maria_booking_references_pkey' AND pg_get_constraintdef(c.oid) = 'PRIMARY KEY (booking_id)') as booking_reference_pk,
+        exists (select 1 from pg_constraint c where c.conrelid=to_regclass('public.maria_booking_references') AND c.contype='u' AND c.conname='maria_booking_references_reference_key' AND pg_get_constraintdef(c.oid) = 'UNIQUE (reference)') as booking_reference_unique,
+        exists (select 1 from pg_constraint c where c.conrelid=to_regclass('public.maria_booking_references') AND c.contype='u' AND c.conname='maria_booking_reference_day_number_key' AND pg_get_constraintdef(c.oid) = 'UNIQUE (day_key, day_number)') as booking_reference_day_unique,
+        exists (select 1 from pg_constraint c where c.conrelid=to_regclass('public.maria_booking_references') AND c.contype='f' AND c.conname='maria_booking_references_booking_id_fkey' AND c.confrelid=to_regclass('public.bookings') AND c.confdeltype='c' AND pg_get_constraintdef(c.oid) LIKE 'FOREIGN KEY (booking_id) REFERENCES %(id) ON DELETE CASCADE') as booking_reference_booking_fk,
+        exists (select 1 from pg_constraint c where c.conrelid=to_regclass('public.maria_booking_references') AND c.contype='f' AND c.conname='maria_booking_references_day_key_fkey' AND c.confrelid=to_regclass('public.maria_booking_reference_counters') AND c.confdeltype='a' AND pg_get_constraintdef(c.oid) LIKE 'FOREIGN KEY (day_key) REFERENCES %(day_key)') as booking_reference_day_fk,
+        exists (select 1 from pg_constraint c where c.conrelid=to_regclass('public.maria_booking_reference_counters') AND c.contype='c' AND c.conname='maria_booking_reference_counters_day_key_check' AND c.convalidated AND pg_get_constraintdef(c.oid) = 'CHECK ((day_key ~ ''^[0-9]{8}$''::text))') as reference_counter_day_check,
+        exists (select 1 from pg_constraint c where c.conrelid=to_regclass('public.maria_booking_reference_counters') AND c.contype='c' AND c.conname='maria_booking_reference_counters_last_number_check' AND c.convalidated AND pg_get_constraintdef(c.oid) = 'CHECK (((last_number >= 1) AND (last_number <= 999999999)))') as reference_counter_number_check,
+        exists (select 1 from pg_constraint c where c.conrelid=to_regclass('public.maria_booking_references') AND c.contype='c' AND c.conname='maria_booking_references_day_number_check' AND c.convalidated AND pg_get_constraintdef(c.oid) = 'CHECK (((day_number >= 1) AND (day_number <= 999999999)))') as booking_reference_number_check,
+        exists (select 1 from pg_constraint c where c.conrelid=to_regclass('public.maria_booking_references') AND c.contype='c' AND c.conname='maria_booking_references_reference_check' AND c.convalidated AND pg_get_constraintdef(c.oid) = 'CHECK ((reference ~ ''^MBM-[0-9]{10,}$''::text))') as booking_reference_format_check
     `;
     const contract = integrity[0];
     if (!contract || ![
       contract.manual_closed_columns, contract.card_translations_columns,
       contract.manual_closed_pk, contract.card_translations_pk,
       contract.manual_closed_fk, contract.card_translations_fk,
+      contract.reference_counter_columns, contract.booking_reference_columns,
+      contract.reference_counter_pk, contract.booking_reference_pk, contract.booking_reference_unique, contract.booking_reference_day_unique, contract.booking_reference_booking_fk, contract.booking_reference_day_fk, contract.reference_counter_day_check, contract.reference_counter_number_check, contract.booking_reference_number_check, contract.booking_reference_format_check,
     ].every(value => value === true)) return { enabled: false };
 
     const ledger = await sql`

@@ -116,6 +116,24 @@ function docker(args) {
     expect(result.appliedMigrations).toContain("20261110_0076");
   });
 
+  it("rejects same-named 0076 uniqueness on wrong columns", async () => {
+    await db.query("BEGIN");
+    await db.query("ALTER TABLE maria_booking_references DROP CONSTRAINT maria_booking_reference_day_number_key");
+    await db.query("ALTER TABLE maria_booking_references ADD CONSTRAINT maria_booking_reference_day_number_key UNIQUE (booking_id, day_number)");
+    const result=await inspect();
+    expect(result.databaseReady).toBe(false);
+    expect(result.blockers).toContain("invalid_booking_reference_day_unique");
+  });
+
+  it("rejects same-named weakened 0076 reference CHECK", async () => {
+    await db.query("BEGIN");
+    await db.query("ALTER TABLE maria_booking_references DROP CONSTRAINT maria_booking_references_reference_check");
+    await db.query("ALTER TABLE maria_booking_references ADD CONSTRAINT maria_booking_references_reference_check CHECK (reference IS NOT NULL)");
+    const result=await inspect();
+    expect(result.databaseReady).toBe(false);
+    expect(result.blockers).toContain("invalid_booking_reference_format_check");
+  });
+
   it("accepts authorized fixed-price edits and rejects an out-of-bounds price in isolated PostgreSQL", async () => {
     await db.query("BEGIN");
     await db.query(
