@@ -37,8 +37,9 @@ export async function setMariaProductionYearVisibilityAction(formData: FormData)
 
   try {
     // Advisory lock 713 also serializes OTP holds, finalization, schedule and
-    // other Maria service writes. Fail the entire transaction if either package
-    // is missing or cannot safely be booked. No auto-publication on price edits.
+    // other Maria service writes. Showing requires two complete, bookable
+    // packages; hiding can deactivate one existing package. Never publish on
+    // price edits or mutate existing bookings.
     const results = await sql.transaction([
       sql`select pg_advisory_xact_lock(hashtextextended(${access.workspaceId}::text, 713))`,
       sql`
@@ -69,10 +70,13 @@ export async function setMariaProductionYearVisibilityAction(formData: FormData)
               else s.public_status end,
             updated_at = now()
           from eligible e
-          where s.id = e.id and (select complete from eligible_pair)
+          where s.id = e.id and (${!show}::boolean or (select complete from eligible_pair))
           returning s.id
         )
-        select 1 / (case when count(*) = 2 then 1 else 0 end)
+        select 1 / (case when
+          (${show}::boolean and count(*) = 2)
+          or (${!show}::boolean and count(*) >= 1)
+          then 1 else 0 end)
           as maria_year_publication_guard from updated
       `,
       sql`
