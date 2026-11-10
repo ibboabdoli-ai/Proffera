@@ -14,6 +14,11 @@ describe("Maria DB destination proof (synthetic only)", () => {
     expect(matchesMariaProductionDatabaseUrl(good.replace("/neondb", ":5433/neondb"))).toBe(false);
     expect(matchesMariaProductionDatabaseUrl(good.replace("sslmode=require", "sslmode=disable"))).toBe(false);
     expect(matchesMariaProductionDatabaseUrl(good.replace("?sslmode=require", ""))).toBe(false);
+    expect(matchesMariaProductionDatabaseUrl(good + "&host=ep-attacker.neon.tech")).toBe(false);
+    expect(matchesMariaProductionDatabaseUrl(good + "&port=6543")).toBe(false);
+    expect(matchesMariaProductionDatabaseUrl(good + "&database=other")).toBe(false);
+    expect(matchesMariaProductionDatabaseUrl(good + "&sslmode=disable")).toBe(false);
+    expect(matchesMariaProductionDatabaseUrl(good + "&channel_binding=require")).toBe(true);
     expect(matchesMariaProductionDatabaseUrl("invalid url")).toBe(false);
     expect(matchesMariaProductionDatabaseUrl(null)).toBe(false);
   });
