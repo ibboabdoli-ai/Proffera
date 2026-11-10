@@ -18,13 +18,20 @@ export function matchesMariaProductionDatabaseUrl(raw: string | null | undefined
     const hostname = url.hostname.toLowerCase();
     const expected = EXPECTED_MARIA_TARGET.endpointHost;
     const pooled = expected.replace(/^([^.]+)/, "$1-pooler");
+    // node-postgres allows query-string host/port/database overrides.
+    // Reject all unapproved and repeated parameters before opening a connection.
+    // These are the benign parameter names issued by Neon for this project.
+    const allowedParams = new Set(["sslmode", "channel_binding", "pgbouncer", "connect_timeout"]);
+    const params = [...url.searchParams.keys()];
+    const paramsAllowed = params.every(key => allowedParams.has(key))
+      && new Set(params).size === params.length;
     const secureSslMode = ["require", "verify-full", "verify-ca", "prefer"]
       .includes(url.searchParams.get("sslmode")?.toLowerCase() ?? "");
     return ["postgres:", "postgresql:", "pg:"].includes(url.protocol)
       && (hostname === expected || hostname === pooled)
       && decodeURIComponent(url.pathname) === `/${EXPECTED_MARIA_TARGET.databaseName}`
       && (url.port === "" || url.port === "5432")
-      && secureSslMode;
+      && secureSslMode && paramsAllowed && !url.hash;
   } catch {
     return false;
   }
