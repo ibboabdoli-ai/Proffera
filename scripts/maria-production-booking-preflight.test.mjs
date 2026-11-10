@@ -4,7 +4,7 @@ import { inspectMariaProductionBookingDatabase } from "./maria-production-bookin
 const schemaReady = {
   ledger: true, workspaces: true, workspace_settings: true, workspace_services: true,
   booking_hours: true, verifications: true, manual_closed_starts: true,
-  card_translations: true, verification_contact_columns: true,
+  card_translations: true, booking_references: true, reference_counters: true, verification_contact_columns: true,
   lifecycle_settings: true, lifecycle_settings_columns: true, lifecycle_cancel_notice_check: true,
 };
 const integrityReady = {
@@ -13,7 +13,7 @@ const integrityReady = {
   manual_closed_fk: true, card_translations_fk: true,
 };
 
-function mockReadOnlyQuery({ schema = schemaReady, migrations = ["20261103_0072", "20261105_0073", "20261107_0074", "20261108_0075"],
+function mockReadOnlyQuery({ schema = schemaReady, migrations = ["20261103_0072", "20261105_0073", "20261107_0074", "20261108_0075", "20261110_0076"],
   workspaceReady = true, priceOverride = null, hoursReady = true,
   billingCurrency = "SEK", integrity = integrityReady } = {}) {
   const executed = [];
@@ -48,7 +48,7 @@ function mockReadOnlyQuery({ schema = schemaReady, migrations = ["20261103_0072"
 }
 
 describe("Maria Production booking release is inspection-only", () => {
-  it("reports database readiness only after all four migrations, matching services and opening hours", async () => {
+  it("reports database readiness only after all five migrations, matching services and opening hours", async () => {
     const { query, executed } = mockReadOnlyQuery();
     const result = await inspectMariaProductionBookingDatabase(query);
     expect(result.databaseReady).toBe(true);
@@ -77,7 +77,7 @@ describe("Maria Production booking release is inspection-only", () => {
     expect(executed.some(item => item.statement.includes("from proffera_schema_migrations"))).toBe(false);
   });
 
-  it("requires migrations 0072 through 0075 to be recorded independently", async () => {
+  it("requires migrations 0072 through 0076 to be recorded independently", async () => {
     const result = await inspectMariaProductionBookingDatabase(mockReadOnlyQuery({
       migrations: ["20261105_0073"],
     }).query);
@@ -85,6 +85,22 @@ describe("Maria Production booking release is inspection-only", () => {
     expect(result.blockers).toContain("missing_migration_20261103_0072");
     expect(result.blockers).toContain("missing_migration_20261107_0074");
     expect(result.blockers).toContain("missing_migration_20261108_0075");
+    expect(result.blockers).toContain("missing_migration_20261110_0076");
+  });
+
+  it("refuses a missing 0076 receipt or new reference tables", async () => {
+    const noLedger = await inspectMariaProductionBookingDatabase(mockReadOnlyQuery({
+      migrations: ["20261103_0072", "20261105_0073", "20261107_0074", "20261108_0075"],
+    }).query);
+    expect(noLedger.databaseReady).toBe(false);
+    expect(noLedger.blockers).toContain("missing_migration_20261110_0076");
+    const noTables = await inspectMariaProductionBookingDatabase(mockReadOnlyQuery({
+      schema: { ...schemaReady, booking_references: false, reference_counters: false },
+    }).query);
+    expect(noTables.databaseReady).toBe(false);
+    expect(noTables.blockers).toEqual(expect.arrayContaining([
+      "missing_booking_references", "missing_reference_counters",
+    ]));
   });
 
   it("fails closed on absent 0075 lifecycle columns or range constraint", async () => {
