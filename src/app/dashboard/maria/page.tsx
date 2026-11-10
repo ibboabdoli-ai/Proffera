@@ -202,8 +202,8 @@ export default async function MariaSiteDashboardPage({ searchParams }: { searchP
                       Dolda år bevarar tidigare bokningar.
                     </p>
                   </div>
+                  <input type="hidden" name="visibility" value={isYearPublic(year) ? "hide" : "show"} />
                   <button type="submit" formAction={setMariaProductionYearVisibilityAction}
-                    name="visibility" value={isYearPublic(year) ? "hide" : "show"}
                     className="min-h-11 rounded-lg border border-[#845363] bg-white px-4 py-2 text-xs font-bold text-[#704858]">
                     {isYearPublic(year) ? `Dölj ${year}` : `Visa ${year} på webbplatsen`}
                   </button>
