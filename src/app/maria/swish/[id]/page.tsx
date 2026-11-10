@@ -104,7 +104,13 @@ export default async function MariaSwishPaymentPage({
   const isEnglish = language === "en";
   const words = paymentText[language];
   const paymentPagePath = "/maria/swish/" + id;
-  const reference = await readMariaBookingReference(id);
+  let reference: string;
+  try {
+    reference = await readMariaBookingReference(id);
+  } catch (error) {
+    console.error("Maria Swish booking reference unavailable", error);
+    notFound();
+  }
   const swishDigits = MARIA_SWISH_NUMBER.replace(/\D/g, "");
 
   return (
