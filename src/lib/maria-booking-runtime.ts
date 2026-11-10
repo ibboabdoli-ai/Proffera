@@ -130,7 +130,7 @@ export async function getMariaBookingReadiness(): Promise<MariaBookingReadiness>
           select 1 from workspace_services s
           where s.workspace_id=w.id::text and s.is_active=true
             and s.public_status='published' and s.duration_minutes between 1 and 1440
-            and s.price_type='fixed' and s.price_amount_minor between 0 and 25000000
+            and s.price_type='fixed' and s.price_amount_minor between 1 and 25000000
             and s.public_slug ~ '^maria-bridal-(trial|without-trial)-(202[6-9]|203[0-6])$'
         )
         and not exists (
@@ -139,7 +139,7 @@ export async function getMariaBookingReadiness(): Promise<MariaBookingReadiness>
             and unsafe.public_status='published'
             and unsafe.public_slug ~ '^maria-bridal-(trial|without-trial)-(202[6-9]|203[0-6])$'
             and (unsafe.price_type IS DISTINCT FROM 'fixed' or unsafe.price_amount_minor is null
-              or unsafe.price_amount_minor not between 0 and 25000000)
+              or unsafe.price_amount_minor not between 1 and 25000000)
         )
       limit 2
     `;
