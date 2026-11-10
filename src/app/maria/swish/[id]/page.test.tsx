@@ -67,6 +67,7 @@ describe("Maria Preview first-party Swish payment information page", () => {
     const html = renderToStaticMarkup(await MariaSwishPaymentPage(props));
     expect(html).toContain("MBM-11111111222243338444555555555555");
     expect(html).toContain('class="min-w-0 break-all select-all text-lg font-bold"');
+    expect(html).toContain('<code dir="ltr" class="min-w-0 break-all select-all text-lg font-bold">MBM-11111111222243338444555555555555</code>');
     expect(html).toContain("123-581 86 53");
     expect(html).toContain(`${(2000).toLocaleString("sv-SE")} kr`);
     expect(html).toContain("Öppna Swish");
