@@ -21,6 +21,7 @@ const expectedKeys = [
   "maria-bridal-without-trial-2026",
 ];
 
+/** Render Maria's role-gated booking dashboard and yearly service editor. */
 export default async function MariaSiteDashboardPage({ searchParams }: { searchParams?: Promise<{ updated?: string; error?: string; year?: string; lang?: string | string[] }> }) {
   const access = await getUserWorkspaceAccess();
   const isPreview = process.env.VERCEL_ENV === "preview";
@@ -55,24 +56,28 @@ export default async function MariaSiteDashboardPage({ searchParams }: { searchP
   const availableYears = Array.from({ length: 11 }, (_, i) => 2026 + i);
   const editingYear = availableYears.includes(Number(q.year)) ? Number(q.year) : 2026;
   const displayedYears = [editingYear];
+  /** Find a previously stored service without manufacturing a published package. */
   const savedPackage = (year: number, kind: "trial" | "without-trial") =>
     services.find((item) => item.publicSlug === `maria-bridal-${kind}-${year}`);
+  /** Use saved localized service copy when available; keep other years isolated. */
   const savedCopy = (year: number, kind: "trial" | "without-trial", locale: "sv" | "en" | "ar") => {
     if (locale === "sv") return savedPackage(year, kind)?.shortDescription ?? "";
     return cardTranslations.get(`maria-bridal-${kind}-${year}`)?.[locale] ?? "";
   };
+  /** Convert the immutable minor-unit price into the editable SEK value. */
   const savedPrice = (year: number, kind: "trial" | "without-trial") => {
     const service = savedPackage(year, kind);
     return service?.priceType === "fixed" && service.priceAmountMinor !== null
       ? String(service.priceAmountMinor / 100)
       : "";
   };
+  /** Preserve Preview's existing year checkbox semantics for its stored packages. */
   const isYearEnabled = (year: number) => {
     const trial = savedPackage(year, "trial");
     const without = savedPackage(year, "without-trial");
     return !trial && !without ? year <= 2028 : Boolean(trial?.isActive || without?.isActive);
   };
-  // Match public config: one active published package makes its year visible.
+  /** Match public config: one active published package makes its year visible. */
   const isYearPublic = (year: number) =>
     (["trial", "without-trial"] as const).some(kind => {
       const service = savedPackage(year, kind);
@@ -94,6 +99,7 @@ export default async function MariaSiteDashboardPage({ searchParams }: { searchP
   // Exactly the same year/price/SV-EN-AR editor in Preview and approved
   // Production; only the server writer differs. Production never renders or
   // submits the year-publication checkbox or booking/calendar controls.
+  /** Render the existing content editor and the separate owner-only visibility form. */
   const renderYearEditor = (contentOnly: boolean) => (
       <section id="priser" className="scroll-mt-6 rounded-2xl border border-[#e8d9dc] bg-white p-4 sm:p-8">
         <h2 className="font-serif text-2xl text-[#352a2c]">Bröllopsår och paketpriser</h2>
