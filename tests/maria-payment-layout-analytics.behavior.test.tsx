@@ -29,7 +29,7 @@ vi.mock("@/components/pwa-service-worker", () => ({
   PwaServiceWorker: () => "PROFFERA_PWA_RENDERED",
 }));
 
-import RootLayout from "@/app/layout";
+import RootLayout, { metadata as profferaMetadata } from "@/app/layout";
 import { MARIA_PAYMENT_SHELL_HEADER } from "@/lib/maria-payment-standalone";
 
 const host = "proffera-git-feature-example.vercel.app";
@@ -53,6 +53,11 @@ async function renderRoot(standalone: boolean, siteHost = host) {
 }
 
 describe("Maria Preview payment shell analytics privacy", () => {
+  it("preserves the normal Proffera manifest and Apple title on the platform", () => {
+    expect(profferaMetadata.manifest).toBe("/manifest.webmanifest");
+    expect(profferaMetadata.appleWebApp).toMatchObject({title:"Proffera",capable:true});
+  });
+
   it("does not render analytics, consent UI or performance instrumentation on isolated Swish page", async () => {
     const html = await renderRoot(true);
     expect(html).toContain("synthetic-payment-page");
