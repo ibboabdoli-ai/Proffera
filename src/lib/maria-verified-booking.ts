@@ -132,7 +132,8 @@ export async function finalizeMariaVerifiedBooking(input: FinalizeMariaInput) {
         assigned_reference as (
           insert into maria_booking_references(booking_id,day_key,day_number,reference)
           select b.id,seq.day_key,seq.last_number,
-            'MBM-' || seq.day_key || lpad(seq.last_number::text,2,'0')
+            'MBM-' || seq.day_key || case when seq.last_number < 100
+              then lpad(seq.last_number::text,2,'0') else seq.last_number::text end
           from booking b cross join daily_reference seq
           returning booking_id
         ),
