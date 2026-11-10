@@ -1,6 +1,6 @@
 import { pathToFileURL } from "node:url";
 
-const migrations = ["20261103_0072", "20261105_0073", "20261107_0074", "20261108_0075"];
+const migrations = ["20261103_0072", "20261105_0073", "20261107_0074", "20261108_0075", "20261110_0076"];
 // Prices are owner-editable; a release check must validate their shape, not freeze a former price target.
 const required2026Services = ["maria-bridal-trial-2026", "maria-bridal-without-trial-2026"];
 
@@ -16,6 +16,8 @@ export async function inspectMariaProductionBookingDatabase(query) {
     "to_regclass('public.public_booking_verifications') is not null as verifications,",
     "to_regclass('public.maria_manual_closed_starts') is not null as manual_closed_starts,",
     "to_regclass('public.maria_service_card_translations') is not null as card_translations,",
+    "to_regclass('public.maria_booking_references') is not null as booking_references,",
+    "to_regclass('public.maria_booking_reference_counters') is not null as reference_counters,",
     "to_regclass('public.workspace_booking_reminder_settings') is not null as lifecycle_settings,",
     "(select count(*) from information_schema.columns where table_schema='public'",
     "and table_name='workspace_booking_reminder_settings' and (",
@@ -41,7 +43,7 @@ export async function inspectMariaProductionBookingDatabase(query) {
   ].join(" ");
   const schema = (await query(schemaSql)).rows?.[0];
   if (!schema) return { databaseReady: false, blockers: ["schema_unreadable"], appliedMigrations: [] };
-  const tables = ["ledger", "workspaces", "workspace_settings", "workspace_services", "booking_hours", "verifications", "manual_closed_starts", "card_translations", "lifecycle_settings"];
+  const tables = ["ledger", "workspaces", "workspace_settings", "workspace_services", "booking_hours", "verifications", "manual_closed_starts", "card_translations", "booking_references", "reference_counters", "lifecycle_settings"];
   for (const table of tables) if (schema[table] !== true) blockers.push("missing_" + table);
   if (schema.verification_contact_columns !== true) blockers.push("missing_verification_contact_columns");
   if (schema.lifecycle_settings_columns !== true) blockers.push("invalid_lifecycle_settings_columns");
@@ -94,7 +96,7 @@ export async function inspectMariaProductionBookingDatabase(query) {
 
   let appliedMigrations = [];
   if (schema.ledger === true) {
-    const rows = await query("select migration_key from proffera_schema_migrations where migration_key in ('20261103_0072','20261105_0073','20261107_0074','20261108_0075')");
+    const rows = await query("select migration_key from proffera_schema_migrations where migration_key in ('20261103_0072','20261105_0073','20261107_0074','20261108_0075','20261110_0076')");
     appliedMigrations = rows.rows.map(row => String(row.migration_key));
     for (const key of migrations) if (!appliedMigrations.includes(key)) blockers.push("missing_migration_" + key);
   }
