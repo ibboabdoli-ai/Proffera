@@ -38,18 +38,21 @@ export type MariaBookingStatusEmailInput = {
   depositAlreadyPaid?: boolean;
 };
 
+/** Escape customer-controlled data before interpolating into booking email HTML. */
 function escapeHtml(value: string) {
   return value.replaceAll("&", "&amp;").replaceAll("<", "&lt;")
     .replaceAll(">", "&gt;").replaceAll('"', "&quot;")
     .replaceAll("'", "&#039;");
 }
 
+/** Format booking timestamps in the chosen customer language and workspace zone. */
 function formatTime(value: string | Date, timeZone: WorkspaceTimeZone = "Europe/Stockholm", language: "sv" | "en" | "ar" = "sv") {
   const date = value instanceof Date ? value : new Date(value);
   if (!Number.isFinite(date.getTime())) throw new Error("INVALID_MARIA_BOOKING_TIME");
   return new Intl.DateTimeFormat(bookingDateLocale(language), { timeZone, dateStyle: "full", timeStyle: "short" }).format(date);
 }
 
+/** Fail closed unless customer payment links use the approved HTTPS origin. */
 function checkedMariaOrigin(value: string, production: boolean) {
   const url = new URL(value);
   const approvedHost = production
