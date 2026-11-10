@@ -1417,5 +1417,61 @@ function compileSql(strings: TemplateStringsArray, values: unknown[]): Query {
     expect((await count()).rows[0]?.count).toBe(before);
   });
 
+  it("lets the owner hide a partly configured year with only one public package", async () => {
+    vi.stubEnv("VERCEL_ENV", "production");
+    vi.stubEnv("PROFFERA_MARIA_PRODUCTION_YEAR_EDITOR_ENABLED", "true");
+    const year = 2034;
+    const slug = "maria-bridal-trial-2034";
+    const form = new FormData();
+    form.set("year", String(year));
+    form.set("visibility", "hide");
+    const beforeBookings = await db!.query<{count:number}>(
+      "select count(*)::int as count from bookings where workspace_id=$1", [workspaceId],
+    );
+    const beforeAudit = await db!.query<{count:number}>(
+      "select count(*)::int as count from admin_audit_logs where workspace_id=$1::uuid and action='maria.booking_year_visibility.updated'",
+      [workspaceId],
+    );
+    await db!.query(
+      "insert into workspace_services(workspace_id,name,public_slug,duration_minutes,price_type,price_amount_minor,maximum_advance_days,is_active,public_status) values($1,'Brudsmink med prov 2034',$2,180,'fixed',600000,730,true,'published')",
+      [workspaceId,slug],
+    );
+    try {
+      const visible = await (await getMariaPublicConfig()).json() as {years:Array<{year:number}>};
+      expect(visible.years.some(item=>item.year===year)).toBe(true);
+      await expect(setMariaProductionYearVisibilityAction(form))
+        .rejects.toThrow("TEST_REDIRECT:/dashboard/maria?year=2034&updated=visibility#priser");
+      const afterHide = await db!.query<{is_active:boolean;public_status:string}>(
+        "select is_active,public_status from workspace_services where workspace_id=$1 and public_slug=$2",
+        [workspaceId,slug],
+      );
+      expect(afterHide.rows).toEqual([{is_active:false,public_status:"published"}]);
+      const hidden = await (await getMariaPublicConfig()).json() as {years:Array<{year:number}>};
+      expect(hidden.years.some(item=>item.year===year)).toBe(false);
+      const afterAudit = await db!.query<{count:number}>(
+        "select count(*)::int as count from admin_audit_logs where workspace_id=$1::uuid and action='maria.booking_year_visibility.updated'",
+        [workspaceId],
+      );
+      expect(afterAudit.rows[0]?.count).toBe(Number(beforeAudit.rows[0]?.count)+1);
+      form.set("visibility","show");
+      await expect(setMariaProductionYearVisibilityAction(form))
+        .rejects.toThrow("TEST_REDIRECT:/dashboard/maria?year=2034&error=visibility#priser");
+      const afterRejectedShow = await db!.query<{is_active:boolean}>(
+        "select is_active from workspace_services where workspace_id=$1 and public_slug=$2",
+        [workspaceId,slug],
+      );
+      expect(afterRejectedShow.rows[0]?.is_active).toBe(false);
+      expect((await db!.query<{count:number}>(
+        "select count(*)::int as count from admin_audit_logs where workspace_id=$1::uuid and action='maria.booking_year_visibility.updated'",
+        [workspaceId],
+      )).rows[0]?.count).toBe(Number(beforeAudit.rows[0]?.count)+1);
+      expect((await db!.query<{count:number}>(
+        "select count(*)::int as count from bookings where workspace_id=$1", [workspaceId],
+      )).rows).toEqual(beforeBookings.rows);
+    } finally {
+      await db!.query("delete from workspace_services where workspace_id=$1 and public_slug=$2",[workspaceId,slug]);
+    }
+  });
+
 
 });
