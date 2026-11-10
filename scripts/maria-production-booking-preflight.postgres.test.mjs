@@ -107,6 +107,15 @@ function docker(args) {
     expect(result.blockers).toContain("missing_migration_20261110_0076");
   });
 
+  it("rejects a 0076 reference table missing its unique payment number despite a migration receipt", async () => {
+    await db.query("BEGIN");
+    await db.query("ALTER TABLE maria_booking_references DROP CONSTRAINT maria_booking_references_reference_key");
+    const result = await inspect();
+    expect(result.databaseReady).toBe(false);
+    expect(result.blockers).toContain("invalid_booking_reference_unique");
+    expect(result.appliedMigrations).toContain("20261110_0076");
+  });
+
   it("accepts authorized fixed-price edits and rejects an out-of-bounds price in isolated PostgreSQL", async () => {
     await db.query("BEGIN");
     await db.query(
