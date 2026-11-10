@@ -1,9 +1,10 @@
 import type { MetadataRoute } from "next";
 import { headers } from "next/headers";
 
+import { getMariaPublicSeoPolicy } from "@/lib/maria-public-seo-policy";
 import { primeViewSite } from "@/lib/primeview-seo";
 import { resolvePublicCustomDomain } from "@/lib/public-site-domain-routing";
-import { hostnameFromHostHeader, isPlatformHost, isPrimeViewHost } from "@/lib/public-site-domains";
+import { hostnameFromHostHeader, isMariaHost, isPlatformHost, isPrimeViewHost } from "@/lib/public-site-domains";
 import { siteConfig } from "@/lib/site";
 
 export const dynamic = "force-dynamic";
@@ -11,6 +12,10 @@ export const dynamic = "force-dynamic";
 export default async function robots(): Promise<MetadataRoute.Robots> {
   const requestHeaders = await headers();
   const host = requestHeaders.get("host");
+
+  // Maria is a reserved branded host, independent of generic domain setup.
+  // Never expose the portfolio to crawlers until its own Production flag is on.
+  if (isMariaHost(host)) return getMariaPublicSeoPolicy().robots;
 
   if (isPrimeViewHost(host)) {
     return {

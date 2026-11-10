@@ -11,6 +11,7 @@ import { PwaServiceWorker } from "@/components/pwa-service-worker";
 import { WebVitalsReporter } from "@/components/performance/web-vitals-reporter";
 import { resolvePostHogConfig } from "@/lib/analytics/posthog-privacy";
 import { siteConfig } from "@/lib/site";
+import { MARIA_PAYMENT_SHELL_HEADER } from "@/lib/maria-payment-standalone";
 import { isAnalyticsPlatformHost, isPlatformHost, isPrimeViewHost } from "@/lib/public-site-domains";
 
 const hankenGrotesk = Hanken_Grotesk({
@@ -82,7 +83,12 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
   const host = requestHeaders.get("host");
   const isCustomerSite = isPrimeViewHost(host);
   const isPlatformSite = isPlatformHost(host);
-  const postHogConfig = resolvePostHogConfig();
+  // The trusted proxy strips incoming overrides and sets this marker only on
+  // an exact booking-specific Maria Swish route in isolated Preview.
+  const mariaPaymentStandalone = process.env.VERCEL_ENV === "preview"
+    && isPlatformSite
+    && requestHeaders.get(MARIA_PAYMENT_SHELL_HEADER) === "1";
+  const postHogConfig = mariaPaymentStandalone ? null : resolvePostHogConfig();
   const shouldRenderAnalytics =
     postHogConfig !== null && isAnalyticsPlatformHost(host, postHogConfig.environment);
   const isEnglishPublicSite = requestHeaders.get("x-proffera-locale") === "en";
@@ -91,14 +97,16 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
   return (
     <html lang={documentLanguage} className={isCustomerSite ? "primeview-site" : undefined}>
       <body className={`${hankenGrotesk.variable}${isCustomerSite ? " primeview-site" : ""}`}>
-        {isCustomerSite ? <main>{children}</main> : <AppShell>{children}</AppShell>}
-        {!isCustomerSite && <PwaServiceWorker />}
-        {!isCustomerSite && <ServiceAiChatWidget />}
-        {isPlatformSite && <AnalyticsConsentControl />}
-        {isCustomerSite && <AnalyticsConsentControl brand="primeview" />}
-        {isCustomerSite && <PrimeViewGoogleAdsAnalytics />}
+        {mariaPaymentStandalone
+          ? children
+          : isCustomerSite ? <main>{children}</main> : <AppShell>{children}</AppShell>}
+        {!mariaPaymentStandalone && !isCustomerSite && <PwaServiceWorker />}
+        {!mariaPaymentStandalone && !isCustomerSite && <ServiceAiChatWidget />}
+        {!mariaPaymentStandalone && isPlatformSite && <AnalyticsConsentControl />}
+        {!mariaPaymentStandalone && isCustomerSite && <AnalyticsConsentControl brand="primeview" />}
+        {!mariaPaymentStandalone && isCustomerSite && <PrimeViewGoogleAdsAnalytics />}
         {shouldRenderAnalytics && <PostHogAnalytics config={postHogConfig} />}
-        {isPlatformSite && <WebVitalsReporter />}
+        {!mariaPaymentStandalone && isPlatformSite && <WebVitalsReporter />}
       </body>
     </html>
   );

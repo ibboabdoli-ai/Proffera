@@ -10,12 +10,14 @@ function contractRows(overrides: Partial<{
   foreign_key_validated: boolean;
   index_present: boolean;
   ledger_present: boolean;
+  lifecycle_columns_ready: boolean;
 }> = {}) {
   return [{
     column_present: true,
     foreign_key_validated: true,
     index_present: true,
     ledger_present: true,
+    lifecycle_columns_ready: true,
     ...overrides,
   }];
 }
@@ -49,6 +51,8 @@ describe("Production schema health", () => {
     expect(contractSql).toContain("pg_get_indexdef(index_meta.indexrelid, 2, true) = 'primary_directory_service_slug'");
     expect(contractSql).toContain("pg_get_expr(index_meta.indpred, index_meta.indrelid)");
     expect(contractSql).toContain("primary_directory_service_slugisnotnull");
+    expect(contractSql).toContain("lifecycle_columns_ready");
+    expect(contractSql).toContain("customer_cancel_enabled");
   });
 
   it("fails closed when the ledger is missing and does not query a missing table", async () => {
@@ -81,6 +85,12 @@ describe("Production schema health", () => {
     expect(result.workspaceServiceIdentity[field]).toBe(false);
   });
 
+  it("fails closed when lifecycle columns are missing despite ledger success", async () => {
+    const query = vi.fn().mockResolvedValueOnce({ rows: contractRows({ lifecycle_columns_ready: false }) })
+      .mockResolvedValueOnce({ rows: REQUIRED_PRODUCTION_MIGRATIONS.map((migration_key) => ({ migration_key })) });
+    expect((await inspectProductionSchema(query)).ok).toBe(false);
+  });
+
   it("fails closed when required migrations are missing", async () => {
     const query = vi.fn()
       .mockResolvedValueOnce({ rows: contractRows() })
@@ -96,6 +106,10 @@ describe("Production schema health", () => {
       "20260919_0069",
       "20260927_0070",
       "20260929_0071",
+      "20261103_0072",
+      "20261105_0073",
+      "20261107_0074",
+      "20261108_0075",
     ]);
   });
 });

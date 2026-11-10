@@ -49,6 +49,11 @@ async function createBookingAction(formData: FormData) {
 
 type Props = { searchParams?: Promise<{ error?: string | string[]; customer?: string | string[]; lang?: string | string[] }> };
 export default async function NewBookingPage({ searchParams }: Props) {
+  const access = await getUserWorkspaceAccess();
+  // Keep the direct generic form hidden for Maria in Production as well.
+  if (access.ok && access.workspaceSlug === "makeup-by-maria" && process.env.VERCEL_ENV === "production") {
+    redirect("/dashboard/bokningar");
+  }
   const [customers, params] = await Promise.all([getDashboardCustomerOptions(), searchParams ?? Promise.resolve(undefined)]);
   const value = (key: "error" | "customer" | "lang") => { const v = params?.[key]; return Array.isArray(v) ? v[0] : v; };
   const en = value("lang") === "en", errorKey = value("error") as ErrorKey | undefined, selected = customers.find((item) => item.id === value("customer"));

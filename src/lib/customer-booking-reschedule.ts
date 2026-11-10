@@ -5,6 +5,7 @@ import { neon } from "@neondatabase/serverless";
 import { sendBookingChangeEmails } from "@/features/email/booking-change-email";
 import { verifyCustomerCalendarToken } from "@/lib/customer-calendar";
 import { resolveDatabaseUrl } from "@/lib/db/database-url";
+import { rescheduleMariaCustomerBooking } from "@/lib/maria-customer-reschedule";
 import { parseLocalDateTime, resolveBookingTimeZone, validatePublicBookingPolicy } from "@/lib/public-booking-policy";
 
 const connectionString = resolveDatabaseUrl();
@@ -18,6 +19,8 @@ export type RescheduleBookingData = {
   staffId: string | null;
   staffName: string | null;
   timeZone: string;
+  /** Whether the existing Maria service still permits rescheduling. */
+  serviceRescheduleAvailable?: boolean;
 };
 
 export async function getRescheduleBooking(token: string, bookingId: string): Promise<RescheduleBookingData | null> {
@@ -33,8 +36,15 @@ export async function getRescheduleBooking(token: string, bookingId: string): Pr
       b.ends_at,
       b.staff_id,
       s.name as staff_name,
+      case when w.slug='makeup-by-maria' then exists (
+        select 1 from workspace_services svc
+        where svc.id=b.service_id and svc.workspace_id=b.workspace_id
+          and b.staff_id is null and b.source='public_booking'
+          and svc.is_active=true and svc.public_status='published'
+      ) else true end as service_reschedule_available,
       coalesce(nullif(ws.time_zone, ''), 'Europe/Stockholm') as time_zone
     from bookings b
+    join workspaces w on w.id::text = b.workspace_id
     left join workspace_staff s on s.id = b.staff_id and s.workspace_id = b.workspace_id
     left join workspace_settings ws on ws.workspace_id = b.workspace_id
     left join workspace_booking_reminder_settings ps on ps.workspace_id = b.workspace_id
@@ -58,6 +68,7 @@ export async function getRescheduleBooking(token: string, bookingId: string): Pr
         staffId: row.staff_id ? String(row.staff_id) : null,
         staffName: row.staff_name ? String(row.staff_name) : null,
         timeZone: String(row.time_zone),
+        serviceRescheduleAvailable: row.service_reschedule_available === true,
       }
     : null;
 }
@@ -66,7 +77,7 @@ export async function rescheduleCustomerBooking(
   token: string,
   bookingId: string,
   startsAtLocal: string,
-  language: "sv" | "en",
+  language: "sv" | "en" | "ar",
 ) {
   const payload = verifyCustomerCalendarToken(token);
   if (!payload || !connectionString || !/^[0-9a-f-]{36}$/i.test(bookingId)) {
@@ -82,6 +93,7 @@ export async function rescheduleCustomerBooking(
       b.id,
       b.service,
       b.city,
+      w.slug as workspace_slug,
       b.staff_id,
       b.status as old_status,
       b.starts_at as old_starts_at,
@@ -100,7 +112,9 @@ export async function rescheduleCustomerBooking(
     from bookings b
     join customers c on c.id = b.customer_id and c.workspace_id = b.workspace_id
     join workspaces w on w.id::text = b.workspace_id
-    join workspace_services sv on sv.workspace_id = b.workspace_id and sv.name = b.service and sv.is_active = true
+    join workspace_services sv on sv.workspace_id = b.workspace_id and sv.is_active = true
+      and ((w.slug = 'makeup-by-maria' and sv.id = b.service_id)
+        or (w.slug <> 'makeup-by-maria' and sv.name = b.service))
     left join workspace_settings ws on ws.workspace_id = b.workspace_id
     left join workspace_booking_reminder_settings ps on ps.workspace_id = b.workspace_id
     where b.id = ${bookingId}
@@ -114,6 +128,12 @@ export async function rescheduleCustomerBooking(
   `;
   const booking = rows[0];
   if (!booking) return { ok: false as const, error: "not_allowed" };
+  if (String(booking.workspace_slug) === "makeup-by-maria") {
+    return rescheduleMariaCustomerBooking({
+      workspaceId: payload.workspaceId, customerId: payload.customerId,
+      bookingId, startsAtLocal, token, language,
+    });
+  }
 
   const weekday = new Date(Date.UTC(local.year, local.month - 1, local.day)).getUTCDay();
   let hours: Record<string, unknown> | undefined;

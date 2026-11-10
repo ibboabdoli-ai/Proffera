@@ -10,6 +10,14 @@ export const REQUIRED_PRODUCTION_MIGRATIONS = [
   "20260919_0069",
   "20260927_0070",
   "20260929_0071",
+  "20261103_0072",
+  "20261105_0073",
+  // Additive localized-card schema must be applied in a controlled release
+  // before this PR can be promoted; Preview preparation is not proof for Prod.
+  "20261107_0074",
+  // All lifecycle-settings columns required by the customer portal are now
+  // recorded as an explicit, separately approved additive migration.
+  "20261108_0075",
 ] as const;
 
 type QueryExecutor = (
@@ -97,7 +105,15 @@ export async function inspectProductionSchema(
             'g'
           ) = 'primary_directory_service_slugisnotnull'
       ) as index_present,
-      to_regclass('public.proffera_schema_migrations') is not null as ledger_present
+      to_regclass('public.proffera_schema_migrations') is not null as ledger_present,
+       (select count(*)=6 from information_schema.columns
+         where table_schema='public' and table_name='workspace_booking_reminder_settings'
+           and is_nullable='NO'
+           and ((column_name in ('customer_reschedule_enabled','customer_cancel_enabled',
+             'no_show_enabled','auto_complete_enabled','company_confirmation_required')
+             and data_type='boolean')
+             or (column_name='cancel_notice_hours' and data_type='integer')))
+         as lifecycle_columns_ready
   `);
 
   const row = contract.rows[0] as {
@@ -105,6 +121,7 @@ export async function inspectProductionSchema(
     foreign_key_validated?: boolean;
     index_present?: boolean;
     ledger_present?: boolean;
+    lifecycle_columns_ready?: boolean;
   } | undefined;
 
   const ledgerPresent = row?.ledger_present === true;
@@ -138,6 +155,7 @@ export async function inspectProductionSchema(
       && columnPresent
       && foreignKeyValidated
       && indexPresent
+      && row?.lifecycle_columns_ready === true
       && missingMigrations.length === 0,
     databaseReachable: true,
     ledgerPresent,

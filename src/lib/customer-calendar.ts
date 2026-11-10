@@ -4,9 +4,12 @@ import crypto from "node:crypto";
 import { neon } from "@neondatabase/serverless";
 
 import { sendBookingChangeEmails } from "@/features/email/booking-change-email";
+import { withMariaBookingNotificationLock } from "@/lib/maria-booking-notification-lock";
 import { resolveCustomerPortalSecret } from "@/lib/auth-secret";
 import { resolveDatabaseUrl } from "@/lib/db/database-url";
+import { getMariaExistingBookingPortalBase, isMariaExistingBookingRecipientAllowed } from "@/lib/maria-preview-customer-safety";
 import { resolveBookingTimeZone } from "@/lib/public-booking-policy";
+import { postgresTimestampIso } from "@/lib/postgres-timestamp";
 import type { WorkspaceTimeZone } from "@/lib/workspace-market";
 
 const connectionString = resolveDatabaseUrl();
@@ -80,8 +83,8 @@ const toBooking = (row: Record<string, unknown>): CustomerCalendarBooking => ({
   service: String(row.service ?? "Ej angiven"),
   city: String(row.city ?? ""),
   status: String(row.status ?? "requested"),
-  startsAt: new Date(String(row.starts_at)).toISOString(),
-  endsAt: new Date(String(row.ends_at)).toISOString(),
+  startsAt: postgresTimestampIso(row.starts_at),
+  endsAt: postgresTimestampIso(row.ends_at),
 });
 
 export async function getCustomerCalendar(token: string): Promise<CustomerCalendarData | null> {
@@ -144,7 +147,7 @@ export async function getCustomerCalendarBooking(token: string, bookingId: strin
 export async function cancelCustomerCalendarBooking(
   token: string,
   bookingId: string,
-  language: "sv" | "en",
+  language: "sv" | "en" | "ar",
 ) {
   const payload = verifyCustomerCalendarToken(token);
   if (!payload || !connectionString || !/^[0-9a-f-]{36}$/i.test(bookingId)) {
@@ -152,7 +155,27 @@ export async function cancelCustomerCalendarBooking(
   }
 
   const sql = neon(connectionString);
-  const rows = await sql`
+  const workspace = await sql`
+    select slug from workspaces where id::text=${payload.workspaceId} limit 1
+  `;
+  const isMaria = String(workspace[0]?.slug ?? "") === "makeup-by-maria";
+  const mariaBase = isMaria ? getMariaExistingBookingPortalBase() : null;
+  if (isMaria) {
+    // Existing, token-authenticated cancellations remain available when
+    // new-booking intake is paused. Lifecycle site, manager, origin and
+    // recipient authorization must still pass independently.
+    if (!mariaBase) {
+      return { ok: false as const, error: "not_allowed" };
+    }
+    const recipient = await sql`
+      select email from customers where id=${payload.customerId}::uuid
+        and workspace_id=${payload.workspaceId} limit 1
+    `;
+    if (!recipient[0] || !isMariaExistingBookingRecipientAllowed(String(recipient[0].email))) {
+      return { ok: false as const, error: "not_allowed" };
+    }
+  }
+  const cancellation = sql`
     with cancelled_booking as (
       update bookings b
       set status = 'cancelled',
@@ -168,11 +191,13 @@ export async function cancelCustomerCalendarBooking(
         and c.workspace_id = b.workspace_id
         and w.id::text = b.workspace_id
         and coalesce(ps.customer_cancel_enabled, true) = true
+        and (${!isMaria || process.env.VERCEL_ENV !== "preview"}::boolean or lower(btrim(c.email, chr(9) || chr(10) || chr(13) || ' '))=lower(${process.env.PROFFERA_MARIA_PREVIEW_TEST_EMAIL?.trim() ?? ""}))
         and b.status in ('requested', 'confirmed')
         and b.starts_at > now() + (coalesce(ps.cancel_notice_hours, 0) || ' hours')::interval
         and b.source not in ('dashboard_availability_block', 'dashboard_availability_recurring_block')
       returning
         b.id,
+        date_trunc('milliseconds',b.updated_at) as cancellation_revision,
         b.workspace_id,
         b.customer_id,
         b.service,
@@ -242,8 +267,16 @@ export async function cancelCustomerCalendarBooking(
         id,
         'status_change',
         'Bokning avbokad av kund',
-        'Kunden avbokade bokningen via Mina bokningar.',
+        case when ${isMaria}::boolean
+          then 'Kunden avbokade bokningen via Mina bokningar. E-postavisering väntar på bekräftelse; följ upp manuellt vid behov.'
+          else 'Kunden avbokade bokningen via Mina bokningar.' end,
         jsonb_build_object('source', 'customer_portal', 'new_status', 'cancelled')
+          || case when ${isMaria}::boolean
+             then jsonb_build_object(
+               'notice_revision',date_trunc('milliseconds',cancellation_revision)::text,
+               'notice_customer','pending','notice_owner',
+               case when nullif(owner_email,'') is null then 'skipped' else 'pending' end)
+             else '{}'::jsonb end
       from cancelled_booking
       returning id
     )
@@ -257,28 +290,124 @@ export async function cancelCustomerCalendarBooking(
       customer_email,
       company_name,
       owner_email,
-      time_zone
+      time_zone,
+      cancellation_revision,
+      (select id::text from customer_event limit 1) as cancellation_notice_event_id
     from cancelled_booking
   `;
+  const rows = isMaria
+    ? (await sql.transaction([
+        sql`select pg_advisory_xact_lock(hashtextextended(${payload.workspaceId}::text, 713))`,
+        cancellation,
+      ]))[1]
+    : await cancellation;
 
   const booking = rows[0];
   if (!booking) return { ok: false as const, error: "not_allowed" };
 
-  const base = (process.env.NEXT_PUBLIC_APP_URL ?? process.env.APP_URL ?? "https://www.proffera.se").replace(/\/$/, "");
-  await sendBookingChangeEmails({
+  const base = mariaBase ?? (process.env.NEXT_PUBLIC_APP_URL ?? process.env.APP_URL ?? "https://www.proffera.se").replace(/\/$/, "");
+  const ownerEmail = booking.owner_email && (!isMaria
+    || isMariaExistingBookingRecipientAllowed(String(booking.owner_email)))
+    ? String(booking.owner_email).trim() : undefined;
+  // Capture each recipient's dispatch separately. A lost PostgreSQL lock
+  // after fetch starts cannot prove that Brevo did not accept the message.
+  const providerStarted = { customer: false, owner: false };
+  let notificationLockFailed = false;
+  // The booking and its pending notice were committed together. A provider
+  // outage must not make an already-successful cancellation appear rolled back.
+  const sendCancellation = (signal?: AbortSignal) => sendBookingChangeEmails({
     kind: "cancelled",
+    branding: isMaria ? "makeup-by-maria" : undefined,
     customerName: String(booking.customer_name),
-    customerEmail: String(booking.customer_email),
-    ownerEmail: booking.owner_email ? String(booking.owner_email) : undefined,
+    customerEmail: isMaria ? String(booking.customer_email).trim() : String(booking.customer_email),
+    ownerEmail,
     companyName: String(booking.company_name),
     service: String(booking.service ?? "Bokning"),
     city: String(booking.city ?? ""),
-    oldStartsAt: new Date(String(booking.starts_at)).toISOString(),
-    oldEndsAt: new Date(String(booking.ends_at)).toISOString(),
+    oldStartsAt: postgresTimestampIso(booking.starts_at),
+    oldEndsAt: postgresTimestampIso(booking.ends_at),
     portalUrl: `${base}/mina-bokningar/${encodeURIComponent(token)}?lang=${language}`,
     timeZone: resolveBookingTimeZone(booking.time_zone),
     language,
+    ...(signal ? {signal} : {}),
+    onRequestStart: (recipient) => { providerStarted[recipient] = true; },
   });
+  let cancellationSuperseded = false;
+  let deliveries: Awaited<ReturnType<typeof sendBookingChangeEmails>> = [];
+  try {
+    deliveries = isMaria ? await withMariaBookingNotificationLock(payload.workspaceId, async (signal) => {
+      const latest = await sql`
+        select 1 from bookings b
+        join customers c on c.id=b.customer_id and c.workspace_id=b.workspace_id
+        where b.workspace_id=${payload.workspaceId} and b.id=${bookingId}::uuid
+          and b.status='cancelled'
+          -- PostgreSQL can retain microseconds in a stored timestamp;
+          -- a JavaScript Date round-trip retains only milliseconds.
+          -- Compare to the same precision rather than suppressing a current
+          -- cancellation notice as falsely superseded.
+          and date_trunc('milliseconds',b.starts_at)=date_trunc('milliseconds',${postgresTimestampIso(booking.starts_at)}::timestamptz)
+          and date_trunc('milliseconds',b.ends_at)=date_trunc('milliseconds',${postgresTimestampIso(booking.ends_at)}::timestamptz)
+          and date_trunc('milliseconds',b.updated_at)=date_trunc('milliseconds',${postgresTimestampIso(booking.cancellation_revision)}::timestamptz)
+          -- Compare the exact persisted recipient snapshot. JavaScript
+          -- trim() accepts Unicode whitespace that PostgreSQL btrim() does not.
+          -- A genuinely changed stored recipient must not receive a stale email.
+          and c.email=${String(booking.customer_email)}
+        limit 1
+      `;
+      if (signal?.aborted) throw new Error("Maria notification lock expired before cancellation email");
+      if (!latest[0]) {
+        cancellationSuperseded = true;
+        return [];
+      }
+      return sendCancellation(signal);
+    }) : await sendCancellation();
+  } catch (error) {
+    notificationLockFailed = true;
+    console.error("Cancellation notice serialization failed after booking commit", error);
+  }
+
+  if (isMaria && booking.cancellation_notice_event_id) {
+    // 'accepted' means the provider accepted the request, NOT inbox delivery.
+    const accepted = (index: number) => deliveries[index]?.status === "fulfilled"
+      && (deliveries[index].value as { ok?: boolean })?.ok === true;
+    const state = (index: number) => {
+      if (accepted(index)) return "accepted";
+      const item = deliveries[index];
+      // If the lock expires after fetch starts, result arrays can be empty:
+      // do not downgrade this recipient to a safe-to-retry failure.
+      const started = index === 0 ? providerStarted.customer : providerStarted.owner;
+      return (notificationLockFailed && started)
+        || item?.status === "rejected"
+        || (item?.status === "fulfilled" && item.value
+          && typeof item.value === "object" && "deliveryUncertain" in item.value
+          && item.value.deliveryUncertain === true) ? "uncertain" : "failed";
+    };
+    const customerState = cancellationSuperseded ? "superseded" : state(0);
+    const ownerState = !ownerEmail ? "skipped" : cancellationSuperseded ? "superseded" : state(1);
+    const needsFollowup = customerState === "failed" || customerState === "uncertain"
+      || ownerState === "failed" || ownerState === "uncertain";
+    const summary = needsFollowup
+      ? "Kunden avbokade bokningen via Mina bokningar. E-post kunde inte bekräftas; kontakta kunden eller Maria manuellt."
+      : "Kunden avbokade bokningen via Mina bokningar.";
+    try {
+      await sql`
+        update customer_events
+        set description=${summary},
+            metadata=jsonb_set(jsonb_set(metadata,
+              '{notice_customer}',to_jsonb(${customerState}::text)),
+              '{notice_owner}',to_jsonb(${ownerState}::text))
+              || jsonb_build_object('notice_checked_at',now()::text)
+        where id=${String(booking.cancellation_notice_event_id)}::uuid
+          and workspace_id=${payload.workspaceId}
+          and booking_id=${bookingId}::uuid
+          and metadata->>'source'='customer_portal'
+          and metadata->>'new_status'='cancelled'
+      `;
+    } catch (error) {
+      // Leave the durable 'pending' follow-up message; do not undo cancellation.
+      console.error("Cancellation notice outcome could not be persisted", error);
+    }
+  }
 
   return { ok: true as const };
 }

@@ -407,7 +407,15 @@ export async function createDashboardBooking(input: CreateDashboardBookingInput)
     throw new Error("Missing database connection for dashboard booking creation");
   }
 
-  const workspaceId = await getActiveWorkspaceId();
+  const workspaceAccess = await getUserWorkspaceAccess();
+  if (!workspaceAccess.ok) throw new Error("Workspace membership is required for booking creation");
+  // Maria Production booking remains read-only until a separate launch approval.
+  // This shared writer is also reachable from a direct generic booking form POST.
+  if (workspaceAccess.workspaceSlug === "makeup-by-maria" && process.env.VERCEL_ENV === "production") {
+    throw new Error("Maria manual booking creation is disabled in Production");
+  }
+  const workspaceId = workspaceAccess.workspaceId;
+  const mariaPreview = process.env.VERCEL_ENV === "preview" && workspaceAccess.workspaceSlug === "makeup-by-maria";
 
   const customerRows = await sql`
     select id
@@ -424,14 +432,20 @@ export async function createDashboardBooking(input: CreateDashboardBookingInput)
   }
 
   const conflictingBooking = await sql`
-    select id
-    from bookings
-    where workspace_id = ${workspaceId}
-      and status not in ('cancelled', 'no_show')
-      and starts_at is not null
-      and ends_at is not null
-      and starts_at < ${input.endsAt}::timestamptz
-      and ends_at > ${input.startsAt}::timestamptz
+    select b.id
+    from bookings b
+    left join workspace_services occupied_service
+      on occupied_service.id=b.service_id and occupied_service.workspace_id=b.workspace_id
+    where b.workspace_id = ${workspaceId}
+      and b.status not in ('cancelled', 'no_show')
+      and b.starts_at is not null
+      and b.ends_at is not null
+      and b.starts_at - (case when ${mariaPreview}::boolean
+        then coalesce(occupied_service.buffer_before_minutes,0) else 0 end * interval '1 minute')
+        < ${input.endsAt}::timestamptz
+      and b.ends_at + (case when ${mariaPreview}::boolean
+        then coalesce(occupied_service.buffer_after_minutes,0) else 0 end * interval '1 minute')
+        > ${input.startsAt}::timestamptz
     limit 1
   `;
 
@@ -439,7 +453,7 @@ export async function createDashboardBooking(input: CreateDashboardBookingInput)
     throw new BookingTimeConflictError();
   }
 
-  const rows = await sql`
+  const bookingInsert = sql`
     insert into bookings (
       workspace_id,
       customer_id,
@@ -454,7 +468,7 @@ export async function createDashboardBooking(input: CreateDashboardBookingInput)
       source,
       notes
     )
-    values (
+    select
       ${workspaceId},
       ${customerId},
       ${input.title.trim()},
@@ -467,13 +481,47 @@ export async function createDashboardBooking(input: CreateDashboardBookingInput)
       ${input.endsAt}::timestamptz,
       'dashboard_manual',
       ${toNullableText(input.notes)}
+    where ${!mariaPreview}::boolean or (
+      -- The optimistic preflight can race with verification finalization.
+      -- Under lock 713, reject existing bookings as well as pending holds.
+      not exists (
+        select 1 from bookings active_booking
+        left join workspace_services active_service
+          on active_service.id=active_booking.service_id
+          and active_service.workspace_id=active_booking.workspace_id
+        where active_booking.workspace_id=${workspaceId}
+          and active_booking.status not in ('cancelled', 'no_show')
+          and active_booking.starts_at-(coalesce(active_service.buffer_before_minutes,0)*interval '1 minute')
+            < ${input.endsAt}::timestamptz
+          and active_booking.ends_at+(coalesce(active_service.buffer_after_minutes,0)*interval '1 minute')
+            > ${input.startsAt}::timestamptz
+      )
+      and not exists (
+      select 1 from public_booking_verifications hold
+      left join workspace_services hold_service
+        on hold_service.id=hold.service_id and hold_service.workspace_id=hold.workspace_id::text
+      where hold.workspace_id=${workspaceId}::uuid
+        and hold.consumed_at is null and hold.expires_at>clock_timestamp()
+        and hold.starts_at-(coalesce(hold_service.buffer_before_minutes,0)*interval '1 minute')
+          < ${input.endsAt}::timestamptz
+        and hold.ends_at+(coalesce(hold_service.buffer_after_minutes,0)*interval '1 minute')
+          > ${input.startsAt}::timestamptz
+      )
     )
     returning id
   `;
 
+  // Manager bookings cannot displace an outstanding Maria verification hold.
+  const rows = mariaPreview
+    ? (await sql.transaction([
+        sql`select pg_advisory_xact_lock(hashtextextended(${workspaceId}::text, 713))`,
+        bookingInsert,
+      ]))[1]
+    : await bookingInsert;
   const bookingId = toText(rows[0]?.id);
 
   if (!bookingId) {
+    if (mariaPreview) throw new BookingTimeConflictError();
     throw new Error("Booking creation did not return an id");
   }
 

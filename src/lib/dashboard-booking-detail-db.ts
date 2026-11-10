@@ -45,7 +45,8 @@ export async function getDashboardBookingDetailInStockholm(bookingId: string): P
   const access = await getUserWorkspaceAccess();
 
   if (!access.ok) {
-    throw new Error("A valid workspace membership is required for dashboard data");
+    // No authenticated workspace context: fail closed without a server error.
+    return null;
   }
 
   const sql = neon(connectionString);

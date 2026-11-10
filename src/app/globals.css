@@ -162,6 +162,7 @@ button:disabled {
  * on links and buttons even when Tailwind changes `color`. Keep CTA labels
  * readable across Admin, Dashboard and booking/settings surfaces.
  */
+/* Maria’s mauve booking and manager controls need the same forced white fill on iOS. */
 :where(a, button)[class*="bg-slate-950"],
 :where(a, button)[class*="bg-slate-900"],
 :where(a, button)[class*="bg-black"],
@@ -174,6 +175,8 @@ button:disabled {
 :where(a, button)[class~="bg-[#1469d8]"],
 :where(a, button)[class~="bg-[#1769c2]"],
 :where(a, button)[class~="bg-[#2f80ed]"],
+:where(a, button)[class~="bg-[#845363]"],
+:where(a, button)[class~="bg-[#6d3e4e]"],
 :where(a, button)[class~="bg-brand"],
 :where(a, button)[class~="bg-brand-deep"] {
   color: #ffffff !important;
@@ -214,6 +217,8 @@ button:disabled {
 :where(button):disabled:is(
   [class*="bg-[#17452f]"],
   [class*="bg-[#173e2b]"],
+  [class~="bg-[#845363]"],
+  [class~="bg-[#6d3e4e]"],
   [class~="bg-brand"],
   [class~="bg-brand-deep"]
 ) {

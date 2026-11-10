@@ -220,6 +220,9 @@ async function requestPrimeViewBooking(formData: FormData) {
     city: String(workspace.primary_city ?? "London"), address, postcode, bookingDetails: detailLines.join("\n"),
     startsAt: start.toISOString(), endsAt: end.toISOString(), timeZone, language: "en", verificationSms: true,
   });
+  if (!result.ok && "verificationId" in result && result.delivery === "uncertain") {
+    redirect(`/boka/verifiera/${result.verificationId}?lang=en&channel=uncertain`);
+  }
   if (!result.ok) {
     const errorCode = result.error === "email" ? "email" : result.error === "service" ? "service" : result.error === "address" ? "address" : "conflict";
     redirect(bookingUrl(`error=${errorCode}`));
