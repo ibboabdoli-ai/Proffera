@@ -12,16 +12,24 @@ const integrityReady = {
   manual_closed_pk: true, card_translations_pk: true,
   manual_closed_fk: true, card_translations_fk: true,
 };
+const referenceIntegrityReady = {
+  reference_counter_columns:true, booking_reference_columns:true,
+  reference_counter_pk:true, booking_reference_pk:true,
+  booking_reference_unique:true, booking_reference_day_unique:true,
+  booking_reference_booking_fk:true, booking_reference_day_fk:true,
+};
 
 function mockReadOnlyQuery({ schema = schemaReady, migrations = ["20261103_0072", "20261105_0073", "20261107_0074", "20261108_0075", "20261110_0076"],
   workspaceReady = true, priceOverride = null, hoursReady = true,
-  billingCurrency = "SEK", integrity = integrityReady, serviceRows = null } = {}) {
+  billingCurrency = "SEK", integrity = integrityReady, referenceIntegrity = referenceIntegrityReady,
+  serviceRows = null } = {}) {
   const executed = [];
   async function query(sql, params) {
     const statement = sql.trim();
     executed.push({ statement, params });
     if (!/^select\b/i.test(statement)) throw new Error("Unexpected non-read query");
     if (statement.includes("as manual_closed_columns")) return { rows: [integrity] };
+    if (statement.includes("as booking_reference_columns")) return { rows: [referenceIntegrity] };
     if (statement.includes("to_regclass(")) return { rows: [schema] };
     if (statement.includes("from proffera_schema_migrations")) {
       return { rows: migrations.map(migration_key => ({ migration_key })) };
@@ -196,6 +204,19 @@ describe("Maria Production booking release is inspection-only", () => {
     const result = await inspectMariaProductionBookingDatabase(query);
     expect(result.databaseReady).toBe(false);
     expect(result.blockers).toContain("invalid_card_translations_columns");
+  });
+
+  it("rejects a malformed 0076 reference table despite valid migration receipts", async () => {
+    for (const invalidKey of ["booking_reference_unique", "booking_reference_booking_fk",
+      "booking_reference_columns", "reference_counter_pk"]) {
+      const {query} = mockReadOnlyQuery({
+        referenceIntegrity: {...referenceIntegrityReady, [invalidKey]:false},
+      });
+      const result = await inspectMariaProductionBookingDatabase(query);
+      expect(result.databaseReady).toBe(false);
+      expect(result.blockers).toContain("invalid_" + invalidKey);
+      expect(result.appliedMigrations).toContain("20261110_0076");
+    }
   });
 
   it("rejects missing primary/foreign keys on both Maria tables", async () => {
