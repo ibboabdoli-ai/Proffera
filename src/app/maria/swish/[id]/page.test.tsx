@@ -52,7 +52,7 @@ describe("Maria Preview first-party Swish payment information page", () => {
     expect(mariaSwishMetadata.manifest).toBeNull();
     expect(mariaSwishMetadata.appleWebApp).toBeNull();
     expect(mariaSwishMetadata.applicationName).toBe("Makeup by Maria");
-    expect(mariaSwishMetadata.metadataBase?.origin).toBe("https://makeupbymaria.se");
+    expect(new URL(String(mariaSwishMetadata.metadataBase)).origin).toBe("https://makeupbymaria.se");
     expect(mariaSwishMetadata.openGraph).toBeNull();
     expect(mariaSwishMetadata.twitter).toBeNull();
     expect(mariaSwishMetadata.robots).toEqual({index:false,follow:false});
