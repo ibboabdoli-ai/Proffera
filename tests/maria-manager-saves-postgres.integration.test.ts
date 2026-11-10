@@ -756,6 +756,51 @@ function compileSql(strings: TemplateStringsArray, values: unknown[]): Query {
     expect(state.rows[0]?.public_status).toBe("published");
     expect(state.rows[0]?.is_active).toBe(true);
     expect(Number(state.rows[0]?.price_amount_minor)).toBe(699975);
+
+    // Production must never accept a blank or zero price for an active,
+    // published package, even when the second package contains valid edits.
+    // Both service updates, translations and audit must roll back together.
+    const pricesBeforeRejectedSave = await db!.query(
+      "select public_slug,price_type,price_amount_minor::text,short_description from workspace_services where workspace_id=$1 and public_slug in ('maria-bridal-trial-2036','maria-bridal-without-trial-2036') order by public_slug",
+      [workspaceId],
+    );
+    const translationsBeforeRejectedSave = await readMariaCardTranslations(workspaceId);
+    const auditBeforeRejectedSave = await db!.query<{count:number}>(
+      "select count(*)::int as count from admin_audit_logs where workspace_id=$1::uuid and action='maria.booking_year_content.updated'",
+      [workspaceId],
+    );
+    for (const invalidPublishedPrice of ["", "0", "0.00"]) {
+      form.set("trial", invalidPublishedPrice);
+      form.set("without", "5999");
+      form.set("without_description_en", "This must not be saved");
+      await expect(saveMariaProductionYearAction(form))
+        .rejects.toThrow("TEST_REDIRECT:/dashboard/maria?error=save&year=2036#priser");
+      const afterRejectedSave = await db!.query(
+        "select public_slug,price_type,price_amount_minor::text,short_description from workspace_services where workspace_id=$1 and public_slug in ('maria-bridal-trial-2036','maria-bridal-without-trial-2036') order by public_slug",
+        [workspaceId],
+      );
+      expect(afterRejectedSave.rows).toEqual(pricesBeforeRejectedSave.rows);
+      expect(await readMariaCardTranslations(workspaceId)).toEqual(translationsBeforeRejectedSave);
+    }
+    const auditAfterRejectedSave = await db!.query<{count:number}>(
+      "select count(*)::int as count from admin_audit_logs where workspace_id=$1::uuid and action='maria.booking_year_content.updated'",
+      [workspaceId],
+    );
+    expect(auditAfterRejectedSave.rows).toEqual(auditBeforeRejectedSave.rows);
+
+    // Hidden/draft packages may still be priced "on request", without
+    // weakening the published trial package's fixed positive price.
+    form.set("trial", "6999.75");
+    form.set("without", "");
+    form.set("without_description_en", "Bridal 2036 without trial");
+    await expect(saveMariaProductionYearAction(form))
+      .rejects.toThrow("TEST_REDIRECT:/dashboard/maria?updated=2036&year=2036#priser");
+    const hiddenQuote = await db!.query<{price_type:string;price_amount_minor:string|null;is_active:boolean}>(
+      "select price_type,price_amount_minor::text,is_active from workspace_services where workspace_id=$1 and public_slug='maria-bridal-without-trial-2036'",
+      [workspaceId],
+    );
+    expect(hiddenQuote.rows[0]).toMatchObject({price_type:"quote",price_amount_minor:null,is_active:false});
+
     const bookingsAfter = await db!.query(
       "select id::text,customer_id::text,service_id::text,status,starts_at::text,ends_at::text from bookings where workspace_id=$1 order by id",
       [workspaceId],
