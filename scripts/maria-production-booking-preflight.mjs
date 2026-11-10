@@ -170,43 +170,7 @@ export async function inspectMariaProductionBookingDatabase(query) {
       const services = await query([
         "select public_slug, price_amount_minor, price_type, duration_minutes, maximum_advance_days",
         "from workspace_services where workspace_id=$1",
-        "and public_slug ~ '^maria-bridal-(trial|without-trial)-(202[6-9]|203[0-6])
-      const hours = await query("select weekday, opens_at::text as opens_at, closes_at::text as closes_at, is_closed from workspace_booking_hours where workspace_id=$1 and weekday in (0,5,6)", [w.id]);
-      if (!hours.rows.some(h => [0,5,6].includes(Number(h.weekday)) && h.is_closed === false
-        && /^\d{2}:\d{2}/.test(String(h.opens_at)) && /^\d{2}:\d{2}/.test(String(h.closes_at))
-        && String(h.opens_at) < String(h.closes_at))) blockers.push("maria_weekend_hours_not_ready");
-    }
-  }
-  return { databaseReady: blockers.length === 0, blockers, appliedMigrations };
-}
-
-async function main() {
-  if (!process.argv.includes("--read-only")) throw Error("Read-only confirmation required");
-  if (!process.env.DATABASE_URL) throw Error("Authorized Proffera Production DATABASE_URL required");
-  const { Client } = await import("pg");
-  const client = new Client({ connectionString: process.env.DATABASE_URL, connectionTimeoutMillis: 5000 });
-  await client.connect();
-  try {
-    await client.query("BEGIN READ ONLY");
-    await client.query("SET LOCAL statement_timeout = '10s'");
-    const result = await inspectMariaProductionBookingDatabase((sql, params) => client.query(sql, params));
-    process.stdout.write(JSON.stringify({ ...result, requiredMigrations: migrations,
-      productionBookingEnabled: false,
-      note: "Read-only data check only; all Production booking, OTP recipient and manager actions require independent flag and release authorization.",
-    }, null, 2) + "\n");
-    if (!result.databaseReady) process.exitCode = 2;
-  } finally {
-    await client.query("ROLLBACK").catch(() => undefined);
-    await client.end();
-  }
-}
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  main().catch(() => {
-    process.stderr.write("Maria preflight unavailable: check authorization, connectivity and schema.\n");
-    process.exitCode = 1;
-  });
-}
-",
+        "and public_slug ~ '^maria-bridal-(trial|without-trial)-(202[6-9]|203[0-6])$'",
         "and is_active=true and public_status='published'",
       ].join(" "), [w.id]);
       const publicServices = services.rows;
