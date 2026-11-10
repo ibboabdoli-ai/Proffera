@@ -82,6 +82,15 @@ describe("isolated Maria Production database proof route", () => {
     expect(mock.connect).not.toHaveBeenCalled();
   });
 
+  it("never falls back to another database when DATABASE_URL points elsewhere", async () => {
+    vi.stubEnv("DATABASE_URL", syntheticUrl.replace("ep-shy-forest", "ep-wrong"));
+    vi.stubEnv("POSTGRES_URL", syntheticUrl);
+    const response = await GET(request());
+    expect(response.status).toBe(409);
+    expect(await response.json()).toEqual({ targetVerified: false });
+    expect(mock.connect).not.toHaveBeenCalled();
+  });
+
   it("uses one SELECT in a READ ONLY transaction and returns only a boolean", async () => {
     const response = await GET(request());
     expect(response.status).toBe(200);
