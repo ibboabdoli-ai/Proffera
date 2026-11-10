@@ -168,7 +168,7 @@ export default async function MariaSwishPaymentPage({
           <div>
             <p className="text-sm font-semibold text-[#76545f]">{words.message}</p>
             <div className="flex flex-wrap items-center gap-2">
-              <code dir="ltr" className="select-all text-lg font-bold">{reference}</code>
+              <code dir="ltr" className="min-w-0 break-all select-all text-lg font-bold">{reference}</code>
               <MariaBookingReferenceCopy reference={reference} isEnglish={isEnglish} language={language} />
             </div>
           </div>
