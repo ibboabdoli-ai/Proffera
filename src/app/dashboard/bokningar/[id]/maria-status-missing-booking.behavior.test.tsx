@@ -9,6 +9,8 @@ const runtime = vi.hoisted(() => ({
   retryGate: vi.fn(),
   retryClaim: vi.fn(),
   retryFinish: vi.fn(),
+  mariaReschedulePending: vi.fn(),
+  mariaRescheduleRetry: vi.fn(),
 }));
 
 vi.mock("server-only", () => ({}));
@@ -48,8 +50,13 @@ vi.mock("@/lib/maria-status-retry-journal", () => ({
 vi.mock("@/lib/maria-manual-swish", () => ({
   readMariaManualSwishStatuses: async () => ({ ok: true, entries: {} }),
 }));
+vi.mock("@/lib/maria-reschedule-notice-retry", () => ({
+  hasPendingMariaRescheduleNotice: runtime.mariaReschedulePending,
+  retryMariaRescheduleNotice: runtime.mariaRescheduleRetry,
+}));
 
 import { MariaStatusEmailRetryButton } from "@/components/dashboard/maria-status-email-retry-button";
+import { MariaRescheduleEmailRetryButton } from "@/components/dashboard/maria-reschedule-email-retry-button";
 import BookingDetailPage from "./page";
 
 const id = "00000000-0000-4000-8000-000000000123";
@@ -133,6 +140,8 @@ beforeEach(() => {
   runtime.retryGate.mockReset().mockResolvedValue("retryable");
   runtime.retryClaim.mockReset().mockResolvedValue("00000000-0000-4000-8000-000000000998");
   runtime.retryFinish.mockReset().mockResolvedValue(true);
+  runtime.mariaReschedulePending.mockReset().mockResolvedValue(false);
+  runtime.mariaRescheduleRetry.mockReset().mockResolvedValue({ ok:true });
 });
 
 afterEach(() => { vi.unstubAllEnvs(); });
@@ -278,6 +287,65 @@ describe("Maria Preview booking status action on a deleted booking", () => {
       `REDIRECT:/dashboard/bokningar/${id}?updated=1&lang=en`);
     expect(runtime.updateStatus).toHaveBeenCalledExactlyOnceWith(id,"cancelled");
     expect(runtime.sendStatusEmail).toHaveBeenCalledOnce();
+  });
+
+  it("lets the owner retry only a journaled existing Maria reschedule when paid intake is paused", async () => {
+    vi.stubEnv("VERCEL_ENV", "production");
+    vi.stubEnv("PROFFERA_MARIA_PUBLIC_SITE_ENABLED", "true");
+    vi.stubEnv("PROFFERA_MARIA_PRODUCTION_MANAGER_ENABLED", "true");
+    vi.stubEnv("PROFFERA_MARIA_PRODUCTION_CUSTOMER_EMAIL_ENABLED", "true");
+    vi.stubEnv("PROFFERA_MARIA_PRODUCTION_ORIGIN", "https://makeupbymaria.se");
+    vi.stubEnv("PROFFERA_MARIA_PRODUCTION_BOOKING_ENABLED", "false");
+    runtime.loadDetail.mockResolvedValue({
+      ...detail("customer@example.com"),
+      booking: { ...detail("customer@example.com").booking,
+        source: "public_booking", status: "confirmed" },
+    });
+    runtime.mariaReschedulePending.mockResolvedValue(true);
+    const page = await BookingDetailPage({
+      params: Promise.resolve({ id }),
+      searchParams: Promise.resolve({ lang: "en" }),
+    });
+    const retryForm = collectElements(page).find(element =>
+      element.type === "form" && collectElements(element.props.children)
+        .some(child => child.type === MariaRescheduleEmailRetryButton),
+    );
+    expect(retryForm).toBeTruthy();
+    expect(runtime.mariaReschedulePending).toHaveBeenCalledWith(
+      id, "00000000-0000-4000-8000-000000000001",
+    );
+    const retry = retryForm?.props.action;
+    expect(typeof retry).toBe("function");
+    const form = new FormData(); form.set("lang","en");
+    await expect((retry as (form:FormData)=>Promise<unknown>)(form)).rejects.toThrow(
+      "REDIRECT:/dashboard/bokningar/" + id + "?maria_reschedule_mail=resent&lang=en",
+    );
+    expect(runtime.mariaRescheduleRetry).toHaveBeenCalledExactlyOnceWith(
+      id, "00000000-0000-4000-8000-000000000001",
+    );
+  });
+
+  it("hides an existing-reschedule retry when Production manager lifecycle permission is absent", async () => {
+    vi.stubEnv("VERCEL_ENV", "production");
+    vi.stubEnv("PROFFERA_MARIA_PUBLIC_SITE_ENABLED", "true");
+    vi.stubEnv("PROFFERA_MARIA_PRODUCTION_MANAGER_ENABLED", "false");
+    vi.stubEnv("PROFFERA_MARIA_PRODUCTION_CUSTOMER_EMAIL_ENABLED", "true");
+    vi.stubEnv("PROFFERA_MARIA_PRODUCTION_ORIGIN", "https://makeupbymaria.se");
+    vi.stubEnv("PROFFERA_MARIA_PRODUCTION_BOOKING_ENABLED", "false");
+    runtime.loadDetail.mockResolvedValue({
+      ...detail("customer@example.com"),
+      booking: { ...detail("customer@example.com").booking,
+        source: "public_booking", status: "confirmed" },
+    });
+    runtime.mariaReschedulePending.mockResolvedValue(true);
+    const page = await BookingDetailPage({
+      params: Promise.resolve({ id }),
+      searchParams: Promise.resolve({ lang: "en" }),
+    });
+    expect(collectElements(page).some(element =>
+      element.type === MariaRescheduleEmailRetryButton)).toBe(false);
+    expect(runtime.mariaReschedulePending).not.toHaveBeenCalled();
+    expect(runtime.mariaRescheduleRetry).not.toHaveBeenCalled();
   });
 
   it("retries a tab-padded Preview cancellation without losing PostgreSQL timestamp milliseconds", async () => {

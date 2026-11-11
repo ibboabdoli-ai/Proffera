@@ -451,9 +451,15 @@ async function resendMariaRescheduleNoticeAction(bookingId: string, formData: Fo
   "use server";
   const locale: Locale = getFormText(formData, "lang") === "en" ? "en" : "sv";
   const access = await requireBookingManager(bookingId, locale);
-  if (access.workspaceSlug !== "makeup-by-maria" || !getMariaBookingPortalBase()) {
+  const existingManagerLifecycle = process.env.VERCEL_ENV === "production"
+    && isMariaProductionExistingBookingLifecycleAuthorized()
+    && Boolean(getMariaExistingBookingPortalBase());
+  if (access.workspaceSlug !== "makeup-by-maria"
+    || (!getMariaBookingPortalBase() && !existingManagerLifecycle)) {
     redirectWithError(bookingId, "maria_preview", locale);
   }
+  // The journal retry itself limits the existing-booking exception to
+  // Maria manager reschedule events with tenant, recipient and revision proofs.
   const outcome = await retryMariaRescheduleNotice(bookingId, access.workspaceId);
   redirect(withLang(`/dashboard/bokningar/${bookingId}?maria_reschedule_mail=${outcome.ok || ("alreadySent" in outcome && outcome.alreadySent) ? "resent" : "failed"}`, locale));
 }
@@ -541,9 +547,10 @@ export default async function BookingDetailPage({ params, searchParams }: Bookin
         return "unavailable" as const;
       })
     : "unavailable";
-  const mariaRescheduleRetryPending = Boolean(mariaManagerEnabled
+  const mariaRescheduleRetryPending = Boolean((mariaManagerEnabled || mariaCancellationOnly)
     && booking.source === "public_booking" && customer?.email
-    && isMariaBookingRecipientAllowed(customer.email)
+    && ((mariaManagerEnabled && isMariaBookingRecipientAllowed(customer.email))
+      || (mariaCancellationOnly && isMariaExistingBookingRecipientAllowed(customer.email)))
     && await hasPendingMariaRescheduleNotice(booking.id, access.workspaceId));
   const value = (key: "error" | "updated" | "rescheduled" | "created" | "maria_mail" | "payment_saved" | "payment_error" | "maria_reschedule_mail" | "lang") => { const item = query?.[key]; return Array.isArray(item) ? item[0] : item; };
   const locale: Locale = value("lang") === "en" ? "en" : "sv";
