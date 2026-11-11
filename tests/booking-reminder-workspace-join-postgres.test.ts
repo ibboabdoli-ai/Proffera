@@ -176,6 +176,18 @@ if (RUN_POSTGRES_INTEGRATION) {
       await setupClient.query('create table "user" (id text primary key)');
       for (const file of migrationFiles) await applyMigration(setupClient, file);
 
+      // This isolated legacy-schema fixture intentionally runs a small migration
+      // subset. Mirror only the read-side shape introduced by migration 0078,
+      // without altering Production or creating a competing canonical DDL.
+      await setupClient.query(`
+        create table booking_soft_deletions (
+          workspace_id uuid not null,
+          booking_id uuid not null,
+          restored_at timestamptz,
+          primary key (workspace_id, booking_id)
+        )
+      `);
+
       // The reminder worker reads this legacy policy flag before selecting due reminders.
       // Migration 0018 predates the flag, so keep the compatibility column isolated to
       // this disposable database instead of changing or copying the delivery-table DDL.

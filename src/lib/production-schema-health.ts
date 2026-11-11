@@ -24,6 +24,9 @@ export const REQUIRED_PRODUCTION_MIGRATIONS = [
   // Starter SMS quota journal must be installed before guarded sends can run.
   // This deliberately blocks Production promotion until migration 0077 is approved.
   "20261111_0077",
+  // Owner-only reversible booking archive requires its additive ledger and
+  // tombstone tables in Production BEFORE publishing any dependent app code.
+  "20261111_0078",
 ] as const;
 
 type QueryExecutor = (
