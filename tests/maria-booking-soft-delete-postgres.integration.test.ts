@@ -38,11 +38,38 @@ const docker = (args: string[]) => execFileSync("docker", args, { encoding: "utf
     db = new Client({ connectionString }); await db.connect();
     pool = new Pool({ connectionString, max:8 });
     await applyCanonicalProfferaMigrations(db);
-    runtime.sql = async (strings, ...values) => {
-      const query = strings.reduce((acc, part, i) =>
-        acc + part + (i<values.length ? "$"+(i+1) : ""), "");
-      return (await pool.query(query, values)).rows as Record<string,unknown>[];
+    // Deferred template queries match Neon: sql.transaction receives unexecuted
+    // statements and executes both under one real PostgreSQL transaction.
+    const tagged = (strings: TemplateStringsArray, ...values: unknown[]) => {
+      const text = strings.reduce((acc, part, i) =>
+        acc + part + (i < values.length ? "$" + (i + 1) : ""), "");
+      return {
+        text,
+        values,
+        then: (resolve: (rows: Record<string, unknown>[]) => unknown,
+               reject?: (reason: unknown) => unknown) =>
+          pool.query(text, values).then(result => result.rows as Record<string, unknown>[])
+            .then(resolve, reject),
+      };
     };
+    const transaction = async (queries: Array<{ text: string; values: unknown[] }>) => {
+      const client = await pool.connect();
+      try {
+        await client.query("BEGIN");
+        const results = [];
+        for (const query of queries) {
+          results.push((await client.query(query.text, query.values)).rows);
+        }
+        await client.query("COMMIT");
+        return results;
+      } catch (error) {
+        await client.query("ROLLBACK").catch(() => undefined);
+        throw error;
+      } finally {
+        client.release();
+      }
+    };
+    runtime.sql = Object.assign(tagged, { transaction }) as unknown as typeof runtime.sql;
     await db.query(
       "insert into workspaces (id,slug,name,status,public_booking_slug) values ($1::uuid,'makeup-by-maria','Synthetic Maria','active','maria-qa-988'), ($2::uuid,'other-qa','Other Synthetic','active','other-qa-988')",
       [mariaId,foreignId]);
@@ -75,5 +102,40 @@ const docker = (args: string[]) => execFileSync("docker", args, { encoding: "utf
     expect(await listMariaArchivedBookings(mariaId)).toEqual([]);
     const audit=await db.query("select action from booking_soft_delete_events where booking_id=$1::uuid order by action",[bookingId]);
     expect(audit.rows.map(x=>x.action)).toEqual(["hide","restore"]);
+  });
+
+  it("waits for the Maria status lock and refuses to hide a booking reactivated first", async () => {
+    const locker = await pool.connect();
+    let committed = false;
+    let pending: Promise<"updated" | "unchanged" | "unavailable"> | undefined;
+    try {
+      await locker.query("BEGIN");
+      await locker.query(
+        "select pg_advisory_xact_lock(hashtextextended($1::text,713))",
+        [mariaId],
+      );
+      let finished = false;
+      pending = changeMariaBookingSoftDelete({
+        workspaceId: mariaId, bookingId, actorId: "synthetic-owner",
+        action: "hide",
+      }).then(result => { finished = true; return result; });
+
+      // The archive's first statement must wait on the workspace advisory
+      // lock; a row lock alone would allow it to archive immediately here.
+      await delay(120);
+      expect(finished).toBe(false);
+      await locker.query("update bookings set status='confirmed' where id=$1::uuid", [bookingId]);
+      await locker.query("COMMIT");
+      committed = true;
+
+      expect(await pending).toBe("unchanged");
+      expect(await listMariaArchivedBookings(mariaId)).toEqual([]);
+      const result = await db.query("select status from bookings where id=$1::uuid", [bookingId]);
+      expect(result.rows[0].status).toBe("confirmed");
+    } finally {
+      if (!committed) await locker.query("ROLLBACK").catch(() => undefined);
+      locker.release();
+      if (pending) await pending.catch(() => undefined);
+    }
   });
 });

@@ -15,7 +15,7 @@ export async function changeMariaBookingSoftDelete(input: {
   if (!sql) return "unavailable";
   try {
     if (input.action === "hide") {
-      const rows = await sql`
+      const mutation = sql`
         with eligible as (
           select b.id from bookings b
           join workspaces w on w.id::text=b.workspace_id and w.slug='makeup-by-maria'
@@ -38,9 +38,15 @@ export async function changeMariaBookingSoftDelete(input: {
         )
         select (select count(*) from audit)::int as count
       `;
+      // Serialize with Maria status/reschedule writers before checking status.
+      // A row-level lock alone cannot prevent stale snapshot reactivation.
+      const rows = (await sql.transaction([
+        sql`select pg_advisory_xact_lock(hashtextextended(${input.workspaceId}::text, 713))`,
+        mutation,
+      ]))[1];
       return Number(rows[0]?.count) === 1 ? "updated" : "unchanged";
     }
-    const rows = await sql`
+    const mutation = sql`
       with changed as (
         update booking_soft_deletions d
         set restored_at=now(),restored_by=${input.actorId}
@@ -58,6 +64,10 @@ export async function changeMariaBookingSoftDelete(input: {
       )
       select (select count(*) from audit)::int as count
     `;
+    const rows = (await sql.transaction([
+      sql`select pg_advisory_xact_lock(hashtextextended(${input.workspaceId}::text, 713))`,
+      mutation,
+    ]))[1];
     return Number(rows[0]?.count) === 1 ? "updated" : "unchanged";
   } catch (error) {
     console.error("Maria booking archive transaction failed", error);

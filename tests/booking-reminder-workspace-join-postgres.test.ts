@@ -53,6 +53,9 @@ const migrationFiles = [
   "20260614_phase18_15_workspace_settings.sql",
   "20260729_0018_booking_reminders.sql",
   "20260801_0020_workspace_market_settings.sql",
+  // Use the exact canonical ledger and archive migration, never a substitute table.
+  "20260823_0066_production_schema_ledger.sql",
+  "20261111_0078_maria_booking_soft_delete.sql",
 ] as const;
 
 function docker(args: string[]) {
@@ -175,18 +178,6 @@ if (RUN_POSTGRES_INTEGRATION) {
 
       await setupClient.query('create table "user" (id text primary key)');
       for (const file of migrationFiles) await applyMigration(setupClient, file);
-
-      // This isolated legacy-schema fixture intentionally runs a small migration
-      // subset. Mirror only the read-side shape introduced by migration 0078,
-      // without altering Production or creating a competing canonical DDL.
-      await setupClient.query(`
-        create table booking_soft_deletions (
-          workspace_id uuid not null,
-          booking_id uuid not null,
-          restored_at timestamptz,
-          primary key (workspace_id, booking_id)
-        )
-      `);
 
       // The reminder worker reads this legacy policy flag before selecting due reminders.
       // Migration 0018 predates the flag, so keep the compatibility column isolated to
