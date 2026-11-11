@@ -37,6 +37,11 @@ async function reserveWorkspaceSms(input: WorkspaceSmsDelivery, content: string)
     if (!row) return { allowed: false, reserved: false, message: "Workspace unavailable." };
     const starter = row.plan_key === "starter";
     const maria = row.slug === "makeup-by-maria";
+    // The paid Starter 50/100 allowance is approved for Maria only. Do not
+    // expand the global Starter SMS policy for unrelated workspaces.
+    if (starter && !maria) {
+      return { allowed: false, reserved: false, message: "Starter SMS requires an authorized workspace." };
+    }
     if (!starter && !maria) return { allowed: true, reserved: false };
 
     if (!starter) {

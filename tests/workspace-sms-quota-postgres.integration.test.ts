@@ -37,11 +37,16 @@ const docker = (args: string[]) => execFileSync("docker",args,{encoding:"utf8"})
     if(container){try{docker(["stop",container]);}catch{/* removed */}}
   },30_000);
 
-  async function setup(limit:50|100|null, status="active") {
+  async function setup(limit:50|100|null, status="active", scope:"maria"|"other"="maria") {
     const workspaceId=randomUUID(),planId=randomUUID();
+    // Each sequential test gets its own Maria identity. Historical fixtures
+    // are renamed only inside this disposable PostgreSQL database.
+    if (scope==="maria") {
+      await db.query("update workspaces set slug='synthetic-past-'||left(id::text,8) where slug='makeup-by-maria'");
+    }
     await db.query(
       "insert into workspaces(id,slug,name,status) values($1::uuid,$2,$3,'active')",
-      [workspaceId,"synthetic-sms-"+workspaceId.slice(0,8),"Synthetic SMS"]);
+      [workspaceId,scope==="maria"?"makeup-by-maria":"synthetic-other-"+workspaceId.slice(0,8),"Synthetic SMS"]);
     await db.query(
       "insert into workspace_plans(id,workspace_id,plan_key,status,current_period_start,current_period_end) values($1::uuid,$2::uuid,'starter','active',now()-interval '1 day',now()+interval '29 days')",
       [planId,workspaceId]);
@@ -102,9 +107,13 @@ const docker = (args: string[]) => execFileSync("docker",args,{encoding:"utf8"})
     expect(await reserve(unknown,"unknown-key")).toBe("not_entitled");
   });
 
-  it("isolates identically named send keys by workspace",async()=>{
-    const left=await setup(50),right=await setup(50);
-    expect(await reserve(left,"identical-key")).toBe("reserved");
-    expect(await reserve(right,"identical-key")).toBe("reserved");
+  it("does not grant Starter SMS to a non-Maria workspace even with a paid plan and enabled flag",async()=>{
+    const maria=await setup(50), unrelated=await setup(50,"active","other");
+    expect(await reserve(maria,"identical-key")).toBe("reserved");
+    expect(await reserve(unrelated,"identical-key")).toBe("not_entitled");
+    const used=await db.query<{n:string}>(
+      "select count(*)::text as n from workspace_sms_dispatches where workspace_id=$1::uuid",[unrelated]);
+    expect(Number(used.rows[0]?.n)).toBe(0);
   });
+
 });

@@ -42,6 +42,20 @@ describe("Starter SMS provider dispatch and reservation safety", () => {
     expect(mocks.fetch).not.toHaveBeenCalled();
   });
 
+  it("does not reserve or send Starter SMS for an unrelated paid workspace", async () => {
+    mocks.query.mockImplementation(async (parts: TemplateStringsArray) => {
+      const sql = parts.join("?").toLowerCase();
+      if (sql.includes("from workspaces w")) return [{
+        slug: "other-workspace", plan_key: "starter", billing_status: "active",
+        plan_status: "active", sms_enabled: true, stripe_subscription_id: "sub_qa",
+      }];
+      throw Error("A non-Maria Starter must not reach the reservation function");
+    });
+    expect(await sendWorkspaceTransactionalSms(context)).toMatchObject({ ok:false });
+    expect(mocks.query).toHaveBeenCalledTimes(1);
+    expect(mocks.fetch).not.toHaveBeenCalled();
+  });
+
   it("reserves units before sending and journals confirmed provider acceptance", async () => {
     expect(await sendWorkspaceTransactionalSms(context)).toEqual({
       ok: true, skipped: false, providerId: "1337",

@@ -1,10 +1,42 @@
 -- Issue #988: Starter SMS metering (schema only; do NOT run on Production without approval).
 BEGIN;
--- The canonical feature-flag backfill still carries its legacy five-key CHECK
--- in isolated PostgreSQL, whereas Production already uses canonical keys
--- including sms and online_booking. Match that existing canonical contract.
-ALTER TABLE workspace_feature_flags
-  DROP CONSTRAINT IF EXISTS workspace_feature_flags_feature_key_check;
+-- Older isolated schemas can still carry the obsolete five-key CHECK.
+-- Production already uses the catalog FK. Remove the legacy constraint ONLY
+-- when a validated FK to the canonical catalog is present and the SMS key exists.
+-- Never remove an admission-control constraint without its replacement.
+DO $flag0077$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conrelid = 'public.workspace_feature_flags'::regclass
+      AND conname = 'workspace_feature_flags_feature_key_check'
+  ) THEN
+    IF NOT EXISTS (
+      SELECT 1 FROM pg_constraint
+      WHERE conrelid = 'public.workspace_feature_flags'::regclass
+        AND conname = 'workspace_feature_flags_feature_catalog_fkey'
+        AND contype = 'f' AND convalidated
+        AND confrelid = 'public.feature_catalog'::regclass
+        -- Check exact referenced columns, not just a same-named FK to the table.
+        AND conkey = ARRAY[
+          (SELECT attnum FROM pg_attribute
+           WHERE attrelid='public.workspace_feature_flags'::regclass
+             AND attname='feature_key' AND NOT attisdropped)
+        ]::smallint[]
+        AND confkey = ARRAY[
+          (SELECT attnum FROM pg_attribute
+           WHERE attrelid='public.feature_catalog'::regclass
+             AND attname='feature_key' AND NOT attisdropped)
+        ]::smallint[]
+    ) OR NOT EXISTS (
+      SELECT 1 FROM public.feature_catalog WHERE feature_key = 'sms'
+    ) THEN
+      RAISE EXCEPTION 'Migration 0077 requires validated catalog FK before legacy flag CHECK removal';
+    END IF;
+    ALTER TABLE workspace_feature_flags
+      DROP CONSTRAINT workspace_feature_flags_feature_key_check;
+  END IF;
+END $flag0077$;
 
 ALTER TABLE workspace_billing_subscriptions ADD COLUMN IF NOT EXISTS sms_monthly_limit integer;
 DO $$
@@ -16,20 +48,10 @@ BEGIN
   END IF;
 END $$;
 
--- feature_catalog predates the canonical migration chain. Some isolated
--- test schemas intentionally provide only feature_key; don't invent missing
--- historical columns. Starter SMS remains subscription-gated in the function.
-DO $$
-BEGIN
-  IF EXISTS (
-    SELECT 1 FROM information_schema.columns
-    WHERE table_schema='public' AND table_name='feature_catalog'
-      AND column_name='minimum_plan'
-  ) THEN
-    UPDATE feature_catalog SET minimum_plan='starter'
-    WHERE feature_key='sms';
-  END IF;
-END $$;
+-- Do NOT change feature_catalog.sms.minimum_plan. That row is shared by all
+-- Workspaces and remains Professional in the general product. Maria's paid
+-- Starter allowance is controlled by the workspace-scoped reservation function
+-- below; a global catalog UPDATE would alter unrelated tenants' entitlements.
 
 CREATE TABLE IF NOT EXISTS workspace_sms_dispatches (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -69,6 +91,9 @@ BEGIN
          billing.current_period_end, billing.sms_monthly_limit
   INTO b
   FROM workspace_billing_subscriptions billing
+  JOIN workspaces workspace
+    ON workspace.id = billing.workspace_id
+   AND workspace.slug = 'makeup-by-maria'
   JOIN workspace_plans plan
     ON plan.id = billing.workspace_plan_id
    AND plan.workspace_id = billing.workspace_id

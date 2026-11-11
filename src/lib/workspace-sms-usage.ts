@@ -21,7 +21,7 @@ export async function getWorkspaceSmsUsage(workspaceId: string): Promise<Workspa
   try {
     const rows = await sql`
       select billing.status, billing.sms_monthly_limit, billing.current_period_end,
-        p.plan_key, p.status as plan_status, p.current_period_end as plan_end,
+        w.slug as workspace_slug, p.plan_key, p.status as plan_status, p.current_period_end as plan_end,
         coalesce((
           select sum(d.units) from workspace_sms_dispatches d
           where d.workspace_id=billing.workspace_id
@@ -30,6 +30,7 @@ export async function getWorkspaceSmsUsage(workspaceId: string): Promise<Workspa
             and d.status in ('reserved','sent','uncertain')
         ),0)::integer as used
       from workspace_billing_subscriptions billing
+      join workspaces w on w.id=billing.workspace_id
       left join workspace_plans p on p.id=billing.workspace_plan_id
       where billing.workspace_id=${workspaceId}::uuid limit 1
     `;
@@ -40,7 +41,8 @@ export async function getWorkspaceSmsUsage(workspaceId: string): Promise<Workspa
       && row.current_period_end && row.plan_end
       && new Date(String(row.current_period_end)).getTime()>now
       && new Date(String(row.plan_end)).getTime()>now;
-    const limit = active && row.plan_key === "starter" && [50,100].includes(Number(row.sms_monthly_limit))
+    const limit = active && row.workspace_slug === "makeup-by-maria"
+      && row.plan_key === "starter" && [50,100].includes(Number(row.sms_monthly_limit))
       ? Number(row.sms_monthly_limit) : null;
     const used=Math.max(0,Number(row.used)||0);
     return {
