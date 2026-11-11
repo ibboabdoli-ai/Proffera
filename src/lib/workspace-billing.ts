@@ -187,8 +187,14 @@ export async function syncCancelledWorkspaceSubscription(
         select gen_random_uuid(), b.workspace_id, f.feature_key, false, now(), now()
         from changed_billing b
         cross join (values
-          ('booking_demo'), ('crm_customers'), ('lead_inbox'), ('ai_assistant')
+          ('booking_demo'), ('crm_customers'), ('lead_inbox'), ('ai_assistant'),
+          ('online_booking')
         ) as f(feature_key)
+        where f.feature_key <> 'online_booking'
+          or exists (
+            select 1 from workspaces w
+            where w.id=b.workspace_id and w.slug='makeup-by-maria'
+          )
         on conflict (workspace_id, feature_key)
         do update set enabled = false, updated_at = now()
         returning workspace_id
@@ -196,7 +202,9 @@ export async function syncCancelledWorkspaceSubscription(
       select
         (select count(*) from changed_billing)::int as billing_count,
         (select count(*) from changed_plan)::int as plan_count,
-        (select count(*) from changed_flags)::int as flag_count
+        (select count(*) from changed_flags)::int as flag_count,
+        (select count(*) from changed_billing b join workspaces w
+           on w.id=b.workspace_id and w.slug='makeup-by-maria')::int as maria_flag_count
     `;
     if (Number(rows[0]?.billing_count ?? 0) === 0) {
       if (verifiedCheckoutSessionId) {
@@ -218,7 +226,7 @@ export async function syncCancelledWorkspaceSubscription(
       return { ok: false as const, code: "stale" as const };
     }
     if (Number(rows[0]?.plan_count ?? 0) !== 1 ||
-        Number(rows[0]?.flag_count ?? 0) !== 4) {
+        Number(rows[0]?.flag_count ?? 0) !== 4 + Number(rows[0]?.maria_flag_count ?? 0)) {
       return { ok: false as const, code: "database" as const };
     }
     try {
@@ -371,12 +379,18 @@ export async function syncWorkspaceSubscription(
           ('booking_demo', ${modulesEnabled}::boolean),
           ('crm_customers', ${customerCrmEnabled}::boolean),
           ('lead_inbox', ${modulesEnabled}::boolean),
-          ('ai_assistant', ${customerCrmEnabled}::boolean)
+          ('ai_assistant', ${customerCrmEnabled}::boolean),
+          ('online_booking', ${status === "active"}::boolean)
       )
       insert into workspace_feature_flags (id, workspace_id, feature_key, enabled, created_at, updated_at)
       select gen_random_uuid(), bu.workspace_id, fv.feature_key, fv.enabled, now(), now()
       from billing_upsert bu
       cross join feature_values fv
+      where fv.feature_key <> 'online_booking'
+        or exists (
+          select 1 from workspaces w
+          where w.id=bu.workspace_id and w.slug='makeup-by-maria'
+        )
       on conflict (workspace_id, feature_key)
       do update set enabled = excluded.enabled, updated_at = now()
       returning workspace_id

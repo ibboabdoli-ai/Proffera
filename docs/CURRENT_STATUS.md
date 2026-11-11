@@ -185,6 +185,23 @@ SCB location semantics distinguish the company-level registered seat from the ph
 
 A Production runtime warning observed on 2026-08-18 concerns PostgreSQL connection-string SSL semantics. It is a forward-compatibility/security warning rather than an observed request failure and should be handled deliberately before the relevant `pg`/`pg-connection-string` major upgrade.
 
+## Makeup by Maria — Stripe-bound new booking entitlement (implementation scope)
+
+For Maria Production new-booking intake, the readiness gate must require both an enabled canonical
+`online_booking` feature and a current, active, Stripe-linked paid Starter/Professional/Business plan.
+An Admin override, trialing plan, absent Stripe identifiers or expired billing period cannot by itself
+open new bookings. Stripe subscription synchronization updates Maria's canonical booking feature
+with its verified status, including revocation on cancellation, without changing feature flags for
+other tenants. An authorized Maria manager can still view existing bookings and handle manual
+Swish deposit notes through the independently guarded lifecycle and Swish permissions when new
+booking intake is paused. Neither those notes nor a Subscription webhook proves a real Swish
+payment; recipient, workspace and existing-booking checks remain enforced. These rules are
+review and CI gated before Production activation.
+
+The Starter SMS 50/100 quotas and any subscription price change are tracked separately in
+Issue #988; this section does not indicate that SMS quotas are active or that any live
+payments, emails, SMS or database records were changed by an engineering test.
+
 ## Makeup by Maria — isolated Preview booking controls
 
 The customer-specific `makeup-by-maria` workspace has a Preview-only owner/admin dashboard at `/dashboard/maria`. Its year-specific bridal package prices and Swedish descriptions, and its Friday/Saturday/Sunday appointment start windows, are managed within the existing workspace and read by the Preview booking/config paths. This is not a Production booking launch and is not proof that customer-owner access has been delivered.

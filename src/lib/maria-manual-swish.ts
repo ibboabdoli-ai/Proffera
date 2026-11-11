@@ -26,7 +26,7 @@ async function requireMariaManager() {
   if ((!preview && !production)
     || !access.ok || access.workspaceSlug !== "makeup-by-maria"
     || !canManageWorkspaceSettings(access)
-    || !(await hasDashboardModuleAccess("online_booking"))) {
+    || (preview && !(await hasDashboardModuleAccess("online_booking")))) {
     throw new Error("MARIA_MANUAL_SWISH_FORBIDDEN");
   }
   if (production) {
@@ -114,7 +114,8 @@ export async function setMariaManualSwishStatus(bookingId: string, state: Manual
     : "Administratören har återställt betalningsstatus till ej verifierad.";
   // Match the status-email dispatch lock BEFORE the per-booking Swish lock:
   // payment state cannot change after status-email preflight but before Brevo.
-  // A paused intake flag does not bypass the required booking entitlement.
+  // Existing booked deposits stay manageable while new intake is paused;
+  // owner/RBAC, workspace, payment authorization and booking eligibility remain mandatory.
   const results = await sql.transaction([
     sql`select pg_advisory_xact_lock(hashtextextended(${access.workspaceId}::text, 713))`,
     sql`select pg_advisory_xact_lock(hashtextextended(${normalizedBookingId}::text, 62004))`,
