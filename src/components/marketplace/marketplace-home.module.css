@@ -90,13 +90,34 @@
 @media (min-width: 701px) {
   .marketplaceSearch :global(form) {
     grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
-    align-items: end;
+    /* The address field has helper text: top alignment keeps both input rows level. */
+    align-items: start;
   }
 
   .marketplaceSearch :global(form > label:nth-child(1)),
   .marketplaceSearch :global(form > label:nth-child(2)),
   .marketplaceSearch :global(form > div:nth-child(3)) {
     grid-column: span 2 / span 2;
+  }
+
+  /* Both field labels share the same heading row and input row, regardless
+     of the extra address help text or browser default label layout. */
+  .marketplaceSearch :global(form > label:nth-child(1)),
+  .marketplaceSearch :global(form > label:nth-child(2)) {
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-start;
+    align-self: start;
+    gap: 0.3rem;
+  }
+
+  .marketplaceSearch :global(form > label:nth-child(1) > span:first-child),
+  .marketplaceSearch :global(form > label:nth-child(2) > span:first-child) {
+    display: block;
+    flex: 0 0 1.25rem;
+    height: 1.25rem;
+    line-height: 1.25rem;
+    margin: 0;
   }
 
   .marketplaceSearch :global(form > button) {
@@ -182,7 +203,7 @@
   width: 100%;
   height: 100%;
   object-fit: cover;
-  object-position: center 48%;
+  object-position: center 45%;
 }
 
 .heroTrustCard {

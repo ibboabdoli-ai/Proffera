@@ -216,10 +216,10 @@ export function MarketplaceHome({ locale }: { locale: PublicLocale }) {
           </div>
 
           <div className={styles.heroVisual} aria-hidden="true">
-            {/* Licensed editorial service image; keep this decorative and separate from company/verification claims. */}
+            {/* Original Proffera-owned illustrative electrician image; avoid presenting the pictured person as a verified real company. */}
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
-              src="https://images.unsplash.com/photo-1581578731548-c64695cc6952?auto=format&fit=crop&q=84&w=1600"
+              src="/marketplace/hero-electrician.jpg"
               alt=""
               className={styles.heroImage}
             />

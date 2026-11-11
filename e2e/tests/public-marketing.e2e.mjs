@@ -1,6 +1,34 @@
 import { expect, test } from "@playwright/test";
 
 test.describe("public marketplace smoke", () => {
+  test("homepage service and address labels and inputs align on desktop", async ({ page }) => {
+    await page.goto("/");
+
+    const serviceLabel = page.locator('form label:has(input[name="service"]) > span:first-child');
+    const addressLabel = page.locator('form label:has(input[name="address"]) > span:first-child');
+    const serviceInput = page.locator('form input[name="service"]');
+    const addressInput = page.locator('form input[name="address"]');
+
+    // Measure real rendered geometry rather than trusting a CSS source-text assertion.
+    for (const width of [1440, 900]) {
+      await page.setViewportSize({ width, height: 900 });
+      const [sl, al, si, ai] = await Promise.all([
+        serviceLabel.boundingBox(), addressLabel.boundingBox(),
+        serviceInput.boundingBox(), addressInput.boundingBox(),
+      ]);
+      expect(sl && al && si && ai).toBeTruthy();
+      expect(Math.abs(sl.y - al.y)).toBeLessThanOrEqual(2);
+      expect(Math.abs(si.y - ai.y)).toBeLessThanOrEqual(2);
+    }
+
+    // The existing responsive layout intentionally stacks the two inputs on phones.
+    await page.setViewportSize({ width: 390, height: 844 });
+    const service = await serviceInput.boundingBox();
+    const address = await addressInput.boundingBox();
+    expect(service && address).toBeTruthy();
+    expect(address.y).toBeGreaterThan(service.y);
+  });
+
   test("Swedish root offers service plus private-location discovery without a city lookup", async ({ page, context }) => {
     await context.grantPermissions(["geolocation"]);
     await context.setGeolocation({ latitude: 59.329323, longitude: 18.068581 });
