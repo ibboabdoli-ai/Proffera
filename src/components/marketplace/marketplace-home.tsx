@@ -216,10 +216,10 @@ export function MarketplaceHome({ locale }: { locale: PublicLocale }) {
           </div>
 
           <div className={styles.heroVisual} aria-hidden="true">
-            {/* Editorial service imagery; replace with Proffera-owned media before Production merge. */}
+            {/* Licensed editorial service image; keep this decorative and separate from company/verification claims. */}
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
-              src="https://images.unsplash.com/photo-1621905251189-08b45d6a269e?auto=format&fit=crop&q=88&w=2200"
+              src="https://images.unsplash.com/photo-1581578731548-c64695cc6952?auto=format&fit=crop&q=84&w=1600"
               alt=""
               className={styles.heroImage}
             />
