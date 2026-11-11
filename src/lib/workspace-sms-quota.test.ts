@@ -2,41 +2,133 @@ import { describe, expect, it } from "vitest";
 import type Stripe from "stripe";
 import { countSmsSegments, starterSmsLimitFromStripe } from "./workspace-sms-quota";
 
-function subscription(overrides: Record<string, unknown> = {}) {
+const periodStart = 1793800000;
+const periodEnd = 1796392000;
+const basePrice = 29900;
+const discountId = "di_starter150";
+const promo = {
+  id: discountId,
+  source: { type: "coupon", coupon: "PROFFERA_STARTER150_20261102" },
+  promotion_code: "promo_1UXOoTIje09L34ksVhsBKBWJ",
+};
+const fullLine = {
+  id: "il_synthetic",
+  amount: basePrice,
+  currency: "sek",
+  discounts: [] as unknown[],
+  discount_amounts: [] as unknown[],
+  parent: {
+    type: "subscription_item_details",
+    subscription_item_details: {
+      subscription: "sub_test",
+      subscription_item: "si_starter",
+      proration: false,
+    },
+  },
+  period: { start: periodStart, end: periodEnd },
+  pricing: { type: "price_details", price_details: { price: "price_starter_299" } },
+};
+function subscription(overrides: Record<string, unknown> = {}, lineOverrides: Record<string, unknown> = {}) {
   return {
+    id: "sub_test",
+    customer: "cus_test",
     status: "active",
-    latest_invoice: { status: "paid", amount_paid: 29900 },
-    items: { data: [{ price: { unit_amount: 29900 } }] },
+    items: { data: [{ id: "si_starter", price: {
+      id: "price_starter_299", unit_amount: basePrice, currency: "sek",
+    }, current_period_start: periodStart, current_period_end: periodEnd }] },
+    latest_invoice: {
+      id: "in_paid_test",
+      status: "paid",
+      amount_paid: basePrice,
+      currency: "sek",
+      customer: "cus_test",
+      parent: { type: "subscription_details", subscription_details: { subscription: "sub_test" } },
+      lines: { data: [{ ...fullLine, ...lineOverrides }], has_more: false },
+    },
     discounts: [],
     ...overrides,
   } as unknown as Stripe.Subscription;
 }
+function discounted() {
+  return subscription({
+    latest_invoice: {
+      ...subscription().latest_invoice as Stripe.Invoice,
+      amount_paid: 15000,
+      lines: { data: [{
+        ...fullLine,
+        discount_amounts: [{ amount:14900, discount: discountId }],
+        discounts: [discountId],
+      }], has_more:false },
+    },
+    discounts: [promo],
+  });
+}
 
-describe("Starter SMS quota derived from verified Stripe billing", () => {
-  it("grants 100 only to paid active subscriptions without discounts", () => {
+describe("Starter SMS quota tied to actual current Stripe invoice line", () => {
+  it("gives 100 only for current full-price paid Starter line", () => {
     expect(starterSmsLimitFromStripe(subscription())).toBe(100);
-    expect(starterSmsLimitFromStripe(subscription({ latest_invoice: "in_unexpanded" }))).toBeNull();
-    expect(starterSmsLimitFromStripe(subscription({ latest_invoice: { status: "open" } }))).toBeNull();
-    expect(starterSmsLimitFromStripe(subscription({ status: "trialing" }))).toBeNull();
-    expect(starterSmsLimitFromStripe(subscription({ status: "past_due" }))).toBeNull();
-    expect(starterSmsLimitFromStripe(subscription({ discounts: ["di_unknown"] }))).toBeNull();
-    expect(starterSmsLimitFromStripe(subscription({ latest_invoice: { status: "paid", amount_paid: 15000 } }))).toBeNull();
+    expect(starterSmsLimitFromStripe(subscription({status:"trialing"}))).toBeNull();
+    expect(starterSmsLimitFromStripe(subscription({status:"past_due"}))).toBeNull();
+    expect(starterSmsLimitFromStripe(subscription({latest_invoice:"in_unexpanded"}))).toBeNull();
+    expect(starterSmsLimitFromStripe(subscription({latest_invoice:{
+      ...subscription().latest_invoice as Stripe.Invoice, status:"open",
+    }}))).toBeNull();
+    expect(starterSmsLimitFromStripe(subscription({latest_invoice:{
+      ...subscription().latest_invoice as Stripe.Invoice, amount_paid:15000,
+    }}))).toBeNull();
   });
 
-  it("grants 50 only for the applied STARTER150 promotion (not just any coupon)", () => {
-    const promo = {
-      id: "di_discount",
-      source: { type: "coupon", coupon: "PROFFERA_STARTER150_20261102" },
-      promotion_code: "promo_1UXOoTIje09L34ksVhsBKBWJ",
-    };
-    expect(starterSmsLimitFromStripe(subscription({ latest_invoice: { status: "paid", amount_paid: 15000 }, discounts: [promo] }))).toBe(50);
-    expect(starterSmsLimitFromStripe(subscription({ latest_invoice: { status: "paid", amount_paid: 0 }, discounts: [promo] }))).toBeNull();
-    expect(starterSmsLimitFromStripe(subscription({ discounts: [{ ...promo, promotion_code: null }] }))).toBeNull();
-    expect(starterSmsLimitFromStripe(subscription({ discounts: [{ ...promo, source: { type: "coupon", coupon: "other" } }] }))).toBeNull();
-    expect(starterSmsLimitFromStripe(subscription({ discounts: [promo, promo] }))).toBeNull();
+  it("gives 50 only for a 149 SEK STARTER150 discount on this line", () => {
+    expect(starterSmsLimitFromStripe(discounted())).toBe(50);
+    expect(starterSmsLimitFromStripe(subscription({
+      ...discounted(), discounts:[{...promo,promotion_code:null}],
+    }))).toBeNull();
+    expect(starterSmsLimitFromStripe(subscription({
+      ...discounted(), discounts:[{...promo,source:{type:"coupon",coupon:"different"}}],
+    }))).toBeNull();
+    expect(starterSmsLimitFromStripe(subscription({
+      ...discounted(), discounts:[promo,promo],
+    }))).toBeNull();
   });
 
-  it("charges a conservative number of GSM-7 or Unicode segments", () => {
+  it("does not grant 100 for an invoice-only discounted Starter plus unrelated charges", () => {
+    const itemDiscount = {...fullLine,discount_amounts:[{amount:14900,discount:"di_invoice"}],discounts:["di_invoice"]};
+    const invoice = subscription().latest_invoice as Stripe.Invoice;
+    expect(starterSmsLimitFromStripe(subscription({
+      latest_invoice:{
+        ...invoice,amount_paid:29900,
+        lines:{has_more:false,data:[itemDiscount,{
+          ...fullLine,id:"il_other",amount:14900,
+          parent:{type:"invoice_item_details",invoice_item_details:{subscription:null}},
+        }]},
+      },
+    }))).toBeNull();
+  });
+
+  it("fails closed for stale invoices, mismatched subscriptions and prorations", () => {
+    expect(starterSmsLimitFromStripe(subscription({},{
+      period:{start:periodStart-100,end:periodEnd-100},
+    }))).toBeNull();
+    expect(starterSmsLimitFromStripe(subscription({},{
+      parent:{type:"subscription_item_details",subscription_item_details:{
+        subscription:"sub_other",subscription_item:"si_starter",proration:false,
+      }},
+    }))).toBeNull();
+    expect(starterSmsLimitFromStripe(subscription({},{
+      parent:{type:"subscription_item_details",subscription_item_details:{
+        subscription:"sub_test",subscription_item:"si_starter",proration:true,
+      }},
+    }))).toBeNull();
+    expect(starterSmsLimitFromStripe(subscription({latest_invoice:{
+      ...subscription().latest_invoice as Stripe.Invoice,
+      parent:{type:"subscription_details",subscription_details:{subscription:"sub_other"}},
+    }}))).toBeNull();
+    expect(starterSmsLimitFromStripe(subscription({latest_invoice:{
+      ...subscription().latest_invoice as Stripe.Invoice,lines:{data:[fullLine],has_more:true},
+    }}))).toBeNull();
+  });
+
+  it("charges conservative GSM-7 and Unicode segments", () => {
     expect(countSmsSegments("Hej!")).toBe(1);
     expect(countSmsSegments("åäö ÅÄÖ")).toBe(1);
     expect(countSmsSegments("a".repeat(160))).toBe(1);

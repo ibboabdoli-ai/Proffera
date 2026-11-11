@@ -1,39 +1,69 @@
 import type Stripe from "stripe";
 
-// The one-use promotion remains discounted for the redeemed subscription's
-// renewals (Stripe coupon duration=forever). Do not infer it from typed code
-// or mutable Workspace metadata.
 const STARTER_DISCOUNT_COUPON = "PROFFERA_STARTER150_20261102";
 const STARTER_PROMOTION_ID = "promo_1UXOoTIje09L34ksVhsBKBWJ";
 
+function idOf(value: { id: string } | string | null | undefined) {
+  return typeof value === "string" ? value : value?.id ?? null;
+}
+
+/**
+ * Grant SMS units only when the current fully paid invoice has exactly one
+ * non-prorated Starter subscription-item line for the current billing period.
+ * Invoice-wide amount_paid cannot prove which item was discounted or paid.
+ */
 export function starterSmsLimitFromStripe(subscription: Stripe.Subscription): 50 | 100 | null {
   if (subscription.status !== "active") return null;
   const invoice = subscription.latest_invoice;
-  if (!invoice || typeof invoice === "string" || invoice.status !== "paid") return null;
+  const item = subscription.items?.data[0];
+  if (!invoice || typeof invoice === "string" || invoice.status !== "paid"
+    || !item?.id || !item.price?.id || item.price.currency !== "sek"
+    || !Number.isSafeInteger(item.price.unit_amount) || !item.price.unit_amount
+    || item.price.unit_amount <= 0
+    || !item.current_period_start || !item.current_period_end
+    || !Number.isSafeInteger(invoice.amount_paid) || invoice.amount_paid <= 0
+    || invoice.currency !== "sek"
+    || invoice.lines?.has_more !== false || !Array.isArray(invoice.lines.data)
+    || idOf(invoice.parent?.subscription_details?.subscription) !== subscription.id
+    || idOf(invoice.customer) !== idOf(subscription.customer)) return null;
 
-  // Removing a coupon does not prove that the additional amount has been
-  // paid. Do not unlock 100 units using a previously discounted paid invoice.
-  const priceAmount = subscription.items?.data[0]?.price?.unit_amount;
-  const paidAmount = invoice.amount_paid;
-  if (!Number.isInteger(priceAmount) || !Number.isInteger(paidAmount)
-    || priceAmount === null || priceAmount <= 0 || paidAmount < 0) return null;
-  const discounts = subscription.discounts;
-  if (!Array.isArray(discounts)) return null;
-  if (discounts.length === 0) return paidAmount >= priceAmount ? 100 : null;
-  // Unknown/stacked discounts must not masquerade as a full-price purchase.
-  if (discounts.length !== 1 || typeof discounts[0] === "string") return null;
-  const discount = discounts[0];
-  const sourceCoupon = discount.source?.coupon;
-  const couponId = typeof sourceCoupon === "string" ? sourceCoupon : sourceCoupon?.id;
-  const promotion = discount.promotion_code;
-  const promotionId = typeof promotion === "string" ? promotion : promotion?.id;
-  return couponId === STARTER_DISCOUNT_COUPON && promotionId === STARTER_PROMOTION_ID
-    && paidAmount >= Math.max(1, priceAmount - 14900) ? 50 : null;
+  const matched = invoice.lines.data.filter(line =>
+    line.parent?.type === "subscription_item_details"
+    && line.parent.subscription_item_details?.proration === false
+    && line.parent.subscription_item_details.subscription === subscription.id
+    && line.parent.subscription_item_details.subscription_item === item.id
+    && idOf(line.pricing?.price_details?.price) === item.price.id
+    && line.period?.start === item.current_period_start
+    && line.period?.end === item.current_period_end
+    && line.currency === "sek");
+  if (matched.length !== 1) return null;
+  const line = matched[0];
+  // Require the full recurring base amount: invoice items, partial/prorated
+  // rows or another service's payment cannot make this line "full price".
+  if (!Number.isSafeInteger(line.amount) || line.amount !== item.price.unit_amount
+    || !Array.isArray(line.discount_amounts) || !Array.isArray(line.discounts)) return null;
+
+  const totalLineDiscount = line.discount_amounts.reduce((sum, item) => sum + item.amount, 0);
+  if (!Number.isSafeInteger(totalLineDiscount) || totalLineDiscount < 0
+    || invoice.amount_paid < line.amount - totalLineDiscount) return null;
+  const subscriptionDiscounts = subscription.discounts;
+  if (!Array.isArray(subscriptionDiscounts)) return null;
+  if (subscriptionDiscounts.length === 0) {
+    return line.discount_amounts.length === 0 && line.discounts.length === 0 ? 100 : null;
+  }
+
+  if (subscriptionDiscounts.length !== 1 || typeof subscriptionDiscounts[0] === "string") return null;
+  const discount = subscriptionDiscounts[0];
+  if (idOf(discount.source?.coupon) !== STARTER_DISCOUNT_COUPON
+    || idOf(discount.promotion_code) !== STARTER_PROMOTION_ID) return null;
+  // The actual PAID line must reflect the same 149 SEK coupon, not just a
+  // coupon name applied to some other invoice item.
+  if (line.discount_amounts.length !== 1
+    || line.discount_amounts[0].amount !== 14900
+    || idOf(line.discount_amounts[0].discount) !== discount.id) return null;
+  return 50;
 }
 
-// Count Brevo billable SMS segments (GSM-7 vs Unicode) conservatively.
-// GSM-7 extension symbols consume two septets. Unrecognized characters
-// trigger Unicode UCS-2 limits, including UTF-16 surrogate pairs.
 const GSM_BASIC = new Set(Array.from(
   "@£$¥èéùìòÇ\nØø\rÅåΔ_ΦΓΛΩΠΨΣΘΞ\u001bÆæßÉ !\"#¤%&'()*+,-./0123456789:;<=>?¡ABCDEFGHIJKLMNOPQRSTUVWXYZÄÖÑÜ§¿abcdefghijklmnopqrstuvwxyzäöñüà",
 ));
