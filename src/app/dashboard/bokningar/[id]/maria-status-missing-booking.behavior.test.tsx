@@ -245,7 +245,7 @@ describe("Maria Preview booking status action on a deleted booking", () => {
     },
   );
 
-  it("allows only cancellation of an existing Production booking during an intake pause", async () => {
+  it("preserves existing cancellation but requires independent Swish permission for confirmation during intake pause", async () => {
     vi.stubEnv("VERCEL_ENV","production");
     vi.stubEnv("PROFFERA_MARIA_PUBLIC_SITE_ENABLED","true");
     vi.stubEnv("PROFFERA_MARIA_PRODUCTION_MANAGER_ENABLED","true");
@@ -272,7 +272,7 @@ describe("Maria Preview booking status action on a deleted booking", () => {
       },
     });
     await expect(action(statusForm("confirmed"))).rejects.toThrow(
-      `REDIRECT:/dashboard/bokningar/${id}?error=maria_preview&lang=en`);
+      `REDIRECT:/dashboard/bokningar/${id}?error=maria_email_setup&lang=en`);
     expect(runtime.updateStatus).not.toHaveBeenCalled();
     await expect(action(statusForm("cancelled"))).rejects.toThrow(
       `REDIRECT:/dashboard/bokningar/${id}?updated=1&lang=en`);

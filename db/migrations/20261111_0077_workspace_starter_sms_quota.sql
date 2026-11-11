@@ -1,5 +1,11 @@
 -- Issue #988: Starter SMS metering (schema only; do NOT run on Production without approval).
 BEGIN;
+-- The canonical feature-flag backfill still carries its legacy five-key CHECK
+-- in isolated PostgreSQL, whereas Production already uses canonical keys
+-- including sms and online_booking. Match that existing canonical contract.
+ALTER TABLE workspace_feature_flags
+  DROP CONSTRAINT IF EXISTS workspace_feature_flags_feature_key_check;
+
 ALTER TABLE workspace_billing_subscriptions ADD COLUMN IF NOT EXISTS sms_monthly_limit integer;
 DO $$
 BEGIN
@@ -10,11 +16,20 @@ BEGIN
   END IF;
 END $$;
 
--- Starter SMS is a paid feature. Existing SMS trials must never substitute
--- for the subscription check performed in the reservation function.
-UPDATE feature_catalog
-SET minimum_plan = 'starter', trial_days = 0
-WHERE feature_key = 'sms';
+-- feature_catalog predates the canonical migration chain. Some isolated
+-- test schemas intentionally provide only feature_key; don't invent missing
+-- historical columns. Starter SMS remains subscription-gated in the function.
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema='public' AND table_name='feature_catalog'
+      AND column_name='minimum_plan'
+  ) THEN
+    UPDATE feature_catalog SET minimum_plan='starter'
+    WHERE feature_key='sms';
+  END IF;
+END $$;
 
 CREATE TABLE IF NOT EXISTS workspace_sms_dispatches (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -102,4 +117,33 @@ BEGIN
   RETURN 'reserved';
 END
 $fn$;
+
+-- The entire transaction is rolled back on an incompatible pre-existing table.
+DO $sms0077$
+BEGIN
+  IF (SELECT count(*) FROM information_schema.columns
+      WHERE table_schema='public' AND table_name='workspace_sms_dispatches'
+        AND column_name IN ('id','workspace_id','stripe_subscription_id',
+          'period_start','period_end','delivery_key','units','status',
+          'provider_id','created_at','updated_at')) <> 11
+    OR NOT EXISTS (
+      SELECT 1 FROM pg_constraint
+      WHERE conrelid=to_regclass('public.workspace_sms_dispatches')
+        AND conname='workspace_sms_dispatches_unique' AND contype='u'
+        AND pg_get_constraintdef(oid)='UNIQUE (workspace_id, delivery_key)'
+    )
+    OR to_regprocedure('public.reserve_workspace_starter_sms(uuid,text,integer)') IS NULL
+  THEN
+    RAISE EXCEPTION 'Migration 0077 SMS schema mismatch';
+  END IF;
+END $sms0077$;
+
+INSERT INTO proffera_schema_migrations
+ (migration_key, filename, checksum, git_sha, applied_by, execution_mode, notes)
+VALUES
+ ('20261111_0077','20261111_0077_workspace_starter_sms_quota.sql',
+  null,null,'migration-0077','canonical-migration',
+  'Subscription-bound Starter SMS atomic quota ledger; requires approval.')
+ON CONFLICT (migration_key) DO NOTHING;
+
 COMMIT;

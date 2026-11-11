@@ -21,6 +21,9 @@ export const REQUIRED_PRODUCTION_MIGRATIONS = [
   // Maria booking references: apply and verify in Production BEFORE
   // deploying any app whose booking writer depends on this schema.
   "20261110_0076",
+  // Starter SMS quota journal must be installed before guarded sends can run.
+  // This deliberately blocks Production promotion until migration 0077 is approved.
+  "20261111_0077",
 ] as const;
 
 type QueryExecutor = (
