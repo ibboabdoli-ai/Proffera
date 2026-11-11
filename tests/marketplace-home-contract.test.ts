@@ -92,6 +92,9 @@ describe("marketplace-first homepage contract", () => {
     expect(home).not.toContain("photo-1581578731548-c64695cc6952");
     expect(home).toContain('src="/marketplace/hero-electrician.jpg"');
     expect(styles).toMatch(/@media \(min-width: 701px\) \{[\s\S]*?\.marketplaceSearch :global\(form\) \{[\s\S]*?align-items: start;/);
+    expect(styles).toContain(".marketplaceSearch :global(form > label:nth-child(1) > span:first-child)");
+    expect(styles).toContain(".marketplaceSearch :global(form > label:nth-child(2) > span:first-child)");
+    expect(styles).toContain("flex: 0 0 1.25rem;");
     expect(styles).toContain("grid-template-columns: repeat(4, minmax(0, 1fr)) !important;");
     expect(styles).toContain(".marketplaceSearch :global(form > label:nth-child(1))");
     expect(styles).toContain(".marketplaceSearch :global(form > div:nth-child(3))");

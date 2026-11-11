@@ -100,6 +100,26 @@
     grid-column: span 2 / span 2;
   }
 
+  /* Both field labels share the same heading row and input row, regardless
+     of the extra address help text or browser default label layout. */
+  .marketplaceSearch :global(form > label:nth-child(1)),
+  .marketplaceSearch :global(form > label:nth-child(2)) {
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-start;
+    align-self: start;
+    gap: 0.3rem;
+  }
+
+  .marketplaceSearch :global(form > label:nth-child(1) > span:first-child),
+  .marketplaceSearch :global(form > label:nth-child(2) > span:first-child) {
+    display: block;
+    flex: 0 0 1.25rem;
+    height: 1.25rem;
+    line-height: 1.25rem;
+    margin: 0;
+  }
+
   .marketplaceSearch :global(form > button) {
     min-width: 0;
     align-self: end;
