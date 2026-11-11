@@ -120,6 +120,23 @@ export async function finalizeMariaVerifiedBooking(input: FinalizeMariaInput) {
           from eligible v cross join customer c
           returning id,customer_id
         ),
+        daily_reference as (
+          insert into maria_booking_reference_counters(day_key,last_number)
+          select to_char(now() at time zone 'Europe/Stockholm','YYYYMMDD'),1
+          from booking
+          where true
+          on conflict (day_key) do update
+            set last_number = maria_booking_reference_counters.last_number + 1
+          returning day_key,last_number
+        ),
+        assigned_reference as (
+          insert into maria_booking_references(booking_id,day_key,day_number,reference)
+          select b.id,seq.day_key,seq.last_number,
+            'MBM-' || seq.day_key || case when seq.last_number < 100
+              then lpad(seq.last_number::text,2,'0') else seq.last_number::text end
+          from booking b cross join daily_reference seq
+          returning booking_id
+        ),
         event as (
           insert into customer_events(workspace_id,customer_id,booking_id,event_type,title,description,metadata)
           select ${readiness.workspaceId},b.customer_id,b.id,'booking',
@@ -137,7 +154,9 @@ export async function finalizeMariaVerifiedBooking(input: FinalizeMariaInput) {
           returning v.id
         )
         select b.id as booking_id,b.customer_id
-        from booking b join consumed on true
+        from booking b
+        join consumed on true
+        join assigned_reference ref on ref.booking_id=b.id
       `,
     ]);
     const item = result[1]?.[0];

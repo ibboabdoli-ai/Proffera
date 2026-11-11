@@ -26,12 +26,15 @@ const flags = {
 
 const schema = {
   ledger: true, closed_starts: true, translations: true,
+  booking_references: true, reference_counters: true,
   verifications: true, contact_columns: true,
 };
 const schemaContract = {
   manual_closed_columns: true, card_translations_columns: true,
   manual_closed_pk: true, card_translations_pk: true,
   manual_closed_fk: true, card_translations_fk: true,
+  reference_counter_columns: true, booking_reference_columns: true,
+  reference_counter_pk: true, booking_reference_pk: true, booking_reference_unique: true, booking_reference_day_unique: true, booking_reference_booking_fk: true, booking_reference_day_fk: true, reference_counter_day_check: true, reference_counter_number_check: true, booking_reference_number_check: true, booking_reference_format_check: true,
 };
 const workspace = {
   workspace_id: "11111111-2222-4333-8444-555555555555",
@@ -100,12 +103,12 @@ describe("Maria Production readiness is independent and disabled by default", ()
     expect(getSql).not.toHaveBeenCalled();
 
     vi.stubEnv("BOOKING_FROM_EMAIL", "Makeup by Maria <booking@example.invalid>");
-    stubSql([schema], [schemaContract], [{count:3}], [workspace]);
+    stubSql([schema], [schemaContract], [{count:4}], [workspace]);
     vi.mocked(hasWorkspaceFeatureAccessForWorkspace).mockResolvedValue(true);
     expect(await getMariaBookingReadiness()).toMatchObject({enabled:true});
   });
 
-  it("requires actual schema and all three canonical migration receipts", async () => {
+  it("requires actual schema and all four canonical migration receipts", async () => {
     enableProduction();
     const missing = stubSql([{...schema, closed_starts:false}]);
     expect(await getMariaBookingReadiness()).toEqual({enabled:false});
@@ -114,13 +117,25 @@ describe("Maria Production readiness is independent and disabled by default", ()
     expect(await getMariaBookingReadiness()).toEqual({enabled:false});
   });
 
+  it("rejects missing Maria reference tables and a missing 0076 migration receipt", async () => {
+    enableProduction();
+    for (const missing of ["booking_references", "reference_counters"] as const) {
+      const query = stubSql([{ ...schema, [missing]: false }]);
+      expect(await getMariaBookingReadiness()).toEqual({ enabled: false });
+      expect(query).toHaveBeenCalledOnce();
+    }
+    const query = stubSql([schema], [schemaContract], [{ count: 3 }]);
+    expect(await getMariaBookingReadiness()).toEqual({ enabled: false });
+    expect(query).toHaveBeenCalledTimes(3);
+  });
+
   it("refuses missing published Maria workspace, non-SEK currency, or no entitlement", async () => {
     enableProduction();
-    stubSql([schema], [schemaContract], [{count:3}], []);
+    stubSql([schema], [schemaContract], [{count:4}], []);
     expect(await getMariaBookingReadiness()).toEqual({enabled:false});
-    stubSql([schema], [schemaContract], [{count:3}], [{...workspace,billing_currency:"EUR"}]);
+    stubSql([schema], [schemaContract], [{count:4}], [{...workspace,billing_currency:"EUR"}]);
     expect(await getMariaBookingReadiness()).toEqual({enabled:false});
-    stubSql([schema], [schemaContract], [{count:3}], [workspace]);
+    stubSql([schema], [schemaContract], [{count:4}], [workspace]);
     vi.mocked(hasWorkspaceFeatureAccessForWorkspace).mockResolvedValue(false);
     expect(await getMariaBookingReadiness()).toEqual({enabled:false});
   });
@@ -138,9 +153,21 @@ describe("Maria Production readiness is independent and disabled by default", ()
     }
   });
 
+  it("rejects malformed 0076 schema despite a migration receipt", async () => {
+    enableProduction();
+    for (const key of [
+      "reference_counter_columns", "booking_reference_columns", "booking_reference_day_unique",
+      "reference_counter_number_check", "booking_reference_format_check", "booking_reference_day_fk",
+    ] as const) {
+      const query=stubSql([schema], [{...schemaContract,[key]:false}]);
+      expect(await getMariaBookingReadiness()).toEqual({enabled:false});
+      expect(query).toHaveBeenCalledTimes(2);
+    }
+  });
+
   it("opens Production booking only after all flags, schema, provider, workspace and entitlement agree", async () => {
     enableProduction();
-    const query=stubSql([schema], [schemaContract], [{count:3}], [workspace]);
+    const query=stubSql([schema], [schemaContract], [{count:4}], [workspace]);
     vi.mocked(hasWorkspaceFeatureAccessForWorkspace).mockResolvedValue(true);
     const result=await getMariaBookingReadiness();
     expect(result).toMatchObject({enabled:true,workspaceId:workspace.workspace_id,publicSlug:"makeup-by-maria"});

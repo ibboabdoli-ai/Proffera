@@ -1,0 +1,88 @@
+-- Maria-only, immutable, short booking payment references.
+-- This additive migration does not update or renumber existing bookings.
+-- Production rollout REQUIRES separate explicit authorization and a DB backup.
+-- Apply this migration BEFORE deploying readers/writers of the new tables.
+-- ROLLBACK: after real reservations, retain BOTH reference tables permanently.
+-- Do not drop them or reset counters: customers may already hold short Swish
+-- messages in email and QR. Fix errors with additive forward migrations.
+-- Application rollback is safe ONLY to code that continues reading persisted
+-- MBM references. The pre-0076 application derives a long UUID message and
+-- can disagree with already-sent short references. Do NOT blindly roll back
+-- to it after short references have been issued: pause affected payment flows
+-- and ship a reference-compatible forward fix instead. Retain both tables.
+-- ON DELETE CASCADE removes the mapping when a booking itself is deleted; never
+-- remove historical customer bookings to simplify rollback.
+-- Readers (Swish page, QR endpoint, status email and dashboard) fail closed if
+-- these tables are absent, including for existing confirmed bookings. This
+-- dependency requires migration-first deployment and a tested rollback plan.
+BEGIN;
+SET LOCAL lock_timeout = '5s';
+SET LOCAL statement_timeout = '30s';
+
+CREATE TABLE IF NOT EXISTS maria_booking_reference_counters (
+  day_key text PRIMARY KEY CHECK (day_key ~ '^[0-9]{8}$'),
+  last_number bigint NOT NULL CHECK (last_number BETWEEN 1 AND 999999999)
+);
+
+CREATE TABLE IF NOT EXISTS maria_booking_references (
+  booking_id uuid PRIMARY KEY REFERENCES bookings(id) ON DELETE CASCADE,
+  day_key text NOT NULL REFERENCES maria_booking_reference_counters(day_key),
+  day_number bigint NOT NULL CHECK (day_number BETWEEN 1 AND 999999999),
+  reference text NOT NULL UNIQUE CHECK (reference ~ '^MBM-[0-9]{10,}$'),
+  CONSTRAINT maria_booking_reference_day_number_key UNIQUE (day_key, day_number)
+);
+
+-- A pre-existing table with an incompatible shape must NOT receive a migration receipt.
+DO $maria0076$
+BEGIN
+  IF (SELECT count(*) FROM information_schema.columns
+        WHERE table_schema='public' AND table_name='maria_booking_reference_counters'
+          AND column_name IN ('day_key','last_number') AND is_nullable='NO') <> 2
+     OR (SELECT count(*) FROM information_schema.columns
+        WHERE table_schema='public' AND table_name='maria_booking_references'
+          AND column_name IN ('booking_id','day_key','day_number','reference')
+          AND is_nullable='NO') <> 4
+     OR (SELECT count(*) FROM information_schema.columns
+        WHERE table_schema='public' AND table_name='maria_booking_reference_counters'
+          AND ((column_name='day_key' AND udt_name='text')
+            OR (column_name='last_number' AND udt_name='int8'))) <> 2
+     OR (SELECT count(*) FROM information_schema.columns
+        WHERE table_schema='public' AND table_name='maria_booking_references'
+          AND ((column_name='booking_id' AND udt_name='uuid')
+            OR (column_name='day_key' AND udt_name='text')
+            OR (column_name='day_number' AND udt_name='int8')
+            OR (column_name='reference' AND udt_name='text'))) <> 4
+     OR NOT EXISTS (SELECT 1 FROM pg_constraint c
+       WHERE c.conrelid=to_regclass('public.maria_booking_reference_counters') AND c.contype='p' AND c.conname='maria_booking_reference_counters_pkey' AND pg_get_constraintdef(c.oid) = 'PRIMARY KEY (day_key)')
+     OR NOT EXISTS (SELECT 1 FROM pg_constraint c
+       WHERE c.conrelid=to_regclass('public.maria_booking_references') AND c.contype='p' AND c.conname='maria_booking_references_pkey' AND pg_get_constraintdef(c.oid) = 'PRIMARY KEY (booking_id)')
+     OR NOT EXISTS (SELECT 1 FROM pg_constraint c
+       WHERE c.conrelid=to_regclass('public.maria_booking_references') AND c.contype='u' AND c.conname='maria_booking_references_reference_key' AND pg_get_constraintdef(c.oid) = 'UNIQUE (reference)')
+     OR NOT EXISTS (SELECT 1 FROM pg_constraint c
+       WHERE c.conrelid=to_regclass('public.maria_booking_references') AND c.contype='u' AND c.conname='maria_booking_reference_day_number_key' AND pg_get_constraintdef(c.oid) = 'UNIQUE (day_key, day_number)')
+     OR NOT EXISTS (SELECT 1 FROM pg_constraint c
+       WHERE c.conrelid=to_regclass('public.maria_booking_references') AND c.contype='f' AND c.conname='maria_booking_references_booking_id_fkey' AND c.confrelid=to_regclass('public.bookings') AND c.confdeltype='c' AND pg_get_constraintdef(c.oid) LIKE 'FOREIGN KEY (booking_id) REFERENCES %(id) ON DELETE CASCADE')
+     OR NOT EXISTS (SELECT 1 FROM pg_constraint c
+       WHERE c.conrelid=to_regclass('public.maria_booking_references') AND c.contype='f' AND c.conname='maria_booking_references_day_key_fkey' AND c.confrelid=to_regclass('public.maria_booking_reference_counters') AND c.confdeltype='a' AND pg_get_constraintdef(c.oid) LIKE 'FOREIGN KEY (day_key) REFERENCES %(day_key)')
+     OR NOT EXISTS (SELECT 1 FROM pg_constraint c
+       WHERE c.conrelid=to_regclass('public.maria_booking_reference_counters') AND c.contype='c' AND c.conname='maria_booking_reference_counters_day_key_check' AND c.convalidated AND pg_get_constraintdef(c.oid) = 'CHECK ((day_key ~ ''^[0-9]{8}$''::text))')
+     OR NOT EXISTS (SELECT 1 FROM pg_constraint c
+       WHERE c.conrelid=to_regclass('public.maria_booking_reference_counters') AND c.contype='c' AND c.conname='maria_booking_reference_counters_last_number_check' AND c.convalidated AND pg_get_constraintdef(c.oid) = 'CHECK (((last_number >= 1) AND (last_number <= 999999999)))')
+     OR NOT EXISTS (SELECT 1 FROM pg_constraint c
+       WHERE c.conrelid=to_regclass('public.maria_booking_references') AND c.contype='c' AND c.conname='maria_booking_references_day_number_check' AND c.convalidated AND pg_get_constraintdef(c.oid) = 'CHECK (((day_number >= 1) AND (day_number <= 999999999)))')
+     OR NOT EXISTS (SELECT 1 FROM pg_constraint c
+       WHERE c.conrelid=to_regclass('public.maria_booking_references') AND c.contype='c' AND c.conname='maria_booking_references_reference_check' AND c.convalidated AND pg_get_constraintdef(c.oid) = 'CHECK ((reference ~ ''^MBM-[0-9]{10,}$''::text))')
+  THEN
+    RAISE EXCEPTION 'Migration 0076 reference schema mismatch';
+  END IF;
+END $maria0076$;
+
+INSERT INTO proffera_schema_migrations
+ (migration_key,filename,checksum,git_sha,applied_by,execution_mode,notes)
+VALUES
+ ('20261110_0076','20261110_0076_maria_booking_references.sql',
+  null,null,'migration-0076','canonical-migration',
+  'Maria-only daily atomic short payment references; existing bookings untouched.')
+ON CONFLICT (migration_key) DO NOTHING;
+
+COMMIT;

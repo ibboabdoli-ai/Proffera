@@ -5,15 +5,25 @@ import { notFound } from "next/navigation";
 
 import { MariaBookingReferenceCopy } from "@/components/dashboard/maria-booking-reference-copy";
 import { readMariaSwishQrEligibility } from "@/lib/maria-swish-qr-eligibility";
+import { readMariaBookingReference } from "@/lib/maria-booking-reference-db";
 import {
   MARIA_DEPOSIT_AMOUNT_SEK, MARIA_SWISH_NUMBER,
-  mariaBookingNumber, mariaSwishPaymentLink, mariaSwishQrPath,
+  mariaSwishPaymentLink, mariaSwishQrPath,
 } from "@/lib/maria-deposit";
 import { getMariaBookingReadiness } from "@/lib/maria-booking-runtime";
 
 export const dynamic = "force-dynamic";
 export const metadata: Metadata = {
-  title: "Swish-handpenning · Makeup by Maria",
+  // Keep customer payment previews and "Add to Home Screen" independent of
+  // Proffera's root PWA manifest, Apple title and social sharing defaults.
+  title: { absolute: "Swish-handpenning · Makeup by Maria" },
+  applicationName: "Makeup by Maria",
+  metadataBase: new URL("https://makeupbymaria.se"),
+  description: "Swish-handpenning för din bokning hos Makeup by Maria.",
+  manifest: null,
+  appleWebApp: null,
+  openGraph: null,
+  twitter: null,
   robots: { index: false, follow: false },
   icons: { icon: "/demo/makeup-by-maria/assets/maria-client-logo.jpg", apple: "/demo/makeup-by-maria/assets/maria-apple-touch-icon.png" },
 };
@@ -101,12 +111,18 @@ export default async function MariaSwishPaymentPage({
   const isEnglish = language === "en";
   const words = paymentText[language];
   const paymentPagePath = "/maria/swish/" + id;
-  const reference = mariaBookingNumber(id);
+  let reference: string;
+  try {
+    reference = await readMariaBookingReference(id);
+  } catch (error) {
+    console.error("Maria Swish booking reference unavailable", error);
+    notFound();
+  }
   const swishDigits = MARIA_SWISH_NUMBER.replace(/\D/g, "");
 
   return (
-    <main lang={language} dir={language === "ar" ? "rtl" : "ltr"} className="min-h-screen bg-[#fcfaf8] px-4 py-10 text-[#352a2c]">
-      <article className="mx-auto max-w-lg rounded-2xl border border-[#e9dedc] bg-white p-5 shadow-sm sm:p-8">
+    <main lang={language} dir={language === "ar" ? "rtl" : "ltr"} className="min-h-screen min-w-0 bg-[#fcfaf8] px-4 py-10 text-[#352a2c]">
+      <article className="mx-auto min-w-0 max-w-lg overflow-hidden rounded-2xl border border-[#e9dedc] bg-white p-5 shadow-sm sm:p-8">
         <header className="flex items-center gap-3 border-b border-[#e9dedc] pb-5">
           <Image
             src="/demo/makeup-by-maria/assets/maria-client-logo.jpg"
@@ -145,21 +161,21 @@ export default async function MariaSwishPaymentPage({
           <div>
             <p className="text-sm font-semibold text-[#76545f]">{words.merchant}</p>
             <div className="flex flex-wrap items-center gap-2">
-              <code dir="ltr" className="select-all text-lg font-bold">{MARIA_SWISH_NUMBER}</code>
+              <code dir="ltr" className="min-w-0 break-all select-all text-lg font-bold">{MARIA_SWISH_NUMBER}</code>
               <MariaBookingReferenceCopy reference={swishDigits} kind="swish" isEnglish={isEnglish} language={language} />
             </div>
           </div>
           <div>
             <p className="text-sm font-semibold text-[#76545f]">{words.message}</p>
             <div className="flex flex-wrap items-center gap-2">
-              <code dir="ltr" className="select-all text-lg font-bold">{reference}</code>
+              <code dir="ltr" className="min-w-0 break-all select-all text-lg font-bold">{reference}</code>
               <MariaBookingReferenceCopy reference={reference} isEnglish={isEnglish} language={language} />
             </div>
           </div>
         </div>
 
         <a
-          href={mariaSwishPaymentLink(id)}
+          href={mariaSwishPaymentLink(id, reference)}
           className="mt-7 flex min-h-12 w-full items-center justify-center rounded-xl bg-[#845363] px-5 py-3 text-center font-bold text-white hover:bg-[#6d3e4e]"
         >
           {words.open}

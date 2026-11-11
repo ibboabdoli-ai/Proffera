@@ -65,6 +65,35 @@ describe("proxy request boundary", () => {
     }));
     expect(production.status).toBe(200);
     expect(production.headers.get(forwarded)).toBeNull();
+
+    // Production standalone styling is granted only to the Maria branded host.
+    vi.stubEnv("PROFFERA_MARIA_PUBLIC_SITE_ENABLED", "true");
+    const maria = await proxy(hostRequest("makeupbymaria.se", validPath, {
+      [MARIA_PAYMENT_SHELL_HEADER]: "forged",
+    }));
+    expect(maria.status).toBe(200);
+    expect(maria.headers.get(forwarded)).toBe("1");
+
+    const unrelated = await proxy(hostRequest("primeviewwindowcare.co.uk", validPath, {
+      [MARIA_PAYMENT_SHELL_HEADER]: "1",
+    }));
+    expect(unrelated.headers.get(forwarded)).toBeNull();
+
+    vi.stubEnv("PROFFERA_MARIA_PUBLIC_SITE_ENABLED", "false");
+    const disabled = await proxy(hostRequest("makeupbymaria.se", validPath));
+    expect(disabled.headers.get(forwarded)).toBeNull();
+    vi.stubEnv("PROFFERA_MARIA_PUBLIC_SITE_ENABLED", "true");
+    for (const hostname of ["makeupbymaria.se", "MAKEUPBYMARIA.SE", "makeupbymaria.se:443"]) {
+      const response = await proxy(hostRequest(hostname, validPath));
+      expect(response.headers.get(forwarded), hostname).toBe("1");
+    }
+    const www = await proxy(hostRequest("www.makeupbymaria.se", validPath));
+    expect(www.status).toBe(307);
+    expect(www.headers.get("location")).toContain("makeupbymaria.se/maria/swish/");
+    for (const hostname of ["www.proffera.se", "proffera.se", "primeviewwindowcare.co.uk"]) {
+      const response = await proxy(hostRequest(hostname, validPath));
+      expect(response.headers.get(forwarded), hostname).toBeNull();
+    }
   });
 
   it("passes the exact admin path to session and role authorization", async () => {

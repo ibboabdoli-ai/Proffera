@@ -18,6 +18,9 @@ export const REQUIRED_PRODUCTION_MIGRATIONS = [
   // All lifecycle-settings columns required by the customer portal are now
   // recorded as an explicit, separately approved additive migration.
   "20261108_0075",
+  // Maria booking references: apply and verify in Production BEFORE
+  // deploying any app whose booking writer depends on this schema.
+  "20261110_0076",
 ] as const;
 
 type QueryExecutor = (
