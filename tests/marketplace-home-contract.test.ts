@@ -83,6 +83,25 @@ describe("marketplace-first homepage contract", () => {
     expect(home).not.toContain("Google-omdömen");
   });
 
+  it("keeps the homepage hero compact without altering Directory search authorization", () => {
+    const home = source("src/components/marketplace/marketplace-home.tsx");
+    const styles = source("src/components/marketplace/marketplace-home.module.css");
+    const form = source("src/components/company-directory/public-directory-search-form.tsx");
+
+    expect(home).not.toContain("photo-1621905251189-08b45d6a269e");
+    expect(home).toContain("photo-1581578731548-c64695cc6952");
+    expect(styles).toContain("grid-template-columns: repeat(4, minmax(0, 1fr)) !important;");
+    expect(styles).toContain(".marketplaceSearch :global(form > label:nth-child(1))");
+    expect(styles).toContain(".marketplaceSearch :global(form > div:nth-child(3))");
+    expect(styles).toContain("@media (max-width: 700px)");
+    expect(styles).toContain("grid-template-columns: 1fr !important;");
+    expect(form).toContain('name="address"');
+    expect(form).toContain('min={1} max={50}');
+    expect(form).toContain("searchPublicDirectoryNearbyAction");
+    expect(form).toContain("refinePublicDirectoryNearbyAction");
+    expect(home).not.toContain("getCachedMarketplaceHomeCompanies");
+  });
+
   it("locks the approved marketplace visual system and compact service rail", () => {
     const home = source("src/components/marketplace/marketplace-home.tsx");
     const styles = source("src/components/marketplace/marketplace-home.module.css");
