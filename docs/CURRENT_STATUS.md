@@ -198,9 +198,22 @@ booking intake is paused. Neither those notes nor a Subscription webhook proves 
 payment; recipient, workspace and existing-booking checks remain enforced. These rules are
 review and CI gated before Production activation.
 
-The Starter SMS 50/100 quotas and any subscription price change are tracked separately in
-Issue #988; this section does not indicate that SMS quotas are active or that any live
-payments, emails, SMS or database records were changed by an engineering test.
+Issue #988 Draft PR #989 additionally prepares a **not-yet-deployed** SMS quota migration
+(\`20261111_0077_workspace_starter_sms_quota.sql\`) and guarded dispatch: a verified paid
+Stripe Starter subscription with the applied \`STARTER150\` promotion receives 50 units per
+billing period; a paid full-price Starter with no subscription discount receives 100.
+An unknown or unpaid discount source grants no Starter SMS quota. A transactionally
+serialized PostgreSQL reservation controls concurrent sends, duplicate delivery keys,
+GSM-7/Unicode segment accounting and ambiguous provider outcomes; quota exhaustion
+blocks SMS only, not booking or email. A Swedish/English dashboard consumption view is
+prepared. Existing SMS reminder switches remain disabled in Maria Production. None of
+these SMS changes are active on Production unless the separately approved migration
+and exact-head deployment are completed.
+
+A self-service change from discounted to full-price Starter and the Owner-only
+booking deletion / configurable deposit-refund policy remain open acceptance tasks
+in Issue #988. No Stripe LIVE update, real email/SMS, payment, refund or booking deletion
+was performed during engineering tests.
 
 ## Makeup by Maria — isolated Preview booking controls
 

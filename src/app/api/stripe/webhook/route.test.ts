@@ -96,7 +96,9 @@ describe("Stripe webhook environment safety", () => {
 
     expect(response.status).toBe(200);
     expect(mocks.isStripeEventModeAllowed).toHaveBeenCalledWith(true);
-    expect(retrieve).toHaveBeenCalledWith("sub_live_ok");
+    expect(retrieve).toHaveBeenCalledWith("sub_live_ok", {
+      expand: ["latest_invoice", "discounts"],
+    });
     expect(mocks.syncWorkspaceSubscription).toHaveBeenCalledWith(subscription, 456, "starter", "price_live_starter");
     expect(body).toEqual({ received: true, applied: true });
   });

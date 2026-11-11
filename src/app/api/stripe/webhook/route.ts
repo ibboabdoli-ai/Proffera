@@ -64,7 +64,9 @@ export async function POST(request: Request) {
 
   const eventSubscription = event.data.object as Stripe.Subscription;
   let subscription: Stripe.Subscription;
-  try { subscription = await stripe.subscriptions.retrieve(eventSubscription.id); }
+  try { subscription = await stripe.subscriptions.retrieve(eventSubscription.id, {
+      expand: ["latest_invoice", "discounts"],
+    }); }
   catch (error) { console.error("Failed to retrieve current Stripe subscription state", error); return NextResponse.json({ error: "Stripe-abonnemanget kunde inte läsas." }, { status: 502 }); }
 
   const priceId = subscription.items.data[0]?.price.id ?? "";

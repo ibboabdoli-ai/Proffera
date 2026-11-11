@@ -200,10 +200,10 @@ async function updateBookingStatusAction(bookingId: string, formData: FormData) 
       );
       if (preflightError) redirectWithError(bookingId, preflightError, locale);
     } else {
-      const existingCancellation = status === "cancelled"
+      const existingLifecycle = isMariaProductionExistingBookingLifecycleAuthorized()
         && Boolean(getMariaExistingBookingPortalBase())
         && isMariaExistingBookingRecipientAllowed(current.customer?.email ?? "");
-      if (!existingCancellation) {
+      if (!existingLifecycle) {
         const ready = await getMariaBookingReadiness();
         if (!ready.enabled || ready.workspaceId !== workspaceAccess.workspaceId
           || !getMariaBookingPortalBase()
@@ -217,7 +217,7 @@ async function updateBookingStatusAction(bookingId: string, formData: FormData) 
       }
       // A permitted existing cancellation must still commit when Brevo is
       // unavailable; the manager sees a delivery warning after the write.
-      if ((status === "confirmed" || (status === "cancelled" && !existingCancellation)) && !deliveryReady) {
+      if ((status === "confirmed" || (status === "cancelled" && !existingLifecycle)) && !deliveryReady) {
         redirectWithError(bookingId, "maria_email_setup", locale);
       }
     }
@@ -285,7 +285,7 @@ async function updateBookingStatusAction(bookingId: string, formData: FormData) 
       } else {
         await Promise.allSettled([
           notification.customerEmail ? sendBookingStatusEmail({ customerName: notification.customerName, customerEmail: notification.customerEmail, companyName: workspaceAccess.workspaceName, status, service: notification.service, startsAt: notification.startsAt, endsAt: notification.endsAt, city: notification.city, timeZone: result.timeZone }) : Promise.resolve(null),
-          notification.customerPhone ? sendBookingCustomerSms({ customerPhone: notification.customerPhone, companyName: workspaceAccess.workspaceName, status, service: notification.service, startsAt: notification.startsAt, timeZone: result.timeZone }) : Promise.resolve(null),
+          notification.customerPhone ? sendBookingCustomerSms({ workspaceId: workspaceAccess.workspaceId, deliveryKey: "booking:" + bookingId + ":status:" + status + ":" + notification.startsAt, customerPhone: notification.customerPhone, companyName: workspaceAccess.workspaceName, status, service: notification.service, startsAt: notification.startsAt, timeZone: result.timeZone }) : Promise.resolve(null),
         ]);
       }
     }
@@ -467,11 +467,18 @@ async function rescheduleBookingAction(bookingId: string, formData: FormData) {
   const isMaria = workspaceAccess.workspaceSlug === "makeup-by-maria";
   if (isMaria) {
     const current = await getDashboardBookingDetailInStockholm(bookingId);
-    const readiness = await getMariaBookingReadiness();
-    if (!readiness.enabled || readiness.workspaceId !== workspaceAccess.workspaceId
-      || !getMariaBookingPortalBase() || !current?.customer
-      || !isMariaBookingRecipientAllowed(current.customer.email)) {
-      redirectWithError(bookingId, "maria_preview", locale);
+    const existingLifecycle = process.env.VERCEL_ENV === "production"
+      && isMariaProductionExistingBookingLifecycleAuthorized()
+      && Boolean(getMariaExistingBookingPortalBase())
+      && Boolean(current?.customer)
+      && isMariaExistingBookingRecipientAllowed(current!.customer!.email);
+    if (!existingLifecycle) {
+      const readiness = await getMariaBookingReadiness();
+      if (!readiness.enabled || readiness.workspaceId !== workspaceAccess.workspaceId
+        || !getMariaBookingPortalBase() || !current?.customer
+        || !isMariaBookingRecipientAllowed(current.customer.email)) {
+        redirectWithError(bookingId, "maria_preview", locale);
+      }
     }
   }
 
@@ -487,7 +494,7 @@ async function rescheduleBookingAction(bookingId: string, formData: FormData) {
       } else {
         await Promise.allSettled([
           notification.customerEmail ? sendBookingRescheduleEmail({ customerName: notification.customerName, customerEmail: notification.customerEmail, companyName: workspaceAccess.workspaceName, service: notification.service, previousStartsAt: notification.previousStartsAt, startsAt: notification.startsAt, endsAt: notification.endsAt, city: notification.city, timeZone: result.timeZone }) : Promise.resolve(null),
-          notification.customerPhone ? sendBookingCustomerSms({ customerPhone: notification.customerPhone, companyName: workspaceAccess.workspaceName, status: "rescheduled", service: notification.service, previousStartsAt: notification.previousStartsAt, startsAt: notification.startsAt, timeZone: result.timeZone }) : Promise.resolve(null),
+          notification.customerPhone ? sendBookingCustomerSms({ workspaceId: workspaceAccess.workspaceId, deliveryKey: "booking:" + bookingId + ":move:" + notification.startsAt, customerPhone: notification.customerPhone, companyName: workspaceAccess.workspaceName, status: "rescheduled", service: notification.service, previousStartsAt: notification.previousStartsAt, startsAt: notification.startsAt, timeZone: result.timeZone }) : Promise.resolve(null),
         ]);
       }
     }

@@ -5,6 +5,7 @@ import type Stripe from "stripe";
 import { type CheckoutPlanKey } from "@/lib/billing-plans";
 import { getSql } from "@/lib/db/server";
 import { syncWorkspaceAiChat } from "@/lib/service-ai-chat-bridge";
+import { starterSmsLimitFromStripe } from "@/lib/workspace-sms-quota";
 
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -151,6 +152,7 @@ export async function syncCancelledWorkspaceSubscription(
             stripe_customer_id = ${customerId},
             stripe_subscription_id = ${subscription.id},
             stripe_price_id = ${priceId},
+            sms_monthly_limit = null,
             current_period_start = coalesce(${periodStart}::timestamptz, b.current_period_start),
             current_period_end = coalesce(${periodEnd}::timestamptz, b.current_period_end),
             last_event_created = greatest(coalesce(b.last_event_created, 0), ${eventCreated}),
@@ -268,6 +270,10 @@ export async function syncWorkspaceSubscription(
   const status = normalizeStripeStatus(subscription.status);
   const modulesEnabled = status === "active" || status === "trialing";
   const customerCrmEnabled = modulesEnabled && planKey === "professional";
+  // Only the actual paid, Stripe-expanded subscription discount controls SMS units.
+  // Missing/unknown payment evidence fails closed; Admin flags are not a price source.
+  const smsMonthlyLimit = planKey === "starter"
+    ? starterSmsLimitFromStripe(subscription) : null;
   const customerId = stripeId(subscription.customer);
   const currentPeriodStartTimestamp = subscriptionItem?.current_period_start ?? legacySubscription.current_period_start;
   const currentPeriodEndTimestamp = subscriptionItem?.current_period_end ?? legacySubscription.current_period_end;
@@ -336,6 +342,7 @@ export async function syncWorkspaceSubscription(
           stripe_customer_id,
           stripe_subscription_id,
           stripe_price_id,
+          sms_monthly_limit,
           status,
           cancel_at_period_end,
           current_period_start,
@@ -351,6 +358,7 @@ export async function syncWorkspaceSubscription(
           ${customerId},
           ${subscription.id},
           ${stripePriceId},
+          ${smsMonthlyLimit},
           ${status},
           ${subscription.cancel_at_period_end},
           ${currentPeriodStart},
@@ -366,6 +374,7 @@ export async function syncWorkspaceSubscription(
           stripe_customer_id = excluded.stripe_customer_id,
           stripe_subscription_id = excluded.stripe_subscription_id,
           stripe_price_id = excluded.stripe_price_id,
+          sms_monthly_limit = excluded.sms_monthly_limit,
           status = excluded.status,
           cancel_at_period_end = excluded.cancel_at_period_end,
           current_period_start = excluded.current_period_start,

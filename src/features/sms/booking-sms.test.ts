@@ -33,18 +33,24 @@ describe("booking SMS Preview safety", () => {
 
     const verificationSv = await sendBookingVerificationSms({
       customerPhone: "+46700000000",
+      workspaceId: "11111111-1111-4111-8111-111111111111",
+      deliveryKey: "preview-test-1",
       companyName: "Preview Company",
       code: "123456",
       language: "sv",
     });
     const verificationEn = await sendBookingVerificationSms({
       customerPhone: "+46700000000",
+      workspaceId: "11111111-1111-4111-8111-111111111111",
+      deliveryKey: "preview-test-2",
       companyName: "Preview Company",
       code: "123456",
       language: "en",
     });
     const owner = await sendBookingOwnerSms({
       ownerPhone: "+46700000001",
+      workspaceId: "11111111-1111-4111-8111-111111111111",
+      deliveryKey: "preview-test-3",
       companyName: "Preview Company",
       customerName: "Preview Customer",
       customerPhone: "+46700000000",
@@ -53,6 +59,8 @@ describe("booking SMS Preview safety", () => {
     });
     const customer = await sendBookingCustomerSms({
       customerPhone: "+46700000000",
+      workspaceId: "11111111-1111-4111-8111-111111111111",
+      deliveryKey: "preview-test-4",
       companyName: "Preview Company",
       status: "confirmed",
       service: "Preview Service",

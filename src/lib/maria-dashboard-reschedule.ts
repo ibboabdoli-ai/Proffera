@@ -3,7 +3,8 @@ import "server-only";
 import { getSql } from "@/lib/db/server";
 import type { BookingRescheduleResult } from "@/lib/dashboard-booking-reschedule";
 import { getMariaAvailability } from "@/lib/maria-booking-availability";
-import { getMariaBookingPortalBase, isMariaBookingRecipientAllowed, isMariaPreviewTestRecipient } from "@/lib/maria-preview-customer-safety";
+import { getMariaBookingPortalBase, getMariaExistingBookingPortalBase, isMariaBookingRecipientAllowed, isMariaExistingBookingRecipientAllowed, isMariaPreviewTestRecipient } from "@/lib/maria-preview-customer-safety";
+import { isMariaProductionExistingBookingLifecycleAuthorized } from "@/lib/maria-production-activation-policy";
 import { getMariaBookingReadiness } from "@/lib/maria-booking-runtime";
 import { isValidLocalTime, localDateTimeToUtc, parseLocalDateTime } from "@/lib/public-booking-policy";
 import { canManageWorkspaceSettings, getUserWorkspaceAccess } from "@/lib/workspace-access";
@@ -25,13 +26,18 @@ export async function rescheduleMariaDashboardBooking(input: {
 }): Promise<MariaDashboardRescheduleResult> {
   const denied = { ok: false as const, error: "status" as const };
   const access = await getUserWorkspaceAccess();
-  if (!getMariaBookingPortalBase()
+  const existingLifecycle = process.env.VERCEL_ENV === "production"
+    && isMariaProductionExistingBookingLifecycleAuthorized()
+    && Boolean(getMariaExistingBookingPortalBase());
+  if ((!existingLifecycle && !getMariaBookingPortalBase())
     || !access.ok || !canManageWorkspaceSettings(access)
     || access.workspaceSlug !== "makeup-by-maria" || access.workspaceId !== input.workspaceId
-    || !validUuid.test(input.bookingId)
-    || !(await hasDashboardModuleAccess("online_booking"))) return denied;
-  const readiness = await getMariaBookingReadiness();
-  if (!readiness.enabled || readiness.workspaceId !== input.workspaceId) return denied;
+    || !validUuid.test(input.bookingId)) return denied;
+  if (!existingLifecycle) {
+    if (!(await hasDashboardModuleAccess("online_booking"))) return denied;
+    const readiness = await getMariaBookingReadiness();
+    if (!readiness.enabled || readiness.workspaceId !== input.workspaceId) return denied;
+  }
   const preview = process.env.VERCEL_ENV === "preview";
   const approvedRecipient = preview
     ? process.env.PROFFERA_MARIA_PREVIEW_TEST_EMAIL?.trim().toLowerCase()
@@ -63,7 +69,9 @@ export async function rescheduleMariaDashboardBooking(input: {
     limit 1
   `;
   const booking = before[0];
-  if (!booking || !isMariaBookingRecipientAllowed(String(booking.customer_email))) return denied;
+  if (!booking || !(existingLifecycle
+    ? isMariaExistingBookingRecipientAllowed(String(booking.customer_email))
+    : isMariaBookingRecipientAllowed(String(booking.customer_email)))) return denied;
   const match = /^maria-bridal-(trial|without-trial)-(202[6-9]|203[0-6])$/.exec(String(booking.public_slug ?? ""));
   if (!match || Number(match[2]) !== local.year) return { ok: false, error: "time" };
   const oldStart = new Date(String(booking.starts_at));
