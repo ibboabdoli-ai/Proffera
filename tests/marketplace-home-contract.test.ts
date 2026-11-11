@@ -89,7 +89,9 @@ describe("marketplace-first homepage contract", () => {
     const form = source("src/components/company-directory/public-directory-search-form.tsx");
 
     expect(home).not.toContain("photo-1621905251189-08b45d6a269e");
-    expect(home).toContain("photo-1581578731548-c64695cc6952");
+    expect(home).not.toContain("photo-1581578731548-c64695cc6952");
+    expect(home).toContain('src="/marketplace/hero-electrician.jpg"');
+    expect(styles).toMatch(/@media \(min-width: 701px\) \{[\s\S]*?\.marketplaceSearch :global\(form\) \{[\s\S]*?align-items: start;/);
     expect(styles).toContain("grid-template-columns: repeat(4, minmax(0, 1fr)) !important;");
     expect(styles).toContain(".marketplaceSearch :global(form > label:nth-child(1))");
     expect(styles).toContain(".marketplaceSearch :global(form > div:nth-child(3))");
