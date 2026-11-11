@@ -118,6 +118,8 @@ describe("public company directory search contract", () => {
     expect(formSource).toContain("refinePublicDirectoryNearbyAction");
     expect(formSource).toContain("nearbyOriginActive");
     expect(shellSource).toContain("nearbyOriginActive={Boolean(nearbyCoordinates)}");
+    // URL-driven service/radius navigation must reset the form slider and service defaults.
+    expect(shellSource).toContain('const searchFormKey = `${locale}:${nearbyActive ? "nearby" : "manual"}:${radius}:${service}`;');
     expect(formSource).toContain('type="range" min={1} max={50}');
     expect(formSource).toContain('name="radius"');
     expect(formSource).toContain("navigator.geolocation.getCurrentPosition");

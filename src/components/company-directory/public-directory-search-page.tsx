@@ -106,7 +106,7 @@ export async function PublicDirectorySearchPage({
   const nearbyActive = Boolean(search?.nearbyEnabled);
   const activeSort = normalizeDirectorySearchSort(requestedSort, nearbyActive);
   const paginationHref = paginationBaseHref(paths.search, params);
-  const searchFormKey = `${locale}:${nearbyActive ? "nearby" : "manual"}`;
+  const searchFormKey = `${locale}:${nearbyActive ? "nearby" : "manual"}:${radius}:${service}`;
   const discoverySignalKey = search
     ? [
         locale,
