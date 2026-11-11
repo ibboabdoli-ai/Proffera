@@ -112,6 +112,23 @@ describe("Production schema health", () => {
       "20261108_0075",
       "20261110_0076",
       "20261111_0077",
+      "20261111_0078",
     ]);
+  });
+
+  it("fails closed when reversible booking archive migration 0078 is missing", async () => {
+    const query = vi.fn()
+      .mockResolvedValueOnce({ rows: contractRows() })
+      .mockResolvedValueOnce({
+        rows: REQUIRED_PRODUCTION_MIGRATIONS
+          .filter((migration_key) => migration_key !== "20261111_0078")
+          .map((migration_key) => ({ migration_key })),
+      });
+
+    const result = await inspectProductionSchema(query);
+
+    expect(result.ok).toBe(false);
+    expect(result.missingMigrations).toEqual(["20261111_0078"]);
+    expect(result.requiredMigrations).toContain("20261111_0078");
   });
 });
