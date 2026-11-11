@@ -29,7 +29,8 @@ import { getMariaStatusRetryGate, claimMariaStatusRetry, finishMariaStatusRetry 
 import { resolveBrevoApiKey } from "@/lib/email-runtime-config";
 import { BookingRescheduleValidationError, rescheduleDashboardBooking } from "@/lib/dashboard-booking-reschedule";
 import { isDashboardBookingStatus, updateDashboardBookingStatus, type DashboardBookingStatus } from "@/lib/dashboard-booking-status";
-import { canManageWorkspaceSettings, getUserWorkspaceAccess } from "@/lib/workspace-access";
+import { canManageWorkspaceMembers, canManageWorkspaceSettings, getUserWorkspaceAccess } from "@/lib/workspace-access";
+import { BookingSoftDeleteControl } from "../booking-soft-delete-control";
 import { hasDashboardModuleAccess } from "@/lib/workspace-module-access";
 import { MARIA_DEPOSIT_AMOUNT_SEK, MARIA_SWISH_NUMBER, mariaSwishQrPath } from "@/lib/maria-deposit";
 import { readMariaManualSwishStatuses } from "@/lib/maria-manual-swish";
@@ -635,6 +636,10 @@ export default async function BookingDetailPage({ params, searchParams }: Bookin
   return <div className="grid gap-6">
     <DashboardPageHeader eyebrow={isEnglish ? "Booking profile" : "Bokningsprofil"} title={booking.title} description={isEnglish ? "View the booking details, connected customer and history. Change the status or reschedule the time securely." : "Se bokningens viktigaste uppgifter, kopplad kund och historik. Ändra status eller flytta tiden kontrollerat."} icon={CalendarClock} actions={<Link href={withLang("/dashboard/bokningar", locale)} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-control border border-[#d5ddd3] bg-surface px-4 py-2.5 text-sm font-bold text-brand"><ArrowLeft className="h-4 w-4" />{isEnglish ? "Back to bookings" : "Tillbaka till bokningar"}</Link>} />
     <DashboardActionFeedback statusMessage={successMessage} alertMessage={errorMessage ?? mariaRescheduleMailWarning ?? mariaEmailWarning} />
+    {access.workspaceSlug === "makeup-by-maria" && canManageWorkspaceMembers(access)
+      && ["cancelled","completed","no_show"].includes(booking.status) ? (
+      <BookingSoftDeleteControl bookingId={booking.id} action="hide" en={isEnglish} />
+    ) : null}
     <DashboardMetricGrid items={metrics} />
     {mariaSwishControlsEnabled && manualSwish?.ok === false ? (
       <p role="alert" className="rounded-lg bg-[#fff0ee] p-3 text-sm font-semibold text-[#a33b2f]">

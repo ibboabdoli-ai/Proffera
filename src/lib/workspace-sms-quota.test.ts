@@ -139,3 +139,53 @@ describe("Starter SMS quota tied to actual current Stripe invoice line", () => {
     expect(countSmsSegments("😀".repeat(36))).toBe(2);
   });
 });
+
+describe("same-subscription Starter full-price transition", () => {
+  it("keeps 50 for the paid discounted period after owner-approved coupon removal", () => {
+    const prior = discounted();
+    const upgraded = {
+      ...prior,
+      latest_invoice: {
+        ...prior.latest_invoice as Stripe.Invoice,
+        lines: { data: [{
+          ...((prior.latest_invoice as Stripe.Invoice).lines.data[0]),
+          discounts: [], // Actual Stripe TEST line shape after coupon removal
+        }], has_more: false },
+      },
+      discounts: [],
+      metadata: {
+        starter_full_price_prior_discount_id: discountId,
+        starter_full_price_price_id: "price_starter_299",
+        starter_full_price_effective_at: String(periodEnd),
+      },
+    } as unknown as Stripe.Subscription;
+    expect(starterSmsLimitFromStripe(upgraded)).toBe(50);
+    expect(starterSmsLimitFromStripe({ ...upgraded, metadata: {} })).toBeNull();
+    expect(starterSmsLimitFromStripe({ ...upgraded, metadata: {
+      ...upgraded.metadata, starter_full_price_effective_at: String(periodEnd - 1),
+    } })).toBeNull();
+    expect(starterSmsLimitFromStripe({ ...upgraded, latest_invoice: subscription().latest_invoice })).toBe(100);
+  });
+});
+
+describe("Stripe test/live discount isolation", () => {
+  it("fails closed on TEST without explicit TEST coupon and promo IDs", () => {
+    const savedCoupon=process.env.STRIPE_TEST_STARTER_COUPON_ID;
+    const savedPromo=process.env.STRIPE_TEST_STARTER_PROMOTION_ID;
+    try {
+      delete process.env.STRIPE_TEST_STARTER_COUPON_ID;
+      delete process.env.STRIPE_TEST_STARTER_PROMOTION_ID;
+      expect(starterSmsLimitFromStripe({...discounted(), livemode:false} as Stripe.Subscription)).toBeNull();
+      // A fully paid full-price Starter has no coupon and requires no test promo config.
+      expect(starterSmsLimitFromStripe({...subscription(), livemode:false} as Stripe.Subscription)).toBe(100);
+      process.env.STRIPE_TEST_STARTER_COUPON_ID="PROFFERA_STARTER150_20261102";
+      process.env.STRIPE_TEST_STARTER_PROMOTION_ID="promo_1UXOoTIje09L34ksVhsBKBWJ";
+      expect(starterSmsLimitFromStripe({...discounted(),livemode:false} as Stripe.Subscription)).toBe(50);
+    } finally {
+      if (savedCoupon === undefined) delete process.env.STRIPE_TEST_STARTER_COUPON_ID;
+      else process.env.STRIPE_TEST_STARTER_COUPON_ID=savedCoupon;
+      if (savedPromo === undefined) delete process.env.STRIPE_TEST_STARTER_PROMOTION_ID;
+      else process.env.STRIPE_TEST_STARTER_PROMOTION_ID=savedPromo;
+    }
+  });
+});

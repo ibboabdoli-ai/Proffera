@@ -4,6 +4,9 @@ import { MessageSquareText } from "lucide-react";
 import { DashboardPageHeader } from "@/components/dashboard/dashboard-page-ui";
 import { canManageWorkspaceSettings, getUserWorkspaceAccess } from "@/lib/workspace-access";
 import { getWorkspaceSmsUsage } from "@/lib/workspace-sms-usage";
+import { canManageWorkspaceMembers } from "@/lib/workspace-access";
+import { getMariaStarterFullPriceQuote } from "@/lib/maria-starter-full-price";
+import { StarterFullPriceConfirmation } from "./starter-full-price-confirmation";
 
 export const dynamic = "force-dynamic";
 
@@ -15,6 +18,8 @@ export default async function SmsSettingsPage({
   const params=await searchParams;
   const en=params?.lang==="en";
   const usage=await getWorkspaceSmsUsage(access.workspaceId);
+  const quote=access.workspaceSlug==="makeup-by-maria" && canManageWorkspaceMembers(access)
+    ? await getMariaStarterFullPriceQuote(access.workspaceId) : null;
   const heading=en?"SMS allowance":"SMS-kvot";
   const number=new Intl.NumberFormat(en?"en-GB":"sv-SE");
   return (
@@ -53,6 +58,7 @@ export default async function SmsSettingsPage({
           ?"Long messages can consume multiple units. Uncertain deliveries remain reserved until reconciled."
           :"Långa meddelanden kan använda flera enheter. Osäkra leveranser förblir reserverade tills de kontrollerats."}</p>
       </section>
+      {quote ? <StarterFullPriceConfirmation quote={quote} en={en} /> : null}
     </div>
   );
 }

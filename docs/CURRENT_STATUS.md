@@ -210,10 +210,33 @@ prepared. Existing SMS reminder switches remain disabled in Maria Production. No
 these SMS changes are active on Production unless the separately approved migration
 and exact-head deployment are completed.
 
-A self-service change from discounted to full-price Starter and the Owner-only
-booking deletion / configurable deposit-refund policy remain open acceptance tasks
-in Issue #988. No Stripe LIVE update, real email/SMS, payment, refund or booking deletion
-was performed during engineering tests.
+Issue #988 Draft PR #989 now includes **unmerged, not-yet-deployed** self-service
+discount removal from an existing paid Starter subscription: Maria's Owner must
+explicitly accept 299 SEK/month from the next billing renewal, with the exact
+effective date and current 150 SEK/month displayed before approval. A same-ID
+Stripe update uses no proration or new invoice and the prior paid 50-unit SMS
+allowance persists until a newly paid full-price renewal unlocks 100 units.
+Stripe TEST used a synthetic discounted Starter and confirmed that an empty
+string (not an empty array) removes the coupon, while retaining the same
+subscription and paid invoice. TEST promo/coupon IDs must be configured
+separately from LIVE; TEST has no privileged access to the LIVE promotion.
+
+The same Draft introduces Maria Owner-only, exact-booking-confirmed, **reversible**
+archiving for terminal bookings only (cancelled/completed/no-show). Migration
+`20261111_0078_maria_booking_soft_delete.sql` must be approved and applied
+**before** a corresponding application deployment. An append-only action history
+preserves who archived/restored records; no booking, customer, prior payment or
+Swish evidence is hard-deleted or refunded. Normal dashboard, customer detail,
+calendar and reminder paths exclude archived bookings, and status mutation is
+blocked while archived. The archive has a separate Owner-only restore view.
+The pre-push synthetic PGlite DB assertions and focused checks passed in an
+isolated Vercel Sandbox; real PostgreSQL CI and new exact-HEAD review are
+required after the same-branch push.
+
+The cancellation deposit-refund policy is **still undecided by Maria and remains
+disabled**. No Stripe LIVE update, real email/SMS, real payment, refund, real
+booking deletion, Neon Production write, merge or Production deploy was
+performed for this Draft.
 
 ## Makeup by Maria — isolated Preview booking controls
 

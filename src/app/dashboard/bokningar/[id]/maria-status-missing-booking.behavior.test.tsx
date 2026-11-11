@@ -24,6 +24,7 @@ vi.mock("@/lib/workspace-access", () => ({
     workspaceId: "00000000-0000-4000-8000-000000000001", role: "owner",
   }),
   canManageWorkspaceSettings: () => true,
+  canManageWorkspaceMembers: () => true,
 }));
 vi.mock("@/lib/workspace-module-access", () => ({
   hasDashboardModuleAccess: async () => true,
