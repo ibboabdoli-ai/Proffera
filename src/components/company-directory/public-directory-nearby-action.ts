@@ -15,6 +15,7 @@ import type { PublicLocale } from "@/lib/public-locale";
 import {
   publicDirectoryNearbyCookieName,
   publicDirectoryNearbyCookiePath,
+  parsePublicDirectoryNearbyValue,
   serializePublicDirectoryNearbyValue,
 } from "@/lib/public-directory-nearby";
 
@@ -64,6 +65,26 @@ export async function searchPublicDirectoryNearbyAction(formData: FormData) {
   redirect(`${directoryPaths[locale].search}?${params.toString()}`);
 }
 
+
+/** Refines a search without obtaining or exposing the already-valid private origin again. */
+export async function refinePublicDirectoryNearbyAction(formData: FormData) {
+  const locale = publicLocale(formData.get("locale"));
+  const service = normalizeDirectoryPublicServiceQuery(
+    String(formData.get("service") ?? "").trim().replace(/\\s+/g, " ").slice(0, 100),
+    locale,
+  );
+  if (!service) return { error: "invalid_service" as const };
+
+  const cookieStore = await cookies();
+  const origin = parsePublicDirectoryNearbyValue(
+    cookieStore.get(publicDirectoryNearbyCookieName(locale))?.value,
+  );
+  if (!origin) return { error: "location_expired" as const };
+
+  const radius = String(Math.min(50, normalizeDirectoryRadiusKm(formData.get("radius"), 10)));
+  const params = new URLSearchParams({ nearby: "1", radius, service });
+  redirect(`${directoryPaths[locale].search}?${params.toString()}`);
+}
 
 /** Only a complete, unambiguous Swedish address is allowed as a search origin. */
 function parseCustomerSearchAddress(rawValue: FormDataEntryValue | null) {

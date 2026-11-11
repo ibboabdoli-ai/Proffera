@@ -135,6 +135,7 @@ export async function PublicDirectorySearchPage({
               service={service}
               radius={radius}
               serviceSuggestions={serviceSuggestions}
+              nearbyOriginActive={Boolean(nearbyCoordinates)}
               tone="light"
               layout="hero"
             />

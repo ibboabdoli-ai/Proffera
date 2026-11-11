@@ -115,6 +115,9 @@ describe("public company directory search contract", () => {
     expect(formSource).toContain('name="address"');
     expect(formSource).toContain("searchPublicDirectoryAddressAction");
     expect(formSource).toContain("searchPublicDirectoryNearbyAction");
+    expect(formSource).toContain("refinePublicDirectoryNearbyAction");
+    expect(formSource).toContain("nearbyOriginActive");
+    expect(shellSource).toContain("nearbyOriginActive={Boolean(nearbyCoordinates)}");
     expect(formSource).toContain('type="range" min={1} max={50}');
     expect(formSource).toContain('name="radius"');
     expect(formSource).toContain("navigator.geolocation.getCurrentPosition");

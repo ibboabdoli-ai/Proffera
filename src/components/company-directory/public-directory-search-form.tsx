@@ -5,6 +5,7 @@ import { type FormEvent, useRef, useState } from "react";
 
 import {
   searchPublicDirectoryAddressAction,
+  refinePublicDirectoryNearbyAction,
   searchPublicDirectoryNearbyAction,
 } from "@/components/company-directory/public-directory-nearby-action";
 import { directoryCopy, normalizeDirectoryPublicServiceQuery } from "@/components/company-directory/public-directory-copy";
@@ -18,12 +19,13 @@ const ACCURATE_GEOLOCATION_OPTIONS: PositionOptions = {
 };
 
 export function PublicDirectorySearchForm({
-  locale, service, radius = "10", serviceSuggestions, tone = "dark", layout = "default",
+  locale, service, radius = "10", serviceSuggestions, nearbyOriginActive = false, tone = "dark", layout = "default",
 }: {
   locale: PublicLocale;
   service: string;
   radius?: string;
   serviceSuggestions: string[];
+  nearbyOriginActive?: boolean;
   tone?: "light" | "dark";
   layout?: "default" | "hero";
 }) {
@@ -64,7 +66,8 @@ export function PublicDirectorySearchForm({
       setStatus(t.serviceRequired);
       return;
     }
-    if (!String(formData.get("address") ?? "").trim()) {
+    const hasNewAddress = Boolean(String(formData.get("address") ?? "").trim());
+    if (!hasNewAddress && !nearbyOriginActive) {
       setStatus(t.addressRequired);
       return;
     }
@@ -73,18 +76,24 @@ export function PublicDirectorySearchForm({
     setPending(true);
     setStatus("");
     try {
-      const result = await searchPublicDirectoryAddressAction(formData);
-      if (result?.error) {
-        const messages = {
-          invalid_address: t.addressInvalid,
-          not_found: t.addressNotFound,
-          unavailable: t.addressUnavailable,
-          rate_limited: t.tooManyAddressSearches,
-        };
-        setStatus(messages[result.error]);
+      if (!hasNewAddress) {
+        // Server rechecks the HttpOnly coordinate cookie; a stale page cannot bypass expiry.
+        const result = await refinePublicDirectoryNearbyAction(formData);
+        if (result?.error) setStatus(t.badPosition);
+      } else {
+        const result = await searchPublicDirectoryAddressAction(formData);
+        if (result?.error) {
+          const messages = {
+            invalid_address: t.addressInvalid,
+            not_found: t.addressNotFound,
+            unavailable: t.addressUnavailable,
+            rate_limited: t.tooManyAddressSearches,
+          };
+          setStatus(messages[result.error]);
+        }
       }
     } catch {
-      setStatus(t.addressUnavailable);
+      setStatus(hasNewAddress ? t.addressUnavailable : t.badPosition);
     } finally {
       setPending(false);
     }
