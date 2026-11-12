@@ -1,10 +1,11 @@
 /**
  * TEMPORARY diagnostic, DISABLED BY DEFAULT. Do not deploy without approval.
- * Owner session + one-time high-entropy token + Production/host/project checks.
+ * Owner session + short-lived token + shared one-use claim + Production/host/project checks.
  * Exact destination is checked before opening the same DB URL the app uses.
- * No secrets or customer information may be returned or logged.
+ * Return only the proof boolean; suppress route and workspace-query error details.
  */
-import { timingSafeEqual } from "node:crypto";
+import { createHash, timingSafeEqual } from "node:crypto";
+import { put } from "@vercel/blob";
 import { NextResponse } from "next/server";
 import { Client } from "pg";
 
@@ -29,6 +30,13 @@ const responseHeaders = {
   "Content-Security-Policy": "default-src 'none'",
   "Referrer-Policy": "no-referrer",
 };
+const maxProofWindowMs = 10 * 60 * 1000;
+
+function proofWindowOpen(expiresAt: string | undefined, now = Date.now()) {
+  if (!expiresAt || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?Z$/.test(expiresAt)) return false;
+  const expiry = Date.parse(expiresAt);
+  return Number.isFinite(expiry) && expiry > now && expiry - now <= maxProofWindowMs;
+}
 
 function denied() {
   return new Response(null, { status: 404, headers: responseHeaders });
@@ -49,10 +57,30 @@ function proofFailed() {
 
 export async function GET(request: Request) {
   if (process.env.VERCEL_ENV !== "production"
-    || process.env.PROFFERA_MARIA_DB_PROOF_ENABLED !== "true") return denied();
+    || process.env.PROFFERA_MARIA_DB_PROOF_ENABLED !== "true"
+    || !proofWindowOpen(process.env.PROFFERA_MARIA_DB_PROOF_EXPIRES_AT)) return denied();
   if (new URL(request.url).origin !== "https://www.proffera.se") return denied();
   if (!tokenAccepted(request.headers.get("x-maria-db-proof"),
     process.env.PROFFERA_MARIA_DB_PROOF_TOKEN)) return denied();
+
+  // Claim before any destination or membership checks. Blob's create-only write is shared across all Vercel
+  // instances and deployments; a duplicate, timeout or store failure never
+  // permits another probe. The pathname contains only a hash of the strong token.
+  // This store already serves public assets, so the marker has fixed harmless
+  // content and its URL is never returned. A stolen token can burn the attempt
+  // without an Owner session, but cannot run the proof. Do not reuse the token.
+  if (!process.env.BLOB_READ_WRITE_TOKEN) return denied();
+  const tokenHash = createHash("sha256")
+    .update(process.env.PROFFERA_MARIA_DB_PROOF_TOKEN!, "utf8").digest("hex");
+  try {
+    await put(`internal/maria-db-proof/v1/${tokenHash}.txt`, "consumed", {
+      access: "public", addRandomSuffix: false, allowOverwrite: false,
+      contentType: "text/plain",
+    });
+  } catch {
+    // A duplicate and an uncertain store outcome both fail closed.
+    return denied();
+  }
 
   // Validate the destination BEFORE calling any DB-backed auth/session helper.
   // Even a wrong URL must never be used for membership lookup.
@@ -63,10 +91,16 @@ export async function GET(request: Request) {
       || process.env.NEON_PROJECT_ID === EXPECTED_MARIA_TARGET.neonProjectId)
     && (!process.env.VERCEL_PROJECT_ID
       || process.env.VERCEL_PROJECT_ID === EXPECTED_MARIA_TARGET.vercelProjectId);
-  if (!destinationMatched || !hintsMatched) return proofFailed();
+  if (!destinationMatched || !hintsMatched) return denied();
 
   // Only consult DB-backed session/membership after proving its destination.
-  const access = await getUserWorkspaceAccess();
+  // Suppress DB error details that may include the connection URL.
+  let access;
+  try {
+    access = await getUserWorkspaceAccess({ suppressErrors: true });
+  } catch {
+    return denied();
+  }
   if (!access.ok || access.workspaceSlug !== "makeup-by-maria" || access.role !== "owner") {
     return denied();
   }
@@ -74,7 +108,7 @@ export async function GET(request: Request) {
   const connectionString = resolveNodePostgresDatabaseUrl();
   if (!connectionString) return proofFailed();
 
-  // All database access is read-only; errors are intentionally suppressed.
+  // The proof's database access is read-only; errors are intentionally suppressed.
   // pg may attach credentials to connection errors, so never log exceptions.
   const client = new Client({
     connectionString,
