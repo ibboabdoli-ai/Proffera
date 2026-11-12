@@ -258,10 +258,10 @@ function compileSql(strings: TemplateStringsArray, values: unknown[]): Query {
     expect(sentAfterRelease).toBe(false);
   }, 12_000);
 
-  it("rejects a second published from-priced or null-priced Maria package in real PostgreSQL", async () => {
+  it("rejects a second published quote, null-priced or zero-priced Maria package in real PostgreSQL", async () => {
     expect(await getMariaBookingReadiness()).toMatchObject({enabled:true,workspaceId});
     const year = day.slice(0,4);
-    for (const [priceType,amount] of [["from",550000],[null,null],[null,550000]] as const) {
+    for (const [priceType,amount] of [["from",550000],[null,null],[null,550000],["fixed",0]] as const) {
       const id = (await db!.query<{id:string}>(
         `insert into workspace_services
            (workspace_id,name,public_slug,duration_minutes,buffer_before_minutes,

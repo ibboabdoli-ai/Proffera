@@ -68,6 +68,7 @@ describe("final Proffera design convergence", () => {
     }));
     const results = source("src/components/company-directory/public-directory-results.tsx");
     const home = source("src/components/marketplace/marketplace-home.tsx");
+    const searchForm = source("src/components/company-directory/public-directory-search-form.tsx");
 
     expect(html).toContain('role="img"');
     expect(html).toContain('aria-label="Illustration: Rörfixarna AB"');
@@ -75,7 +76,12 @@ describe("final Proffera design convergence", () => {
     expect(html).not.toContain("<img");
     expect(results).toContain("illustration={!trustedCardMedia}");
     expect(results).toContain("serviceSlug={result.matchedServiceSlug}");
-    expect(home).toContain('coverMedia?.role === "illustration" || !coverMedia?.url');
+    // Homepage no longer queries featured companies just to build an initial gallery.
+    expect(home).toContain("PublicDirectorySearchForm");
+    expect(home).not.toContain("getCachedMarketplaceHomeCompanies");
+    expect(home).not.toContain("getCachedPublishedDirectoryLocationSuggestions");
+    expect(searchForm).toContain('name="address"');
+    expect(searchForm).toContain("directory-service-suggestions");
   });
 
   it("aligns browser and share surfaces to the same brand", () => {

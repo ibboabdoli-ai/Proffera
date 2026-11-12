@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { cookies } from "next/headers";
-import { Navigation, ShieldCheck, Sparkles } from "lucide-react";
+import { Navigation, Sparkles } from "lucide-react";
 
 import { MarketplaceFunnelSignal } from "@/components/analytics/marketplace-funnel-signal";
 import {
@@ -15,7 +15,6 @@ import { PublicDirectorySearchForm } from "@/components/company-directory/public
 import { searchPublishedBusinessProfiles } from "@/lib/business-profile-search";
 import { normalizeDirectorySearchSort } from "@/lib/company-directory-public-search";
 import { DIRECTORY_SERVICES } from "@/lib/company-directory-service-taxonomy";
-import { getCachedPublishedDirectoryLocationSuggestions } from "@/lib/public-read-cache";
 import type { PublicLocale } from "@/lib/public-locale";
 import {
   parsePublicDirectoryNearbyValue,
@@ -47,7 +46,6 @@ function resultBand(totalCount: number) {
 function paginationBaseHref(path: string, params: SearchParams | undefined) {
   const query = new URLSearchParams();
   const service = firstParam(params?.service);
-  const location = firstParam(params?.location);
   const radius = firstParam(params?.radius);
   const sort = firstParam(params?.sort);
   const nearbyRequested = firstParam(params?.nearby) === "1";
@@ -56,8 +54,6 @@ function paginationBaseHref(path: string, params: SearchParams | undefined) {
   if (nearbyRequested) {
     query.set("nearby", "1");
     if (radius?.trim()) query.set("radius", radius);
-  } else if (location?.trim()) {
-    query.set("location", location);
   }
   if (sort?.trim()) query.set("sort", sort);
 
@@ -74,13 +70,10 @@ export async function PublicDirectorySearchPage({
 }) {
   const params = await (searchParams ?? Promise.resolve(undefined));
   const service = firstParam(params?.service) ?? "";
-  const requestedLocation = firstParam(params?.location) ?? "";
   const nearbyRequested = firstParam(params?.nearby) === "1";
-  const location = nearbyRequested ? "" : requestedLocation;
-  const radius = firstParam(params?.radius) ?? "25";
+  const radius = String(Math.max(1, Math.min(50, Number(firstParam(params?.radius)) || 10)));
   const requestedSort = firstParam(params?.sort) ?? "";
   const page = firstParam(params?.page) ?? "1";
-  const searched = Boolean(service.trim() || location.trim() || nearbyRequested);
   const t = directoryCopy[locale];
   const paths = directoryPaths[locale];
   const searchService = normalizeDirectoryPublicServiceQuery(service, locale);
@@ -92,21 +85,20 @@ export async function PublicDirectorySearchPage({
   const latitude = nearbyRequested ? nearbyCoordinates?.latitude ?? "" : undefined;
   const longitude = nearbyRequested ? nearbyCoordinates?.longitude ?? "" : undefined;
 
-  const [locationSuggestions, search] = await Promise.all([
-    getCachedPublishedDirectoryLocationSuggestions(60),
-    searched
-      ? searchPublishedBusinessProfiles({
-          service: searchService,
-          location,
-          latitude,
-          longitude,
-          radiusKm: radius,
-          sort: requestedSort,
-          page,
-          limit: 30,
-        })
-      : Promise.resolve(null),
-  ]);
+  // A service and a current private coordinate cookie are mandatory.
+  // Never fall back to a country-wide Directory query when the cookie expires.
+  const searched = Boolean(service.trim() && nearbyRequested && nearbyCoordinates);
+  const search = searched
+    ? await searchPublishedBusinessProfiles({
+        service: searchService,
+        latitude,
+        longitude,
+        radiusKm: radius,
+        sort: requestedSort,
+        page,
+        limit: 30,
+      })
+    : null;
 
   const serviceSuggestions = DIRECTORY_SERVICES.map((item) =>
     directoryServiceLabel(item.slug, item.label, locale),
@@ -114,13 +106,13 @@ export async function PublicDirectorySearchPage({
   const nearbyActive = Boolean(search?.nearbyEnabled);
   const activeSort = normalizeDirectorySearchSort(requestedSort, nearbyActive);
   const paginationHref = paginationBaseHref(paths.search, params);
-  const searchFormKey = `${locale}:${nearbyActive ? "nearby" : "manual"}`;
+  const searchFormKey = `${locale}:${nearbyActive ? "nearby" : "manual"}:${radius}:${service}`;
   const discoverySignalKey = search
     ? [
         locale,
         searchService.trim().toLowerCase(),
-        nearbyRequested ? "nearby" : location.trim().toLowerCase(),
-        nearbyRequested ? radius : "",
+        "nearby",
+        radius,
         activeSort,
         page,
       ].join("|")
@@ -141,11 +133,9 @@ export async function PublicDirectorySearchPage({
               key={searchFormKey}
               locale={locale}
               service={service}
-              location={location}
               radius={radius}
-              nearbyActive={nearbyActive}
               serviceSuggestions={serviceSuggestions}
-              locationSuggestions={locationSuggestions}
+              nearbyOriginActive={Boolean(nearbyCoordinates)}
               tone="light"
               layout="hero"
             />
@@ -164,8 +154,8 @@ export async function PublicDirectorySearchPage({
 
         {searched ? (
           <aside className={styles.notice}>
-            {nearbyActive ? <Navigation aria-hidden="true" /> : <ShieldCheck aria-hidden="true" />}
-            <p>{nearbyActive ? t.nearbyNotice(search?.radiusKm ?? 25) : t.addressNotice}</p>
+            <Navigation aria-hidden="true" />
+            <p>{t.nearbyNotice(search?.radiusKm ?? 10)}</p>
           </aside>
         ) : null}
 
@@ -189,7 +179,7 @@ export async function PublicDirectorySearchPage({
           </section>
         ) : null}
 
-        {search?.nearbyRequested && !search.nearbyEnabled ? (
+        {nearbyRequested && !nearbyCoordinates ? (
           <div className={styles.warning}>{t.badPosition}</div>
         ) : null}
 

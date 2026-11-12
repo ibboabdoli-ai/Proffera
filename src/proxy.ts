@@ -20,6 +20,7 @@ const ADMIN_PATH_HEADER = "x-proffera-admin-path";
 const REQUEST_ID_HEADER = "x-proffera-request-id";
 const PUBLIC_SERVICE_SLUG = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
+/** Return a non-indexable 404 and preserve the request correlation ID. */
 function notFound(requestId?: string) {
   const headers = new Headers({ "X-Robots-Tag": NOINDEX_VALUE });
   if (requestId) headers.set(REQUEST_ID_HEADER, requestId);
@@ -29,6 +30,7 @@ function notFound(requestId?: string) {
   });
 }
 
+/** Decode a service path without trusting malformed URL encoding. */
 function decodePublicServiceSlug(pathname: string) {
   try {
     return decodeURIComponent(pathname.slice("/tjanster/".length)).trim().toLowerCase();
@@ -37,6 +39,7 @@ function decodePublicServiceSlug(pathname: string) {
   }
 }
 
+/** Build a platform chat redirect with its explicit tenant identity. */
 function chatUrl(pathname: string, search = "") {
   const url = new URL(pathname, CHAT_ORIGIN);
   const params = new URLSearchParams(search);
@@ -52,6 +55,7 @@ function chatUrl(pathname: string, search = "") {
   return url;
 }
 
+/** Build the canonical Proffera widget configuration redirect URL. */
 function widgetConfigUrl(search = "") {
   const url = new URL("/api/widget-config", CHAT_ORIGIN);
   const params = new URLSearchParams(search);
@@ -67,14 +71,17 @@ function widgetConfigUrl(search = "") {
   return url;
 }
 
+/** Match the authenticated dashboard route family. */
 function isDashboardPath(pathname: string) {
   return pathname === "/dashboard" || pathname.startsWith("/dashboard/");
 }
 
+/** Match the restricted platform-admin route family. */
 function isAdminPath(pathname: string) {
   return pathname === "/admin" || pathname.startsWith("/admin/");
 }
 
+/** Reuse a valid correlation ID or create one for this request. */
 function resolveRequestId(request: NextRequest) {
   const incoming = String(request.headers.get(REQUEST_ID_HEADER) ?? "").trim();
   if (/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(incoming)) {
@@ -83,6 +90,7 @@ function resolveRequestId(request: NextRequest) {
   return globalThis.crypto.randomUUID();
 }
 
+/** Strip untrusted shell markers before forwarding trusted request headers. */
 function requestHeadersWithRequestId(request: NextRequest, requestId: string) {
   const requestHeaders = new Headers(request.headers);
   // Never trust a client-supplied shell override on dashboards or other routes.
@@ -91,11 +99,13 @@ function requestHeadersWithRequestId(request: NextRequest, requestId: string) {
   return requestHeaders;
 }
 
+/** Attach the same correlation ID to the outgoing response. */
 function withResponseRequestId<T extends Response>(response: T, requestId: string) {
   response.headers.set(REQUEST_ID_HEADER, requestId);
   return response;
 }
 
+/** Rewrite a request while preserving trusted, sanitized headers. */
 function rewriteWithRequestId(request: NextRequest, destination: URL, requestId: string) {
   return withResponseRequestId(
     NextResponse.rewrite(destination, {
@@ -105,10 +115,12 @@ function rewriteWithRequestId(request: NextRequest, destination: URL, requestId:
   );
 }
 
+/** Redirect while retaining the request correlation ID. */
 function redirectWithRequestId(destination: URL, requestId: string) {
   return withResponseRequestId(NextResponse.redirect(destination), requestId);
 }
 
+/** Forward authenticated dashboard pages with no-index response headers. */
 function allowDashboardWithNoIndex(request: NextRequest, requestId: string) {
   const response = NextResponse.next({
     request: { headers: requestHeadersWithRequestId(request, requestId) },
@@ -117,6 +129,7 @@ function allowDashboardWithNoIndex(request: NextRequest, requestId: string) {
   return withResponseRequestId(response, requestId);
 }
 
+/** Forward the verified admin route for server-side RBAC checks. */
 function allowAdminWithPath(request: NextRequest, requestId: string) {
   const requestHeaders = requestHeadersWithRequestId(request, requestId);
   requestHeaders.set(ADMIN_PATH_HEADER, request.nextUrl.pathname);
@@ -130,11 +143,19 @@ function allowAdminWithPath(request: NextRequest, requestId: string) {
   return withResponseRequestId(response, requestId);
 }
 
+/** Allow a public route and mark only an exact authorized Maria payment path for a standalone shell. */
 function allowPublicPath(request: NextRequest, requestId: string) {
   const requestHeaders = requestHeadersWithRequestId(request, requestId);
   requestHeaders.delete("x-proffera-locale");
-  // Only the exact Maria Preview payment URL gets a standalone brand shell.
-  if (process.env.VERCEL_ENV === "preview" && isMariaPaymentStandalonePath(request.nextUrl.pathname)) {
+  // Only an exact Maria payment URL receives the trusted standalone shell.
+  // Production MUST be on Maria's branded host, never the Proffera platform.
+  const paymentPath = isMariaPaymentStandalonePath(request.nextUrl.pathname);
+  const previewPayment = process.env.VERCEL_ENV === "preview"
+    && isPlatformHost(request.headers.get("host") ?? request.nextUrl.host);
+  const brandedProductionPayment = process.env.VERCEL_ENV === "production"
+    && isMariaHost(request.headers.get("host") ?? request.nextUrl.host)
+    && process.env.PROFFERA_MARIA_PUBLIC_SITE_ENABLED === "true";
+  if (paymentPath && (previewPayment || brandedProductionPayment)) {
     requestHeaders.set(MARIA_PAYMENT_SHELL_HEADER, "1");
   }
 
@@ -151,6 +172,7 @@ function allowPublicPath(request: NextRequest, requestId: string) {
   }), requestId);
 }
 
+/** Enforce host-specific page routing, canonicalization, and trusted shell markers before rendering. */
 export async function proxy(request: NextRequest) {
   const { pathname, search } = request.nextUrl;
   const host = request.headers.get("host") ?? request.nextUrl.host;

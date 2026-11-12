@@ -12,7 +12,7 @@ const source = "maria_swish_manual_deposit_v1";
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export type ManualSwishState = "paid" | "unverified";
-export type ManualSwishEntry = { state: ManualSwishState; markedAt: string };
+export type ManualSwishEntry = { state: ManualSwishState; markedAt: string; reference?: string };
 export type ManualSwishStatusRead = {
   ok: boolean;
   entries: Record<string, ManualSwishEntry>;
@@ -52,11 +52,13 @@ export async function readMariaManualSwishStatuses(): Promise<ManualSwishStatusR
     if (!sql) return { ok: false, entries: {} };
     const rows = await sql`
       select b.id::text as booking_id,
+        ref.reference as booking_reference,
         latest.metadata->>'state' as state,
         latest.created_at::text as marked_at
       from bookings b
       join customers c on c.id=b.customer_id and c.workspace_id=b.workspace_id
         and (${process.env.VERCEL_ENV !== "preview"}::boolean or lower(btrim(c.email, chr(9) || chr(10) || chr(13) || ' '))=${approvedRecipient ?? ""})
+      left join maria_booking_references ref on ref.booking_id=b.id
       left join lateral (
         select e.metadata, e.created_at
         from customer_events e
@@ -79,6 +81,8 @@ export async function readMariaManualSwishStatuses(): Promise<ManualSwishStatusR
         entries[bookingId] = {
           state: row.state === "paid" ? "paid" : "unverified",
           markedAt: String(row.marked_at ?? ""),
+          ...(typeof row.booking_reference === "string"
+            ? { reference: mariaBookingNumber(bookingId, row.booking_reference) } : {}),
         };
       }
     }
@@ -152,7 +156,10 @@ export async function setMariaManualSwishStatus(bookingId: string, state: Manual
             'state', ${state}::text,
             'currency', 'SEK',
             'amount_minor', ${MARIA_DEPOSIT_AMOUNT_SEK * 100}::integer,
-            'booking_number', ${mariaBookingNumber(normalizedBookingId)}::text,
+            'booking_number', coalesce(
+              (select ref.reference from maria_booking_references ref
+               where ref.booking_id=eligible.id),
+              ${mariaBookingNumber(normalizedBookingId)}::text),
             'actor_user_id', ${access.userId}::text
           )
         from eligible

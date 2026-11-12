@@ -17,19 +17,19 @@ vi.mock("@/components/performance/web-vitals-reporter", () => ({
   WebVitalsReporter: () => "WEB_VITALS_RENDERED",
 }));
 vi.mock("@/components/layout/app-shell", () => ({
-  AppShell: ({ children }: { children: React.ReactNode }) => children,
+  AppShell: ({ children }: { children: React.ReactNode }) => createElement("div", { "data-testid": "proffera-shell" }, children),
 }));
 vi.mock("@/components/analytics/primeview-google-ads-analytics", () => ({
   PrimeViewGoogleAdsAnalytics: () => null,
 }));
 vi.mock("@/components/service-ai-chat-widget", () => ({
-  ServiceAiChatWidget: () => null,
+  ServiceAiChatWidget: () => "PROFFERA_CHAT_RENDERED",
 }));
 vi.mock("@/components/pwa-service-worker", () => ({
-  PwaServiceWorker: () => null,
+  PwaServiceWorker: () => "PROFFERA_PWA_RENDERED",
 }));
 
-import RootLayout from "@/app/layout";
+import RootLayout, { metadata as profferaMetadata } from "@/app/layout";
 import { MARIA_PAYMENT_SHELL_HEADER } from "@/lib/maria-payment-standalone";
 
 const host = "proffera-git-feature-example.vercel.app";
@@ -43,8 +43,8 @@ beforeEach(() => {
 
 afterEach(() => vi.unstubAllEnvs());
 
-async function renderRoot(standalone: boolean) {
-  const headers = new Headers({ host });
+async function renderRoot(standalone: boolean, siteHost = host) {
+  const headers = new Headers({ host: siteHost });
   if (standalone) headers.set(MARIA_PAYMENT_SHELL_HEADER, "1");
   mock.requestHeaders.mockReturnValue(headers);
   return renderToStaticMarkup(await RootLayout({
@@ -53,12 +53,53 @@ async function renderRoot(standalone: boolean) {
 }
 
 describe("Maria Preview payment shell analytics privacy", () => {
+  it("preserves the normal Proffera manifest and Apple title on the platform", () => {
+    expect(profferaMetadata.manifest).toBe("/manifest.webmanifest");
+    expect(profferaMetadata.appleWebApp).toMatchObject({title:"Proffera",capable:true});
+  });
+
   it("does not render analytics, consent UI or performance instrumentation on isolated Swish page", async () => {
     const html = await renderRoot(true);
     expect(html).toContain("synthetic-payment-page");
     expect(html).not.toContain("POSTHOG_RENDERED");
     expect(html).not.toContain("CONSENT_RENDERED");
     expect(html).not.toContain("WEB_VITALS_RENDERED");
+  });
+
+  it("renders only Maria branding in Production on its canonical payment origin", async () => {
+    vi.stubEnv("VERCEL_ENV", "production");
+    vi.stubEnv("PROFFERA_MARIA_PUBLIC_SITE_ENABLED", "true");
+    const html = await renderRoot(true, "makeupbymaria.se");
+    expect(html).toContain("synthetic-payment-page");
+    expect(html).not.toContain("proffera-shell");
+    expect(html).not.toContain("PROFFERA_CHAT_RENDERED");
+    expect(html).not.toContain("PROFFERA_PWA_RENDERED");
+    expect(html).not.toContain("CONSENT_RENDERED");
+    expect(html).not.toContain("WEB_VITALS_RENDERED");
+  });
+
+  it.each(["makeupbymaria.se", "www.makeupbymaria.se", "MAKEUPBYMARIA.SE", "makeupbymaria.se:443", "makeupbymaria.se."])(
+    "uses the isolated Maria payment shell for trusted host variant %s", async hostVariant => {
+      vi.stubEnv("VERCEL_ENV","production");
+      vi.stubEnv("PROFFERA_MARIA_PUBLIC_SITE_ENABLED","true");
+      const html=await renderRoot(true,hostVariant);
+      expect(html).not.toContain("proffera-shell");
+      expect(html).not.toContain("PROFFERA_CHAT_RENDERED");
+    },
+  );
+  it("keeps ordinary shell if Maria Public Site flag is not enabled",async()=>{
+    vi.stubEnv("VERCEL_ENV","production");
+    vi.stubEnv("PROFFERA_MARIA_PUBLIC_SITE_ENABLED","false");
+    const html=await renderRoot(true,"makeupbymaria.se");
+    expect(html).toContain("proffera-shell");
+  });
+
+  it("never trusts a standalone marker on the Production Proffera host", async () => {
+    vi.stubEnv("VERCEL_ENV", "production");
+    vi.stubEnv("PROFFERA_MARIA_PUBLIC_SITE_ENABLED", "true");
+    const html = await renderRoot(true, "www.proffera.se");
+    expect(html).toContain("proffera-shell");
+    expect(html).toContain("PROFFERA_CHAT_RENDERED");
   });
 
   it("keeps the normal Preview analytics and consent gate on the platform", async () => {

@@ -1,8 +1,8 @@
 import { pathToFileURL } from "node:url";
 
-const migrations = ["20261103_0072", "20261105_0073", "20261107_0074", "20261108_0075"];
-// Prices are owner-editable; a release check must validate their shape, not freeze a former price target.
-const required2026Services = ["maria-bridal-trial-2026", "maria-bridal-without-trial-2026"];
+const migrations = ["20261103_0072", "20261105_0073", "20261107_0074", "20261108_0075", "20261110_0076"];
+// The owner can hide old years without deleting their bookings. Validate every
+// ACTIVE public package from the supported year range, not a frozen 2026 pair.
 
 /** SELECT-only Maria database preflight. Does not authorize public booking. */
 export async function inspectMariaProductionBookingDatabase(query) {
@@ -16,6 +16,8 @@ export async function inspectMariaProductionBookingDatabase(query) {
     "to_regclass('public.public_booking_verifications') is not null as verifications,",
     "to_regclass('public.maria_manual_closed_starts') is not null as manual_closed_starts,",
     "to_regclass('public.maria_service_card_translations') is not null as card_translations,",
+    "to_regclass('public.maria_booking_references') is not null as booking_references,",
+    "to_regclass('public.maria_booking_reference_counters') is not null as reference_counters,",
     "to_regclass('public.workspace_booking_reminder_settings') is not null as lifecycle_settings,",
     "(select count(*) from information_schema.columns where table_schema='public'",
     "and table_name='workspace_booking_reminder_settings' and (",
@@ -41,7 +43,7 @@ export async function inspectMariaProductionBookingDatabase(query) {
   ].join(" ");
   const schema = (await query(schemaSql)).rows?.[0];
   if (!schema) return { databaseReady: false, blockers: ["schema_unreadable"], appliedMigrations: [] };
-  const tables = ["ledger", "workspaces", "workspace_settings", "workspace_services", "booking_hours", "verifications", "manual_closed_starts", "card_translations", "lifecycle_settings"];
+  const tables = ["ledger", "workspaces", "workspace_settings", "workspace_services", "booking_hours", "verifications", "manual_closed_starts", "card_translations", "booking_references", "reference_counters", "lifecycle_settings"];
   for (const table of tables) if (schema[table] !== true) blockers.push("missing_" + table);
   if (schema.verification_contact_columns !== true) blockers.push("missing_verification_contact_columns");
   if (schema.lifecycle_settings_columns !== true) blockers.push("invalid_lifecycle_settings_columns");
@@ -92,9 +94,47 @@ export async function inspectMariaProductionBookingDatabase(query) {
     }
   }
 
+  // IF NOT EXISTS can leave an incompatible existing table untouched.
+  // Never report release-ready if unique references or booking FK protection
+  // are missing, even when migration 0076 has a recorded receipt.
+  if (schema.booking_references === true && schema.reference_counters === true) {
+    const referenceIntegritySql = [
+      "select",
+      "(select count(*) from information_schema.columns where table_schema='public'",
+      "and table_name='maria_booking_reference_counters' and (",
+      "(column_name='day_key' and udt_name='text' and is_nullable='NO') or",
+      "(column_name='last_number' and udt_name='int8' and is_nullable='NO')",
+      ")) = 2 as reference_counter_columns,",
+      "(select count(*) from information_schema.columns where table_schema='public'",
+      "and table_name='maria_booking_references' and (",
+      "(column_name='booking_id' and udt_name='uuid' and is_nullable='NO') or",
+      "(column_name='day_key' and udt_name='text' and is_nullable='NO') or",
+      "(column_name='day_number' and udt_name='int8' and is_nullable='NO') or",
+      "(column_name='reference' and udt_name='text' and is_nullable='NO')",
+      ")) = 4 as booking_reference_columns,",
+      "exists (select 1 from pg_constraint c where c.conrelid=to_regclass('public.maria_booking_reference_counters') AND c.contype='p' AND c.conname='maria_booking_reference_counters_pkey' AND pg_get_constraintdef(c.oid) = 'PRIMARY KEY (day_key)') as reference_counter_pk,",
+      "exists (select 1 from pg_constraint c where c.conrelid=to_regclass('public.maria_booking_references') AND c.contype='p' AND c.conname='maria_booking_references_pkey' AND pg_get_constraintdef(c.oid) = 'PRIMARY KEY (booking_id)') as booking_reference_pk,",
+      "exists (select 1 from pg_constraint c where c.conrelid=to_regclass('public.maria_booking_references') AND c.contype='u' AND c.conname='maria_booking_references_reference_key' AND pg_get_constraintdef(c.oid) = 'UNIQUE (reference)') as booking_reference_unique,",
+      "exists (select 1 from pg_constraint c where c.conrelid=to_regclass('public.maria_booking_references') AND c.contype='u' AND c.conname='maria_booking_reference_day_number_key' AND pg_get_constraintdef(c.oid) = 'UNIQUE (day_key, day_number)') as booking_reference_day_unique,",
+      "exists (select 1 from pg_constraint c where c.conrelid=to_regclass('public.maria_booking_references') AND c.contype='f' AND c.conname='maria_booking_references_booking_id_fkey' AND c.confrelid=to_regclass('public.bookings') AND c.confdeltype='c' AND pg_get_constraintdef(c.oid) LIKE 'FOREIGN KEY (booking_id) REFERENCES %(id) ON DELETE CASCADE') as booking_reference_booking_fk,",
+      "exists (select 1 from pg_constraint c where c.conrelid=to_regclass('public.maria_booking_references') AND c.contype='f' AND c.conname='maria_booking_references_day_key_fkey' AND c.confrelid=to_regclass('public.maria_booking_reference_counters') AND c.confdeltype='a' AND pg_get_constraintdef(c.oid) LIKE 'FOREIGN KEY (day_key) REFERENCES %(day_key)') as booking_reference_day_fk,",
+      "exists (select 1 from pg_constraint c where c.conrelid=to_regclass('public.maria_booking_reference_counters') AND c.contype='c' AND c.conname='maria_booking_reference_counters_day_key_check' AND c.convalidated AND pg_get_constraintdef(c.oid) = 'CHECK ((day_key ~ ''^[0-9]{8}$''::text))') as reference_counter_day_check,",
+      "exists (select 1 from pg_constraint c where c.conrelid=to_regclass('public.maria_booking_reference_counters') AND c.contype='c' AND c.conname='maria_booking_reference_counters_last_number_check' AND c.convalidated AND pg_get_constraintdef(c.oid) = 'CHECK (((last_number >= 1) AND (last_number <= 999999999)))') as reference_counter_number_check,",
+      "exists (select 1 from pg_constraint c where c.conrelid=to_regclass('public.maria_booking_references') AND c.contype='c' AND c.conname='maria_booking_references_day_number_check' AND c.convalidated AND pg_get_constraintdef(c.oid) = 'CHECK (((day_number >= 1) AND (day_number <= 999999999)))') as booking_reference_number_check,",
+      "exists (select 1 from pg_constraint c where c.conrelid=to_regclass('public.maria_booking_references') AND c.contype='c' AND c.conname='maria_booking_references_reference_check' AND c.convalidated AND pg_get_constraintdef(c.oid) = 'CHECK ((reference ~ ''^MBM-[0-9]{10,}$''::text))') as booking_reference_format_check",
+    ].join(" ");
+    const integrity = (await query(referenceIntegritySql)).rows?.[0];
+    for (const key of [
+      "reference_counter_columns", "booking_reference_columns",
+      "reference_counter_pk", "booking_reference_pk", "booking_reference_unique", "booking_reference_day_unique", "booking_reference_booking_fk", "booking_reference_day_fk", "reference_counter_day_check", "reference_counter_number_check", "booking_reference_number_check", "booking_reference_format_check",
+    ]) {
+      if (integrity?.[key] !== true) blockers.push("invalid_" + key);
+    }
+  }
+
   let appliedMigrations = [];
   if (schema.ledger === true) {
-    const rows = await query("select migration_key from proffera_schema_migrations where migration_key in ('20261103_0072','20261105_0073','20261107_0074','20261108_0075')");
+    const rows = await query("select migration_key from proffera_schema_migrations where migration_key in ('20261103_0072','20261105_0073','20261107_0074','20261108_0075','20261110_0076')");
     appliedMigrations = rows.rows.map(row => String(row.migration_key));
     for (const key of migrations) if (!appliedMigrations.includes(key)) blockers.push("missing_migration_" + key);
   }
@@ -115,21 +155,28 @@ export async function inspectMariaProductionBookingDatabase(query) {
     } else {
       if (w.billing_currency !== "SEK") blockers.push("maria_billing_currency_not_sek");
       const services = await query([
-        "select public_slug, price_amount_minor, price_type, is_active, public_status, duration_minutes",
-        "from workspace_services where workspace_id=$1 and public_slug in",
-        "('maria-bridal-trial-2026','maria-bridal-without-trial-2026')",
+        "select public_slug, price_amount_minor, price_type, duration_minutes, maximum_advance_days",
+        "from workspace_services where workspace_id=$1",
+        "and public_slug ~ '^maria-bridal-(trial|without-trial)-(202[6-9]|203[0-6])$'",
+        "and is_active=true and public_status='published'",
       ].join(" "), [w.id]);
-      const serviceRows = services.rows;
-      const bySlug = new Map(serviceRows.map(service => [String(service.public_slug), service]));
-      if (serviceRows.length !== 2 || bySlug.size !== 2) blockers.push("maria_services_ambiguous");
-      for (const slug of required2026Services) {
-        const s = bySlug.get(slug);
-        const priceMinor = Number(s?.price_amount_minor);
-        if (!s || s.is_active !== true || s.public_status !== "published" || s.price_type !== "fixed"
-          || s.price_amount_minor === null || s.price_amount_minor === undefined
+      const publicServices = services.rows;
+      if (publicServices.length === 0) blockers.push("maria_no_published_services");
+      const seenSlugs = new Set();
+      for (const service of publicServices) {
+        const slug = String(service.public_slug);
+        if (seenSlugs.has(slug)) blockers.push("maria_services_ambiguous");
+        seenSlugs.add(slug);
+        const priceMinor = Number(service.price_amount_minor);
+        const duration = Number(service.duration_minutes);
+        const advance = Number(service.maximum_advance_days);
+        if (service.price_type !== "fixed"
+          || service.price_amount_minor === null || service.price_amount_minor === undefined
           || !Number.isSafeInteger(priceMinor) || priceMinor < 1 || priceMinor > 25000000
-          || !Number.isInteger(Number(s.duration_minutes)) || Number(s.duration_minutes) < 1
-          || Number(s.duration_minutes) > 1440) blockers.push("service_not_ready_" + slug);
+          || !Number.isInteger(duration) || duration < 1 || duration > 1440
+          || !Number.isInteger(advance) || advance < 1 || advance > 730) {
+          blockers.push("service_not_ready_" + slug);
+        }
       }
       const hours = await query("select weekday, opens_at::text as opens_at, closes_at::text as closes_at, is_closed from workspace_booking_hours where workspace_id=$1 and weekday in (0,5,6)", [w.id]);
       if (!hours.rows.some(h => [0,5,6].includes(Number(h.weekday)) && h.is_closed === false

@@ -528,6 +528,12 @@ function futureFriday() {
       [saved.bookingId],
     );
     expect(savedLocale.rows[0]?.language).toBe("ar");
+    const assigned = await db!.query<{reference:string}>(
+      "select reference from maria_booking_references where booking_id=$1::uuid",
+      [saved.bookingId],
+    );
+    expect(assigned.rows[0]?.reference).toMatch(/^MBM-[0-9]{10,}$/);
+    expect(assigned.rows[0]?.reference).not.toContain(saved.bookingId.replaceAll("-", "").toUpperCase());
     expect((await manualBlocks())).toHaveLength(intervals.length-1);
 
     // Physical appointments still cannot overlap. The canonical exclusion
@@ -554,6 +560,100 @@ function futureFriday() {
     const stillBusy=await availability();
     expect(stillBusy).toEqual({ok:true,slots:[]});
   });
+
+  it("assigns exact sequential references under concurrent finalization, keeps failed holds unchanged and survives counter 100", async () => {
+    const year = Number(day.slice(0,4));
+    const slug = `maria-bridal-trial-${year}`;
+    let service = await db!.query<{id:string;name:string}>(
+      "select id::text,name from workspace_services where workspace_id=$1 and public_slug=$2 limit 1",
+      [workspaceId,slug],
+    );
+    if (!service.rows.length) {
+      service = await db!.query<{id:string;name:string}>(
+        "insert into workspace_services(workspace_id,name,public_slug,duration_minutes,is_active,public_status,price_type,price_amount_minor) values($1,$2,$3,180,true,'published','fixed',600000) returning id::text,name",
+        [workspaceId,`Brudsmink med prov ${year}`,slug],
+      );
+    }
+    const serviceId=service.rows[0]!.id;
+    const serviceName=service.rows[0]!.name;
+    await db!.query(
+      "update workspace_services set duration_minutes=180,buffer_after_minutes=0,buffer_before_minutes=0,minimum_notice_minutes=0,maximum_advance_days=730,is_active=true,public_status='published',price_type='fixed',price_amount_minor=600000 where id=$1::uuid",
+      [serviceId],
+    );
+    await db!.query("update bookings set status='cancelled' where id=$1::uuid",[bookingId]);
+    await db!.query("delete from maria_booking_reference_counters");
+    const localDay=(await db!.query<{day:string}>(
+      "select to_char(now() at time zone 'Europe/Stockholm','YYYYMMDD') as day",
+    )).rows[0]!.day;
+    const holdIds:string[]=[];
+    const createdIds:string[]=[];
+    const newHold=async(week:number,code:string)=>{
+      const d=new Date(day+"T12:00:00Z");
+      d.setUTCDate(d.getUTCDate()+week*7);
+      const date=d.toISOString().slice(0,10);
+      const start=mariaCalendarIntervals(date,"06:00","10:00")!.find(item=>item.clock==="07:00")!.startsAt;
+      const end=new Date(Date.parse(start)+180*60_000).toISOString();
+      const rows=await db!.query<{id:string}>(
+        "insert into public_booking_verifications(workspace_id,public_booking_slug,customer_name,customer_email,service_id,service_name,starts_at,ends_at,code_hash,expires_at) values($1::uuid,'makeup-by-maria','Reference QA','qa@example.invalid',$2::uuid,$3,$4::timestamptz,$5::timestamptz,$6,now()+interval '15 minutes') returning id::text",
+        [workspaceId,serviceId,serviceName,start,end,code],
+      );
+      const id=rows.rows[0]!.id;
+      holdIds.push(id);
+      return id;
+    };
+    const finalize=async(id:string,hash:string)=>{
+      const value=await finalizeMariaVerifiedBooking({
+        verificationId:id,expectedCodeHash:hash,bookingNote:"synthetic reference QA",
+      });
+      if(value.ok)createdIds.push(value.bookingId);
+      return value;
+    };
+    try {
+      const ids=await Promise.all([newHold(1,"seq1"),newHold(2,"seq2")]);
+      const first=await Promise.all([finalize(ids[0]!,"seq1"),finalize(ids[1]!,"seq2")]);
+      expect(first.every(item=>item.ok)).toBe(true);
+      const refs=await db!.query<{reference:string}>(
+        "select reference from maria_booking_references where booking_id=any($1::uuid[]) order by day_number",
+        [createdIds],
+      );
+      expect(refs.rows.map(row=>row.reference)).toEqual([
+        `MBM-${localDay}01`,`MBM-${localDay}02`,
+      ]);
+      const failedId=await newHold(3,"valid");
+      const before=(await db!.query<{last_number:string}>(
+        "select last_number from maria_booking_reference_counters where day_key=$1",
+        [localDay],
+      )).rows[0]!.last_number;
+      expect(await finalize(failedId,"wrong")).toMatchObject({ok:false,error:"conflict"});
+      expect((await db!.query(
+        "select id from bookings where id in (select booking_id from maria_booking_references where day_number=3 and day_key=$1)",
+        [localDay],
+      )).rowCount).toBe(0);
+      expect((await db!.query<{last_number:string}>(
+        "select last_number from maria_booking_reference_counters where day_key=$1",
+        [localDay],
+      )).rows[0]?.last_number).toEqual(before);
+      await db!.query(
+        "update maria_booking_reference_counters set last_number=99 where day_key=$1",
+        [localDay],
+      );
+      const later=await Promise.all([newHold(4,"seq100"),newHold(5,"seq101")]);
+      const outcomes=await Promise.all([finalize(later[0]!,"seq100"),finalize(later[1]!,"seq101")]);
+      expect(outcomes.every(item=>item.ok)).toBe(true);
+      const tail=await db!.query<{reference:string}>(
+        "select reference from maria_booking_references where day_key=$1 and day_number>=100 order by day_number",
+        [localDay],
+      );
+      expect(tail.rows.map(row=>row.reference)).toEqual([
+        `MBM-${localDay}100`,`MBM-${localDay}101`,
+      ]);
+    } finally {
+      await db!.query("delete from public_booking_verifications where id=any($1::uuid[])",[holdIds]);
+      await db!.query("delete from bookings where id=any($1::uuid[])",[createdIds]);
+      await db!.query("delete from maria_booking_reference_counters where day_key=$1",[localDay]);
+      await db!.query("update bookings set status='requested' where id=$1::uuid",[bookingId]);
+    }
+  }, 60_000);
 
   it("does not invalidate an active OTP hold, including when the hold writer owns the same lock",async()=>{
     const service=await db!.query<{id:string}>(

@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import { mariaDefaultCardCopy } from "@/lib/maria-default-card-copy";
 
-const state=vi.hoisted(()=>({slug:"makeup-by-maria",role:"owner",productionEditorReady:false,productionBookingReady:false,serviceReadFailure:false}));
+const state=vi.hoisted(()=>({slug:"makeup-by-maria",role:"owner",productionEditorReady:false,productionBookingReady:false,serviceReadFailure:false,services:[] as Array<{publicSlug:string;isActive:boolean;publicStatus:string;priceType:string;priceAmountMinor:number;durationMinutes:number;shortDescription:string}>}));
 vi.mock("server-only",()=>({}));
 vi.mock("next/navigation",()=>({redirect:(url:string)=>{throw Error("REDIRECT "+url)}}));
 vi.mock("@/lib/workspace-access",()=>({
@@ -12,7 +12,7 @@ vi.mock("@/lib/workspace-access",()=>({
 vi.mock("@/lib/workspace-services-db",()=>({
   getDashboardWorkspaceServices:async(options?:{strict?:boolean})=>{
     if(state.serviceReadFailure && options?.strict) throw Error("Synthetic service DB read failed");
-    return [];
+    return state.services;
   },
 }));
 vi.mock("@/lib/workspace-booking-hours-db",()=>({getDashboardWorkspaceBookingHours:async()=>({hours:[]})}));
@@ -48,6 +48,7 @@ vi.mock("@/lib/dashboard-db",()=>({
 }));
 vi.mock("./actions",()=>({saveMariaYearAction:async()=>{}}));
 vi.mock("./production-year-actions",()=>({saveMariaProductionYearAction:async()=>{}}));
+vi.mock("./production-year-visibility-actions",()=>({setMariaProductionYearVisibilityAction:async()=>{}}));
 vi.mock("./schedule-actions",()=>({saveMariaScheduleAction:async()=>{}}));
 
 import MariaSiteDashboardPage from "./page";
@@ -56,7 +57,7 @@ import CalendarPage from "../kalender/page";
 import BookingsPage from "../bokningar/page";
 import NewBookingPage from "../bokningar/ny/page";
 
-afterEach(()=>{vi.unstubAllEnvs();state.slug="makeup-by-maria";state.role="owner";state.productionEditorReady=false;state.productionBookingReady=false;state.serviceReadFailure=false});
+afterEach(()=>{vi.unstubAllEnvs();state.slug="makeup-by-maria";state.role="owner";state.productionEditorReady=false;state.productionBookingReady=false;state.serviceReadFailure=false;state.services=[]});
 describe("Maria preview calendar visible without paid booking",()=>{
   it("routes the Maria manager workspace directly from /dashboard in Preview and Production",async()=>{
     for (const env of ["preview","production"]) {
@@ -116,10 +117,40 @@ describe("Maria preview calendar visible without paid booking",()=>{
     expect(html).toContain('href="/dashboard/maria/kalender"');
     expect(html).toContain("Spara bokningstider");
     expect(html).toContain("Spara 2030");
+    expect(html).toContain("Visa 2030 på webbplatsen");
+    expect(html).toContain('name="visibility"');
+    expect(html).toContain('name="visibility" value="show"');
+    // Two independent forms: publishing never submits unsaved price/text edits.
+    expect(html).not.toContain("formAction=");
+    expect(html.match(/<form/g)?.length).toBeGreaterThanOrEqual(3);
     expect(html).toContain("Riktiga kundbokningar är aktiverade");
     expect(html).not.toContain("Endast intern förhandsvisning.");
     expect(html).not.toContain("Onlinebokningen är ännu inte aktiverad.");
   });
+  it.each(["both", "half"] as const)("shows hide-year control when %s package(s) are publicly visible",async mode=>{
+    vi.stubEnv("VERCEL_ENV","production");
+    state.productionBookingReady=true;
+    state.productionEditorReady=true;
+    state.services=[
+      {publicSlug:"maria-bridal-trial-2030",isActive:true,publicStatus:"published",priceType:"fixed",priceAmountMinor:600000,durationMinutes:180,shortDescription:"Synthetic trial"},
+      {publicSlug:"maria-bridal-without-trial-2030",isActive:mode==="both",publicStatus:"published",priceType:"fixed",priceAmountMinor:500000,durationMinutes:180,shortDescription:"Synthetic no trial"},
+    ];
+    const html=renderToStaticMarkup(await MariaSiteDashboardPage({searchParams:Promise.resolve({year:"2030"})}));
+    expect(html).toContain("Visas på bokningssidan");
+    expect(html).toContain("Dölj 2030");
+    expect(html).toContain('name="visibility" value="hide"');
+    expect(html).not.toContain("formAction=");
+  });
+  it("never renders the Production visibility control for an admin",async()=>{
+    vi.stubEnv("VERCEL_ENV","production");
+    state.productionEditorReady=true;
+    state.role="admin";
+    const html=renderToStaticMarkup(await MariaSiteDashboardPage({searchParams:Promise.resolve({year:"2030"})}));
+    expect(html).toContain("Spara 2030");
+    expect(html).not.toContain("Visa 2030 på webbplatsen");
+    expect(html).not.toContain('name="visibility"');
+  });
+
   it("shows a read-only Maria overview in Production without Preview booking controls",async()=>{
     vi.stubEnv("VERCEL_ENV","production");
     const html=renderToStaticMarkup(await MariaSiteDashboardPage({searchParams:Promise.resolve({})}));

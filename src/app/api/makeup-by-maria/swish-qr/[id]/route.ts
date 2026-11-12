@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import QRCode from "qrcode";
 
 import { mariaSwishQrPayload } from "@/lib/maria-deposit";
+import { readMariaBookingReference } from "@/lib/maria-booking-reference-db";
 import { readMariaSwishQrEligibility } from "@/lib/maria-swish-qr-eligibility";
 
 export const runtime = "nodejs";
@@ -27,7 +28,8 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
     const eligibility = await readMariaSwishQrEligibility(id);
     if (eligibility !== "eligible") return unavailable();
 
-    const png = await QRCode.toBuffer(mariaSwishQrPayload(id), {
+    const reference = await readMariaBookingReference(id);
+    const png = await QRCode.toBuffer(mariaSwishQrPayload(id, reference), {
       type: "png", width: 380, margin: 3, errorCorrectionLevel: "M",
     });
     return new NextResponse(new Uint8Array(png), {
