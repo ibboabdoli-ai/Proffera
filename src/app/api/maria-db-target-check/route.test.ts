@@ -70,6 +70,25 @@ describe("isolated Maria Production database proof route", () => {
     expect(mock.put).not.toHaveBeenCalled();
   });
 
+  it("rejects normalized impossible dates and accepts both UTC timestamp formats", async () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date("2027-03-02T12:00:00Z"));
+      for (const expiry of ["2027-02-30T12:01:00Z", "2027-02-30T12:01:00.000Z"]) {
+        vi.stubEnv("PROFFERA_MARIA_DB_PROOF_EXPIRES_AT", expiry);
+        expect((await GET(request())).status).toBe(404);
+      }
+      expect(mock.put).not.toHaveBeenCalled();
+      for (const expiry of ["2027-03-02T12:01:00Z", "2027-03-02T12:01:00.000Z"]) {
+        mock.markers.clear();
+        vi.stubEnv("PROFFERA_MARIA_DB_PROOF_EXPIRES_AT", expiry);
+        expect((await GET(request())).status).toBe(200);
+      }
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("requires exact host, owner session, selected workspace and token", async () => {
     expect((await GET(request("wrong"))).status).toBe(404);
     expect((await GET(request(token, "https://makeupbymaria.se/api/maria-db-target-check"))).status).toBe(404);
@@ -151,6 +170,26 @@ describe("isolated Maria Production database proof route", () => {
     expect(mock.connect).not.toHaveBeenCalled();
   });
 
+  it("denies a stalled Blob claim before the request budget and ignores a late success", async () => {
+    vi.useFakeTimers();
+    try {
+      let finishClaim: (() => void) | undefined;
+      mock.put.mockImplementationOnce(() => new Promise((resolve) => {
+        finishClaim = () => resolve({ pathname: "late marker" });
+      }));
+      const response = GET(request());
+      await vi.advanceTimersByTimeAsync(5_000);
+      expect((await response).status).toBe(404);
+      expect(mock.put.mock.calls[0][2].abortSignal.aborted).toBe(true);
+      finishClaim?.();
+      await Promise.resolve();
+      expect(mock.access).not.toHaveBeenCalled();
+      expect(mock.connect).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("uses one SELECT in a READ ONLY transaction and returns only a boolean", async () => {
     const response = await GET(request());
     expect(response.status).toBe(200);
@@ -160,7 +199,8 @@ describe("isolated Maria Production database proof route", () => {
     expect(mock.put).toHaveBeenCalledWith(
       expect.stringMatching(/^internal\/maria-db-proof\/v1\/[0-9a-f]{64}\.txt$/),
       "consumed",
-      { access: "public", addRandomSuffix: false, allowOverwrite: false, contentType: "text/plain" },
+      { access: "public", addRandomSuffix: false, allowOverwrite: false, contentType: "text/plain",
+        token: "synthetic-blob-token", abortSignal: expect.any(AbortSignal) },
     );
     expect(JSON.stringify(mock.put.mock.calls)).not.toContain(token);
     expect(mock.query.mock.calls.map(([sql]) => sql.trim())).toEqual([

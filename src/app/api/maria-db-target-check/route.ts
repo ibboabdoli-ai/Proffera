@@ -31,11 +31,15 @@ const responseHeaders = {
   "Referrer-Policy": "no-referrer",
 };
 const maxProofWindowMs = 10 * 60 * 1000;
+const blobClaimDeadlineMs = 5_000;
 
 function proofWindowOpen(expiresAt: string | undefined, now = Date.now()) {
   if (!expiresAt || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?Z$/.test(expiresAt)) return false;
   const expiry = Date.parse(expiresAt);
-  return Number.isFinite(expiry) && expiry > now && expiry - now <= maxProofWindowMs;
+  if (!Number.isFinite(expiry)) return false;
+  const canonical = expiresAt.includes(".") ? expiresAt : `${expiresAt.slice(0, -1)}.000Z`;
+  return new Date(expiry).toISOString() === canonical
+    && expiry > now && expiry - now <= maxProofWindowMs;
 }
 
 function denied() {
@@ -69,17 +73,30 @@ export async function GET(request: Request) {
   // This store already serves public assets, so the marker has fixed harmless
   // content and its URL is never returned. A stolen token can burn the attempt
   // without an Owner session, but cannot run the proof. Do not reuse the token.
-  if (!process.env.BLOB_READ_WRITE_TOKEN) return denied();
+  const blobToken = process.env.BLOB_READ_WRITE_TOKEN;
+  if (!blobToken) return denied();
   const tokenHash = createHash("sha256")
     .update(process.env.PROFFERA_MARIA_DB_PROOF_TOKEN!, "utf8").digest("hex");
+  const abortController = new AbortController();
+  let deadlineTimer: ReturnType<typeof setTimeout> | undefined;
   try {
-    await put(`internal/maria-db-proof/v1/${tokenHash}.txt`, "consumed", {
-      access: "public", addRandomSuffix: false, allowOverwrite: false,
-      contentType: "text/plain",
-    });
+    await Promise.race([
+      put(`internal/maria-db-proof/v1/${tokenHash}.txt`, "consumed", {
+        access: "public", addRandomSuffix: false, allowOverwrite: false,
+        contentType: "text/plain", token: blobToken, abortSignal: abortController.signal,
+      }),
+      new Promise<never>((_, reject) => {
+        deadlineTimer = setTimeout(() => {
+          abortController.abort();
+          reject(new Error("Blob claim deadline"));
+        }, blobClaimDeadlineMs);
+      }),
+    ]);
   } catch {
     // A duplicate and an uncertain store outcome both fail closed.
     return denied();
+  } finally {
+    if (deadlineTimer) clearTimeout(deadlineTimer);
   }
 
   // Validate the destination BEFORE calling any DB-backed auth/session helper.
