@@ -26,6 +26,21 @@ function statusLabel(status: SalonBooking["status"]) {
   return "Väntar på godkännande";
 }
 
+export function safePhoneHref(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const phone = value.replace(/[ ()-]/g, "");
+  return /^\+?[0-9]{6,20}$/.test(phone) ? `tel:${phone}` : undefined;
+}
+
+export function safeEmailHref(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const email = value.trim();
+  if (email.length > 180 || !/^[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}$/i.test(email)) return undefined;
+  const [local, domain] = email.split("@");
+  // Percent-encode the local part to prevent URI percent-escape injection.
+  return `mailto:${encodeURIComponent(local)}@${domain}`;
+}
+
 export function SalonDashboardDemo() {
   const [bookings, setBookings] = useState<SalonBooking[]>([]);
 
@@ -137,8 +152,8 @@ export function SalonDashboardDemo() {
                 <div className="mt-4 flex flex-wrap gap-2">
                   <button className="rounded-full bg-[#17452f] px-4 py-2 text-xs font-bold text-white disabled:bg-[#9aa89f]" disabled={!booking.stored} onClick={() => updateBookingStatus(booking.id, "confirmed")} type="button">Godkänn</button>
                   <button className="rounded-full border border-[#dfe5dd] bg-white px-4 py-2 text-xs font-bold text-[#344139] disabled:text-[#9aa89f]" disabled={!booking.stored} onClick={() => updateBookingStatus(booking.id, "cancelled")} type="button">Avboka</button>
-                  <a className="rounded-full border border-[#dfe5dd] bg-white px-4 py-2 text-xs font-bold text-[#344139]" href={`tel:${booking.phone}`}>Ring kund</a>
-                  <a className="rounded-full border border-[#dfe5dd] bg-white px-4 py-2 text-xs font-bold text-[#344139]" href={`mailto:${booking.email}`}>Mejla</a>
+                  {safePhoneHref(booking.phone) ? <a className="rounded-full border border-[#dfe5dd] bg-white px-4 py-2 text-xs font-bold text-[#344139]" href={safePhoneHref(booking.phone)}>Ring kund</a> : null}
+                  {safeEmailHref(booking.email) ? <a className="rounded-full border border-[#dfe5dd] bg-white px-4 py-2 text-xs font-bold text-[#344139]" href={safeEmailHref(booking.email)}>Mejla</a> : null}
                 </div>
               </article>
             ))}
