@@ -10,7 +10,7 @@ import {createRequire} from "node:module";
 // @ts-expect-error Trusted control-plane .mjs helper.
 import {readPending,readOwnerHandoffLedger,admission,verifyArtifactMetadata,verifyHandoffManifest,resolveDecision,mayResolveExpiredArtifact,verifyHandoffBranch,gate,commitLookupKnown,authenticatedGitFetch,verifyRecordBranch,admittedRecordIdentity,record} from "../scripts/supervisor-owner-push-pending.mjs";
 // @ts-expect-error Trusted control-plane .mjs helper.
-import {decideReviewRepairStrategyHistory} from "../scripts/supervisor-review-repair-strategy-memory.mjs";
+import {decideReviewRepairStrategyHistory,reviewRepairStartBody,reviewRepairRecoveryBody} from "../scripts/supervisor-review-repair-strategy-memory.mjs";
 // @ts-expect-error Trusted control-plane .mjs helper.
 import {decideCiAutofixStrategyHistory,classifyCiAutofixOutcome} from "../scripts/supervisor-ci-autofix-strategy-memory.mjs";
 const root=process.cwd(),repo="ibboabdoli-ai/Proffera",pr=941;
@@ -792,7 +792,10 @@ describe("production gate with a retained artifact and an advanced branch",()=>{
 describe("executed Stage -> owner retirement -> one-shot re-entry gate",()=>{
  it.each(["success","late_pending","late_publish","unknown_commit","claim_write_error",
   "safe_reissue","strategy_rejected","old_model_ran","old_run_active","old_start_late",
-  "old_pending_late","old_api_uncertain","new_head_changed","cross_lane_reissue","consumed_prior_pending"] as const)(
+  "old_pending_late","old_api_uncertain","new_head_changed","cross_lane_reissue","consumed_prior_pending",
+  "old_review_recovered","old_review_recovered_job_absent","old_review_recovery_missing",
+  "old_review_recovery_wrong_attempt","old_review_recovery_fake",
+  "old_review_recovery_malformed","old_review_start_wrong_head","old_review_model_ran"] as const)(
   "holds the exact historical attempt and fails closed on %s",async scenario=>{
    const actual=await vi.importActual<typeof import("node:child_process")>("node:child_process");
    const f=fixture(),stage=bot(make("staged","review_repair:81:1",f.value),1300);
@@ -811,6 +814,7 @@ describe("executed Stage -> owner retirement -> one-shot re-entry gate",()=>{
    const run={id:81,run_attempt:1,path:".github/workflows/supervisor-review-repair.yml",
     name:"Supervisor review repair",event:"workflow_dispatch",head_branch:"main",workflow_id:201,
     status:"completed",conclusion:"failure"};
+   const reviewCase=scenario.startsWith("old_review_");
    const good=(stdout:string)=>({status:0,stdout,stderr:"",error:undefined});
    const bad=(stderr:string)=>({status:1,stdout:"",stderr,error:undefined});
    let fetchHead="",posts=0,commitKnown=false,failLookup=false,oldRunStatus="in_progress";
@@ -831,7 +835,12 @@ describe("executed Stage -> owner retirement -> one-shot re-entry gate",()=>{
           steps:[completed("Stage CI Autofix commit for owner push"),
            completed("Upload CI Autofix owner handoff")]}
         ]}]));
-        return good(JSON.stringify([{jobs:[{
+        return good(JSON.stringify([{jobs:reviewCase?[
+         {name:"Settle review burst and admit one bounded attempt",status:"completed",conclusion:"success"},
+         ...(scenario==="old_review_recovered_job_absent"?[]:[{name:"Batch current-head review findings",status:"completed",
+          conclusion:scenario==="old_review_model_ran"?"success":"skipped",steps:[]},
+         ]),
+        ]:[{
          name:"Bounded Codex CI autofix",status:"completed",
          conclusion:scenario==="old_model_ran"?"success":"skipped",steps:[]
         }]}]));
@@ -854,7 +863,11 @@ describe("executed Stage -> owner retirement -> one-shot re-entry gate",()=>{
       return good(JSON.stringify({
        ...run,id:202,run_attempt:1,status:oldRunStatus,
        conclusion:oldRunStatus==="completed"?(scenario==="strategy_rejected"?"success":"failure"):null,
-       path:".github/workflows/proffera-ci-autofix.yml",name:"Proffera CI autofix",event:"workflow_run"}));
+       head_sha:f.value.base_sha,
+       path:reviewCase?".github/workflows/supervisor-review-repair.yml":
+        ".github/workflows/proffera-ci-autofix.yml",
+       name:reviewCase?"Supervisor review repair":"Proffera CI autofix",
+       event:reviewCase?"workflow_dispatch":"workflow_run"}));
      }
      if(url==="repos/"+repo+"/pulls/"+pr)return good(JSON.stringify({
       state:"open",merged:false,user:{login:"ibboabdoli-ai"},base:{ref:"main",sha:f.value.base_sha},
@@ -882,7 +895,7 @@ describe("executed Stage -> owner retirement -> one-shot re-entry gate",()=>{
     throw Error("unexpected command "+bin+" "+args.join(" "));
    }) as typeof spawnSync);
    const ctx={PR_NUMBER:String(pr)};
-   const attempt={...ctx,OWNER_GATE_PHASE:"admit",LANE:"ci_autofix",GITHUB_RUN_ID:"202",
+   const attempt={...ctx,OWNER_GATE_PHASE:"admit",LANE:reviewCase?"review_repair":"ci_autofix",GITHUB_RUN_ID:"202",
     GITHUB_RUN_ATTEMPT:"1",EXPECTED_HEAD:f.value.parent_sha};
    try{
     const first=gate(ctx);
@@ -890,14 +903,17 @@ describe("executed Stage -> owner retirement -> one-shot re-entry gate",()=>{
     expect(posts).toBe(1); // independent durable Retirement, not Admission
     expect(readOwnerHandoffLedger(comments,pr).retirements).toHaveLength(1);
     const digest=readOwnerHandoffLedger(comments,pr).retirements[0].retirement_digest;
-    const reentry=owner("<!-- proffera-owner-push-reentry:v1:"+digest+":ci_autofix:202:1:"+
+    const reentry=owner("<!-- proffera-owner-push-reentry:v1:"+digest+":"+attempt.LANE+":202:1:"+
       f.value.parent_sha+" -->",1500);
     comments.push(reentry);
     if(scenario==="late_pending")comments.push(f.comment);
     if(scenario==="late_publish")commitKnown=true;
     if(scenario==="unknown_commit")failLookup=true;
     if(["safe_reissue","strategy_rejected","old_model_ran","consumed_prior_pending","old_run_active","old_start_late",
-      "old_pending_late","old_api_uncertain","new_head_changed","cross_lane_reissue"].includes(scenario)){
+      "old_pending_late","old_api_uncertain","new_head_changed","cross_lane_reissue",
+      "old_review_recovered","old_review_recovered_job_absent","old_review_recovery_missing",
+      "old_review_recovery_wrong_attempt","old_review_recovery_fake",
+      "old_review_recovery_malformed","old_review_start_wrong_head","old_review_model_ran"].includes(scenario)){
      expect(gate(attempt).allow).toBe(true); // first claim, no Start
      expect(posts).toBe(2);
      if(scenario!=="old_run_active")oldRunStatus="completed";
@@ -905,17 +921,34 @@ describe("executed Stage -> owner retirement -> one-shot re-entry gate",()=>{
       "<!-- proffera-ci-autofix-start:v1:941:202:1 -->",1705));
      if(scenario==="old_pending_late")comments.push(
       bot(make("pending","ci_autofix:202:1",fixture(202,"ci_autofix").value),1706));
+     if(reviewCase){
+      const startBody=reviewRepairStartBody({repository:repo,pr_number:pr,
+       head:scenario==="old_review_start_wrong_head"?"9".repeat(40):f.value.parent_sha,
+       finding_ids:["review:9"],run_id:202,run_attempt:1});
+      const start=JSON.parse(startBody.split("\n")[2]);
+      comments.push(bot(startBody,1707));
+      if(scenario!=="old_review_recovery_missing"){
+       const recoveryStart=scenario==="old_review_recovery_wrong_attempt"?
+        {...start,run_id:204}:scenario==="old_review_recovery_fake"?
+        {...start,head:"9".repeat(40)}:start;
+       const recoveryBody=reviewRepairRecoveryBody({repository:repo,pr_number:pr,
+        start:recoveryStart,recovered_by_run_id:205,recovered_by_run_attempt:1});
+       comments.push(bot(scenario==="old_review_recovery_malformed"?
+        recoveryBody.replace("model_not_launched","unverified"):recoveryBody,1708));
+      }
+     }
      if(scenario==="consumed_prior_pending"){
       const prior=fixture(202,"ci_autofix"),proof=resolution(prior,"push_confirmed");
       comments.push(prior.comment,proof.command,proof.result);
      }
      if(scenario==="new_head_changed")currentHead="9".repeat(40);
-     const nextLane=scenario==="cross_lane_reissue"?"review_repair":"ci_autofix";
+     const nextLane=scenario==="cross_lane_reissue"?"review_repair":attempt.LANE;
      if(scenario!=="cross_lane_reissue")comments.push(owner(
       "<!-- proffera-owner-push-reentry:v1:"+digest+":"+nextLane+":203:1:"+
        f.value.parent_sha+" -->",1501));
      const next={...attempt,LANE:nextLane,GITHUB_RUN_ID:"203"};
-     if(scenario==="safe_reissue"||scenario==="strategy_rejected"||scenario==="consumed_prior_pending"){
+     if(scenario==="safe_reissue"||scenario==="strategy_rejected"||scenario==="consumed_prior_pending"
+      ||scenario==="old_review_recovered"||scenario==="old_review_recovered_job_absent"){
       // A normal strategy-level suppression ends the admitted workflow with a
       // skipped model job, but cannot consume the owner's NEXT authorization.
       expect(gate(next).allow).toBe(true);
@@ -929,7 +962,14 @@ describe("executed Stage -> owner retirement -> one-shot re-entry gate",()=>{
       expect(gate(next).allow).toBe(false);
       expect(posts).toBe(2);
      }else{
-      expect(()=>gate(next)).toThrow();
+      const reason=scenario==="old_review_recovery_missing"||
+       scenario==="old_review_recovery_wrong_attempt"||scenario==="old_review_recovery_fake"?
+       "abandoned_recovery_binding":scenario==="old_review_recovery_malformed"?
+       "recovery_payload":scenario==="old_review_start_wrong_head"?
+       "abandoned_start_binding":scenario==="old_review_model_ran"?
+       "abandoned_recovery_unproven":undefined;
+      if(reason)expect(()=>gate(next)).toThrow(reason);
+      else expect(()=>gate(next)).toThrow();
       expect(posts).toBe(2);
      }
     }else if(scenario==="success"){

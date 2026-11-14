@@ -5,6 +5,8 @@ import {join} from "node:path";
 import {spawnSync} from "node:child_process";
 import {pathToFileURL} from "node:url";
 import {readTrustedMemory} from "./supervisor-failure-memory.mjs";
+import {parseReviewRepairStarts,parseReviewRepairRecoveries,proveReviewRepairPrelaunchRecovery}
+ from "./supervisor-review-repair-strategy-memory.mjs";
 const REPO="ibboabdoli-ai/Proffera", OWNER="ibboabdoli-ai", ISSUE=548;
 const ISSUE_URL="https://api.github.com/repos/ibboabdoli-ai/Proffera/issues/548";
 const LANES={
@@ -608,28 +610,43 @@ function retireStaged(stage,comments){
  check(confirmed.retirements.some(r=>r.stage_digest===stage.stage_digest),"retirement_readback");
 }
 // A previous claim may be superseded ONLY if its trusted workflow attempt is
-// terminal, its model job was conclusively skipped, and no Start exists.
+// terminal and its model job was conclusively skipped. A Review Repair Start
+// additionally requires a bound Recovery and fresh historical prelaunch proof.
 // The existing shared PR mutex surrounds this call and the subsequent write.
 function proveAbandonedClaim(claim,comments,pr){
  const lane=LANES[claim.lane];check(lane,"abandoned_lane");
+ const startMarker="<!-- proffera-"+(claim.lane==="review_repair"?"review-repair":"ci-autofix")+
+  "-start:v1:"+pr+":"+claim.run_id+":"+claim.run_attempt+" -->";
+ const hasStart=comments.some(c=>typeof c.body==="string"&&c.body.startsWith(startMarker));
  const r=api("repos/"+REPO+"/actions/runs/"+claim.run_id+"/attempts/"+claim.run_attempt);
  check(r.id===claim.run_id&&r.run_attempt===claim.run_attempt
   &&r.path===lane.path&&r.name===lane.name&&r.event===lane.event
   &&r.head_branch==="main"&&r.status==="completed"
-  &&["success","failure","cancelled"].includes(r.conclusion)
   &&pos(r.workflow_id),"abandoned_run_provenance");
  const jobs=paged("repos/"+REPO+"/actions/runs/"+claim.run_id+
   "/attempts/"+claim.run_attempt+"/jobs?per_page=100","jobs");
  check(jobs.length>0&&jobs.length<=1000,"abandoned_jobs");
- const models=jobs.filter(j=>j.name===lane.model);
- check(models.length===1&&models[0].status==="completed"
-  &&models[0].conclusion==="skipped"
-  &&(!models[0].steps||models[0].steps.every(x=>x.status==="completed"
-   &&x.conclusion==="skipped")),"abandoned_model_not_skipped");
- const startMarker="<!-- proffera-"+(claim.lane==="review_repair"?"review-repair":"ci-autofix")+
-  "-start:v1:"+pr+":"+claim.run_id+":"+claim.run_attempt+" -->";
- check(!comments.some(c=>typeof c.body==="string"&&c.body.startsWith(startMarker)),
-  "abandoned_start_exists");
+ if(hasStart&&claim.lane==="review_repair"){
+  const scope={repository:REPO,pr_number:pr};
+  const start=parseReviewRepairStarts(comments,scope).find(s=>
+   s.run_id===claim.run_id&&s.run_attempt===claim.run_attempt);
+  check(start&&start.head===claim.head,"abandoned_start_binding");
+  const recovery=parseReviewRepairRecoveries(comments,scope).find(x=>
+   x.run_id===claim.run_id&&x.run_attempt===claim.run_attempt);
+  check(recovery&&["pr_number","run_id","run_attempt","head","finding_digest",
+   "evidence_fingerprint","strategy_fingerprint"].every(k=>recovery[k]===start[k]),
+   "abandoned_recovery_binding");
+  check(proveReviewRepairPrelaunchRecovery({repository:REPO,pr_number:pr,
+   start,run:r,jobs}).recoverable,"abandoned_recovery_unproven");
+ }else{
+  check(["success","failure","cancelled"].includes(r.conclusion),"abandoned_run_provenance");
+  const models=jobs.filter(j=>j.name===lane.model);
+  check(models.length===1&&models[0].status==="completed"
+   &&models[0].conclusion==="skipped"
+   &&(!models[0].steps||models[0].steps.every(x=>x.status==="completed"
+    &&x.conclusion==="skipped")),"abandoned_model_not_skipped");
+  check(!hasStart,"abandoned_start_exists");
+ }
  const ledger=readOwnerHandoffLedger(comments,pr);
  check(!ledger.staged.some(s=>s.lane===claim.lane&&s.run_id===claim.run_id
   &&s.run_attempt===claim.run_attempt)
