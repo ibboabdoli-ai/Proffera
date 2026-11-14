@@ -2,7 +2,8 @@ import type { WorkspaceTimeZone } from "@/lib/workspace-market";
 import { bookingDateLocale } from "@/lib/booking-date-locale";
 import { resolveBrevoApiKey } from "@/lib/email-runtime-config";
 import { mariaEmailLogoHtml } from "@/lib/maria-email-logo";
-import { getMariaBookingPortalBase, isMariaBookingRecipientAllowed } from "@/lib/maria-preview-customer-safety";
+import { getMariaBookingPortalBase, getMariaExistingBookingPortalBase, isMariaBookingRecipientAllowed, isMariaExistingBookingRecipientAllowed } from "@/lib/maria-preview-customer-safety";
+import { isMariaProductionExistingBookingLifecycleAuthorized } from "@/lib/maria-production-activation-policy";
 import { getMariaBookingReadiness } from "@/lib/maria-booking-runtime";
 
 type SendBookingRescheduleEmailInput = {
@@ -10,6 +11,8 @@ type SendBookingRescheduleEmailInput = {
   customerEmail: string;
   companyName: string;
   branding?: "makeup-by-maria";
+  /** Only set by the scoped existing-booking manager journal retry. */
+  allowExistingLifecycle?: boolean;
   service: string;
   previousStartsAt: string;
   startsAt: string;
@@ -54,11 +57,21 @@ function formatBookingDate(value: string, timeZone: WorkspaceTimeZone = "Europe/
 }
 
 export async function sendBookingRescheduleEmail(input: SendBookingRescheduleEmailInput) {
+  const existingManagerLifecycle = input.branding === "makeup-by-maria"
+    && input.allowExistingLifecycle === true
+    && process.env.VERCEL_ENV === "production"
+    && isMariaProductionExistingBookingLifecycleAuthorized();
+  const mariaBase = existingManagerLifecycle
+    ? getMariaExistingBookingPortalBase() : getMariaBookingPortalBase();
   if (input.branding === "makeup-by-maria") {
-    if (!getMariaBookingPortalBase() || !isMariaBookingRecipientAllowed(input.customerEmail)) {
+    const recipientAllowed = existingManagerLifecycle
+      ? isMariaExistingBookingRecipientAllowed(input.customerEmail)
+      : isMariaBookingRecipientAllowed(input.customerEmail);
+    if (!mariaBase || !recipientAllowed) {
       return { ok: false as const, notSent: true as const, message: "Maria booking recipient is not allowed." };
     }
-    if (process.env.VERCEL_ENV === "production" && !(await getMariaBookingReadiness()).enabled) {
+    if (process.env.VERCEL_ENV === "production" && !existingManagerLifecycle
+      && !(await getMariaBookingReadiness()).enabled) {
       return { ok: false as const, notSent: true as const, message: "Maria booking is not ready." };
     }
   }
@@ -68,7 +81,7 @@ export async function sendBookingRescheduleEmail(input: SendBookingRescheduleEma
   if (!apiKey || !from) return { ok: false as const, notSent: true as const, message: "Brevo är inte konfigurerat." };
 
   const logo = input.branding === "makeup-by-maria"
-    ? mariaEmailLogoHtml(getMariaBookingPortalBase()) : "";
+    ? mariaEmailLogoHtml(mariaBase) : "";
   const language = input.branding === "makeup-by-maria" && (input.language === "en" || input.language === "ar")
     ? input.language : "sv";
   const previousStart = formatBookingDate(input.previousStartsAt, input.timeZone, language);

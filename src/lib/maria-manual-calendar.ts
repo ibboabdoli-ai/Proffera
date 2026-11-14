@@ -1,7 +1,7 @@
 import "server-only";
 
 import { getSql } from "@/lib/db/server";
-import { getMariaBookingReadiness } from "@/lib/maria-booking-runtime";
+import { isMariaProductionExistingBookingLifecycleAuthorized } from "@/lib/maria-production-activation-policy";
 import { canManageWorkspaceSettings, getUserWorkspaceAccess } from "@/lib/workspace-access";
 import {
   mariaCalendarDateAllowed, mariaCalendarDayBounds, mariaCalendarIntervals,
@@ -38,11 +38,8 @@ async function requireMariaCalendarManager() {
   const access = await getUserWorkspaceAccess();
   if (!access.ok || access.workspaceSlug !== "makeup-by-maria"
     || !canManageWorkspaceSettings(access)) throw new MariaCalendarError("access");
-  if (production) {
-    const ready = await getMariaBookingReadiness();
-    if (!ready.enabled || ready.workspaceId !== access.workspaceId) {
-      throw new MariaCalendarError("access");
-    }
+  if (production && !isMariaProductionExistingBookingLifecycleAuthorized()) {
+    throw new MariaCalendarError("access");
   }
   const sql = getSql();
   if (!sql) throw new MariaCalendarError("database");

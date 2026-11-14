@@ -145,7 +145,24 @@ export async function getMariaBookingReadiness(): Promise<MariaBookingReadiness>
         coalesce(nullif(ws.contact_email,''),'') as owner_email,
         coalesce(nullif(ws.contact_phone,''),'') as owner_phone,
         coalesce(nullif(ws.time_zone,''),'Europe/Stockholm') as time_zone,
-        ws.billing_currency
+        ws.billing_currency,
+        exists (
+          select 1
+          from workspace_billing_subscriptions billing
+          join workspace_plans plan
+            on plan.id=billing.workspace_plan_id
+           and plan.workspace_id=billing.workspace_id
+          where billing.workspace_id=w.id
+            and billing.status='active'
+            and plan.status='active'
+            and plan.plan_key in ('starter','professional','business')
+            and billing.stripe_customer_id is not null
+            and billing.stripe_subscription_id is not null
+            and billing.stripe_price_id is not null
+            and billing.current_period_start <= now()
+            and billing.current_period_end > now()
+            and plan.current_period_end > now()
+        ) as paid_subscription_active
       from workspaces w
       left join workspace_settings ws on ws.workspace_id=w.id::text
       where w.slug='makeup-by-maria' and w.status in ('active','trial')
@@ -174,6 +191,9 @@ export async function getMariaBookingReadiness(): Promise<MariaBookingReadiness>
       return { enabled: false };
     }
 
+    // Admin overrides and free trials never replace a live, paid Stripe plan
+    // for NEW Maria bookings. Existing booking lifecycle has separate guards.
+    if (row.paid_subscription_active !== true) return { enabled: false };
     const workspaceId = String(row.workspace_id);
     if (!await hasWorkspaceFeatureAccessForWorkspace(workspaceId, "online_booking")) {
       return { enabled: false };

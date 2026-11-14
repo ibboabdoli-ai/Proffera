@@ -43,6 +43,8 @@ export async function POST(request: Request) {
           : Promise.resolve(null),
         notification.customerPhone
           ? sendBookingCustomerSms({
+              workspaceId: result.workspaceId,
+              deliveryKey: "booking:" + bookingId + ":calendar:" + notification.startsAt,
               customerPhone: notification.customerPhone,
               companyName: result.workspaceName,
               status: "rescheduled",

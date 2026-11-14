@@ -78,11 +78,14 @@ export async function getDashboardBookingDetailInStockholm(bookingId: string): P
         c.notes as customer_notes,
         c.created_at as customer_created_at
       from bookings b
+      left join booking_soft_deletions archived on archived.booking_id=b.id
+        and archived.workspace_id::text=b.workspace_id and archived.restored_at is null
       left join customers c
         on c.id = b.customer_id
        and c.workspace_id = b.workspace_id
       where b.workspace_id = ${access.workspaceId}
         and b.id = ${bookingId}
+        and archived.booking_id is null
       limit 1
       `,
       sql`

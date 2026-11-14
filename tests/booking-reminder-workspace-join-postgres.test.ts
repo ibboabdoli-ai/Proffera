@@ -53,6 +53,9 @@ const migrationFiles = [
   "20260614_phase18_15_workspace_settings.sql",
   "20260729_0018_booking_reminders.sql",
   "20260801_0020_workspace_market_settings.sql",
+  // Use the exact canonical ledger and archive migration, never a substitute table.
+  "20260823_0066_production_schema_ledger.sql",
+  "20261111_0078_maria_booking_soft_delete.sql",
 ] as const;
 
 function docker(args: string[]) {

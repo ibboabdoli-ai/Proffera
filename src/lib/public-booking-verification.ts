@@ -261,7 +261,7 @@ export async function beginBookingEmailVerification(input: BeginBookingVerificat
   const [emailSent, smsSent] = await Promise.all([
     sendBookingVerificationEmail({ customerName: input.customerName, customerEmail: input.customerEmail, companyName: input.companyName, code, expiresMinutes: EXPIRY_MINUTES, language: effectiveInitialLanguage, branding: input.slug === "makeup-by-maria" ? "makeup-by-maria" : undefined }),
     input.verificationSms && input.customerPhone
-      ? sendBookingVerificationSms({ customerPhone: input.customerPhone, companyName: input.companyName, code, expiresMinutes: EXPIRY_MINUTES, language: input.language === "ar" ? "en" : input.language })
+      ? sendBookingVerificationSms({ workspaceId: input.workspaceId, deliveryKey: "verify:" + id + ":initial", customerPhone: input.customerPhone, companyName: input.companyName, code, expiresMinutes: EXPIRY_MINUTES, language: input.language === "ar" ? "en" : input.language })
       : Promise.resolve({ ok: false as const, skipped: true as const, message: "SMS verification not requested." }),
   ]);
   if (!emailSent.ok && !smsSent.ok) {
@@ -355,7 +355,7 @@ export async function resendPublicBookingCode(id: string, language: "sv" | "en" 
   const [emailSent, smsSent] = await Promise.all([
     sendBookingVerificationEmail({ customerName, customerEmail, companyName, code, expiresMinutes: EXPIRY_MINUTES, language: genericLanguage }),
     useSms
-      ? sendBookingVerificationSms({ customerPhone, companyName, code, expiresMinutes: EXPIRY_MINUTES, language: language === "ar" ? "en" : language })
+      ? sendBookingVerificationSms({ workspaceId: String(challenge.workspace_id), deliveryKey: "verify:" + canonicalId + ":" + hashCode(canonicalId, code).slice(0, 16), customerPhone, companyName, code, expiresMinutes: EXPIRY_MINUTES, language: language === "ar" ? "en" : language })
       : Promise.resolve({ ok: false as const, skipped: true as const, message: "SMS verification not requested." }),
   ]);
   if (!emailSent.ok && !smsSent.ok) return { ok: false as const, error: "email" };
@@ -615,7 +615,7 @@ export async function verifyPublicBookingCode(id: string, code: string, language
   await Promise.allSettled([
     sendUnifiedBookingConfirmationEmail({ customerName: String(challenge.customer_name), customerEmail: String(challenge.customer_email), companyName: String(challenge.company_name), service: String(challenge.service_name), startsAt, endsAt, city: String(challenge.city ?? ""), address, postcode, timeZone, portalUrl, rescheduleUrl, language: confirmationLanguage, branding: isMaria ? "makeup-by-maria" : undefined }),
     ownerEmailAllowed ? sendBookingOwnerNotificationEmail({ ownerEmail: String(challenge.owner_email), companyName: String(challenge.company_name), customerName: String(challenge.customer_name), customerEmail: String(challenge.customer_email), customerPhone: String(challenge.customer_phone ?? ""), service: String(challenge.service_name), startsAt, endsAt, city: String(challenge.city ?? ""), address, postcode, timeZone, language: String(challenge.public_booking_slug) === "primeview" ? "en" : undefined }) : Promise.resolve(),
-    !isMaria && challenge.owner_phone ? sendBookingOwnerSms({ ownerPhone: String(challenge.owner_phone), companyName: String(challenge.company_name), customerName: String(challenge.customer_name), customerPhone: String(challenge.customer_phone ?? ""), service: String(challenge.service_name), startsAt, timeZone }) : Promise.resolve(),
+    !isMaria && challenge.owner_phone ? sendBookingOwnerSms({ workspaceId: String(challenge.workspace_id), deliveryKey: "booking:" + bookingId + ":owner", ownerPhone: String(challenge.owner_phone), companyName: String(challenge.company_name), customerName: String(challenge.customer_name), customerPhone: String(challenge.customer_phone ?? ""), service: String(challenge.service_name), startsAt, timeZone }) : Promise.resolve(),
   ]);
 
   // The verified customer sees the authenticated booking immediately even

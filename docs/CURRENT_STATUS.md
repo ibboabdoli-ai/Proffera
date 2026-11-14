@@ -13,11 +13,11 @@ This is the canonical factual status document for Proffera. For worker rules, li
 
 Do not pin the current `main` SHA or current Vercel deployment ID in this file: those values change on every merge and would make the canonical status stale immediately. GitHub issue #548 is the live control board for the current baseline. A source merge is not proof of a live release; Production claims require the matching Vercel Production deployment and affected runtime behavior to be verified.
 
-## Maria database target proof — proposed only (issue #992)
+## Maria database target proof — historical preparation and closure (issue #992)
 
-The isolated `/api/maria-db-target-check` diagnostic remains disabled in Production. A separate Draft PR proposes a maximum ten-minute UTC expiry and a shared one-use claim in the project's existing Vercel Blob store. The claim is a harmless public marker at a pathname derived from a SHA-256 hash of the high-entropy proof token; its URL, token and database URL are not returned or intentionally logged. Blob's create-only write must succeed before destination, session and proof checks; duplicates and uncertain store failures fail closed across server instances. A valid token presented without an Owner session can consume the one attempt, but cannot run the proof. Maria Owner session, selected Workspace, exact host, Production, token, database URL and project checks still apply. Destination mismatch returns 404 without opening a database connection. The diagnostic's PostgreSQL transaction remains read-only; the marker is a separate Blob write, not customer data.
+The isolated `/api/maria-db-target-check` diagnostic is disabled by default. Merged PR #993 introduced a maximum ten-minute UTC expiry and a shared one-use claim in the project's existing Vercel Blob store. The claim is a harmless public marker at a pathname derived from a SHA-256 hash of the high-entropy proof token; its URL, token and database URL are not returned or intentionally logged. Blob's create-only write must succeed before destination, session and proof checks; duplicates and uncertain store failures fail closed across server instances. A valid token presented without an Owner session can consume the one attempt, but cannot run the proof. Maria Owner session, selected Workspace, exact host, Production, token, database URL and project checks still apply. Destination mismatch returns 404 without opening a database connection. The diagnostic's PostgreSQL transaction remains read-only; the marker is a separate Blob write, not customer data.
 
-This code has no effect until a separately authorized release configures `PROFFERA_MARIA_DB_PROOF_EXPIRES_AT` to an explicit UTC instant and enables the existing flag for that deployment. Missing, expired or more than ten minutes away means 404. A deployment that takes too long may miss the window and must remain closed. Keep the Blob store binding identical across all reachable Production deployments during the window; never delete the marker or reuse that token. Before release, validate the real Blob provider's concurrent create-only behavior in an isolated store. A separate release decision must approve the Blob marker write, environment change, redeploy, one Owner request, immediate flag reset and second redeploy. A Draft PR and local tests do not prove the actual Production endpoint or authorize any of those actions. Issue #992 remains open pending endpoint evidence and the other closure criteria.
+This code has no effect until a separately authorized release configures `PROFFERA_MARIA_DB_PROOF_EXPIRES_AT` to an explicit UTC instant and enables the existing flag for that deployment. Missing, expired or more than ten minutes away means 404. A deployment that takes too long may miss the window and must remain closed. Keep the Blob store binding identical across all reachable Production deployments during the window; never delete the marker or reuse that token. Before release, validate the real Blob provider's concurrent create-only behavior in an isolated store. A separate release decision must approve the Blob marker write, environment change, redeploy, one Owner request, immediate flag reset and second redeploy. Local tests alone did not prove the actual Production endpoint or authorize those actions. The separately approved Owner-controlled Production proof completed later; issue #992 was closed on 2026-11-13. Do not re-enable the diagnostic without fresh approval.
 
 ## Current product state
 
@@ -190,6 +190,59 @@ Dedicated Company Directory full revalidation is currently requested twice per h
 SCB location semantics distinguish the company-level registered seat from the physical workplace. SCB enrichment may retain the company-level municipality as source data, but a Directory profile/public geographic municipality is projected only from the same unambiguous workplace visiting address selected by the public-address resolver. Existing non-SCB/manual values are preserved, while values created by the earlier company-level SCB municipality projection are repairable only when field provenance still owns the current value. Public Directory Search likewise prefers a complete, conflict-free single workplace visiting address for unclaimed profiles so street/postcode/city/municipality stay coherent; claimed Workspace-owned profiles are not overwritten by that projection. The `0058` migration is designed to add the relational `frisor` mapping for primary SNI 96.210 and backfill SNI-owned profile/service relations; that migration behavior was validated only on an isolated Neon branch, and Production execution is not claimed here. Neither repair changes publication status. Geographic coordinates remain a separate controlled Lantmäteriet geocoding path; absence of a verified coordinate is not treated as an SCB-sync failure and broad Production geocoding must not be run without its separate restricted-action approval.
 
 A Production runtime warning observed on 2026-08-18 concerns PostgreSQL connection-string SSL semantics. It is a forward-compatibility/security warning rather than an observed request failure and should be handled deliberately before the relevant `pg`/`pg-connection-string` major upgrade.
+
+## Makeup by Maria — Stripe-bound new booking entitlement (implementation scope)
+
+For Maria Production new-booking intake, the readiness gate must require both an enabled canonical
+`online_booking` feature and a current, active, Stripe-linked paid Starter/Professional/Business plan.
+An Admin override, trialing plan, absent Stripe identifiers or expired billing period cannot by itself
+open new bookings. Stripe subscription synchronization updates Maria's canonical booking feature
+with its verified status, including revocation on cancellation, without changing feature flags for
+other tenants. An authorized Maria manager can still view existing bookings and handle manual
+Swish deposit notes through the independently guarded lifecycle and Swish permissions when new
+booking intake is paused. Neither those notes nor a Subscription webhook proves a real Swish
+payment; recipient, workspace and existing-booking checks remain enforced. These rules are
+review and CI gated before Production activation.
+
+Issue #988 Draft PR #989 additionally prepares a **not-yet-deployed** SMS quota migration
+(\`20261111_0077_workspace_starter_sms_quota.sql\`) and guarded dispatch: a verified paid
+Stripe Starter subscription with the applied \`STARTER150\` promotion receives 50 units per
+billing period; a paid full-price Starter with no subscription discount receives 100.
+An unknown or unpaid discount source grants no Starter SMS quota. A transactionally
+serialized PostgreSQL reservation controls concurrent sends, duplicate delivery keys,
+GSM-7/Unicode segment accounting and ambiguous provider outcomes; quota exhaustion
+blocks SMS only, not booking or email. A Swedish/English dashboard consumption view is
+prepared. Existing SMS reminder switches remain disabled in Maria Production. None of
+these SMS changes are active on Production unless the separately approved migration
+and exact-head deployment are completed.
+
+Issue #988 Draft PR #989 now includes **unmerged, not-yet-deployed** self-service
+discount removal from an existing paid Starter subscription: Maria's Owner must
+explicitly accept 299 SEK/month from the next billing renewal, with the exact
+effective date and current 150 SEK/month displayed before approval. A same-ID
+Stripe update uses no proration or new invoice and the prior paid 50-unit SMS
+allowance persists until a newly paid full-price renewal unlocks 100 units.
+Stripe TEST used a synthetic discounted Starter and confirmed that an empty
+string (not an empty array) removes the coupon, while retaining the same
+subscription and paid invoice. TEST promo/coupon IDs must be configured
+separately from LIVE; TEST has no privileged access to the LIVE promotion.
+
+The same Draft introduces Maria Owner-only, exact-booking-confirmed, **reversible**
+archiving for terminal bookings only (cancelled/completed/no-show). Migration
+`20261111_0078_maria_booking_soft_delete.sql` must be approved and applied
+**before** a corresponding application deployment. An append-only action history
+preserves who archived/restored records; no booking, customer, prior payment or
+Swish evidence is hard-deleted or refunded. Normal dashboard, customer detail,
+calendar and reminder paths exclude archived bookings, and status mutation is
+blocked while archived. The archive has a separate Owner-only restore view.
+The pre-push synthetic PGlite DB assertions and focused checks passed in an
+isolated Vercel Sandbox; real PostgreSQL CI and new exact-HEAD review are
+required after the same-branch push.
+
+The cancellation deposit-refund policy is **still undecided by Maria and remains
+disabled**. No Stripe LIVE update, real email/SMS, real payment, refund, real
+booking deletion, Neon Production write, merge or Production deploy was
+performed for this Draft.
 
 ## Makeup by Maria — isolated Preview booking controls
 

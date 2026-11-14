@@ -71,7 +71,7 @@ export async function POST(request: Request) {
       return jsonError("Den nuvarande planen kan inte uppgraderas automatiskt.", 409);
     }
 
-    let subscription = await stripe.subscriptions.retrieve(subscriptionId, { expand: ["latest_invoice"] });
+    let subscription = await stripe.subscriptions.retrieve(subscriptionId, { expand: ["latest_invoice", "discounts"] });
     const subscriptionItem = subscription.items.data[0];
 
     if (subscription.metadata.workspace_id !== access.workspaceId || !subscriptionItem) {

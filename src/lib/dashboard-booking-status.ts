@@ -163,6 +163,12 @@ export async function updateDashboardBookingStatus(
       where workspace_id = ${workspaceId}
         and id = ${bookingId}
         and status <> ${status}
+        and not exists (
+          select 1 from booking_soft_deletions archived
+          where archived.booking_id=bookings.id
+            and archived.workspace_id::text=bookings.workspace_id
+            and archived.restored_at is null
+        )
         and (${!mariaPreview}::boolean or exists (
           select 1 from customers c
           where c.id=bookings.customer_id and c.workspace_id=bookings.workspace_id
