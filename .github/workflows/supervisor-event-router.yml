@@ -200,6 +200,14 @@ jobs:
                   exit "$final_gate_status"
                 fi
                 ;;
+              "reviewforge-ibbo-dev[bot]")
+                # The gate itself authenticates the exact-head review, CodeRabbit
+                # quota evidence, owner authorization and successful CI checks.
+                # This router only schedules a re-evaluation, never authorizes merge.
+                if [ "$live_draft" != "true" ] && [ "${REVIEW_STATE:-}" = "approved" ]; then
+                  dispatch_pr proffera-automerge.yml "$pr_number"
+                fi
+                ;;
               "ibboabdoli-ai")
                 if [ "$live_draft" != "true" ] && [ "${REVIEW_STATE:-}" = "approved" ]; then
                   dispatch_pr proffera-automerge.yml "$pr_number"
