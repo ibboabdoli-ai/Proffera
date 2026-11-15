@@ -6,6 +6,8 @@ import { pathToFileURL } from "node:url";
 
 import { describe, expect, it } from "vitest";
 import { codeContextExamples } from "./helpers/review-receipt-counterexamples";
+// @ts-expect-error Canonical review parser is an untyped .mjs module.
+import { cleanCodeRabbitComment } from "../scripts/supervisor-final-gate-memory.mjs";
 
 function source(path: string) {
   return readFileSync(resolve(process.cwd(), path), "utf8").replaceAll("\r\n", "\n");
@@ -1428,6 +1430,26 @@ describe("AutoMerge CodeRabbit review provenance (adversarial)", () => {
     'clean_final_comments_json="$(jq -c --arg sha "$head_sha" --arg request_time "$coderabbit_request_time" \x27\n',
     '\x27 <<< "$comments_json")"',
   );
+  it("rejects contradictory trailing findings in every clean-summary form", () => {
+    const ci = source(".github/workflows/ci.yml");
+    const ciFilter = extract(
+      'clean_final_comments_json="$(jq -c --arg sha "$HEAD_SHA" --arg request_time "$coderabbit_request_time" \x27\n',
+      '\x27 <<< "$comments_json")"', ci,
+    );
+    const persistent = `<!-- recent_review_start -->\nNo actionable comments were generated in the recent review.\n${reviewHead}\n<!-- recent_review_end -->`;
+    for (const body of [cleanBody(), clean[0].body, persistent]) {
+      const contradicted = body + "\nP1: Authorization bypass remains.";
+      expect(cleanCodeRabbitComment(contradicted, reviewHead, {allowPersistentSummary:true})).toBe(false);
+      for (const filter of [ciFilter, cleanFilter]) {
+        expect((jq(filter,[{...clean[0],body:contradicted}],{sha:reviewHead,request_time:request}) as unknown[]).length).toBe(0);
+      }
+    }
+    const wake = runWakeupFixture({
+      body:clean[0].body + "\nP1: Authorization bypass remains.",
+      comments:[requestComment()],firstReviews:[{...codeRabbitCompletedReview(),state:"COMMENTED"}],
+    });
+    expect(wake.posts).toBe(0);
+  });
   it("accepts only authenticated current-head persistent clean summaries across CI and AutoMerge", () => {
     const ci = source(".github/workflows/ci.yml");
     const ciFilter = extract(

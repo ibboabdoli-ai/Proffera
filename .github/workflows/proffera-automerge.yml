@@ -369,6 +369,10 @@ jobs:
                 | (.body // "") as $body
                 | select(($body | [match("Reviewed commit:"; "gi")] | length) == 1)
                 | ($body | capture("^(?:<!-- codex-review-receipt:v1 -->\\r?\\n\\r?\\n)?Codex Review: Didn\u0027t find any major issues\\.(?:[^<`\\r\\n]*\\r?\\n(?:[ \\t]*\\r?\\n)* {0,3}|[ \\t]+(?=Reviewed commit:[ \\t]*[0-9a-fA-F]{10}(?:\\r?\\n|$)))(?:\\*\\*Reviewed commit:\\*\\*|Reviewed commit:)[ \\t]*(?<token>`?[0-9a-fA-F]{10,40}`?)[ \\t]*(?:\\r?\\n|$)").token) as $token
+                | ($body | match("Reviewed commit:[^\\r\\n]*(?:\\r?\\n|$)")) as $receipt
+                | ($body[($receipt.offset + $receipt.length):] | gsub("^[ \\t\\r\\n]+|[ \\t\\r\\n]+$"; "")) as $tail
+                | select($tail == "" or ($tail | test("^<details>[ \\t]*<summary>ℹ️ About Codex in GitHub</summary>[\\s\\S]*</details>$")))
+                | select(($tail | test("^[ \\t]*(?:[-*>][ \\t]*)*(?:\\*\\*)?(?:P[012]|Critical|Major)\\b"; "im")) | not)
                 | select(($token | startswith("`")) == ($token | endswith("`")))
                 | ($token | gsub("`"; "") | ascii_downcase) as $reviewed
                 | select(($reviewed | length) == 10 or ($reviewed | length) == 40)
@@ -507,7 +511,7 @@ jobs:
                 | select((.created_at // "") >= $request_time)
                 | select(.updated_at == .created_at)
                 | (.body // "") as $body
-                | select((($body | test("^<!-- CodeRabbit review command invocation: v2:[0-9a-f]{64} -->[ \\t]*\\r?\\n(?:[ \\t]*\\r?\\n)* {0,3}(?:@[A-Za-z0-9-]+[ \\t]+)?Final exact-head review is complete for[ \\t]+(?:`" + $sha + "`|" + $sha + ")\\.[ \\t]*\\r?\\n(?:[ \\t]*\\r?\\n)* {0,3}I found no issues\\.[ \\t]*(?:\\r?\\n|$)")) or ($body | test("^ {0,3}(?:@[A-Za-z0-9-]+[ \\t]+)?Review completed for exact HEAD[ \\t]+(?:`" + $sha + "`|" + $sha + ")\\.[ \\t]*\\r?\\n(?:[ \\t]*\\r?\\n)* {0,3}I found no material findings\\.[ \\t]*(?:\\r?\\n|$)")) or ($body | test("^<!-- recent_review_start -->[ \\t]*\\r?\\n(?:[ \\t]*\\r?\\n)* {0,3}No actionable comments were generated(?: in the recent review)?\\.[ \\t]*\\r?\\n(?:[ \\t]*\\r?\\n)* {0,3}" + $sha + "[ \\t]*\\r?\\n(?:[ \\t]*\\r?\\n)*<!-- recent_review_end -->[ \\t]*(?:\\r?\\n|$)"))) and (($body | test("Review limit reached|Review rate[ -]?limited|rate[ -]?limit|Action not completed|Review skipped|temporarily unavailable|service unavailable|incomplete|did not complete"; "i")) | not))
+                | select((($body | test("^<!-- CodeRabbit review command invocation: v2:[0-9a-f]{64} -->[ \\t]*\\r?\\n(?:[ \\t]*\\r?\\n)* {0,3}(?:@[A-Za-z0-9-]+[ \\t]+)?Final exact-head review is complete for[ \\t]+(?:`" + $sha + "`|" + $sha + ")\\.[ \\t]*\\r?\\n(?:[ \\t]*\\r?\\n)* {0,3}I found no issues\\.[ \\t]*(?:\\r?\\n|$)")) or ($body | test("^ {0,3}(?:@[A-Za-z0-9-]+[ \\t]+)?Review completed for exact HEAD[ \\t]+(?:`" + $sha + "`|" + $sha + ")\\.[ \\t]*\\r?\\n(?:[ \\t]*\\r?\\n)* {0,3}I found no material findings\\.[ \\t]*(?:\\r?\\n|$)")) or ($body | test("^<!-- recent_review_start -->[ \\t]*\\r?\\n(?:[ \\t]*\\r?\\n)* {0,3}No actionable comments were generated(?: in the recent review)?\\.[ \\t]*\\r?\\n(?:[ \\t]*\\r?\\n)* {0,3}" + $sha + "[ \\t]*\\r?\\n(?:[ \\t]*\\r?\\n)*<!-- recent_review_end -->[ \\t]*(?:\\r?\\n|$)"))) and (($body | match("I found no issues\\.|I found no material findings\\.|<!-- recent_review_end -->")) as $ending | ($body[($ending.offset + $ending.length):] | test("^[ \\t\\r\\n]*$"))) and (($body | test("Review limit reached|Review rate[ -]?limited|rate[ -]?limit|Action not completed|Review skipped|temporarily unavailable|service unavailable|incomplete|did not complete"; "i")) | not))
               ]
             ' <<< "$comments_json")"
 

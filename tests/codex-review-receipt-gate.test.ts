@@ -14,7 +14,7 @@ const otherHead = "b".repeat(40);
 const requestTime = "2099-09-05T12:01:00Z";
 const reportedTime = "2099-09-05T12:02:00Z";
 const official = (sha = head) =>
-  `<!-- codex-review-receipt:v1 -->\n\nCodex Review: Didn't find any major issues. Another round soon, please!\n\n**Reviewed commit:** \`${sha.slice(0, 10)}\`\n\n<details>Additional review metadata</details>`;
+  `<!-- codex-review-receipt:v1 -->\n\nCodex Review: Didn't find any major issues. Another round soon, please!\n\n**Reviewed commit:** \`${sha.slice(0, 10)}\`\n\n<details> <summary>ℹ️ About Codex in GitHub</summary>Additional review metadata</details>`;
 const legacy = (sha = head) =>
   `Codex Review: Didn't find any major issues. Reviewed commit: ${sha.slice(0, 10)}`;
 
@@ -116,6 +116,18 @@ describe("exact-head Codex review receipt recognition (#961)", () => {
     expect(runWake(official() + "\n\nReviewed commit: INVALID")).toBe("");
     expect(runWake(official().replace("codex-review-receipt:v1", "codex-review-receipt:v2"))).toBe("");
     expect(runWake("Review completed\n" + official())).toBe("");
+  });
+
+  it("rejects a clean receipt contradicted by a later finding", () => {
+    for (const body of [
+      official() + "\nP1: Authorization bypass remains.",
+      legacy() + "\nP2: Retry can duplicate an external action.",
+    ]) {
+      expect(runCi([codexComment(body)])).toBe(0);
+      expect(runAutomerge([codexComment(body)])).toBe(0);
+      expect(runWake(body)).toBe("");
+      expect(cleanCodexReviewedCommit(body)).toBe("");
+    }
   });
 
   it("does not treat a clean comment as permission to ignore primary gates", () => {

@@ -220,7 +220,7 @@ jobs:
             fi
 
             clean_comment_match="$(jq -rn --arg body "${EVENT_COMMENT_BODY:-}" --arg sha "$head_sha" '
-              (($body | test("^<!-- CodeRabbit review command invocation: v2:[0-9a-f]{64} -->[ \\t]*\\r?\\n(?:[ \\t]*\\r?\\n)* {0,3}(?:@[A-Za-z0-9-]+[ \\t]+)?Final exact-head review is complete for[ \\t]+(?:`" + $sha + "`|" + $sha + ")\\.[ \\t]*\\r?\\n(?:[ \\t]*\\r?\\n)* {0,3}I found no issues\\.[ \\t]*(?:\\r?\\n|$)")) or ($body | test("^ {0,3}(?:@[A-Za-z0-9-]+[ \\t]+)?Review completed for exact HEAD[ \\t]+(?:`" + $sha + "`|" + $sha + ")\\.[ \\t]*\\r?\\n(?:[ \\t]*\\r?\\n)* {0,3}I found no material findings\\.[ \\t]*(?:\\r?\\n|$)"))) and (($body | test("Review limit reached|Review rate[ -]?limited|rate[ -]?limit|Action not completed|Review skipped|temporarily unavailable|service unavailable|incomplete|did not complete"; "i")) | not)
+              (($body | test("^<!-- CodeRabbit review command invocation: v2:[0-9a-f]{64} -->[ \\t]*\\r?\\n(?:[ \\t]*\\r?\\n)* {0,3}(?:@[A-Za-z0-9-]+[ \\t]+)?Final exact-head review is complete for[ \\t]+(?:`" + $sha + "`|" + $sha + ")\\.[ \\t]*\\r?\\n(?:[ \\t]*\\r?\\n)* {0,3}I found no issues\\.[ \\t]*(?:\\r?\\n|$)")) or ($body | test("^ {0,3}(?:@[A-Za-z0-9-]+[ \\t]+)?Review completed for exact HEAD[ \\t]+(?:`" + $sha + "`|" + $sha + ")\\.[ \\t]*\\r?\\n(?:[ \\t]*\\r?\\n)* {0,3}I found no material findings\\.[ \\t]*(?:\\r?\\n|$)"))) and (($body | match("I found no issues\\.|I found no material findings\\.|<!-- recent_review_end -->")) as $ending | ($body[($ending.offset + $ending.length):] | test("^[ \\t\\r\\n]*$"))) and (($body | test("Review limit reached|Review rate[ -]?limited|rate[ -]?limit|Action not completed|Review skipped|temporarily unavailable|service unavailable|incomplete|did not complete"; "i")) | not)
             ')"
             if [ "$clean_comment_match" != "true" ]; then
               echo "CodeRabbit comment is not a completed clean exact-head decision for current head $head_sha; ignoring it."
@@ -282,6 +282,10 @@ jobs:
               | select((sub("^<!-- codex-review-receipt:v1 -->\\r?\\n\\r?\\n"; "")) | startswith("Codex Review: Didn\u0027t find any major issues."))
               | select(([match("Reviewed commit:"; "gi")] | length) == 1)
               | (try capture("^(?:<!-- codex-review-receipt:v1 -->\\r?\\n\\r?\\n)?Codex Review: Didn\u0027t find any major issues\\.(?:[^<`\\r\\n]*\\r?\\n(?:[ \\t]*\\r?\\n)* {0,3}|[ \\t]+(?=Reviewed commit:[ \\t]*[0-9a-fA-F]{10}(?:\\r?\\n|$)))(?:\\*\\*Reviewed commit:\\*\\*|Reviewed commit:)[ \\t]*(?<token>`?[0-9a-fA-F]{10,40}`?)[ \\t]*(?:\\r?\\n|$)").token catch "") as $token
+              | ($body | match("Reviewed commit:[^\\r\\n]*(?:\\r?\\n|$)")) as $receipt
+              | ($body[($receipt.offset + $receipt.length):] | gsub("^[ \\t\\r\\n]+|[ \\t\\r\\n]+$"; "")) as $tail
+              | select($tail == "" or ($tail | test("^<details>[ \\t]*<summary>ℹ️ About Codex in GitHub</summary>[\\s\\S]*</details>$")))
+              | select(($tail | test("^[ \\t]*(?:[-*>][ \\t]*)*(?:\\*\\*)?(?:P[012]|Critical|Major)\\b"; "im")) | not)
               | select(($token | startswith("`")) == ($token | endswith("`")))
               | ($token | gsub("`"; "") | ascii_downcase) as $reviewed
               | select(($reviewed | length) == 10 or ($reviewed | length) == 40)
@@ -365,7 +369,7 @@ jobs:
             # COMMENTED without a CodeRabbit-authored exact-head clean summary
             # is a thread reply, not proof of an accepted full review.
             clean_summary="$(jq -rn --arg sha "$head_sha" --arg body "${EVENT_COMMENT_BODY:-}" '
-              (($body | test("^<!-- recent_review_start -->[ \\t]*\\r?\\n(?:[ \\t]*\\r?\\n)* {0,3}No actionable comments were generated(?: in the recent review)?\\.[ \\t]*\\r?\\n(?:[ \\t]*\\r?\\n)* {0,3}" + $sha + "[ \\t]*\\r?\\n(?:[ \\t]*\\r?\\n)*<!-- recent_review_end -->[ \\t]*(?:\\r?\\n|$)"))) and (($body | test("Review limit reached|Review rate[ -]?limited|rate[ -]?limit|Action not completed|Review skipped|temporarily unavailable|service unavailable|incomplete|did not complete"; "i")) | not)
+              (($body | test("^<!-- recent_review_start -->[ \\t]*\\r?\\n(?:[ \\t]*\\r?\\n)* {0,3}No actionable comments were generated(?: in the recent review)?\\.[ \\t]*\\r?\\n(?:[ \\t]*\\r?\\n)* {0,3}" + $sha + "[ \\t]*\\r?\\n(?:[ \\t]*\\r?\\n)*<!-- recent_review_end -->[ \\t]*(?:\\r?\\n|$)"))) and (($body | match("I found no issues\\.|I found no material findings\\.|<!-- recent_review_end -->")) as $ending | ($body[($ending.offset + $ending.length):] | test("^[ \\t\\r\\n]*$"))) and (($body | test("Review limit reached|Review rate[ -]?limited|rate[ -]?limit|Action not completed|Review skipped|temporarily unavailable|service unavailable|incomplete|did not complete"; "i")) | not)
             ')"
             reviews_json="$(gh api --paginate "repos/$REPOSITORY/pulls/$pr_number/reviews?per_page=100" --jq '.[]' | jq -s '.')"
             current_reviews="$(jq -c --arg sha "$head_sha" '[.[] | select(.user.login == "coderabbitai[bot]" and .commit_id == $sha)]' <<< "$reviews_json")"

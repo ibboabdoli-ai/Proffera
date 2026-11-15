@@ -40,8 +40,13 @@ export function providerUnavailable(body) {
 // Review authority is a supported top-level receipt header, never text found
 // inside arbitrary Markdown. Keep the workflow jq predicates behaviorally equivalent.
 export function cleanCodexReviewedCommit(body) {
-  if ([...String(body).matchAll(/Reviewed commit:/gi)].length !== 1) return "";
-  const token = String(body).match(/^(?:<!-- codex-review-receipt:v1 -->\r?\n\r?\n)?Codex Review: Didn't find any major issues\.(?:[^<`\r\n]*\r?\n(?:[ \t]*\r?\n)* {0,3}|[ \t]+(?=Reviewed commit:[ \t]*[0-9a-fA-F]{10}(?:\r?\n|$)))(?:\*\*Reviewed commit:\*\*|Reviewed commit:)[ \t]*(`?[0-9a-fA-F]{10,40}`?)[ \t]*(?:\r?\n|$)/)?.[1] ?? "";
+  const text = String(body);
+  if ([...text.matchAll(/Reviewed commit:/gi)].length !== 1) return "";
+  const receipt = text.match(/^(?:<!-- codex-review-receipt:v1 -->\r?\n\r?\n)?Codex Review: Didn't find any major issues\.(?:[^<`\r\n]*\r?\n(?:[ \t]*\r?\n)* {0,3}|[ \t]+(?=Reviewed commit:[ \t]*[0-9a-fA-F]{10}(?:\r?\n|$)))(?:\*\*Reviewed commit:\*\*|Reviewed commit:)[ \t]*(`?[0-9a-fA-F]{10,40}`?)[ \t]*(?:\r?\n|$)/);
+  const token = receipt?.[1] ?? "";
+  const tail = text.slice(receipt?.[0].length ?? 0).trim();
+  if (tail && !/^<details>[ \t]*<summary>ℹ️ About Codex in GitHub<\/summary>[\s\S]*<\/details>$/.test(tail)) return "";
+  if (/^[ \t]*(?:[-*>][ \t]*)*(?:\*\*)?(?:P[012]|Critical|Major)\b/im.test(tail)) return "";
   const reviewed = token.replaceAll("`", "").toLowerCase();
   return token.startsWith("`") === token.endsWith("`") && [10, 40].includes(reviewed.length) ? reviewed : "";
 }
@@ -55,7 +60,11 @@ export function cleanCodeRabbitComment(body, head, { allowPersistentSummary = fa
   if (!/^[0-9a-f]{40}$/.test(head) || /Review limit reached|Review rate[ -]?limited|rate[ -]?limit|Action not completed|Review skipped|temporarily unavailable|service unavailable|incomplete|did not complete/i.test(body)) return false;
   const patterns = ["^<!-- CodeRabbit review command invocation: v2:[0-9a-f]{64} -->[ \\t]*\\r?\\n(?:[ \\t]*\\r?\\n)* {0,3}(?:@[A-Za-z0-9-]+[ \\t]+)?Final exact-head review is complete for[ \\t]+(?:`@SHA@`|@SHA@)\\.[ \\t]*\\r?\\n(?:[ \\t]*\\r?\\n)* {0,3}I found no issues\\.[ \\t]*(?:\\r?\\n|$)", "^ {0,3}(?:@[A-Za-z0-9-]+[ \\t]+)?Review completed for exact HEAD[ \\t]+(?:`@SHA@`|@SHA@)\\.[ \\t]*\\r?\\n(?:[ \\t]*\\r?\\n)* {0,3}I found no material findings\\.[ \\t]*(?:\\r?\\n|$)"];
   if (allowPersistentSummary) patterns.push("^<!-- recent_review_start -->[ \\t]*\\r?\\n(?:[ \\t]*\\r?\\n)* {0,3}No actionable comments were generated(?: in the recent review)?\\.[ \\t]*\\r?\\n(?:[ \\t]*\\r?\\n)* {0,3}@SHA@[ \\t]*\\r?\\n(?:[ \\t]*\\r?\\n)*<!-- recent_review_end -->[ \\t]*(?:\\r?\\n|$)");
-  return patterns.some((pattern) => new RegExp(pattern.replaceAll("@SHA@", head)).test(String(body)));
+  return patterns.some((pattern) => {
+    const text = String(body);
+    const receipt = text.match(new RegExp(pattern.replaceAll("@SHA@", head)));
+    return Boolean(receipt && /^[ \t\r\n]*$/.test(text.slice(receipt[0].length)));
+  });
 }
 
 export function normalizeFinalGateEvidence(source, targetHead = source?.review_commit ?? "") {
