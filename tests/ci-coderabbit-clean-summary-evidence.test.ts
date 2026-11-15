@@ -131,9 +131,9 @@ describe("CI linked older-head acknowledgement", () => {
     expect(result.status, result.stderr).toBe(0);
     return Number(result.stdout.trim());
   }
-  it("ignores only linked older-head acknowledgements", () => {
-    expect(inlineFilter).toContain("in_reply_to_id");
-    expect(count([linked])).toBe(0);
+  it("blocks fresh older-thread replies even when they sound like acknowledgements", () => {
+    expect(count([linked])).toBe(1);
+    expect(count([{ ...linked, body: linked.body + " The authorization bypass remains exploitable." }])).toBe(1);
     expect(count([{ ...linked, commit_id: old }])).toBe(0);
   });
   it("retains new findings and untrusted or unlinked replies as blocking", () => {

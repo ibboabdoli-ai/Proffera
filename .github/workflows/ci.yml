@@ -828,7 +828,6 @@ jobs:
                 .[]
                 | select(.user.login == "coderabbitai[bot]")
                 | select(((.original_commit_id // .commit_id) == $sha or (.commit_id == $sha and ($request_time == "" or (.created_at | type) != "string" or .created_at == "" or .created_at >= $request_time))))
-                | select(((.in_reply_to_id != null) and ((.original_commit_id // .commit_id) != $sha) and (.commit_id == $sha) and ((.body // "") | test("(?m)^@ibboabdoli-ai (?:Thanks for|Verified|The supplied workflow addresses this finding)")) and ((.body // "") | test("(?i)(?:This addresses the finding[.]|I withdraw this finding|confirmed assertions address this finding)")) and ((.body // "") | contains("<!-- cr-comment:v1:") | not) and ((.body // "") | test("(?i)(?:\\b(?:P0|P1|P2|critical|major)\\b|(?:new|additional|another|unresolved) (?:finding|issue|bug|defect)|not (?:fixed|addressed)|still (?:broken|failing))") | not)) | not)
               ]
               | length
             ' <<< "$coderabbit_inline_json")"
@@ -1080,7 +1079,7 @@ jobs:
                       | select(
                           (.user.login == "chatgpt-codex-connector[bot]" and (((.original_commit_id // .commit_id) == $sha or (.commit_id == $sha and ($request_time == "" or (.created_at | type) != "string" or .created_at == "" or .created_at >= $request_time)))))
                           or
-                          (.user.login == "coderabbitai[bot]" and (((.original_commit_id // .commit_id) == $sha or (.commit_id == $sha and ($coderabbit_request_time == "" or (.created_at | type) != "string" or .created_at == "" or .created_at >= $coderabbit_request_time)))) and (((.in_reply_to_id != null) and ((.original_commit_id // .commit_id) != $sha) and (.commit_id == $sha) and ((.body // "") | test("(?m)^@ibboabdoli-ai (?:Thanks for|Verified|The supplied workflow addresses this finding)")) and ((.body // "") | test("(?i)(?:This addresses the finding[.]|I withdraw this finding|confirmed assertions address this finding)")) and ((.body // "") | contains("<!-- cr-comment:v1:") | not) and ((.body // "") | test("(?i)(?:\\b(?:P0|P1|P2|critical|major)\\b|(?:new|additional|another|unresolved) (?:finding|issue|bug|defect)|not (?:fixed|addressed)|still (?:broken|failing))") | not)) | not))
+                          (.user.login == "coderabbitai[bot]" and (((.original_commit_id // .commit_id) == $sha or (.commit_id == $sha and ($coderabbit_request_time == "" or (.created_at | type) != "string" or .created_at == "" or .created_at >= $coderabbit_request_time)))))
                         )
                     ]
                     | length

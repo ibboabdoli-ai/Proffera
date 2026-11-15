@@ -993,9 +993,13 @@ describe("linked older-head CodeRabbit acknowledgements", () => {
     f.inline = [{ ...record, body }];
     return f;
   }
-  it("does not elevate an authenticated old-thread acknowledgement to a new finding", () => {
+  it("blocks ambiguous old-thread acknowledgements posted after the current request", () => {
     const f = fixtureWithInline(record.body);
-    expect(f.run().decision).toBe("ALLOW_RERUN");
+    expect(() => f.run()).toThrow();
+    expect(f.posts).toBe(0);
+    const contradicted = fixtureWithInline(record.body + " The authorization bypass remains exploitable.");
+    expect(() => contradicted.run()).toThrow();
+    expect(contradicted.posts).toBe(0);
   });
   it.each([
     "**Major**: new issue\n<!-- cr-comment:v1:abc -->",

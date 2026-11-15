@@ -1575,6 +1575,9 @@ describe("AutoMerge CodeRabbit review provenance (adversarial)", () => {
         { sha: reviewHead, request_time: request }), name+" carried forward").toBe(0);
       expect(jq(filter, [{...finding,original_commit_id:oldHead,commit_id:reviewHead,created_at:summary}],
         { sha: reviewHead, request_time: request }), name+" fresh reply").toBe(1);
+      expect(jq(filter, [{...finding,original_commit_id:oldHead,commit_id:reviewHead,created_at:summary,
+        in_reply_to_id:42,body:"@ibboabdoli-ai Thanks for the change. This addresses the finding. The authorization bypass remains exploitable."}],
+        { sha: reviewHead, request_time: request }), name+" ambiguous reply").toBe(1);
     }
   });
   const qualify = (reviews: unknown[], comments = clean) => {
