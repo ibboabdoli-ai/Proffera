@@ -90,7 +90,9 @@ function runWake(body: string) {
 
 describe("exact-head Codex review receipt recognition (#961)", () => {
   it("accepts the official receipt-prefixed comment and previous legacy form in both workflows", () => {
-    for (const body of [official(), legacy()]) {
+    for (const body of [official(), legacy(),
+      official().replace("Can't wait for the next one!", "Breezy!"),
+      official().replace("Can't wait for the next one!", "Delightful!")]) {
       expect(runCi([codexComment(body)])).toBe(1);
       expect(runAutomerge([codexComment(body)])).toBe(1);
       expect(runWake(body)).toBe(head.slice(0, 10));

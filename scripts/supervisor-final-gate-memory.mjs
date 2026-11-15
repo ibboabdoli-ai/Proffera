@@ -46,7 +46,7 @@ export function cleanCodexReviewedCommit(body) {
   const token = receipt?.[1] ?? "";
   const intro = text.match(/^(?:<!-- codex-review-receipt:v1 -->\r?\n\r?\n)?Codex Review: Didn't find any major issues\.([^\r\n]*)/)?.[1]
     ?.split("Reviewed commit:")[0].trim();
-  if (!["", "Swish!", "Can't wait for the next one!", "What shall we delve into next?", "Another round soon, please!"].includes(intro)) return "";
+  if (!["", "Swish!", "Breezy!", "Delightful!", "Can't wait for the next one!", "What shall we delve into next?", "Another round soon, please!"].includes(intro)) return "";
   const tail = text.slice(receipt?.[0].length ?? 0).trim();
   const footer = tail.replace(/\s+/g, " ").trim();
   const footerStart = "<details> <summary>ℹ️ About Codex in GitHub</summary> <br/> [Your team has set up Codex to review pull requests in this repo](https://chatgpt.com/codex/cloud/settings/general). Reviews are triggered when you - Open a pull request for review ";

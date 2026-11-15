@@ -283,7 +283,7 @@ jobs:
               | select(([match("Reviewed commit:"; "gi")] | length) == 1)
               | (try capture("^(?:<!-- codex-review-receipt:v1 -->\\r?\\n\\r?\\n)?Codex Review: Didn\u0027t find any major issues\\.(?:[^<`\\r\\n]*\\r?\\n(?:[ \\t]*\\r?\\n)* {0,3}|[ \\t]+(?=Reviewed commit:[ \\t]*[0-9a-fA-F]{10}(?:\\r?\\n|$)))(?:\\*\\*Reviewed commit:\\*\\*|Reviewed commit:)[ \\t]*(?<token>`?[0-9a-fA-F]{10,40}`?)[ \\t]*(?:\\r?\\n|$)").token catch "") as $token
               | ($body | sub("^<!-- codex-review-receipt:v1 -->\\r?\\n\\r?\\n"; "") | split("\n")[0] | sub("^Codex Review: Didn\u0027t find any major issues\\."; "") | sub("Reviewed commit:.*$"; "") | gsub("^[ \\t\\r]+|[ \\t\\r]+$"; "")) as $intro
-              | select(["", "Swish!", "Can\u0027t wait for the next one!", "What shall we delve into next?", "Another round soon, please!"] | index($intro) != null)
+              | select(["", "Swish!", "Breezy!", "Delightful!", "Can\u0027t wait for the next one!", "What shall we delve into next?", "Another round soon, please!"] | index($intro) != null)
               | ($body | match("Reviewed commit:[^\\r\\n]*(?:\\r?\\n|$)")) as $receipt
               | ($body[($receipt.offset + $receipt.length):] | gsub("^[ \\t\\r\\n]+|[ \\t\\r\\n]+$"; "")) as $tail
               | ($tail | gsub("[ \\t\\r\\n]+"; " ")) as $footer
