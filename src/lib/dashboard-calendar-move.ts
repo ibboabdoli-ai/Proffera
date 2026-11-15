@@ -29,6 +29,7 @@ export class CalendarMoveValidationError extends Error {
 }
 
 export type CalendarMoveResult = {
+  workspaceId: string;
   workspaceName: string;
   timeZone: ReturnType<typeof resolveBookingTimeZone>;
   notification: {
@@ -185,7 +186,7 @@ export async function moveDashboardCalendarBooking(input: {
   }
 
   const changed = oldStart.getTime() !== newStart.getTime() || String(booking.staff_id ?? "") !== staffId;
-  if (!changed) return { workspaceName: access.workspaceName, timeZone, notification: null };
+  if (!changed) return { workspaceId: access.workspaceId, workspaceName: access.workspaceName, timeZone, notification: null };
 
   const updated = await sql`
     update bookings
@@ -222,6 +223,7 @@ export async function moveDashboardCalendarBooking(input: {
   `;
 
   return {
+    workspaceId: access.workspaceId,
     workspaceName: access.workspaceName,
     timeZone,
     notification: {

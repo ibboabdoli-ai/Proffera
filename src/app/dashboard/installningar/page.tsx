@@ -200,6 +200,19 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
         adaptivePricingEnabled={isStripeAdaptivePricingEnabled()}
       />
 
+      {canManageWorkspaceSettings(access) ? (
+        <section className="rounded-card border border-line bg-surface p-5">
+          <h3 className="text-base font-bold">{isEnglish ? "SMS usage" : "SMS-förbrukning"}</h3>
+          <p className="mt-1 text-sm text-ink-muted">{isEnglish
+            ? "View your monthly SMS allowance and remaining units."
+            : "Se månadens SMS-kvot och antal enheter kvar."}</p>
+          <Link href={isEnglish ? "/dashboard/installningar/sms?lang=en" : "/dashboard/installningar/sms"}
+            className="mt-3 inline-flex rounded-control border border-line px-4 py-2 text-sm font-bold text-brand-deep">
+            {isEnglish ? "View SMS allowance" : "Visa SMS-kvot"}
+          </Link>
+        </section>
+      ) : null}
+
       {memberUpdatedValue ? <section className="rounded-2xl bg-[#eef8f0] p-5 text-sm font-semibold text-[#087754] ring-1 ring-[#c9e6d0]" role="status">Teamets åtkomst uppdaterades.</section> : null}
       {memberErrorMessage ? <section className="rounded-2xl bg-[#fff5f2] p-5 text-sm font-semibold text-[#8f2f1b] ring-1 ring-[#f4c7ba]" role="alert">{memberErrorMessage}</section> : null}
 

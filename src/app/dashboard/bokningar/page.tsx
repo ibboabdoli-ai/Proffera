@@ -5,7 +5,7 @@ import { DashboardDataPanel, DashboardMetricGrid, DashboardPageHeader } from "@/
 import { MariaSwishPaymentControl } from "@/components/dashboard/maria-swish-payment-control";
 import { getDashboardBookingsInStockholm } from "@/lib/dashboard-bookings-db";
 import { readMariaManualSwishStatuses } from "@/lib/maria-manual-swish";
-import { canManageWorkspaceSettings, getUserWorkspaceAccess } from "@/lib/workspace-access";
+import { canManageWorkspaceMembers, canManageWorkspaceSettings, getUserWorkspaceAccess } from "@/lib/workspace-access";
 
 export const dynamic = "force-dynamic";
 
@@ -95,6 +95,12 @@ export default async function BookingsPage({ searchParams }: BookingsPageProps) 
         actions={mariaProductionReadOnly ? undefined : <Link href={withLang("/dashboard/bokningar/ny", isEnglish)} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-control bg-brand-deep px-4 py-2.5 text-sm font-bold text-white transition hover:-translate-y-0.5 hover:bg-brand-hover"><CalendarPlus className="h-4 w-4" aria-hidden="true" />{isEnglish ? "New booking" : "Ny bokning"}</Link>}
       />
 
+      {access.ok && access.workspaceSlug === "makeup-by-maria" && canManageWorkspaceMembers(access) ? (
+        <Link href={withLang("/dashboard/bokningar/arkiv", isEnglish)}
+          className="w-fit rounded-control border border-line px-4 py-2 text-sm font-bold">
+          {isEnglish ? "Archived bookings" : "Bokningsarkiv"}
+        </Link>
+      ) : null}
       <DashboardMetricGrid items={summary} />
 
       <DashboardDataPanel title={isEnglish ? "Current bookings" : "Aktuella bokningar"} description={isEnglish ? "Overview with time, customer, service, status and next action." : "Översikt med tid, kund, tjänst, status och nästa åtgärd."} count={bookings.length}>

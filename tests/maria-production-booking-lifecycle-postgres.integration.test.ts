@@ -103,6 +103,15 @@ function compileSql(strings: TemplateStringsArray, values: unknown[]): Query {
     await db.query(
       "insert into workspace_settings(workspace_id,company_name,contact_email,time_zone,billing_currency) values($1,'Makeup by Maria','maria@example.invalid','Europe/Stockholm','SEK') on conflict(workspace_id) do update set contact_email=excluded.contact_email,time_zone=excluded.time_zone,billing_currency=excluded.billing_currency",
       [workspaceId]);
+    // Existing lifecycle tests exercise a PAID Maria workspace. A missing
+    // Stripe subscription fixture must not bypass the Production entitlement.
+    const planId = randomUUID();
+    await db.query(
+      "insert into workspace_plans(id,workspace_id,plan_key,status,current_period_start,current_period_end) values($1::uuid,$2::uuid,'starter','active',now()-interval '1 day',now()+interval '30 days')",
+      [planId,workspaceId]);
+    await db.query(
+      "insert into workspace_billing_subscriptions(id,workspace_id,workspace_plan_id,stripe_customer_id,stripe_subscription_id,stripe_price_id,status,current_period_start,current_period_end) values($1::uuid,$2::uuid,$3::uuid,'cus_synthetic_lifecycle','sub_synthetic_lifecycle','price_synthetic_starter','active',now()-interval '1 day',now()+interval '30 days')",
+      [randomUUID(),workspaceId,planId]);
     const row=(await db.query<{day:string}>(`
       select to_char(current_date+21+((5-extract(dow from current_date)::int+7)%7),'YYYY-MM-DD') as day
     `)).rows[0];

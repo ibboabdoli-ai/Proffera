@@ -16,6 +16,7 @@ vi.mock("@/lib/maria-booking-notification-lock",()=>({
 }));
 const m=vi.hoisted(()=>({
   sql:vi.fn(),send:vi.fn(),sendManager:vi.fn(),ready:vi.fn(),
+  existingLifecycle:vi.fn(),
   abortController:null as AbortController|null,
   raceOnAbort:false,
 }));
@@ -23,7 +24,12 @@ vi.mock("@/lib/db/server",()=>({getSql:()=>m.sql}));
 vi.mock("@/lib/maria-booking-runtime",()=>({getMariaBookingReadiness:m.ready}));
 vi.mock("@/lib/maria-preview-customer-safety",()=>({
   getMariaBookingPortalBase:()=> "https://maria-qa.vercel.app",
+  getMariaExistingBookingPortalBase:()=> "https://makeupbymaria.se",
   isMariaBookingRecipientAllowed:(email:string)=> email==="qa@example.invalid",
+  isMariaExistingBookingRecipientAllowed:(email:string)=> email==="qa@example.invalid",
+}));
+vi.mock("@/lib/maria-production-activation-policy",()=>({
+  isMariaProductionExistingBookingLifecycleAuthorized: m.existingLifecycle,
 }));
 vi.mock("@/lib/customer-calendar",()=>({
   createCustomerCalendarToken:()=> "synthetic-signed-portal-token",
@@ -62,6 +68,7 @@ beforeEach(()=>{
   m.abortController=null;
   m.raceOnAbort=false;
   m.ready.mockResolvedValue({enabled:true,workspaceId});
+  m.existingLifecycle.mockReturnValue(false);
 });
 afterEach(()=>{vi.unstubAllEnvs();});
 
@@ -133,6 +140,33 @@ describe("Maria customer-reschedule notification retry",()=>{
     });
     const readSql=m.sql.mock.calls[0]![0] as TemplateStringsArray;
     expect(readSql.join("?")).toContain("maria_manager_dashboard_reschedule");
+    expect(m.send).not.toHaveBeenCalled();
+  });
+
+  it("delivers only a previously journaled manager reschedule after paid intake closes", async () => {
+    vi.stubEnv("VERCEL_ENV", "production");
+    m.existingLifecycle.mockReturnValue(true);
+    m.ready.mockResolvedValue({ enabled:false });
+    const manager={...row,metadata:{...row.metadata,
+      source:"maria_manager_dashboard_reschedule",notice_customer:"pending",notice_owner:"skipped"}};
+    m.sql.mockResolvedValueOnce([manager])
+      .mockResolvedValueOnce([{attempted_at:"2026-11-08 10:00:00+00"}])
+      .mockResolvedValueOnce([{id:eventId}]);
+    m.sendManager.mockResolvedValueOnce({ok:true});
+    expect(await retryMariaRescheduleNotice(id,workspaceId)).toEqual({ok:true});
+    expect(m.sendManager).toHaveBeenCalledWith(expect.objectContaining({
+      branding:"makeup-by-maria",allowExistingLifecycle:true,customerEmail:"qa@example.invalid",
+    }));
+    expect(m.send).not.toHaveBeenCalled();
+  });
+
+  it("cannot send a non-manager notice through the existing-manager exception", async()=>{
+    vi.stubEnv("VERCEL_ENV", "production");
+    m.existingLifecycle.mockReturnValue(true);
+    m.ready.mockResolvedValue({enabled:false});
+    m.sql.mockResolvedValueOnce([row]);
+    expect(await retryMariaRescheduleNotice(id,workspaceId)).toEqual({ok:false});
+    expect(m.sendManager).not.toHaveBeenCalled();
     expect(m.send).not.toHaveBeenCalled();
   });
 

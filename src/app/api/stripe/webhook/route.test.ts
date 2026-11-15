@@ -96,9 +96,81 @@ describe("Stripe webhook environment safety", () => {
 
     expect(response.status).toBe(200);
     expect(mocks.isStripeEventModeAllowed).toHaveBeenCalledWith(true);
-    expect(retrieve).toHaveBeenCalledWith("sub_live_ok");
+    expect(retrieve).toHaveBeenCalledWith("sub_live_ok", {
+      expand: ["latest_invoice", "discounts"],
+    });
     expect(mocks.syncWorkspaceSubscription).toHaveBeenCalledWith(subscription, 456, "starter", "price_live_starter");
     expect(body).toEqual({ received: true, applied: true });
+  });
+
+  it("reconciles a current paid renewal after an earlier unpaid subscription update", async () => {
+    const invoiceEvent = {
+      id: "in_renewal", status: "paid", customer: "cus_renewal",
+      parent: { type: "subscription_details", subscription_details: { subscription: "sub_renewal" } },
+    };
+    const retrieve = vi.fn()
+      .mockResolvedValueOnce({
+        id: "sub_renewal", status: "active", customer: "cus_renewal",
+        items: { data: [{ price: { id: "price_live_starter" } }] },
+        latest_invoice: { id: "in_renewal", status: "open" },
+      })
+      .mockResolvedValueOnce({
+        id: "sub_renewal", status: "active", customer: "cus_renewal",
+        items: { data: [{ price: { id: "price_live_starter" } }] },
+        latest_invoice: { ...invoiceEvent },
+      });
+    const constructEventAsync = vi.fn()
+      .mockResolvedValueOnce({
+        type: "customer.subscription.updated", livemode: true, created: 1201,
+        data: { object: { id: "sub_renewal" } },
+      })
+      .mockResolvedValueOnce({
+        type: "invoice.paid", livemode: true, created: 1202,
+        data: { object: invoiceEvent },
+      });
+    mocks.getStripeClient.mockReturnValue({
+      webhooks: { constructEventAsync }, subscriptions: { retrieve },
+    });
+    mocks.isStripeEventModeAllowed.mockReturnValue(true);
+    mocks.getStripeCheckoutPlanForPriceId.mockReturnValue("starter");
+    mocks.syncWorkspaceSubscription.mockResolvedValue({ ok: true });
+
+    for (let i = 0; i < 2; i++) {
+      const response = await POST(new Request("https://www.proffera.se/api/stripe/webhook", {
+        method: "POST", headers: { "stripe-signature": "test-signature" }, body: "{}",
+      }));
+      expect(response.status).toBe(200);
+    }
+    expect(mocks.syncWorkspaceSubscription).toHaveBeenCalledTimes(2);
+    expect(mocks.syncWorkspaceSubscription.mock.calls[0]?.[1]).toBe(1201);
+    expect(mocks.syncWorkspaceSubscription.mock.calls[1]?.[1]).toBe(1202);
+    expect(retrieve).toHaveBeenCalledTimes(2);
+  });
+
+  it("refuses paid-invoice events that do not match the current subscription invoice or customer", async () => {
+    const eventInvoice = {
+      id: "in_wrong", customer: "cus_wrong", status: "paid",
+      parent: { type: "subscription_details", subscription_details: { subscription: "sub_test" } },
+    };
+    const retrieve = vi.fn().mockResolvedValue({
+      id: "sub_test", status: "active", customer: "cus_expected",
+      items: { data: [{ price: { id: "price_live_starter" } }] },
+      latest_invoice: { id: "in_current", status: "paid" },
+    });
+    mocks.getStripeClient.mockReturnValue({
+      webhooks: { constructEventAsync: vi.fn().mockResolvedValue({
+        type: "invoice.paid", livemode: true, created: 1300, data: { object: eventInvoice },
+      }) },
+      subscriptions: { retrieve },
+    });
+    mocks.isStripeEventModeAllowed.mockReturnValue(true);
+    mocks.getStripeCheckoutPlanForPriceId.mockReturnValue("starter");
+    const response = await POST(new Request("https://www.proffera.se/api/stripe/webhook", {
+      method: "POST", headers: { "stripe-signature": "test-signature" }, body: "{}",
+    }));
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ received: true, applied: false });
+    expect(mocks.syncWorkspaceSubscription).not.toHaveBeenCalled();
   });
 
   it("routes a valid same-mode fully refunded charge to the guarded entitlement handler", async () => {

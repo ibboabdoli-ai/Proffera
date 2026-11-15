@@ -41,6 +41,7 @@ const workspace = {
   public_booking_slug: "makeup-by-maria", company_name: "Makeup by Maria",
   primary_city: "Södertälje", owner_email: "manager@example.com",
   owner_phone: "", time_zone: "Europe/Stockholm", billing_currency: "SEK",
+  paid_subscription_active: true,
 };
 
 beforeEach(() => { vi.resetAllMocks(); });
@@ -138,6 +139,9 @@ describe("Maria Production readiness is independent and disabled by default", ()
     stubSql([schema], [schemaContract], [{count:4}], [workspace]);
     vi.mocked(hasWorkspaceFeatureAccessForWorkspace).mockResolvedValue(false);
     expect(await getMariaBookingReadiness()).toEqual({enabled:false});
+    stubSql([schema], [schemaContract], [{count:4}], [{...workspace,paid_subscription_active:false}]);
+    vi.mocked(hasWorkspaceFeatureAccessForWorkspace).mockResolvedValue(true);
+    expect(await getMariaBookingReadiness()).toEqual({enabled:false});
   });
 
   it("rejects partial canonical 0072/0074 schema despite migration receipts", async () => {
@@ -175,6 +179,9 @@ describe("Maria Production readiness is independent and disabled by default", ()
     const pricingGate = Array.from(query.mock.calls[3]![0] as TemplateStringsArray).join("?");
     expect(pricingGate).toContain("not exists");
     expect(pricingGate).toContain("unsafe.price_type IS DISTINCT FROM 'fixed'");
+    expect(pricingGate).toContain("billing.stripe_subscription_id is not null");
+    expect(pricingGate).toContain("billing.current_period_end > now()");
+    expect(pricingGate).toContain("plan.status='active'");
     expect(hasWorkspaceFeatureAccessForWorkspace)
       .toHaveBeenCalledWith(workspace.workspace_id,"online_booking");
     // The flag-only gate is insufficient; all four actual DB checks and

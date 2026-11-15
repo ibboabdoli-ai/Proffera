@@ -8,6 +8,7 @@ vi.mock("next/navigation",()=>({redirect:(url:string)=>{throw Error("REDIRECT "+
 vi.mock("@/lib/workspace-access",()=>({
   getUserWorkspaceAccess:async()=>({ok:true,workspaceSlug:state.slug,role:state.role,workspaceId:"qa"}),
   canManageWorkspaceSettings:(access:{role:string})=>["owner","admin"].includes(access.role),
+  canManageWorkspaceMembers:(access:{role:string})=>access.role==="owner",
 }));
 vi.mock("@/lib/workspace-services-db",()=>({
   getDashboardWorkspaceServices:async(options?:{strict?:boolean})=>{

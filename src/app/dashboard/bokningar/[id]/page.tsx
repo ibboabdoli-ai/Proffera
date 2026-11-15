@@ -29,7 +29,8 @@ import { getMariaStatusRetryGate, claimMariaStatusRetry, finishMariaStatusRetry 
 import { resolveBrevoApiKey } from "@/lib/email-runtime-config";
 import { BookingRescheduleValidationError, rescheduleDashboardBooking } from "@/lib/dashboard-booking-reschedule";
 import { isDashboardBookingStatus, updateDashboardBookingStatus, type DashboardBookingStatus } from "@/lib/dashboard-booking-status";
-import { canManageWorkspaceSettings, getUserWorkspaceAccess } from "@/lib/workspace-access";
+import { canManageWorkspaceMembers, canManageWorkspaceSettings, getUserWorkspaceAccess } from "@/lib/workspace-access";
+import { BookingSoftDeleteControl } from "../booking-soft-delete-control";
 import { hasDashboardModuleAccess } from "@/lib/workspace-module-access";
 import { MARIA_DEPOSIT_AMOUNT_SEK, MARIA_SWISH_NUMBER, mariaSwishQrPath } from "@/lib/maria-deposit";
 import { readMariaManualSwishStatuses } from "@/lib/maria-manual-swish";
@@ -200,10 +201,10 @@ async function updateBookingStatusAction(bookingId: string, formData: FormData) 
       );
       if (preflightError) redirectWithError(bookingId, preflightError, locale);
     } else {
-      const existingCancellation = status === "cancelled"
+      const existingLifecycle = isMariaProductionExistingBookingLifecycleAuthorized()
         && Boolean(getMariaExistingBookingPortalBase())
         && isMariaExistingBookingRecipientAllowed(current.customer?.email ?? "");
-      if (!existingCancellation) {
+      if (!existingLifecycle) {
         const ready = await getMariaBookingReadiness();
         if (!ready.enabled || ready.workspaceId !== workspaceAccess.workspaceId
           || !getMariaBookingPortalBase()
@@ -217,7 +218,7 @@ async function updateBookingStatusAction(bookingId: string, formData: FormData) 
       }
       // A permitted existing cancellation must still commit when Brevo is
       // unavailable; the manager sees a delivery warning after the write.
-      if ((status === "confirmed" || (status === "cancelled" && !existingCancellation)) && !deliveryReady) {
+      if ((status === "confirmed" || (status === "cancelled" && !existingLifecycle)) && !deliveryReady) {
         redirectWithError(bookingId, "maria_email_setup", locale);
       }
     }
@@ -285,7 +286,7 @@ async function updateBookingStatusAction(bookingId: string, formData: FormData) 
       } else {
         await Promise.allSettled([
           notification.customerEmail ? sendBookingStatusEmail({ customerName: notification.customerName, customerEmail: notification.customerEmail, companyName: workspaceAccess.workspaceName, status, service: notification.service, startsAt: notification.startsAt, endsAt: notification.endsAt, city: notification.city, timeZone: result.timeZone }) : Promise.resolve(null),
-          notification.customerPhone ? sendBookingCustomerSms({ customerPhone: notification.customerPhone, companyName: workspaceAccess.workspaceName, status, service: notification.service, startsAt: notification.startsAt, timeZone: result.timeZone }) : Promise.resolve(null),
+          notification.customerPhone ? sendBookingCustomerSms({ workspaceId: workspaceAccess.workspaceId, deliveryKey: "booking:" + bookingId + ":status:" + status + ":" + notification.startsAt, customerPhone: notification.customerPhone, companyName: workspaceAccess.workspaceName, status, service: notification.service, startsAt: notification.startsAt, timeZone: result.timeZone }) : Promise.resolve(null),
         ]);
       }
     }
@@ -451,9 +452,15 @@ async function resendMariaRescheduleNoticeAction(bookingId: string, formData: Fo
   "use server";
   const locale: Locale = getFormText(formData, "lang") === "en" ? "en" : "sv";
   const access = await requireBookingManager(bookingId, locale);
-  if (access.workspaceSlug !== "makeup-by-maria" || !getMariaBookingPortalBase()) {
+  const existingManagerLifecycle = process.env.VERCEL_ENV === "production"
+    && isMariaProductionExistingBookingLifecycleAuthorized()
+    && Boolean(getMariaExistingBookingPortalBase());
+  if (access.workspaceSlug !== "makeup-by-maria"
+    || (!getMariaBookingPortalBase() && !existingManagerLifecycle)) {
     redirectWithError(bookingId, "maria_preview", locale);
   }
+  // The journal retry itself limits the existing-booking exception to
+  // Maria manager reschedule events with tenant, recipient and revision proofs.
   const outcome = await retryMariaRescheduleNotice(bookingId, access.workspaceId);
   redirect(withLang(`/dashboard/bokningar/${bookingId}?maria_reschedule_mail=${outcome.ok || ("alreadySent" in outcome && outcome.alreadySent) ? "resent" : "failed"}`, locale));
 }
@@ -467,11 +474,18 @@ async function rescheduleBookingAction(bookingId: string, formData: FormData) {
   const isMaria = workspaceAccess.workspaceSlug === "makeup-by-maria";
   if (isMaria) {
     const current = await getDashboardBookingDetailInStockholm(bookingId);
-    const readiness = await getMariaBookingReadiness();
-    if (!readiness.enabled || readiness.workspaceId !== workspaceAccess.workspaceId
-      || !getMariaBookingPortalBase() || !current?.customer
-      || !isMariaBookingRecipientAllowed(current.customer.email)) {
-      redirectWithError(bookingId, "maria_preview", locale);
+    const existingLifecycle = process.env.VERCEL_ENV === "production"
+      && isMariaProductionExistingBookingLifecycleAuthorized()
+      && Boolean(getMariaExistingBookingPortalBase())
+      && Boolean(current?.customer)
+      && isMariaExistingBookingRecipientAllowed(current!.customer!.email);
+    if (!existingLifecycle) {
+      const readiness = await getMariaBookingReadiness();
+      if (!readiness.enabled || readiness.workspaceId !== workspaceAccess.workspaceId
+        || !getMariaBookingPortalBase() || !current?.customer
+        || !isMariaBookingRecipientAllowed(current.customer.email)) {
+        redirectWithError(bookingId, "maria_preview", locale);
+      }
     }
   }
 
@@ -487,7 +501,7 @@ async function rescheduleBookingAction(bookingId: string, formData: FormData) {
       } else {
         await Promise.allSettled([
           notification.customerEmail ? sendBookingRescheduleEmail({ customerName: notification.customerName, customerEmail: notification.customerEmail, companyName: workspaceAccess.workspaceName, service: notification.service, previousStartsAt: notification.previousStartsAt, startsAt: notification.startsAt, endsAt: notification.endsAt, city: notification.city, timeZone: result.timeZone }) : Promise.resolve(null),
-          notification.customerPhone ? sendBookingCustomerSms({ customerPhone: notification.customerPhone, companyName: workspaceAccess.workspaceName, status: "rescheduled", service: notification.service, previousStartsAt: notification.previousStartsAt, startsAt: notification.startsAt, timeZone: result.timeZone }) : Promise.resolve(null),
+          notification.customerPhone ? sendBookingCustomerSms({ workspaceId: workspaceAccess.workspaceId, deliveryKey: "booking:" + bookingId + ":move:" + notification.startsAt, customerPhone: notification.customerPhone, companyName: workspaceAccess.workspaceName, status: "rescheduled", service: notification.service, previousStartsAt: notification.previousStartsAt, startsAt: notification.startsAt, timeZone: result.timeZone }) : Promise.resolve(null),
         ]);
       }
     }
@@ -518,15 +532,21 @@ export default async function BookingDetailPage({ params, searchParams }: Bookin
   const mariaProductionReady = mariaManager && process.env.VERCEL_ENV === "production"
     && (await getMariaBookingReadiness()).enabled;
   const mariaManagerEnabled = mariaPreview || mariaProductionReady;
+  const mariaExistingLifecycleAllowed = mariaManager && process.env.VERCEL_ENV === "production"
+    && isMariaProductionExistingBookingLifecycleAuthorized()
+    && Boolean(getMariaExistingBookingPortalBase());
+  const mariaExistingRescheduleAllowed = mariaExistingLifecycleAllowed
+    && booking.source === "public_booking" && Boolean(customer?.email)
+    && isMariaExistingBookingRecipientAllowed(customer?.email ?? "");
   const mariaCancellationOnly = mariaManager && process.env.VERCEL_ENV === "production"
     && !mariaProductionReady && Boolean(getMariaExistingBookingPortalBase());
   const mariaBookingDetailReadOnly = isMariaBookingDetailReadOnly(access.workspaceSlug, process.env.VERCEL_ENV)
     && !mariaProductionReady && !mariaCancellationOnly;
   const mariaSwishControlsEnabled = mariaManager
-    && await hasDashboardModuleAccess("online_booking")
-    && (mariaPreview || (process.env.VERCEL_ENV === "production"
-      && isMariaProductionSwishAuthorized()
-      && isMariaProductionExistingBookingLifecycleAuthorized()));
+    && ((mariaPreview && await hasDashboardModuleAccess("online_booking"))
+      || (process.env.VERCEL_ENV === "production"
+        && isMariaProductionSwishAuthorized()
+        && isMariaProductionExistingBookingLifecycleAuthorized()));
   const manualSwish = mariaSwishControlsEnabled ? await readMariaManualSwishStatuses() : null;
   const mariaQrEligibility = mariaSwishControlsEnabled && manualSwish?.ok === true && manualSwish.entries[booking.id]
     ? await readMariaSwishQrEligibility(booking.id).catch((error) => {
@@ -534,9 +554,10 @@ export default async function BookingDetailPage({ params, searchParams }: Bookin
         return "unavailable" as const;
       })
     : "unavailable";
-  const mariaRescheduleRetryPending = Boolean(mariaManagerEnabled
+  const mariaRescheduleRetryPending = Boolean((mariaManagerEnabled || mariaCancellationOnly)
     && booking.source === "public_booking" && customer?.email
-    && isMariaBookingRecipientAllowed(customer.email)
+    && ((mariaManagerEnabled && isMariaBookingRecipientAllowed(customer.email))
+      || (mariaCancellationOnly && isMariaExistingBookingRecipientAllowed(customer.email)))
     && await hasPendingMariaRescheduleNotice(booking.id, access.workspaceId));
   const value = (key: "error" | "updated" | "rescheduled" | "created" | "maria_mail" | "payment_saved" | "payment_error" | "maria_reschedule_mail" | "lang") => { const item = query?.[key]; return Array.isArray(item) ? item[0] : item; };
   const locale: Locale = value("lang") === "en" ? "en" : "sv";
@@ -621,6 +642,10 @@ export default async function BookingDetailPage({ params, searchParams }: Bookin
   return <div className="grid gap-6">
     <DashboardPageHeader eyebrow={isEnglish ? "Booking profile" : "Bokningsprofil"} title={booking.title} description={isEnglish ? "View the booking details, connected customer and history. Change the status or reschedule the time securely." : "Se bokningens viktigaste uppgifter, kopplad kund och historik. Ändra status eller flytta tiden kontrollerat."} icon={CalendarClock} actions={<Link href={withLang("/dashboard/bokningar", locale)} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-control border border-[#d5ddd3] bg-surface px-4 py-2.5 text-sm font-bold text-brand"><ArrowLeft className="h-4 w-4" />{isEnglish ? "Back to bookings" : "Tillbaka till bokningar"}</Link>} />
     <DashboardActionFeedback statusMessage={successMessage} alertMessage={errorMessage ?? mariaRescheduleMailWarning ?? mariaEmailWarning} />
+    {access.workspaceSlug === "makeup-by-maria" && canManageWorkspaceMembers(access)
+      && ["cancelled","completed","no_show"].includes(booking.status) ? (
+      <BookingSoftDeleteControl bookingId={booking.id} action="hide" en={isEnglish} />
+    ) : null}
     <DashboardMetricGrid items={metrics} />
     {mariaSwishControlsEnabled && manualSwish?.ok === false ? (
       <p role="alert" className="rounded-lg bg-[#fff0ee] p-3 text-sm font-semibold text-[#a33b2f]">
@@ -705,7 +730,7 @@ export default async function BookingDetailPage({ params, searchParams }: Bookin
         </article> : null}
 
         {!mariaBookingDetailReadOnly ? (<>
-        {(!mariaManager || mariaManagerEnabled) ? <article className="rounded-card border border-line bg-surface p-6 shadow-sm"><h3 className="text-xl font-bold text-ink">{isEnglish ? "Change time" : "Ändra tid"}</h3><p className="mt-3 text-sm leading-7 text-ink-muted">{mariaManagerEnabled
+        {(!mariaManager || mariaManagerEnabled || mariaExistingRescheduleAllowed) ? <article className="rounded-card border border-line bg-surface p-6 shadow-sm"><h3 className="text-xl font-bold text-ink">{isEnglish ? "Change time" : "Ändra tid"}</h3><p className="mt-3 text-sm leading-7 text-ink-muted">{mariaManagerEnabled || mariaExistingRescheduleAllowed
   ? (isEnglish ? "Select a free start time. The original treatment duration is preserved, and the customer receives an email, never an automatic SMS." : "Välj en ledig starttid. Behandlingstiden behålls och kunden får ett mejl, aldrig automatiskt SMS.")
   : isEnglish ? "Select a new start time. The current duration is preserved, conflicts are blocked, and the customer receives SMS and email when contact details are available." : "Välj en ny starttid. Bokningens nuvarande längd behålls, krockar blockeras och kunden får SMS och e-post när kontaktuppgifter finns."}</p><form action={rescheduleAction} className="mt-5 grid gap-4 rounded-control border border-line bg-surface-subtle p-4"><input type="hidden" name="lang" value={locale} /><label className="grid gap-2 text-sm font-semibold text-ink">{isEnglish ? "New start time" : "Ny starttid"}<input name="startsAt" type="datetime-local" required className={fieldClass} /></label><button type="submit" className="inline-flex w-fit rounded-control bg-brand-deep px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-brand-deep">{isEnglish ? "Reschedule booking" : "Flytta bokning"}</button></form></article> : null}
 
@@ -714,8 +739,8 @@ export default async function BookingDetailPage({ params, searchParams }: Bookin
   : "Maria skickar enbart mejl till godkänd testmottagare: vid bekräftelse skickas Swish-handpenning 2 000 kr inom 24 timmar, och vid manuell avbokning ett vänligt avbokningsmejl. Inga SMS skickas.") : isEnglish
   ? "Maria emails the customer when you confirm or cancel. The 2,000 SEK Swish deposit is recorded manually after you check the payment. No automatic SMS or payment verification."
   : "Maria skickar mejl när du bekräftar eller avbokar. Handpenningen 2 000 kr i Swish registreras manuellt efter din kontroll. Inga automatiska SMS eller betalningsverifieringar.") : mariaCancellationOnly ? (isEnglish
-  ? "Existing bookings can still be cancelled and the customer receives a cancellation email. Confirmation and rescheduling remain disabled while new booking intake is paused."
-  : "Befintliga bokningar kan fortfarande avbokas med ett avbokningsmejl till kunden. Bekräftelse och ombokning är avstängda medan nybokningen är pausad.") : isEnglish ? "Confirmation or cancellation sends email and SMS when the customer has provided contact details." : "Vid bekräftelse eller avbokning skickas e-post och SMS när kunden har lämnat kontaktuppgifter."}</p><form action={statusAction} className="mt-5 grid gap-4 rounded-control border border-line bg-surface-subtle p-4"><input type="hidden" name="lang" value={locale} /><label className="grid gap-2 text-sm font-semibold text-ink">{isEnglish ? "New status" : "Ny status"}<select name="status" defaultValue={bookingStatusOptions.includes(booking.status as DashboardBookingStatus) ? booking.status : "requested"} className={fieldClass}>{(mariaCancellationOnly ? (["cancelled"] as const) : bookingStatusOptions).map((status) => <option key={status} value={status}>{bookingStatuses[status]}</option>)}</select></label><button type="submit" className="inline-flex w-fit rounded-control bg-brand-deep px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-brand-deep">{isEnglish ? "Update status" : "Uppdatera status"}</button></form></article>
+  ? "Existing bookings can still be cancelled and the customer receives a cancellation email. New booking intake and confirmation remain disabled while intake is paused."
+  : "Befintliga bokningar kan fortfarande avbokas med ett avbokningsmejl till kunden. Nybokning och bekräftelse är avstängda medan nybokningen är pausad.") : isEnglish ? "Confirmation or cancellation sends email and SMS when the customer has provided contact details." : "Vid bekräftelse eller avbokning skickas e-post och SMS när kunden har lämnat kontaktuppgifter."}</p><form action={statusAction} className="mt-5 grid gap-4 rounded-control border border-line bg-surface-subtle p-4"><input type="hidden" name="lang" value={locale} /><label className="grid gap-2 text-sm font-semibold text-ink">{isEnglish ? "New status" : "Ny status"}<select name="status" defaultValue={bookingStatusOptions.includes(booking.status as DashboardBookingStatus) ? booking.status : "requested"} className={fieldClass}>{(mariaCancellationOnly ? (["cancelled"] as const) : bookingStatusOptions).map((status) => <option key={status} value={status}>{bookingStatuses[status]}</option>)}</select></label><button type="submit" className="inline-flex w-fit rounded-control bg-brand-deep px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-brand-deep">{isEnglish ? "Update status" : "Uppdatera status"}</button></form></article>
         </>) : (
           <article className="rounded-card border border-line bg-surface p-6 shadow-sm">
             <h3 className="text-xl font-bold text-ink">{isEnglish ? "Booking changes unavailable" : "Bokningsändringar är avstängda"}</h3>

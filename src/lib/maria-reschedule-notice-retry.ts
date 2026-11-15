@@ -6,7 +6,8 @@ import { createCustomerCalendarToken } from "@/lib/customer-calendar";
 import { getSql } from "@/lib/db/server";
 import { getMariaBookingReadiness } from "@/lib/maria-booking-runtime";
 import { withMariaBookingNotificationLock } from "@/lib/maria-booking-notification-lock";
-import { getMariaBookingPortalBase, isMariaBookingRecipientAllowed } from "@/lib/maria-preview-customer-safety";
+import { getMariaBookingPortalBase, getMariaExistingBookingPortalBase, isMariaBookingRecipientAllowed, isMariaExistingBookingRecipientAllowed } from "@/lib/maria-preview-customer-safety";
+import { isMariaProductionExistingBookingLifecycleAuthorized } from "@/lib/maria-production-activation-policy";
 
 const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 type Notice=Record<string,unknown>;
@@ -50,9 +51,12 @@ async function currentNotice(id:string,workspaceId:string):Promise<Notice|null>{
   `;
   return rows[0] as Notice|undefined ?? null;
 }
-function targets(row:Notice){
+function targets(row:Notice, existingManagerLifecycle=false){
   const m=metadata(row.metadata);
-  return {m,customer:isMariaBookingRecipientAllowed(String(row.customer_email??""))
+  const customerAllowed=existingManagerLifecycle
+    ? isMariaExistingBookingRecipientAllowed(String(row.customer_email??""))
+    : isMariaBookingRecipientAllowed(String(row.customer_email??""));
+  return {m,customer:customerAllowed
       &&retryable(m.notice_customer,m.notice_attempted_at),
     owner:m.source!=="maria_manager_dashboard_reschedule"
       &&Boolean(row.owner_email) &&isMariaBookingRecipientAllowed(String(row.owner_email))
@@ -61,15 +65,25 @@ function targets(row:Notice){
 export async function hasPendingMariaRescheduleNotice(id:string,workspaceId:string){
   try{const row=await currentNotice(id,workspaceId);
     if(!row)return false;
-    const t=targets(row);return t.customer||t.owner;
+    const managerExisting = metadata(row.metadata).source==="maria_manager_dashboard_reschedule"
+      && process.env.VERCEL_ENV==="production"
+      && isMariaProductionExistingBookingLifecycleAuthorized()
+      && Boolean(getMariaExistingBookingPortalBase());
+    const t=targets(row,managerExisting);return t.customer||t.owner;
   }catch(error){console.error("Maria notification retry lookup failed",error);return false;}
 }
 /** Owner-only explicit retry; latest booking time and each recipient are revalidated. */
 export async function retryMariaRescheduleNotice(id:string,workspaceId:string){
   if(!uuid.test(id)||!uuid.test(workspaceId))return {ok:false as const};
-  const base=getMariaBookingPortalBase();
+  const existingBase=process.env.VERCEL_ENV==="production"
+    && isMariaProductionExistingBookingLifecycleAuthorized()
+    ? getMariaExistingBookingPortalBase() : null;
+  const normalBase=getMariaBookingPortalBase();
   const readiness=await getMariaBookingReadiness();
-  if(!base||!readiness.enabled||readiness.workspaceId!==workspaceId)return {ok:false as const};
+  const newIntakeReady=Boolean(normalBase && readiness.enabled && readiness.workspaceId===workspaceId);
+  if(!newIntakeReady&&!existingBase)return {ok:false as const};
+  const base=normalBase ?? existingBase;
+  if(!base)return {ok:false as const};
   const claimedAttempt = { eventId: "", attemptedAt: "" };
   type NoticeState = "sent" | "failed" | "uncertain";
   const started = { customer: false, owner: false };
@@ -81,7 +95,10 @@ export async function retryMariaRescheduleNotice(id:string,workspaceId:string){
     const sql=getSql();if(!sql)return {ok:false as const};
     const row=await currentNotice(id,workspaceId);
     if(signal?.aborted||!row)return {ok:false as const};
-    const {m,customer,owner}=targets(row);
+    const managerExisting = Boolean(existingBase
+      && metadata(row.metadata).source==="maria_manager_dashboard_reschedule");
+    if (!newIntakeReady && !managerExisting) return {ok:false as const};
+    const {m,customer,owner}=targets(row,managerExisting);
     const eventId=String(row.event_id??"");
     if(!uuid.test(eventId))return {ok:false as const};
     if (!customer && !owner) {
@@ -131,6 +148,7 @@ export async function retryMariaRescheduleNotice(id:string,workspaceId:string){
       ? await Promise.allSettled([sendBookingRescheduleEmail({
           customerName:String(row.customer_name),customerEmail:String(row.customer_email),
           companyName:String(row.company_name),branding:"makeup-by-maria",
+          ...(managerExisting && !newIntakeReady ? {allowExistingLifecycle:true} : {}),
           service:String(row.service_name),city:String(row.city??""),
           previousStartsAt:new Date(String(m.previous_starts_at)).toISOString(),
           startsAt:new Date(String(row.starts_at)).toISOString(),

@@ -327,10 +327,14 @@ export async function getDashboardBookings(): Promise<DashboardBooking[]> {
         b.starts_at,
         c.name as customer_name
       from bookings b
+      left join booking_soft_deletions archived
+        on archived.booking_id=b.id and archived.workspace_id::text=b.workspace_id
+        and archived.restored_at is null
       left join customers c
         on c.id = b.customer_id
        and c.workspace_id = b.workspace_id
       where b.workspace_id = ${workspaceId}
+        and archived.booking_id is null
       order by b.starts_at asc nulls last, b.created_at desc
       limit 20
     `;
@@ -602,11 +606,15 @@ export async function getDashboardCustomerDetail(customerId: string): Promise<Da
         b.starts_at,
         c.name as customer_name
       from bookings b
+      left join booking_soft_deletions archived
+        on archived.booking_id=b.id and archived.workspace_id::text=b.workspace_id
+        and archived.restored_at is null
       left join customers c
         on c.id = b.customer_id
        and c.workspace_id = b.workspace_id
       where b.workspace_id = ${workspaceId}
         and b.customer_id = ${customerId}
+        and archived.booking_id is null
       order by b.starts_at asc nulls last, b.created_at desc
       limit 20
     `;
@@ -698,11 +706,15 @@ export async function getDashboardBookingDetail(bookingId: string): Promise<Dash
         c.notes as customer_notes,
         c.created_at as customer_created_at
       from bookings b
+      left join booking_soft_deletions archived
+        on archived.booking_id=b.id and archived.workspace_id::text=b.workspace_id
+        and archived.restored_at is null
       left join customers c
         on c.id = b.customer_id
        and c.workspace_id = b.workspace_id
       where b.workspace_id = ${workspaceId}
         and b.id = ${bookingId}
+        and archived.booking_id is null
       limit 1
     `;
 

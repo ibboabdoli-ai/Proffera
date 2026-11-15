@@ -3,12 +3,20 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 vi.mock("server-only", () => ({}));
 const guards = vi.hoisted(() => ({
   portal: vi.fn((): string | null => "https://maria-qa.vercel.app"),
+  existingPortal: vi.fn((): string | null => "https://makeupbymaria.se"),
   allowed: vi.fn(() => true),
+  existingAllowed: vi.fn(() => true),
+  existingLifecycle: vi.fn(() => false),
   readiness: vi.fn(async () => ({ enabled: true })),
 }));
 vi.mock("@/lib/maria-preview-customer-safety", () => ({
   getMariaBookingPortalBase: guards.portal,
+  getMariaExistingBookingPortalBase: guards.existingPortal,
   isMariaBookingRecipientAllowed: guards.allowed,
+  isMariaExistingBookingRecipientAllowed: guards.existingAllowed,
+}));
+vi.mock("@/lib/maria-production-activation-policy", () => ({
+  isMariaProductionExistingBookingLifecycleAuthorized: guards.existingLifecycle,
 }));
 vi.mock("@/lib/maria-booking-runtime", () => ({
   getMariaBookingReadiness: guards.readiness,
@@ -56,6 +64,35 @@ describe("bounded booking reschedule email delivery", () => {
       ok: false, notSent: true, message: "Maria booking is not ready.",
     });
     expect(onRequestStart).not.toHaveBeenCalled();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("sends an authorized manager's existing reschedule notice without new-intake entitlement", async () => {
+    vi.clearAllMocks();
+    guards.existingLifecycle.mockReturnValue(true);
+    guards.readiness.mockResolvedValue({ enabled:false });
+    const fetchMock=vi.fn().mockResolvedValue({
+      ok:true,status:201,json:async()=>({messageId:"synthetic-existing"}),
+    });
+    vi.stubGlobal("fetch",fetchMock);
+    const result=await sendBookingRescheduleEmail({
+      ...booking,branding:"makeup-by-maria",allowExistingLifecycle:true,
+    });
+    expect(result).toEqual({ok:true,providerId:"synthetic-existing"});
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(guards.readiness).not.toHaveBeenCalled();
+    expect(guards.existingAllowed).toHaveBeenCalledWith("qa@example.invalid");
+  });
+
+  it("refuses the existing-manager exception without independent Production authorization", async () => {
+    vi.clearAllMocks();
+    guards.existingLifecycle.mockReturnValue(false);
+    guards.readiness.mockResolvedValue({enabled:false});
+    const fetchMock=vi.fn();
+    vi.stubGlobal("fetch",fetchMock);
+    expect(await sendBookingRescheduleEmail({
+      ...booking,branding:"makeup-by-maria",allowExistingLifecycle:true,
+    })).toMatchObject({ok:false,notSent:true});
     expect(fetchMock).not.toHaveBeenCalled();
   });
 

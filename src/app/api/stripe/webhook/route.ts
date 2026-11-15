@@ -60,13 +60,44 @@ export async function POST(request: Request) {
     }
   }
 
-  if (!subscriptionEvents.has(event.type)) return NextResponse.json({ received: true });
+  // A subscription.updated webhook can arrive before its renewal invoice is
+  // paid. Reconcile the actual paid invoice event too (no live Stripe mutation).
+  let paidInvoice: Stripe.Invoice | null = null;
+  let subscriptionId: string;
+  if (event.type === "invoice.paid") {
+    const invoice = event.data.object as Stripe.Invoice;
+    if (invoice.status !== "paid" || !invoice.id) {
+      return NextResponse.json({ received: true, applied: false });
+    }
+    const parent = invoice.parent?.subscription_details?.subscription;
+    subscriptionId = typeof parent === "string" ? parent : parent?.id ?? "";
+    if (!subscriptionId) return NextResponse.json({ received: true, applied: false });
+    paidInvoice = invoice;
+  } else if (subscriptionEvents.has(event.type)) {
+    subscriptionId = (event.data.object as Stripe.Subscription).id;
+  } else {
+    return NextResponse.json({ received: true });
+  }
 
-  const eventSubscription = event.data.object as Stripe.Subscription;
   let subscription: Stripe.Subscription;
-  try { subscription = await stripe.subscriptions.retrieve(eventSubscription.id); }
+  try { subscription = await stripe.subscriptions.retrieve(subscriptionId, {
+      expand: ["latest_invoice", "discounts"],
+    }); }
   catch (error) { console.error("Failed to retrieve current Stripe subscription state", error); return NextResponse.json({ error: "Stripe-abonnemanget kunde inte läsas." }, { status: 502 }); }
 
+  if (paidInvoice) {
+    const currentInvoice = subscription.latest_invoice;
+    const currentInvoiceId = typeof currentInvoice === "string"
+      ? currentInvoice : currentInvoice?.id ?? "";
+    const customerId = typeof subscription.customer === "string"
+      ? subscription.customer : subscription.customer?.id ?? "";
+    const invoiceCustomerId = typeof paidInvoice.customer === "string"
+      ? paidInvoice.customer : paidInvoice.customer?.id ?? "";
+    if (currentInvoiceId !== paidInvoice.id || !customerId
+      || invoiceCustomerId !== customerId || subscription.status !== "active") {
+      return NextResponse.json({ received: true, applied: false });
+    }
+  }
   const priceId = subscription.items.data[0]?.price.id ?? "";
   if (subscription.status === "canceled") {
     // A retired Stripe Price must still revoke access when the persisted

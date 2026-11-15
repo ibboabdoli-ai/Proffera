@@ -86,6 +86,16 @@ function compileSql(strings: TemplateStringsArray, values: unknown[]) {
       "insert into workspace_services (workspace_id,name,public_slug,duration_minutes,is_active,public_status,price_type,price_amount_minor) values ($1,'Synthetic bridal with trial','maria-bridal-trial-2026',180,true,'published','fixed',690000)",
       [workspaceId],
     );
+    // Test-only Stripe-bound paid plan: no Stripe API, customer or Production writes.
+    const planId = randomUUID();
+    await db.query(
+      "insert into workspace_plans (id,workspace_id,plan_key,status,current_period_start,current_period_end) values ($1::uuid,$2::uuid,'starter','active',now()-interval '1 day',now()+interval '29 days')",
+      [planId, workspaceId],
+    );
+    await db.query(
+      "insert into workspace_billing_subscriptions (id,workspace_id,workspace_plan_id,stripe_customer_id,stripe_subscription_id,stripe_price_id,status,current_period_start,current_period_end) values ($1::uuid,$2::uuid,$3::uuid,'cus_synthetic_maria','sub_synthetic_maria','price_synthetic_starter','active',now()-interval '1 day',now()+interval '29 days')",
+      [randomUUID(), workspaceId, planId],
+    );
 
     // Execute the actual runtime SQL template via a real isolated pg.Client.
     // No mock catalog booleans: malformed schema must be detected by PostgreSQL.
@@ -133,6 +143,26 @@ function compileSql(strings: TemplateStringsArray, values: unknown[]) {
     expect(runtime.queries[1]).toContain("maria_manual_closed_starts");
     expect(hasWorkspaceFeatureAccessForWorkspace)
       .toHaveBeenCalledWith(workspaceId, "online_booking");
+  });
+
+  it("rejects inactive billing even if the old feature flag remains enabled", async () => {
+    await db!.query("BEGIN");
+    await db!.query(
+      "update workspace_billing_subscriptions set status='cancelled' where workspace_id=$1::uuid",
+      [workspaceId],
+    );
+    expect(await getMariaBookingReadiness()).toEqual({ enabled: false });
+    expect(hasWorkspaceFeatureAccessForWorkspace).not.toHaveBeenCalled();
+  });
+
+  it("rejects expired paid periods even while subscription status remains active", async () => {
+    await db!.query("BEGIN");
+    await db!.query(
+      "update workspace_billing_subscriptions set current_period_end=now()-interval '1 minute' where workspace_id=$1::uuid",
+      [workspaceId],
+    );
+    expect(await getMariaBookingReadiness()).toEqual({ enabled: false });
+    expect(hasWorkspaceFeatureAccessForWorkspace).not.toHaveBeenCalled();
   });
 
   it("rejects a malformed 0072 table before any entitlement or booking check", async () => {

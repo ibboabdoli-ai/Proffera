@@ -94,7 +94,7 @@ describe("Makeup by Maria Preview deposit safety", () => {
     expect(guards.getSql).not.toHaveBeenCalled();
   });
 
-  it("never writes after booking entitlement lapses even when Production Swish and lifecycle are enabled", async () => {
+  it("preserves scoped existing-booking Swish management when new-booking entitlement lapses", async () => {
     vi.stubEnv("VERCEL_ENV", "production");
     vi.stubEnv("PROFFERA_MARIA_PUBLIC_SITE_ENABLED", "true");
     vi.stubEnv("PROFFERA_MARIA_PRODUCTION_ORIGIN", "https://makeupbymaria.se");
@@ -103,8 +103,25 @@ describe("Makeup by Maria Preview deposit safety", () => {
     vi.stubEnv("PROFFERA_MARIA_PRODUCTION_CUSTOMER_EMAIL_ENABLED", "true");
     guards.moduleAccess.mockResolvedValue(false);
     await expect(setMariaManualSwishStatus(bookingId, "paid"))
+      .resolves.toEqual({ changed: true });
+    expect(guards.moduleAccess).not.toHaveBeenCalled();
+    expect(guards.transaction).toHaveBeenCalledTimes(1);
+    const statements = guards.transaction.mock.calls[0]?.[0] as
+      Array<{ strings: string[]; values: unknown[] }>;
+    expect(statements[2]?.strings.join("?")).toContain("w.slug = 'makeup-by-maria'");
+    expect(statements[2]?.strings.join("?")).toContain("b.id = ?::uuid");
+  });
+
+  it("blocks Production Swish without its explicit permission even with a manager session", async () => {
+    vi.stubEnv("VERCEL_ENV", "production");
+    vi.stubEnv("PROFFERA_MARIA_PUBLIC_SITE_ENABLED", "true");
+    vi.stubEnv("PROFFERA_MARIA_PRODUCTION_ORIGIN", "https://makeupbymaria.se");
+    vi.stubEnv("PROFFERA_MARIA_PRODUCTION_MANAGER_ENABLED", "true");
+    vi.stubEnv("PROFFERA_MARIA_PRODUCTION_CUSTOMER_EMAIL_ENABLED", "true");
+    vi.stubEnv("PROFFERA_MARIA_PRODUCTION_SWISH_ENABLED", "false");
+    guards.moduleAccess.mockResolvedValue(false);
+    await expect(setMariaManualSwishStatus(bookingId, "paid"))
       .rejects.toThrow("MARIA_MANUAL_SWISH_FORBIDDEN");
-    expect(guards.getSql).not.toHaveBeenCalled();
     expect(guards.transaction).not.toHaveBeenCalled();
   });
 

@@ -63,6 +63,32 @@ describe("atomic refund cancellation projection", () => {
     });
   });
 
+  it("revokes Maria canonical booking access atomically without changing other workspaces", async () => {
+    mocks.sql.mockResolvedValueOnce([{
+      billing_count: 1, plan_count: 1, flag_count: 5, maria_flag_count: 1,
+    }]);
+    expect(await syncCancelledWorkspaceSubscription(sub, 1793890000, "price_old"))
+      .toEqual({ ok: true });
+    const [sql] = mocks.sql.mock.calls[0];
+    const mutation = sql.join("?").toLowerCase();
+    expect(mutation).toContain("'online_booking'");
+    expect(mutation).toContain("w.slug='makeup-by-maria'");
+    expect(mutation).toContain("changed_billing");
+  });
+
+  it("synchronizes Maria-only booking feature on Stripe active webhook", async () => {
+    mocks.sql.mockResolvedValueOnce([{ workspace_id: ws }]);
+    const active = { ...sub, status: "active" } as Stripe.Subscription;
+    expect(await syncWorkspaceSubscription(active, 1793890000, "starter", "price_old"))
+      .toEqual({ ok: true });
+    const [sql, ...params] = mocks.sql.mock.calls[0];
+    const mutation = sql.join("?").toLowerCase();
+    expect(mutation).toContain("'online_booking'");
+    expect(mutation).toContain("fv.feature_key <> 'online_booking'");
+    expect(mutation).toContain("w.slug='makeup-by-maria'");
+    expect(params).toContain(true);
+  });
+
   it("reconciles cancellation after same-subscription Price upgrade was not persisted", async () => {
     const newestPrice = "price_upgraded_not_yet_synced";
     const newer = { ...sub, items: { data: [{
