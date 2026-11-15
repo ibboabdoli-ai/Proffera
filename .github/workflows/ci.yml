@@ -1010,10 +1010,14 @@ jobs:
                     | (.body // "") as $body
                     | select(($body | [match("Reviewed commit:"; "gi")] | length) == 1)
                     | ($body | capture("^(?:<!-- codex-review-receipt:v1 -->\\r?\\n\\r?\\n)?Codex Review: Didn\u0027t find any major issues\\.(?:[^<`\\r\\n]*\\r?\\n(?:[ \\t]*\\r?\\n)* {0,3}|[ \\t]+(?=Reviewed commit:[ \\t]*[0-9a-fA-F]{10}(?:\\r?\\n|$)))(?:\\*\\*Reviewed commit:\\*\\*|Reviewed commit:)[ \\t]*(?<token>`?[0-9a-fA-F]{10,40}`?)[ \\t]*(?:\\r?\\n|$)").token) as $token
+                    | ($body | sub("^<!-- codex-review-receipt:v1 -->\\r?\\n\\r?\\n"; "") | split("\n")[0] | sub("^Codex Review: Didn\u0027t find any major issues\\."; "") | sub("Reviewed commit:.*$"; "") | gsub("^[ \\t\\r]+|[ \\t\\r]+$"; "")) as $intro
+                    | select(["", "Swish!", "Can\u0027t wait for the next one!", "What shall we delve into next?", "Another round soon, please!"] | index($intro) != null)
                     | ($body | match("Reviewed commit:[^\\r\\n]*(?:\\r?\\n|$)")) as $receipt
                     | ($body[($receipt.offset + $receipt.length):] | gsub("^[ \\t\\r\\n]+|[ \\t\\r\\n]+$"; "")) as $tail
-                    | select($tail == "" or ($tail | test("^<details>[ \\t]*<summary>ℹ️ About Codex in GitHub</summary>[\\s\\S]*</details>$")))
-                    | select(($tail | test("^[ \\t]*(?:[-*>][ \\t]*)*(?:\\*\\*)?(?:P[012]|Critical|Major)\\b"; "im")) | not)
+                    | ($tail | gsub("[ \\t\\r\\n]+"; " ")) as $footer
+                    | "<details> <summary>ℹ️ About Codex in GitHub</summary> <br/> [Your team has set up Codex to review pull requests in this repo](https://chatgpt.com/codex/cloud/settings/general). Reviews are triggered when you - Open a pull request for review " as $footer_start
+                    | "- Comment \"@codex review\". If Codex has suggestions, it will comment; otherwise it will react with 👍. Codex can also answer questions or update the PR. Try commenting \"@codex address that feedback\". </details>" as $footer_end
+                    | select($footer == "" or $footer == ($footer_start + $footer_end) or $footer == ($footer_start + "- Mark a draft as ready " + $footer_end))
                     | select(($token | startswith("`")) == ($token | endswith("`")))
                     | ($token | gsub("`"; "") | ascii_downcase) as $reviewed
                     | select(($reviewed | length) == 10 or ($reviewed | length) == 40)

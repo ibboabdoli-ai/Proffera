@@ -44,9 +44,14 @@ export function cleanCodexReviewedCommit(body) {
   if ([...text.matchAll(/Reviewed commit:/gi)].length !== 1) return "";
   const receipt = text.match(/^(?:<!-- codex-review-receipt:v1 -->\r?\n\r?\n)?Codex Review: Didn't find any major issues\.(?:[^<`\r\n]*\r?\n(?:[ \t]*\r?\n)* {0,3}|[ \t]+(?=Reviewed commit:[ \t]*[0-9a-fA-F]{10}(?:\r?\n|$)))(?:\*\*Reviewed commit:\*\*|Reviewed commit:)[ \t]*(`?[0-9a-fA-F]{10,40}`?)[ \t]*(?:\r?\n|$)/);
   const token = receipt?.[1] ?? "";
+  const intro = text.match(/^(?:<!-- codex-review-receipt:v1 -->\r?\n\r?\n)?Codex Review: Didn't find any major issues\.([^\r\n]*)/)?.[1]
+    ?.split("Reviewed commit:")[0].trim();
+  if (!["", "Swish!", "Can't wait for the next one!", "What shall we delve into next?", "Another round soon, please!"].includes(intro)) return "";
   const tail = text.slice(receipt?.[0].length ?? 0).trim();
-  if (tail && !/^<details>[ \t]*<summary>ℹ️ About Codex in GitHub<\/summary>[\s\S]*<\/details>$/.test(tail)) return "";
-  if (/^[ \t]*(?:[-*>][ \t]*)*(?:\*\*)?(?:P[012]|Critical|Major)\b/im.test(tail)) return "";
+  const footer = tail.replace(/\s+/g, " ").trim();
+  const footerStart = "<details> <summary>ℹ️ About Codex in GitHub</summary> <br/> [Your team has set up Codex to review pull requests in this repo](https://chatgpt.com/codex/cloud/settings/general). Reviews are triggered when you - Open a pull request for review ";
+  const footerEnd = '- Comment "@codex review". If Codex has suggestions, it will comment; otherwise it will react with 👍. Codex can also answer questions or update the PR. Try commenting "@codex address that feedback". </details>';
+  if (footer && footer !== footerStart + footerEnd && footer !== footerStart + "- Mark a draft as ready " + footerEnd) return "";
   const reviewed = token.replaceAll("`", "").toLowerCase();
   return token.startsWith("`") === token.endsWith("`") && [10, 40].includes(reviewed.length) ? reviewed : "";
 }

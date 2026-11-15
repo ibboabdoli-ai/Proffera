@@ -13,8 +13,20 @@ const head = "a".repeat(40);
 const otherHead = "b".repeat(40);
 const requestTime = "2099-09-05T12:01:00Z";
 const reportedTime = "2099-09-05T12:02:00Z";
+const officialFooter = `<details> <summary>ℹ️ About Codex in GitHub</summary>
+<br/>
+
+[Your team has set up Codex to review pull requests in this repo](https://chatgpt.com/codex/cloud/settings/general). Reviews are triggered when you
+- Open a pull request for review
+- Mark a draft as ready
+- Comment "@codex review".
+
+If Codex has suggestions, it will comment; otherwise it will react with 👍.
+
+Codex can also answer questions or update the PR. Try commenting "@codex address that feedback".
+</details>`;
 const official = (sha = head) =>
-  `<!-- codex-review-receipt:v1 -->\n\nCodex Review: Didn't find any major issues. Another round soon, please!\n\n**Reviewed commit:** \`${sha.slice(0, 10)}\`\n\n<details> <summary>ℹ️ About Codex in GitHub</summary>Additional review metadata</details>`;
+  `<!-- codex-review-receipt:v1 -->\n\nCodex Review: Didn't find any major issues. Can't wait for the next one!\n\n**Reviewed commit:** \`${sha.slice(0, 10)}\`\n\n${officialFooter}`;
 const legacy = (sha = head) =>
   `Codex Review: Didn't find any major issues. Reviewed commit: ${sha.slice(0, 10)}`;
 
@@ -122,6 +134,9 @@ describe("exact-head Codex review receipt recognition (#961)", () => {
     for (const body of [
       official() + "\nP1: Authorization bypass remains.",
       legacy() + "\nP2: Retry can duplicate an external action.",
+      official().replace("<br/>", "<br/>\nFinding: a P1 authorization bypass remains exploitable."),
+      official().replace("<br/>", "<br/>\n<h2>Security issue</h2>"),
+      legacy().replace("Reviewed commit:", "P1: Authorization bypass remains. Reviewed commit:"),
     ]) {
       expect(runCi([codexComment(body)])).toBe(0);
       expect(runAutomerge([codexComment(body)])).toBe(0);
