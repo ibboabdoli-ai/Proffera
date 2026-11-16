@@ -2,7 +2,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { sendBookingVerificationEmail } from "./booking-verification-email";
 
-type EmailPayload = { htmlContent: string; textContent: string; subject: string };
+type EmailPayload = {
+  htmlContent?: string;
+  textContent: string;
+  subject: string;
+  sender: { email: string };
+  replyTo: { email: string };
+};
 const fixture = {
   customerName: "QA Client",
   customerEmail: "qa@example.invalid",
@@ -16,6 +22,9 @@ beforeEach(() => {
   sent = [];
   vi.stubEnv("BREVO_API_KEY", "fake-test-key");
   vi.stubEnv("PROFFERA_PREVIEW_BREVO_API_KEY", "dedicated-qa-only");
+  vi.stubEnv("MARIA_BOOKING_OTP_TEXT_ONLY", "false");
+  vi.stubEnv("BOOKING_FROM_EMAIL", "Proffera Booking <booking@proffera.se>");
+  vi.stubEnv("BOOKING_REPLY_TO_EMAIL", "Proffera <info@proffera.se>");
   vi.stubEnv("VERCEL_ENV", "preview");
   vi.stubEnv("VERCEL_URL", "qa.vercel.app");
   vi.stubGlobal("fetch", vi.fn(async (_url: string, options: RequestInit) => {
@@ -46,6 +55,23 @@ describe("Maria verification email branding isolation", () => {
     vi.stubEnv("VERCEL_ENV", "production");
     expect((await sendBookingVerificationEmail({ ...fixture, branding: "makeup-by-maria" })).ok).toBe(true);
     expect(sent[1]!.htmlContent).not.toContain("maria-client-logo.jpg");
+  });
+
+  it("allows text-only Maria OTP in Production without changing Preview or other workspaces", async () => {
+    vi.stubEnv("MARIA_BOOKING_OTP_TEXT_ONLY", "true");
+    vi.stubEnv("VERCEL_ENV", "production");
+    expect((await sendBookingVerificationEmail({ ...fixture, branding: "makeup-by-maria" })).ok).toBe(true);
+    expect(sent[0]!.htmlContent).toBeUndefined();
+    expect(sent[0]!.textContent).toContain("123456");
+    expect(sent[0]!.sender.email).toBe("booking@proffera.se");
+    expect(sent[0]!.replyTo.email).toBe("info@proffera.se");
+
+    expect((await sendBookingVerificationEmail(fixture)).ok).toBe(true);
+    expect(sent[1]!.htmlContent).toContain("Verifieringskod");
+
+    vi.stubEnv("VERCEL_ENV", "preview");
+    expect((await sendBookingVerificationEmail({ ...fixture, branding: "makeup-by-maria" })).ok).toBe(true);
+    expect(sent[2]!.htmlContent).toContain("maria-client-logo.jpg");
   });
 
   it.each(["untrusted.example", "qa.vercel.app:444", "qa.vercel.app/other"])(
