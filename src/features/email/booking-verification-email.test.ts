@@ -57,7 +57,7 @@ describe("Maria verification email branding isolation", () => {
     expect(sent[1]!.htmlContent).not.toContain("maria-client-logo.jpg");
   });
 
-  it("allows text-only Maria OTP in Production without changing Preview or other workspaces", async () => {
+  it("omits HTML from Maria's Production request without changing Preview or other workspaces", async () => {
     vi.stubEnv("MARIA_BOOKING_OTP_TEXT_ONLY", "true");
     vi.stubEnv("VERCEL_ENV", "production");
     expect((await sendBookingVerificationEmail({ ...fixture, branding: "makeup-by-maria" })).ok).toBe(true);

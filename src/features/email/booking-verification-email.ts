@@ -55,8 +55,8 @@ export async function sendBookingVerificationEmail(input: BookingVerificationEma
   const mariaOrigin = input.branding === "makeup-by-maria"
     ? getMariaBookingPortalBase() : null;
   const mariaLogo = mariaOrigin ? mariaEmailLogoHtml(mariaOrigin) : "";
-  // An explicit Maria-only mitigation for Brevo's observed HTML tracking URLs.
-  // Keep Preview branding and every other workspace's email unchanged.
+  // Optional Maria-only text variant for a controlled deliverability comparison.
+  // Brevo may still add HTML and tracking after accepting a text-only request.
   const textOnlyMariaOtp = input.branding === "makeup-by-maria"
     && process.env.VERCEL_ENV === "production"
     && process.env.MARIA_BOOKING_OTP_TEXT_ONLY === "true";
