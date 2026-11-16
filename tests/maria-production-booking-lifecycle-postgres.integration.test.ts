@@ -13,6 +13,7 @@ const runtime = vi.hoisted(() => ({
   databaseUrl: "",
   userId: "synthetic-maria-manager",
 }));
+const ownerSmsMock = vi.hoisted(() => vi.fn().mockResolvedValue({ok:true,skipped:false,providerId:"synthetic-owner-sms"}));
 vi.mock("server-only", () => ({}));
 vi.mock("@neondatabase/serverless", () => ({ neon: () => runtime.makeSql?.() ?? null }));
 vi.mock("@/lib/db/database-url", () => ({
@@ -43,7 +44,7 @@ vi.mock("@/features/email/booking-change-email", () => ({ sendBookingChangeEmail
 vi.mock("next/navigation", () => ({ redirect: (url: string) => { throw new Error("TEST_REDIRECT:" + url); } }));
 vi.mock("@/features/sms/booking-sms", () => ({
   sendBookingVerificationSms: () => { throw new Error("Maria must never send verification SMS"); },
-  sendBookingOwnerSms: () => { throw new Error("Maria must never send owner SMS"); },
+  sendBookingOwnerSms: ownerSmsMock,
 }));
 
 import { beginBookingEmailVerification, resendPublicBookingCode, verifyPublicBookingCode } from "@/lib/public-booking-verification";
@@ -101,7 +102,7 @@ function compileSql(strings: TemplateStringsArray, values: unknown[]): Query {
       "insert into workspaces(id,slug,name,status,public_booking_slug) values($1::uuid,'makeup-by-maria','Synthetic Maria Live','active','makeup-by-maria')",
       [workspaceId]);
     await db.query(
-      "insert into workspace_settings(workspace_id,company_name,contact_email,time_zone,billing_currency) values($1,'Makeup by Maria','maria@example.invalid','Europe/Stockholm','SEK') on conflict(workspace_id) do update set contact_email=excluded.contact_email,time_zone=excluded.time_zone,billing_currency=excluded.billing_currency",
+      "insert into workspace_settings(workspace_id,company_name,contact_email,contact_phone,time_zone,billing_currency) values($1,'Makeup by Maria','maria@example.invalid','+46700000001','Europe/Stockholm','SEK') on conflict(workspace_id) do update set contact_email=excluded.contact_email,contact_phone=excluded.contact_phone,time_zone=excluded.time_zone,billing_currency=excluded.billing_currency",
       [workspaceId]);
     // Existing lifecycle tests exercise a PAID Maria workspace. A missing
     // Stripe subscription fixture must not bypass the Production entitlement.
@@ -338,6 +339,10 @@ function compileSql(strings: TemplateStringsArray, values: unknown[]): Query {
     // Canonical UUID hashing must work with equivalent uppercase URL IDs.
     const verified=await verifyPublicBookingCode(id,resentCode!,"ar");
     expect(verified).toMatchObject({ok:true,slug:"makeup-by-maria"});
+    expect(ownerSmsMock).toHaveBeenCalledWith(expect.objectContaining({
+      workspaceId, deliveryKey: expect.stringMatching(/^booking:.+:owner$/),
+      ownerPhone:"+46700000001", companyName:"Makeup by Maria",
+    }));
     expect(verified.ok && verified.portalUrl).toMatch(/^https:\/\/makeupbymaria\.se\/mina-bokningar\//);
     const bookings=await db!.query<{id:string;status:string}>(
       "select id::text,status from bookings where workspace_id=$1 and source='public_booking'",[workspaceId]);
