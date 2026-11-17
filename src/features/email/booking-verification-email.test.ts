@@ -123,3 +123,93 @@ describe("Maria verification email branding isolation", () => {
     });
   });
 });
+
+
+describe("optional Maria Resend verification provider", () => {
+  it("uses Resend only for Maria in Production after an explicit opt-in", async () => {
+    vi.stubEnv("VERCEL_ENV", "production");
+    vi.stubEnv("MARIA_BOOKING_OTP_PROVIDER", "resend");
+    vi.stubEnv("MARIA_RESEND_API_KEY", "qa-resend-key");
+    const request = vi.fn(async (_url: string, _options: RequestInit) => ({
+      ok: true, json: async () => ({ id: "resend-test-id" }),
+    }));
+    vi.stubGlobal("fetch", request);
+
+    expect(await sendBookingVerificationEmail({ ...fixture, branding: "makeup-by-maria" })).toEqual({
+      ok: true, providerId: "resend-test-id",
+    });
+    expect(request).toHaveBeenCalledOnce();
+    const [url, options] = request.mock.calls[0]!;
+    expect(url).toBe("https://api.resend.com/emails");
+    expect(options.headers).toMatchObject({ Authorization: "Bearer qa-resend-key" });
+    const body = JSON.parse(String(options.body));
+    expect(body.from).toBe("Proffera Booking <booking@proffera.se>");
+    expect(body.to).toEqual(["qa@example.invalid"]);
+    expect(body.reply_to).toBe("info@proffera.se");
+    expect(body.html).toContain("123456");
+    expect(body.text).toContain("123456");
+    expect(body).not.toHaveProperty("htmlContent");
+  });
+
+  it("keeps other workspaces on Brevo even when Maria uses Resend", async () => {
+    vi.stubEnv("VERCEL_ENV", "production");
+    vi.stubEnv("MARIA_BOOKING_OTP_PROVIDER", "resend");
+    vi.stubEnv("MARIA_RESEND_API_KEY", "qa-resend-key");
+    const request = vi.fn(async () => ({ ok: true, json: async () => ({ messageId: "brevo-test-id" }) }));
+    vi.stubGlobal("fetch", request);
+    expect((await sendBookingVerificationEmail(fixture)).ok).toBe(true);
+    expect(request.mock.calls[0]![0]).toBe("https://api.brevo.com/v3/smtp/email");
+  });
+
+  it("keeps Preview on isolated Brevo credentials even if Resend is selected", async () => {
+    vi.stubEnv("MARIA_BOOKING_OTP_PROVIDER", "resend");
+    vi.stubEnv("MARIA_RESEND_API_KEY", "qa-resend-key");
+    const request = vi.fn(async () => ({ ok: true, json: async () => ({ messageId: "preview-test-id" }) }));
+    vi.stubGlobal("fetch", request);
+    expect((await sendBookingVerificationEmail({ ...fixture, branding: "makeup-by-maria" })).ok).toBe(true);
+    expect(request.mock.calls[0]![0]).toBe("https://api.brevo.com/v3/smtp/email");
+    expect(request.mock.calls[0]![1].headers).toMatchObject({ "api-key": "dedicated-qa-only" });
+  });
+
+  it("does not fall back or send when the selected Resend key is missing", async () => {
+    vi.stubEnv("VERCEL_ENV", "production");
+    vi.stubEnv("MARIA_BOOKING_OTP_PROVIDER", "resend");
+    vi.stubEnv("MARIA_RESEND_API_KEY", "");
+    const request = vi.fn();
+    vi.stubGlobal("fetch", request);
+    expect(await sendBookingVerificationEmail({ ...fixture, branding: "makeup-by-maria" })).toEqual({
+      ok: false, message: "Email provider is not configured.", deliveryOutcome: "not_sent",
+    });
+    expect(request).not.toHaveBeenCalled();
+  });
+
+  it.each([400, 401, 403, 422, 429])("classifies Resend HTTP %i as definitely not sent", async (status) => {
+    vi.stubEnv("VERCEL_ENV", "production");
+    vi.stubEnv("MARIA_BOOKING_OTP_PROVIDER", "resend");
+    vi.stubEnv("MARIA_RESEND_API_KEY", "qa-resend-key");
+    const request = vi.fn(async () => ({ ok: false, status, json: async () => ({ message: "rejected" }) }));
+    vi.stubGlobal("fetch", request);
+    expect(await sendBookingVerificationEmail({ ...fixture, branding: "makeup-by-maria" })).toEqual({
+      ok: false, message: "Email delivery failed.", deliveryOutcome: "not_sent",
+    });
+    expect(request).toHaveBeenCalledOnce();
+  });
+
+  it("preserves uncertain Resend outcomes without triggering Brevo fallback", async () => {
+    vi.stubEnv("VERCEL_ENV", "production");
+    vi.stubEnv("MARIA_BOOKING_OTP_PROVIDER", "resend");
+    vi.stubEnv("MARIA_RESEND_API_KEY", "qa-resend-key");
+    const request = vi.fn(async () => ({ ok: false, status: 503, json: async () => ({ message: "unavailable" }) }));
+    vi.stubGlobal("fetch", request);
+    expect(await sendBookingVerificationEmail({ ...fixture, branding: "makeup-by-maria" })).toEqual({
+      ok: false, message: "Email delivery failed.", deliveryOutcome: "uncertain",
+    });
+    expect(request).toHaveBeenCalledOnce();
+    const lostResponse = vi.fn(async () => { throw new Error("lost response"); });
+    vi.stubGlobal("fetch", lostResponse);
+    expect(await sendBookingVerificationEmail({ ...fixture, branding: "makeup-by-maria" })).toEqual({
+      ok: false, message: "Email delivery failed.", deliveryOutcome: "uncertain",
+    });
+    expect(lostResponse).toHaveBeenCalledOnce();
+  });
+});
