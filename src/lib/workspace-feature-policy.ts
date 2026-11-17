@@ -10,6 +10,22 @@ export function normalizeWorkspacePlan(value: unknown): WorkspacePlanKey | null 
   return value === "starter" || value === "professional" || value === "business" ? value : null;
 }
 
+/**
+ * Maria has a workspace-specific paid Starter SMS allowance. Keep the shared
+ * feature catalog minimum at Professional for every other workspace.
+ */
+export function resolveWorkspaceFeatureMinimumPlan(input: {
+  workspaceSlug: unknown;
+  featureKey: unknown;
+  catalogMinimumPlan: unknown;
+}): WorkspacePlanKey {
+  if (input.workspaceSlug === "makeup-by-maria" && input.featureKey === "sms") {
+    return "starter";
+  }
+
+  return normalizeWorkspacePlan(input.catalogMinimumPlan) ?? "starter";
+}
+
 function hasCurrentPeriod(value: unknown, now: Date) {
   if (value === null || value === undefined) return null;
   const periodEnd = new Date(String(value));
@@ -44,6 +60,6 @@ export function isWorkspacePlanFeatureIncluded(input: {
   // Internal/manual active plans may intentionally have no period end. When an
   // active plan does carry an end date (for example a Stripe-synchronised plan),
   // fail closed once that period is expired or malformed instead of trusting a
-  // stale `active` status after a missed webhook.
+  // stale active status after a missed webhook.
   return hasCurrentPeriod(input.planPeriodEnd, now) !== false;
 }
