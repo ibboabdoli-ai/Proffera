@@ -107,6 +107,19 @@ describe("workspace feature plan policy", () => {
       catalogMinimumPlan: "professional",
     })).toBe("starter");
 
+    const mariaMinimumPlan = resolveWorkspaceFeatureMinimumPlan({
+      workspaceSlug: "makeup-by-maria",
+      featureKey: "sms",
+      catalogMinimumPlan: "professional",
+    });
+    expect(isWorkspacePlanFeatureIncluded({
+      planKey: "starter",
+      planStatus: "active",
+      planPeriodEnd: "2026-08-20T09:00:00.000Z",
+      minimumPlan: mariaMinimumPlan,
+      now,
+    })).toBe(true);
+
     expect(resolveWorkspaceFeatureMinimumPlan({
       workspaceSlug: "iboren",
       featureKey: "sms",
