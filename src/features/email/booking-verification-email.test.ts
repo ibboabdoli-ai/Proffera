@@ -155,7 +155,7 @@ describe("optional Maria Resend verification provider", () => {
     vi.stubEnv("VERCEL_ENV", "production");
     vi.stubEnv("MARIA_BOOKING_OTP_PROVIDER", "resend");
     vi.stubEnv("MARIA_RESEND_API_KEY", "qa-resend-key");
-    const request = vi.fn(async () => ({ ok: true, json: async () => ({ messageId: "brevo-test-id" }) }));
+    const request = vi.fn(async (_url: string, _options: RequestInit) => ({ ok: true, json: async () => ({ messageId: "brevo-test-id" }) }));
     vi.stubGlobal("fetch", request);
     expect((await sendBookingVerificationEmail(fixture)).ok).toBe(true);
     expect(request.mock.calls[0]![0]).toBe("https://api.brevo.com/v3/smtp/email");
@@ -164,7 +164,7 @@ describe("optional Maria Resend verification provider", () => {
   it("keeps Preview on isolated Brevo credentials even if Resend is selected", async () => {
     vi.stubEnv("MARIA_BOOKING_OTP_PROVIDER", "resend");
     vi.stubEnv("MARIA_RESEND_API_KEY", "qa-resend-key");
-    const request = vi.fn(async () => ({ ok: true, json: async () => ({ messageId: "preview-test-id" }) }));
+    const request = vi.fn(async (_url: string, _options: RequestInit) => ({ ok: true, json: async () => ({ messageId: "preview-test-id" }) }));
     vi.stubGlobal("fetch", request);
     expect((await sendBookingVerificationEmail({ ...fixture, branding: "makeup-by-maria" })).ok).toBe(true);
     expect(request.mock.calls[0]![0]).toBe("https://api.brevo.com/v3/smtp/email");
