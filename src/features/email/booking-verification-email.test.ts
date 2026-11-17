@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { sendBookingVerificationEmail } from "./booking-verification-email";
 
 type EmailPayload = {
-  htmlContent?: string;
+  htmlContent: string;
   textContent: string;
   subject: string;
   sender: { email: string };
@@ -22,7 +22,6 @@ beforeEach(() => {
   sent = [];
   vi.stubEnv("BREVO_API_KEY", "fake-test-key");
   vi.stubEnv("PROFFERA_PREVIEW_BREVO_API_KEY", "dedicated-qa-only");
-  vi.stubEnv("MARIA_BOOKING_OTP_TEXT_ONLY", "false");
   vi.stubEnv("BOOKING_FROM_EMAIL", "Proffera Booking <booking@proffera.se>");
   vi.stubEnv("BOOKING_REPLY_TO_EMAIL", "Proffera <info@proffera.se>");
   vi.stubEnv("VERCEL_ENV", "preview");
@@ -57,17 +56,25 @@ describe("Maria verification email branding isolation", () => {
     expect(sent[1]!.htmlContent).not.toContain("maria-client-logo.jpg");
   });
 
-  it("omits HTML from Maria's Production request without changing Preview or other workspaces", async () => {
+  it("keeps Maria's HTML and logo in Production, even with the retired text flag", async () => {
     vi.stubEnv("MARIA_BOOKING_OTP_TEXT_ONLY", "true");
     vi.stubEnv("VERCEL_ENV", "production");
+    vi.stubEnv("PROFFERA_MARIA_PUBLIC_SITE_ENABLED", "true");
+    vi.stubEnv("PROFFERA_MARIA_PRODUCTION_BOOKING_ENABLED", "true");
+    vi.stubEnv("PROFFERA_MARIA_PRODUCTION_MANAGER_ENABLED", "true");
+    vi.stubEnv("PROFFERA_MARIA_PRODUCTION_CUSTOMER_EMAIL_ENABLED", "true");
+    vi.stubEnv("PROFFERA_MARIA_PRODUCTION_YEAR_EDITOR_ENABLED", "true");
+    vi.stubEnv("PROFFERA_MARIA_PRODUCTION_ORIGIN", "https://makeupbymaria.se");
     expect((await sendBookingVerificationEmail({ ...fixture, branding: "makeup-by-maria" })).ok).toBe(true);
-    expect(sent[0]!.htmlContent).toBeUndefined();
+    expect(sent[0]!.htmlContent).toContain("https://makeupbymaria.se/demo/makeup-by-maria/assets/maria-client-logo.jpg");
+    expect(sent[0]!.htmlContent).toContain("Verifieringskod");
     expect(sent[0]!.textContent).toContain("123456");
     expect(sent[0]!.sender.email).toBe("booking@proffera.se");
     expect(sent[0]!.replyTo.email).toBe("info@proffera.se");
 
     expect((await sendBookingVerificationEmail(fixture)).ok).toBe(true);
     expect(sent[1]!.htmlContent).toContain("Verifieringskod");
+    expect(sent[1]!.htmlContent).not.toContain("maria-client-logo.jpg");
 
     vi.stubEnv("VERCEL_ENV", "preview");
     expect((await sendBookingVerificationEmail({ ...fixture, branding: "makeup-by-maria" })).ok).toBe(true);
