@@ -687,6 +687,62 @@ describe("Proffera standing automerge authorization", () => {
     expect(output).toContain("AUTH_MODE=fresh-exact-head-owner");
   });
 
+
+  it("accepts unedited exact-head owner approval with Windows CRLF", () => {
+    const currentHead = "3333333333333333333333333333333333333333";
+    const output = runAuthorizationFixture({
+      pr: basePr({
+        headRefName: "work/proffera-other-manual-path",
+        headRefOid: currentHead,
+        labels: [{ name: "ibbo-approved" }],
+      }),
+      events: [{
+        id: 1,
+        event: "labeled",
+        created_at: "2099-09-05T12:00:00Z",
+        label: { name: "ibbo-approved" },
+        actor: { login: "ibboabdoli-ai" },
+      }],
+      comments: [{
+        node_id: "UNEDITED_INITIAL_CRLF",
+        user: { login: "ibboabdoli-ai" },
+        created_at: "2099-09-05T12:00:00Z",
+        body: `<!-- proffera-owner-approval:${currentHead} -->\r\nIBBO-APPROVED: ${currentHead}`,
+      }],
+    });
+    expect(output).toContain("AUTH_MODE=fresh-exact-head-owner");
+    expect(output).not.toContain("REFUSED:");
+  });
+
+  it.each(["\r\n", " ", "\r\nextra"])(
+    "rejects a CRLF owner approval with trailing content %j",
+    (suffix) => {
+      const currentHead = "3333333333333333333333333333333333333333";
+      const output = runAuthorizationFixture({
+        pr: basePr({
+          headRefName: "work/proffera-other-manual-path",
+          headRefOid: currentHead,
+          labels: [{ name: "ibbo-approved" }],
+        }),
+        events: [{
+          id: 1,
+          event: "labeled",
+          created_at: "2099-09-05T12:00:00Z",
+          label: { name: "ibbo-approved" },
+          actor: { login: "ibboabdoli-ai" },
+        }],
+        comments: [{
+          node_id: "UNEDITED_INITIAL_CRLF_EXTRA",
+          user: { login: "ibboabdoli-ai" },
+          created_at: "2099-09-05T12:00:00Z",
+          body: `<!-- proffera-owner-approval:${currentHead} -->\r\nIBBO-APPROVED: ${currentHead}${suffix}`,
+        }],
+      });
+      expect(output).toContain("REFUSED:");
+      expect(output).not.toContain("AUTH_MODE=fresh-exact-head-owner");
+    },
+  );
+
   it("uses paginated event and comment history to find owner evidence on a later page", () => {
     const currentHead = "5555555555555555555555555555555555555555";
     const output = runAuthorizationFixture({
@@ -848,6 +904,23 @@ describe("Proffera standing automerge authorization", () => {
 
   it("keeps unchanged owner authorization valid through final revalidation", () => {
     const fixture = runPreMergeAuthorizationFixture({});
+    expect(fixture.output).toContain("INITIAL_AUTH_OK:fresh-exact-head-owner");
+    expect(fixture.output).toContain("PRE_MERGE_OK");
+    expect(fixture.output).not.toContain("REFUSED:");
+  });
+
+
+  it("revalidates an exact unedited Windows CRLF owner comment before merge", () => {
+    const headSha = "4444444444444444444444444444444444444444";
+    const fixture = runPreMergeAuthorizationFixture({
+      finalCommentPages: [[{
+        id: 10,
+        node_id: "UNEDITED_FINAL_CRLF",
+        user: { login: "ibboabdoli-ai" },
+        created_at: "2099-09-05T12:00:00Z",
+        body: `<!-- proffera-owner-approval:${headSha} -->\r\nIBBO-APPROVED: ${headSha}`,
+      }], []],
+    });
     expect(fixture.output).toContain("INITIAL_AUTH_OK:fresh-exact-head-owner");
     expect(fixture.output).toContain("PRE_MERGE_OK");
     expect(fixture.output).not.toContain("REFUSED:");
