@@ -60,6 +60,6 @@ export function isWorkspacePlanFeatureIncluded(input: {
   // Internal/manual active plans may intentionally have no period end. When an
   // active plan does carry an end date (for example a Stripe-synchronised plan),
   // fail closed once that period is expired or malformed instead of trusting a
-  // stale active status after a missed webhook.
+  // stale `active` status after a missed webhook.
   return hasCurrentPeriod(input.planPeriodEnd, now) !== false;
 }
