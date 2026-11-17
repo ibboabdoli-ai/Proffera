@@ -46,9 +46,6 @@ function resolveBookingReplyTo() {
  * Failed or ambiguous provider responses are distinguished for safe retry flows.
  */
 export async function sendBookingVerificationEmail(input: BookingVerificationEmailInput) {
-  const apiKey = resolveBrevoApiKey();
-  if (!apiKey) return { ok: false as const, message: "Email provider is not configured.", deliveryOutcome: "not_sent" as const };
-
   const expiresMinutes = input.expiresMinutes ?? 10;
   const isEnglish = input.language === "en";
   const isArabic = input.language === "ar";
@@ -98,6 +95,48 @@ export async function sendBookingVerificationEmail(input: BookingVerificationEma
     </div>
   `;
 
+  // Explicit Maria-only, Production-only opt-in. Brevo remains the default
+  // for Maria and the sole provider for all other workspaces. Never send twice.
+  if (input.branding === "makeup-by-maria"
+    && process.env.VERCEL_ENV === "production"
+    && process.env.MARIA_BOOKING_OTP_PROVIDER === "resend") {
+    const resendKey = process.env.MARIA_RESEND_API_KEY?.trim();
+    // A missing key must not silently fall back to Brevo after selecting Resend.
+    if (!resendKey) {
+      return { ok: false as const, message: "Email provider is not configured.", deliveryOutcome: "not_sent" as const };
+    }
+    try {
+      const sender = resolveBookingSender();
+      const response = await fetch("https://api.resend.com/emails", {
+        method: "POST",
+        signal: AbortSignal.timeout(8_000),
+        headers: { Authorization: `Bearer ${resendKey}`, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          from: `${sender.name} <${sender.email}>`,
+          to: [input.customerEmail],
+          reply_to: resolveBookingReplyTo().email,
+          subject,
+          text,
+          html,
+        }),
+      });
+      const data = (await response.json().catch(() => ({}))) as { id?: string };
+      if (response.ok) return { ok: true as const, providerId: data.id ?? null };
+      // Provider rejection proves no message was accepted; a 5xx response or
+      // timeout may mean it was sent. Do not automatically retry or fall back.
+      const rejected = [400, 401, 403, 404, 413, 422, 429].includes(response.status);
+      return {
+        ok: false as const,
+        message: "Email delivery failed.",
+        deliveryOutcome: rejected ? "not_sent" as const : "uncertain" as const,
+      };
+    } catch {
+      return { ok: false as const, message: "Email delivery failed.", deliveryOutcome: "uncertain" as const };
+    }
+  }
+
+  const apiKey = resolveBrevoApiKey();
+  if (!apiKey) return { ok: false as const, message: "Email provider is not configured.", deliveryOutcome: "not_sent" as const };
   try {
     const response = await fetch("https://api.brevo.com/v3/smtp/email", {
       method: "POST",
