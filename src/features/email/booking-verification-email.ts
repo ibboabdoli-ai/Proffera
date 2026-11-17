@@ -55,6 +55,11 @@ export async function sendBookingVerificationEmail(input: BookingVerificationEma
   const mariaOrigin = input.branding === "makeup-by-maria"
     ? getMariaBookingPortalBase() : null;
   const mariaLogo = mariaOrigin ? mariaEmailLogoHtml(mariaOrigin) : "";
+  // Optional Maria-only text variant for a controlled deliverability comparison.
+  // Brevo may still add HTML and tracking after accepting a text-only request.
+  const textOnlyMariaOtp = input.branding === "makeup-by-maria"
+    && process.env.VERCEL_ENV === "production"
+    && process.env.MARIA_BOOKING_OTP_TEXT_ONLY === "true";
   const subject = isArabic ? `${input.code} هو رمز التحقق لحجزك لدى ${input.companyName}` : isEnglish ? `${input.code} is your verification code for ${input.companyName}` : `${input.code} är din verifieringskod för ${input.companyName}`;
   const text = isArabic ? [
     `${input.code} هو رمز التحقق الخاص بك.`, "", `استخدم هذا الرمز لتأكيد الحجز لدى ${input.companyName}.`, `الرمز صالح لمدة ${expiresMinutes} دقائق.`, "", `مرحبًا ${input.customerName}،`, "لن يتم إنشاء الحجز إلا بعد التحقق من الرمز.", "إذا لم تطلب هذا الحجز، يمكنك تجاهل الرسالة.",
@@ -109,7 +114,7 @@ export async function sendBookingVerificationEmail(input: BookingVerificationEma
         to: [{ email: input.customerEmail, name: input.customerName }],
         subject,
         textContent: text,
-        htmlContent: html,
+        ...(textOnlyMariaOtp ? {} : { htmlContent: html }),
         tags: [BOOKING_VERIFICATION_TAG],
       }),
     });
