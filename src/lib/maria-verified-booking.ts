@@ -280,6 +280,7 @@ export async function createMariaUnverifiedBookingRequest(input: {
           insert into maria_booking_reference_counters(day_key,last_number)
           select to_char(now() at time zone 'Europe/Stockholm','YYYYMMDD'),1
           from booking
+          where true
           on conflict (day_key) do update
             set last_number = maria_booking_reference_counters.last_number + 1
           returning day_key,last_number
