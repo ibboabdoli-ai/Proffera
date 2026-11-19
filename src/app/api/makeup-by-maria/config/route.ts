@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 
 import { getSql } from "@/lib/db/server";
 import { getMariaBookingReadiness } from "@/lib/maria-booking-runtime";
+import { isMariaTemporaryOtpFreeIntakeEnabled } from "@/lib/maria-production-activation-policy";
 import { readMariaCardTranslations } from "@/lib/maria-card-translations-db";
 import { canManageWorkspaceSettings, getUserWorkspaceAccess } from "@/lib/workspace-access";
 
@@ -166,6 +167,7 @@ export async function GET() {
       connected: true,
       previewOnly: process.env.VERCEL_ENV !== "production",
       bookingEnabled: bookingReadiness.enabled,
+      otpRequired: !(bookingReadiness.enabled && isMariaTemporaryOtpFreeIntakeEnabled()),
       bookableDurations,
       bookableAdvanceDays,
       editorPreview: canPreviewDrafts,
