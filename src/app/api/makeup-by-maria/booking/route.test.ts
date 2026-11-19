@@ -14,12 +14,24 @@ vi.mock("@/lib/public-form-protection", () => ({
 vi.mock("@/lib/public-booking-verification", () => ({
   beginBookingEmailVerification: vi.fn(),
 }));
+vi.mock("@/lib/maria-verified-booking", () => ({
+  createMariaUnverifiedBookingRequest: vi.fn(),
+}));
+vi.mock("@/features/email/lead-email", () => ({
+  sendBookingOwnerNotificationEmail: vi.fn(),
+}));
+vi.mock("@/features/sms/booking-sms", () => ({
+  sendBookingOwnerSms: vi.fn(),
+}));
 
 import { getSql } from "@/lib/db/server";
 import { getMariaAvailability } from "@/lib/maria-booking-availability";
 import { allowPublicSubmission } from "@/lib/public-form-protection";
 import { getMariaBookingReadiness } from "@/lib/maria-booking-runtime";
 import { beginBookingEmailVerification } from "@/lib/public-booking-verification";
+import { createMariaUnverifiedBookingRequest } from "@/lib/maria-verified-booking";
+import { sendBookingOwnerNotificationEmail } from "@/features/email/lead-email";
+import { sendBookingOwnerSms } from "@/features/sms/booking-sms";
 import { POST } from "./route";
 
 function request(email: string, origin = "https://maria-qa.vercel.app") {
@@ -68,6 +80,80 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllEnvs());
 
 describe("Maria isolated Preview booking email egress safety", () => {
+
+  it("temporarily bypasses the OTP only for production Maria and leaves a requested booking", async () => {
+    vi.stubEnv("VERCEL_ENV", "production");
+    for (const [key, value] of Object.entries({
+      PROFFERA_MARIA_PUBLIC_SITE_ENABLED: "true",
+      PROFFERA_MARIA_PRODUCTION_BOOKING_ENABLED: "true",
+      PROFFERA_MARIA_PRODUCTION_MANAGER_ENABLED: "true",
+      PROFFERA_MARIA_PRODUCTION_CUSTOMER_EMAIL_ENABLED: "true",
+      PROFFERA_MARIA_PRODUCTION_YEAR_EDITOR_ENABLED: "true",
+      PROFFERA_MARIA_PRODUCTION_ORIGIN: "https://makeupbymaria.se",
+      PROFFERA_MARIA_TEMPORARY_NO_OTP_ENABLED: "true",
+    })) vi.stubEnv(key, value);
+    vi.mocked(getMariaBookingReadiness).mockResolvedValue({
+      enabled: true, workspaceId: "11111111-2222-4333-8444-555555555555",
+      publicSlug: "makeup-by-maria", companyName: "Makeup by Maria",
+      ownerEmail: "owner@example.invalid", ownerPhone: "0701234567",
+      primaryCity: "Södertälje", timeZone: "Europe/Stockholm",
+    });
+    const sql = vi.fn()
+      .mockResolvedValueOnce([{ id: "00000000-0000-4000-8000-000000000010",
+        name: "Brudsmink med prov", duration_minutes: 180,
+        buffer_before_minutes: 0, buffer_after_minutes: 0,
+        minimum_notice_minutes: 0, maximum_advance_days: 365 }])
+      .mockResolvedValueOnce([{ opens_at: "06:00", closes_at: "10:00", is_closed: false }]);
+    vi.mocked(getSql).mockReturnValue(sql as unknown as ReturnType<typeof getSql>);
+    vi.mocked(getMariaAvailability).mockResolvedValue({ ok: true, slots: ["07:00"] });
+    vi.mocked(allowPublicSubmission).mockResolvedValue(true);
+    vi.mocked(createMariaUnverifiedBookingRequest).mockResolvedValue({
+      ok: true, bookingId: "00000000-0000-4000-8000-000000000077",
+      customerId: "00000000-0000-4000-8000-000000000078",
+    });
+    const response = await POST(request("bride@example.com", "https://makeupbymaria.se"));
+    expect(response.status).toBe(201);
+    expect(await response.json()).toEqual({ ok: true, requestReceived: true });
+    expect(createMariaUnverifiedBookingRequest).toHaveBeenCalledWith(expect.objectContaining({
+      customerEmail: "bride@example.com",
+      bookingNote: expect.stringContaining("Email not verified:"),
+    }));
+    expect(beginBookingEmailVerification).not.toHaveBeenCalled();
+    expect(allowPublicSubmission).toHaveBeenCalledTimes(2);
+    expect(sendBookingOwnerSms).toHaveBeenCalledWith(expect.objectContaining({
+      deliveryKey: "booking:00000000-0000-4000-8000-000000000077:owner",
+    }));
+    expect(sendBookingOwnerNotificationEmail).toHaveBeenCalledTimes(1);
+  });
+
+  it("fails closed when temporary unverified-IP rate limit is exhausted", async () => {
+    vi.stubEnv("VERCEL_ENV", "production");
+    for (const [key, value] of Object.entries({
+      PROFFERA_MARIA_PUBLIC_SITE_ENABLED: "true",
+      PROFFERA_MARIA_PRODUCTION_BOOKING_ENABLED: "true",
+      PROFFERA_MARIA_PRODUCTION_MANAGER_ENABLED: "true",
+      PROFFERA_MARIA_PRODUCTION_CUSTOMER_EMAIL_ENABLED: "true",
+      PROFFERA_MARIA_PRODUCTION_YEAR_EDITOR_ENABLED: "true",
+      PROFFERA_MARIA_PRODUCTION_ORIGIN: "https://makeupbymaria.se",
+      PROFFERA_MARIA_TEMPORARY_NO_OTP_ENABLED: "true",
+    })) vi.stubEnv(key, value);
+    const sql = vi.fn()
+      .mockResolvedValueOnce([{ id: "00000000-0000-4000-8000-000000000010",
+        name: "Brudsmink med prov", duration_minutes: 180,
+        buffer_before_minutes: 0, buffer_after_minutes: 0,
+        minimum_notice_minutes: 0, maximum_advance_days: 365 }])
+      .mockResolvedValueOnce([{ opens_at: "06:00", closes_at: "10:00", is_closed: false }]);
+    vi.mocked(getSql).mockReturnValue(sql as unknown as ReturnType<typeof getSql>);
+    vi.mocked(getMariaAvailability).mockResolvedValue({ ok: true, slots: ["07:00"] });
+    vi.mocked(allowPublicSubmission).mockResolvedValueOnce(true).mockResolvedValueOnce(false);
+    const response = await POST(request("bride@example.com", "https://makeupbymaria.se"));
+    expect(response.status).toBe(429);
+    expect(createMariaUnverifiedBookingRequest).not.toHaveBeenCalled();
+    expect(beginBookingEmailVerification).not.toHaveBeenCalled();
+    expect(sendBookingOwnerSms).not.toHaveBeenCalled();
+  });
+
+
   it("keeps the verification link when initial email delivery is uncertain", async () => {
     const sql = vi.fn()
       .mockResolvedValueOnce([{ id: "00000000-0000-4000-8000-000000000010", name: "Brudsmink med prov",
