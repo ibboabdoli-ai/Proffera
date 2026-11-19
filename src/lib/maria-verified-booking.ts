@@ -240,6 +240,22 @@ export async function createMariaUnverifiedBookingRequest(input: {
             and h.is_closed = false
             and (${input.startsAt}::timestamptz at time zone 'Europe/Stockholm')::time
                 between h.opens_at and h.closes_at
+            -- Bound unverified slot occupation even when submitters rotate
+            -- addresses. Manager-confirmed and cancelled requests do not
+            -- count; the workspace advisory lock serializes this check.
+            and (
+              select count(*) from bookings pending
+              where pending.workspace_id = w.id::text
+                and pending.status = 'requested'
+                and exists (
+                  select 1 from customer_events provenance
+                  where provenance.workspace_id = w.id::text
+                    and provenance.booking_id = pending.id
+                    and provenance.event_type = 'booking'
+                    and provenance.metadata->>'verification_mode' = 'temporary_no_otp'
+                    and provenance.metadata->>'email_verified' = 'false'
+                )
+            ) < 10
             and not exists (
               select 1 from bookings b
               left join workspace_services bs on bs.id = b.service_id and bs.workspace_id = b.workspace_id
