@@ -2,6 +2,8 @@ import "server-only";
 
 import { getSql } from "@/lib/db/server";
 import { getMariaBookingReadiness } from "@/lib/maria-booking-runtime";
+import { isMariaTemporaryOtpFreeIntakeEnabled } from "@/lib/maria-production-activation-policy";
+import { isMariaBookingRecipientAllowed } from "@/lib/maria-preview-customer-safety";
 
 type FinalizeMariaInput = {
   verificationId: string;
@@ -170,6 +172,146 @@ export async function finalizeMariaVerifiedBooking(input: FinalizeMariaInput) {
     };
   } catch (error) {
     console.error("Maria atomic booking verification failed", error);
+    return { ok: false as const, error: "save" };
+  }
+}
+
+/**
+ * Temporary unverified Maria-only booking request. This does NOT assert email
+ * ownership and never issues a customer-portal token. All scheduling and
+ * overlap decisions are made under the same workspace transaction lock as
+ * verified Maria bookings. The flag is OFF unless explicitly enabled.
+ */
+export async function createMariaUnverifiedBookingRequest(input: {
+  workspaceId: string;
+  serviceId: string;
+  customerName: string;
+  customerEmail: string;
+  customerPhone: string;
+  city: string;
+  startsAt: string;
+  endsAt: string;
+  bookingNote: string;
+  bookingLanguage: "sv" | "en" | "ar";
+}) {
+  if (!isMariaTemporaryOtpFreeIntakeEnabled()
+    || !isMariaBookingRecipientAllowed(input.customerEmail)) {
+    return { ok: false as const, error: "unavailable" };
+  }
+  const readiness = await getMariaBookingReadiness();
+  if (!readiness.enabled || readiness.workspaceId !== input.workspaceId) {
+    return { ok: false as const, error: "unavailable" };
+  }
+  const sql = getSql();
+  if (!sql) return { ok: false as const, error: "database" };
+  try {
+    const results = await sql.transaction([
+      sql`select pg_advisory_xact_lock(hashtextextended(${input.workspaceId}::text, 713))`,
+      sql`
+        with eligible as (
+          select w.id as workspace_id, s.id as service_id, s.name as service_name
+          from workspaces w
+          join workspace_services s on s.workspace_id = w.id::text
+          join workspace_booking_hours h on h.workspace_id = w.id::text
+            and h.weekday = extract(dow from ${input.startsAt}::timestamptz at time zone 'Europe/Stockholm')::int
+          where w.id = ${input.workspaceId}::uuid
+            and w.slug = 'makeup-by-maria'
+            and w.public_booking_slug = 'makeup-by-maria'
+            and w.status in ('active', 'trial')
+            and s.id = ${input.serviceId}::uuid
+            and s.is_active = true and s.public_status = 'published'
+            and s.public_slug ~ '^maria-bridal-(trial|without-trial)-(202[6-9]|203[0-6])$'
+            and s.duration_minutes between 1 and 1440
+            and ${input.endsAt}::timestamptz =
+                ${input.startsAt}::timestamptz + (s.duration_minutes * interval '1 minute')
+            and ${input.startsAt}::timestamptz >= now() + (s.minimum_notice_minutes * interval '1 minute')
+            and ${input.startsAt}::timestamptz <= now() + (s.maximum_advance_days * interval '1 day')
+            and h.is_closed = false
+            and (${input.startsAt}::timestamptz at time zone 'Europe/Stockholm')::time
+                between h.opens_at and h.closes_at
+            and not exists (
+              select 1 from bookings b
+              left join workspace_services bs on bs.id = b.service_id and bs.workspace_id = b.workspace_id
+              where b.workspace_id = w.id::text and b.status not in ('cancelled','no_show')
+                and b.starts_at - (coalesce(bs.buffer_before_minutes, 0) * interval '1 minute')
+                  < ${input.endsAt}::timestamptz + (s.buffer_after_minutes * interval '1 minute')
+                and b.ends_at + (coalesce(bs.buffer_after_minutes, 0) * interval '1 minute')
+                  > ${input.startsAt}::timestamptz - (s.buffer_before_minutes * interval '1 minute')
+            )
+            and not exists (
+              select 1 from maria_manual_closed_starts closed
+              where closed.workspace_id = w.id and closed.starts_at = ${input.startsAt}::timestamptz
+            )
+            and not exists (
+              select 1 from public_booking_verifications hold
+              left join workspace_services hs on hs.id = hold.service_id and hs.workspace_id = hold.workspace_id::text
+              where hold.workspace_id = w.id and hold.consumed_at is null and hold.expires_at > now()
+                and hold.starts_at - (coalesce(hs.buffer_before_minutes, 0) * interval '1 minute')
+                  < ${input.endsAt}::timestamptz + (s.buffer_after_minutes * interval '1 minute')
+                and hold.ends_at + (coalesce(hs.buffer_after_minutes, 0) * interval '1 minute')
+                  > ${input.startsAt}::timestamptz - (s.buffer_before_minutes * interval '1 minute')
+            )
+          limit 1
+        ), existing_customer as (
+          select c.id from customers c
+          join eligible v on c.workspace_id = v.workspace_id::text
+            and lower(c.email) = lower(${input.customerEmail})
+          order by c.created_at asc nulls last, c.id asc limit 1
+        ), created_customer as (
+          insert into customers(workspace_id,name,email,phone,city,status,source,notes)
+          select v.workspace_id::text,${input.customerName},${input.customerEmail},
+            ${input.customerPhone},${input.city},'prospect','public_booking',
+            nullif(${input.bookingNote},'')
+          from eligible v where not exists(select 1 from existing_customer)
+          returning id
+        ), customer as (
+          select id from existing_customer
+          union all select id from created_customer
+        ), booking as (
+          insert into bookings(workspace_id,customer_id,staff_id,service_id,title,service,
+            city,status,starts_at,ends_at,source,notes)
+          select v.workspace_id::text,c.id,null::uuid,v.service_id,
+            v.service_name,v.service_name,${input.city},'requested',
+            ${input.startsAt}::timestamptz,${input.endsAt}::timestamptz,
+            'public_booking',nullif(${input.bookingNote},'')
+          from eligible v cross join customer c
+          returning id,customer_id
+        ), daily_reference as (
+          insert into maria_booking_reference_counters(day_key,last_number)
+          select to_char(now() at time zone 'Europe/Stockholm','YYYYMMDD'),1
+          from booking
+          on conflict (day_key) do update
+            set last_number = maria_booking_reference_counters.last_number + 1
+          returning day_key,last_number
+        ), assigned_reference as (
+          insert into maria_booking_references(booking_id,day_key,day_number,reference)
+          select b.id,seq.day_key,seq.last_number,
+            'MBM-' || seq.day_key || case when seq.last_number < 100
+            then lpad(seq.last_number::text,2,'0') else seq.last_number::text end
+          from booking b cross join daily_reference seq
+          returning booking_id
+        ), audit as (
+          insert into customer_events(workspace_id,customer_id,booking_id,event_type,title,description,metadata)
+          select ${input.workspaceId},b.customer_id,b.id,'booking',
+            'Booking request created','Unverified customer request; temporary Maria no-OTP intake.',
+            jsonb_build_object('source','public_booking','service','Makeup by Maria',
+              'language',${input.bookingLanguage}::text,
+              'email_verified',false,'verification_mode','temporary_no_otp')
+          from booking b returning id
+        )
+        select b.id as booking_id,b.customer_id
+        from booking b
+        join assigned_reference ref on ref.booking_id=b.id
+        join audit a on true
+      `,
+    ]);
+    const result = results[1]?.[0];
+    return result?.booking_id && result?.customer_id
+      ? { ok: true as const, bookingId: String(result.booking_id),
+          customerId: String(result.customer_id) }
+      : { ok: false as const, error: "conflict" };
+  } catch (error) {
+    console.error("Maria temporary unverified booking request failed", error);
     return { ok: false as const, error: "save" };
   }
 }
