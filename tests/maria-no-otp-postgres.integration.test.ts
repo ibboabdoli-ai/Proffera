@@ -20,7 +20,7 @@ vi.mock("@/lib/maria-booking-runtime", () => ({
   getMariaBookingReadiness: mocks.readiness,
 }));
 
-import { createMariaUnverifiedBookingRequest } from "@/lib/maria-verified-booking";
+import { createMariaUnverifiedBookingRequest, finalizeMariaVerifiedBooking } from "@/lib/maria-verified-booking";
 import { persistReviewInvitation } from "@/lib/verified-review-persistence";
 
 const RUN = process.env.GITHUB_ACTIONS === "true"
@@ -215,6 +215,81 @@ function futureFriday(): string {
       phone: "+46700000000", verified: false,
     });
     expect(details.rows[0]?.reference).toMatch(/^MBM-[0-9]{10,}$/);
+  });
+
+  async function verifiedHold(email: string, name: string, phone: string) {
+    const nextFriday = new Date(Date.parse(day + "T12:00:00Z") + 7 * 86_400_000)
+      .toISOString().slice(0, 10);
+    const start = mariaCalendarIntervals(nextFriday, "06:00", "10:00")!
+      .find(item => item.clock === "07:00")!.startsAt;
+    const end = new Date(Date.parse(start) + 180 * 60_000).toISOString();
+    const hold = await db!.query<{ id: string }>(
+      "insert into public_booking_verifications(" +
+        "workspace_id,public_booking_slug,customer_name,customer_email,customer_phone," +
+        "service_id,service_name,starts_at,ends_at,code_hash,expires_at) " +
+        "values($1::uuid,'makeup-by-maria',$2,$3,$4,$5::uuid," +
+        "'Synthetic bridal makeup',$6::timestamptz,$7::timestamptz,'verified-hash'," +
+        "now()+interval '15 minutes') returning id::text",
+      [workspaceId, name, email, phone, serviceId, start, end],
+    );
+    return finalizeMariaVerifiedBooking({
+      verificationId: hold.rows[0]!.id, expectedCodeHash: "verified-hash",
+      bookingNote: "Synthetic verified QA",
+    });
+  }
+
+  it("does not adopt forged no-OTP contact details when email owner later verifies via OTP", async () => {
+    const email = "owner-later-verified@example.invalid";
+    const unverified = await createMariaUnverifiedBookingRequest(request(email));
+    expect(unverified.ok).toBe(true);
+    if (!unverified.ok) throw new Error("Synthetic no-OTP request was not saved");
+
+    const verified = await verifiedHold(email, "Real verified bride", "+46705555555");
+    expect(verified.ok).toBe(true);
+    if (!verified.ok) throw new Error("Synthetic OTP finalization failed");
+    expect(verified.customerId).not.toBe(unverified.customerId);
+    expect(await snapshot()).toEqual({ bookings: 2, customers: 2, references: 2, events: 2 });
+
+    const contacts = await db!.query<{id: string; name: string; phone: string}>(
+      "select id::text,name,phone from customers where workspace_id=$1 order by id",
+      [workspaceId],
+    );
+    expect(contacts.rows).toEqual(expect.arrayContaining([
+      { id: unverified.customerId, name: "Synthetic no-OTP bride", phone: "+46700000000" },
+      { id: verified.customerId, name: "Real verified bride", phone: "+46705555555" },
+    ]));
+    const events = await db!.query<{ verified_mode: string | null; verification_id: string | null }>(
+      "select e.metadata->>'verification_mode' as verified_mode, " +
+        "e.metadata->>'verification_id' as verification_id from customer_events e " +
+        "where e.booking_id=$1::uuid and e.customer_id=$2::uuid",
+      [verified.bookingId, verified.customerId],
+    );
+    expect(events.rows).toHaveLength(1);
+    expect(events.rows[0]?.verification_id).toBeTruthy();
+    expect(events.rows[0]?.verified_mode).toBeNull();
+  });
+
+  it("preserves a previously established customer when an unverified duplicate shares the email", async () => {
+    const email = "established@example.invalid";
+    const existing = await db!.query<{id:string}>(
+      "insert into customers(workspace_id,name,email,phone,status,source) " +
+        "values($1,'Established CRM customer',$2,'+46701111111','active','dashboard_manual') " +
+        "returning id::text", [workspaceId, email],
+    );
+    const unverified = await createMariaUnverifiedBookingRequest(request(email));
+    expect(unverified.ok).toBe(true);
+    const verified = await verifiedHold(email, "Later OTP submitter", "+46702222222");
+    expect(verified.ok).toBe(true);
+    if (!verified.ok || !unverified.ok) throw new Error("Synthetic request did not finalize");
+    expect(verified.customerId).toBe(existing.rows[0]!.id);
+    expect(verified.customerId).not.toBe(unverified.customerId);
+    expect((await db!.query(
+      "select name,phone from customers where id=$1::uuid",
+      [existing.rows[0]!.id],
+    )).rows[0]).toMatchObject({
+      name: "Established CRM customer", phone: "+46701111111",
+    });
+    expect(await snapshot()).toEqual({ bookings: 2, customers: 2, references: 2, events: 2 });
   });
 
   it("cannot issue a verified-review invitation for a manually completed no-OTP booking", async () => {
