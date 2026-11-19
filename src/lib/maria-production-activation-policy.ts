@@ -49,6 +49,18 @@ export function inspectMariaProductionActivationRequest(
  * It is independent of new-booking intake so existing approved unpaid
  * bookings retain payment instructions during an authorized intake pause.
  */
+/**
+ * Temporary, explicitly opted-in Maria-only unverified booking requests.
+ * Fail-closed in Preview and on every other deployment or tenant.
+ * Turning this flag off restores the existing email-OTP booking path.
+ */
+export function isMariaTemporaryOtpFreeIntakeEnabled(
+  env: NodeJS.ProcessEnv = process.env,
+): boolean {
+  return inspectMariaProductionActivationRequest(env).requested
+    && env.PROFFERA_MARIA_TEMPORARY_NO_OTP_ENABLED === "true";
+}
+
 export function isMariaProductionSwishAuthorized(env: NodeJS.ProcessEnv = process.env): boolean {
   return env.VERCEL_ENV === "production"
     && env.PROFFERA_MARIA_PUBLIC_SITE_ENABLED === "true"
