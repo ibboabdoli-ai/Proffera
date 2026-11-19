@@ -247,7 +247,7 @@ export async function POST(request: Request) {
               customerName: name,
               customerEmail: email,
               customerPhone: phone,
-              service: String(service.name),
+              service: "Ej verifierad förfrågan: " + String(service.name),
               startsAt: start,
               endsAt: end,
               city: city || readiness.primaryCity,
@@ -266,6 +266,7 @@ export async function POST(request: Request) {
               service: String(service.name),
               startsAt: start,
               timeZone,
+              unverified: true,
             })
           : Promise.resolve(),
       ]);
