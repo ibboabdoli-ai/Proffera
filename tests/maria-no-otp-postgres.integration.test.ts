@@ -417,6 +417,83 @@ function futureFriday(): string {
     expect(await snapshot()).toEqual({ bookings: 11, customers: 11, references: 11, events: 11 });
   }, 90_000);
 
+  it("rejects notice that expires while an unverified request waits for the workspace lock", async () => {
+    const before = await snapshot();
+    await db!.query(
+      "update workspace_services set minimum_notice_minutes=2 where id=$1::uuid",
+      [serviceId],
+    );
+    // The candidate is valid for 5 seconds before it breaches the notice
+    // boundary. Its weekday is added only in this disposable PostgreSQL.
+    const dbClock = await db!.query<{ checked_at: Date }>(
+      "select clock_timestamp() as checked_at",
+    );
+    const candidateStartsAt = new Date(new Date(dbClock.rows[0]!.checked_at).getTime() + 125_000);
+    const candidateEndsAt = new Date(candidateStartsAt.getTime() + 180 * 60_000);
+    const deadline = candidateStartsAt.getTime() - 120_000;
+    const weekday = await db!.query<{ day: number }>(
+      "select extract(dow from $1::timestamptz at time zone 'Europe/Stockholm')::int as day",
+      [candidateStartsAt.toISOString()],
+    );
+    await db!.query(
+      "insert into workspace_booking_hours(workspace_id,weekday,opens_at,closes_at,is_closed) " +
+      "values($1,$2,'00:00','23:59',false) on conflict(workspace_id,weekday) do update " +
+      "set opens_at='00:00',closes_at='23:59',is_closed=false",
+      [workspaceId, weekday.rows[0]!.day],
+    );
+
+    const holder = new Client({ connectionString });
+    await holder.connect();
+    let pending: ReturnType<typeof createMariaUnverifiedBookingRequest> | undefined;
+    try {
+      await holder.query("BEGIN");
+      await holder.query(
+        "select pg_advisory_xact_lock(hashtextextended($1::text,713))",
+        [workspaceId],
+      );
+      pending = createMariaUnverifiedBookingRequest({
+        ...request("notice-locked@example.invalid"),
+        startsAt: candidateStartsAt.toISOString(),
+        endsAt: candidateEndsAt.toISOString(),
+      });
+      let startedBeforeDeadline = false;
+      let blocked = false;
+      for (let attempt = 0; attempt < 100; attempt++) {
+        const observed = await db!.query<{ transaction_started: Date }>(`
+          select xact_start as transaction_started from pg_stat_activity
+          where pid <> pg_backend_pid() and pid <> $1
+            and state='active' and wait_event_type='Lock' and wait_event='advisory'
+            and query like '%pg_advisory_xact_lock%'
+          limit 1
+        `, [holder.processID]);
+        if (observed.rows.length) {
+          blocked = true;
+          startedBeforeDeadline =
+            new Date(observed.rows[0]!.transaction_started).getTime() < deadline;
+          break;
+        }
+        await delay(30);
+      }
+      expect(blocked).toBe(true);
+      expect(startedBeforeDeadline).toBe(true);
+      // Cross the threshold *while* the transaction is waiting. A PostgreSQL
+      // now() comparison would still see the earlier transaction-start time.
+      const afterWaitClock = await db!.query<{ checked_at: Date }>(
+        "select clock_timestamp() as checked_at",
+      );
+      await delay(Math.max(0, deadline + 400
+        - new Date(afterWaitClock.rows[0]!.checked_at).getTime()));
+      await holder.query("COMMIT");
+      const outcome = await pending;
+      expect(outcome).toMatchObject({ ok: false, error: "conflict" });
+      expect(await snapshot()).toEqual(before);
+    } finally {
+      await holder.query("ROLLBACK").catch(() => undefined);
+      await pending?.catch(() => undefined);
+      await holder.end();
+    }
+  }, 30_000);
+
   it("observes two PostgreSQL advisory-lock waiters before admitting one request", async () => {
     const coordinator = new Client({ connectionString });
     await coordinator.connect();
