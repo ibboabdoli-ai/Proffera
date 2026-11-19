@@ -239,7 +239,7 @@ export async function POST(request: Request) {
       }
       // Do not send any OTP, customer receipt or privileged portal token to
       // an unverified email. Maria is notified via the usual owner channels.
-      await Promise.allSettled([
+      const notifications = await Promise.allSettled([
         readiness.ownerEmail
           ? sendBookingOwnerNotificationEmail({
               ownerEmail: readiness.ownerEmail,
@@ -270,6 +270,21 @@ export async function POST(request: Request) {
             })
           : Promise.resolve(),
       ]);
+      // A saved request must still return 201. Log owner-delivery failures
+      // without including unverified customer contact details or credentials.
+      for (const [channel, outcome] of [
+        ["email", notifications[0]], ["sms", notifications[1]],
+      ] as const) {
+        if (outcome?.status === "rejected"
+          || (outcome?.status === "fulfilled" && outcome.value
+            && typeof outcome.value === "object"
+            && (("ok" in outcome.value && outcome.value.ok === false)
+              || ("skipped" in outcome.value && outcome.value.skipped === true)))) {
+          console.error("Maria no-OTP owner notification failed", {
+            bookingId: created.bookingId, channel,
+          });
+        }
+      }
       return NextResponse.json({ ok: true, requestReceived: true }, {
         status: 201, headers: privateHeaders,
       });
