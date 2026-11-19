@@ -265,6 +265,13 @@ const noOtpBookingCopy={
  en:{safety:"Your booking request is sent without an email code. Maria must approve the appointment before it is confirmed.",submit:"SEND BOOKING REQUEST ↗",sending:"Checking the time and sending your request...",notice:"Send a booking request. Maria confirms the appointment separately.",title:"Request received",text:"Your request has been registered. Maria will confirm the appointment separately. Do not pay a deposit before confirmation."},
  ar:{safety:"يُرسل طلب الحجز دون رمز بريد إلكتروني. ستؤكد ماريا الموعد بشكل منفصل.",submit:"إرسال طلب الحجز ↗",sending:"جارٍ التحقق من الموعد وإرسال الطلب...",notice:"أرسلي طلب حجز، وستؤكد ماريا الموعد بشكل منفصل.",title:"تم إرسال الطلب",text:"تم تسجيل طلبك. ستؤكد ماريا الموعد بشكل منفصل. لا تدفعي العربون قبل التأكيد."}
 };
+function renderNoOtpCompletion(){
+ const done=noOtpBookingCopy[state.lang]||noOtpBookingCopy.sv;
+ $("bookingCompleteTitle").textContent=done.title;
+ $("bookingCompleteText").textContent=done.text;
+ $("bookingCompleteAgain").textContent=(bookingCompleteCopy[state.lang]||bookingCompleteCopy.sv).again;
+ $("bookingCompleteAgain").href=mariaPublicHomeUrl(state.lang);
+}
 const liveBookingCopy={
  sv:{safety:"Bokningen skickas först efter att du har verifierat din e-postadress. Datum och tid måste vara tillgängliga.",submit:"FORTSÄTT TILL E-POSTVERIFIERING ↗",sending:"Kontrollerar bokning och skickar verifieringskod...",error:"Bokningen kunde inte påbörjas. Kontrollera valt datum och försök igen."},
  en:{safety:"Your booking is created only after email verification. The selected date and time must be available.",submit:"CONTINUE TO EMAIL VERIFICATION ↗",sending:"Checking availability and sending a verification code...",error:"We could not begin your booking. Check your selected date and try again."},
@@ -468,13 +475,7 @@ function translate(){
  $("withoutPrice").textContent=displayYearPrice("without");
  $("backHome").textContent=uiCopy().home;
  renderPackageAvailability();
- if(temporaryRequestSubmitted){
-  const done=noOtpBookingCopy[state.lang]||noOtpBookingCopy.sv;
-  $("bookingCompleteTitle").textContent=done.title;
-  $("bookingCompleteText").textContent=done.text;
-  $("bookingCompleteAgain").textContent=(bookingCompleteCopy[state.lang]||bookingCompleteCopy.sv).again;
-  $("bookingCompleteAgain").href=mariaPublicHomeUrl(state.lang);
- }
+ if(temporaryRequestSubmitted)renderNoOtpCompletion();
  showBookingComplete();
  renderYears();
  if(state.kind)renderSummary();
@@ -620,11 +621,7 @@ $("bookingForm").addEventListener("submit",async e=>{
   const data=await response.json();
   if(response.ok&&data?.ok===true&&data.requestReceived===true){
    temporaryRequestSubmitted=true;
-   const done=noOtpBookingCopy[state.lang]||noOtpBookingCopy.sv;
-   $("bookingCompleteTitle").textContent=done.title;
-   $("bookingCompleteText").textContent=done.text;
-   $("bookingCompleteAgain").textContent=bookingCompleteCopy[state.lang]?.again||bookingCompleteCopy.sv.again;
-   $("bookingCompleteAgain").href=mariaPublicHomeUrl(state.lang);
+   renderNoOtpCompletion();
    $("bookingCompleteAgain").hidden=false;
    $("bookingComplete").hidden=false;
    document.querySelector(".steps").hidden=true;
