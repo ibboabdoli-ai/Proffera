@@ -150,6 +150,14 @@ export async function persistVerifiedReviewSubmission(input: {
         booking.customer_id as booking_customer_id,
         coalesce(nullif(booking.service, ''), booking.title) as service,
         nullif(coalesce(booking.city, customer.city, ''), '') as area,
+        exists (
+          select 1 from customer_events e
+          where e.workspace_id=booking.workspace_id
+            and e.booking_id=booking.id
+            and e.event_type='booking'
+            and e.metadata->>'verification_mode'='temporary_no_otp'
+            and e.metadata->>'email_verified'='false'
+        ) as temporary_unverified,
         ${featureEnabled}::boolean as feature_enabled
       from website_review_invitations invitation
       join workspaces workspace on workspace.id = invitation.workspace_id
@@ -168,14 +176,7 @@ export async function persistVerifiedReviewSubmission(input: {
         and workspace_status in ('active', 'trial')
         and feature_enabled = true
         and booking_status = 'completed'
-        and not exists (
-          select 1 from customer_events e
-          where e.workspace_id=locked.booking_workspace_id
-            and e.booking_id=locked.booking_id
-            and e.event_type='booking'
-            and e.metadata->>'verification_mode'='temporary_no_otp'
-            and e.metadata->>'email_verified'='false'
-        )
+        and not temporary_unverified
         and workspace_id::text = booking_workspace_id
         and (
           customer_id is null
@@ -238,6 +239,7 @@ export async function persistVerifiedReviewSubmission(input: {
       (select booking_status from locked limit 1) as booking_status,
       (select workspace_status from locked limit 1) as workspace_status,
       (select feature_enabled from locked limit 1) as feature_enabled,
+      (select temporary_unverified from locked limit 1) as temporary_unverified,
       exists(
         select 1
         from website_reviews review
