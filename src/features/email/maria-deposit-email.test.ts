@@ -141,6 +141,51 @@ describe("Maria-only Swish confirmation and cancellation email", () => {
     },
   );
 
+
+  it.each(["sv", "en", "ar"] as const)(
+    "keeps unverified confirmation in %s free of booking-specific payment and QR links",
+    (language) => {
+      const result = buildMariaBookingStatusEmail({
+        ...booking, language, temporaryUnverified: true,
+        reference: "MBM-2026111901",
+      }, "https://qa.vercel.app");
+      expect(result.subject).toBeTruthy();
+      expect(result.text).toContain("MBM-2026111901");
+      expect(result.text).toContain("123-581 86 53");
+      expect(result.text).toContain(booking.service);
+      expect(result.text).not.toContain("/maria/swish/");
+      expect(result.text).not.toContain("/swish-qr/");
+      expect(result.html).not.toContain("/maria/swish/");
+      expect(result.html).not.toContain("/swish-qr/");
+      expect(result.html).not.toContain("mina-bokningar");
+    },
+  );
+
+  it("reads no-OTP audit provenance from PostgreSQL before status-mail dispatch", async () => {
+    dbQuery.mockResolvedValueOnce([{
+      deposit_state: "unverified",
+      booking_reference: "MBM-2026111901",
+      temporary_unverified: true,
+    }]);
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true });
+    vi.stubGlobal("fetch", fetchMock);
+    expect(await sendMariaBookingStatusEmail(booking)).toEqual({ ok: true });
+    expect(fetchMock).toHaveBeenCalledOnce();
+    const payload = JSON.parse(fetchMock.mock.calls[0]![1].body as string) as {
+      htmlContent: string; textContent: string;
+    };
+    expect(payload.htmlContent).not.toContain("/maria/swish/");
+    expect(payload.htmlContent).not.toContain("/swish-qr/");
+    expect(payload.textContent).not.toContain("/maria/swish/");
+    expect(payload.textContent).not.toContain("/swish-qr/");
+    expect(payload.textContent).toContain("MBM-2026111901");
+    const [parts] = dbQuery.mock.calls[0] as [TemplateStringsArray, ...unknown[]];
+    const sql = parts.join("?");
+    expect(sql).toContain("e.metadata->>'verification_mode'='temporary_no_otp'");
+    expect(sql).toContain("e.metadata->>'email_verified'='false'");
+    expect(sql).toContain("e.booking_id=b.id");
+  });
+
   it("uses the saved reference from PostgreSQL before any Brevo send", async () => {
     dbQuery.mockResolvedValueOnce([
       { deposit_state: "unverified", booking_reference: "MBM-2026111001" },
