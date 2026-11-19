@@ -421,6 +421,9 @@ export async function submitVerifiedReview(token: string, review: VerifiedReview
       toText(row?.workspace_status) !== "trial"
     ) return { ok: false, code: "unavailable" };
     if (!toBoolean(row?.feature_enabled) || toText(row?.booking_status) !== "completed") return { ok: false, code: "unavailable" };
+    // An old pending review token cannot verify a booking with unverified
+    // contact provenance. The database refused eligibility, not availability.
+    if (toBoolean(row?.temporary_unverified)) return { ok: false, code: "unavailable" };
     return { ok: false, code: "database" };
   } catch (error) {
     console.error("Failed to submit verified review", error);
