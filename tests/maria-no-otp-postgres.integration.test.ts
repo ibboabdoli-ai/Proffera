@@ -19,9 +19,14 @@ vi.mock("@/lib/db/server", () => ({ getSql: mocks.getSql }));
 vi.mock("@/lib/maria-booking-runtime", () => ({
   getMariaBookingReadiness: mocks.readiness,
 }));
+vi.mock("@/lib/workspace-feature-entitlement-db", () => ({
+  hasWorkspaceFeatureAccessForWorkspace: vi.fn(async () => true),
+}));
 
 import { createMariaUnverifiedBookingRequest, finalizeMariaVerifiedBooking } from "@/lib/maria-verified-booking";
 import { persistReviewInvitation } from "@/lib/verified-review-persistence";
+import { submitVerifiedReview } from "@/lib/verified-review-invitations";
+import { createVerifiedReviewToken, hashVerifiedReviewToken } from "@/lib/verified-review-token";
 
 const RUN = process.env.GITHUB_ACTIONS === "true"
   || process.env.PROFFERA_POSTGRES_INTEGRATION === "1";
@@ -174,6 +179,8 @@ function futureFriday(): string {
       PROFFERA_MARIA_TEMPORARY_NO_OTP_ENABLED: "true",
     })) vi.stubEnv(key, value);
     // All mutations are inside the disposable PostgreSQL container.
+    await db!.query("delete from website_reviews where workspace_id=$1::uuid", [workspaceId]);
+    await db!.query("delete from website_review_invitations where workspace_id=$1::uuid", [workspaceId]);
     await db!.query("delete from customer_events where workspace_id=$1", [workspaceId]);
     await db!.query("delete from maria_booking_references where booking_id in " +
       "(select id from bookings where workspace_id=$1)", [workspaceId]);
@@ -318,6 +325,73 @@ function futureFriday(): string {
       [workspaceId, saved.bookingId],
     );
     expect(count.rows[0]?.count).toBe(0);
+  });
+
+
+  // Simulate a legacy review invitation minted before no-OTP provenance was
+  // enforced. Run the public submit handler against the canonical throwaway
+  // database, not a mocked SQL result.
+  async function pendingReviewToken(bookingId: string, customerId: string) {
+    const token = createVerifiedReviewToken();
+    await db!.query(
+      "insert into website_review_invitations(" +
+        "workspace_id,booking_id,customer_id,token_hash,status,expires_at) " +
+        "values($1::uuid,$2::uuid,$3::uuid,$4,'pending',now()+interval '1 day')",
+      [workspaceId,bookingId,customerId,hashVerifiedReviewToken(token)],
+    );
+    return token;
+  }
+
+  const reviewSubmission = () => ({
+    reviewerName: "Synthetic review author",
+    rating: 5,
+    message: "Synthetic regression only, no real customer",
+    consent: true as const,
+    website: "",
+    formStartedAt: Date.now() - 5000,
+  });
+
+  it("rejects a legacy pending review token after a no-OTP booking is manually completed", async () => {
+    const saved = await createMariaUnverifiedBookingRequest(request("old-review-token@example.invalid"));
+    expect(saved.ok).toBe(true);
+    if (!saved.ok) throw new Error("Synthetic no-OTP creation failed");
+    await db!.query(
+      "update bookings set status='completed' where id=$1::uuid and workspace_id=$2",
+      [saved.bookingId,workspaceId],
+    );
+    const token = await pendingReviewToken(saved.bookingId,saved.customerId);
+    expect(await submitVerifiedReview(token,reviewSubmission()))
+      .toEqual({ ok: false, code: "unavailable" });
+    const rows = await db!.query<{ status: string; count: number }>(
+      "select status,(select count(*)::int from website_reviews " +
+        "where workspace_id=$1::uuid) as count from website_review_invitations " +
+        "where token_hash=$2",
+      [workspaceId,hashVerifiedReviewToken(token)],
+    );
+    expect(rows.rows).toEqual([{ status: "pending", count: 0 }]);
+  });
+
+  it("preserves successful verified-review submission for a normal OTP-verified booking", async () => {
+    const verified = await verifiedHold(
+      "legitimate-review@example.invalid", "Verified QA customer", "+46707777777",
+    );
+    expect(verified.ok).toBe(true);
+    if (!verified.ok) throw new Error("Synthetic OTP booking failed");
+    await db!.query(
+      "update bookings set status='completed' where id=$1::uuid and workspace_id=$2",
+      [verified.bookingId,workspaceId],
+    );
+    const token = await pendingReviewToken(verified.bookingId,verified.customerId);
+    const submitted = await submitVerifiedReview(token,reviewSubmission());
+    expect(submitted.ok).toBe(true);
+    const rows = await db!.query<{ status: string; is_verified: boolean; count: number }>(
+      "select i.status,r.is_verified, " +
+        "(select count(*)::int from website_reviews where workspace_id=$1::uuid) as count " +
+        "from website_review_invitations i join website_reviews r " +
+        "on r.review_invitation_id=i.id where i.token_hash=$2",
+      [workspaceId,hashVerifiedReviewToken(token)],
+    );
+    expect(rows.rows).toEqual([{ status: "used", is_verified: true, count: 1 }]);
   });
 
   it("rejects an existing overlapping booking without creating dependent rows", async () => {
