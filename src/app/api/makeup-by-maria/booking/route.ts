@@ -279,7 +279,7 @@ export async function POST(request: Request) {
           || (outcome?.status === "fulfilled" && outcome.value
             && typeof outcome.value === "object"
             && (("ok" in outcome.value && outcome.value.ok === false)
-              || ("skipped" in outcome.value && outcome.value.skipped === true)))) {
+              || ("skipped" in outcome.value && Boolean(outcome.value.skipped))))) {
           console.error("Maria no-OTP owner notification failed", {
             bookingId: created.bookingId, channel,
           });
