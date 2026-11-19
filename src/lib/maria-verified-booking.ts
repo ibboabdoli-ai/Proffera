@@ -98,6 +98,17 @@ export async function finalizeMariaVerifiedBooking(input: FinalizeMariaInput) {
           select c.id from customers c
           join eligible v on c.workspace_id=v.workspace_id::text
             and lower(c.email)=lower(v.customer_email)
+          -- Temporary no-OTP intake creates its own unverified customer
+          -- record. An OTP-verified customer must never inherit that
+          -- untrusted name and phone merely because the email matches.
+          where not exists (
+            select 1 from customer_events unverified
+            where unverified.workspace_id=c.workspace_id
+              and unverified.customer_id=c.id
+              and unverified.event_type='booking'
+              and unverified.metadata->>'verification_mode'='temporary_no_otp'
+              and unverified.metadata->>'email_verified'='false'
+          )
           order by c.created_at asc nulls last, c.id asc limit 1
         ),
         created_customer as (
