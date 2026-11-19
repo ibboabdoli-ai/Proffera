@@ -32,6 +32,7 @@ test("Maria no-OTP request is submitted once and receipt follows language change
   });
 
   await page.goto("/demo/makeup-by-maria-v2.html", { waitUntil: "domcontentloaded" });
+  await expect(page.locator('[data-i="safety"]')).toContainText("Din förfrågan skickas utan e-postkod");
   await page.locator(`.year-options button[data-year="${year}"]`).click();
   await page.locator('[data-package="trial"]').click();
   await expect(page.locator('[data-i="submit"]')).toContainText("SKICKA BOKNINGSFÖRFRÅGAN");
