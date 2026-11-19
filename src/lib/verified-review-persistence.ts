@@ -32,6 +32,15 @@ export async function persistReviewInvitation(input: {
       where b.id = ${bookingId}::uuid
         and b.workspace_id = ${workspaceId}
         and b.status = 'completed'
+        -- A manually completed unverified request cannot produce a
+        -- customer-verified review invitation.
+        and not exists (
+          select 1 from customer_events e
+          where e.workspace_id=b.workspace_id and e.booking_id=b.id
+            and e.event_type='booking'
+            and e.metadata->>'verification_mode'='temporary_no_otp'
+            and e.metadata->>'email_verified'='false'
+        )
       limit 1
     ),
     existing as (
@@ -159,6 +168,14 @@ export async function persistVerifiedReviewSubmission(input: {
         and workspace_status in ('active', 'trial')
         and feature_enabled = true
         and booking_status = 'completed'
+        and not exists (
+          select 1 from customer_events e
+          where e.workspace_id=locked.booking_workspace_id
+            and e.booking_id=locked.booking_id
+            and e.event_type='booking'
+            and e.metadata->>'verification_mode'='temporary_no_otp'
+            and e.metadata->>'email_verified'='false'
+        )
         and workspace_id::text = booking_workspace_id
         and (
           customer_id is null
