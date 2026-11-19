@@ -148,6 +148,18 @@ describe("Maria isolated Preview booking email egress safety", () => {
     vi.mocked(allowPublicSubmission).mockResolvedValueOnce(true).mockResolvedValueOnce(false);
     const response = await POST(request("bride@example.com", "https://makeupbymaria.se"));
     expect(response.status).toBe(429);
+    expect(allowPublicSubmission).toHaveBeenNthCalledWith(1, expect.objectContaining({
+      scope: "maria_production_booking_verification",
+      identity: "makeup-by-maria:bride@example.com",
+      maxAttempts: 4,
+      windowSeconds: 15 * 60,
+    }));
+    expect(allowPublicSubmission).toHaveBeenNthCalledWith(2, expect.objectContaining({
+      scope: "maria_production_booking_no_otp_ip",
+      identity: "makeup-by-maria",
+      maxAttempts: 3,
+      windowSeconds: 60 * 60,
+    }));
     expect(createMariaUnverifiedBookingRequest).not.toHaveBeenCalled();
     expect(beginBookingEmailVerification).not.toHaveBeenCalled();
     expect(sendBookingOwnerSms).not.toHaveBeenCalled();
