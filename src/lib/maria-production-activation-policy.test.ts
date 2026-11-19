@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   inspectMariaProductionActivationRequest,
+  isMariaTemporaryOtpFreeIntakeEnabled,
   MARIA_CANONICAL_PRODUCTION_ORIGIN,
 } from "./maria-production-activation-policy";
 
@@ -70,5 +71,25 @@ describe("Maria combined Production release request is disabled by default", () 
     expect(inspectMariaProductionActivationRequest({
       ...ready, PROFFERA_MARIA_PRODUCTION_BOOKING_ENABLED: "1",
     }).requested).toBe(false);
+  });
+});
+
+describe("Maria temporary no-OTP intake is explicitly Production gated", () => {
+  it("is default OFF and only enables with every existing Production gate", () => {
+    expect(isMariaTemporaryOtpFreeIntakeEnabled(ready)).toBe(false);
+    expect(isMariaTemporaryOtpFreeIntakeEnabled({
+      ...ready, PROFFERA_MARIA_TEMPORARY_NO_OTP_ENABLED: "true",
+    })).toBe(true);
+    expect(isMariaTemporaryOtpFreeIntakeEnabled({
+      ...ready, PROFFERA_MARIA_TEMPORARY_NO_OTP_ENABLED: "1",
+    })).toBe(false);
+    expect(isMariaTemporaryOtpFreeIntakeEnabled({
+      ...ready, PROFFERA_MARIA_TEMPORARY_NO_OTP_ENABLED: "true",
+      VERCEL_ENV: "preview",
+    })).toBe(false);
+    expect(isMariaTemporaryOtpFreeIntakeEnabled({
+      ...ready, PROFFERA_MARIA_TEMPORARY_NO_OTP_ENABLED: "true",
+      PROFFERA_MARIA_PRODUCTION_MANAGER_ENABLED: "false",
+    })).toBe(false);
   });
 });
