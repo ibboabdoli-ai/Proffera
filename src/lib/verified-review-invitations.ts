@@ -207,6 +207,14 @@ export async function listReviewInvitationCandidates(): Promise<ReviewInvitation
        and invitation.workspace_id::text = booking.workspace_id
       where booking.workspace_id = ${access.workspaceId}
         and booking.status = 'completed'
+        and not exists (
+          select 1 from customer_events unverified
+          where unverified.workspace_id=booking.workspace_id
+            and unverified.booking_id=booking.id
+            and unverified.event_type='booking'
+            and unverified.metadata->>'verification_mode'='temporary_no_otp'
+            and unverified.metadata->>'email_verified'='false'
+        )
       order by booking.starts_at desc nulls last, booking.created_at desc
       limit 100
     `;
@@ -311,7 +319,15 @@ export async function getVerifiedReviewInvitation(token: string): Promise<Verifi
           from website_reviews review
           where review.review_invitation_id = invitation.id
              or (review.booking_id = invitation.booking_id and review.is_verified = true)
-        ) as review_exists
+        ) as review_exists,
+        exists (
+          select 1 from customer_events unverified
+          where unverified.workspace_id=booking.workspace_id
+            and unverified.booking_id=booking.id
+            and unverified.event_type='booking'
+            and unverified.metadata->>'verification_mode'='temporary_no_otp'
+            and unverified.metadata->>'email_verified'='false'
+        ) as temporary_unverified
       from website_review_invitations invitation
       join workspaces workspace on workspace.id = invitation.workspace_id
       join bookings booking on booking.id = invitation.booking_id
@@ -330,6 +346,9 @@ export async function getVerifiedReviewInvitation(token: string): Promise<Verifi
     const status = toText(row.status);
     if (status === "used" || toBoolean(row.review_exists)) return { state: "used", ...brand };
     if (status === "revoked") return { state: "revoked", ...brand };
+    // A booking never acquires verified-email provenance solely by manual
+    // confirmation or completion. Revoke access to old invitation tokens.
+    if (toBoolean(row.temporary_unverified)) return { state: "unavailable", ...brand };
     if (new Date(toText(row.expires_at)).getTime() <= Date.now()) return { state: "expired", ...brand };
 
     const workspaceId = toText(row.workspace_id);
