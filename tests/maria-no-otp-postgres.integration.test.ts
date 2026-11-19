@@ -376,14 +376,81 @@ function futureFriday(): string {
     expect(await snapshot()).toEqual(before);
   });
 
-  it("serializes two simultaneous requests for the same slot: exactly one commits", async () => {
-    const results = await Promise.all([
-      createMariaUnverifiedBookingRequest(request("bride-one@example.invalid")),
-      createMariaUnverifiedBookingRequest(request("bride-two@example.invalid")),
-    ]);
-    expect(results.filter(value => value.ok)).toHaveLength(1);
-    expect(results.filter(value => !value.ok)).toHaveLength(1);
-    expect(results.find(value => !value.ok)).toMatchObject({ ok: false, error: "conflict" });
-    expect(await snapshot()).toEqual({ bookings: 1, customers: 1, references: 1, events: 1 });
+  it("limits temporary unverified pending requests to ten across different slots", async () => {
+    const ids: string[] = [];
+    for (let i = 0; i < 10; i++) {
+      const nextFriday = new Date(Date.parse(day + "T12:00:00Z") + i * 7 * 86_400_000)
+        .toISOString().slice(0, 10);
+      const nextSlot = mariaCalendarIntervals(nextFriday, "06:00", "10:00")!
+        .find(item => item.clock === "07:00")!;
+      const candidate = {
+        ...request("cap-" + i + "@example.invalid"),
+        startsAt: nextSlot.startsAt,
+        endsAt: new Date(Date.parse(nextSlot.startsAt) + 180 * 60_000).toISOString(),
+      };
+      const saved = await createMariaUnverifiedBookingRequest(candidate);
+      expect(saved.ok).toBe(true);
+      if (!saved.ok) throw new Error("A synthetic capacity fixture was rejected");
+      ids.push(saved.bookingId);
+    }
+    expect(await snapshot()).toEqual({ bookings: 10, customers: 10, references: 10, events: 10 });
+
+    const deniedFriday = new Date(Date.parse(day + "T12:00:00Z") + 10 * 7 * 86_400_000)
+      .toISOString().slice(0, 10);
+    const deniedSlot = mariaCalendarIntervals(deniedFriday, "06:00", "10:00")!
+      .find(item => item.clock === "07:00")!;
+    const eleventh = {
+      ...request("cap-eleventh@example.invalid"),
+      startsAt: deniedSlot.startsAt,
+      endsAt: new Date(Date.parse(deniedSlot.startsAt) + 180 * 60_000).toISOString(),
+    };
+    const before = await snapshot();
+    expect(await createMariaUnverifiedBookingRequest(eleventh)).toMatchObject({
+      ok: false, error: "conflict",
+    });
+    expect(await snapshot()).toEqual(before);
+
+    // Manual confirmation frees one pending intake slot without deleting
+    // any booking or disrupting the established manager approval flow.
+    await db!.query("update bookings set status='confirmed' where id=$1::uuid", [ids[0]]);
+    expect((await createMariaUnverifiedBookingRequest(eleventh)).ok).toBe(true);
+    expect(await snapshot()).toEqual({ bookings: 11, customers: 11, references: 11, events: 11 });
+  }, 90_000);
+
+  it("observes two PostgreSQL advisory-lock waiters before admitting one request", async () => {
+    const coordinator = new Client({ connectionString });
+    await coordinator.connect();
+    let pending: Promise<Awaited<ReturnType<typeof createMariaUnverifiedBookingRequest>>[]> | undefined;
+    try {
+      await coordinator.query("BEGIN");
+      await coordinator.query("select pg_advisory_xact_lock(hashtextextended($1::text,713))", [workspaceId]);
+      pending = Promise.all([
+        createMariaUnverifiedBookingRequest(request("bride-one@example.invalid")),
+        createMariaUnverifiedBookingRequest(request("bride-two@example.invalid")),
+      ]);
+      let waiting = 0;
+      for (let attempt = 0; attempt < 100; attempt++) {
+        const result = await db!.query<{ count: number }>(`
+          select count(*)::int as count from pg_stat_activity
+          where pid <> pg_backend_pid()
+            and state='active' and wait_event_type='Lock' and wait_event='advisory'
+            and query like '%pg_advisory_xact_lock%'
+        `);
+        waiting = result.rows[0]?.count ?? 0;
+        if (waiting >= 2) break;
+        await delay(50);
+      }
+      expect(waiting).toBeGreaterThanOrEqual(2);
+      await coordinator.query("COMMIT");
+      const results = await pending;
+      expect(results.filter(value => value.ok)).toHaveLength(1);
+      expect(results.filter(value => !value.ok)).toHaveLength(1);
+      expect(results.find(value => !value.ok)).toMatchObject({ ok: false, error: "conflict" });
+      expect(await snapshot()).toEqual({ bookings: 1, customers: 1, references: 1, events: 1 });
+    } finally {
+      await coordinator.query("ROLLBACK").catch(() => undefined);
+      await pending?.catch(() => undefined);
+      await coordinator.end();
+    }
   }, 30_000);
 });
