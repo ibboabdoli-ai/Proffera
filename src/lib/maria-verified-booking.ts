@@ -219,12 +219,16 @@ export async function createMariaUnverifiedBookingRequest(input: {
     const results = await sql.transaction([
       sql`select pg_advisory_xact_lock(hashtextextended(${input.workspaceId}::text, 713))`,
       sql`
-        with eligible as (
+        -- The lock query ran first. PostgreSQL now() would still reflect
+        -- transaction BEGIN, so capture one actual post-lock instant.
+        with checked_clock as materialized (select clock_timestamp() as at_time),
+        eligible as (
           select w.id as workspace_id, s.id as service_id, s.name as service_name
           from workspaces w
           join workspace_services s on s.workspace_id = w.id::text
           join workspace_booking_hours h on h.workspace_id = w.id::text
             and h.weekday = extract(dow from ${input.startsAt}::timestamptz at time zone 'Europe/Stockholm')::int
+          cross join checked_clock checked
           where w.id = ${input.workspaceId}::uuid
             and w.slug = 'makeup-by-maria'
             and w.public_booking_slug = 'makeup-by-maria'
@@ -235,8 +239,8 @@ export async function createMariaUnverifiedBookingRequest(input: {
             and s.duration_minutes between 1 and 1440
             and ${input.endsAt}::timestamptz =
                 ${input.startsAt}::timestamptz + (s.duration_minutes * interval '1 minute')
-            and ${input.startsAt}::timestamptz >= now() + (s.minimum_notice_minutes * interval '1 minute')
-            and ${input.startsAt}::timestamptz <= now() + (s.maximum_advance_days * interval '1 day')
+            and ${input.startsAt}::timestamptz >= checked.at_time + (s.minimum_notice_minutes * interval '1 minute')
+            and ${input.startsAt}::timestamptz <= checked.at_time + (s.maximum_advance_days * interval '1 day')
             and h.is_closed = false
             and (${input.startsAt}::timestamptz at time zone 'Europe/Stockholm')::time
                 between h.opens_at and h.closes_at
