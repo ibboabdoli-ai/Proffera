@@ -13,6 +13,10 @@ import {
   validatePublicBookingPolicy,
 } from "@/lib/public-booking-policy";
 import { beginBookingEmailVerification } from "@/lib/public-booking-verification";
+import { createMariaUnverifiedBookingRequest } from "@/lib/maria-verified-booking";
+import { isMariaTemporaryOtpFreeIntakeEnabled } from "@/lib/maria-production-activation-policy";
+import { sendBookingOwnerNotificationEmail } from "@/features/email/lead-email";
+import { sendBookingOwnerSms } from "@/features/sms/booking-sms";
 
 export const dynamic = "force-dynamic";
 const privateHeaders = { "Cache-Control": "private, no-store, max-age=0" };
@@ -194,7 +198,82 @@ export async function POST(request: Request) {
     return failure(availability.ok ? "conflict" : availability.error, 409);
   }
 
+  // Stronger IP-wide throttle in the temporary unverified mode; the existing
+  // email+IP limit above remains enforced. Fail closed if storage is unavailable.
+  const otpFree = isMariaTemporaryOtpFreeIntakeEnabled();
+  if (otpFree) {
+    const ipAllowed = await allowPublicSubmission({
+      scope: "maria_production_booking_no_otp_ip",
+      requestHeaders: request.headers,
+      identity: "makeup-by-maria",
+      maxAttempts: 3,
+      windowSeconds: 60 * 60,
+    });
+    if (!ipAllowed) return failure("rate_limit", 429);
+  }
+
   try {
+    if (otpFree) {
+      const bookingNote = [
+        `Wedding year: ${year}`, `Package: ${kind}`,
+        notes ? `Customer notes: ${notes}` : "",
+        "Email not verified: temporary no-OTP booking request",
+      ].filter(Boolean).join("\n");
+      const created = await createMariaUnverifiedBookingRequest({
+        workspaceId: readiness.workspaceId,
+        serviceId: String(service.id),
+        customerName: name,
+        customerEmail: email,
+        customerPhone: phone,
+        city: city || readiness.primaryCity,
+        startsAt: start,
+        endsAt: end,
+        bookingNote,
+        bookingLanguage: requestedLang,
+      });
+      if (!created.ok) {
+        return failure(created.error === "unavailable" ? "unavailable"
+          : created.error === "database" || created.error === "save" ? "database"
+          : "conflict", created.error === "unavailable" ? 403
+          : created.error === "database" || created.error === "save" ? 503 : 409);
+      }
+      // Do not send any OTP, customer receipt or privileged portal token to
+      // an unverified email. Maria is notified via the usual owner channels.
+      await Promise.allSettled([
+        readiness.ownerEmail
+          ? sendBookingOwnerNotificationEmail({
+              ownerEmail: readiness.ownerEmail,
+              companyName: readiness.companyName,
+              customerName: name,
+              customerEmail: email,
+              customerPhone: phone,
+              service: String(service.name),
+              startsAt: start,
+              endsAt: end,
+              city: city || readiness.primaryCity,
+              timeZone,
+              language: "sv",
+            })
+          : Promise.resolve(),
+        readiness.ownerPhone
+          ? sendBookingOwnerSms({
+              workspaceId: readiness.workspaceId,
+              deliveryKey: "booking:" + created.bookingId + ":owner",
+              ownerPhone: readiness.ownerPhone,
+              companyName: readiness.companyName,
+              customerName: name,
+              customerPhone: phone,
+              service: String(service.name),
+              startsAt: start,
+              timeZone,
+            })
+          : Promise.resolve(),
+      ]);
+      return NextResponse.json({ ok: true, requestReceived: true }, {
+        status: 201, headers: privateHeaders,
+      });
+    }
+
     const result = await beginBookingEmailVerification({
       workspaceId: readiness.workspaceId,
       slug: readiness.publicSlug,
