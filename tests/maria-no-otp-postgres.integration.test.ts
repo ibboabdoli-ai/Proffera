@@ -21,6 +21,7 @@ vi.mock("@/lib/maria-booking-runtime", () => ({
 }));
 
 import { createMariaUnverifiedBookingRequest } from "@/lib/maria-verified-booking";
+import { persistReviewInvitation } from "@/lib/verified-review-persistence";
 
 const RUN = process.env.GITHUB_ACTIONS === "true"
   || process.env.PROFFERA_POSTGRES_INTEGRATION === "1";
@@ -214,6 +215,34 @@ function futureFriday(): string {
       phone: "+46700000000", verified: false,
     });
     expect(details.rows[0]?.reference).toMatch(/^MBM-[0-9]{10,}$/);
+  });
+
+  it("cannot issue a verified-review invitation for a manually completed no-OTP booking", async () => {
+    const saved = await createMariaUnverifiedBookingRequest(request("review-unverified@example.invalid"));
+    expect(saved.ok).toBe(true);
+    if (!saved.ok) throw new Error("Synthetic no-OTP request was not saved");
+    await db!.query(
+      "update bookings set status='completed' where id=$1::uuid and workspace_id=$2",
+      [saved.bookingId, workspaceId],
+    );
+    // Exercise the real production invitation SQL on the disposable canonical schema.
+    const issued = await persistReviewInvitation({
+      sql: mocks.getSql(),
+      actorUserId: randomUUID(),
+      workspaceId,
+      bookingId: saved.bookingId,
+      tokenHash: "a".repeat(64),
+      expiresAt: new Date(Date.now() + 86_400_000).toISOString(),
+    });
+    expect(issued).toHaveLength(1);
+    expect(issued[0]?.target_exists).toBe(false);
+    expect(issued[0]?.invitation_id).toBeNull();
+    const count = await db!.query<{ count: number }>(
+      "select count(*)::int as count from website_review_invitations " +
+      "where workspace_id=$1::uuid and booking_id=$2::uuid",
+      [workspaceId, saved.bookingId],
+    );
+    expect(count.rows[0]?.count).toBe(0);
   });
 
   it("rejects an existing overlapping booking without creating dependent rows", async () => {
