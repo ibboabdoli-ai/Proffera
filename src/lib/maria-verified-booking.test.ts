@@ -179,6 +179,12 @@ describe("Maria temporary no-OTP bookings", () => {
     expect(insert.sql).not.toContain("'confirmed'");
     expect(insert.sql).toContain("'email_verified',false");
     expect(insert.sql).toContain("'temporary_no_otp'");
+    // A submitted email does not prove identity; never link unverified intake
+    // to a pre-existing customer whose name or phone could be different.
+    expect(insert.sql).not.toContain("existing_customer as");
+    expect(insert.sql).toContain("select id from created_customer");
+    expect(insert.values).toContain(noOtpInput.customerName);
+    expect(insert.values).toContain(noOtpInput.customerPhone);
     expect(insert.sql).toContain("maria_manual_closed_starts");
     expect(insert.sql).toContain("public_booking_verifications hold");
     expect(insert.sql).toContain("not exists (");

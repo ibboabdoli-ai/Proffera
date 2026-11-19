@@ -88,6 +88,12 @@ describe("booking reminder workspace join", () => {
     expect(result).toEqual({ checked: 0, sent: 0, skipped: 0, failed: 0, autoCompleted: 0 });
     expect(reminderQuery).toContain("left join workspaces w on w.id::text=b.workspace_id");
     expect(reminderQuery).not.toContain("left join workspaces w on w.id=b.workspace_id");
+    // Manual confirmation does not verify email ownership. The generic
+    // reminder worker must not mint portal bearer tokens for these bookings.
+    expect(reminderQuery).toContain("unverified.workspace_id=b.workspace_id");
+    expect(reminderQuery).toContain("unverified.booking_id=b.id");
+    expect(reminderQuery).toContain("unverified.metadata->>'verification_mode'='temporary_no_otp'");
+    expect(reminderQuery).toContain("unverified.metadata->>'email_verified'='false'");
   });
 
   it("claims each delivery identity once across concurrent overlapping runs", async () => {

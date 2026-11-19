@@ -468,6 +468,13 @@ function translate(){
  $("withoutPrice").textContent=displayYearPrice("without");
  $("backHome").textContent=uiCopy().home;
  renderPackageAvailability();
+ if(temporaryRequestSubmitted){
+  const done=noOtpBookingCopy[state.lang]||noOtpBookingCopy.sv;
+  $("bookingCompleteTitle").textContent=done.title;
+  $("bookingCompleteText").textContent=done.text;
+  $("bookingCompleteAgain").textContent=(bookingCompleteCopy[state.lang]||bookingCompleteCopy.sv).again;
+  $("bookingCompleteAgain").href=mariaPublicHomeUrl(state.lang);
+ }
  showBookingComplete();
  renderYears();
  if(state.kind)renderSummary();

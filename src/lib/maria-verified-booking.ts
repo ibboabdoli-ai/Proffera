@@ -252,21 +252,18 @@ export async function createMariaUnverifiedBookingRequest(input: {
                   > ${input.startsAt}::timestamptz - (s.buffer_before_minutes * interval '1 minute')
             )
           limit 1
-        ), existing_customer as (
-          select c.id from customers c
-          join eligible v on c.workspace_id = v.workspace_id::text
-            and lower(c.email) = lower(${input.customerEmail})
-          order by c.created_at asc nulls last, c.id asc limit 1
         ), created_customer as (
+          -- An unverified email must never attach a request to an existing
+          -- customer identity (or inherit existing portal-token authority).
+          -- Preserve the submitted name and phone on a fresh CRM record.
           insert into customers(workspace_id,name,email,phone,city,status,source,notes)
           select v.workspace_id::text,${input.customerName},${input.customerEmail},
             ${input.customerPhone},${input.city},'prospect','public_booking',
             nullif(${input.bookingNote},'')
-          from eligible v where not exists(select 1 from existing_customer)
+          from eligible v
           returning id
         ), customer as (
-          select id from existing_customer
-          union all select id from created_customer
+          select id from created_customer
         ), booking as (
           insert into bookings(workspace_id,customer_id,staff_id,service_id,title,service,
             city,status,starts_at,ends_at,source,notes)
