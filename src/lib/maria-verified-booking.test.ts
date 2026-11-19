@@ -68,6 +68,9 @@ describe("Maria verified booking keeps the current Preview recipient boundary", 
     expect(eligibility.values).toContain("qa@example.invalid");
     expect(eligibility.values).toContain(input.verificationId);
     expect(eligibility.values).toContain(input.expectedCodeHash);
+    expect(eligibility.sql).toContain("unverified.customer_id=c.id");
+    expect(eligibility.sql).toContain("unverified.metadata->>'verification_mode'='temporary_no_otp'");
+    expect(eligibility.sql).toContain("unverified.metadata->>'email_verified'='false'");
     expect(eligibility.sql).toContain("maria_booking_reference_counters");
     expect(eligibility.sql).toContain("maria_booking_references");
     expect(eligibility.sql).toContain("on conflict (day_key) do update");
