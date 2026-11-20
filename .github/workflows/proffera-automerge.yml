@@ -482,12 +482,24 @@ jobs:
               # exhaustion after the trusted exact-current-head request.
               # Generic silence / timeout keeps the pre-existing Codex path.
               reviewforge_fallback_used=no
-              reviewforge_quota_count="$(jq -r --arg request_time "$coderabbit_request_time" '
+              # A quota reply without an authenticated exact-HEAD correlation is NOT
+              # evidence that THIS request was rate limited: older replies can arrive
+              # late. Current CodeRabbit quota notices lack this SHA marker, so this
+              # path deliberately fails closed until an independently verified
+              # bot-emitted correlation format and noncritical E2E test are available.
+              # Never infer quota from "included limit reached" after a completed review.
+              reviewforge_quota_count="$(jq -r --arg sha "$head_sha" --arg request_time "$coderabbit_request_time" '
                 [
                   .[]
                   | select(.user.login == "coderabbitai[bot]")
                   | select($request_time != "" and (.created_at // "") >= $request_time)
-                  | select((.body // "") | test("Review rate limited|Review limit reached|included review limit is currently reached|rate limited by coderabbit.ai"; "i"))
+                  | (.body // "") as $body
+                  | select(
+                      ($body | test("(^|[\\r\\n])<!-- CodeRabbit review command invocation: v2:[0-9a-f]{64} -->($|[\\r\\n])"))
+                      and ($body | test("(^|[\\r\\n])Action not completed($|[\\r\\n])"; "i"))
+                      and ($body | test("(^|[\\r\\n])Review rate limited\\.($|[\\r\\n])"; "i"))
+                      and ($body | test("(^|[\\r\\n])<!-- CodeRabbit quota exact-head: " + $sha + " -->($|[\\r\\n])"))
+                    )
                 ] | length
               ' <<< "$comments_json")"
               if [ "$reviewforge_quota_count" -gt 0 ] && [ "$fallback_eligible" = "true" ]; then
