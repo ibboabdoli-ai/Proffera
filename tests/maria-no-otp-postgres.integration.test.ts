@@ -465,6 +465,8 @@ function futureFriday(): string {
       const saved = await createMariaUnverifiedBookingRequest(candidate);
       expect(saved.ok).toBe(true);
       if (!saved.ok) throw new Error("A synthetic capacity fixture was rejected");
+      // Exactly the tenth successful request triggers the manager-capacity notice.
+      expect(saved.capacityReached).toBe(i === 9);
       ids.push(saved.bookingId);
     }
     expect(await snapshot()).toEqual({ bookings: 10, customers: 10, references: 10, events: 10 });
@@ -487,7 +489,9 @@ function futureFriday(): string {
     // Manual confirmation frees one pending intake slot without deleting
     // any booking or disrupting the established manager approval flow.
     await db!.query("update bookings set status='confirmed' where id=$1::uuid", [ids[0]]);
-    expect((await createMariaUnverifiedBookingRequest(eleventh)).ok).toBe(true);
+    expect(await createMariaUnverifiedBookingRequest(eleventh)).toMatchObject({
+      ok: true, capacityReached: true,
+    });
     expect(await snapshot()).toEqual({ bookings: 11, customers: 11, references: 11, events: 11 });
   }, 90_000);
 
