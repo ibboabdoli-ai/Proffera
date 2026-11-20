@@ -122,7 +122,7 @@ const previousHead = 'b'.repeat(40);
 const quotaRequestedAt = '2026-11-20T14:00:00Z';
 const invocation = '<!-- CodeRabbit review command invocation: v2:' + 'c'.repeat(64) + ' -->';
 const quotaText = (sha: string, outcome = 'Action not completed', message = 'Review rate limited.') =>
-  [invocation, outcome, message, '<!-- CodeRabbit quota exact-head: ' + sha + ' -->'].join('\n');
+  [invocation, '<details>', '<summary>' + outcome + '</summary>', message, '<!-- CodeRabbit quota exact-head: ' + sha + ' -->', '</details>'].join('\n');
 const quotaComment = (body: string, author = 'coderabbitai[bot]', createdAt = '2026-11-20T14:01:00Z') =>
   ({ user: { login: author }, created_at: createdAt, body });
 
@@ -144,7 +144,7 @@ describe('exact-HEAD CodeRabbit quota provenance (offline, no paid calls)', () =
     expect(realQuotaSelectorCount([quotaComment(quotaText(previousHead))])).toBe(0);
   });
   it('rejects a real-world CodeRabbit rate-limit format with no SHA correlation', () => {
-    expect(realQuotaSelectorCount([quotaComment([invocation, 'Action not completed', 'Review rate limited.', 'Your included review limit is currently reached.'].join('\n'))])).toBe(0);
+    expect(realQuotaSelectorCount([quotaComment([invocation, '<details>', '<summary>Action not completed</summary>', 'Review rate limited.', 'Your included review limit is currently reached.', '</details>'].join('\n'))])).toBe(0);
   });
   it('allows only a synthetic correctly bound bot reply when all evidence matches', () => {
     expect(realQuotaSelectorCount([quotaComment(quotaText(quotaHead))])).toBe(1);
