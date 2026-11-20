@@ -154,6 +154,27 @@ describe("Maria isolated Preview booking email egress safety", () => {
     expect(sendBookingOwnerNotificationEmail).toHaveBeenCalledTimes(1);
   });
 
+  it("includes a one-time manager warning when the tenth unverified request is saved", async () => {
+    prepareProductionNoOtp();
+    vi.mocked(createMariaUnverifiedBookingRequest).mockResolvedValue({
+      ok: true, bookingId: "00000000-0000-4000-8000-000000000079",
+      customerId: "00000000-0000-4000-8000-000000000080",
+      capacityReached: true,
+    });
+    const response = await POST(request("bride@example.com", "https://makeupbymaria.se"));
+    expect(response.status).toBe(201);
+    expect(await response.json()).toEqual({ ok: true, requestReceived: true });
+    expect(sendBookingOwnerNotificationEmail).toHaveBeenCalledTimes(1);
+    expect(sendBookingOwnerNotificationEmail).toHaveBeenCalledWith(expect.objectContaining({
+      service: expect.stringContaining("10/10 ej verifierade förfrågningar"),
+    }));
+    expect(sendBookingOwnerSms).toHaveBeenCalledTimes(1);
+    expect(sendBookingOwnerSms).toHaveBeenCalledWith(expect.objectContaining({
+      service: expect.stringContaining("10/10 ej verifierade förfrågningar"),
+    }));
+    expect(beginBookingEmailVerification).not.toHaveBeenCalled();
+  });
+
   it("fails closed when temporary unverified-IP rate limit is exhausted", async () => {
     vi.stubEnv("VERCEL_ENV", "production");
     for (const [key, value] of Object.entries({
@@ -288,6 +309,8 @@ describe("Maria isolated Preview booking email egress safety", () => {
 
   it("accepts a canonical-origin Production booking and returns its OTP verification URL", async () => {
     vi.stubEnv("VERCEL_ENV", "production");
+    // An absent feature flag must preserve the normal OTP path, not only "false".
+    vi.stubEnv("PROFFERA_MARIA_TEMPORARY_NO_OTP_ENABLED", undefined);
     for (const [key, value] of Object.entries({
       PROFFERA_MARIA_PUBLIC_SITE_ENABLED: "true",
       PROFFERA_MARIA_PRODUCTION_BOOKING_ENABLED: "true",
@@ -320,6 +343,7 @@ describe("Maria isolated Preview booking email egress safety", () => {
     expect(beginBookingEmailVerification).toHaveBeenCalledWith(expect.objectContaining({
       slug: "makeup-by-maria", customerEmail: "bride@example.com", verificationSms: false,
     }));
+    expect(createMariaUnverifiedBookingRequest).not.toHaveBeenCalled();
     expect(sql).toHaveBeenCalledTimes(2);
     const wrongOrigin = await POST(request("bride@example.com", "https://www.makeupbymaria.se"));
     expect(wrongOrigin.status).toBe(403);
