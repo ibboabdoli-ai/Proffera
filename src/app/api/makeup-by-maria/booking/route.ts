@@ -13,6 +13,10 @@ import {
   validatePublicBookingPolicy,
 } from "@/lib/public-booking-policy";
 import { beginBookingEmailVerification } from "@/lib/public-booking-verification";
+import { createMariaUnverifiedBookingRequest } from "@/lib/maria-verified-booking";
+import { isMariaTemporaryOtpFreeIntakeEnabled } from "@/lib/maria-production-activation-policy";
+import { sendBookingOwnerNotificationEmail } from "@/features/email/lead-email";
+import { sendBookingOwnerSms } from "@/features/sms/booking-sms";
 
 export const dynamic = "force-dynamic";
 const privateHeaders = { "Cache-Control": "private, no-store, max-age=0" };
@@ -194,7 +198,103 @@ export async function POST(request: Request) {
     return failure(availability.ok ? "conflict" : availability.error, 409);
   }
 
+  // Stronger IP-wide throttle in the temporary unverified mode; the existing
+  // email+IP limit above remains enforced. Fail closed if storage is unavailable.
+  const otpFree = isMariaTemporaryOtpFreeIntakeEnabled();
+  if (otpFree) {
+    const ipAllowed = await allowPublicSubmission({
+      scope: "maria_production_booking_no_otp_ip",
+      requestHeaders: request.headers,
+      identity: "makeup-by-maria",
+      maxAttempts: 3,
+      windowSeconds: 60 * 60,
+    });
+    if (!ipAllowed) return failure("rate_limit", 429);
+  }
+
   try {
+    if (otpFree) {
+      const bookingNote = [
+        `Wedding year: ${year}`, `Package: ${kind}`,
+        notes ? `Customer notes: ${notes}` : "",
+        "Email not verified: temporary no-OTP booking request",
+      ].filter(Boolean).join("\n");
+      const created = await createMariaUnverifiedBookingRequest({
+        workspaceId: readiness.workspaceId,
+        serviceId: String(service.id),
+        customerName: name,
+        customerEmail: email,
+        customerPhone: phone,
+        city: city || readiness.primaryCity,
+        startsAt: start,
+        endsAt: end,
+        bookingNote,
+        bookingLanguage: requestedLang,
+      });
+      if (!created.ok) {
+        return failure(created.error === "unavailable" ? "unavailable"
+          : created.error === "database" || created.error === "save" ? "database"
+          : "conflict", created.error === "unavailable" ? 403
+          : created.error === "database" || created.error === "save" ? 503 : 409);
+      }
+      // Notify the manager through the existing booking channels when the
+      // tenth active unverified request fills the capacity. There is no
+      // notification on rejected retries, avoiding an attacker-driven alert flood.
+      // Do not send an OTP, customer receipt or any customer bearer token.
+      const managerService = created.capacityReached
+        ? "OBS: 10/10 ej verifierade förfrågningar. Bekräfta eller avboka i Proffera. " + String(service.name)
+        : String(service.name);
+      const notifications = await Promise.allSettled([
+        readiness.ownerEmail
+          ? sendBookingOwnerNotificationEmail({
+              ownerEmail: readiness.ownerEmail,
+              companyName: readiness.companyName,
+              customerName: name,
+              customerEmail: email,
+              customerPhone: phone,
+              service: "Ej verifierad förfrågan: " + managerService,
+              startsAt: start,
+              endsAt: end,
+              city: city || readiness.primaryCity,
+              timeZone,
+              language: "sv",
+            })
+          : Promise.resolve(),
+        readiness.ownerPhone
+          ? sendBookingOwnerSms({
+              workspaceId: readiness.workspaceId,
+              deliveryKey: "booking:" + created.bookingId + ":owner",
+              ownerPhone: readiness.ownerPhone,
+              companyName: readiness.companyName,
+              customerName: name,
+              customerPhone: phone,
+              service: managerService,
+              startsAt: start,
+              timeZone,
+              unverified: true,
+            })
+          : Promise.resolve(),
+      ]);
+      // A saved request must still return 201. Log owner-delivery failures
+      // without including unverified customer contact details or credentials.
+      for (const [channel, outcome] of [
+        ["email", notifications[0]], ["sms", notifications[1]],
+      ] as const) {
+        if (outcome?.status === "rejected"
+          || (outcome?.status === "fulfilled" && outcome.value
+            && typeof outcome.value === "object"
+            && (("ok" in outcome.value && outcome.value.ok === false)
+              || ("skipped" in outcome.value && Boolean(outcome.value.skipped))))) {
+          console.error("Maria no-OTP owner notification failed", {
+            bookingId: created.bookingId, channel,
+          });
+        }
+      }
+      return NextResponse.json({ ok: true, requestReceived: true }, {
+        status: 201, headers: privateHeaders,
+      });
+    }
+
     const result = await beginBookingEmailVerification({
       workspaceId: readiness.workspaceId,
       slug: readiness.publicSlug,
