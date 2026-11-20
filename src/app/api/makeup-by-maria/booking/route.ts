@@ -237,8 +237,13 @@ export async function POST(request: Request) {
           : "conflict", created.error === "unavailable" ? 403
           : created.error === "database" || created.error === "save" ? 503 : 409);
       }
-      // Do not send any OTP, customer receipt or privileged portal token to
-      // an unverified email. Maria is notified via the usual owner channels.
+      // Notify the manager through the existing booking channels when the
+      // tenth active unverified request fills the capacity. There is no
+      // notification on rejected retries, avoiding an attacker-driven alert flood.
+      // Do not send an OTP, customer receipt or any customer bearer token.
+      const managerService = created.capacityReached
+        ? "OBS: 10/10 ej verifierade förfrågningar. Bekräfta eller avboka i Proffera. " + String(service.name)
+        : String(service.name);
       const notifications = await Promise.allSettled([
         readiness.ownerEmail
           ? sendBookingOwnerNotificationEmail({
@@ -247,7 +252,7 @@ export async function POST(request: Request) {
               customerName: name,
               customerEmail: email,
               customerPhone: phone,
-              service: "Ej verifierad förfrågan: " + String(service.name),
+              service: "Ej verifierad förfrågan: " + managerService,
               startsAt: start,
               endsAt: end,
               city: city || readiness.primaryCity,
@@ -263,7 +268,7 @@ export async function POST(request: Request) {
               companyName: readiness.companyName,
               customerName: name,
               customerPhone: phone,
-              service: String(service.name),
+              service: managerService,
               startsAt: start,
               timeZone,
               unverified: true,
