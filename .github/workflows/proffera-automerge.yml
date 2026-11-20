@@ -496,7 +496,7 @@ jobs:
                   | (.body // "") as $body
                   | select(
                       ($body | test("(^|[\\r\\n])<!-- CodeRabbit review command invocation: v2:[0-9a-f]{64} -->($|[\\r\\n])"))
-                      and ($body | test("(^|[\\r\\n])Action not completed($|[\\r\\n])"; "i"))
+                      and ($body | test("(^|[\\r\\n])[[:space:]]*<summary>Action not completed</summary>[[:space:]]*($|[\\r\\n])"))
                       and ($body | test("(^|[\\r\\n])Review rate limited\\.($|[\\r\\n])"; "i"))
                       and ($body | test("(^|[\\r\\n])<!-- CodeRabbit quota exact-head: " + $sha + " -->($|[\\r\\n])"))
                     )
