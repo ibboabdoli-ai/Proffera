@@ -222,8 +222,22 @@ export async function createMariaUnverifiedBookingRequest(input: {
         -- The lock query ran first. PostgreSQL now() would still reflect
         -- transaction BEGIN, so capture one actual post-lock instant.
         with checked_clock as materialized (select clock_timestamp() as at_time),
+        pending_capacity as materialized (
+          select count(*)::int as active_count from bookings pending
+          where pending.workspace_id = ${input.workspaceId}::text
+            and pending.status = 'requested'
+            and exists (
+              select 1 from customer_events provenance
+              where provenance.workspace_id = ${input.workspaceId}::text
+                and provenance.booking_id = pending.id
+                and provenance.event_type = 'booking'
+                and provenance.metadata->>'verification_mode' = 'temporary_no_otp'
+                and provenance.metadata->>'email_verified' = 'false'
+            )
+        ),
         eligible as (
-          select w.id as workspace_id, s.id as service_id, s.name as service_name
+          select w.id as workspace_id, s.id as service_id, s.name as service_name,
+            (select active_count from pending_capacity) as prior_unverified_requests
           from workspaces w
           join workspace_services s on s.workspace_id = w.id::text
           join workspace_booking_hours h on h.workspace_id = w.id::text
@@ -247,19 +261,7 @@ export async function createMariaUnverifiedBookingRequest(input: {
             -- Bound unverified slot occupation even when submitters rotate
             -- addresses. Manager-confirmed and cancelled requests do not
             -- count; the workspace advisory lock serializes this check.
-            and (
-              select count(*) from bookings pending
-              where pending.workspace_id = w.id::text
-                and pending.status = 'requested'
-                and exists (
-                  select 1 from customer_events provenance
-                  where provenance.workspace_id = w.id::text
-                    and provenance.booking_id = pending.id
-                    and provenance.event_type = 'booking'
-                    and provenance.metadata->>'verification_mode' = 'temporary_no_otp'
-                    and provenance.metadata->>'email_verified' = 'false'
-                )
-            ) < 10
+            and (select active_count from pending_capacity) < 10
             and not exists (
               select 1 from bookings b
               left join workspace_services bs on bs.id = b.service_id and bs.workspace_id = b.workspace_id
@@ -328,7 +330,8 @@ export async function createMariaUnverifiedBookingRequest(input: {
               'email_verified',false,'verification_mode','temporary_no_otp')
           from booking b returning id
         )
-        select b.id as booking_id,b.customer_id
+        select b.id as booking_id,b.customer_id,
+          ((select prior_unverified_requests from eligible) = 9) as capacity_reached
         from booking b
         join assigned_reference ref on ref.booking_id=b.id
         join audit a on true
@@ -337,7 +340,8 @@ export async function createMariaUnverifiedBookingRequest(input: {
     const result = results[1]?.[0];
     return result?.booking_id && result?.customer_id
       ? { ok: true as const, bookingId: String(result.booking_id),
-          customerId: String(result.customer_id) }
+          customerId: String(result.customer_id),
+          capacityReached: result.capacity_reached === true }
       : { ok: false as const, error: "conflict" };
   } catch (error) {
     console.error("Maria temporary unverified booking request failed", error);
