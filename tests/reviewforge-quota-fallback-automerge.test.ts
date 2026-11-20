@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 const file = '.github/workflows/proffera-automerge.yml';
 const yamlText = readFileSync(file, 'utf8');
 // Extract the only shell run block without adding a missing @types/js-yaml
@@ -53,5 +53,62 @@ describe('ReviewForge CodeRabbit-quota fallback merge safety', () => {
     expect(merge).toBeGreaterThan(recheck);
     expect(script).toContain('final_bot_findings');
     expect(script).toContain('ReviewForge approval is stale, dismissed');
+  });
+});
+
+
+// This executes the exact workflow shell function with synthetic GraphQL
+// responses. No GitHub calls or paid model requests are made by these tests.
+const reviewThreadsPayload = (nodes: Array<{ isResolved?: boolean }>, hasNextPage = false) =>
+  JSON.stringify({ data: { repository: { pullRequest: { reviewThreads: { nodes, pageInfo: { hasNextPage } } } } } });
+
+function evaluateReviewThreadGate(payload: string, githubFailure = false): number | null {
+  const gateFunction = script.match(/^review_threads_resolved\(\) \{[\s\S]*?^\}/m)?.[0];
+  expect(gateFunction).toBeDefined();
+  const command = [
+    'set -euo pipefail',
+    gateFunction ?? '',
+    'gh() { if [ "$GH_FAIL" = "1" ]; then return 44; fi; printf "%s\n" "$THREADS_JSON"; }',
+    'review_threads_resolved',
+  ].join('\n');
+  const result = spawnSync('bash', ['-c', command], {
+    encoding: 'utf8',
+    env: {
+      ...process.env,
+      REPOSITORY: 'ibboabdoli-ai/Proffera',
+      pr_number: '1002',
+      GH_FAIL: githubFailure ? '1' : '0',
+      THREADS_JSON: payload,
+    },
+  });
+  return result.status;
+}
+
+describe('real pre-merge unresolved review thread gate', () => {
+  it('is required on every review route immediately before merge', () => {
+    const gateInvocation = script.lastIndexOf('if ! review_threads_resolved; then');
+    const mergeInvocation = script.indexOf('merge_output=');
+    expect(gateInvocation).toBeGreaterThan(0);
+    expect(mergeInvocation).toBeGreaterThan(gateInvocation);
+  });
+
+  it('accepts a complete GraphQL result with all discussions resolved', () => {
+    expect(evaluateReviewThreadGate(reviewThreadsPayload([{isResolved: true}, {isResolved: true}]))).toBe(0);
+    expect(evaluateReviewThreadGate(reviewThreadsPayload([]))).toBe(0);
+  });
+
+  it.each([
+    ['unresolved thread', reviewThreadsPayload([{isResolved: true}, {isResolved: false}])],
+    ['unknown resolution', reviewThreadsPayload([{}])],
+    ['missing pagination coverage', reviewThreadsPayload([{isResolved: true}], true)],
+    ['missing GraphQL data', '{}'],
+    ['malformed GraphQL JSON', '{not-json'],
+    ['GraphQL error', JSON.stringify({ errors: [{message: 'access denied'}], data: {repository: {pullRequest: {reviewThreads: {nodes: [{isResolved: true}], pageInfo: {hasNextPage: false}}}}} })],
+  ])('refuses %s', (_reason, payload) => {
+    expect(evaluateReviewThreadGate(payload)).not.toBe(0);
+  });
+
+  it('refuses a GitHub GraphQL transport failure', () => {
+    expect(evaluateReviewThreadGate(reviewThreadsPayload([{isResolved: true}]), true)).not.toBe(0);
   });
 });
