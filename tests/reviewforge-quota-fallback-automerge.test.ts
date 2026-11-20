@@ -112,3 +112,52 @@ describe('real pre-merge unresolved review thread gate', () => {
     expect(evaluateReviewThreadGate(reviewThreadsPayload([{isResolved: true}]), true)).not.toBe(0);
   });
 });
+
+
+// Exercise the ACTUAL jq selector embedded in the workflow, not a copied
+// interpretation. Real CodeRabbit quota notices do not include an exact-HEAD
+// correlation marker; this Draft gate MUST refuse them until supported.
+const quotaHead = 'a'.repeat(40);
+const previousHead = 'b'.repeat(40);
+const quotaRequestedAt = '2026-11-20T14:00:00Z';
+const invocation = '<!-- CodeRabbit review command invocation: v2:' + 'c'.repeat(64) + ' -->';
+const quotaText = (sha: string, outcome = 'Action not completed', message = 'Review rate limited.') =>
+  [invocation, outcome, message, '<!-- CodeRabbit quota exact-head: ' + sha + ' -->'].join('\n');
+const quotaComment = (body: string, author = 'coderabbitai[bot]', createdAt = '2026-11-20T14:01:00Z') =>
+  ({ user: { login: author }, created_at: createdAt, body });
+
+function realQuotaSelectorCount(comments: Array<ReturnType<typeof quotaComment>>): number {
+  const matched = script.match(/reviewforge_quota_count="\$\(jq -r --arg sha "\$head_sha" --arg request_time "\$coderabbit_request_time" '([\s\S]*?)' <<< "\$comments_json"\)"/);
+  expect(matched).not.toBeNull();
+  const result = spawnSync('jq', [
+    '-r', '--arg', 'sha', quotaHead,
+    '--arg', 'request_time', quotaRequestedAt,
+    matched?.[1] ?? '',
+  ], { encoding: 'utf8', input: JSON.stringify(comments) });
+  expect(result.error).toBeUndefined();
+  expect(result.status).toBe(0);
+  return Number(result.stdout.trim());
+}
+
+describe('exact-HEAD CodeRabbit quota provenance (offline, no paid calls)', () => {
+  it('reproduces and blocks a delayed authentic old-HEAD quota reply after the current request', () => {
+    expect(realQuotaSelectorCount([quotaComment(quotaText(previousHead))])).toBe(0);
+  });
+  it('rejects a real-world CodeRabbit rate-limit format with no SHA correlation', () => {
+    expect(realQuotaSelectorCount([quotaComment([invocation, 'Action not completed', 'Review rate limited.', 'Your included review limit is currently reached.'].join('\n'))])).toBe(0);
+  });
+  it('allows only a synthetic correctly bound bot reply when all evidence matches', () => {
+    expect(realQuotaSelectorCount([quotaComment(quotaText(quotaHead))])).toBe(1);
+  });
+  it('rejects an untrusted actor or a response predating the current request', () => {
+    expect(realQuotaSelectorCount([quotaComment(quotaText(quotaHead), 'attacker[bot]')])).toBe(0);
+    expect(realQuotaSelectorCount([quotaComment(quotaText(quotaHead), 'coderabbitai[bot]', '2026-11-20T13:59:00Z')])).toBe(0);
+  });
+  it('rejects a completed review even if quota is mentioned', () => {
+    expect(realQuotaSelectorCount([quotaComment(quotaText(quotaHead, 'Action performed', 'Review rate limited.'))])).toBe(0);
+    expect(realQuotaSelectorCount([quotaComment(quotaText(quotaHead, 'Action not completed', 'Included review limit reached.'))])).toBe(0);
+  });
+  it('rejects mismatched or uncorrelated quota evidence mixed with unrelated comments', () => {
+    expect(realQuotaSelectorCount([quotaComment(quotaText(previousHead)), quotaComment('Review rate limited.')])).toBe(0);
+  });
+});
