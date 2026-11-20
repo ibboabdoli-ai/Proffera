@@ -138,6 +138,7 @@ describe("Maria isolated Preview booking email egress safety", () => {
     vi.mocked(createMariaUnverifiedBookingRequest).mockResolvedValue({
       ok: true, bookingId: "00000000-0000-4000-8000-000000000077",
       customerId: "00000000-0000-4000-8000-000000000078",
+      capacityReached: false,
     });
     const response = await POST(request("bride@example.com", "https://makeupbymaria.se"));
     expect(response.status).toBe(201);
@@ -238,6 +239,7 @@ describe("Maria isolated Preview booking email egress safety", () => {
     const bookingId = "00000000-0000-4000-8000-000000000077";
     vi.mocked(createMariaUnverifiedBookingRequest).mockResolvedValue({
       ok: true, bookingId, customerId: "00000000-0000-4000-8000-000000000078",
+      capacityReached: false,
     });
     vi.mocked(sendBookingOwnerNotificationEmail).mockResolvedValue({
       ok: false, message: "Synthetic email outage",
