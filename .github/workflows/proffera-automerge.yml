@@ -69,6 +69,29 @@ jobs:
             exit 0
           }
 
+          # Fail closed if any PR review thread remains unresolved. Do not trust
+          # partial GraphQL pagination, access errors or missing data.
+          review_threads_resolved() {
+            local payload
+            if ! payload="$(gh api graphql \
+                -F owner="${REPOSITORY%%/*}" \
+                -F name="${REPOSITORY#*/}" \
+                -F number="$pr_number" \
+                -f query='query($owner: String!, $name: String!, $number: Int!) { repository(owner: $owner, name: $name) { pullRequest(number: $number) { reviewThreads(first: 100) { nodes { isResolved } pageInfo { hasNextPage } } } } }')"; then
+              return 1
+            fi
+            jq -e '
+              (.errors? == null)
+              and (
+                .data.repository.pullRequest.reviewThreads as $threads
+                | ($threads | type) == "object"
+                  and ($threads.nodes | type) == "array"
+                  and ($threads.pageInfo.hasNextPage == false)
+                  and all($threads.nodes[]; .isResolved == true)
+              )
+            ' <<< "$payload" >/dev/null
+          }
+
           if [ "$EVENT_NAME" = "issue_comment" ] && [ "$EVENT_ISSUE_IS_PR" != "true" ]; then
             refuse "Issue comment event is not attached to a pull request."
           fi
@@ -723,6 +746,13 @@ jobs:
             fi
             summary "- ReviewForge exact-head fallback approval revalidated before merge"
           fi
+
+          # Applies to CodeRabbit, Codex and ReviewForge routes alike.
+          # Missing/malformed evidence and >100 threads fail closed.
+          if ! review_threads_resolved; then
+            refuse "Refused: unresolved review threads, incomplete thread pagination, or unavailable review-thread evidence."
+          fi
+          summary "- All PR review threads resolved and response complete immediately before merge"
 
           merge_output="$(gh pr merge "$pr_number" --repo "$REPOSITORY" --squash --delete-branch --match-head-commit "$head_sha" 2>&1)"
 
