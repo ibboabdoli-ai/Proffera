@@ -198,6 +198,8 @@ export function PublicDirectoryResults({
                   url={trustedCardMedia?.url}
                   illustration={!trustedCardMedia}
                   serviceSlug={result.matchedServiceSlug}
+                  categorySlug={result.categorySlug}
+                  fallbackLabel={t.illustration}
                 />
                 <span className={styles.logoFloat}>
                   <MarketplaceCompanyLogo name={result.companyName} url={logoUrl} size="sm" />
