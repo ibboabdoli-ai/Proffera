@@ -204,6 +204,7 @@
 }
 
 .heroMedia {
+  position: relative;
   min-height: 410px;
   overflow: hidden;
   background: color-mix(in srgb, var(--business-primary) 12%, var(--business-card, #fff));
@@ -214,6 +215,19 @@
   width: 100%;
   height: 100%;
   object-fit: cover;
+}
+
+.photoDisclosure,
+.servicePhotoDisclosure {
+  position: absolute;
+  right: 12px;
+  bottom: 12px;
+  border-radius: 999px;
+  background: rgba(12, 31, 40, .85);
+  padding: 6px 10px;
+  color: #fff;
+  font-size: .68rem;
+  font-weight: 750;
 }
 
 .section {
@@ -275,6 +289,7 @@
 }
 
 .serviceVisual {
+  position: relative;
   height: 118px;
   overflow: hidden;
   background: color-mix(in srgb, var(--business-primary) 10%, var(--business-card, #fff));
