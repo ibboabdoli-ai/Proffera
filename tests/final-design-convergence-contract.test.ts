@@ -61,7 +61,7 @@ describe("final Proffera design convergence", () => {
     expect(demo).toContain("styles.editorialList");
   });
 
-  it("renders a labelled service illustration when a company has no trusted photo", () => {
+  it("renders a labelled category photo when a company has no trusted photo", () => {
     const html = renderToStaticMarkup(createElement(MarketplaceCompanyCover, {
       name: "Rörfixarna AB",
       serviceSlug: "vvs",
@@ -72,8 +72,8 @@ describe("final Proffera design convergence", () => {
 
     expect(html).toContain('role="img"');
     expect(html).toContain('aria-label="Illustration: Rörfixarna AB"');
-    expect(html).toContain("lucide-wrench");
-    expect(html).not.toContain("<img");
+    expect(html).toContain('src="/images/service-categories/vvs.webp"');
+    expect(html).toContain("<img");
     expect(results).toContain("illustration={!trustedCardMedia}");
     expect(results).toContain("serviceSlug={result.matchedServiceSlug}");
     // Homepage no longer queries featured companies just to build an initial gallery.
