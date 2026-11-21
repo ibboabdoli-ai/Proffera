@@ -4,6 +4,7 @@ import { getSql } from "@/lib/db/server";
 import {
   isWorkspacePlanFeatureIncluded,
   normalizeWorkspacePlan,
+  resolveWorkspaceFeatureMinimumPlan,
   type WorkspacePlanKey,
 } from "@/lib/workspace-feature-policy";
 import {
@@ -45,13 +46,15 @@ export async function getWorkspaceEntitlements(): Promise<WorkspaceEntitlement[]
       order by created_at desc
       limit 1
     )
-    select c.feature_key, c.name, c.description, c.minimum_plan, c.trial_days,
+    select workspace.slug as workspace_slug,
+      c.feature_key, c.name, c.description, c.minimum_plan, c.trial_days,
       coalesce(f.enabled, false) as workspace_enabled,
       o.enabled as admin_override_enabled,
       p.plan_key, p.status as plan_status, p.current_period_end as plan_period_end,
       t.status as trial_status, t.ends_at as trial_ends_at,
       (t.workspace_id is not null) as trial_consumed
     from feature_catalog c
+    join workspaces workspace on workspace.id = ${access.workspaceId}::uuid
     left join workspace_feature_flags f
       on f.workspace_id = ${access.workspaceId}::uuid and f.feature_key = c.feature_key
     left join workspace_feature_overrides o
@@ -66,12 +69,16 @@ export async function getWorkspaceEntitlements(): Promise<WorkspaceEntitlement[]
   const now = new Date();
   return rows.map((row) => {
     const planKey = normalizeWorkspacePlan(row.plan_key);
-    const minimumPlan = normalizeWorkspacePlan(row.minimum_plan) ?? "starter";
+    const minimumPlan = resolveWorkspaceFeatureMinimumPlan({
+      workspaceSlug: row.workspace_slug,
+      featureKey: row.feature_key,
+      catalogMinimumPlan: row.minimum_plan,
+    });
     const included = isWorkspacePlanFeatureIncluded({
       planKey: row.plan_key,
       planStatus: row.plan_status,
       planPeriodEnd: row.plan_period_end,
-      minimumPlan: row.minimum_plan,
+      minimumPlan,
       now,
     });
     const trialEndsAt = row.trial_ends_at ? new Date(String(row.trial_ends_at)).toISOString() : null;

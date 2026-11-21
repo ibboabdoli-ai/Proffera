@@ -10,6 +10,22 @@ export function normalizeWorkspacePlan(value: unknown): WorkspacePlanKey | null 
   return value === "starter" || value === "professional" || value === "business" ? value : null;
 }
 
+/**
+ * Maria has a workspace-specific paid Starter SMS allowance. Keep the shared
+ * feature catalog minimum at Professional for every other workspace.
+ */
+export function resolveWorkspaceFeatureMinimumPlan(input: {
+  workspaceSlug: unknown;
+  featureKey: unknown;
+  catalogMinimumPlan: unknown;
+}): WorkspacePlanKey {
+  if (input.workspaceSlug === "makeup-by-maria" && input.featureKey === "sms") {
+    return "starter";
+  }
+
+  return normalizeWorkspacePlan(input.catalogMinimumPlan) ?? "starter";
+}
+
 function hasCurrentPeriod(value: unknown, now: Date) {
   if (value === null || value === undefined) return null;
   const periodEnd = new Date(String(value));
