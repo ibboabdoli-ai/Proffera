@@ -131,7 +131,7 @@ describe("canonical Supervisor authorization ownership", () => {
           process.platform === "win32" ? 'jq() { command jq --binary "$@"; }' : "",
           "gh() { local name=\"${2##*/}\"; name=\"${name%%\\?*}\"; if [ \"$BAD_BLOB\" = \"1\" ] && [ \"$name\" = \"supervisor-worker-strategy-memory.mjs\" ]; then jq '.sha=\"0000000000000000000000000000000000000000\"' \"$MOCK_API_DIR/$name.json\"; else cat \"$MOCK_API_DIR/$name.json\"; fi; }",
         ].join("\n");
-        const importHelper = "test -s \"$RUNNER_TEMP/ci-autofix-trusted/candidate.mjs\"; node -e 'const p=process.argv[1];process.argv[1]=\"node-e\";import(require(\"node:url\").pathToFileURL(p).href).then(()=>console.log(\"MODULE_GRAPH_READY\"))' \"$RUNNER_TEMP/ci-autofix-trusted/supervisor-authorization-policy.mjs\"";
+        const importHelper = "test -s \"$RUNNER_TEMP/ci-autofix-trusted/candidate.mjs\"; for module in supervisor-authorization-policy.mjs candidate.mjs; do node -e 'const p=process.argv[1];process.argv[1]=\"node-e\";import(require(\"node:url\").pathToFileURL(p).href).then(()=>console.log(\"MODULE_GRAPH_READY\"))' \"$RUNNER_TEMP/ci-autofix-trusted/$module\" || exit 1; done";
         const run = (badBlob: boolean, after: string) => spawnSync("bash", [], {
           encoding: "utf8", input: [transport, stage, after].join("\n"),
           env: { ...process.env, RUNNER_TEMP: root.replaceAll("\\", "/"), MOCK_API_DIR: root.replaceAll("\\", "/"),

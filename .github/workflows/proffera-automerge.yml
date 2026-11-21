@@ -813,7 +813,17 @@ jobs:
               || refuse "Refused: exact-head CodeRabbit request changed after final owner authorization."
             near_merge_reviews_json="$(gh api --paginate "repos/$REPOSITORY/pulls/$pr_number/reviews?per_page=100" --jq '.[]' | jq -s '.')"
             near_merge_current_reviews="$(jq -c --arg sha "$head_sha" '[.[] | select(.user.login == "coderabbitai[bot]" and .commit_id == $sha)]' <<< "$near_merge_reviews_json")"
-            near_merge_latest_changes="$(jq -r '[.[] | select(.state == "CHANGES_REQUESTED" or .state == "DISMISSED") | .submitted_at] | max // empty' <<< "$near_merge_current_reviews")"
+            # A later same-head body-only review can carry findings without an
+            # inline comment or CHANGES_REQUESTED state. Permit empty and
+            # explicitly clean COMMENTED bodies; treat unknown bodies as
+            # blocking so format changes fail closed.
+            near_merge_latest_changes="$(jq -r '
+              [.[] | select(.state == "CHANGES_REQUESTED" or .state == "DISMISSED"
+                or (.state == "COMMENTED" and
+                  ((.body // "") | test("^[ \\t\\r\\n]*$") | not) and
+                  ((.body // "") | test("^(?:\\*\\*Actionable comments posted: 0\\*\\*|No actionable comments were generated(?: in the recent review)?\\.)[ \\t\\r\\n]*$") | not)))
+                | .submitted_at] | max // empty
+            ' <<< "$near_merge_current_reviews")"
             near_merge_latest_approval="$(jq -r --arg request_time "$coderabbit_request_time" '[.[] | select(.state == "APPROVED" and $request_time != "" and (.submitted_at // "") >= $request_time) | .submitted_at] | max // empty' <<< "$near_merge_current_reviews")"
             if [ -n "$near_merge_latest_changes" ] && { [ -z "$near_merge_latest_approval" ] || [[ ! "$near_merge_latest_approval" > "$near_merge_latest_changes" ]]; }; then
               refuse "Refused: CodeRabbit changes were requested after final owner authorization; merge is blocked."

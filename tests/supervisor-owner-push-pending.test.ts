@@ -793,7 +793,7 @@ describe("executed Stage -> owner retirement -> one-shot re-entry gate",()=>{
  it.each(["success","late_pending","late_publish","unknown_commit","claim_write_error",
   "safe_reissue","strategy_rejected","old_model_ran","old_run_active","old_start_late",
   "old_pending_late","old_api_uncertain","new_head_changed","cross_lane_reissue","consumed_prior_pending",
-  "old_review_recovered","old_review_recovered_job_absent","old_review_recovery_missing",
+   "old_review_recovered","old_review_recovered_to_ci","old_review_recovered_job_absent","old_review_recovery_missing",
   "old_review_recovery_wrong_attempt","old_review_recovery_fake",
   "old_review_recovery_malformed","old_review_start_wrong_head","old_review_model_ran"] as const)(
   "holds the exact historical attempt and fails closed on %s",async scenario=>{
@@ -909,9 +909,9 @@ describe("executed Stage -> owner retirement -> one-shot re-entry gate",()=>{
     if(scenario==="late_pending")comments.push(f.comment);
     if(scenario==="late_publish")commitKnown=true;
     if(scenario==="unknown_commit")failLookup=true;
-    if(["safe_reissue","strategy_rejected","old_model_ran","consumed_prior_pending","old_run_active","old_start_late",
+     if(["safe_reissue","strategy_rejected","old_model_ran","consumed_prior_pending","old_run_active","old_start_late",
       "old_pending_late","old_api_uncertain","new_head_changed","cross_lane_reissue",
-      "old_review_recovered","old_review_recovered_job_absent","old_review_recovery_missing",
+       "old_review_recovered","old_review_recovered_to_ci","old_review_recovered_job_absent","old_review_recovery_missing",
       "old_review_recovery_wrong_attempt","old_review_recovery_fake",
       "old_review_recovery_malformed","old_review_start_wrong_head","old_review_model_ran"].includes(scenario)){
      expect(gate(attempt).allow).toBe(true); // first claim, no Start
@@ -942,13 +942,15 @@ describe("executed Stage -> owner retirement -> one-shot re-entry gate",()=>{
       comments.push(prior.comment,proof.command,proof.result);
      }
      if(scenario==="new_head_changed")currentHead="9".repeat(40);
-     const nextLane=scenario==="cross_lane_reissue"?"review_repair":attempt.LANE;
+      const nextLane=scenario==="cross_lane_reissue"?"review_repair":
+       scenario==="old_review_recovered_to_ci"?"ci_autofix":attempt.LANE;
      if(scenario!=="cross_lane_reissue")comments.push(owner(
       "<!-- proffera-owner-push-reentry:v1:"+digest+":"+nextLane+":203:1:"+
        f.value.parent_sha+" -->",1501));
      const next={...attempt,LANE:nextLane,GITHUB_RUN_ID:"203"};
      if(scenario==="safe_reissue"||scenario==="strategy_rejected"||scenario==="consumed_prior_pending"
-      ||scenario==="old_review_recovered"||scenario==="old_review_recovered_job_absent"){
+       ||scenario==="old_review_recovered"||scenario==="old_review_recovered_to_ci"
+       ||scenario==="old_review_recovered_job_absent"){
       // A normal strategy-level suppression ends the admitted workflow with a
       // skipped model job, but cannot consume the owner's NEXT authorization.
       expect(gate(next).allow).toBe(true);

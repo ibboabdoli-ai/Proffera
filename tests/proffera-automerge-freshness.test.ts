@@ -53,6 +53,14 @@ function run(change:string) {
  if(change==="coderabbit-primary-inline"||change==="coderabbit-primary-dismissed"||change.includes("primary-current-reply")||change.includes("primary-original-head-inline")||change==="near-merge-primary-dismissed"||change==="near-merge-explicit-dismissed")initialReviews.push({id:11,user:{login:"coderabbitai[bot]"},commit_id:head,state:"APPROVED",submitted_at:time});
  if(change==="near-merge-explicit-dismissed")reviews.push({id:90,user:{login:"coderabbitai[bot]"},commit_id:head,state:"DISMISSED",submitted_at:"2026-01-01T00:00:04Z"});
  if(change==="review-block"||change==="coderabbit-block"||change==="near-merge-review-block")reviews.push({id:9,user:{login:change==="review-block"?"chatgpt-codex-connector[bot]":"coderabbitai[bot]"},commit_id:head,state:"CHANGES_REQUESTED",submitted_at:time});
+ if(change==="near-merge-body-only-finding"||change==="near-merge-mixed-body"||change==="near-merge-clean-commented"){
+  const approval={id:15,user:{login:"coderabbitai[bot]"},commit_id:head,state:"APPROVED",submitted_at:"2026-01-01T00:00:01Z"};
+  initialReviews.push(approval);
+  reviews.push(approval,{id:16,user:{login:"coderabbitai[bot]"},commit_id:head,state:"COMMENTED",
+   body:change==="near-merge-body-only-finding"?"**Actionable comments posted: 2**":
+    change==="near-merge-mixed-body"?"No actionable comments were generated.\n**Actionable comments posted: 2**":"",
+   submitted_at:"2026-01-01T00:00:09Z"});
+ }
  const initialClean={...clean,user:{login:"chatgpt-codex-connector[bot]"},body:"Codex Review: Didn't find any major issues.\nReviewed commit: "+head,created_at:time,updated_at:time};
  const summary={id:4,user:{login:"chatgpt-codex-connector[bot]"},body:"Codex Review Summary",created_at:time,updated_at:"2026-01-01T00:01:00Z"};
  if(change==="summary-edited"){comments.push(summary);}
@@ -101,7 +109,7 @@ function run(change:string) {
  '  for arg in "$@"; do case "$arg" in repos/*) endpoint="$arg";; esac; done',
  '  case "$endpoint" in',
  '    */issues/695/comments\\?*) file=initial.json; [ ! -f "$ROOT/polled" ] || file=comments.json; if [ "$CHANGE" = near-merge-codex-removed ] && [ ! -f "$ROOT/owner-checked" ]; then file=initial.json; fi; if [[ "$CHANGE" == near-merge-request-changed || "$CHANGE" == near-merge-clean-summary-changed ]] && [ -f "$ROOT/owner-checked" ]; then file=post-owner.json; fi;;',
- '    */pulls/695/reviews\\?*) file=initial-reviews.json; [ ! -f "$ROOT/polled" ] || file=reviews.json; if [ "$CHANGE" = near-merge-primary-current-reply ] || [ "$CHANGE" = near-merge-primary-original-head-inline ] || { [[ "$CHANGE" == near-merge-review-block || "$CHANGE" == near-merge-primary-dismissed || "$CHANGE" == near-merge-explicit-dismissed ]] && [ ! -f "$ROOT/owner-checked" ]; }; then file=initial-reviews.json; fi;;',
+ '    */pulls/695/reviews\\?*) file=initial-reviews.json; [ ! -f "$ROOT/polled" ] || file=reviews.json; if [ "$CHANGE" = near-merge-primary-current-reply ] || [ "$CHANGE" = near-merge-primary-original-head-inline ] || { [[ "$CHANGE" == near-merge-review-block || "$CHANGE" == near-merge-primary-dismissed || "$CHANGE" == near-merge-explicit-dismissed || "$CHANGE" == near-merge-body-only-finding || "$CHANGE" == near-merge-mixed-body || "$CHANGE" == near-merge-clean-commented ]] && [ ! -f "$ROOT/owner-checked" ]; }; then file=initial-reviews.json; fi;;',
  '    */pulls/695/comments\\?*) if [[ "$CHANGE" != initial-* ]] && [ ! -f "$ROOT/polled" ]; then return 0; fi; if [[ "$CHANGE" == near-merge-* ]] && [ ! -f "$ROOT/owner-checked" ]; then return 0; fi; file=inline.json;;',
  '    */issues/695/events\\?*) echo \'{"event":"labeled","label":{"name":"ibbo-approved"},"actor":{"login":"ibboabdoli-ai"},"created_at":"2026-01-01T00:00:00Z"}\'; return;;',
  '    */reactions\\?*) return 0;;',
@@ -140,6 +148,7 @@ describe("AutoMerge post-poll review freshness",()=>{
   // GitHub reaction rollups can change while content and author remain immutable.
   expect(run("codex-reaction-rollup")).toContain("FRESH_EVIDENCE_OK");
   expect(run("coderabbit-reaction-rollup")).toContain("FRESH_EVIDENCE_OK");
+  expect(run("near-merge-clean-commented")).toContain("FRESH_EVIDENCE_OK");
   // GitHub carries an old thread's current commit_id forward, but the finding
   // still belongs to its original commit; the fresh current-head review controls.
   for(const scenario of ["coderabbit-carried-before-request","initial-coderabbit-carried-before-request",
@@ -157,13 +166,13 @@ describe("AutoMerge post-poll review freshness",()=>{
  it.each(["initial-coderabbit-current-reply","initial-coderabbit-original-head-inline"])("rejects %s in the initial review gate",change=>{
   const output=run(change);expect(output).toContain("CodeRabbit posted current-head review findings");expect(output).not.toContain("FRESH_EVIDENCE_OK");
  },30_000);
- it.each(["near-merge-codex-before-request","near-merge-coderabbit-before-request","near-merge-coderabbit-current-reply","near-merge-coderabbit-original-head-inline","near-merge-primary-current-reply","near-merge-primary-original-head-inline","near-merge-codex-original-head-inline","near-merge-primary-dismissed","near-merge-review-block","near-merge-codex-removed",
+ it.each(["near-merge-codex-before-request","near-merge-coderabbit-before-request","near-merge-coderabbit-current-reply","near-merge-coderabbit-original-head-inline","near-merge-primary-current-reply","near-merge-primary-original-head-inline","near-merge-codex-original-head-inline","near-merge-primary-dismissed","near-merge-review-block","near-merge-body-only-finding","near-merge-mixed-body","near-merge-codex-removed",
   "near-merge-request-changed","near-merge-clean-summary-changed","near-merge-explicit-dismissed","near-merge-codex-late-inline"])("rejects %s after owner authorization",change=>{
   const output=run(change);expect(output).toContain("REFUSED:");expect(output).not.toContain("FRESH_EVIDENCE_OK");
   if(change.includes("current-reply")||change.includes("coderabbit-before-request")||change.includes("coderabbit-original-head-inline")||change.includes("primary-original-head-inline"))expect(output).toContain("CodeRabbit inline findings appeared after final owner authorization");
   if(change.includes("codex-original-head-inline"))expect(output).toContain("Codex fallback posted current-head review findings");
   if(change==="near-merge-primary-dismissed")expect(output).toContain("accepted CodeRabbit approval was revoked after final owner authorization");
-  if(change==="near-merge-review-block")expect(output).toContain("CodeRabbit changes were requested after final owner authorization");
+  if(change==="near-merge-review-block"||change==="near-merge-body-only-finding"||change==="near-merge-mixed-body")expect(output).toContain("CodeRabbit changes were requested after final owner authorization");
   if(change==="near-merge-codex-removed")expect(output).toContain("no clean exact-current-head Codex fallback result exists");
  },30_000);
 });

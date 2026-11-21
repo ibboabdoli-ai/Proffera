@@ -46,6 +46,7 @@ const parseWorkerStrategyDispatchStarts = () => process.env.TEST_CASE === "MISSI
   evidence_fingerprint:process.env.TEST_CASE === "CHANGED_START" ? "F" : "E",
 }];
 const recordWorkerStrategyOutcome = async (input) => {
+  if (process.env.TEST_CASE !== "PUBLISHED") throw Error("premature outcome write");
   saved = input;
   return {decision:"RECORDED"};
 };
@@ -166,7 +167,11 @@ if(process.env.TEST_CASE.startsWith("legacy")){
     throw Error("verified historical success was not reconciled: "+decision);
   if(process.env.TEST_CASE!=="legacy" && !decision.startsWith("REFUSED:"))
     throw Error("untrusted historical publication was accepted: "+decision);
-  if(writes!==0)throw Error("historical reconciliation created a second model outcome");
+  if(writes!==(process.env.TEST_CASE==="legacy"?1:0))
+    throw Error("historical reconciliation did not persist only the authenticated PR association");
+  if(process.env.TEST_CASE==="legacy" && (records[0].pr_number!==941
+    || records[0].outcome!=="succeeded" || records[0].observations.length!==1))
+    throw Error("historical success identity changed while binding the PR");
   console.log(JSON.stringify({writes,decision}));
   process.exit(0);
 }
@@ -198,7 +203,7 @@ describe("durable Worker strategy memory idempotency", () => {
       const result = runIdempotentMemoryFixture(mode);
       expect(result.status, result.stderr).toBe(0);
       const evidence = JSON.parse(result.stdout);
-      expect(evidence.writes).toBe(0);
+      expect(evidence.writes).toBe(mode === "legacy" ? 1 : 0);
       if (mode === "legacy") expect(evidence.decision).toBe("ALREADY_RECORDED");
       else expect(evidence.decision).toContain("REFUSED:");
     });

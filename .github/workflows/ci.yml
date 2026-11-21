@@ -882,6 +882,17 @@ jobs:
 
               guard_review_completion_time="$(jq -r --arg request_time "$coderabbit_request_time" '[.[] | select(.state == "APPROVED" or .state == "COMMENTED") | select($request_time != "" and (.submitted_at // "") >= $request_time) | .submitted_at] | min // empty' <<< "$guard_current_reviews")"
               guard_comments_json="$(gh api --paginate "repos/${REPOSITORY}/issues/${PR_NUMBER}/comments?per_page=100" --jq '.[]' | jq -s '.')"
+              # The earlier inline snapshot can become stale while the clean
+              # summary and review witness are checked. Re-read findings now.
+              guard_inline_json="$(gh api --paginate "repos/${REPOSITORY}/pulls/${PR_NUMBER}/comments?per_page=100" --jq '.[]' | jq -s '.')"
+              guard_inline_count="$(jq -r --arg sha "$HEAD_SHA" --arg request_time "$coderabbit_request_time" '
+                [.[] | select(.user.login == "coderabbitai[bot]")
+                  | select(((.original_commit_id // .commit_id) == $sha or (.commit_id == $sha and ($request_time == "" or (.created_at | type) != "string" or .created_at == "" or .created_at >= $request_time))))] | length
+              ' <<< "$guard_inline_json")"
+              if [ "$guard_inline_count" -gt 0 ]; then
+                echo "CodeRabbit inline findings appeared before clean-summary acceptance."
+                exit 1
+              fi
               guard_clean_count="$(jq -r --slurpfile accepted <(printf '%s\n' "$clean_final_comments_json") --arg review_time "$guard_review_completion_time" --arg marker "$coderabbit_marker" --arg request_time "$coderabbit_request_time" '
                 def evidence: {id, login: .user.login, body, created_at, updated_at};
                 ($accepted | if length == 1 and (.[0] | type == "array") and (.[0] | length > 0)

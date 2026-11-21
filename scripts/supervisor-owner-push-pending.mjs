@@ -7,6 +7,7 @@ import {pathToFileURL} from "node:url";
 import {readTrustedMemory} from "./supervisor-failure-memory.mjs";
 import {parseReviewRepairStarts,parseReviewRepairRecoveries,proveReviewRepairPrelaunchRecovery}
  from "./supervisor-review-repair-strategy-memory.mjs";
+import {parseCiAutofixStarts} from "./supervisor-ci-autofix-strategy-memory.mjs";
 const REPO="ibboabdoli-ai/Proffera", OWNER="ibboabdoli-ai", ISSUE=548;
 const ISSUE_URL="https://api.github.com/repos/ibboabdoli-ai/Proffera/issues/548";
 const LANES={
@@ -615,9 +616,11 @@ function retireStaged(stage,comments){
 // The existing shared PR mutex surrounds this call and the subsequent write.
 function proveAbandonedClaim(claim,comments,pr){
  const lane=LANES[claim.lane];check(lane,"abandoned_lane");
- const startMarker="<!-- proffera-"+(claim.lane==="review_repair"?"review-repair":"ci-autofix")+
-  "-start:v1:"+pr+":"+claim.run_id+":"+claim.run_attempt+" -->";
- const hasStart=comments.some(c=>typeof c.body==="string"&&c.body.startsWith(startMarker));
+  const scope={repository:REPO,pr_number:pr};
+  const starts=claim.lane==="review_repair"?
+   parseReviewRepairStarts(comments,scope):parseCiAutofixStarts(comments,scope);
+  const start=starts.find(s=>s.run_id===claim.run_id&&s.run_attempt===claim.run_attempt);
+  const hasStart=Boolean(start);
  const r=api("repos/"+REPO+"/actions/runs/"+claim.run_id+"/attempts/"+claim.run_attempt);
  check(r.id===claim.run_id&&r.run_attempt===claim.run_attempt
   &&r.path===lane.path&&r.name===lane.name&&r.event===lane.event
@@ -627,9 +630,6 @@ function proveAbandonedClaim(claim,comments,pr){
   "/attempts/"+claim.run_attempt+"/jobs?per_page=100","jobs");
  check(jobs.length>0&&jobs.length<=1000,"abandoned_jobs");
  if(hasStart&&claim.lane==="review_repair"){
-  const scope={repository:REPO,pr_number:pr};
-  const start=parseReviewRepairStarts(comments,scope).find(s=>
-   s.run_id===claim.run_id&&s.run_attempt===claim.run_attempt);
   check(start&&start.head===claim.head,"abandoned_start_binding");
   const recovery=parseReviewRepairRecoveries(comments,scope).find(x=>
    x.run_id===claim.run_id&&x.run_attempt===claim.run_attempt);

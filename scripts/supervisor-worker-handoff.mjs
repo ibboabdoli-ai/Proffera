@@ -3282,6 +3282,25 @@ export async function recordWorkerStrategyOutcome(input) {
           || JSON.stringify(parseTaskPacketComment(pr.body)) !== JSON.stringify(packet)) {
           throw new Error("Worker strategy historical PR publication provenance is missing or inconsistent");
         }
+        // Bind the authenticated publication to the existing success record.
+        // Replaying the lifecycle must not add an observation or change its
+        // outcome and timestamps, but merge-history detection needs this PR ID.
+        if (!Number.isSafeInteger(current.comment_id) || current.comment_id <= 0) {
+          throw new Error("Worker strategy historical success has no durable memory comment");
+        }
+        const bound = structuredClone(current);
+        bound.memory.records[current.memory.records.indexOf(prior)].pr_number = prNumber;
+        assertReservationMutex(input);
+        patchControlRecord(input, bound.comment_id, failure.serializeMemory(bound.memory));
+        const confirmed = failure.readTrustedMemory(githubAllIssueComments(input.repository), {
+          repository: input.repository,
+          scope: { kind: "task", task_id: packet.task_id },
+          complete: true,
+        });
+        if (JSON.stringify(failure.memoryIdentity(confirmed))
+          !== JSON.stringify(failure.memoryIdentity(bound))) {
+          throw new Error("Worker strategy historical PR association did not persist");
+        }
       }
       assertReservationMutex(input);
       return {

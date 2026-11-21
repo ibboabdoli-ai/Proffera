@@ -62,6 +62,8 @@ describe("PR-scoped pending ledger at model launch",()=>{
     const checkout=steps[launchIndex-2];
     expect(gate.name).toBe(cfg.gateStep);
     expect(checkout.name).toBe("Checkout immutable workflow-revision owner-push gate");
+    expect([undefined, false]).toContain(gate["continue-on-error"]);
+    expect([undefined, false]).toContain(checkout["continue-on-error"]);
     expect(checkout.uses).toMatch(/^actions\/checkout@[0-9a-f]{40}$/);
     expect(item(checkout.with).ref).toBe("${{ github.workflow_sha }}");
     expect(item(checkout.with).path).toBe(".proffera-trusted-model-gate");

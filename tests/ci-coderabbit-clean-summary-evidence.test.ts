@@ -148,6 +148,22 @@ describe("CI linked older-head acknowledgement", () => {
   });
 });
 
+describe("CI clean-summary final inline refresh", () => {
+  const source = workflow.slice(workflow.indexOf('guard_inline_count="$(jq -r'));
+  const extracted = source.match(/'\n([\s\S]*?)\n\s*' <<< "\$guard_inline_json"\)/);
+  const inlineFilter = extracted?.[1] ?? "";
+  it("runs the refreshed current-head finding filter before accepting the summary", () => {
+    expect(inlineFilter).not.toBe("");
+    expect(workflow.indexOf('guard_inline_count="$(jq -r')).toBeLessThan(workflow.indexOf('guard_clean_count="$(jq -r'));
+    const row = {id:501,user:{login:"coderabbitai[bot]"},original_commit_id:head,
+      commit_id:head,created_at:summaryTime,body:"New blocking finding"};
+    const result = spawnSync("jq", ["-r", "--arg", "sha", head, "--arg", "request_time", requestTime, inlineFilter],
+      {input:JSON.stringify([row]),encoding:"utf8"});
+    expect(result.status,result.stderr).toBe(0);
+    expect(result.stdout.trim()).toBe("1");
+  });
+});
+
 describe("CI CodeRabbit P2 file-backed JSON regression", () => {
   it("keeps the actual jq expression and a fail-closed numeric gate", () => {
     expect(command).toContain("--slurpfile accepted");
