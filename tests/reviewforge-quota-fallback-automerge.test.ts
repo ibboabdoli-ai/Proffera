@@ -22,7 +22,8 @@ describe('ReviewForge CodeRabbit-quota fallback merge safety', () => {
     expect(router).toContain('dispatch_pr proffera-automerge.yml "$pr_number"');
     expect(script).toContain('reviewforge-ibbo-dev[bot]');
     expect(script).toContain('reviewforge-fallback-approval:$head_sha');
-    expect(script).toContain('.commit_id == $sha and .state == "APPROVED"');
+    expect(script).toContain('.commit_id == $sha');
+    expect(script).toContain('.state == "CHANGES_REQUESTED"');
     expect(script).toContain('0 actionable finding(s).');
     expect(script).toContain('Full review coverage:');
     expect(script).toContain('.submitted_at // ""');
@@ -182,3 +183,86 @@ describe('exact-HEAD CodeRabbit quota provenance (offline, no paid calls)', () =
     expect(realQuotaSelectorCount([quotaComment(quotaText(previousHead)), quotaComment('Review rate limited.')])).toBe(0);
   });
 });
+
+
+// Test both real jq selectors on immutable-SHA synthetic review submissions.
+// Read-only offline fixtures; no GitHub or provider request is made.
+const decisionHead = 'a'.repeat(40);
+const decisionMarker = '<!-- reviewforge-fallback-approval:' + decisionHead + ' -->';
+const decisionRequested = '2026-11-21T12:00:00Z';
+type BotReview = {
+  id: number;
+  user: {login: string};
+  commit_id: string;
+  state: string;
+  submitted_at: string;
+  body: string;
+};
+const botReview = (id: number, state: string, options: Partial<BotReview> = {}): BotReview => ({
+  id,
+  user: {login: 'reviewforge-ibbo-dev[bot]'},
+  commit_id: decisionHead,
+  state,
+  submitted_at: `2026-11-21T12:${String(id).padStart(2, '0')}:00Z`,
+  body: decisionMarker + String.fromCharCode(10) + 'Full review coverage: 2 eligible file(s); 0 actionable finding(s).',
+  ...options,
+});
+function actualReviewForgeApprovalCount(
+  selector: 'reviewforge_approval_count' | 'final_bot_approvals',
+  reviews: BotReview[],
+): number {
+  const source = selector === 'reviewforge_approval_count' ? 'reviewforge_fallback_reviews' : 'final_bot_reviews';
+  const begin = script.indexOf(selector + '="$(jq -r');
+  expect(begin).toBeGreaterThan(0);
+  const expressionStart = script.indexOf(" '", begin) + 2;
+  const expressionEnd = script.indexOf("' <<< " + String.fromCharCode(34) + '$' + source + String.fromCharCode(34) + ')"', expressionStart);
+  expect(expressionStart).toBeGreaterThan(begin);
+  expect(expressionEnd).toBeGreaterThan(expressionStart);
+  const expression = script.slice(expressionStart, expressionEnd);
+  const run = spawnSync('jq', [
+    '-r',
+    '--arg', 'sha', decisionHead,
+    '--arg', 'marker', decisionMarker,
+    '--arg', 'requested', decisionRequested,
+    '--arg', 'request_time', decisionRequested,
+    expression,
+  ], {encoding: 'utf8', input: JSON.stringify(reviews)});
+  expect(run.error).toBeUndefined();
+  expect(run.status).toBe(0);
+  return Number(run.stdout.trim());
+}
+
+describe.each(['reviewforge_approval_count', 'final_bot_approvals'] as const)(
+  'latest exact-HEAD ReviewForge decision at %s', (selector) => {
+    it('accepts a clean bot approval when no later blocking review exists', () => {
+      expect(actualReviewForgeApprovalCount(selector, [botReview(1, 'APPROVED')])).toBe(1);
+    });
+    it('revokes an older approval on a later same-SHA CHANGES_REQUESTED', () => {
+      expect(actualReviewForgeApprovalCount(selector, [
+        botReview(1, 'APPROVED'), botReview(2, 'CHANGES_REQUESTED'),
+      ])).toBe(0);
+    });
+    it('only restores eligibility after a newer valid clean approval', () => {
+      expect(actualReviewForgeApprovalCount(selector, [
+        botReview(1, 'APPROVED'), botReview(2, 'CHANGES_REQUESTED'), botReview(3, 'APPROVED'),
+      ])).toBe(1);
+    });
+    it('refuses a later unmarked approval and a blocking-only history', () => {
+      expect(actualReviewForgeApprovalCount(selector, [
+        botReview(1, 'APPROVED'), botReview(2, 'APPROVED', {body: 'No full coverage evidence'}),
+      ])).toBe(0);
+      expect(actualReviewForgeApprovalCount(selector, [botReview(1, 'CHANGES_REQUESTED')])).toBe(0);
+    });
+    it('ignores a different SHA, untrusted bot or old submission', () => {
+      expect(actualReviewForgeApprovalCount(selector, [
+        botReview(1, 'APPROVED'),
+        botReview(2, 'CHANGES_REQUESTED', {commit_id: 'b'.repeat(40)}),
+        botReview(3, 'CHANGES_REQUESTED', {user: {login: 'unknown[bot]'}}),
+        botReview(4, 'CHANGES_REQUESTED', {submitted_at: '2026-11-21T11:59:00Z'}),
+      ])).toBe(1);
+    });
+    it('fails closed on missing review evidence', () => {
+      expect(actualReviewForgeApprovalCount(selector, [])).toBe(0);
+    });
+  },
+);
