@@ -69,6 +69,29 @@ jobs:
             exit 0
           }
 
+          # Fail closed if any PR review thread remains unresolved. Do not trust
+          # partial GraphQL pagination, access errors or missing data.
+          review_threads_resolved() {
+            local payload
+            if ! payload="$(gh api graphql \
+                -F owner="${REPOSITORY%%/*}" \
+                -F name="${REPOSITORY#*/}" \
+                -F number="$pr_number" \
+                -f query='query($owner: String!, $name: String!, $number: Int!) { repository(owner: $owner, name: $name) { pullRequest(number: $number) { reviewThreads(first: 100) { nodes { isResolved } pageInfo { hasNextPage } } } } }')"; then
+              return 1
+            fi
+            jq -e '
+              (.errors? == null)
+              and (
+                .data.repository.pullRequest.reviewThreads as $threads
+                | ($threads | type) == "object"
+                  and ($threads.nodes | type) == "array"
+                  and ($threads.pageInfo.hasNextPage == false)
+                  and all($threads.nodes[]; .isResolved == true)
+              )
+            ' <<< "$payload" >/dev/null
+          }
+
           if [ "$EVENT_NAME" = "issue_comment" ] && [ "$EVENT_ISSUE_IS_PR" != "true" ]; then
             refuse "Issue comment event is not attached to a pull request."
           fi
@@ -455,6 +478,61 @@ jobs:
                 refuse "Refused: no completed CodeRabbit review exists for the current PR head and the bounded Codex fallback is not active."
               fi
 
+              # Prefer ReviewForge ONLY when CodeRabbit itself reported quota
+              # exhaustion after the trusted exact-current-head request.
+              # Generic silence / timeout keeps the pre-existing Codex path.
+              reviewforge_fallback_used=no
+              # A quota reply without an authenticated exact-HEAD correlation is NOT
+              # evidence that THIS request was rate limited: older replies can arrive
+              # late. Current CodeRabbit quota notices lack this SHA marker, so this
+              # path deliberately fails closed until an independently verified
+              # bot-emitted correlation format and noncritical E2E test are available.
+              # Never infer quota from "included limit reached" after a completed review.
+              reviewforge_quota_count="$(jq -r --arg sha "$head_sha" --arg request_time "$coderabbit_request_time" '
+                [
+                  .[]
+                  | select(.user.login == "coderabbitai[bot]")
+                  | select($request_time != "" and (.created_at // "") >= $request_time)
+                  | (.body // "") as $body
+                  | select(
+                      ($body | test("(^|[\\r\\n])<!-- CodeRabbit review command invocation: v2:[0-9a-f]{64} -->($|[\\r\\n])"))
+                      and ($body | test("(^|[\\r\\n])[[:space:]]*<summary>Action not completed</summary>[[:space:]]*($|[\\r\\n])"))
+                      and ($body | test("(^|[\\r\\n])Review rate limited\\.($|[\\r\\n])"; "i"))
+                      and ($body | test("(^|[\\r\\n])<!-- CodeRabbit quota exact-head: " + $sha + " -->($|[\\r\\n])"))
+                    )
+                ] | length
+              ' <<< "$comments_json")"
+              if [ "$reviewforge_quota_count" -gt 0 ] && [ "$fallback_eligible" = "true" ]; then
+                reviewforge_fallback_reviews="$(gh api --paginate "repos/$REPOSITORY/pulls/$pr_number/reviews?per_page=100" --jq '.[]' | jq -s '.')"
+                reviewforge_marker="<!-- reviewforge-fallback-approval:$head_sha -->"
+                reviewforge_approval_count="$(jq -r --arg sha "$head_sha" --arg marker "$reviewforge_marker" --arg request_time "$coderabbit_request_time" '
+                  [
+                    .[]
+                    | select(.user.login == "reviewforge-ibbo-dev[bot]")
+                    | select(.commit_id == $sha and .state == "APPROVED")
+                    | select((.submitted_at // "") >= $request_time)
+                    | select((.body // "") | startswith($marker + "\n"))
+                    | select((.body // "") | contains("Full review coverage:"))
+                    | select((.body // "") | contains("0 actionable finding(s)."))
+                  ] | length
+                ' <<< "$reviewforge_fallback_reviews")"
+                reviewforge_inline_count="$(jq -r --arg sha "$head_sha" --arg request_time "$coderabbit_request_time" '
+                  [
+                    .[]
+                    | select(.user.login == "reviewforge-ibbo-dev[bot]")
+                    | select((.original_commit_id // .commit_id) == $sha)
+                    | select((.created_at // "") >= $request_time)
+                  ] | length
+                ' <<< "$coderabbit_inline_json")"
+                if [ "$reviewforge_approval_count" -gt 0 ] && [ "$reviewforge_inline_count" -eq 0 ]; then
+                  reviewforge_fallback_used=yes
+                  summary "- ReviewForge fallback: clean exact-head bot approval following verified CodeRabbit quota limit"
+                elif [ "$reviewforge_inline_count" -gt 0 ]; then
+                  refuse "Refused: ReviewForge found actionable issues on the current head."
+                fi
+              fi
+
+              if [ "$reviewforge_fallback_used" != "yes" ]; then
               codex_marker="<!-- proffera-codex-fallback-review-request:${head_sha} -->"
               codex_request_id="$(jq -r --arg marker "$codex_marker" --arg requester "$HUMAN_APPROVER" --arg request_time "$coderabbit_request_time" '[.[] | select(.user.login == $requester and ((.body // "") | contains($marker)) and ((.body // "") | contains("@codex review")) and .created_at >= $request_time)] | sort_by(.created_at) | last | .id // empty' <<< "$comments_json")"
               codex_request_time="$(jq -r --arg marker "$codex_marker" --arg requester "$HUMAN_APPROVER" --arg request_time "$coderabbit_request_time" '[.[] | select(.user.login == $requester and ((.body // "") | contains($marker)) and ((.body // "") | contains("@codex review")) and .created_at >= $request_time)] | sort_by(.created_at) | last | .created_at // empty' <<< "$comments_json")"
@@ -524,6 +602,7 @@ jobs:
               fi
 
               summary "- Current-head Codex fallback decision: clean review after CodeRabbit availability failure or bounded timeout"
+              fi # ReviewForge exact-head approval, or pre-existing Codex fallback
             fi
           else
             summary "### AI review gate"
@@ -654,6 +733,44 @@ jobs:
 
           summary "- Fresh exact-head owner authorization revalidated immediately before merge"
           summary ""
+
+          # Revalidate the exact-head fallback and absence of fresh findings
+          # immediately before the authorized match-head merge.
+          if [ "${reviewforge_fallback_used:-no}" = "yes" ]; then
+            final_bot_reviews="$(gh api --paginate "repos/$REPOSITORY/pulls/$pr_number/reviews?per_page=100" --jq '.[]' | jq -s '.')"
+            final_bot_inline="$(gh api --paginate "repos/$REPOSITORY/pulls/$pr_number/comments?per_page=100" --jq '.[]' | jq -s '.')"
+            reviewforge_marker="<!-- reviewforge-fallback-approval:$head_sha -->"
+            final_bot_approvals="$(jq -r --arg sha "$head_sha" --arg marker "$reviewforge_marker" --arg requested "$coderabbit_request_time" '
+              [
+                .[]
+                | select(.user.login == "reviewforge-ibbo-dev[bot]")
+                | select(.commit_id == $sha and .state == "APPROVED")
+                | select((.submitted_at // "") >= $requested)
+                | select((.body // "") | startswith($marker + "\n"))
+                | select((.body // "") | contains("Full review coverage:"))
+                | select((.body // "") | contains("0 actionable finding(s)."))
+              ] | length
+            ' <<< "$final_bot_reviews")"
+            final_bot_findings="$(jq -r --arg sha "$head_sha" --arg requested "$coderabbit_request_time" '
+              [
+                .[]
+                | select(.user.login == "reviewforge-ibbo-dev[bot]" or .user.login == "coderabbitai[bot]")
+                | select((.original_commit_id // .commit_id) == $sha)
+                | select((.created_at // "") >= $requested)
+              ] | length
+            ' <<< "$final_bot_inline")"
+            if [ "$final_bot_approvals" -eq 0 ] || [ "$final_bot_findings" -gt 0 ]; then
+              refuse "Refused: ReviewForge approval is stale, dismissed, or bot findings appeared before merge."
+            fi
+            summary "- ReviewForge exact-head fallback approval revalidated before merge"
+          fi
+
+          # Applies to CodeRabbit, Codex and ReviewForge routes alike.
+          # Missing/malformed evidence and >100 threads fail closed.
+          if ! review_threads_resolved; then
+            refuse "Refused: unresolved review threads, incomplete thread pagination, or unavailable review-thread evidence."
+          fi
+          summary "- All PR review threads resolved and response complete immediately before merge"
 
           merge_output="$(gh pr merge "$pr_number" --repo "$REPOSITORY" --squash --delete-branch --match-head-commit "$head_sha" 2>&1)"
 
