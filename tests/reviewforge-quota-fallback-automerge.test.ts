@@ -36,6 +36,27 @@ describe('ReviewForge CodeRabbit-quota fallback merge safety', () => {
     expect(script).toContain('coderabbit_request_time');
   });
 
+  it('fails closed on silence, skipped review, timeout and clean Codex without full quota-only proof', () => {
+    const start = script.indexOf('reviewforge_quota_count=');
+    const end = script.indexOf('checks_json=', start);
+    expect(start).toBeGreaterThan(0);
+    expect(end).toBeGreaterThan(start);
+    const missingPrimaryGate = script.slice(start, end);
+    // No legacy Codex review can grant merge permission after a timeout.
+    expect(missingPrimaryGate).not.toContain('codex_marker=');
+    expect(missingPrimaryGate).not.toContain('codex_clean_count=');
+    expect(missingPrimaryGate).not.toContain('fallback_active=true');
+    const guard = missingPrimaryGate.match(/if \[ "\$reviewforge_fallback_used" != "yes" \]; then\n\s+refuse "([^"]+)"\n\s+fi/);
+    expect(guard).not.toBeNull();
+    expect(guard?.[1]).toContain('no authenticated exact-current-head CodeRabbit quota');
+    for (const [flag, expectedStatus] of [['no', 73], ['yes', 0], ['', 73]] as const) {
+      const check = spawnSync('bash', ['-c',
+        'refuse() { exit 73; }\nreviewforge_fallback_used="' + flag + '"\n' + (guard?.[0] ?? '')
+      ], {encoding: 'utf8'});
+      expect(check.status).toBe(expectedStatus);
+    }
+  });
+
   it('preserves existing human authorization and protected main checks', () => {
     expect(script).toContain('owner_approval_marker');
     expect(script).toContain('ibbo-approved');
