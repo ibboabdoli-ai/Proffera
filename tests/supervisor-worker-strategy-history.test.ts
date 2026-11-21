@@ -609,7 +609,13 @@ describe("Worker workflow B4.1 wiring", () => {
     expect(scope).toBeGreaterThan(workflow.indexOf("Confirm validated Worker tree matches uploaded candidate"));
     expect(scope).toBeLessThan(classify);
     expect(workflow.slice(scope, classify)).toContain("validate-changes");
-    expect(workflow.slice(scope, classify)).toContain("git show HEAD:scripts/supervisor-worker-handoff.mjs");
+    const stagedScope = workflow.slice(scope, classify);
+    expect(stagedScope).toContain('test "$(git rev-parse HEAD)" = "$BASE_SHA"');
+    expect(stagedScope).toContain("for source_path in scripts/supervisor-worker-handoff.mjs scripts/supervisor-worker-strategy-memory.mjs scripts/supervisor-failure-memory.mjs; do");
+    expect(stagedScope).toContain('git show "${BASE_SHA}:${source_path}" > "$trusted_file"');
+    expect(stagedScope).toContain('test "$(git hash-object "$trusted_file")" = "$(git rev-parse "${BASE_SHA}:${source_path}")"');
+    expect(stagedScope).toContain('sha256sum --check --status "$trusted_manifest"');
+    expect(stagedScope).not.toContain("git show HEAD:");
     expect(workflow.slice(classify, refuse)).toContain("SCOPE_OUTCOME");
     expect(workflow.slice(classify, refuse)).toContain('[ "$SCOPE_OUTCOME" = "success" ]');
   });
@@ -623,20 +629,25 @@ describe("Worker workflow B4.1 wiring", () => {
     expect(reserve.indexOf("worker-strategy-admit")).toBeLessThan(reserve.indexOf("reservation-acquire"));
   });
 
-  it("records non-success early and delays succeeded until publication is recoverable", () => {
+  it("records non-success early and persists succeeded only after authenticated PR publication", () => {
     const early = workflow.indexOf("Persist non-success Worker strategy outcome before publication decision");
-    const publish = workflow.indexOf("Publish branch normally or persist validated recovery artifact");
+    const publish = workflow.indexOf("Prepare immutable Worker owner-push handoff");
     const recoverable = workflow.indexOf("Mark reservation recoverable after durable artifact upload");
-    const success = workflow.indexOf("Persist successful Worker strategy outcome after recoverable publication");
+    const success = workflow.indexOf("Persist successful Worker strategy outcome only after authenticated publication");
+    const mirror = workflow.indexOf("Mirror validated recovery artifact to Supervisor comments", success);
     expect(early).toBeGreaterThan(workflow.indexOf("  publish:"));
     expect(early).toBeLessThan(publish);
     expect(workflow.slice(early, publish)).toContain("attempt_outcome != 'succeeded'");
     expect(success).toBeGreaterThan(recoverable);
-    expect(workflow.slice(success)).toContain('state" = "PUBLISHED"');
-    expect(workflow.slice(success)).toContain('state" = "RECOVERABLE"');
-    expect(workflow.slice(success)).toContain('outcome:"succeeded"');
-    expect(workflow.slice(success)).toContain('success_pr_number="$PR_NUMBER"');
-    expect(workflow.slice(success)).toContain('pr_number:(if $pr_number == "" then null else ($pr_number|tonumber) end)');
+    expect(mirror).toBeGreaterThan(success);
+    const successStep = workflow.slice(success, mirror);
+    expect(successStep).toContain("steps.publish.outputs.pr_number != ''");
+    expect(successStep).toContain('if [ "$state" != "PUBLISHED" ]; then');
+    expect(successStep).not.toContain('elif [ "$state" = "RECOVERABLE" ]; then');
+    expect(successStep).toContain('test -n "$PR_NUMBER"');
+    expect(successStep).toContain('outcome:"succeeded"');
+    expect(successStep).toContain('pr_number:($pr_number|tonumber)');
+    expect(successStep).not.toContain('pr_number:(if $pr_number == "" then null else ($pr_number|tonumber) end)');
   });
 
   it("materializes the Worker strategy-history dependency chain with the trusted publication helper", () => {

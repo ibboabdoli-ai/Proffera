@@ -266,4 +266,8 @@ if (RUN_POSTGRES_INTEGRATION) {
       expect(counts).toEqual({ claimedRequests: 4, paidRequests: 1 });
     });
   });
+} else {
+  describe.skip("Marketplace claim/paid funnel PostgreSQL attribution", () => {
+    it("requires explicit PROFFERA_POSTGRES_INTEGRATION=1 opt-in", () => undefined);
+  });
 }

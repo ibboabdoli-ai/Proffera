@@ -9,6 +9,7 @@ const source = (path: string) => readFileSync(resolve(path), "utf8").replaceAll(
 const router = source(".github/workflows/supervisor-event-router.yml");
 const wakeup = source(".github/workflows/proffera-final-gate-wakeup.yml");
 const ci = source(".github/workflows/ci.yml");
+const automerge = source(".github/workflows/proffera-automerge.yml");
 const requestTime = "2026-10-01T08:00:00Z";
 // Execute production shell/jq predicates rather than implementing another policy
 // in the test. Full adapter tests separately cover source re-fetch and POST safety.
@@ -19,10 +20,11 @@ function block(text: string, start: string, end: string) {
 }
 const routerPolicy = block(router, "            wake_final=no", '            if [ "$wake_final" = "yes" ]; then');
 const wakeupPolicy = block(wakeup, '          if [ "$EVENT_NAME" = "pull_request_review" ]; then\n            case', '          pr_json="');
-const availabilityFilters = [...ci.matchAll(/(?:high_risk_)?unavailable_count="\$\(jq -r --arg request_time "\$coderabbit_request_time" '([\s\S]*?)' <<< "\$comments_json"\)"/g)].map(match => match[1]);
+const availabilityFilters = [...[ci, automerge].flatMap(text => [...text.matchAll(/(?:high_risk_)?unavailable_count="\$\(jq -r --arg request_time "\$coderabbit_request_time" '([\s\S]*?)' <<< "\$comments_json"\)"/g)])].map(match => match[1]);
 
 function shellPolicy(policy: string, body: string, actor: string, suffix: string) {
-  const result = spawnSync("bash", ["-c", `set -euo pipefail\n${policy}\n${suffix}`], {
+  const result = spawnSync("bash", [], {
+    input: `set -euo pipefail\n${policy}\n${suffix}`,
     encoding: "utf8", timeout: 10000,
     env: {...process.env, ACTOR: actor, COMMENT_BODY: body, EVENT_NAME: "issue_comment", EVENT_ACTOR: actor, EVENT_COMMENT_BODY: body, TRUSTED_CODEX_REQUESTER: "ibboabdoli-ai"},
   });
@@ -30,10 +32,10 @@ function shellPolicy(policy: string, body: string, actor: string, suffix: string
   expect(result.status, result.stderr).toBe(0);
   return result.stdout.trim().endsWith("ELIGIBLE");
 }
-function ciAvailability(filter: string, body: string, actor = "coderabbitai[bot]", createdAt = "2026-10-01T08:01:00Z") {
+function ciAvailability(filter: string, body: string, actor = "coderabbitai[bot]", createdAt = "2026-10-01T08:01:00Z", updatedAt = createdAt) {
   const result = spawnSync("jq", ["-r", "--arg", "request_time", requestTime, filter], {
     encoding: "utf8", timeout: 10000,
-    input: JSON.stringify([{id: 1, user: {login: actor}, body, created_at: createdAt, updated_at: "2026-10-01T08:02:00Z"}]),
+    input: JSON.stringify([{id: 1, user: {login: actor}, body, created_at: createdAt, updated_at: updatedAt}]),
   });
   expect(result.error).toBeUndefined();
   expect(result.status, result.stderr).toBe(0);
@@ -42,6 +44,17 @@ function ciAvailability(filter: string, body: string, actor = "coderabbitai[bot]
 
 describe("cross-workflow provider availability semantics", () => {
   it.each([
+    ["The service unavailable error is fixed.", false],
+    ["Code example:\n```text\nReview rate limited\n```", false],
+    ["> Review rate limited", false],
+    ["    Review rate limited", false],
+    ["<pre>Review rate limited</pre>", false],
+    ["Not temporarily unavailable", false],
+    ["Review rate limitedness", false],
+    ["Review rate limited. Try again later.", true],
+    ["<!-- This is an auto-generated reply by CodeRabbit -->\n<!-- CodeRabbit review command invocation: v2:" + "a".repeat(64) + " -->\n<details>\n<summary>⚠️ Action not completed</summary>\n\nReview rate limited.\n\n---\nPlease retry later.\n\n</details>", true],
+    ["<!-- This is an auto-generated reply by CodeRabbit -->\r\n<!-- CodeRabbit review command invocation: v2:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa -->\r\n<details>\r\n<summary>⚠️ Action not completed</summary>\r\n\r\nReview rate limited.\r\n\r\nPlease retry later.\r\n</details>", true],
+    ["```text\r\nReview rate limited\r\n```", false],
     ["Review skipped", false],
     ["Review skipped: automatic reviews are disabled", false],
     ["Automatic reviews disabled", false],
@@ -55,8 +68,8 @@ describe("cross-workflow provider availability semantics", () => {
     ["Action not completed: Review rate limited", true],
     ["Temporarily unavailable", true],
     ["Service unavailable", true],
-  ])("router, wakeup, both CI risk lanes and JS agree on %s", (body, expected) => {
-    expect(availabilityFilters).toHaveLength(2);
+  ])("router, wakeup, both CI risk lanes, AutoMerge and JS agree on %s", (body, expected) => {
+    expect(availabilityFilters).toHaveLength(3);
     expect(Boolean(providerUnavailable(body))).toBe(expected);
     expect(shellPolicy(routerPolicy, body, "coderabbitai[bot]", '[ "$wake_final" != yes ] || echo ELIGIBLE')).toBe(expected);
     expect(shellPolicy(wakeupPolicy, body, "coderabbitai[bot]", "echo ELIGIBLE")).toBe(expected);
@@ -66,6 +79,7 @@ describe("cross-workflow provider availability semantics", () => {
   it("CI authenticates provider signals and uses creation time rather than edited time", () => {
     for (const filter of availabilityFilters) {
       expect(ciAvailability(filter, "Review rate limited", "untrusted-user")).toBe(false);
+      expect(ciAvailability(filter, "Review rate limited", "coderabbitai[bot]", "2026-10-01T08:01:00Z", "2026-10-01T08:02:00Z")).toBe(false);
       expect(ciAvailability(filter, "Review rate limited", "coderabbitai[bot]", "2026-10-01T07:59:59Z")).toBe(false);
       expect(ciAvailability(filter, "Review rate limited", "coderabbitai[bot]", requestTime)).toBe(true);
     }

@@ -648,7 +648,7 @@ describe("Supervisor control-plane v2", () => {
     expect(planner).toContain("worker-dispatch-enabled");
     expect(planner).toContain("supervisor-autopilot-enabled");
     expect(planner).toContain("Snapshot trusted admission helper");
-    expect(planner).toContain('trusted_helper="$RUNNER_TEMP/trusted-supervisor-worker-handoff.mjs"');
+    expect(planner).toContain('trusted_helper="$trusted_dir/supervisor-worker-handoff.mjs"');
     expect(planner).not.toContain("trusted-ci-scope-plan.mjs");
     expect(planner).not.toContain("scripts/ci-scope-plan.mjs");
     expect(planner).toContain('node "$trusted_helper" parse');
@@ -675,7 +675,7 @@ describe("Supervisor control-plane v2", () => {
     const plannerDispatchSecrets = planner.slice(plannerDispatchBoundary);
     expect(plannerDispatchSecrets).toContain("issues: write");
     expect(plannerDispatchSecrets).toContain("OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}");
-    expect(plannerDispatchSecrets).toContain("PROFFERA_AUTOFIX_PUSH_TOKEN: ${{ secrets.PROFFERA_AUTOFIX_PUSH_TOKEN }}");
+    expect(plannerDispatchSecrets).not.toContain("PROFFERA_AUTOFIX_PUSH_TOKEN");
     expect(planner).not.toContain('POST "repos/${REPOSITORY}/issues/548/comments"');
     const plannerValidationStart = planner.indexOf("Validate planner output against live state");
     const plannerDispatchStart = planner.indexOf("\n  dispatch:", plannerValidationStart);
@@ -768,9 +768,9 @@ describe("Supervisor control-plane v2", () => {
     expect(snapshotStart).toBeGreaterThan(contextStart);
     expect(snapshotStart).toBeLessThan(modelStart);
     const trustedSnapshot = planner.slice(snapshotStart, cheapStart);
-    expect(trustedSnapshot).toContain('cp scripts/supervisor-worker-handoff.mjs "$trusted_helper"');
+    expect(trustedSnapshot).toContain('cp -- "$source_path" "$trusted_file"');
     expect(trustedSnapshot).not.toContain("ci-scope-plan.mjs");
-    expect(trustedSnapshot).toContain('chmod 0444 "$trusted_helper"');
+    expect(trustedSnapshot).toContain('chmod 0444 "$trusted_helper" "$trusted_strategy" "$trusted_failure" "$trusted_manifest"');
     const cheapCapacity = planner.slice(cheapStart, modelStart);
     expect(cheapCapacity).toContain("active_reservation_ids");
     expect(cheapCapacity).toContain("lease_expires_at");
@@ -897,7 +897,7 @@ describe("Supervisor control-plane v2", () => {
     expect(cleanup).toContain("needs.preflight.outputs.reservation_comment_id != ''");
     expect(cleanup).toContain("needs.publish.result != 'success'");
     expect(cleanup).toContain("Materialize exact baseline cleanup helper independently");
-    expect(cleanup).toContain('contents/scripts/supervisor-worker-handoff.mjs?ref=${BASE_SHA}');
+    expect(cleanup).toContain('contents/${source_path}?ref=${BASE_SHA}');
     expect(cleanup).toContain("git hash-object");
     expect(cleanup).toContain("released-reservation-retry-body");
     expect(cleanup).toContain("reservation-mutex-acquire");
@@ -921,9 +921,9 @@ describe("Supervisor control-plane v2", () => {
     expect(publish).toContain("Materialize trusted publication helper in isolated job");
     expect(publish).toContain("actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0");
     expect(publish).toContain("validate-changes");
-    expect(publish).toContain("PROFFERA_AUTOFIX_PUSH_TOKEN");
+    expect(publish).not.toContain("PROFFERA_AUTOFIX_PUSH_TOKEN");
     expect(publish).not.toContain("npm test");
-    expect(publish.indexOf("validate-changes")).toBeLessThan(publish.indexOf("PROFFERA_AUTOFIX_PUSH_TOKEN"));
+    expect(publish).toContain("git bundle create");
   });
   it("isolates Review Repair admission, model execution, validation, publication, and durable accounting", () => {
     const repair = source(".github/workflows/supervisor-review-repair.yml");
@@ -1007,17 +1007,12 @@ describe("Supervisor control-plane v2", () => {
     expect(trustedPublishJob).toContain("EXPECTED_FINDING_SET_SHA256");
     expect(trustedPublishJob).toContain("Current-head review finding burst changed after model execution");
     expect(trustedPublishJob).toContain("validate-changes");
-    expect(trustedPublishJob).toContain("PROFFERA_AUTOFIX_PUSH_TOKEN");
-    expect(trustedPublishJob.indexOf("Revalidate settled current-head finding burst before publication"))
-      .toBeLessThan(trustedPublishJob.indexOf("PROFFERA_AUTOFIX_PUSH_TOKEN"));
-    expect(trustedPublishJob).toContain("Current-head review finding burst changed at the push boundary");
-    expect(trustedPublishJob).toContain("push_guard_head=");
-    const repairCommitIndex = trustedPublishJob.indexOf('git commit -m "[review-repair] batch current-head verified findings"');
-    const pushBoundaryGuardIndex = trustedPublishJob.indexOf("push_boundary_findings=");
-    const repairPushIndex = trustedPublishJob.indexOf('git push origin "HEAD:refs/heads/${HEAD_REF}"');
-    expect(repairCommitIndex).toBeGreaterThanOrEqual(0);
-    expect(pushBoundaryGuardIndex).toBeGreaterThan(repairCommitIndex);
-    expect(repairPushIndex).toBeGreaterThan(pushBoundaryGuardIndex);
+    expect(trustedPublishJob).not.toContain("PROFFERA_AUTOFIX_PUSH_TOKEN");
+    expect(trustedPublishJob).toContain("Revalidate and commit bounded repair for owner handoff");
+    expect(trustedPublishJob).toContain("EXPECTED_FINDING_SET_SHA256");
+    expect(trustedPublishJob).toContain("git bundle create");
+    expect(trustedPublishJob).toContain("Upload Review Repair owner handoff");
+    expect(trustedPublishJob).not.toMatch(/\bgit\s+push\b/);
 
     expect(recordJob).toContain("if: always() && needs.admit.outputs.attempt_started == 'yes'");
     expect(recordJob).toContain("issues: write");
@@ -1132,6 +1127,8 @@ describe("Supervisor control-plane v2", () => {
     const dir = mkdtempSync(join(tmpdir(), "proffera-review-repair-trust-"));
     const trusted = join(dir, "trusted-helper.mjs");
     copyFileSync(trustedSource, trusted);
+    copyFileSync(resolve(root, "scripts/supervisor-worker-strategy-memory.mjs"), join(dir, "supervisor-worker-strategy-memory.mjs"));
+    copyFileSync(resolve(root, "scripts/supervisor-failure-memory.mjs"), join(dir, "supervisor-failure-memory.mjs"));
 
     const packet = {
       task_id: "SUP-REPAIR-1",
@@ -1161,7 +1158,12 @@ describe("Supervisor control-plane v2", () => {
     expect(validateStart).toBeGreaterThan(materializeStart);
     const materializeStep = trustedPublishJob.slice(materializeStart, validateStart);
     expect(materializeStep).toContain("set -euo pipefail");
-    expect(materializeStep).toContain('test "$(git hash-object "$trusted_helper")" = "$expected_blob_sha"');
+    expect(materializeStep).toContain('git/ref/heads/${default_branch}');
+    expect(materializeStep).toContain('test "${#trusted_main_sha}" -eq 40');
+    expect(materializeStep).toContain('for source_path in scripts/supervisor-worker-handoff.mjs scripts/supervisor-worker-strategy-memory.mjs scripts/supervisor-failure-memory.mjs; do');
+    expect(materializeStep).toContain('contents/${source_path}?ref=${trusted_main_sha}');
+    expect(materializeStep).toContain('test "$(git hash-object "$trusted_file")" = "$expected_blob_sha"');
+    expect(materializeStep).toContain('sha256sum --check --status "$trusted_manifest"');
 
     const verified = spawnSync(process.execPath, [trusted, "validate-changes"], { input, encoding: "utf8" });
     expect(verified.status, verified.stderr).toBe(0);

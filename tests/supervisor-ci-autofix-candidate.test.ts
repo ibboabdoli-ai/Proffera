@@ -13,7 +13,15 @@ const roots: string[] = [];
 afterEach(() => { for (const root of roots.splice(0)) rmSync(root, {recursive: true, force: true}); });
 const run = (job: string, name: string) => workflow.jobs[job].steps.find((step: {name: string}) => step.name === name).run;
 const git = (cwd: string, ...args: string[]) => {
-  const result = spawnSync("git", args, {cwd, encoding: "utf8"});
+  // Fixture Git is isolated from Windows system autocrlf, matching the
+  // Linux runner that creates and applies the immutable patch in production.
+  const env = {...process.env};
+  for (const key of Object.keys(env)) {
+    if (key.startsWith("GIT_")) delete env[key];
+  }
+  const result = spawnSync("git", ["-c", "core.autocrlf=false", ...args], {
+    cwd, encoding: "utf8", env: {...env, GIT_CONFIG_NOSYSTEM: "1", GIT_CONFIG_GLOBAL: "/dev/null"},
+  });
   expect(result.status, result.stderr).toBe(0);
   return result.stdout.trim();
 };
@@ -39,7 +47,10 @@ function fixture(originalControlPath?: string) {
   const model = clone("model"); const validation = clone("validation"); const publication = clone("publication");
   const capture = () => {
     const result = spawnSync("bash", ["-c", run("autofix", "Capture bounded repair candidate")], {cwd: model, encoding: "utf8", env: {
-      ...process.env, RUNNER_TEMP: root, GITHUB_OUTPUT: join(root, "output"), REPOSITORY: "ibboabdoli-ai/Proffera", PR_NUMBER: "934",
+      // GNU sha256sum escapes Windows backslashes in printed filenames and prefixes
+      // the digest with a backslash. Model the Linux runner path in Git Bash so
+      // the fixture supplies the same canonical 64-character digest as CI.
+      ...process.env, RUNNER_TEMP: root.replaceAll("\\", "/"), GITHUB_OUTPUT: join(root, "output"), REPOSITORY: "ibboabdoli-ai/Proffera", PR_NUMBER: "934",
       EXPECTED_HEAD: head, BASE_SHA: base, ADMITTED_RUN_ID: "50", ADMITTED_RUN_ATTEMPT: "1", SOURCE_RUN_ID: "40", SOURCE_RUN_ATTEMPT: "2",
     }});
     expect(result.status, result.stderr).toBe(0);
@@ -99,6 +110,52 @@ describe("CI Autofix isolated candidate reconstruction", () => {
     expect(git(f.publication, "show", "-s", "--format=%P", commit)).toBe(f.head);
     expect(git(f.publication, "rev-parse", commit + "^{tree}")).toBe(validated.tree);
   });
+
+  it.each(["delete", "modify", "add"] as const)(
+    "accepts a clean index-only %s and rejects worktree mutation before owner handoff", operation => {
+      const f = fixture();
+      const tracked = join(f.publication, "tests", "allowed.ts");
+      const added = join(f.publication, "tests", "added.ts");
+      if (operation === "delete") {
+        git(f.publication, "rm", "--cached", "tests/allowed.ts");
+      } else if (operation === "modify") {
+        writeFileSync(tracked, "candidate\n");
+        git(f.publication, "add", "tests/allowed.ts");
+        writeFileSync(tracked, "expected\n");
+      } else {
+        writeFileSync(added, "candidate\n");
+        git(f.publication, "add", "tests/added.ts");
+        rmSync(added);
+      }
+      const tree = git(f.publication, "write-tree");
+      const newHead = git(f.publication, "-c", "user.name=Fixture", "-c",
+        "user.email=fixture@example.invalid", "commit-tree", tree, "-p", f.head, "-m", "index-only test");
+      git(f.publication, "update-ref", "HEAD", newHead, f.head);
+      const handoff = run("publish", "Stage CI Autofix commit for owner push");
+      const start = handoff.indexOf('git diff --cached --quiet "$NEW_HEAD"');
+      const end = handoff.indexOf('bundle="$RUNNER_TEMP/proffera-ci-autofix-owner-handoff.bundle"', start);
+      expect(start).toBeGreaterThanOrEqual(0);
+      expect(end).toBeGreaterThan(start);
+      const guard = "set -euo pipefail\n" + handoff.slice(start, end);
+      const check = () => spawnSync("bash", ["-c", guard], {
+        cwd: f.publication, encoding: "utf8",
+        env: {...process.env, EXPECTED_HEAD: f.head, NEW_HEAD: newHead,
+          RUNNER_TEMP: f.root.replaceAll("\\", "/")},
+      });
+      const accepted = check();
+      expect(accepted.status, accepted.stderr).toBe(0);
+      if (operation === "add") writeFileSync(added, "candidate\n");
+      else writeFileSync(tracked, "tampered\n");
+      expect(check().status).not.toBe(0);
+      if (operation === "add") rmSync(added);
+      else writeFileSync(tracked, "expected\n");
+      writeFileSync(join(f.publication, "extra.txt"), "untrusted\n");
+      expect(check().status).not.toBe(0);
+      rmSync(join(f.publication, "extra.txt"));
+      writeFileSync(join(f.publication, "unrelated.txt"), "modified tracked file\n");
+      expect(check().status).not.toBe(0);
+    },
+  );
 
   it("never transfers model-controlled config, hooks, filters, refs or Git objects to publication", () => {
     const f = fixture();
