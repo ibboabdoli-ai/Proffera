@@ -486,16 +486,21 @@ jobs:
                 reviewforge_fallback_reviews="$(gh api --paginate "repos/$REPOSITORY/pulls/$pr_number/reviews?per_page=100" --jq '.[]' | jq -s '.')"
                 reviewforge_marker="<!-- reviewforge-fallback-approval:$head_sha -->"
                 reviewforge_approval_count="$(jq -r --arg sha "$head_sha" --arg marker "$reviewforge_marker" --arg request_time "$coderabbit_request_time" '
-                  [
-                    .[]
-                    | select(.user.login == "reviewforge-ibbo-dev[bot]")
-                    | select(.commit_id == $sha and .state == "APPROVED")
-                    | select((.submitted_at // "") >= $request_time)
-                    | select((.body // "") | startswith($marker + "\n"))
-                    | select((.body // "") | contains("Full review coverage:"))
-                    | select((.body // "") | contains("0 actionable finding(s)."))
-                  ] | length
-                ' <<< "$reviewforge_fallback_reviews")"
+              [
+                .[]
+                | select(.user.login == "reviewforge-ibbo-dev[bot]")
+                | select(.commit_id == $sha)
+                | select(.state == "APPROVED" or .state == "CHANGES_REQUESTED")
+                | select((.submitted_at // "") >= $request_time)
+              ]
+              | sort_by(.submitted_at // "", .id // 0)
+              | (last // {})
+              | if .state == "APPROVED"
+                  and ((.body // "") | startswith($marker + "\n"))
+                  and ((.body // "") | contains("Full review coverage:"))
+                  and ((.body // "") | contains("0 actionable finding(s)."))
+                then 1 else 0 end
+            ' <<< "$reviewforge_fallback_reviews")"
                 reviewforge_inline_count="$(jq -r --arg sha "$head_sha" --arg request_time "$coderabbit_request_time" '
                   [
                     .[]
@@ -656,12 +661,17 @@ jobs:
               [
                 .[]
                 | select(.user.login == "reviewforge-ibbo-dev[bot]")
-                | select(.commit_id == $sha and .state == "APPROVED")
+                | select(.commit_id == $sha)
+                | select(.state == "APPROVED" or .state == "CHANGES_REQUESTED")
                 | select((.submitted_at // "") >= $requested)
-                | select((.body // "") | startswith($marker + "\n"))
-                | select((.body // "") | contains("Full review coverage:"))
-                | select((.body // "") | contains("0 actionable finding(s)."))
-              ] | length
+              ]
+              | sort_by(.submitted_at // "", .id // 0)
+              | (last // {})
+              | if .state == "APPROVED"
+                  and ((.body // "") | startswith($marker + "\n"))
+                  and ((.body // "") | contains("Full review coverage:"))
+                  and ((.body // "") | contains("0 actionable finding(s)."))
+                then 1 else 0 end
             ' <<< "$final_bot_reviews")"
             final_bot_findings="$(jq -r --arg sha "$head_sha" --arg requested "$coderabbit_request_time" '
               [
