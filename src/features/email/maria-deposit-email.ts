@@ -36,6 +36,8 @@ export type MariaBookingStatusEmailInput = {
   expectedRevision?: string;
   /** Caller-provided only for pure render tests; sender always reads DB state. */
   depositAlreadyPaid?: boolean;
+  /** Audit-proven temporary intake; never supplied by caller at dispatch. */
+  temporaryUnverified?: boolean;
 };
 
 /** Escape customer-controlled data before interpolating into booking email HTML. */
@@ -99,6 +101,68 @@ export function buildMariaBookingStatusEmail(input: MariaBookingStatusEmailInput
       <p>${escapeHtml(input.companyName)}</p></div>`;
     return { subject, text, html, reference };
   }
+
+  // A manager's confirmation is not proof of email ownership. Send the
+  // ordinary Swish number and reference, but never a booking-specific payment
+  // page or QR link to an unverified address.
+  if (isConfirmation && input.temporaryUnverified) {
+    const copy = language === "en" ? {
+      title: "Your booking is confirmed", greeting: "Hello",
+      intro: "Maria has confirmed your booking request.",
+      service: "Service", time: "Time", number: "Booking number",
+      deposit: "Deposit", deadline: "Pay within 24 hours of confirmation, no later than",
+      payee: "Swish business", reference: "Use this booking number in the Swish message",
+      safety: "This request was sent without email verification. No personal booking or payment link is included. If you do not recognize the booking, contact Maria before paying.",
+      signoff: "Kind regards",
+    } : language === "ar" ? {
+      title: "تم تأكيد حجزك", greeting: "مرحبًا",
+      intro: "أكدت ماريا طلب الحجز الخاص بك.",
+      service: "الخدمة", time: "الموعد", number: "رقم الحجز",
+      deposit: "العربون", deadline: "يُدفع خلال ٢٤ ساعة من التأكيد، وبحد أقصى",
+      payee: "رقم Swish للشركة", reference: "اكتبي رقم الحجز في خانة الرسالة في Swish",
+      safety: "تم إرسال هذا الطلب دون التحقق من البريد الإلكتروني. لا تتضمن الرسالة رابطًا شخصيًا للحجز أو الدفع. إذا لم تتعرفي على الحجز، تواصلي مع ماريا قبل الدفع.",
+      signoff: "مع أطيب التحيات",
+    } : {
+      title: "Din bokning är bekräftad", greeting: "Hej",
+      intro: "Maria har bekräftat din bokningsförfrågan.",
+      service: "Tjänst", time: "Tid", number: "Bokningsnummer",
+      deposit: "Handpenning", deadline: "Betala inom 24 timmar från bekräftelsen, senast",
+      payee: "Swish företag", reference: "Ange bokningsnumret i Swish-fältet Meddelande",
+      safety: "Förfrågan skickades utan e-postverifiering. Ingen personlig boknings- eller betalningslänk skickas. Kontakta Maria innan betalning om du inte känner igen bokningen.",
+      signoff: "Vänliga hälsningar",
+    };
+    const due = formatTime(mariaDepositDeadline(input.confirmedAt ?? new Date()), input.timeZone, language);
+    const payment = MARIA_DEPOSIT_AMOUNT_SEK.toLocaleString("sv-SE");
+    const subject = copy.title + " – " + copy.deposit + " " + payment + " SEK – " + reference;
+    const details = [
+      copy.greeting + " " + input.customerName + ",", "",
+      copy.intro, copy.service + ": " + input.service,
+      copy.time + ": " + start + " – " + end,
+      copy.number + ": " + reference, "",
+      copy.deposit + ": " + payment + " SEK",
+      copy.deadline + " " + due + ".",
+      copy.payee + ": " + MARIA_SWISH_NUMBER,
+      copy.reference + ": " + reference, "",
+      copy.safety, "", copy.signoff, input.companyName,
+    ];
+    const text = details.join("\n");
+    const html = '<div lang="' + language + '" dir="' + (language === "ar" ? "rtl" : "ltr")
+      + '" style="max-width:640px;margin:0 auto;font:16px/1.7 Arial,sans-serif;color:#432a35">'
+      + logo + "<h1>" + escapeHtml(copy.title) + "</h1>"
+      + "<p>" + escapeHtml(copy.greeting + " " + input.customerName + ",") + "</p>"
+      + "<p>" + escapeHtml(copy.intro) + "</p>"
+      + "<p>" + escapeHtml(copy.service + ": " + input.service) + "</p>"
+      + "<p>" + escapeHtml(copy.time + ": " + start + " – " + end) + "</p>"
+      + "<p>" + escapeHtml(copy.number + ": " + reference) + "</p>"
+      + "<p>" + escapeHtml(copy.deposit + ": " + payment + " SEK") + "</p>"
+      + "<p>" + escapeHtml(copy.deadline + " " + due + ".") + "</p>"
+      + "<p>" + escapeHtml(copy.payee + ": " + MARIA_SWISH_NUMBER) + "</p>"
+      + "<p>" + escapeHtml(copy.reference + ": " + reference) + "</p>"
+      + "<p>" + escapeHtml(copy.safety) + "</p>"
+      + "<p>" + escapeHtml(copy.signoff + " " + input.companyName) + "</p></div>";
+    return { subject, text, html, reference };
+  }
+
   // The Swedish copy below is the unchanged default. The customer's saved
   // booking language selects explicit English or Arabic transactional copy.
   if (language !== "sv") {
@@ -300,6 +364,13 @@ export async function sendMariaBookingStatusEmail(input: MariaBookingStatusEmail
     if (!sql) return { ok: false as const, error: "booking_state_unavailable" as const };
     const rows = await sql`
         select ref.reference as booking_reference,
+          exists (
+            select 1 from customer_events e
+            where e.workspace_id=b.workspace_id and e.booking_id=b.id
+              and e.event_type='booking'
+              and e.metadata->>'verification_mode'='temporary_no_otp'
+              and e.metadata->>'email_verified'='false'
+          ) as temporary_unverified,
           coalesce((
           select e.metadata->>'state' from customer_events e
           where e.workspace_id=b.workspace_id and e.booking_id=b.id
@@ -332,6 +403,7 @@ export async function sendMariaBookingStatusEmail(input: MariaBookingStatusEmail
     const depositAlreadyPaid = input.status === "confirmed" && rows[0].deposit_state === "paid";
     content = buildMariaBookingStatusEmail({
       ...input, depositAlreadyPaid,
+      temporaryUnverified: rows[0].temporary_unverified === true,
       reference: typeof rows[0].booking_reference === "string"
         ? rows[0].booking_reference : undefined,
     }, base, process.env.VERCEL_ENV === "production");

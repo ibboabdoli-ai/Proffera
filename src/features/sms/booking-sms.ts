@@ -4,6 +4,7 @@ import { sendWorkspaceTransactionalSms, type WorkspaceSmsDelivery } from "@/lib/
 type SendBookingOwnerSmsInput = WorkspaceSmsDelivery & {
   ownerPhone: string; companyName: string; customerName: string;
   customerPhone: string; service: string; startsAt: string; timeZone?: WorkspaceTimeZone;
+  unverified?: boolean;
 };
 type SendBookingCustomerSmsInput = WorkspaceSmsDelivery & {
   customerPhone: string; companyName: string;
@@ -32,7 +33,9 @@ export async function sendBookingVerificationSms(input: SendBookingVerificationS
 
 export async function sendBookingOwnerSms(input: SendBookingOwnerSmsInput) {
   const customerPhone = input.customerPhone.trim() || "telefon saknas";
-  const content = "Ny bokning hos " + input.companyName + ". Kund: " + input.customerName
+  const opening = input.unverified
+    ? "Ny bokningsförfrågan (ej verifierad) hos " : "Ny bokning hos ";
+  const content = opening + input.companyName + ". Kund: " + input.customerName
     + ", tel: " + customerPhone + ". " + input.service + ", "
     + formatBookingDate(input.startsAt, input.timeZone) + ". Öppna Proffera.";
   return sendWorkspaceTransactionalSms({

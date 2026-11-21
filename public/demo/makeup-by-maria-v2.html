@@ -259,6 +259,19 @@ function showBookingComplete(){
 // Fallback is the customer-approved demo. Authenticated workspace managers
 // may preview their unpublished prices from Proffera without enabling booking.
 let formStartedAt=Date.now();
+let temporaryRequestSubmitted=false;
+const noOtpBookingCopy={
+ sv:{safety:"Din förfrågan skickas utan e-postkod. Maria behöver bekräfta tiden innan bokningen är bekräftad.",submit:"SKICKA BOKNINGSFÖRFRÅGAN ↗",sending:"Kontrollerar tiden och skickar förfrågan...",notice:"Skicka en bokningsförfrågan. Maria bekräftar tiden separat.",title:"Förfrågan skickad",text:"Din förfrågan har registrerats. Maria bekräftar tiden separat. Ingen betalning krävs innan Maria har bekräftat din bokning."},
+ en:{safety:"Your booking request is sent without an email code. Maria must approve the appointment before it is confirmed.",submit:"SEND BOOKING REQUEST ↗",sending:"Checking the time and sending your request...",notice:"Send a booking request. Maria confirms the appointment separately.",title:"Request received",text:"Your request has been registered. Maria will confirm the appointment separately. Do not pay a deposit before confirmation."},
+ ar:{safety:"يُرسل طلب الحجز دون رمز بريد إلكتروني. ستؤكد ماريا الموعد بشكل منفصل.",submit:"إرسال طلب الحجز ↗",sending:"جارٍ التحقق من الموعد وإرسال الطلب...",notice:"أرسلي طلب حجز، وستؤكد ماريا الموعد بشكل منفصل.",title:"تم إرسال الطلب",text:"تم تسجيل طلبك. ستؤكد ماريا الموعد بشكل منفصل. لا تدفعي العربون قبل التأكيد."}
+};
+function renderNoOtpCompletion(){
+ const done=noOtpBookingCopy[state.lang]||noOtpBookingCopy.sv;
+ $("bookingCompleteTitle").textContent=done.title;
+ $("bookingCompleteText").textContent=done.text;
+ $("bookingCompleteAgain").textContent=(bookingCompleteCopy[state.lang]||bookingCompleteCopy.sv).again;
+ $("bookingCompleteAgain").href=mariaPublicHomeUrl(state.lang);
+}
 const liveBookingCopy={
  sv:{safety:"Bokningen skickas först efter att du har verifierat din e-postadress. Datum och tid måste vara tillgängliga.",submit:"FORTSÄTT TILL E-POSTVERIFIERING ↗",sending:"Kontrollerar bokning och skickar verifieringskod...",error:"Bokningen kunde inte påbörjas. Kontrollera valt datum och försök igen."},
  en:{safety:"Your booking is created only after email verification. The selected date and time must be available.",submit:"CONTINUE TO EMAIL VERIFICATION ↗",sending:"Checking availability and sending a verification code...",error:"We could not begin your booking. Check your selected date and try again."},
@@ -311,6 +324,7 @@ function showBookingError(code,invalidInput){
 }
 let workspaceConfig={
  bookingEnabled:false,
+ otpRequired:true,
  bookableDurations:{},
  bookableAdvanceDays:{},
  // The public branded site never starts with Preview-only demo prices.
@@ -408,12 +422,15 @@ function translate(){
    const input=$(id);if(input.validity.customError)input.setCustomValidity(localizedBookingError(lastBookingError));
   }
  }else if(bookingSubmitting){
-  $("message").textContent=(liveBookingCopy[state.lang]||liveBookingCopy.sv).sending;
+  $("message").textContent=workspaceConfig.otpRequired
+   ?(liveBookingCopy[state.lang]||liveBookingCopy.sv).sending
+   :(noOtpBookingCopy[state.lang]||noOtpBookingCopy.sv).sending;
  }
  if(workspaceConfig.bookingEnabled){
   const info=liveBookingCopy[state.lang]||liveBookingCopy.sv;
-  document.querySelector('[data-i="safety"]').textContent=info.safety;
-  document.querySelector('[data-i="submit"]').textContent=info.submit;
+  const modeInfo=workspaceConfig.otpRequired?info:(noOtpBookingCopy[state.lang]||noOtpBookingCopy.sv);
+  document.querySelector('[data-i="safety"]').textContent=modeInfo.safety;
+  document.querySelector('[data-i="submit"]').textContent=modeInfo.submit;
   const testNotice={
    sv:"Testmiljö – endast provbokningar, inga riktiga kundbokningar.",
    en:"Test environment – test bookings only, no real customer bookings.",
@@ -427,7 +444,9 @@ function translate(){
   document.querySelector('[data-i="footer"]').textContent=publicCopy.footer;
   document.querySelector(".first-design").hidden=true;
   document.querySelector(".first-design").style.display="none";
-  document.querySelector('[data-i="notice"]').textContent=workspaceConfig.bookingEnabled?publicCopy.open:publicCopy.closed;
+  document.querySelector('[data-i="notice"]').textContent=workspaceConfig.bookingEnabled
+   ?(workspaceConfig.otpRequired?publicCopy.open:(noOtpBookingCopy[state.lang]||noOtpBookingCopy.sv).notice)
+   :publicCopy.closed;
   if(!workspaceConfig.bookingEnabled){
    const submit=document.querySelector('#bookingForm button[type="submit"]');
    submit.disabled=true;
@@ -436,7 +455,7 @@ function translate(){
   }
  }
  // The public form is disabled only while booking is closed or actively submitting.
- $("bookingForm").querySelector('button[type="submit"]').disabled=bookingSubmitting||brandedBookingClosed();
+ $("bookingForm").querySelector('button[type="submit"]').disabled=bookingSubmitting||temporaryRequestSubmitted||brandedBookingClosed();
  document.querySelector('[data-i="detailsPrompt"]').textContent=displayedBookingHours();
  if(state.year){
   const details=workspaceConfig.years.find(item=>item.year===state.year);
@@ -456,6 +475,7 @@ function translate(){
  $("withoutPrice").textContent=displayYearPrice("without");
  $("backHome").textContent=uiCopy().home;
  renderPackageAvailability();
+ if(temporaryRequestSubmitted)renderNoOtpCompletion();
  showBookingComplete();
  renderYears();
  if(state.kind)renderSummary();
@@ -585,7 +605,9 @@ $("bookingForm").addEventListener("submit",async e=>{
  if(button.disabled)return;
  bookingSubmitting=true;
  button.disabled=true;
- message.textContent=(liveBookingCopy[state.lang]||liveBookingCopy.sv).sending;
+ message.textContent=workspaceConfig.otpRequired
+  ?(liveBookingCopy[state.lang]||liveBookingCopy.sv).sending
+  :(noOtpBookingCopy[state.lang]||noOtpBookingCopy.sv).sending;
  try{
   const response=await fetch("/api/makeup-by-maria/booking",{
    method:"POST",headers:{"Content-Type":"application/json"},credentials:"same-origin",cache:"no-store",
@@ -597,6 +619,16 @@ $("bookingForm").addEventListener("submit",async e=>{
    })
   });
   const data=await response.json();
+  if(response.ok&&data?.ok===true&&data.requestReceived===true){
+   temporaryRequestSubmitted=true;
+   renderNoOtpCompletion();
+   $("bookingCompleteAgain").hidden=false;
+   $("bookingComplete").hidden=false;
+   document.querySelector(".steps").hidden=true;
+   for(const name of ["yearStep","serviceStep","detailsStep"])$(name).hidden=true;
+   message.style.display="none";
+   return;
+  }
   if(response.ok&&data.ok&&typeof data.verificationUrl==="string"
       &&data.verificationUrl.startsWith("/boka/verifiera/")
       &&!data.verificationUrl.startsWith("//")
@@ -607,7 +639,7 @@ $("bookingForm").addEventListener("submit",async e=>{
   showBookingError(typeof data?.error==="string"?data.error:"general");
  }catch(_error){
   showBookingError("general");
- }finally{bookingSubmitting=false;button.disabled=brandedBookingClosed();}
+ }finally{bookingSubmitting=false;button.disabled=temporaryRequestSubmitted||brandedBookingClosed();}
 });
 $("weddingDate").addEventListener("change",()=>buildTimes(false));
 async function loadMariaWorkspace(){
@@ -617,6 +649,7 @@ async function loadMariaWorkspace(){
   const config=await response.json();
   if(!config||config.connected!==true)return;
   workspaceConfig.bookingEnabled=config.bookingEnabled===true;
+  workspaceConfig.otpRequired=config.otpRequired!==false;
   if(workspaceConfig.bookingEnabled&&config.bookableDurations&&typeof config.bookableDurations==="object"){
    const accepted={};
    for(const [year,packages] of Object.entries(config.bookableDurations)){

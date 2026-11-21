@@ -17,7 +17,8 @@ export const directoryProfileCopy = {
     sourceTitle: "Var kommer informationen från?", sourceLead: "Grunduppgifter kan komma från Bolagsverket och SCB. När Lantmäteriets geodata används anges datakällan som Lantmäteriet – Belägenhetsadress Direkt. Uppgifterna väljs, kombineras och kvalitetssäkras av Proffera (egen bearbetning). Datumet nedan gäller verifieringen av officiella fakta; SCB-data kan ha en separat synktid.",
     sourceOwner: "Detta betyder inte att företagets ägare har verifierat eller gjort anspråk på profilen.",
     sourceOwnerClaimed: "Företagets ägare har verifierat och gjort anspråk på profilen via Proffera.",
-    noImage: "Ingen företagsbild visas förrän en verifierad bild finns tillgänglig.",
+    noImage: "Bilden visar tjänstekategorin och är inte ett foto av detta företag. Företagsbilder visas först när de har verifierats.",
+    noMedia: "Ingen företagsbild visas förrän en verifierad bild finns tillgänglig.",
     lastChecked: "Officiella fakta senast verifierade", synced: "officiell verifiering saknas", fallbackCategory: "Tjänsteföretag",
   },
   en: {
@@ -36,7 +37,8 @@ export const directoryProfileCopy = {
     sourceTitle: "Where does this information come from?", sourceLead: "Core data may come from Bolagsverket and SCB. When Lantmäteriet geodata is used, the data source is Lantmäteriet – Belägenhetsadress Direkt. Proffera selects, combines and quality-checks the data (processed by Proffera). The date below covers verification of official facts; SCB data can have a separate sync time.",
     sourceOwner: "This does not mean the business owner has verified or claimed the profile.",
     sourceOwnerClaimed: "The business owner has verified and claimed this profile through Proffera.",
-    noImage: "No business image is shown until a verified image is available.",
+    noImage: "The photo illustrates the service category and does not show this business. Business photos appear only after verification.",
+    noMedia: "No business image is shown until a verified image is available.",
     lastChecked: "Official facts last verified", synced: "official verification unavailable", fallbackCategory: "Service business",
   },
 } as const satisfies Record<PublicLocale, Record<string, string>>;

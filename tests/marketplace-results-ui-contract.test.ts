@@ -324,7 +324,7 @@ describe("marketplace results UI contract", () => {
     expect(results).toContain("styles.resultCard");
     expect(results).toContain('data-marketplace-action="directory-profile"');
     expect(styles).toContain("--marketplace-navy: #0a2e63");
-    expect(styles).toContain("grid-template-columns: 168px minmax(0, 1fr) 164px");
+    expect(styles).toContain("grid-template-columns: repeat(3, minmax(0, 1fr))");
     expect(styles).toContain("prefers-reduced-motion");
   });
 });

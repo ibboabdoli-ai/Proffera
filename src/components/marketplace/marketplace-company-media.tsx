@@ -15,6 +15,8 @@ import {
 } from "lucide-react";
 import { useState } from "react";
 
+import { serviceCategoryPhoto } from "@/lib/service-category-photo";
+
 function initials(name: string) {
   return name
     .trim()
@@ -106,16 +108,32 @@ export function MarketplaceCompanyCover({
   url,
   illustration = false,
   serviceSlug,
+  categorySlug,
+  fallbackLabel = "Illustration",
 }: {
   name: string;
   url?: string | null;
   illustration?: boolean;
   serviceSlug?: string | null;
+  categorySlug?: string | null;
+  fallbackLabel?: string;
 }) {
   const [failed, setFailed] = useState(false);
   const showIllustration = illustration || !url || failed;
+  const categoryPhoto = serviceCategoryPhoto(categorySlug, serviceSlug);
 
   if (showIllustration) {
+    if (categoryPhoto) {
+      return (
+        <div className="relative h-full min-h-40 overflow-hidden bg-[#e8edf0]" role="img" aria-label={`Illustration: ${name}`}>
+          {/* Curated category photos are illustrative and never presented as company media. */}
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={categoryPhoto} alt="" className="h-full w-full object-cover transition duration-300 group-hover:scale-[1.02]" loading="lazy" decoding="async" />
+          <div className="absolute inset-0 bg-gradient-to-t from-[#102c38]/30 via-transparent to-transparent" aria-hidden="true" />
+          {failed ? <span className="absolute right-2 top-2 rounded-full bg-[#11213b]/80 px-2 py-1 text-[10px] font-bold text-white">{fallbackLabel}</span> : null}
+        </div>
+      );
+    }
     return (
       <div
         className="relative grid h-full min-h-40 place-items-center overflow-hidden bg-[#eef5ff]"
