@@ -1,4 +1,5 @@
 import "server-only";
+import QRCode from "qrcode";
 
 import { mariaEmailLogoHtml } from "@/lib/maria-email-logo";
 import { bookingDateLocale } from "@/lib/booking-date-locale";
@@ -10,7 +11,7 @@ import { getMariaBookingReadiness } from "@/lib/maria-booking-runtime";
 import { withMariaBookingNotificationLock } from "@/lib/maria-booking-notification-lock";
 import { MARIA_CANONICAL_PRODUCTION_ORIGIN, isMariaProductionSwishAuthorized } from "@/lib/maria-production-activation-policy";
 import {
-  MARIA_DEPOSIT_AMOUNT_SEK, MARIA_SWISH_NUMBER, mariaSwishPaymentPagePath,
+  MARIA_DEPOSIT_AMOUNT_SEK, MARIA_SWISH_NUMBER, mariaSwishQrPayload, mariaSwishPaymentPagePath,
   mariaSwishQrPath, mariaBookingNumber, mariaDepositDeadline,
 } from "@/lib/maria-deposit";
 import type { WorkspaceTimeZone } from "@/lib/workspace-market";
@@ -133,6 +134,9 @@ export function buildMariaBookingStatusEmail(input: MariaBookingStatusEmailInput
     };
     const due = formatTime(mariaDepositDeadline(input.confirmedAt ?? new Date()), input.timeZone, language);
     const payment = MARIA_DEPOSIT_AMOUNT_SEK.toLocaleString("sv-SE");
+    const qrAttachmentNote = language === "en" ? "Swish QR code: see the attached PNG file."
+      : language === "ar" ? "رمز QR للدفع عبر Swish مرفق كصورة PNG."
+      : "Swish QR-kod finns som bifogad PNG-bild.";
     const subject = copy.title + " – " + copy.deposit + " " + payment + " SEK – " + reference;
     const details = [
       copy.greeting + " " + input.customerName + ",", "",
@@ -142,7 +146,8 @@ export function buildMariaBookingStatusEmail(input: MariaBookingStatusEmailInput
       copy.deposit + ": " + payment + " SEK",
       copy.deadline + " " + due + ".",
       copy.payee + ": " + MARIA_SWISH_NUMBER,
-      copy.reference + ": " + reference, "",
+      copy.reference + ": " + reference,
+      qrAttachmentNote, "",
       copy.safety, "", copy.signoff, input.companyName,
     ];
     const text = details.join("\n");
@@ -158,6 +163,7 @@ export function buildMariaBookingStatusEmail(input: MariaBookingStatusEmailInput
       + "<p>" + escapeHtml(copy.deadline + " " + due + ".") + "</p>"
       + "<p>" + escapeHtml(copy.payee + ": " + MARIA_SWISH_NUMBER) + "</p>"
       + "<p>" + escapeHtml(copy.reference + ": " + reference) + "</p>"
+      + "<p>" + escapeHtml(qrAttachmentNote) + "</p>"
       + "<p>" + escapeHtml(copy.safety) + "</p>"
       + "<p>" + escapeHtml(copy.signoff + " " + input.companyName) + "</p></div>";
     return { subject, text, html, reference };
@@ -357,6 +363,7 @@ export async function sendMariaBookingStatusEmail(input: MariaBookingStatusEmail
   try {
     return await withMariaBookingNotificationLock(input.workspaceId ?? "", async (signal) => {
   let content: ReturnType<typeof buildMariaBookingStatusEmail>;
+  let swishQrAttachment: { name: string; content: string } | null = null;
   try {
     // Read the current booking status on every send. An old confirmation
     // must not request payment after a manager has cancelled the booking.
@@ -407,6 +414,16 @@ export async function sendMariaBookingStatusEmail(input: MariaBookingStatusEmail
       reference: typeof rows[0].booking_reference === "string"
         ? rows[0].booking_reference : undefined,
     }, base, process.env.VERCEL_ENV === "production");
+    // Manager approval allows a payment-only QR attachment for this request.
+    // It has amount/payee/reference, never a booking portal URL or access token.
+    if (input.status === "confirmed" && rows[0].temporary_unverified === true && !depositAlreadyPaid) {
+      const image = await QRCode.toBuffer(mariaSwishQrPayload(input.bookingId, content.reference), {
+        type: "png", width: 380, margin: 3, errorCorrectionLevel: "M",
+      });
+      swishQrAttachment = {
+        name: `Swish-${content.reference}.png`, content: image.toString("base64"),
+      };
+    }
   } catch {
     return { ok: false as const, error: "invalid_booking" as const };
   }
@@ -424,6 +441,7 @@ export async function sendMariaBookingStatusEmail(input: MariaBookingStatusEmail
       body: JSON.stringify({
         sender, to: [{ email: customerEmail, name: input.customerName }],
         subject: content.subject, textContent: content.text, htmlContent: content.html,
+        ...(swishQrAttachment ? { attachment: [swishQrAttachment] } : {}),
       }),
     });
     if (!response.ok) {

@@ -173,7 +173,14 @@ describe("Maria-only Swish confirmation and cancellation email", () => {
     expect(fetchMock).toHaveBeenCalledOnce();
     const payload = JSON.parse(fetchMock.mock.calls[0]![1].body as string) as {
       htmlContent: string; textContent: string;
+      attachment?: Array<{ name: string; content: string }>;
     };
+    expect(payload.attachment).toHaveLength(1);
+    expect(payload.attachment?.[0]?.name).toBe("Swish-MBM-2026111901.png");
+    const imageBytes = Buffer.from(payload.attachment![0]!.content, "base64");
+    expect(imageBytes.subarray(0, 8).toString("hex")).toBe("89504e470d0a1a0a");
+    expect(imageBytes.length).toBeGreaterThan(500);
+    expect(payload.textContent).toContain("Swish QR-kod finns som bifogad PNG-bild.");
     expect(payload.htmlContent).not.toContain("/maria/swish/");
     expect(payload.htmlContent).not.toContain("/swish-qr/");
     expect(payload.textContent).not.toContain("/maria/swish/");
@@ -257,7 +264,7 @@ describe("Maria-only Swish confirmation and cancellation email", () => {
   });
 
   it("reads the latest booking-scoped manual payment state before sending a confirmation", async () => {
-    dbQuery.mockResolvedValueOnce([{ deposit_state: "paid" }]);
+    dbQuery.mockResolvedValueOnce([{ deposit_state: "paid", temporary_unverified: true }]);
     const fetchMock = vi.fn().mockResolvedValue({ ok: true });
     vi.stubGlobal("fetch", fetchMock);
     expect(await sendMariaBookingStatusEmail(booking)).toEqual({ ok: true });
@@ -267,6 +274,7 @@ describe("Maria-only Swish confirmation and cancellation email", () => {
     expect(dbQuery).toHaveBeenCalledOnce();
     expect(sent.htmlContent).not.toContain("/api/makeup-by-maria/swish-qr/");
     expect(sent.textContent).toContain("handpenningen som mottagen");
+    expect(sent).not.toHaveProperty("attachment");
   });
 
   it("normalizes the configured display-name sender before emailing a deposit", async () => {
