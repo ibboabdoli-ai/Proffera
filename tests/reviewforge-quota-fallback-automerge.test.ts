@@ -266,3 +266,30 @@ describe.each(['reviewforge_approval_count', 'final_bot_approvals'] as const)(
     });
   },
 );
+// Exercise the exact jq filter from the real workflow rather than a simplified
+// approximation. Both canonical line-ending variants are accepted by protected
+// main; any extra text, wrong actor or wrong SHA must still fail closed.
+describe('real owner approval jq exact-content selector', () => {
+  it('accepts exactly LF or CRLF while rejecting spoofed and altered comments', () => {
+    const match = script.match(/done < <\(jq -r --arg owner "\$HUMAN_APPROVER" --arg marker "\$owner_approval_marker" --arg line "\$owner_approval_line" '([\s\S]*?)' <<< "\$comments_json"\)/);
+    expect(match).not.toBeNull();
+    const sha = 'd'.repeat(40);
+    const marker = '<!-- proffera-owner-approval:' + sha + ' -->';
+    const line = 'IBBO-APPROVED: ' + sha;
+    const body = (separator: string) => marker + separator + line;
+    const comments = [
+      { user: { login: 'ibboabdoli-ai' }, node_id: 'canonical-lf', body: body('\n') },
+      { user: { login: 'ibboabdoli-ai' }, node_id: 'canonical-crlf', body: body('\r\n') },
+      { user: { login: 'other-user' }, node_id: 'wrong-author', body: body('\r\n') },
+      { user: { login: 'ibboabdoli-ai' }, node_id: 'extra-newline', body: body('\r\n') + '\n' },
+      { user: { login: 'ibboabdoli-ai' }, node_id: 'extra-text', body: body('\n') + ' approved' },
+      { user: { login: 'ibboabdoli-ai' }, node_id: 'wrong-head', body: body('\n').replaceAll(sha, 'e'.repeat(40)) },
+    ];
+    const result = spawnSync('jq', [
+      '-r', '--arg', 'owner', 'ibboabdoli-ai', '--arg', 'marker', marker,
+      '--arg', 'line', line, match?.[1] ?? '',
+    ], { encoding: 'utf8', input: JSON.stringify(comments) });
+    expect(result.status).toBe(0);
+    expect(result.stdout.trim().split('\n')).toEqual(['canonical-lf', 'canonical-crlf']);
+  });
+});
