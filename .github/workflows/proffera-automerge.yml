@@ -274,7 +274,7 @@ jobs:
             done < <(jq -r --arg owner "$HUMAN_APPROVER" --arg marker "$owner_approval_marker" --arg line "$owner_approval_line" '
               .[]
               | select(.user.login == $owner)
-              | select((.body // "") == ($marker + "\n" + $line))
+              | select((.body // "") == ($marker + "\n" + $line) or (.body // "") == ($marker + "\r\n" + $line))
               | .node_id // empty
             ' <<< "$comments_json")
 
