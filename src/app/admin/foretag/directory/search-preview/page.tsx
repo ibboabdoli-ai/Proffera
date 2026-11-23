@@ -146,7 +146,7 @@ export default async function DirectorySearchPreviewPage({ searchParams }: PageP
                 En position räknas som klar först när en entydig SCB-arbetsplatsadress har verifierats exakt mot Lantmäteriet. Registrerad adress eller postadress används inte som ersättning.
               </p>
               <p className="mt-2 max-w-2xl text-xs font-semibold leading-5 text-[#6b766e]">
-                Körningen är manuell och behandlar högst 3 företag per klick. Ingen cron, backfill eller automatisk körning aktiveras här.
+                Körningen är manuell och behandlar högst 100 företag per klick inom en begränsad tidsbudget. Ingen cron, backfill eller automatisk körning aktiveras här.
               </p>
             </div>
             <span className="w-fit rounded-full bg-[#edf4ef] px-3 py-1 text-xs font-black text-[#17452f]">
@@ -223,7 +223,7 @@ export default async function DirectorySearchPreviewPage({ searchParams }: PageP
                     disabled={!geocodingStatus.configured || !geocodingStatus.postgisReady}
                     className="min-h-11 rounded-xl bg-[#173e2b] px-4 text-sm font-black text-white disabled:cursor-not-allowed disabled:bg-[#d9dedb] disabled:text-[#7b847e]"
                   >
-                    Verifiera nästa 3
+                    Verifiera upp till 100
                   </button>
                 </form>
               ) : null}

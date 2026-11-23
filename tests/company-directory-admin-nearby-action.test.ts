@@ -22,7 +22,7 @@ vi.mock("@/lib/admin-authorization", () => ({
   requireSuperAdmin: mocks.requireSuperAdmin,
 }));
 vi.mock("@/lib/company-directory-geocoding", () => ({
-  DIRECTORY_PROVIDER_GEOCODING_MAX_BATCH: 3,
+  DIRECTORY_PROVIDER_GEOCODING_MAX_BATCH: 100,
   geocodeDirectoryProviderPointsFromAdmin: mocks.geocodeDirectoryProviderPointsFromAdmin,
 }));
 
@@ -61,7 +61,7 @@ describe("admin directory Nearby server action", () => {
     await expect(geocodeDirectoryProviderPointsAction()).rejects.toThrow("NEXT_REDIRECT");
 
     expect(mocks.geocodeDirectoryProviderPointsFromAdmin).toHaveBeenCalledTimes(1);
-    expect(mocks.geocodeDirectoryProviderPointsFromAdmin).toHaveBeenCalledWith(3);
+    expect(mocks.geocodeDirectoryProviderPointsFromAdmin).toHaveBeenCalledWith(100);
     expect(mocks.revalidatePath).toHaveBeenCalledWith(
       "/admin/foretag/directory/search-preview",
     );
