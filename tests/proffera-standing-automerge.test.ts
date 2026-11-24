@@ -128,8 +128,13 @@ function finalCodeRabbitGuardShellBlock() {
   expect(start).toBeGreaterThanOrEqual(0);
   expect(end).toBeGreaterThan(start);
 
-  return workflow
-    .slice(start, end)
+  const helperStart = workflow.indexOf("          latest_coderabbit_block() {");
+  const helperClose = "\n          }\n";
+  const helperEnd = workflow.indexOf(helperClose, helperStart);
+  expect(helperStart).toBeGreaterThanOrEqual(0);
+  expect(helperEnd).toBeGreaterThan(helperStart);
+
+  return (workflow.slice(helperStart, helperEnd + helperClose.length) + workflow.slice(start, end))
     .split("\n")
     .map((line) => line.startsWith("          ") ? line.slice(10) : line)
     .join("\n");
@@ -140,6 +145,7 @@ type FinalCodeRabbitFixture = {
   comments?: Array<Record<string, unknown>>;
   acceptedClean?: Array<Record<string, unknown>>;
   terminalCount?: number;
+  timeline?: Array<Record<string, unknown>>;
 };
 
 function runFinalCodeRabbitFixture(fixture: FinalCodeRabbitFixture) {
@@ -156,6 +162,10 @@ if [[ "$args" == *"/pulls/695/reviews?per_page=100"* ]]; then
   exit 0
 fi
 if [[ "$args" == *"/pulls/695/comments?per_page=100"* ]]; then
+  exit 0
+fi
+if [[ "$args" == *"/issues/695/timeline?per_page=100"* ]]; then
+  printf '%s\\n' "$FAKE_TIMELINE"
   exit 0
 fi
 if [[ "$args" == *"/issues/695/comments?per_page=100"* ]]; then
@@ -191,6 +201,7 @@ printf 'FINAL_REVIEW_OK\\n'
       FAKE_REVIEWS: fixture.reviews.map((item) => JSON.stringify(item)).join("\n"),
       FAKE_COMMENTS: (fixture.comments ?? [{id:20,user:{login:"github-actions[bot]"},body:`<!-- proffera-coderabbit-final-review-request:${headSha} -->\n@coderabbitai review`,created_at:"2026-08-31T21:59:00Z",updated_at:"2026-08-31T21:59:00Z"}]).map((item) => JSON.stringify(item)).join("\n"),
       FAKE_ACCEPTED_CLEAN: JSON.stringify(fixture.acceptedClean ?? []),
+      FAKE_TIMELINE: (fixture.timeline ?? []).map((item) => JSON.stringify(item)).join("\n"),
     },
   });
   rmSync(dir, { recursive: true, force: true });
@@ -1179,6 +1190,13 @@ describe("Proffera standing automerge authorization", () => {
       ],
     });
     expect(cleared.output).toContain("FINAL_REVIEW_OK");
+    const dismissed = {...changes, id: 99, state: "DISMISSED"};
+    const approval = {...changes, id: 100, state: "APPROVED"};
+    const timeline = [{event: "review_dismissed", dismissed_review: {review_id: "99"}, created_at: "2026-08-31T22:00:00Z"}];
+    for (const [submitted_at, passes] of [["2026-08-31T21:59:00Z", false], ["2026-08-31T22:01:00Z", true]] as const) {
+      const result = runFinalCodeRabbitFixture({timeline, reviews: [dismissed, {...approval, submitted_at}]});
+      expect(result.output.includes("FINAL_REVIEW_OK"), result.output).toBe(passes);
+    }
     const staleApproval = runFinalCodeRabbitFixture({ reviews: [{
       user: { login: "coderabbitai[bot]" }, commit_id: headSha,
       state: "APPROVED", submitted_at: "2026-08-31T21:58:00Z",
