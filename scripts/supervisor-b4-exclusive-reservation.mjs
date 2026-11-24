@@ -12,7 +12,7 @@ const positive=n=>Number.isSafeInteger(n)&&n>0;
 const sha=v=>typeof v==="string"&&/^[a-f0-9]{40}$/.test(v);
 function check(value,why){if(!value)throw new Error("b4_exclusive:"+why);}
 function api(endpoint,opts=[]){
- const result=spawnSync("gh",["api",...opts,endpoint],{encoding:"utf8",maxBuffer:16*1024*1024});
+ const result=spawnSync("gh",["api",...opts,endpoint],{encoding:"utf8",timeout:15000,maxBuffer:16*1024*1024});
  check(!result.error&&result.status===0&&typeof result.stdout==="string","api_unavailable");
  try{return JSON.parse(result.stdout);}catch{throw new Error("b4_exclusive:api_json");}
 }
@@ -62,13 +62,17 @@ async function main(){
  const run_id=Number(process.env.GITHUB_RUN_ID),run_attempt=Number(process.env.GITHUB_RUN_ATTEMPT);
  const head=process.env.EXPECTED_HEAD;
  check(positive(pr_number)&&positive(run_id)&&positive(run_attempt)&&sha(head),"env");
- const pr=api("repos/"+REPO+"/pulls/"+pr_number);
- check(pr?.state==="open"&&pr?.merged===false&&pr?.head?.sha===head
+ const assertLive=()=>{
+  const pr=api("repos/"+REPO+"/pulls/"+pr_number);
+  check(pr?.state==="open"&&pr?.merged===false&&pr?.head?.sha===head
    &&pr.head.ref===process.env.EXPECTED_REF
    &&pr.head.repo?.full_name===REPO&&pr.base?.ref==="main"
    &&pr.user?.login==="ibboabdoli-ai","live_pr");
+ };
+ assertLive();
  const result=exclusiveReservationDecision({repository:REPO,pr_number,comments:comments(),
    lane:process.env.LANE,run_id,run_attempt,head,phase});
+ assertLive();
  process.stdout.write(JSON.stringify(result)+"\n");
  if(phase==="model"&&!result.allow)process.exitCode=1;
 }

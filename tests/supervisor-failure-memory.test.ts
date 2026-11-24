@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 // @ts-expect-error Standalone pure Node .mjs follows the existing control-plane test convention.
-import { createMemory, memoryIdentity, memoryMarker, mergeObservation, mergeObservations, serializeMemory, readTrustedMemories, readTrustedMemory, fingerprintEvidence, fingerprintStrategy, normalizeEvidence, FAILURE_CATEGORIES, LIMITS, upgradeMemory, prepareRetryIntent, releasePreparedRetryIntent, transitionRetryIntent, decideRetryRecovery, RETRY_INTEGRATION } from "../scripts/supervisor-failure-memory.mjs";
+import { bindWorkerSuccessPr, createMemory, memoryIdentity, memoryMarker, mergeObservation, mergeObservations, serializeMemory, readTrustedMemories, readTrustedMemory, fingerprintEvidence, fingerprintStrategy, normalizeEvidence, FAILURE_CATEGORIES, LIMITS, upgradeMemory, prepareRetryIntent, releasePreparedRetryIntent, transitionRetryIntent, decideRetryRecovery, RETRY_INTEGRATION } from "../scripts/supervisor-failure-memory.mjs";
 
 const repo = "ibboabdoli-ai/Proffera";
 const head = "e280c5a21505b082fec2c519a3f2e675de97770c";
@@ -32,6 +32,23 @@ const fill = (n: number, distinct = false) => Array.from({length: n}, (_, i) => 
   distinct ? {action_id: "action_" + i} : {}));
 
 describe("Failure Memory v1 identity and evidence", () => {
+  it("rekeys a historical Worker success without changing its observations", () => {
+    const taskScope = {kind: "task", task_id: "SUP-TEST-1"};
+    const initial = {comment_id: 123, memory: createMemory(repo, taskScope)};
+    const prior = mergeObservations(initial, memoryIdentity(initial), [1, 2].map(attempt =>
+      observation(attempt, {task_id: taskScope.task_id, pr_number: null,
+        outcome: "succeeded", outcome_basis: "strategy_result"})));
+    const original = prior.memory.records[0];
+    const next = bindWorkerSuccessPr(prior, memoryIdentity(prior), original.id, 941);
+    const bound = next.memory.records[0];
+    expect(bound.id).not.toBe(original.id);
+    expect(bound).toMatchObject({pr_number: 941, outcome: "succeeded",
+      first_seen: original.first_seen, last_seen: original.last_seen, observation_count: 2});
+    expect(bound.observations.map(({id, ...value}: {id: string}) => value))
+      .toEqual(original.observations.map(({id, ...value}: {id: string}) => value));
+    expect(readTrustedMemory([bot(serializeMemory(next.memory))],
+      {repository: repo, scope: taskScope, complete: true})).toEqual(next);
+  });
   it("creates and round-trips valid empty memory", () => {
     const current = empty();
     expect(current.memory.records).toEqual([]);

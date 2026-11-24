@@ -140,6 +140,9 @@ const workerFailureMemorySnapshots = async () => ({
       observations:[{head:v.packet.base_sha,source:{kind:"actions",run_id:v.run_id,attempt:v.run_attempt}}],
     }]}}),
     serializeMemory:mem => JSON.stringify(mem),
+    bindWorkerSuccessPr:(current, expected, id, pr) => ({...current,memory:{
+      records:current.memory.records.map(record => ({...record,pr_number:pr})),
+    }}),
     readTrustedMemory:() => ({comment_id:8,memory:{records}}),
   },
   current:{comment_id:8,memory:{records}},

@@ -245,7 +245,7 @@ describe("authenticated artifact, current-state and cancellation policy",()=>{
    onBranch:true,onMain:false,deployments:[],knownCommit:true};
   expect(resolveDecision(base)).toBe("push_confirmed");
   expect(resolveDecision({...base,branch:"d".repeat(40)})).toBe("push_confirmed");
-  expect(resolveDecision({...base,onMain:true})).toBe("push_confirmed");
+  expect(resolveDecision({...base,onBranch:false,onMain:true})).toBe("push_confirmed");
   expect(()=>resolveDecision({...base,onBranch:false,onMain:false})).toThrow("push_proof");
  });
  it("allows exact owner resolution of expired archives only after retention with trusted metadata",()=>{
@@ -451,7 +451,7 @@ describe("admitted-attempt ownership and workflow record boundaries",()=>{
 describe("executed owner-push pending recorder after exact owner publication",()=>{
  it.each(["parent","rerun-admitted","missing-admitted","wrong-admitted","changed-base","unauthorized-pr-identity","already-published","published-during-auth","unrelated-head","rewound-after-auth","rewound-after-fetched-tip","stage-write-error",
   "pending-write-error","pending-write-timeout-after-post","stage-write-timeout-after-post",
-  "staged-conflicting-identity"] as const)(
+  "staged-conflicting-identity","cancelled-after-upload","cancelled-upload-incomplete"] as const)(
   "records authenticated handoff without relaxing owner gate: %s",async scenario=>{
    const actual=await vi.importActual<typeof import("node:child_process")>("node:child_process");
    const p=fixture().value;
@@ -469,9 +469,9 @@ describe("executed owner-push pending recorder after exact owner publication",()
      steps:[{name:"Run one batched exact-head repair",status:"completed",conclusion:"success"}]},
     {id:303,name:"Validate repair without model or push credentials",status:"completed",conclusion:"success",steps:[]},
     {id:301,name:"Stage Review Repair owner-push handoff (no publication)",
-     status:"completed",conclusion:"success",steps:[
+     status:"completed",conclusion:scenario.startsWith("cancelled-")?"cancelled":"success",steps:[
       {name:"Revalidate and commit bounded repair for owner handoff",status:"completed",conclusion:"success"},
-      {name:"Upload Review Repair owner handoff",status:"completed",conclusion:"success"},
+      {name:"Upload Review Repair owner handoff",status:"completed",conclusion:scenario==="cancelled-upload-incomplete"?"cancelled":"success"},
      ]},
    ];
    const run={id:81,run_attempt:1,path:".github/workflows/supervisor-review-repair.yml",
@@ -577,11 +577,15 @@ describe("executed owner-push pending recorder after exact owner publication",()
    }) as typeof spawnSync);
    const env={LANE:"review_repair",PR_NUMBER:String(pr),HEAD_REF:p.branch,
     BASE_SHA:p.base_sha,PARENT_SHA:p.parent_sha,NEW_HEAD:p.head_sha,NEW_TREE:p.tree_sha,
-    FINDINGS_SHA:p.finding_digest,ARTIFACT_ID:"401",GITHUB_RUN_ID:"81",
+    FINDINGS_SHA:p.finding_digest,ARTIFACT_ID:scenario.startsWith("cancelled-")?"":"401",GITHUB_RUN_ID:"81",
+    ...(scenario.startsWith("cancelled-")?{PUBLISH_RESULT:"cancelled",BASE_SHA:"",NEW_HEAD:"",NEW_TREE:""}:{}),
     GITHUB_RUN_ATTEMPT:scenario==="rerun-admitted"?"2":"1",
     ADMITTED_RUN_ATTEMPT:scenario==="missing-admitted"?undefined:scenario==="wrong-admitted"?"2":"1"};
    try{
-    if(["unrelated-head","rewound-after-auth","rewound-after-fetched-tip","missing-admitted",
+    if(scenario==="cancelled-upload-incomplete"){
+     expect(()=>record(env)).toThrow("step_Upload Review Repair owner handoff");
+     expect(posts).toBe(0);
+    }else if(["unrelated-head","rewound-after-auth","rewound-after-fetched-tip","missing-admitted",
         "wrong-admitted","changed-base","unauthorized-pr-identity"].includes(scenario)){
      expect(()=>record(env)).toThrow(
       scenario==="unrelated-head"||scenario==="changed-base"?"stale_parent":
@@ -603,7 +607,9 @@ describe("executed owner-push pending recorder after exact owner publication",()
       const frozen=readOwnerHandoffLedger(comments,pr).staged;
       expect(frozen).toHaveLength(1);
       expect(readOwnerHandoffLedger(comments,pr).pending).toHaveLength(0);
-      expect(record(env)).toEqual({pending:true});
+      vi.setSystemTime(new Date(Date.parse(frozen[0].observed_at)+2000));
+      try{expect(record(env)).toEqual({pending:true});}
+      finally{vi.useRealTimers();}
       const replay=readOwnerHandoffLedger(comments,pr);
       expect(replay.pending[0].observed_at).toBe(frozen[0].observed_at);
       expect(replay.pending[0].observed_at).not.toBeUndefined();

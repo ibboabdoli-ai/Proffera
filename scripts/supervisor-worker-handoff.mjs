@@ -1013,6 +1013,62 @@ function replacementLineCount(content) {
   return content.split("\n").length - (content.endsWith("\n") ? 1 : 0);
 }
 
+function replacementBytes(entry) {
+  if (!Object.hasOwn(entry, "content_base64")) return Buffer.from(replacementContent(entry), "utf8");
+  if (entry.deleted === true || Object.hasOwn(entry, "content") || Object.hasOwn(entry, "chunks")
+    || typeof entry.content_base64 !== "string") {
+    publicationFailure("replacement_incomplete", "binary replacement must provide only canonical base64 content");
+  }
+  const bytes = Buffer.from(entry.content_base64, "base64");
+  if (bytes.toString("base64") !== entry.content_base64) {
+    publicationFailure("replacement_incomplete", "binary replacement is not canonical base64");
+  }
+  return bytes;
+}
+
+function validateBinaryPublication(artifact, paths, sourceHead, expectedTree) {
+  if (!expectedTree) publicationFailure("target_tree_mismatch", "a binary publication requires a finalized tree");
+  const root = mkdtempSync(join(tmpdir(), "proffera-publication-binary-"));
+  const env = {...process.env, GIT_INDEX_FILE: join(root, "index")};
+  try {
+    gitOutput(["read-tree", sourceHead], {env});
+    gitOutput(["apply", "--cached", "--binary", "--whitespace=nowarn", "-"], {env, input: artifact.unified_diff});
+    const diff = gitOutput(["diff", "--cached", "--no-renames", "--no-abbrev", "--ignore-submodules=none",
+      "--raw", "-z", sourceHead], {env}).split("\0");
+    if (diff.pop() !== "" || diff.length !== paths.length * 2) {
+      publicationFailure("path_set_mismatch", "binary patch path inventory is incomplete");
+    }
+    const entries = new Map();
+    for (let i = 0; i < diff.length; i += 2) {
+      const match = diff[i].match(/^:(000000|100644) (000000|100644) ([a-f0-9]{40}) ([a-f0-9]{40}) [AMD]$/);
+      if (!match) publicationFailure("unsupported_mode", "binary patch changes an unsupported file mode");
+      entries.set(diff[i + 1], {deleted: match[2] === "000000", blob: match[4]});
+    }
+    if (!samePathSet([...entries.keys()], paths) || gitOutput(["write-tree"], {env}).trim() !== expectedTree) {
+      publicationFailure("target_tree_mismatch", "binary patch does not reconstruct the finalized scope and tree");
+    }
+    const manifests = new Map(artifact.manifest.map((entry) => [entry.path, entry]));
+    let total = 0;
+    for (const replacement of artifact.replacements) {
+      const entry = entries.get(replacement.path);
+      const manifest = manifests.get(replacement.path);
+      const bytes = replacementBytes(replacement);
+      total += bytes.length;
+      const digest = createHash("sha256").update(bytes).digest("hex");
+      const blob = entry.deleted ? "0".repeat(40)
+        : createHash("sha1").update(`blob ${bytes.length}\0`).update(bytes).digest("hex");
+      const lines = Object.hasOwn(replacement, "content_base64") ? null : replacementLineCount(bytes.toString("utf8"));
+      if (total > MAX_PUBLICATION_BYTES || entry.deleted !== (replacement.deleted === true)
+        || entry.deleted !== (manifest.deleted === true) || bytes.length !== manifest.bytes
+        || lines !== manifest.lines || digest !== manifest.sha256 || blob !== entry.blob || blob !== manifest.git_blob_sha) {
+        publicationFailure("digest_mismatch", "binary patch and replacement manifest do not agree");
+      }
+    }
+  } finally {
+    rmSync(root, {recursive: true, force: true});
+  }
+}
+
 function reconstructPublicationTargetTree(sourceHead, replacements) {
   const root = mkdtempSync(join(tmpdir(), "proffera-publication-tree-"));
   const index = join(root, "index");
@@ -1080,13 +1136,20 @@ export function validatePublicationArtifact(input) {
     const paths = normalizePublicationPaths(artifact.paths, "artifact.paths");
     const scope = validateChangedFiles(packet, paths);
     if (!scope.ok) publicationFailure(scope.code, scope.reason);
-    const diffEntries = parseUnifiedDiffPaths(artifact.unified_diff);
-    if (!samePathSet(paths, diffEntries.map((entry) => entry.path))) publicationFailure("path_set_mismatch", "unified diff path set does not exactly match artifact.paths");
     if (!Array.isArray(artifact.replacements) || !Array.isArray(artifact.manifest)) publicationFailure("artifact_malformed", "artifact replacements and manifest must be arrays");
     const replacementPaths = artifact.replacements.map((entry) => String(entry?.path ?? ""));
     const manifestPaths = artifact.manifest.map((entry) => String(entry?.path ?? ""));
     if (!samePathSet(paths, replacementPaths) || !samePathSet(paths, manifestPaths) || new Set(replacementPaths).size !== replacementPaths.length || new Set(manifestPaths).size !== manifestPaths.length) publicationFailure("path_set_mismatch", "replacement and manifest path sets must exactly match artifact.paths without duplicates");
 
+    if (/^GIT binary patch$/m.test(artifact.unified_diff)) {
+      validateBinaryPublication(artifact, paths, sourceHead, expectedTargetTreeSha);
+      return {ok: true, status: "VALID", code: "publication_artifact_valid",
+        reason: "binary patch, replacement digests and finalized tree verified",
+        source_head: sourceHead, target_head: targetHead, target_tree_sha: expectedTargetTreeSha,
+        run_id: artifactRunId, paths};
+    }
+    const diffEntries = parseUnifiedDiffPaths(artifact.unified_diff);
+    if (!samePathSet(paths, diffEntries.map((entry) => entry.path))) publicationFailure("path_set_mismatch", "unified diff path set does not exactly match artifact.paths");
     const manifests = new Map(artifact.manifest.map((entry) => [entry.path, entry]));
     const diffs = new Map(diffEntries.map((entry) => [entry.path, entry]));
     let aggregateBytes = 0;
@@ -1142,17 +1205,22 @@ export function buildPublicationArtifact({ packet: packetInput, source_head, tar
   if (!/^[1-9][0-9]*$/.test(runId)) throw new Error("publication run_id must be a positive workflow run ID");
   const targetTreeSha = gitOutput(["rev-parse", `${targetHead}^{tree}`]).trim().toLowerCase();
   if (!SHA_RE.test(targetTreeSha)) throw new Error("publication target tree is malformed");
-  const unifiedDiff = gitOutput(["diff", "--full-index", "--no-renames", "--no-ext-diff", `${sourceHead}..${targetHead}`]);
+  const unifiedDiff = gitOutput(["diff", "--binary", "--full-index", "--no-renames", "--no-ext-diff", `${sourceHead}..${targetHead}`]);
   const paths = gitOutput(["diff", "--name-only", "--no-renames", `${sourceHead}..${targetHead}`]).trim().split("\n").filter(Boolean);
   const bounded = validateChangedFiles(packet, paths);
   if (!bounded.ok) throw new Error(bounded.reason);
-  const replacements = paths.map((path) => gitObjectExists(`${targetHead}:${path}`)
-    ? { path, content: gitOutput(["show", `${targetHead}:${path}`]) }
-    : { path, deleted: true });
+  const replacements = paths.map((path) => {
+    if (!gitObjectExists(`${targetHead}:${path}`)) return {path, deleted: true};
+    const bytes = gitOutput(["show", `${targetHead}:${path}`], {encoding: null});
+    const content = bytes.toString("utf8");
+    return bytes.includes(0) || !Buffer.from(content, "utf8").equals(bytes)
+      ? {path, content_base64: bytes.toString("base64")}
+      : {path, content};
+  });
   const manifest = replacements.map((replacement) => {
-    const content = replacement.deleted ? "" : replacement.content;
-    const bytes = Buffer.from(content);
-    return { path: replacement.path, ...(replacement.deleted ? { deleted: true } : {}), bytes: bytes.length, lines: replacementLineCount(content), sha256: createHash("sha256").update(bytes).digest("hex"), git_blob_sha: replacement.deleted ? "0".repeat(40) : createHash("sha1").update(`blob ${bytes.length}\0`).update(bytes).digest("hex") };
+    const bytes = replacementBytes(replacement);
+    const lines = Object.hasOwn(replacement, "content_base64") ? null : replacementLineCount(bytes.toString("utf8"));
+    return { path: replacement.path, ...(replacement.deleted ? { deleted: true } : {}), bytes: bytes.length, lines, sha256: createHash("sha256").update(bytes).digest("hex"), git_blob_sha: replacement.deleted ? "0".repeat(40) : createHash("sha1").update(`blob ${bytes.length}\0`).update(bytes).digest("hex") };
   });
   const artifact = {
     task_id: packet.task_id,
@@ -2092,7 +2160,9 @@ function reservationRecords(comments) {
     const scopes = normalizeScopeArray(payload.allowed_paths, "reservation.allowed_paths");
     if (JSON.stringify(scopes) !== JSON.stringify(payload.allowed_paths)) throw new Error("reservation scope is not canonical");
     reservationFileList(payload.changed_files, "reservation.changed_files");
-    if (payload.planner_packet_evidence != null) plannerPacketFromReservationEvidence(payload);
+    if (payload.state !== "RELEASED" && payload.planner_packet_evidence != null) {
+      plannerPacketFromReservationEvidence(payload);
+    }
     if ((payload.state === "RESERVED" && (payload.pr_number != null || payload.recovery != null))
       || (payload.state === "PUBLISHED" && (payload.pr_number == null || payload.recovery != null))
       || (payload.state === "RECOVERABLE" && (!["branch", "artifact"].includes(payload.recovery?.kind)
@@ -3288,8 +3358,7 @@ export async function recordWorkerStrategyOutcome(input) {
         if (!Number.isSafeInteger(current.comment_id) || current.comment_id <= 0) {
           throw new Error("Worker strategy historical success has no durable memory comment");
         }
-        const bound = structuredClone(current);
-        bound.memory.records[current.memory.records.indexOf(prior)].pr_number = prNumber;
+        const bound = failure.bindWorkerSuccessPr(current, expected, prior.id, prNumber);
         assertReservationMutex(input);
         patchControlRecord(input, bound.comment_id, failure.serializeMemory(bound.memory));
         const confirmed = failure.readTrustedMemory(githubAllIssueComments(input.repository), {

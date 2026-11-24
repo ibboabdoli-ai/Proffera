@@ -6,7 +6,8 @@ function assertPlainString(value, field, maxLength) {
   if (typeof value !== "string") throw new Error(`${field} must be a string`);
   const trimmed = value.trim();
   if (!trimmed) throw new Error(`${field} is required`);
-  if (trimmed.length > maxLength) throw new Error(`${field} is too long`);
+  if (value !== trimmed) throw new Error(`${field} has leading or trailing whitespace`);
+  if (value.length > maxLength) throw new Error(`${field} is too long`);
   if (/[\u0000-\u001F\u007F]/u.test(trimmed)) throw new Error(`${field} contains control characters`);
   return trimmed;
 }

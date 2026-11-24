@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
-import { readFileSync, realpathSync } from "node:fs";
-import { resolve } from "node:path";
+import { lstatSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
 import process from "node:process";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
@@ -127,6 +128,7 @@ function collectDiffRecords(cwd, baseSha, headSha) {
     "--no-renames",
     "--no-ext-diff",
     "--no-textconv",
+    "--ignore-submodules=none",
     "-z",
     `${baseSha}...${headSha}`,
   ], { binary: true }).stdout);
@@ -624,6 +626,14 @@ export function executeLocalValidation(candidate, cwd, ids, {runner = spawnSync,
   const results = [];
   for (const id of ids) {
     const spec = commandForCheck(id, cwd, candidate);
+    if (runner === spawnSync && (id === "targeted" || id === "workflow-semantics")) {
+      const suites = spec.args.slice(4);
+      for (const suite of suites) {
+        if (!lstatSync(resolve(cwd, suite), {throwIfNoEntry: false})?.isFile()) {
+          fail("validation", "required test suite is absent: " + suite);
+        }
+      }
+    }
     // Type generation is part of the single authoritative typecheck ID.
     // Keep the v1 validation envelope stable while preserving each process result.
     const steps = id === "typecheck" ? [
@@ -683,6 +693,40 @@ export function executeLocalValidation(candidate, cwd, ids, {runner = spawnSync,
     independent_review_verified: false,
     publication_ready: false,
   };
+}
+
+function validatePrivateCheckout(candidate, cwd, ids, revalidate) {
+  const workspace = mkdtempSync(join(realpathSync(tmpdir()), "proffera-candidate-validation-"));
+  const checkout = join(workspace, "candidate");
+  try {
+    runGit(workspace, ["clone", "--quiet", "--no-checkout", "--no-local", "--", cwd, checkout]);
+    runGit(checkout, ["-c", `core.hooksPath=${workspace}`, "checkout", "--quiet", "--detach", candidate.head_sha]);
+    const assertPrivateTree = () => {
+      if (gitText(checkout, ["rev-parse", "HEAD"]) !== candidate.head_sha
+        || gitText(checkout, ["rev-parse", "HEAD^{tree}"]) !== candidate.tree_sha
+        || gitText(checkout, ["status", "--porcelain=v1", "--untracked-files=no"])) {
+        fail("stale_evidence", "private validation checkout changed");
+      }
+    };
+    assertPrivateTree();
+    for (const relative of ["node_modules", "e2e/node_modules"]) {
+      const source = resolve(cwd, relative);
+      const destination = resolve(checkout, relative);
+      if (!lstatSync(destination, {throwIfNoEntry: false}) && lstatSync(source, {throwIfNoEntry: false})) {
+        symlinkSync(source, destination, "junction");
+      }
+    }
+    // An exact-candidate browser run needs a build in this same checkout.
+    const ordered = ids.includes("e2e")
+      ? [...ids.filter((id) => id !== "build" && id !== "e2e"), "build", "e2e"]
+      : ids;
+    return executeLocalValidation(candidate, checkout, ordered, {revalidate: () => {
+      assertPrivateTree();
+      return revalidate();
+    }});
+  } finally {
+    rmSync(workspace, {recursive: true, force: true});
+  }
 }
 
 // Read-only authenticated GitHub diagnostic. Hosted reviews do not authenticate
@@ -939,12 +983,10 @@ function main() {
       fail("args", "run-checks requires --checks <comma-separated selected IDs>");
     }
     const ids = args.checks.split(",").map((id) => id.trim());
-    const receipt = executeLocalValidation(candidate, cwd, ids, {
-      revalidate: () => inspectCandidate({
-        cwd, repository: args.repository ?? DEFAULT_REPOSITORY,
-        baseSha: args.base, prBody: readFileSync(resolve(args.pr_body), "utf8"),
-      }),
-    });
+    const receipt = validatePrivateCheckout(candidate, cwd, ids, () => inspectCandidate({
+      cwd, repository: args.repository ?? DEFAULT_REPOSITORY,
+      baseSha: args.base, prBody: readFileSync(resolve(args.pr_body), "utf8"),
+    }));
     process.stdout.write(JSON.stringify(receipt, null, 2) + "\n");
     if (!receipt.ok) process.exitCode = 1;
     return;

@@ -58,9 +58,11 @@ type CiReviewFixture = {
   firstReviews?: Array<Record<string, unknown>>;
   laterReviews?: Array<Record<string, unknown>>;
   comments?: Array<Record<string, unknown>>;
+  finalComments?: Array<Record<string, unknown>>;
   reactions?: Array<Record<string, unknown>>;
   inlineComments?: Array<Record<string, unknown>>;
   laterInlineComments?: Array<Record<string, unknown>>;
+  firstInlineReads?: number;
   headSha?: string;
   headAfterLoopCheck?: string;
   failOnPost?: boolean;
@@ -98,6 +100,11 @@ if [[ "$args" == *"/pulls/801/reviews?per_page=100"* ]]; then
   exit 0
 fi
 if [[ "$args" == *"/issues/801/comments?per_page=100"* ]]; then
+  if [ "$FAKE_REPLACE_FINAL_COMMENTS" = "true" ] && [ -f "$FAKE_INLINE_STATE" ] \
+    && [ "$(cat "$FAKE_INLINE_STATE")" -ge 3 ]; then
+    printf '%s\\n' "$FAKE_FINAL_COMMENTS"
+    exit 0
+  fi
   printf '%s\\n' "$FAKE_COMMENTS"
   exit 0
 fi
@@ -108,7 +115,7 @@ fi
 if [[ "$args" == *"/pulls/801/comments?per_page=100"* ]]; then
   count=0
   [ -f "$FAKE_INLINE_STATE" ] && count="$(cat "$FAKE_INLINE_STATE")"
-  if [ "$count" -lt 2 ]; then
+  if [ "$count" -lt "$FAKE_FIRST_INLINE_READS" ]; then
     printf '%s\\n' "$FAKE_INLINE_COMMENTS"
   else
     printf '%s\\n' "$FAKE_LATER_INLINE_COMMENTS"
@@ -165,10 +172,13 @@ ${ciReviewGateShellBlock()}
       FAKE_FIRST_REVIEWS: toNdjson(fixture.firstReviews),
       FAKE_LATER_REVIEWS: toNdjson(fixture.laterReviews ?? fixture.firstReviews),
       FAKE_COMMENTS: toNdjson(fixture.comments),
+      FAKE_REPLACE_FINAL_COMMENTS: String(fixture.finalComments !== undefined),
+      FAKE_FINAL_COMMENTS: toNdjson(fixture.finalComments),
       FAKE_REACTIONS: toNdjson(fixture.reactions),
       FAKE_INLINE_COMMENTS: toNdjson(fixture.inlineComments),
       FAKE_LATER_INLINE_COMMENTS: toNdjson(fixture.laterInlineComments ?? fixture.inlineComments),
       FAKE_INLINE_STATE: inlineStateFile,
+      FAKE_FIRST_INLINE_READS: String(fixture.firstInlineReads ?? 2),
       FAKE_INITIAL_HEAD_SHA: fixture.headSha ?? reviewHead,
       FAKE_HEAD_SHA: reviewHead,
       FAKE_HEAD_AFTER_LOOP: fixture.headAfterLoopCheck ?? "",
@@ -947,7 +957,11 @@ describe("tooling safety contract", () => {
 
     const staleReceipt = runCiReviewFixture({
       changedFiles: largeSafeChange(),
-      comments: [...fallbackComments(), cleanCodexComment({ body: codexReceipt, created_at: "2026-08-31T10:01:30Z" })],
+      comments: [...fallbackComments(), cleanCodexComment({
+        body: codexReceipt,
+        created_at: "2026-08-31T10:01:30Z",
+        updated_at: "2026-08-31T10:01:30Z",
+      })],
       failOnPost: true,
     });
     expect(staleReceipt.status).toBe(1);
@@ -1010,6 +1024,23 @@ describe("tooling safety contract", () => {
     expect(codeRabbitChanges.status).toBe(1);
   }, 120000);
 
+  it("blocks a newly visible inline finding before accepting a clean CodeRabbit summary", () => {
+    const fixture = {
+      changedFiles: largeSafeChange(), firstInlineReads: 1,
+      comments: [...codeRabbitRequestComments(), cleanCodeRabbitFinalComment()],
+      firstReviews: [completedCodeRabbitReview()], failOnPost: true,
+    };
+    const control = runCiReviewFixture(fixture);
+    expect(control.status, control.stdout + control.stderr).toBe(0);
+    expect(control.stdout).toContain("completed a clean exact-head PR comment");
+    const blocked = runCiReviewFixture({...fixture, laterInlineComments: [{
+      user: {login: "coderabbitai[bot]"}, commit_id: reviewHead, created_at: "2026-08-31T10:03:20Z",
+    }]});
+    expect(blocked.status, blocked.stdout + blocked.stderr).toBe(1);
+    expect(blocked.stdout).toContain("inline findings");
+    expect(blocked.stdout).not.toContain("completed a clean exact-head PR comment");
+  });
+
   it("blocks delayed AI inline findings in the final Codex fallback guard", () => {
     for (const bot of ["chatgpt-codex-connector[bot]", "coderabbitai[bot]"]) {
       const result = runCiReviewFixture({
@@ -1028,6 +1059,17 @@ describe("tooling safety contract", () => {
       expect(`${result.stdout}${result.stderr}`).toContain("blocking current-head AI inline findings appeared during final recheck");
     }
   }, 60000);
+
+  it("requires the qualifying Codex issue comment to survive the final read", () => {
+    const fixture = {changedFiles: largeSafeChange(), failOnPost: true,
+      comments: [...fallbackComments(), cleanCodexComment()]};
+    const accepted = runCiReviewFixture(fixture);
+    expect(accepted.status, accepted.stdout + accepted.stderr).toBe(0);
+    const lost = runCiReviewFixture({...fixture, finalComments: fallbackComments()});
+    expect(lost.status, lost.stdout + lost.stderr).toBe(1);
+    expect(lost.stdout).toContain("Codex request or comment evidence changed");
+    expect(lost.stdout).not.toContain("Codex fallback completed clean");
+  });
 
   it("re-checks CodeRabbit state after Codex fallback and fails closed on equal-timestamp review races", () => {
     const equalTimestamp = "2026-08-31T10:04:00Z";

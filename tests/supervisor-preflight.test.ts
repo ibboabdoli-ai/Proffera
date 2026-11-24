@@ -69,7 +69,7 @@ function inspectFixture(args: { cwd: string; baseSha: string; prBody: string }) 
 function cli(repo: string, args: string[], liveMain?: string) {
   const baseIndex = args.indexOf("--base");
   const base = baseIndex >= 0 ? args[baseIndex + 1] : "";
-  const shimPath = join(dirname(repo), "preflight-gh-shim.cjs");
+  const shimPath = join(dirname(repo), "preflight gh shim.cjs");
   writeFileSync(shimPath, [
     'const childProcess = require("node:child_process");',
     'const { syncBuiltinESMExports } = require("node:module");',
@@ -87,7 +87,7 @@ function cli(repo: string, args: string[], liveMain?: string) {
     '',
   ].join("\n"));
   const existingNodeOptions = process.env.NODE_OPTIONS?.trim();
-  const requireShim = `--require=${shimPath.replaceAll("\\", "/")}`;
+  const requireShim = `--require="${shimPath.replaceAll("\\", "/")}"`;
   return spawnSync(process.execPath, [preflight, ...args], {
     cwd: repo,
     encoding: "utf8",
@@ -222,6 +222,12 @@ describe("canonical Supervisor pre-publication gate", () => {
     write(join(dirty.repo, "docs", "note.md"), "candidate\n");
     git(dirty.repo, ["add", "."]);
     git(dirty.repo, ["commit", "-qm", "candidate"]);
+    write(join(dirty.repo, "docs", "note.md"), "staged edit\n");
+    git(dirty.repo, ["add", "docs/note.md"]);
+    expect(git(dirty.repo, ["diff", "--name-only"]).stdout).toBe("");
+    expect(() => inspectFixture({ cwd: dirty.repo, baseSha: dirty.base, prBody: body(dirty.base) }))
+      .toThrow(/supervisor_preflight:dirty/);
+    git(dirty.repo, ["restore", "--staged", "--worktree", "docs/note.md"]);
     write(join(dirty.repo, "untracked.txt"), "dirty\n");
     expect(() => inspectFixture({ cwd: dirty.repo, baseSha: dirty.base, prBody: body(dirty.base) }))
       .toThrow(/supervisor_preflight:dirty/);
@@ -322,6 +328,11 @@ describe("canonical Supervisor pre-publication gate", () => {
       ["A", "src/new.ts"],
       ["D", "src/old.ts"],
     ]);
+    git(repo, ["update-index", "--add", "--cacheinfo", `160000,${base},unverified-link`]);
+    git(repo, ["commit", "-qm", "unsupported gitlink"]);
+    git(repo, ["config", "diff.ignoreSubmodules", "all"]);
+    expect(() => inspectFixture({ cwd: repo, baseSha: base, prBody: body(base) }))
+      .toThrow(/supervisor_preflight:file_mode.*unverified-link/);
   });
 
   it("requires exact, unique machine-readable PR declarations", () => {

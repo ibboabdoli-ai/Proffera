@@ -677,10 +677,10 @@ describe("CI Autofix workflow accounting boundary", () => {
     const gate = admit.indexOf('pending_gate="$(node scripts/supervisor-owner-push-pending.mjs gate)"');
     expect(gate).toBeGreaterThanOrEqual(0);
     const refresh = admit.indexOf('gh api --paginate "repos/$REPOSITORY/issues/548/comments?per_page=100"',gate);
-    const backfill = admit.indexOf("apply_terminal_backfill",gate);
+    const recovery = admit.indexOf("indeterminate-proof");
     const admission = admit.indexOf('input_json="$(build_input)"',gate);
     expect(refresh).toBeGreaterThan(gate);
-    expect(refresh).toBeLessThan(backfill);
+    expect(recovery).toBeLessThan(gate);
     expect(refresh).toBeLessThan(admission);
     expect(admit.slice(refresh,admission)).toContain('jq -e \'type == "array"\' "$comments_file"');
   });
@@ -732,7 +732,7 @@ describe("CI Autofix workflow accounting boundary", () => {
     expect(model.with).not.toHaveProperty("model");
   });
 
-  it.each(["valid", "wrong-head", "wrong-parent", "wrong-tree", "remote-head-moved", "wrong-branch"])(
+  it.each(["valid", "wrong-head", "wrong-parent", "wrong-tree", "remote-head-moved", "wrong-branch", "remote-base-moved"])(
     "executes real CI Autofix owner staging and bundle guards (%s)", (scenario) => {
       const root = mkdtempSync(join(tmpdir(), "ci-autofix-owner-staging-"));
       const repo = join(root, "repo");
@@ -758,7 +758,7 @@ describe("CI Autofix workflow accounting boundary", () => {
         git("checkout", "--detach", "-q", parent); git("reset", "--hard", "-q", parent); git("read-tree", tree);
         const branch = "work/proffera-fixture";
         const prJson = JSON.stringify({head: {sha: scenario === "remote-head-moved" ? wrongParent : parent,
-          ref: branch, repo: {full_name: repository}}, base: {ref: "main", sha: parent}, user: {login: "ibboabdoli-ai"}});
+          ref: branch, repo: {full_name: repository}}, base: {ref: "main", sha: scenario === "remote-base-moved" ? wrongParent : parent}, user: {login: "ibboabdoli-ai"}});
         const gh = 'gh() { test "$*" = "api repos/' + repository + '/pulls/934" || return 1; printf "%s\\n" "$PR_JSON"; }\n';
         const result = spawnSync("bash", ["-c", gh + run("publish", "Stage CI Autofix commit for owner push")], {
           cwd: repo, encoding: "utf8", timeout: 15000,
@@ -766,6 +766,7 @@ describe("CI Autofix workflow accounting boundary", () => {
             NEW_HEAD: next, VALIDATED_TREE: scenario === "wrong-tree" ? baseTree : tree,
             HEAD_REF: scenario === "wrong-branch" ? "work/proffera-other" : branch,
             REPOSITORY: repository, PR_NUMBER: "934", PR_JSON: prJson,
+            BASE_SHA: parent,
             RUNNER_TEMP: artifacts, GITHUB_OUTPUT: join(root, "outputs"), GITHUB_STEP_SUMMARY: join(root, "summary"),
             GITHUB_RUN_ID: "50", GITHUB_RUN_ATTEMPT: "1", GIT_CONFIG_NOSYSTEM: "1", GIT_CONFIG_GLOBAL: "/dev/null"},
         });

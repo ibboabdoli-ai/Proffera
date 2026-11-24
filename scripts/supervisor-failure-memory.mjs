@@ -332,6 +332,26 @@ export function mergeObservations(currentValue, expected, values) {
 }
 export const mergeObservation = (current, expected, value) => mergeObservations(current, expected, [value]);
 
+export function bindWorkerSuccessPr(currentValue, expected, recordID, prNumber) {
+  const current = checkedCurrent(currentValue, expected, false);
+  const {memory} = current;
+  const prior = memory.records.find((record) => record.id === recordID);
+  if (memory.scope.kind !== "task" || prior?.outcome !== "succeeded" || prior.pr_number !== null) {
+    fail("worker_success_pr_binding");
+  }
+  const context = base({...prior, pr_number: integer(prNumber)}, memory.repository, memory.scope);
+  const id = recordId(context);
+  const observations = prior.observations.map((entry) => ({
+    ...entry,
+    id: observationId(id, entry.head, entry.source),
+  }));
+  const bound = makeRecord(context, observations);
+  return replacement(current, {
+    ...memory,
+    records: memory.records.map((record) => record.id === recordID ? bound : record),
+  });
+}
+
 /**
  * D0 is preparation/recovery only: returning a replacement NEVER authorizes a POST.
  * Future D1a must authenticate all descriptors/receipts against GitHub, and use one

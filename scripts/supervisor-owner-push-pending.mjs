@@ -7,7 +7,8 @@ import {pathToFileURL} from "node:url";
 import {readTrustedMemory} from "./supervisor-failure-memory.mjs";
 import {parseReviewRepairStarts,parseReviewRepairRecoveries,proveReviewRepairPrelaunchRecovery}
  from "./supervisor-review-repair-strategy-memory.mjs";
-import {parseCiAutofixStarts} from "./supervisor-ci-autofix-strategy-memory.mjs";
+import {parseCiAutofixStarts,parseCiAutofixRecoveries,proveCiAutofixPrelaunchRecovery}
+ from "./supervisor-ci-autofix-strategy-memory.mjs";
 const REPO="ibboabdoli-ai/Proffera", OWNER="ibboabdoli-ai", ISSUE=548;
 const ISSUE_URL="https://api.github.com/repos/ibboabdoli-ai/Proffera/issues/548";
 const LANES={
@@ -264,10 +265,10 @@ function trustedRun(p){
   &&pos(run.workflow_id),"workflow_provenance");
  const jobs=paged("repos/"+REPO+"/actions/runs/"+p.run_id+"/attempts/"+p.run_attempt+"/jobs?per_page=100","jobs");
  check(jobs.length<=1000,"job_bound");
- const job=name=>{const m=jobs.filter(j=>j.name===name);
-  check(m.length===1&&m[0].status==="completed"&&m[0].conclusion==="success"&&pos(m[0].id),"job_"+name);
+ const job=(name,conclusions=["success"])=>{const m=jobs.filter(j=>j.name===name);
+  check(m.length===1&&m[0].status==="completed"&&conclusions.includes(m[0].conclusion)&&pos(m[0].id),"job_"+name);
   return m[0];};
- const model=job(lane.model),validate=job(lane.validate),publish=job(lane.publish);
+ const model=job(lane.model),validate=job(lane.validate),publish=job(lane.publish,["success","cancelled"]);
  const step=(j,name)=>{const m=(j.steps||[]).filter(s=>s.name===name);
   check(m.length===1&&m[0].status==="completed"&&m[0].conclusion==="success","step_"+name);};
  step(model,lane.modelStep);step(publish,lane.handoff);step(publish,lane.upload);
@@ -303,7 +304,7 @@ export function verifyHandoffBranch(remote, parent, proposed, ownerResolution=fa
  check(ownerResolution||[parent,proposed].includes(remote),"remote_parent");
  return true;
 }
-function verifyArtifact(p,auth,artifactId,{ownerResolution=false}={}){
+function readHandoffArchive(p,artifactId){
  const lane=LANES[p.lane],name=lane.prefix+p.run_id+"-"+p.run_attempt;
  const list=api("repos/"+REPO+"/actions/runs/"+p.run_id+"/artifacts?per_page=100").artifacts;
  const a=verifyArtifactMetadata(list,artifactId,name,p.run_id);
@@ -322,6 +323,13 @@ function verifyArtifact(p,auth,artifactId,{ownerResolution=false}={}){
   const manifestBytes=read(base+".json"),v=JSON.parse(manifestBytes.toString("utf8"));
   const bundleDigest=sha256(bundle);
   check(checksum===bundleDigest+"  "+base+".bundle\n","bundle_checksum");
+  return {bundle, bundleDigest, manifestBytes, manifest:v, artifactDigest:sha256(zip)};
+ }finally{rmSync(dir,{recursive:true,force:true});}
+}
+function verifyArtifact(p,auth,artifactId,{ownerResolution=false,archive=null}={}){
+ const {bundle,bundleDigest,manifestBytes,manifest:v,artifactDigest}=archive??readHandoffArchive(p,artifactId);
+ const dir=mkdtempSync(join(tmpdir(),"proffera-pending-bundle-"));
+ try{
   verifyHandoffManifest(p,v);
   const path=join(dir,"candidate.bundle");writeFileSync(path,bundle);
   const resolutionState=ownerResolution?readPR(p,{historicalResolution:true}):null;
@@ -341,7 +349,7 @@ function verifyArtifact(p,auth,artifactId,{ownerResolution=false}={}){
   check(cmd("git",["rev-parse","FETCH_HEAD"]).trim()===p.head_sha
    &&cmd("git",["rev-parse","FETCH_HEAD^{tree}"]).trim()===p.tree_sha
    &&cmd("git",["rev-parse","FETCH_HEAD^"]).trim()===p.parent_sha,"bundle_ancestry");
-  return {artifact_id:artifactId,artifact_digest:sha256(zip),bundle_digest:bundleDigest,
+  return {artifact_id:artifactId,artifact_digest:artifactDigest,bundle_digest:bundleDigest,
     manifest_digest:sha256(manifestBytes),workflow_id:auth.run.workflow_id,
     publish_job_id:auth.publish.id,model_job_id:auth.model.id,validation_job_id:auth.validate.id,
     observedBranchSha};
@@ -384,13 +392,29 @@ export function record(env){
   head_sha:env.NEW_HEAD,tree_sha:env.NEW_TREE,
   ...admittedRecordIdentity(env),
   finding_digest:env.LANE==="review_repair"?env.FINDINGS_SHA:null};
- check(Object.hasOwn(LANES,p.lane)&&pos(p.pr_number)&&pos(p.run_id)&&pos(p.run_attempt)
-  &&["base_sha","parent_sha","head_sha","tree_sha"].every(k=>hex(p[k],40))
+ check(Object.hasOwn(LANES,p.lane)&&pos(p.pr_number)&&pos(p.run_id)&&pos(p.run_attempt)&&validWorkBranch(p.branch)
+  &&hex(p.parent_sha,40)
   &&(p.finding_digest===null||hex(p.finding_digest,64)),"record_input");
+ let artifactId=Number(env.ARTIFACT_ID), archive=null;
+ const recovering=env.PUBLISH_RESULT==="cancelled";
+ if(!recovering)check(["base_sha","head_sha","tree_sha"].every(k=>hex(p[k],40)),"record_input");
+ const auth=trustedRun(p);
+ if(recovering){
+  const name=LANES[p.lane].prefix+p.run_id+"-"+p.run_attempt;
+  const list=api("repos/"+REPO+"/actions/runs/"+p.run_id+"/artifacts?per_page=100").artifacts;
+  const matching=Array.isArray(list)?list.filter((item)=>item.name===name):[];
+  check(matching.length===1,"cancelled_stage_artifact");
+  check(!artifactId||artifactId===matching[0].id,"cancelled_stage_artifact_id");
+  artifactId=matching[0].id;
+  archive=readHandoffArchive(p,artifactId);
+  for(const key of ["base_sha","head_sha","tree_sha"]){
+   check(hex(archive.manifest?.[key],40)&&(!p[key]||p[key]===archive.manifest[key]),"cancelled_stage_manifest");
+   p[key]=archive.manifest[key];
+  }
+ }
  const live=readPR(p);
  check([p.parent_sha,p.head_sha].includes(live.branch)&&live.pr.base.sha===p.base_sha,"stale_parent");
- const auth=trustedRun(p);
- const {observedBranchSha,...att}=verifyArtifact(p,auth,Number(env.ARTIFACT_ID));
+ const {observedBranchSha,...att}=verifyArtifact(p,auth,artifactId,{archive});
  const value={version:1,...p,...att,observed_at:new Date().toISOString()};
  const key=p.lane+":"+p.run_id+":"+p.run_attempt;
  const comments=issueComments();
@@ -629,14 +653,18 @@ function proveAbandonedClaim(claim,comments,pr){
  const jobs=paged("repos/"+REPO+"/actions/runs/"+claim.run_id+
   "/attempts/"+claim.run_attempt+"/jobs?per_page=100","jobs");
  check(jobs.length>0&&jobs.length<=1000,"abandoned_jobs");
- if(hasStart&&claim.lane==="review_repair"){
+ if(hasStart){
   check(start&&start.head===claim.head,"abandoned_start_binding");
-  const recovery=parseReviewRepairRecoveries(comments,scope).find(x=>
+  const isReview=claim.lane==="review_repair";
+  const parseRecoveries=isReview?parseReviewRepairRecoveries:parseCiAutofixRecoveries;
+  const proveRecovery=isReview?proveReviewRepairPrelaunchRecovery:proveCiAutofixPrelaunchRecovery;
+  const binding=isReview?["finding_digest"]:["failure_digest","source_run_id","source_run_attempt"];
+  const recovery=parseRecoveries(comments,scope).find(x=>
    x.run_id===claim.run_id&&x.run_attempt===claim.run_attempt);
-  check(recovery&&["pr_number","run_id","run_attempt","head","finding_digest",
-   "evidence_fingerprint","strategy_fingerprint"].every(k=>recovery[k]===start[k]),
+  check(recovery&&["pr_number","run_id","run_attempt","head",
+   "evidence_fingerprint","strategy_fingerprint",...binding].every(k=>recovery[k]===start[k]),
    "abandoned_recovery_binding");
-  check(proveReviewRepairPrelaunchRecovery({repository:REPO,pr_number:pr,
+  check(proveRecovery({repository:REPO,pr_number:pr,
    start,run:r,jobs}).recoverable,"abandoned_recovery_unproven");
  }else{
   check(["success","failure","cancelled"].includes(r.conclusion),"abandoned_run_provenance");
@@ -719,6 +747,7 @@ function establishReentryClaim(ledger,comments,attempt,pr){
 }
 export function gate(env){
  const pr=Number(env.PR_NUMBER);check(pos(pr),"gate_pr");
+ if(env.EXPECTED_REF!==undefined)check(validWorkBranch(env.EXPECTED_REF),"git_ref");
  const comments=issueComments(),rows=readPending(comments,pr);
  for(const p of rows.filter(r=>!r.resolution)){
   const auth=trustedRun(p);

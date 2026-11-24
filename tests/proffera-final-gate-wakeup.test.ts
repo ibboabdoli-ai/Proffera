@@ -1670,11 +1670,23 @@ describe("v5 complete review authority lifecycle", () => {
   it("rejects CodeRabbit examples across AutoMerge, Wakeup and direct Live", () => {
     const receipts = [cleanBody(), `Review completed for exact HEAD ${reviewHead}.\nI found no material findings.`];
     for (const receipt of receipts) {
+      const clean = runAutomergeFixture({comments: [requestComment(), cleanIssueComment({body: receipt})], firstReviews: [completed()]});
+      expect(clean.status, clean.stderr).toBe(0);
+      expect(clean.stdout).toContain("AI_REVIEW_OK");
+      for (const direct of [false, true]) {
+        const accepted = runWakeupFixture({body: receipt, comments: [requestComment()], firstReviews: [completed()]}, direct);
+        expect(accepted.result.status, accepted.result.stderr).toBe(0);
+        expect(accepted.posts).toBe(1);
+      }
       for (const body of codeContextExamples(receipt)) {
         const merge = runAutomergeFixture({ comments: [requestComment(), cleanIssueComment({ body })], firstReviews: [completed()] });
-        expect(merge.stdout, body + merge.stderr).not.toContain("AI_REVIEW_OK");
+        expect(merge.status, body + merge.stderr).toBe(0);
+        expect(merge.stdout, body + merge.stderr).toContain("REFUSED:");
         for (const direct of [false, true]) {
           const wake = runWakeupFixture({ body, comments: [requestComment()], firstReviews: [completed()] }, direct);
+          expect(wake.result.status, body + wake.result.stderr).toBe(direct ? 1 : 0);
+          expect(direct ? wake.result.stderr : wake.result.stdout).toContain(direct
+            ? "final_gate_live:clean_head" : "not a completed clean exact-head decision");
           expect(wake.posts, body + wake.result.stdout + wake.result.stderr).toBe(0);
         }
       }

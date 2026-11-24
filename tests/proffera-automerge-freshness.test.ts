@@ -51,7 +51,7 @@ function run(change:string) {
    commit_id:change.includes("original-head-inline")||change==="stale-old-thread"?"b".repeat(40):head,
    created_at:carried||change.endsWith("coderabbit-before-request")?"2025-12-31T23:59:59Z":time});
  if(change==="coderabbit-primary-inline"||change==="coderabbit-primary-dismissed"||change.includes("primary-current-reply")||change.includes("primary-original-head-inline")||change==="near-merge-primary-dismissed"||change==="near-merge-explicit-dismissed")initialReviews.push({id:11,user:{login:"coderabbitai[bot]"},commit_id:head,state:"APPROVED",submitted_at:time});
- if(change==="near-merge-explicit-dismissed")reviews.push({id:90,user:{login:"coderabbitai[bot]"},commit_id:head,state:"DISMISSED",submitted_at:"2026-01-01T00:00:04Z"});
+ if(change==="near-merge-explicit-dismissed")reviews.push(...initialReviews,{id:90,user:{login:"coderabbitai[bot]"},commit_id:head,state:"DISMISSED",submitted_at:"2025-12-31T23:59:59Z"});
  if(change==="review-block"||change==="coderabbit-block"||change==="near-merge-review-block")reviews.push({id:9,user:{login:change==="review-block"?"chatgpt-codex-connector[bot]":"coderabbitai[bot]"},commit_id:head,state:"CHANGES_REQUESTED",submitted_at:time});
  if(change==="near-merge-body-only-finding"||change==="near-merge-mixed-body"||change==="near-merge-clean-commented"){
   const approval={id:15,user:{login:"coderabbitai[bot]"},commit_id:head,state:"APPROVED",submitted_at:"2026-01-01T00:00:01Z"};
@@ -87,6 +87,8 @@ function run(change:string) {
  writeFileSync(join(dir,"comments.json"),JSON.stringify(comments));
  writeFileSync(join(dir,"reviews.json"),JSON.stringify(reviews));
  writeFileSync(join(dir,"initial-reviews.json"),JSON.stringify(initialReviews));
+ writeFileSync(join(dir,"timeline.json"),JSON.stringify(change==="near-merge-explicit-dismissed"
+  ? [{event:"review_dismissed",dismissed_review:{review_id:90},created_at:"2026-01-01T00:00:04Z"}] : []));
  writeFileSync(join(dir,"inline.json"),JSON.stringify(inline));
  const script=[
  "set -euo pipefail",
@@ -112,6 +114,7 @@ function run(change:string) {
  '    */pulls/695/reviews\\?*) file=initial-reviews.json; [ ! -f "$ROOT/polled" ] || file=reviews.json; if [ "$CHANGE" = near-merge-primary-current-reply ] || [ "$CHANGE" = near-merge-primary-original-head-inline ] || { [[ "$CHANGE" == near-merge-review-block || "$CHANGE" == near-merge-primary-dismissed || "$CHANGE" == near-merge-explicit-dismissed || "$CHANGE" == near-merge-body-only-finding || "$CHANGE" == near-merge-mixed-body || "$CHANGE" == near-merge-clean-commented ]] && [ ! -f "$ROOT/owner-checked" ]; }; then file=initial-reviews.json; fi;;',
  '    */pulls/695/comments\\?*) if [[ "$CHANGE" != initial-* ]] && [ ! -f "$ROOT/polled" ]; then return 0; fi; if [[ "$CHANGE" == near-merge-* ]] && [ ! -f "$ROOT/owner-checked" ]; then return 0; fi; file=inline.json;;',
  '    */issues/695/events\\?*) echo \'{"event":"labeled","label":{"name":"ibbo-approved"},"actor":{"login":"ibboabdoli-ai"},"created_at":"2026-01-01T00:00:00Z"}\'; return;;',
+ '    */issues/695/timeline\\?*) file=timeline.json;;',
  '    */reactions\\?*) return 0;;',
  '    */pulls/695) if [ "$CHANGE" = head ] && [ -f "$ROOT/polled" ]; then echo bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb; else echo "$head_sha"; fi; return;;',
  '    *) echo "unexpected API: $endpoint" >&2; return 92;;',
@@ -172,7 +175,7 @@ describe("AutoMerge post-poll review freshness",()=>{
   if(change.includes("current-reply")||change.includes("coderabbit-before-request")||change.includes("coderabbit-original-head-inline")||change.includes("primary-original-head-inline"))expect(output).toContain("CodeRabbit inline findings appeared after final owner authorization");
   if(change.includes("codex-original-head-inline"))expect(output).toContain("Codex fallback posted current-head review findings");
   if(change==="near-merge-primary-dismissed")expect(output).toContain("accepted CodeRabbit approval was revoked after final owner authorization");
-  if(change==="near-merge-review-block"||change==="near-merge-body-only-finding"||change==="near-merge-mixed-body")expect(output).toContain("CodeRabbit changes were requested after final owner authorization");
+  if(change==="near-merge-review-block"||change==="near-merge-body-only-finding"||change==="near-merge-mixed-body"||change==="near-merge-explicit-dismissed")expect(output).toContain("CodeRabbit changes were requested after final owner authorization");
   if(change==="near-merge-codex-removed")expect(output).toContain("no clean exact-current-head Codex fallback result exists");
  },30_000);
 });

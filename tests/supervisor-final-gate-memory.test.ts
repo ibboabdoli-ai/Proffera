@@ -994,11 +994,15 @@ describe("linked older-head CodeRabbit acknowledgements", () => {
     return f;
   }
   it("blocks ambiguous old-thread acknowledgements posted after the current request", () => {
+    const control = fixtureWithInline(record.body);
+    control.inline = [];
+    expect(control.run().decision).toBe("ALLOW_RERUN");
+    expect(control.posts).toBe(1);
     const f = fixtureWithInline(record.body);
-    expect(() => f.run()).toThrow();
+    expect(() => f.run()).toThrow("final_gate_live:clean_comment_findings");
     expect(f.posts).toBe(0);
     const contradicted = fixtureWithInline(record.body + " The authorization bypass remains exploitable.");
-    expect(() => contradicted.run()).toThrow();
+    expect(() => contradicted.run()).toThrow("final_gate_live:clean_comment_findings");
     expect(contradicted.posts).toBe(0);
   });
   it.each([
@@ -1006,7 +1010,7 @@ describe("linked older-head CodeRabbit acknowledgements", () => {
     "@ibboabdoli-ai Thanks for reviewing. This addresses the finding. However a new P1 issue remains.",
   ])("keeps new findings in old-thread replies blocking", (body) => {
     const f = fixtureWithInline(body);
-    expect(() => f.run()).toThrow();
+    expect(() => f.run()).toThrow("final_gate_live:clean_comment_findings");
     expect(f.posts).toBe(0);
   });
 });

@@ -222,11 +222,6 @@ jobs:
           set -euo pipefail
           echo "repair=no" >> "$GITHUB_OUTPUT"
           echo "attempt_started=no" >> "$GITHUB_OUTPUT"
-          pending_gate="$(node scripts/supervisor-owner-push-pending.mjs gate)"
-          if [ "$(jq -r '.allow' <<< "$pending_gate")" != "true" ]; then
-            echo "Authenticated unresolved owner-push handoff blocks automatic repair."
-            exit 0
-          fi
 
           comments_file="$RUNNER_TEMP/proffera-review-repair-comments.json"
           gh api --paginate "repos/${REPOSITORY}/issues/548/comments?per_page=100" --jq '.[]' | jq -s '.' > "$comments_file"
@@ -328,6 +323,16 @@ jobs:
             jq -e 'type == "array"' "$comments_file" >/dev/null
             build_admit_input
           fi
+
+          # Re-entry claims require any abandoned pre-model Start to have a
+          # bound Recovery. Both historical recovery passes run under this mutex.
+          pending_gate="$(node scripts/supervisor-owner-push-pending.mjs gate)"
+          if [ "$(jq -r '.allow' <<< "$pending_gate")" != "true" ]; then
+            echo "Authenticated unresolved owner-push handoff blocks automatic repair."
+            exit 0
+          fi
+          gh api --paginate "repos/${REPOSITORY}/issues/548/comments?per_page=100" --jq '.[]' | jq -s '.' > "$comments_file"
+          build_admit_input
 
           # Recover proven historical pre-model orphans even when this review burst
           # has no material findings. No new model attempt is admitted in that case.
@@ -655,6 +660,16 @@ jobs:
       issues: read
       pull-requests: read
     steps:
+      - name: Require original staging attempt
+        env:
+          ADMITTED_RUN_ID: ${{ needs.repair.outputs.run_id }}
+          ADMITTED_RUN_ATTEMPT: ${{ needs.repair.outputs.run_attempt }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_RUN_ID" = "$ADMITTED_RUN_ID"
+          test "$GITHUB_RUN_ATTEMPT" = "$ADMITTED_RUN_ATTEMPT"
+
       - name: Checkout exact pre-repair PR head
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -922,7 +937,8 @@ jobs:
           set -euo pipefail
           echo "pending=no" >> "$GITHUB_OUTPUT"
           if [ "$REPAIR_RESULT" != "success" ] || [ "$CHANGED" != "yes" ] \
-            || [ "$VALIDATE_RESULT" != "success" ] || [ "$PUBLISH_RESULT" != "success" ]; then
+            || [ "$VALIDATE_RESULT" != "success" ] \
+            || { [ "$PUBLISH_RESULT" != "success" ] && [ "$PUBLISH_RESULT" != "cancelled" ]; }; then
             exit 0
           fi
           proof="$(node scripts/supervisor-owner-push-pending.mjs record)"

@@ -2697,7 +2697,7 @@ jobs:
             else
               artifacts="$(gh api "repos/${REPOSITORY}/actions/runs/${RUN_ID}/artifacts?per_page=100")"
               artifact_prefix="proffera-publication-recovery-${TASK_ID}-"
-              artifact_matches="$(jq -c --arg prefix "$artifact_prefix" '[.artifacts[]? | select((.expired // true) == false) | select((.name // "") | startswith($prefix)) | select(((.name // "") | sub("^" + $prefix; "")) | test("^[0-9a-f]{64}$"))]' <<< "$artifacts")"
+              artifact_matches="$(jq -c --arg prefix "$artifact_prefix" '[.artifacts[]? | select(.expired == false) | select((.name // "") | startswith($prefix)) | select(((.name // "") | sub("^" + $prefix; "")) | test("^[0-9a-f]{64}$"))]' <<< "$artifacts")"
               artifact_count="$(jq 'length' <<< "$artifact_matches")"
               if [ "$artifact_count" -gt 1 ]; then
                 echo "Refused: stranded reservation has ambiguous recovery artifacts." >&2
@@ -2710,7 +2710,7 @@ jobs:
                 test "$(jq 'length' <<< "$reserved_paths")" -gt 0
                 artifact_id="$(jq -r '.[0].id // ""' <<< "$artifact_matches")"
                 artifact_name="$(jq -r '.[0].name // ""' <<< "$artifact_matches")"
-                artifact_expired="$(jq -r '.[0].expired // true' <<< "$artifact_matches")"
+                artifact_expired="$(jq -r '.[0].expired' <<< "$artifact_matches")"
                 recovery_digest="${artifact_name#${artifact_prefix}}"
                 [[ "$artifact_id" =~ ^[1-9][0-9]*$ ]]
                 [[ "$artifact_name" =~ ^proffera-publication-recovery-${TASK_ID}-[0-9a-f]{64}$ ]]

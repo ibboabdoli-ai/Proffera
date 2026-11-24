@@ -692,6 +692,18 @@ export function proveCiAutofixIndeterminateRecovery(input) {
   // Only unresolved starts (already filtered against authenticated pending records)
   // enter this terminal-run recovery path. Do not mistake a staged upload for publication.
   const result = classifyCiAutofixOutcome({jobs});
+  const historicalWorkflow = input?.historical_workflow;
+  if (!result.persist && result.reason === "staged_handoff_evidence_incomplete"
+    && !jobs.some((job) => job.name === "Stage CI Autofix owner-push handoff (no publication)")
+    && historicalWorkflow?.commit === run.head_sha
+    && typeof historicalWorkflow.content === "string"
+    && Buffer.byteLength(historicalWorkflow.content) <= 256 * 1024
+    && /^    name: Publish CI Autofix candidate\r?$/m.test(historicalWorkflow.content)
+    && /^      - name: Publish validated repair\r?$/m.test(historicalWorkflow.content)
+    && !/Stage CI Autofix owner-push handoff|ci-autofix-owner-handoff-|Upload CI Autofix owner handoff/.test(historicalWorkflow.content)) {
+    return {recoverable: true, reason: "model_outcome_unknown",
+      outcome: "unknown", observed_at: observedAt};
+  }
   if (!result.persist) return {recoverable:false,reason:result.reason};
   return {recoverable: true, reason: "model_outcome_" + result.outcome,
     outcome: result.outcome, observed_at: observedAt};

@@ -258,8 +258,8 @@ function crossLaneHarness(lane: Lane, scenario: string) {
   const workflow = readFileSync(file, "utf8");
   const begin = workflow.indexOf(ci ? "          # Retire authenticated CI Autofix"
     : "          # Reclaim only authenticated");
-  const end = workflow.indexOf(ci ? "          # Recover proven historical"
-    : '          decision="$(node scripts/supervisor-ci-autofix', begin);
+  const end = workflow.indexOf(ci ? "          # Re-entry claims require"
+    : "          # Recover abandoned pre-model Starts", begin);
   expect(begin).toBeGreaterThan(-1);
   expect(end).toBeGreaterThan(begin);
   const commentsFile = join(dir, "comments.json");

@@ -241,11 +241,21 @@ function recoverAcceptedIntents(input, execute, now) {
   return comments(input.repository, execute);
 }
 
-function coderabbitStillClean(reviews, head, requestTime) {
+function coderabbitStillClean(reviews, head, requestTime, readTimeline) {
   reviews = reviews.filter((review) => review.user?.login === "coderabbitai[bot]" && review.commit_id === head);
   if (reviews.some((review) => ["CHANGES_REQUESTED", "DISMISSED", "APPROVED"].includes(review.state)
     && !Number.isFinite(Date.parse(review.submitted_at)))) throw new Error("final_gate_live:review_time");
-  const changes = reviews.filter((r) => r.state === "CHANGES_REQUESTED" || r.state === "DISMISSED").map((r) => r.submitted_at ?? "").sort().at(-1) ?? "";
+  const timeline = reviews.some((r) => r.state === "DISMISSED") ? readTimeline() : [];
+  const changes = reviews.filter((r) => r.state === "CHANGES_REQUESTED" || r.state === "DISMISSED").map((r) => {
+    if (r.state === "CHANGES_REQUESTED") return r.submitted_at;
+    const dismissal = timeline.filter((event) => event.event === "review_dismissed"
+      && String(event.dismissed_review?.review_id) === String(r.id)
+      && Number.isSafeInteger(r.id)
+      && Number.isFinite(Date.parse(event.created_at))
+      && Date.parse(event.created_at) >= Date.parse(r.submitted_at))
+      .map((event) => event.created_at).sort().at(-1);
+    return dismissal ?? "9999-12-31T23:59:59Z";
+  }).sort().at(-1) ?? "";
   const approvals = reviews.filter((r) => r.state === "APPROVED" && requestTime !== null
     && Date.parse(r.submitted_at) >= requestTime).map((r) => r.submitted_at ?? "").sort().at(-1) ?? "";
   return !changes || (approvals && approvals > changes);
@@ -278,7 +288,10 @@ function validatedSource(input, source, execute) {
   };
   if (primary && (primary.updated_at !== primary.created_at || primary.body !== primaryBody)) throw new Error("final_gate_live:primary_request_changed");
   const primaryTime = primary ? at(primary.created_at) : null;
-  if (!coderabbitStillClean(reviews, head, primaryTime)) throw new Error("final_gate_live:review_changed");
+  if (!coderabbitStillClean(reviews, head, primaryTime,
+    () => pages(`repos/${input.repository}/issues/${input.pr_number}/timeline`, execute))) {
+    throw new Error("final_gate_live:review_changed");
+  }
   const sourceTime = at(source.observed_at);
   if (source.kind === "issue_comment" && at(source.created_at) > sourceTime) throw new Error("final_gate_live:evidence_time");
   const marker = `<!-- proffera-codex-fallback-review-request:${head} -->`;

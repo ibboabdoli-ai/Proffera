@@ -2959,11 +2959,16 @@ describe("Supervisor ↔ Worker Phase-1 handoff", () => {
     }) };
     const harness = createPreflightHarness({ comments: [task] });
     const changed = harness.run({ runId: "1002", mutation });
+    const marker = mutation.dispatchOnCommentRead
+      ? "<!-- proffera-worker-dispatch-start:SUP-TEST-1:9001 -->"
+      : "<!-- proffera-worker-slot-reservation:SUP-ALIAS-1 -->";
+    expect(changed.comments.some(comment => String(comment.body).includes(marker))).toBe(true);
     expect(changed.outputs.proceed).not.toBe("yes");
     expect(String(changed.comments.find((comment) => comment.id === 701)?.body)).toContain("TASK_CREATED");
     expect(commentPatchCalls(changed.calls, 701)).toHaveLength(0);
     const retry = harness.run({ runId: "1003" });
     expect(retry.outputs.proceed).not.toBe("yes");
+    expect(retry.comments.some(comment => String(comment.body).includes(marker))).toBe(true);
     expect(commentPatchCalls(retry.calls, 701)).toHaveLength(0);
   });
 
@@ -5874,17 +5879,23 @@ esac
 
     const script = workflowRunStep(workflow, stepName);
     const start = script.indexOf('if [ "$state" != "PUBLISHED" ]; then');
-    const end = script.indexOf('test "$(jq -r', start);
+    const end = script.indexOf('pr="$(gh api', start);
     expect(start).toBeGreaterThanOrEqual(0);
     expect(end).toBeGreaterThan(start);
     const guard = script.slice(start, end);
-    const run = (state: string) => spawnSync("bash", ["-c",
-      "set -euo pipefail\nstate=" + state + "\n" + guard + "\nprintf 'CONTINUED\n'"], {encoding: "utf8"});
+    const run = (state: string, reservationPr = 900) => spawnSync("bash", ["-c",
+      "set -euo pipefail\n" + guard + "\nprintf 'CONTINUED\n'"], {
+      encoding: "utf8",
+      env: {...process.env, state, PR_NUMBER: "900", payload: JSON.stringify({pr_number: reservationPr})},
+    });
     for (const state of ["RESERVED", "RECOVERABLE", "RELEASED"]) {
       const result = run(state);
       expect(result.status, result.stderr).not.toBe(0);
       expect(result.stdout).not.toContain("CONTINUED");
     }
+    const wrong = run("PUBLISHED", 901);
+    expect(wrong.status, wrong.stderr).toBe(1);
+    expect(wrong.stdout).not.toContain("CONTINUED");
     const published = run("PUBLISHED");
     expect(published.status, published.stderr).toBe(0);
     expect(published.stdout).toContain("CONTINUED");
@@ -6983,6 +6994,44 @@ process.stdout.write(JSON.stringify({
     const misordered = unifiedDiff.replace(/\n(index [^\n]+)\n(--- [^\n]+)\n(\+\+\+ [^\n]+)/, "\n$2\n$1\n$3");
     expect(misordered).not.toBe(unifiedDiff);
     expect(run("validate-publication", { ...input, artifact: { ...artifact, unified_diff: misordered } }).code).toBe("diff_incomplete");
+  });
+
+  it("validates a binary bundle against its exact tree and replacement bytes", () => {
+    const repo = mkdtempSync(join(tmpdir(), "proffera-publication-binary-"));
+    try {
+      const git = (...args: string[]) => {
+        const result = spawnSync("git", args, {cwd: repo, encoding: "utf8"});
+        expect(result.status, result.stderr).toBe(0);
+        return result.stdout.trim();
+      };
+      git("init", "-q");
+      git("config", "user.name", "Fixture");
+      git("config", "user.email", "fixture@example.invalid");
+      git("commit", "--allow-empty", "-qm", "base");
+      const base = git("rev-parse", "HEAD");
+      const bytes = Buffer.from([0, 0xff, 0x0a, 0x80, 0x01]);
+      writeFileSync(join(repo, "image.bin"), bytes);
+      git("add", "image.bin");
+      git("commit", "-qm", "candidate");
+      const head = git("rev-parse", "HEAD");
+      const tree = git("rev-parse", "HEAD^{tree}");
+      const scoped = packet({base_sha: base, allowed_paths: ["image.bin"]});
+      const invoke = (mode: string, value: unknown) => {
+        const result = spawnSync(process.execPath, [helper, mode], {cwd: repo,
+          encoding: "utf8", input: JSON.stringify(value)});
+        expect(result.status, result.stderr).toBe(0);
+        return JSON.parse(result.stdout);
+      };
+      const artifact = invoke("build-publication", {packet: scoped, source_head: base, target_head: head, run_id: "9001"});
+      expect(artifact.replacements).toEqual([{path: "image.bin", content_base64: bytes.toString("base64")}]);
+      const input = {packet: scoped, current_source_head: base, expected_target_head: head,
+        expected_target_tree_sha: tree, expected_run_id: "9001", artifact};
+      expect(invoke("validate-publication", input)).toMatchObject({ok: true, target_tree_sha: tree});
+      artifact.replacements[0].content_base64 = Buffer.from("different").toString("base64");
+      expect(invoke("validate-publication", input)).toMatchObject({ok: false, code: "digest_mismatch"});
+    } finally {
+      rmSync(repo, {recursive: true, force: true});
+    }
   });
 
   it("preserves deletion, rename, and missing-final-newline artifact semantics", () => {
