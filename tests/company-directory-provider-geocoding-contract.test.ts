@@ -147,7 +147,7 @@ describe("bounded provider-point geocoding", () => {
     });
   });
 
-  it("keeps the write path super-admin-only, DB-bounded, provider-wide, and hard-capped at three", async () => {
+  it("keeps the write path super-admin-only, DB-bounded, provider-wide, and hard-capped at 100", async () => {
     const calls: Array<{ query: string; values: unknown[] }> = [];
     const candidates = [
       statusRow({ id: "11111111-1111-4111-8111-111111111101", organization_number: "5560000101" }),
@@ -171,19 +171,19 @@ describe("bounded provider-point geocoding", () => {
     const fetchMock = vi.spyOn(globalThis, "fetch")
       .mockRejectedValue(new Error("temporary upstream failure"));
 
-    const result = await geocodeDirectoryProviderPointsFromAdmin(99);
+    const result = await geocodeDirectoryProviderPointsFromAdmin(101);
 
-    expect(DIRECTORY_PROVIDER_GEOCODING_MAX_BATCH).toBe(3);
+    expect(DIRECTORY_PROVIDER_GEOCODING_MAX_BATCH).toBe(100);
     expect(mocks.getPlatformAdmin).toHaveBeenCalledTimes(1);
     expect(result).toEqual({
-      attempted: 3,
+      attempted: 5,
       geocoded: 0,
       noMatch: 0,
-      errors: 3,
+      errors: 5,
       remaining: 5,
       needsReview: 0,
     });
-    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(fetchMock).toHaveBeenCalledTimes(5);
     const target = calls.find((call) => call.query.includes("profile.id::text"));
     expect(target?.query).toContain("profile.publication_status = 'published'");
     expect(target?.query).toContain("profile.is_active = true");
