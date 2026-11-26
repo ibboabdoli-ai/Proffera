@@ -191,6 +191,8 @@ SCB location semantics distinguish the company-level registered seat from the ph
 
 A Production runtime warning observed on 2026-08-18 concerns PostgreSQL connection-string SSL semantics. It is a forward-compatibility/security warning rather than an observed request failure and should be handled deliberately before the relevant `pg`/`pg-connection-string` major upgrade.
 
+The automatic Directory sync can run a final company-position verification step when `COMPANY_DIRECTORY_AUTOMATIC_GEOCODING_ENABLED=true` and the existing Lantmäteriet geocoding integration is configured. It processes up to five eligible published providers within the remaining sync time, using the same exact SCB workplace and Lantmäteriet verification as the manual action. The `automatic_geocoding` entry in `company_directory_sync_runs` prevents overlapping scheduled batches and records attempted, verified, review and error counts. Scheduled runs wait one day before retrying a transient address error. The automatic step is off by default. Turning that setting off stops future automatic batches; existing verified positions and the manual action remain available.
+
 ## Makeup by Maria — Stripe-bound new booking entitlement (implementation scope)
 
 For Maria Production new-booking intake, the readiness gate must require both an enabled canonical
