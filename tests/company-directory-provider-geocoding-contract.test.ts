@@ -116,6 +116,46 @@ describe("bounded provider-point geocoding", () => {
     }
   });
 
+  it("marks a scheduled address that exhausts the processing budget before closing the run", async () => {
+    vi.stubEnv("COMPANY_DIRECTORY_AUTOMATIC_GEOCODING_ENABLED", "true");
+    const startedAt = Date.now();
+    const deadlineAt = startedAt + 20_000;
+    const clock = vi.spyOn(Date, "now").mockReturnValue(startedAt);
+    const sql = vi.fn(async (strings: TemplateStringsArray, ...values: unknown[]) => {
+      const query = queryText(strings);
+      if (query.includes("insert into company_directory_sync_runs")) {
+        return [{ id: "11111111-1111-4111-8111-111111111112" }];
+      }
+      if (query.includes("pg_extension")) return [{ ready: true }];
+      if (query.includes("from runnable_provider")) return [statusRow(), statusRow()];
+      if (query.includes("with provider_state as")) {
+        return [{ total: 2, geocoded: 0, remaining: 2, needs_review: 0, unavailable: 0 }];
+      }
+      if (query.includes("insert into company_directory_business_locations")) {
+        expect(values).toContain(transientError);
+      }
+      return [];
+    });
+    mocks.getSql.mockReturnValue(sql);
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async () => {
+      clock.mockReturnValue(startedAt + 7_000);
+      throw new DOMException("Address lookup timed out", "TimeoutError");
+    });
+
+    try {
+      await expect(geocodeDirectoryProviderPointsFromScheduler(deadlineAt))
+        .resolves.toMatchObject({ skipped: false, attempted: 1, geocoded: 0, noMatch: 0, errors: 1 });
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      const updates = sql.mock.calls.filter(([query]) => queryText(query).includes("set status = 'completed'"));
+      expect(updates).toHaveLength(1);
+      const writes = sql.mock.calls.filter(([query]) => queryText(query).includes("insert into company_directory_business_locations"));
+      expect(writes).toHaveLength(1);
+    } finally {
+      vi.unstubAllEnvs();
+      clock.mockRestore();
+    }
+  });
+
   it("reports provider-wide status through a database aggregate while preserving queue semantics", async () => {
     const queries: string[] = [];
     const malformedWorkplace = [{

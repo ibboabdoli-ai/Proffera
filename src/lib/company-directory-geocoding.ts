@@ -25,6 +25,7 @@ const FETCH_DEADLINE_GUARD_MS = 1_000;
 const SCHEDULED_GEOCODING_BATCH_SIZE = 5;
 const SCHEDULED_GEOCODING_MIN_BUDGET_MS = 20_000;
 const SCHEDULED_GEOCODING_HISTORY_RESERVE_MS = 3_000;
+const SCHEDULED_GEOCODING_FINAL_COUNTS_RESERVE_MS = 5_000;
 const SCHEDULED_GEOCODING_PROVIDER = "automatic_geocoding";
 export const DIRECTORY_PROVIDER_GEOCODING_MAX_BATCH = 100;
 
@@ -1449,13 +1450,21 @@ async function geocodeDirectoryProviderPoints(
       `;
       if (saved[0]) geocoded += 1;
     } catch (error) {
-      if (classifyDirectoryGeocodingBatchError(error) === "deadline") break;
+      const deadlineExceeded = classifyDirectoryGeocodingBatchError(error) === "deadline"
+        || Date.now() >= processingDeadline;
+      if (deadlineExceeded && !scheduled) break;
       errors += 1;
       try {
-        await markTransientError(profile.id, scbWorkplaceBoundaryToken, processingDeadline);
+        // A slow address should cool down before the next scheduled batch selects candidates.
+        const markerDeadline = deadlineExceeded
+          ? actionDeadline - SCHEDULED_GEOCODING_FINAL_COUNTS_RESERVE_MS
+          : processingDeadline;
+        await markTransientError(profile.id, scbWorkplaceBoundaryToken, markerDeadline);
       } catch (markerError) {
+        if (deadlineExceeded) throw markerError;
         if (classifyDirectoryGeocodingBatchError(markerError) === "deadline") break;
       }
+      if (deadlineExceeded) break;
     }
   }
 
