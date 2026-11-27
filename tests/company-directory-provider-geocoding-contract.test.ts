@@ -18,6 +18,7 @@ vi.mock("@/lib/admin-authorization", () => ({
 import {
   DIRECTORY_PROVIDER_GEOCODING_MAX_BATCH,
   geocodeDirectoryProviderPointsFromAdmin,
+  geocodeDirectoryProviderPointsFromScheduler,
   getDirectoryGeocodingStatus,
 } from "@/lib/company-directory-geocoding";
 
@@ -73,6 +74,88 @@ beforeEach(() => {
 });
 
 describe("bounded provider-point geocoding", () => {
+  it("skips the scheduled batch before database access when disabled or out of time", async () => {
+    vi.stubEnv("COMPANY_DIRECTORY_AUTOMATIC_GEOCODING_ENABLED", "false");
+    try {
+      await expect(geocodeDirectoryProviderPointsFromScheduler(Date.now() + 40_000))
+        .resolves.toEqual({ skipped: true, reason: "disabled" });
+      vi.stubEnv("COMPANY_DIRECTORY_AUTOMATIC_GEOCODING_ENABLED", "true");
+      await expect(geocodeDirectoryProviderPointsFromScheduler(Date.now() + 1_000))
+        .resolves.toEqual({ skipped: true, reason: "insufficient_time" });
+      expect(mocks.getSql).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it("uses the existing run lock and records the capped scheduler batch without an admin session", async () => {
+    vi.stubEnv("COMPANY_DIRECTORY_AUTOMATIC_GEOCODING_ENABLED", "true");
+    const sql = vi.fn()
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ id: "11111111-1111-4111-8111-111111111111" }])
+      .mockResolvedValueOnce([{ ready: true }])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ total: 1, geocoded: 0, remaining: 1, needs_review: 0, unavailable: 0 }])
+      .mockResolvedValueOnce([]);
+    mocks.getSql.mockReturnValue(sql);
+    try {
+      await expect(geocodeDirectoryProviderPointsFromScheduler(Date.now() + 40_000))
+        .resolves.toEqual({ skipped: true, reason: "already_running" });
+      expect(sql).toHaveBeenCalledTimes(2);
+      await expect(geocodeDirectoryProviderPointsFromScheduler(Date.now() + 40_000))
+        .resolves.toEqual({ skipped: false, attempted: 0, geocoded: 0, noMatch: 0, errors: 0, remaining: 1, needsReview: 0 });
+      expect(queryText(sql.mock.calls[3][0])).toContain("on conflict do nothing");
+      expect(queryText(sql.mock.calls[5][0])).toContain("location_updated_at < now() - interval '1 day'");
+      expect(sql.mock.calls[5].at(-1)).toBe(5);
+      expect(queryText(sql.mock.calls[7][0])).toContain("set status = 'completed'");
+      expect(mocks.getPlatformAdmin).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it("marks a scheduled address that exhausts the processing budget before closing the run", async () => {
+    vi.stubEnv("COMPANY_DIRECTORY_AUTOMATIC_GEOCODING_ENABLED", "true");
+    const startedAt = Date.now();
+    const deadlineAt = startedAt + 20_000;
+    const clock = vi.spyOn(Date, "now").mockReturnValue(startedAt);
+    const sql = vi.fn(async (strings: TemplateStringsArray, ...values: unknown[]) => {
+      const query = queryText(strings);
+      if (query.includes("insert into company_directory_sync_runs")) {
+        return [{ id: "11111111-1111-4111-8111-111111111112" }];
+      }
+      if (query.includes("pg_extension")) return [{ ready: true }];
+      if (query.includes("from runnable_provider")) return [statusRow(), statusRow()];
+      if (query.includes("with provider_state as")) {
+        return [{ total: 2, geocoded: 0, remaining: 2, needs_review: 0, unavailable: 0 }];
+      }
+      if (query.includes("insert into company_directory_business_locations")) {
+        expect(values).toContain(transientError);
+      }
+      return [];
+    });
+    mocks.getSql.mockReturnValue(sql);
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async () => {
+      clock.mockReturnValue(startedAt + 7_000);
+      throw new DOMException("Address lookup timed out", "TimeoutError");
+    });
+
+    try {
+      await expect(geocodeDirectoryProviderPointsFromScheduler(deadlineAt))
+        .resolves.toMatchObject({ skipped: false, attempted: 1, geocoded: 0, noMatch: 0, errors: 1 });
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      const updates = sql.mock.calls.filter(([query]) => queryText(query).includes("set status = 'completed'"));
+      expect(updates).toHaveLength(1);
+      const writes = sql.mock.calls.filter(([query]) => queryText(query).includes("insert into company_directory_business_locations"));
+      expect(writes).toHaveLength(1);
+    } finally {
+      vi.unstubAllEnvs();
+      clock.mockRestore();
+    }
+  });
+
   it("reports provider-wide status through a database aggregate while preserving queue semantics", async () => {
     const queries: string[] = [];
     const malformedWorkplace = [{
