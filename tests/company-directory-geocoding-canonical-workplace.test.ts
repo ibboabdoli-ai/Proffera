@@ -16,6 +16,7 @@ vi.mock("@/lib/db/server", () => ({
 import {
   buildDirectoryGeocodingNoMatchSource,
   geocodeDirectoryPilotFromAdmin,
+  geocodeDirectoryProviderPointsFromScheduler,
   selectDirectoryGeocodingAddress,
   shouldRetryDirectoryNoMatchAfterRegisterUnitFix,
 } from "@/lib/company-directory-geocoding";
@@ -169,6 +170,49 @@ describe("canonical SCB workplace selection for Directory geocoding", () => {
 });
 
 describe("Directory geocoding pilot canonical-address behavior", () => {
+  it("saves at most 20 exact addresses in one scheduled run when 21 are eligible", async () => {
+    vi.stubEnv("COMPANY_DIRECTORY_AUTOMATIC_GEOCODING_ENABLED", "true");
+    const candidates = Array.from({ length: 21 }, (_, i) => ({
+      ...pilotRow(OLD_SCB_NO_MATCH),
+      id: `11111111-1111-4111-8111-${String(i).padStart(12, "0")}`,
+    }));
+    const savedIds: string[] = [];
+    const sql = vi.fn(async (strings: TemplateStringsArray, ...values: unknown[]) => {
+      const query = normalizeQuery(strings);
+      if (query.includes("insert into company_directory_sync_runs")) return [{ id: PROFILE_ID }];
+      if (query.startsWith("update company_directory_sync_runs")) return [];
+      if (query.includes("pg_extension")) return [{ ready: true }];
+      if (query.includes("from runnable_provider")) return candidates;
+      if (query.startsWith("with transformed as")) {
+        const id = String(values[2]);
+        savedIds.push(id);
+        return [{ profile_id: id }];
+      }
+      if (query.includes("with provider_state as")) {
+        return [{ total: 21, geocoded: savedIds.length, remaining: 21 - savedIds.length, needs_review: 0, unavailable: 0 }];
+      }
+      throw new Error(`Unexpected SQL: ${query}`);
+    });
+    mocks.getSql.mockReturnValue(sql);
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (url) =>
+      String(url).includes("/registerenhet/")
+        ? jsonResponse({ type: "FeatureCollection", features: [exactDirectoryAddressFeature()] })
+        : jsonResponse([{
+          objektidentitet: REGISTER_UNIT_ID,
+          adressComponents: { postnummer: 15100, postort: "Södertälje" },
+        }]),
+    );
+
+    try {
+      await expect(geocodeDirectoryProviderPointsFromScheduler(Date.now() + 40_000))
+        .resolves.toEqual({ skipped: false, attempted: 20, geocoded: 20, noMatch: 0, errors: 0, remaining: 1, needsReview: 0 });
+      expect(savedIds).toEqual(candidates.slice(0, 20).map(({ id }) => id));
+      expect(fetchMock).toHaveBeenCalledTimes(40);
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
   it("resolves a register unit to the exact address and preserves the verified success contract", async () => {
     let storedSource = OLD_SCB_NO_MATCH;
     let storedLatitude: number | null = null;

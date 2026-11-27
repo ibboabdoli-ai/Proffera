@@ -108,7 +108,7 @@ describe("bounded provider-point geocoding", () => {
         .resolves.toEqual({ skipped: false, attempted: 0, geocoded: 0, noMatch: 0, errors: 0, remaining: 1, needsReview: 0 });
       expect(queryText(sql.mock.calls[3][0])).toContain("on conflict do nothing");
       expect(queryText(sql.mock.calls[5][0])).toContain("location_updated_at < now() - interval '1 day'");
-      expect(sql.mock.calls[5].at(-1)).toBe(5);
+      expect(sql.mock.calls[5].at(-1)).toBe(20);
       expect(queryText(sql.mock.calls[7][0])).toContain("set status = 'completed'");
       expect(mocks.getPlatformAdmin).not.toHaveBeenCalled();
     } finally {
