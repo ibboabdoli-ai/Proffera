@@ -11,7 +11,7 @@ vi.mock("@/components/analytics/posthog-analytics", () => ({
   PostHogAnalytics: () => "POSTHOG_RENDERED",
 }));
 vi.mock("@/components/analytics/analytics-consent-control", () => ({
-  AnalyticsConsentControl: () => "CONSENT_RENDERED",
+  AnalyticsConsentControl: ({ brand }: { brand?: string }) => `CONSENT_RENDERED:${brand ?? "proffera"}`,
 }));
 vi.mock("@/components/performance/web-vitals-reporter", () => ({
   WebVitalsReporter: () => "WEB_VITALS_RENDERED",
@@ -20,7 +20,7 @@ vi.mock("@/components/layout/app-shell", () => ({
   AppShell: ({ children }: { children: React.ReactNode }) => createElement("div", { "data-testid": "proffera-shell" }, children),
 }));
 vi.mock("@/components/analytics/primeview-google-ads-analytics", () => ({
-  PrimeViewGoogleAdsAnalytics: () => null,
+  PrimeViewGoogleAdsAnalytics: () => "PRIMEVIEW_ADS_RENDERED",
 }));
 vi.mock("@/components/service-ai-chat-widget", () => ({
   ServiceAiChatWidget: () => "PROFFERA_CHAT_RENDERED",
@@ -38,6 +38,8 @@ beforeEach(() => {
   vi.stubEnv("VERCEL_ENV", "preview");
   vi.stubEnv("NEXT_PUBLIC_POSTHOG_PREVIEW_KEY", "phc_synthetic");
   vi.stubEnv("NEXT_PUBLIC_POSTHOG_PREVIEW_HOST", "https://eu.i.posthog.com");
+  vi.stubEnv("NEXT_PUBLIC_POSTHOG_KEY", "phc_synthetic");
+  vi.stubEnv("NEXT_PUBLIC_POSTHOG_HOST", "https://eu.i.posthog.com");
   mock.requestHeaders.mockReset();
 });
 
@@ -102,10 +104,25 @@ describe("Maria Preview payment shell analytics privacy", () => {
     expect(html).toContain("PROFFERA_CHAT_RENDERED");
   });
 
-  it("keeps the normal Preview analytics and consent gate on the platform", async () => {
-    const html = await renderRoot(false);
-    expect(html).toContain("POSTHOG_RENDERED");
-    expect(html).toContain("CONSENT_RENDERED");
+  it.each([
+    ["preview", host],
+    ["production", "proffera.se"],
+    ["production", "www.proffera.se"],
+  ])("leaves optional analytics unmounted in %s on %s even with PostHog configured", async (environment, siteHost) => {
+    vi.stubEnv("VERCEL_ENV", environment);
+    const html = await renderRoot(false, siteHost);
+    expect(html).toContain("proffera-shell");
+    expect(html).not.toContain("POSTHOG_RENDERED");
+    expect(html).not.toContain("CONSENT_RENDERED");
+    expect(html).not.toContain("PRIMEVIEW_ADS_RENDERED");
     expect(html).toContain("WEB_VITALS_RENDERED");
+  });
+
+  it("keeps the dedicated consent gate paired with Google Ads on PrimeView", async () => {
+    vi.stubEnv("VERCEL_ENV", "production");
+    const html = await renderRoot(false, "primeviewwindowcare.co.uk");
+    expect(html).toContain("CONSENT_RENDERED:primeview");
+    expect(html).toContain("PRIMEVIEW_ADS_RENDERED");
+    expect(html).not.toContain("POSTHOG_RENDERED");
   });
 });

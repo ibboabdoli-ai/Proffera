@@ -3,16 +3,14 @@ import { headers } from "next/headers";
 import { Hanken_Grotesk } from "next/font/google";
 import "./globals.css";
 import { AnalyticsConsentControl } from "@/components/analytics/analytics-consent-control";
-import { PostHogAnalytics } from "@/components/analytics/posthog-analytics";
 import { PrimeViewGoogleAdsAnalytics } from "@/components/analytics/primeview-google-ads-analytics";
 import { AppShell } from "@/components/layout/app-shell";
 import { ServiceAiChatWidget } from "@/components/service-ai-chat-widget";
 import { PwaServiceWorker } from "@/components/pwa-service-worker";
 import { WebVitalsReporter } from "@/components/performance/web-vitals-reporter";
-import { resolvePostHogConfig } from "@/lib/analytics/posthog-privacy";
 import { siteConfig } from "@/lib/site";
 import { MARIA_PAYMENT_SHELL_HEADER } from "@/lib/maria-payment-standalone";
-import { isMariaHost, isAnalyticsPlatformHost, isPlatformHost, isPrimeViewHost } from "@/lib/public-site-domains";
+import { isMariaHost, isPlatformHost, isPrimeViewHost } from "@/lib/public-site-domains";
 
 const hankenGrotesk = Hanken_Grotesk({
   subsets: ["latin"],
@@ -92,9 +90,6 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
       || (process.env.VERCEL_ENV === "production"
         && isMariaHost(host)
         && process.env.PROFFERA_MARIA_PUBLIC_SITE_ENABLED === "true"));
-  const postHogConfig = mariaPaymentStandalone ? null : resolvePostHogConfig();
-  const shouldRenderAnalytics =
-    postHogConfig !== null && isAnalyticsPlatformHost(host, postHogConfig.environment);
   const isEnglishPublicSite = requestHeaders.get("x-proffera-locale") === "en";
   const documentLanguage = isCustomerSite ? "en-GB" : isEnglishPublicSite ? "en" : "sv";
 
@@ -106,10 +101,8 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
           : isCustomerSite ? <main>{children}</main> : <AppShell>{children}</AppShell>}
         {!mariaPaymentStandalone && !isCustomerSite && <PwaServiceWorker />}
         {!mariaPaymentStandalone && !isCustomerSite && <ServiceAiChatWidget />}
-        {!mariaPaymentStandalone && isPlatformSite && <AnalyticsConsentControl />}
         {!mariaPaymentStandalone && isCustomerSite && <AnalyticsConsentControl brand="primeview" />}
         {!mariaPaymentStandalone && isCustomerSite && <PrimeViewGoogleAdsAnalytics />}
-        {shouldRenderAnalytics && <PostHogAnalytics config={postHogConfig} />}
         {!mariaPaymentStandalone && isPlatformSite && <WebVitalsReporter />}
       </body>
     </html>
