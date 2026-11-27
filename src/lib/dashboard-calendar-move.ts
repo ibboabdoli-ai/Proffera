@@ -15,6 +15,7 @@ export type CalendarMoveErrorCode =
   | "past"
   | "status"
   | "conflict"
+  | "maria_preview"
   | "staff"
   | "staff_conflict"
   | "staff_hours"
@@ -28,6 +29,7 @@ export class CalendarMoveValidationError extends Error {
 }
 
 export type CalendarMoveResult = {
+  workspaceId: string;
   workspaceName: string;
   timeZone: ReturnType<typeof resolveBookingTimeZone>;
   notification: {
@@ -52,6 +54,14 @@ export async function moveDashboardCalendarBooking(input: {
   const access = await getUserWorkspaceAccess();
   if (!access.ok || !canManageWorkspaceSettings(access)) {
     throw new Error("Owner or admin workspace access is required");
+  }
+
+  // Maria Preview appointments use the dedicated locked rescheduler;
+  // Production remains read-only until separately approved for launch.
+  // Block the shared writer before SQL so the route cannot send notifications.
+  if (access.workspaceSlug === "makeup-by-maria" &&
+    (process.env.VERCEL_ENV === "preview" || process.env.VERCEL_ENV === "production")) {
+    throw new CalendarMoveValidationError("maria_preview");
   }
 
   const sql = neon(connectionString);
@@ -176,7 +186,7 @@ export async function moveDashboardCalendarBooking(input: {
   }
 
   const changed = oldStart.getTime() !== newStart.getTime() || String(booking.staff_id ?? "") !== staffId;
-  if (!changed) return { workspaceName: access.workspaceName, timeZone, notification: null };
+  if (!changed) return { workspaceId: access.workspaceId, workspaceName: access.workspaceName, timeZone, notification: null };
 
   const updated = await sql`
     update bookings
@@ -213,6 +223,7 @@ export async function moveDashboardCalendarBooking(input: {
   `;
 
   return {
+    workspaceId: access.workspaceId,
     workspaceName: access.workspaceName,
     timeZone,
     notification: {

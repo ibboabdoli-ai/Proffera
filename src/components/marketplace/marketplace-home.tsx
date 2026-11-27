@@ -4,16 +4,13 @@ import {
   BadgeCheck,
   CheckCircle2,
   Ellipsis,
-  ExternalLink,
   Hammer,
   House,
-  MapPin,
   PaintRoller,
   Search,
   Snowflake,
   Sparkles,
   Sprout,
-  Star,
   Store,
   Truck,
   Wrench,
@@ -22,17 +19,8 @@ import {
 
 import {
   directoryPaths,
-  directoryServiceLabel,
 } from "@/components/company-directory/public-directory-copy";
 import { PublicDirectorySearchForm } from "@/components/company-directory/public-directory-search-form";
-import {
-  MarketplaceCompanyCover,
-  MarketplaceCompanyLogo,
-} from "@/components/marketplace/marketplace-company-media";
-import {
-  getCachedMarketplaceHomeCompanies,
-  getCachedPublishedDirectoryLocationSuggestions,
-} from "@/lib/public-read-cache";
 import type { PublicLocale } from "@/lib/public-locale";
 
 import styles from "./marketplace-home.module.css";
@@ -187,38 +175,16 @@ const categoryIcons = [
 
 const stepIcons = [Search, Store, CheckCircle2] as const;
 
-function profileHref(
-  result: Awaited<ReturnType<typeof getCachedMarketplaceHomeCompanies>>["results"][number],
-  locale: PublicLocale,
-) {
-  if (result.profile.workspaceSlug) {
-    const href = `/foretag/${encodeURIComponent(result.profile.workspaceSlug)}`;
-    return locale === "en" ? `${href}?lang=en` : href;
-  }
-  return `${directoryPaths[locale].search}/${encodeURIComponent(result.slug)}`;
-}
-
-function googleSearchHref(companyName: string, location: string) {
-  const query = [companyName, location].filter(Boolean).join(" ");
-  return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(query)}`;
-}
-
-export async function MarketplaceHome({ locale }: { locale: PublicLocale }) {
+export function MarketplaceHome({ locale }: { locale: PublicLocale }) {
   const t = copy[locale];
   const paths = directoryPaths[locale];
   const businessHref = locale === "en" ? "/en/for-business" : "/for-foretag";
   const loginHref = locale === "en" ? "/logga-in?lang=en" : "/logga-in?lang=sv";
 
-  const [locationSuggestions, companies] = await Promise.all([
-    getCachedPublishedDirectoryLocationSuggestions(24),
-    getCachedMarketplaceHomeCompanies(4),
-  ]);
-
   const serviceSuggestions = t.categories
     .filter((category) => category.query)
     .map((category) => category.label);
 
-  const featuredResults = companies.results.slice(0, 4);
 
   return (
     <div className={styles.page}>
@@ -233,9 +199,7 @@ export async function MarketplaceHome({ locale }: { locale: PublicLocale }) {
               <PublicDirectorySearchForm
                 locale={locale}
                 service=""
-                location=""
                 serviceSuggestions={serviceSuggestions}
-                locationSuggestions={locationSuggestions.slice(0, 12)}
                 tone="light"
                 layout="hero"
               />
@@ -252,10 +216,10 @@ export async function MarketplaceHome({ locale }: { locale: PublicLocale }) {
           </div>
 
           <div className={styles.heroVisual} aria-hidden="true">
-            {/* Editorial service imagery; replace with Proffera-owned media before Production merge. */}
+            {/* Original Proffera-owned illustrative electrician image; avoid presenting the pictured person as a verified real company. */}
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
-              src="https://images.unsplash.com/photo-1621905251189-08b45d6a269e?auto=format&fit=crop&q=88&w=2200"
+              src="/marketplace/hero-electrician.jpg"
               alt=""
               className={styles.heroImage}
             />
@@ -309,84 +273,12 @@ export async function MarketplaceHome({ locale }: { locale: PublicLocale }) {
           </Link>
         </div>
 
-        {featuredResults.length > 0 ? (
-          <div className={styles.companyGrid}>
-            {featuredResults.map((result) => {
-              const media = result.profile.media;
-              const coverMedia = media && media.role !== "logo" ? media : null;
-              const logoUrl = result.profile.logoUrl || (media?.role === "logo" ? media.url : "");
-              const location = result.city || result.municipality || (locale === "en" ? "Sweden" : "Sverige");
-              const reputation = result.profile.reputation && result.profile.reputation.verifiedReviews > 0
-                ? result.profile.reputation
-                : null;
-
-              return (
-                <article key={result.id} className={`group ${styles.companyCard}`}>
-                  <div className={styles.companyCover}>
-                    <MarketplaceCompanyCover
-                      name={result.companyName}
-                      url={coverMedia?.role === "illustration" ? undefined : coverMedia?.url}
-                      illustration={coverMedia?.role === "illustration" || !coverMedia?.url}
-                      serviceSlug={result.matchedServiceSlug}
-                    />
-                    <span className={styles.verifiedBadge}>
-                      <BadgeCheck aria-hidden="true" />
-                      {t.verified}
-                    </span>
-                    {coverMedia?.role === "illustration" || !coverMedia?.url ? (
-                      <span className={styles.illustrationBadge}>{t.illustration}</span>
-                    ) : null}
-                  </div>
-
-                  <div className={styles.companyBody}>
-                    <div className={styles.companyIdentity}>
-                      <MarketplaceCompanyLogo name={result.companyName} url={logoUrl} />
-                      <h3>{result.companyName}</h3>
-                    </div>
-
-                    <div className={styles.companyMeta}>
-                      {reputation ? (
-                        <span className={styles.rating}>
-                          <Star aria-hidden="true" />
-                          <strong>{reputation.rating.toFixed(1)}</strong>
-                          <span>({reputation.verifiedReviews} {t.profferaReviews})</span>
-                        </span>
-                      ) : null}
-                      <span><MapPin aria-hidden="true" />{location}</span>
-                    </div>
-
-                    <div className={styles.companyTags}>
-                      <span>{directoryServiceLabel(result.matchedServiceSlug, result.matchedServiceLabel, locale)}</span>
-                      {result.profile.capabilities.onlineBooking ? (
-                        <span>{locale === "en" ? "Online booking" : "Onlinebokning"}</span>
-                      ) : null}
-                    </div>
-
-                    <div className={styles.companyActions}>
-                      <Link href={profileHref(result, locale)} className={styles.profileLink}>
-                        {t.viewProfile}<ArrowRight aria-hidden="true" />
-                      </Link>
-                      <a
-                        href={googleSearchHref(result.companyName, location)}
-                        target="_blank"
-                        rel="noreferrer"
-                        className={styles.googleLink}
-                        aria-label={`${t.google}: ${result.companyName}`}
-                      >
-                        {t.google}<ExternalLink aria-hidden="true" />
-                      </a>
-                    </div>
-                  </div>
-                </article>
-              );
-            })}
-          </div>
-        ) : (
-          <div className={styles.emptyState}>
-            <p>{locale === "en" ? "Explore currently published businesses." : "Utforska de företagsprofiler som är publicerade just nu."}</p>
-            <Link href={paths.search}>{t.allCompanies}<ArrowRight aria-hidden="true" /></Link>
-          </div>
-        )}
+        <div className={styles.emptyState}>
+          <p>{locale === "en"
+            ? "Choose a service and enter an address or use your location to discover nearby verified businesses."
+            : "Välj en tjänst och ange en adress eller använd din position för att hitta verifierade företag i närheten."}</p>
+          <Link href={paths.search}>{t.allCompanies}<ArrowRight aria-hidden="true" /></Link>
+        </div>
       </section>
 
       <section id="sa-fungerar" className={`${styles.howSection} ${styles.sectionReveal}`}>

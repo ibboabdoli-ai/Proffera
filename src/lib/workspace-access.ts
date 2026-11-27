@@ -76,7 +76,9 @@ function isAllowedWorkspaceStatus(value: unknown): value is AllowedWorkspaceStat
   return typeof value === "string" && allowedWorkspaceStatuses.includes(value as AllowedWorkspaceStatus);
 }
 
-export async function getUserWorkspaceAccess(): Promise<WorkspaceAccessResult> {
+export async function getUserWorkspaceAccess(
+  options: { suppressErrors?: boolean } = {},
+): Promise<WorkspaceAccessResult> {
   const session = await getServerSession();
 
   if (!session) {
@@ -152,7 +154,7 @@ export async function getUserWorkspaceAccess(): Promise<WorkspaceAccessResult> {
       ...workspace,
     };
   } catch (error) {
-    console.error("Failed to read workspace access", error);
+    if (!options.suppressErrors) console.error("Failed to read workspace access", error);
 
     return { ok: false, reason: "workspace_not_allowed" };
   }

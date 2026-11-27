@@ -216,6 +216,31 @@ export async function applyCanonicalProfferaMigrations(client: Client) {
       externalPrerequisitesReady = true;
     }
 
+    if (file === "20261111_0077_workspace_starter_sms_quota.sql") {
+      // The isolated legacy bootstrap predates Production's canonical feature
+      // catalog FK. Reconcile the TEST fixture before 0077, rather than
+      // weakening the migration's fail-closed FK precondition.
+      await client.query(`
+        insert into feature_catalog (feature_key)
+        select distinct feature_key from workspace_feature_flags
+        union select 'sms'
+        on conflict (feature_key) do nothing;
+
+        do $verified_sms_catalog_fk$
+        begin
+          if not exists (
+            select 1 from pg_constraint
+            where conrelid='public.workspace_feature_flags'::regclass
+              and conname='workspace_feature_flags_feature_catalog_fkey'
+          ) then
+            alter table workspace_feature_flags
+              add constraint workspace_feature_flags_feature_catalog_fkey
+              foreign key (feature_key) references feature_catalog(feature_key);
+          end if;
+        end $verified_sms_catalog_fk$;
+      `);
+    }
+
     const migration = readFileSync(join(MIGRATIONS_DIR, file), "utf8");
     try {
       if (NON_TRANSACTIONAL_MIGRATIONS.has(file)) {

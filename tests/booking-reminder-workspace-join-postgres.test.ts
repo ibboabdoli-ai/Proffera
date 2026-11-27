@@ -42,6 +42,7 @@ vi.mock("@neondatabase/serverless", () => ({
 }));
 
 import { processBookingReminders } from "@/lib/booking-reminders";
+import { createCustomerCalendarToken } from "@/lib/customer-calendar";
 
 const RUN_POSTGRES_INTEGRATION =
   process.env.GITHUB_ACTIONS === "true"
@@ -53,6 +54,9 @@ const migrationFiles = [
   "20260614_phase18_15_workspace_settings.sql",
   "20260729_0018_booking_reminders.sql",
   "20260801_0020_workspace_market_settings.sql",
+  // Use the exact canonical ledger and archive migration, never a substitute table.
+  "20260823_0066_production_schema_ledger.sql",
+  "20261111_0078_maria_booking_soft_delete.sql",
 ] as const;
 
 function docker(args: string[]) {
@@ -414,6 +418,56 @@ if (RUN_POSTGRES_INTEGRATION) {
         "select count(*)::int as count from booking_reminder_deliveries",
       );
       expect(deliveryCountAfterRetry.rows[0]?.count).toBe(4);
+    }, 30_000);
+
+    it("excludes a confirmed no-OTP booking in the live PostgreSQL reminder selection", async () => {
+      if (!setupClient) throw new Error("PostgreSQL test client is unavailable");
+      // Both initial fixtures are confirmed and due in the next 24 hours.
+      // One carries a no-OTP booking event; the other has unrelated metadata.
+      // Clear prior synthetic delivery claims to observe the selection again.
+      await setupClient.query("delete from booking_reminder_deliveries");
+      await setupClient.query(
+        "insert into customer_events(workspace_id,customer_id,booking_id,event_type,title,description,metadata) " +
+        "select b.workspace_id,b.customer_id,b.id,'booking','Unverified QA','Synthetic only'," +
+        "jsonb_build_object('source','public_booking','verification_mode','temporary_no_otp','email_verified',false) " +
+        "from bookings b where b.id=$1::uuid",
+        [firstBookingId],
+      );
+      await setupClient.query(
+        "insert into customer_events(workspace_id,customer_id,booking_id,event_type,title,description,metadata) " +
+        "select b.workspace_id,b.customer_id,b.id,'booking','Ordinary QA','Synthetic only'," +
+        "jsonb_build_object('source','public_booking','verification_mode','email_otp','email_verified',true) " +
+        "from bookings b where b.id=$1::uuid",
+        [secondBookingId],
+      );
+      mocks.sendBookingReminderEmail.mockClear();
+      mocks.sendBookingReminderSms.mockClear();
+      vi.mocked(createCustomerCalendarToken).mockClear();
+
+      const result = await processBookingReminders();
+
+      expect(result).toEqual({ checked: 1, sent: 2, skipped: 0, failed: 0, autoCompleted: 0 });
+      expect(mocks.sendBookingReminderEmail).toHaveBeenCalledTimes(1);
+      expect(mocks.sendBookingReminderEmail).toHaveBeenCalledWith(
+        expect.objectContaining({
+          customerEmail: "second@example.test",
+          portalUrl: expect.stringContaining("postgres-integration-token"),
+        }),
+      );
+      expect(mocks.sendBookingReminderSms).toHaveBeenCalledTimes(1);
+      expect(mocks.sendBookingReminderSms).toHaveBeenCalledWith(
+        expect.objectContaining({ customerPhone: "+46700000002" }),
+      );
+      expect(createCustomerCalendarToken).toHaveBeenCalledTimes(1);
+
+      const claims = await setupClient.query<{ booking_id: string }>(
+        "select booking_id::text from booking_reminder_deliveries order by booking_id",
+      );
+      expect(claims.rows).toHaveLength(2);
+      expect(claims.rows.map(row => row.booking_id)).toEqual([
+        secondBookingId, secondBookingId,
+      ]);
+      expect(claims.rows.some(row => row.booking_id === firstBookingId)).toBe(false);
     }, 30_000);
   });
 }

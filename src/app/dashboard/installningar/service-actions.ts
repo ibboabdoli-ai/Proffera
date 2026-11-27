@@ -65,8 +65,24 @@ async function getServiceInput(formData: FormData) {
   });
   if (!pricing.ok) redirectWithServiceError("price");
 
+  // The new currency-safe amount is canonical. Keep only Maria's SEK
+  // legacy amount in sync for readers that still use base_price_sek.
+  // Never infer a legacy SEK price for other markets or quote prices.
+  const access = await getUserWorkspaceAccess();
+  const isMariaSek = access.ok
+    && access.workspaceSlug === "makeup-by-maria"
+    && workspaceSettings.billingCurrency === "SEK";
+  const mariaLegacyPrice = isMariaSek
+    ? pricing.value.priceType === "fixed" && pricing.value.amountMinor !== null
+      ? pricing.value.amountMinor % 100 === 0
+        ? pricing.value.amountMinor / 100
+        : null
+      : null
+    : result.value.basePriceSek;
+
   return {
     ...result.value,
+    basePriceSek: mariaLegacyPrice,
     priceLabel: formatWorkspaceServicePrice(pricing.value, "sv"),
     priceType: pricing.value.priceType,
     priceAmountMinor: pricing.value.amountMinor,

@@ -28,6 +28,7 @@ import { getPublicBusinessProfileViewForRequest } from "@/lib/business-profile-p
 import { getClaimedDirectoryWorkspaceSlug } from "@/lib/company-directory-routing";
 import type { PublicLocale } from "@/lib/public-locale";
 import { siteConfig } from "@/lib/site";
+import { serviceCategoryPhoto } from "@/lib/service-category-photo";
 
 import styles from "./public-directory-profile.module.css";
 
@@ -70,6 +71,7 @@ export async function PublicDirectoryProfile({ slug, locale }: { slug: string; l
     ? new Intl.DateTimeFormat(locale === "en" ? "en-SE" : "sv-SE", { dateStyle: "medium", timeZone: "Europe/Stockholm" }).format(new Date(business.lastCheckedAt))
     : t.synced;
   const hasMedia = Boolean(business.media?.isActualBusinessMedia && business.media.url);
+  const illustrativePhoto = !hasMedia ? serviceCategoryPhoto(business.categorySlug, extras.services[0]?.slug) : null;
   const profilePath = `${profileBase}/${encodeURIComponent(business.slug)}`;
   const canonical = `${siteConfig.url}${profilePath}`;
   const description = business.activityDescription || `${business.companyName}${business.city ? ` i ${business.city}` : ""} – ${category}.`;
@@ -184,6 +186,11 @@ export async function PublicDirectoryProfile({ slug, locale }: { slug: string; l
             <div className={styles.heroMedia}>
               <Image src={business.media!.url} alt={business.companyName} fill unoptimized sizes="(max-width: 1024px) 100vw, 960px" className="object-cover" />
               <div className="absolute inset-x-0 bottom-0 h-24 bg-gradient-to-t from-black/25 to-transparent" aria-hidden="true" />
+            </div>
+          ) : illustrativePhoto ? (
+            <div className={styles.heroMedia}>
+              <Image src={illustrativePhoto} alt="" fill sizes="(max-width: 1024px) 100vw, 960px" className="object-cover" />
+              <span className={styles.photoDisclosure}>{locale === "en" ? "Illustrative photo · not this business" : "Exempelbild · inte detta företag"}</span>
             </div>
           ) : (
             <div className={`${styles.noMediaBar} bg-brand`} aria-hidden="true" />
@@ -365,7 +372,7 @@ export async function PublicDirectoryProfile({ slug, locale }: { slug: string; l
                   <p className="font-black text-brand">{t.sourceTitle}</p>
                   <p className="mt-1">{t.sourceLead} {t.lastChecked}: {lastChecked}.</p>
                   <p className="mt-2">{profile.identity.ownershipState === "claimed" ? t.sourceOwnerClaimed : t.sourceOwner}</p>
-                  {!hasMedia ? <p className="mt-2">{t.noImage}</p> : null}
+                  {!hasMedia ? <p className="mt-2">{illustrativePhoto ? t.noImage : t.noMedia}</p> : null}
                 </div>
               </div>
             </aside>

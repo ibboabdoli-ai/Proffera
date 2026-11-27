@@ -5,6 +5,7 @@ import type Stripe from "stripe";
 import { type CheckoutPlanKey } from "@/lib/billing-plans";
 import { getSql } from "@/lib/db/server";
 import { syncWorkspaceAiChat } from "@/lib/service-ai-chat-bridge";
+import { starterSmsLimitFromStripe } from "@/lib/workspace-sms-quota";
 
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -78,6 +79,171 @@ export async function getWorkspaceBillingSummary(workspaceId: string): Promise<W
   }
 }
 
+/**
+ * Atomic, current-subscription-only entitlement revocation. A stale refund
+ * must never alter the plan/features of a newly linked subscription.
+ */
+export async function syncCancelledWorkspaceSubscription(
+  subscription: Stripe.Subscription,
+  eventCreated: number,
+  expectedPriceId: string,
+  stripe?: Stripe,
+) {
+  const workspaceId = subscription.metadata.workspace_id?.trim() ?? "";
+  const item = subscription.items.data[0];
+  const priceId = item?.price.id ?? "";
+  const customerId = stripeId(subscription.customer);
+  if (!uuidPattern.test(workspaceId) || !customerId || !priceId ||
+      priceId !== expectedPriceId || subscription.status !== "canceled" ||
+      !Number.isSafeInteger(eventCreated)) {
+    return { ok: false as const, code: "ignored" as const };
+  }
+  const sql = getSql();
+  if (!sql) return { ok: false as const, code: "database" as const };
+  const periodStart = item?.current_period_start
+    ? new Date(item.current_period_start * 1000).toISOString() : null;
+  const periodEnd = item?.current_period_end
+    ? new Date(item.current_period_end * 1000).toISOString() : null;
+  try {
+    // Recover out-of-order initial cancellations only with a provider-verified
+    // completed Checkout Session for this exact Workspace/Customer/Subscription.
+    // The pending session identity is rechecked inside the atomic SQL write.
+    let verifiedCheckoutSessionId: string | null = null;
+    if (stripe) {
+      const pending = await sql`
+        select stripe_checkout_session_id
+        from workspace_billing_subscriptions
+        where workspace_id = ${workspaceId}::uuid
+          and stripe_subscription_id is null
+          and status = 'pending'
+          and stripe_checkout_session_id is not null
+          and (stripe_customer_id is null or stripe_customer_id = ${customerId})
+        limit 1
+      `;
+      const pendingId = pending[0]?.stripe_checkout_session_id;
+      if (typeof pendingId === "string" && pendingId) {
+        const session = await stripe.checkout.sessions.retrieve(pendingId);
+        if (session.status === "complete" &&
+            session.mode === "subscription" &&
+            session.livemode === subscription.livemode &&
+            session.id === pendingId &&
+            stripeId(session.subscription) === subscription.id &&
+            stripeId(session.customer) === customerId &&
+            session.client_reference_id === workspaceId &&
+            session.metadata?.workspace_id === workspaceId) {
+          verifiedCheckoutSessionId = pendingId;
+        }
+      }
+    }
+
+    // Exact current binding or verified pending Checkout gates plan and flags.
+    const rows = await sql`
+      with latest_plan as (
+        select id from workspace_plans
+        where workspace_id = ${workspaceId}::uuid
+        order by created_at desc
+        limit 1
+      ),
+      changed_billing as (
+        update workspace_billing_subscriptions b
+        set workspace_plan_id = coalesce(b.workspace_plan_id, (select id from latest_plan)),
+            status = 'cancelled',
+            cancel_at_period_end = false,
+            stripe_customer_id = ${customerId},
+            stripe_subscription_id = ${subscription.id},
+            stripe_price_id = ${priceId},
+            sms_monthly_limit = null,
+            current_period_start = coalesce(${periodStart}::timestamptz, b.current_period_start),
+            current_period_end = coalesce(${periodEnd}::timestamptz, b.current_period_end),
+            last_event_created = greatest(coalesce(b.last_event_created, 0), ${eventCreated}),
+            updated_at = now()
+        where b.workspace_id = ${workspaceId}::uuid
+          and (b.workspace_plan_id is not null or exists (select 1 from latest_plan))
+          and (
+            (b.stripe_subscription_id = ${subscription.id}
+             and b.stripe_customer_id = ${customerId})
+            or (
+              ${verifiedCheckoutSessionId}::text is not null
+              and b.stripe_subscription_id is null
+              and b.status = 'pending'
+              and b.stripe_checkout_session_id = ${verifiedCheckoutSessionId}
+              and (b.stripe_customer_id is null or b.stripe_customer_id = ${customerId})
+            )
+          )
+        returning b.workspace_id, b.workspace_plan_id
+      ),
+      changed_plan as (
+        update workspace_plans p
+        set status = 'cancelled',
+            current_period_start = coalesce(${periodStart}::timestamptz, p.current_period_start),
+            current_period_end = coalesce(${periodEnd}::timestamptz, p.current_period_end),
+            updated_at = now()
+        from changed_billing b
+        where p.id = b.workspace_plan_id
+        returning p.id
+      ),
+      changed_flags as (
+        insert into workspace_feature_flags (
+          id, workspace_id, feature_key, enabled, created_at, updated_at
+        )
+        select gen_random_uuid(), b.workspace_id, f.feature_key, false, now(), now()
+        from changed_billing b
+        cross join (values
+          ('booking_demo'), ('crm_customers'), ('lead_inbox'), ('ai_assistant'),
+          ('online_booking')
+        ) as f(feature_key)
+        where f.feature_key <> 'online_booking'
+          or exists (
+            select 1 from workspaces w
+            where w.id=b.workspace_id and w.slug='makeup-by-maria'
+          )
+        on conflict (workspace_id, feature_key)
+        do update set enabled = false, updated_at = now()
+        returning workspace_id
+      )
+      select
+        (select count(*) from changed_billing)::int as billing_count,
+        (select count(*) from changed_plan)::int as plan_count,
+        (select count(*) from changed_flags)::int as flag_count,
+        (select count(*) from changed_billing b join workspaces w
+           on w.id=b.workspace_id and w.slug='makeup-by-maria')::int as maria_flag_count
+    `;
+    if (Number(rows[0]?.billing_count ?? 0) === 0) {
+      if (verifiedCheckoutSessionId) {
+        // A replaced Checkout must be ignored, but a still-pending verified
+        // Checkout with missing plan/binding must be retried rather than
+        // acknowledged as completed and leaving the owner stuck.
+        const current = await sql`
+          select stripe_checkout_session_id, stripe_subscription_id, status
+          from workspace_billing_subscriptions
+          where workspace_id = ${workspaceId}::uuid
+          limit 1
+        `;
+        if (current[0]?.status === "pending" &&
+            current[0].stripe_checkout_session_id === verifiedCheckoutSessionId &&
+            !current[0].stripe_subscription_id) {
+          return { ok: false as const, code: "database" as const };
+        }
+      }
+      return { ok: false as const, code: "stale" as const };
+    }
+    if (Number(rows[0]?.plan_count ?? 0) !== 1 ||
+        Number(rows[0]?.flag_count ?? 0) !== 4 + Number(rows[0]?.maria_flag_count ?? 0)) {
+      return { ok: false as const, code: "database" as const };
+    }
+    try {
+      const aiChat = await syncWorkspaceAiChat({ workspaceId, enabled: false });
+      if (!aiChat.ok) console.error("Cancelled AI Chat sync failed", { workspaceId, code: aiChat.code });
+    } catch (error) {
+      console.error("Cancelled AI Chat sync crashed", { workspaceId, error });
+    }
+    return { ok: true as const };
+  } catch (error) {
+    console.error("Failed to sync guarded Stripe cancellation", error);
+    return { ok: false as const, code: "database" as const };
+  }
+}
+
 export async function syncWorkspaceSubscription(
   subscription: Stripe.Subscription,
   eventCreated: number,
@@ -97,9 +263,17 @@ export async function syncWorkspaceSubscription(
     return { ok: false as const, code: "ignored" as const };
   }
 
+  if (subscription.status === "canceled") {
+    return syncCancelledWorkspaceSubscription(subscription, eventCreated, expectedPriceId);
+  }
+
   const status = normalizeStripeStatus(subscription.status);
   const modulesEnabled = status === "active" || status === "trialing";
   const customerCrmEnabled = modulesEnabled && planKey === "professional";
+  // Only the actual paid, Stripe-expanded subscription discount controls SMS units.
+  // Missing/unknown payment evidence fails closed; Admin flags are not a price source.
+  const smsMonthlyLimit = planKey === "starter"
+    ? starterSmsLimitFromStripe(subscription) : null;
   const customerId = stripeId(subscription.customer);
   const currentPeriodStartTimestamp = subscriptionItem?.current_period_start ?? legacySubscription.current_period_start;
   const currentPeriodEndTimestamp = subscriptionItem?.current_period_end ?? legacySubscription.current_period_end;
@@ -168,6 +342,7 @@ export async function syncWorkspaceSubscription(
           stripe_customer_id,
           stripe_subscription_id,
           stripe_price_id,
+          sms_monthly_limit,
           status,
           cancel_at_period_end,
           current_period_start,
@@ -183,6 +358,7 @@ export async function syncWorkspaceSubscription(
           ${customerId},
           ${subscription.id},
           ${stripePriceId},
+          ${smsMonthlyLimit},
           ${status},
           ${subscription.cancel_at_period_end},
           ${currentPeriodStart},
@@ -198,6 +374,7 @@ export async function syncWorkspaceSubscription(
           stripe_customer_id = excluded.stripe_customer_id,
           stripe_subscription_id = excluded.stripe_subscription_id,
           stripe_price_id = excluded.stripe_price_id,
+          sms_monthly_limit = excluded.sms_monthly_limit,
           status = excluded.status,
           cancel_at_period_end = excluded.cancel_at_period_end,
           current_period_start = excluded.current_period_start,
@@ -211,12 +388,18 @@ export async function syncWorkspaceSubscription(
           ('booking_demo', ${modulesEnabled}::boolean),
           ('crm_customers', ${customerCrmEnabled}::boolean),
           ('lead_inbox', ${modulesEnabled}::boolean),
-          ('ai_assistant', ${customerCrmEnabled}::boolean)
+          ('ai_assistant', ${customerCrmEnabled}::boolean),
+          ('online_booking', ${status === "active"}::boolean)
       )
       insert into workspace_feature_flags (id, workspace_id, feature_key, enabled, created_at, updated_at)
       select gen_random_uuid(), bu.workspace_id, fv.feature_key, fv.enabled, now(), now()
       from billing_upsert bu
       cross join feature_values fv
+      where fv.feature_key <> 'online_booking'
+        or exists (
+          select 1 from workspaces w
+          where w.id=bu.workspace_id and w.slug='makeup-by-maria'
+        )
       on conflict (workspace_id, feature_key)
       do update set enabled = excluded.enabled, updated_at = now()
       returning workspace_id

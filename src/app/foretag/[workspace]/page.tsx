@@ -8,6 +8,7 @@ import { DocumentLanguageSync } from "@/components/layout/document-language-sync
 import { PublicBusinessContactForm } from "@/components/public-business/public-contact-form";
 import { PublicBusinessTrackedLink, PublicBusinessViewEvent } from "@/components/public-business/public-business-tracking";
 import { formatPublicBusinessPrice, getPublicBusinessHub } from "@/lib/public-business-hub";
+import { serviceCategoryPhoto } from "@/lib/service-category-photo";
 import {
   firstPublicBusinessLocaleParam,
   publicBusinessCopy,
@@ -98,7 +99,10 @@ export default async function PublicBusinessPage({ params, searchParams }: Props
     ? withPublicBusinessLocale(`/boka/${encodeURIComponent(business.bookingSlug)}`, locale)
     : "";
 
-  const hasHeroMedia = Boolean(experience.heroImageUrl || experience.heroVideoUrl);
+  const illustrativeHeroPhoto = !experience.heroImageUrl && !experience.heroVideoUrl
+    ? serviceCategoryPhoto(services[0]?.category, services[0]?.publicSlug)
+    : null;
+  const hasHeroMedia = Boolean(experience.heroImageUrl || experience.heroVideoUrl || illustrativeHeroPhoto);
 
   return (
     <main lang={locale} style={style} className={styles.page}>
@@ -195,6 +199,12 @@ export default async function PublicBusinessPage({ params, searchParams }: Props
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img src={experience.heroImageUrl} alt="" />
                 </div>
+              ) : illustrativeHeroPhoto ? (
+                <div className={styles.heroMedia}>
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={illustrativeHeroPhoto} alt="" />
+                  <span className={styles.photoDisclosure}>{locale === "en" ? "Illustrative photo · not this business" : "Exempelbild · inte detta företag"}</span>
+                </div>
               ) : null}
             </div>
           </section>
@@ -216,6 +226,9 @@ export default async function PublicBusinessPage({ params, searchParams }: Props
                   const price = formatPublicBusinessPrice(service, business.billingCurrency, locale === "en" ? "en-SE" : "sv-SE");
                   const serviceHref = withPublicBusinessLocale(urls.serviceHref(service.publicSlug), locale);
                   const modeLabel = companyCopy.serviceMode[service.conversionMode];
+                  const illustrativeServicePhoto = !service.coverImageUrl
+                    ? serviceCategoryPhoto(service.category, service.publicSlug)
+                    : null;
 
                   return (
                     <a key={service.id} href={serviceHref} className={styles.serviceCard}>
@@ -224,6 +237,12 @@ export default async function PublicBusinessPage({ params, searchParams }: Props
                           // Public tenant media can live on tenant-specific Blob/CDN hosts.
                           // eslint-disable-next-line @next/next/no-img-element
                           <img src={service.coverImageUrl} alt={service.name} loading="lazy" />
+                        ) : illustrativeServicePhoto ? (
+                          <>
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                            <img src={illustrativeServicePhoto} alt="" loading="lazy" />
+                            <span className={styles.servicePhotoDisclosure}>{locale === "en" ? "Illustrative" : "Exempelbild"}</span>
+                          </>
                         ) : (
                           <div className={styles.serviceFallback}>
                             <span>{service.name.slice(0, 1).toUpperCase()}</span>

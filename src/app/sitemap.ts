@@ -6,12 +6,13 @@ import { isIndexablePublicBusinessWorkspace } from "@/lib/public-business-seo";
 import { marketingIndustrySlugs } from "@/lib/marketing-industry-pages";
 import { marketingServiceSlugs } from "@/lib/marketing-service-pages";
 import { primeViewIndexableAreaPages } from "@/lib/primeview-area-pages";
+import { getMariaPublicSeoPolicy } from "@/lib/maria-public-seo-policy";
 import { primeViewSite } from "@/lib/primeview-seo";
 import { primeViewServicePages } from "@/lib/primeview-seo-pages";
 import { getCachedPublicBusinessSitemapEntries } from "@/lib/public-read-cache";
 import { localizedPublicRoutes } from "@/lib/public-locale";
 import { resolvePublicCustomDomain } from "@/lib/public-site-domain-routing";
-import { hostnameFromHostHeader, isPlatformHost, isPrimeViewHost } from "@/lib/public-site-domains";
+import { hostnameFromHostHeader, isMariaHost, isPlatformHost, isPrimeViewHost } from "@/lib/public-site-domains";
 import { siteConfig } from "@/lib/site";
 
 const swedishOnlyRoutes = [
@@ -41,6 +42,9 @@ export const dynamic = "force-dynamic";
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   const requestHeaders = await headers();
   const host = requestHeaders.get("host");
+
+  // The public bridal portfolio has a one-page sitemap even with bookings off.
+  if (isMariaHost(host)) return getMariaPublicSeoPolicy().sitemap;
 
   if (isPrimeViewHost(host)) {
     return primeViewRoutes.map((path) => ({

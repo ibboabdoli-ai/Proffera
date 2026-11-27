@@ -11,7 +11,8 @@ import { PwaServiceWorker } from "@/components/pwa-service-worker";
 import { WebVitalsReporter } from "@/components/performance/web-vitals-reporter";
 import { resolvePostHogConfig } from "@/lib/analytics/posthog-privacy";
 import { siteConfig } from "@/lib/site";
-import { isAnalyticsPlatformHost, isPlatformHost, isPrimeViewHost } from "@/lib/public-site-domains";
+import { MARIA_PAYMENT_SHELL_HEADER } from "@/lib/maria-payment-standalone";
+import { isMariaHost, isAnalyticsPlatformHost, isPlatformHost, isPrimeViewHost } from "@/lib/public-site-domains";
 
 const hankenGrotesk = Hanken_Grotesk({
   subsets: ["latin"],
@@ -77,12 +78,21 @@ export const viewport: Viewport = {
   themeColor: "#0a2e63",
 };
 
+/** Select tenant-specific document shells; never render Proffera chat on a trusted Maria payment page. */
 export default async function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   const requestHeaders = await headers();
   const host = requestHeaders.get("host");
   const isCustomerSite = isPrimeViewHost(host);
   const isPlatformSite = isPlatformHost(host);
-  const postHogConfig = resolvePostHogConfig();
+  // The proxy strips untrusted client markers and sets this only on an
+  // exact Maria Swish booking page. Never apply the standalone shell to the
+  // Proffera dashboard, platform host or any unrelated customer domain.
+  const mariaPaymentStandalone = requestHeaders.get(MARIA_PAYMENT_SHELL_HEADER) === "1"
+    && ((process.env.VERCEL_ENV === "preview" && isPlatformSite)
+      || (process.env.VERCEL_ENV === "production"
+        && isMariaHost(host)
+        && process.env.PROFFERA_MARIA_PUBLIC_SITE_ENABLED === "true"));
+  const postHogConfig = mariaPaymentStandalone ? null : resolvePostHogConfig();
   const shouldRenderAnalytics =
     postHogConfig !== null && isAnalyticsPlatformHost(host, postHogConfig.environment);
   const isEnglishPublicSite = requestHeaders.get("x-proffera-locale") === "en";
@@ -91,14 +101,16 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
   return (
     <html lang={documentLanguage} className={isCustomerSite ? "primeview-site" : undefined}>
       <body className={`${hankenGrotesk.variable}${isCustomerSite ? " primeview-site" : ""}`}>
-        {isCustomerSite ? <main>{children}</main> : <AppShell>{children}</AppShell>}
-        {!isCustomerSite && <PwaServiceWorker />}
-        {!isCustomerSite && <ServiceAiChatWidget />}
-        {isPlatformSite && <AnalyticsConsentControl />}
-        {isCustomerSite && <AnalyticsConsentControl brand="primeview" />}
-        {isCustomerSite && <PrimeViewGoogleAdsAnalytics />}
+        {mariaPaymentStandalone
+          ? children
+          : isCustomerSite ? <main>{children}</main> : <AppShell>{children}</AppShell>}
+        {!mariaPaymentStandalone && !isCustomerSite && <PwaServiceWorker />}
+        {!mariaPaymentStandalone && !isCustomerSite && <ServiceAiChatWidget />}
+        {!mariaPaymentStandalone && isPlatformSite && <AnalyticsConsentControl />}
+        {!mariaPaymentStandalone && isCustomerSite && <AnalyticsConsentControl brand="primeview" />}
+        {!mariaPaymentStandalone && isCustomerSite && <PrimeViewGoogleAdsAnalytics />}
         {shouldRenderAnalytics && <PostHogAnalytics config={postHogConfig} />}
-        {isPlatformSite && <WebVitalsReporter />}
+        {!mariaPaymentStandalone && isPlatformSite && <WebVitalsReporter />}
       </body>
     </html>
   );

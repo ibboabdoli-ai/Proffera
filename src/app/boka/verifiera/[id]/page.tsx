@@ -1,8 +1,12 @@
-import { redirect } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
+import { headers } from "next/headers";
 import type { CSSProperties } from "react";
 
 import { readableBookingTextColor } from "@/lib/booking-theme-contract";
 import { getSql } from "@/lib/db/server";
+import { getMariaExistingBookingPortalBase } from "@/lib/maria-preview-customer-safety";
+import { MARIA_CANONICAL_PRODUCTION_ORIGIN } from "@/lib/maria-production-activation-policy";
+import { hostnameFromHostHeader, isMariaHost } from "@/lib/public-site-domains";
 import { resolvePublicBusinessLocale } from "@/lib/public-business-locale";
 import { resendPublicBookingCode, verifyPublicBookingCode } from "@/lib/public-booking-verification";
 import { publicBookingSuccessRedirect } from "@/lib/public-booking-success-redirect";
@@ -16,12 +20,14 @@ type PageProps = {
   searchParams?: Promise<{ error?: string | string[]; lang?: string | string[]; resent?: string | string[]; channel?: string | string[] }>;
 };
 
-type Locale = "sv" | "en";
+type Locale = "sv" | "en" | "ar";
 type VerificationExperience = {
-  defaultLanguage: Locale;
+  defaultLanguage: "sv" | "en";
   swedishEnabled: boolean;
   englishEnabled: boolean;
   primaryColor: string;
+  mariaPreview: boolean;
+  mariaWorkspace: boolean;
 };
 
 const safeVerificationExperience: VerificationExperience = {
@@ -29,14 +35,19 @@ const safeVerificationExperience: VerificationExperience = {
   swedishEnabled: true,
   englishEnabled: false,
   primaryColor: "#17452f",
+  mariaPreview: false,
+  mariaWorkspace: false,
 };
 
 const messages: Record<Locale, Record<string, string>> = {
   sv: {
-    invalid: "Verifieringsförfrågan är ogiltig.", expired: "Koden har gått ut. Skicka en ny kod.", attempts: "För många felaktiga försök. Skicka en ny kod.", code: "Koden stämmer inte. Kontrollera mejlet eller SMS:et och försök igen.", conflict: "Tiden hann bli bokad. Välj en ny tid.", save: "Bokningen kunde inte sparas. Försök igen.", wait: "Vänta minst 30 sekunder innan du skickar en ny kod.", email: "Koden kunde inte skickas just nu. Försök igen om en stund.",
+    invalid: "Verifieringsförfrågan är ogiltig.", expired: "Koden har gått ut. Skicka en ny kod.", attempts: "För många felaktiga försök. Skicka en ny kod.", code: "Koden stämmer inte. Kontrollera mejlet eller SMS:et och försök igen.", conflict: "Tiden hann bli bokad. Välj en ny tid.", save: "Bokningen kunde inte sparas. Försök igen.", wait: "Vänta minst 30 sekunder innan du skickar en ny kod.", email: "Koden kunde inte skickas just nu. Försök igen om en stund.", unavailable: "Bokningen kan redan vara sparad, men länken kan inte visas nu. Kontakta Makeup by Maria för hjälp och gör inte en ny bokning.",
   },
   en: {
-    invalid: "The verification request is invalid.", expired: "The code has expired. Send a new code.", attempts: "Too many incorrect attempts. Send a new code.", code: "That code is incorrect. Check your email or SMS and try again.", conflict: "That time has just been booked. Please choose a new time.", save: "The booking could not be saved. Please try again.", wait: "Please wait at least 30 seconds before sending another code.", email: "We could not send a code right now. Please try again in a moment.",
+    invalid: "The verification request is invalid.", expired: "The code has expired. Send a new code.", attempts: "Too many incorrect attempts. Send a new code.", code: "That code is incorrect. Check your email or SMS and try again.", conflict: "That time has just been booked. Please choose a new time.", save: "The booking could not be saved. Please try again.", wait: "Please wait at least 30 seconds before sending another code.", email: "We could not send a code right now. Please try again in a moment.", unavailable: "Your booking may already be saved, but we cannot show its link right now. Contact Makeup by Maria for help. Do not submit a second booking.",
+  },
+  ar: {
+    invalid: "طلب التحقق غير صالح.", expired: "انتهت صلاحية الرمز. اطلب رمزًا جديدًا.", attempts: "محاولات غير صحيحة كثيرة. اطلب رمزًا جديدًا.", code: "الرمز غير صحيح. تحقّق من بريدك الإلكتروني وحاول مجددًا.", conflict: "تم حجز هذا الموعد. اختر وقتًا آخر.", save: "تعذّر حفظ الحجز. حاول مجددًا.", wait: "انتظر 30 ثانية على الأقل قبل طلب رمز جديد.", email: "تعذّر إرسال الرمز الآن. حاول لاحقًا.", unavailable: "قد يكون حجزك محفوظًا بالفعل، لكن لا يمكن عرض الرابط الآن. تواصل مع Makeup by Maria للمساعدة ولا تنشئ حجزًا ثانيًا.",
   },
 };
 
@@ -52,33 +63,66 @@ function verificationHref(id: string, locale: Locale, channel: string) {
 
 async function getVerificationExperience(id: string): Promise<VerificationExperience> {
   const sql = getSql();
-  if (!sql || !/^[0-9a-f-]{36}$/i.test(id)) return safeVerificationExperience;
+  if (!sql || !/^[0-9a-f-]{36}$/i.test(id)) notFound();
 
+  // Resolve the challenge's real workspace first. A failed public-language lookup
+  // must never erase that identity and bypass Maria's canonical-host guard.
+  let rows: Array<Record<string, unknown>>;
   try {
-    const rows = await sql`
-      select workspace_id
-      from public_booking_verifications
-      where id = ${id}::uuid
+    rows = await sql`
+      select v.workspace_id, w.slug as workspace_slug
+      from public_booking_verifications v
+      join workspaces w on w.id = v.workspace_id
+      where v.id = ${id}::uuid
       limit 1
     `;
-    const workspaceId = String(rows[0]?.workspace_id ?? "");
-    if (!/^[0-9a-f-]{36}$/i.test(workspaceId)) return safeVerificationExperience;
+  } catch {
+    notFound();
+  }
+  const workspaceId = String(rows[0]?.workspace_id ?? "");
+  if (!/^[0-9a-f-]{36}$/i.test(workspaceId)) notFound();
 
+  const mariaWorkspace = String(rows[0]?.workspace_slug) === "makeup-by-maria";
+  const mariaPreview = mariaWorkspace
+    && (process.env.VERCEL_ENV === "preview"
+      || (process.env.VERCEL_ENV === "production" && Boolean(getMariaExistingBookingPortalBase())));
+  const fallback: VerificationExperience = {
+    ...safeVerificationExperience,
+    mariaWorkspace,
+    mariaPreview,
+    swedishEnabled: mariaPreview || safeVerificationExperience.swedishEnabled,
+    englishEnabled: mariaPreview || safeVerificationExperience.englishEnabled,
+  };
+
+  try {
     const experience = await getPublicWorkspaceExperienceSettings(workspaceId);
     if (
       typeof experience.swedishEnabled !== "boolean"
       || typeof experience.englishEnabled !== "boolean"
-      || (!experience.swedishEnabled && !experience.englishEnabled)
-    ) return safeVerificationExperience;
+      || (!experience.swedishEnabled && !experience.englishEnabled && !mariaPreview)
+    ) return fallback;
 
     return {
       defaultLanguage: experience.defaultLanguage === "en" ? "en" : "sv",
-      swedishEnabled: experience.swedishEnabled,
-      englishEnabled: experience.englishEnabled,
-      primaryColor: /^#[0-9a-f]{6}$/i.test(experience.primaryColor) ? experience.primaryColor : safeVerificationExperience.primaryColor,
+      swedishEnabled: mariaPreview || experience.swedishEnabled,
+      englishEnabled: mariaPreview || experience.englishEnabled,
+      primaryColor: /^#[0-9a-f]{6}$/i.test(experience.primaryColor)
+        ? experience.primaryColor : safeVerificationExperience.primaryColor,
+      mariaPreview,
+      mariaWorkspace,
     };
   } catch {
-    return safeVerificationExperience;
+    return fallback;
+  }
+}
+
+/** Prevent a Maria challenge from crossing public business domains. */
+async function assertMariaVerificationHost(experience: VerificationExperience) {
+  const host = (await headers()).get("host");
+  if (isMariaHost(host) && !experience.mariaWorkspace) notFound();
+  if (experience.mariaWorkspace && process.env.VERCEL_ENV === "production"
+    && hostnameFromHostHeader(host) !== new URL(MARIA_CANONICAL_PRODUCTION_ORIGIN).hostname) {
+    notFound();
   }
 }
 
@@ -87,10 +131,14 @@ async function verify(formData: FormData) {
   const id = String(formData.get("id") ?? "");
   const code = String(formData.get("code") ?? "").trim();
   const experience = await getVerificationExperience(id);
-  const locale = resolvePublicBusinessLocale(experience, String(formData.get("lang") ?? ""));
+  await assertMariaVerificationHost(experience);
+  const wanted = String(formData.get("lang") ?? "");
+  const locale: Locale = experience.mariaPreview && (wanted === "ar" || wanted === "en")
+    ? wanted : resolvePublicBusinessLocale(experience, wanted);
   const channel = String(formData.get("channel") ?? "");
   const result = await verifyPublicBookingCode(id, code, locale);
   if (!result.ok) redirect(`/boka/verifiera/${id}?error=${result.error}&lang=${locale}${channelSuffix(channel)}`);
+  if ("portalUrl" in result && result.portalUrl) redirect(result.portalUrl);
   redirect(publicBookingSuccessRedirect(result.slug, locale));
 }
 
@@ -98,9 +146,13 @@ async function resend(formData: FormData) {
   "use server";
   const id = String(formData.get("id") ?? "");
   const experience = await getVerificationExperience(id);
-  const locale = resolvePublicBusinessLocale(experience, String(formData.get("lang") ?? ""));
+  await assertMariaVerificationHost(experience);
+  const wanted = String(formData.get("lang") ?? "");
+  const locale: Locale = experience.mariaPreview && (wanted === "ar" || wanted === "en")
+    ? wanted : resolvePublicBusinessLocale(experience, wanted);
+  const currentChannel = String(formData.get("channel") ?? "");
   const result = await resendPublicBookingCode(id, locale);
-  if (!result.ok) redirect(`/boka/verifiera/${id}?error=${result.error}&lang=${locale}`);
+  if (!result.ok) redirect(`/boka/verifiera/${id}?error=${result.error}&lang=${locale}${channelSuffix(currentChannel)}`);
   redirect(`/boka/verifiera/${id}?resent=1&lang=${locale}&channel=${encodeURIComponent(result.delivery)}`);
 }
 
@@ -108,12 +160,23 @@ export default async function VerifyBookingPage({ params, searchParams }: PagePr
   const { id } = await params;
   const query = searchParams ? await searchParams : undefined;
   const experience = await getVerificationExperience(id);
-  const locale = resolvePublicBusinessLocale(experience, first(query?.lang));
+  await assertMariaVerificationHost(experience);
+  const wanted = first(query?.lang);
+  const locale: Locale = experience.mariaPreview && (wanted === "ar" || wanted === "en")
+    ? wanted : resolvePublicBusinessLocale(experience, wanted);
   const isEnglish = locale === "en";
   const error = messages[locale][first(query?.error) ?? ""];
   const resent = first(query?.resent) === "1";
   const channel = first(query?.channel) ?? "email";
-  const deliveryText = isEnglish
+  const deliveryText = channel === "uncertain"
+    ? locale === "ar"
+      ? "تعذّر التأكد من وصول الرمز. تحقّق من البريد الإلكتروني والرسائل غير المرغوب فيها. إذا وصل الرمز، أدخله هنا. انتظر 30 ثانية قبل طلب رمز جديد. صلاحية الرمز 10 دقائق."
+      : isEnglish
+        ? "We could not confirm delivery of the code. Check your email and spam folder, and enter it here if it arrived. Wait 30 seconds before requesting another code. The code is valid for 10 minutes."
+        : "Vi kunde inte bekräfta att koden levererades. Kontrollera din e-post och skräppost och ange koden här om den kom fram. Vänta 30 sekunder innan du begär en ny kod. Koden gäller i 10 minuter."
+    : locale === "ar"
+    ? "أرسلنا رمزًا مكوّنًا من ستة أرقام إلى بريدك الإلكتروني. الرمز صالح لمدة 10 دقائق."
+    : isEnglish
     ? channel === "sms"
       ? "We sent a six-digit code by SMS. It is valid for 10 minutes."
       : channel === "email_sms"
@@ -131,21 +194,29 @@ export default async function VerifyBookingPage({ params, searchParams }: PagePr
   } as CSSProperties;
 
   return (
-    <main className={styles.verifyPage} lang={locale} style={themeStyles}>
+    <main className={styles.verifyPage} lang={locale} dir={locale === "ar" ? "rtl" : "ltr"} style={themeStyles}>
       <div className={styles.verifyShell}>
-        <nav className={styles.languageNav} aria-label={isEnglish ? "Language" : "Språk"}>
+        <nav className={styles.languageNav} aria-label={locale === "ar" ? "اللغة" : isEnglish ? "Language" : "Språk"}>
           {experience.swedishEnabled ? <a href={verificationHref(id, "sv", channel)} className={locale === "sv" ? styles.languageActive : styles.languageLink}>SV</a> : null}
-          {experience.englishEnabled ? <a href={verificationHref(id, "en", channel)} className={locale === "en" ? styles.languageActive : styles.languageLink}>EN</a> : null}
+          {(experience.englishEnabled || experience.mariaPreview) ? <a href={verificationHref(id, "en", channel)} className={locale === "en" ? styles.languageActive : styles.languageLink}>EN</a> : null}
+          {experience.mariaPreview ? <a href={verificationHref(id, "ar", channel)} className={locale === "ar" ? styles.languageActive : styles.languageLink}>AR</a> : null}
         </nav>
 
         <section className={styles.verifyCard}>
-          <p className={styles.verifyEyebrow}>{isEnglish ? "Verify booking" : "Verifiera bokning"}</p>
-          <h1 className={styles.verifyTitle}>{isEnglish ? "Enter your verification code" : "Ange din verifieringskod"}</h1>
+          <p className={styles.verifyEyebrow}>{locale === "ar" ? "تأكيد الحجز" : isEnglish ? "Verify booking" : "Verifiera bokning"}</p>
+          <h1 className={styles.verifyTitle}>{locale === "ar" ? "أدخل رمز التحقق" : isEnglish ? "Enter your verification code" : "Ange din verifieringskod"}</h1>
           <p className={styles.verifyLead}>
-            {deliveryText} {isEnglish ? "The booking is created only after the code is verified." : "Bokningen skapas först när koden har verifierats."}
+            {deliveryText} {locale === "ar" ? "لن يتم إنشاء الحجز إلا بعد التحقق من الرمز." : isEnglish ? "The booking is created only after the code is verified." : "Bokningen skapas först när koden har verifierats."}
           </p>
 
-          {resent ? <p className={styles.verifySuccess}>{isEnglish ? "A new code has been sent." : "En ny kod har skickats."}</p> : null}
+          {experience.mariaWorkspace ? <p className={styles.verifyLead}>
+            {locale === "ar"
+              ? "إذا أدخلت الرمز سابقًا ولكن لم يظهر تأكيد الحجز، يمكنك إدخال الرمز نفسه لاستعادة رابط الحجز دون إنشاء حجز آخر."
+              : isEnglish
+                ? "Already entered the code but lost your confirmation? Re-enter the same code to recover the existing booking link without booking again."
+                : "Har du redan angett koden men tappat bekräftelsen? Ange samma kod igen för att återställa länken till din befintliga bokning utan att boka en gång till."}
+          </p> : null}
+          {resent ? <p className={styles.verifySuccess}>{locale === "ar" ? "تم إرسال رمز جديد." : isEnglish ? "A new code has been sent." : "En ny kod har skickats."}</p> : null}
           {error ? <p role="alert" className={styles.verifyError}>{error}</p> : null}
 
           <form action={verify} className={styles.verifyForm}>
@@ -153,7 +224,7 @@ export default async function VerifyBookingPage({ params, searchParams }: PagePr
             <input type="hidden" name="lang" value={locale} />
             <input type="hidden" name="channel" value={channel} />
             <label className={styles.verifyLabel}>
-              {isEnglish ? "Verification code" : "Verifieringskod"}
+              {locale === "ar" ? "رمز التحقق" : isEnglish ? "Verification code" : "Verifieringskod"}
               <input
                 name="code"
                 inputMode="numeric"
@@ -167,15 +238,16 @@ export default async function VerifyBookingPage({ params, searchParams }: PagePr
               />
             </label>
             <button className={styles.verifyPrimary}>
-              {isEnglish ? "Verify and create booking" : "Verifiera och skapa bokning"}
+              {locale === "ar" ? "تحقق وأنشئ الحجز" : isEnglish ? "Verify and create booking" : "Verifiera och skapa bokning"}
             </button>
           </form>
 
           <form action={resend} className="mt-3">
             <input type="hidden" name="id" value={id} />
             <input type="hidden" name="lang" value={locale} />
+            <input type="hidden" name="channel" value={channel} />
             <button type="submit" className={styles.verifySecondary}>
-              {isEnglish ? "Didn't receive it? Send a new code" : "Fick du ingen kod? Skicka en ny"}
+              {locale === "ar" ? "لم يصلك الرمز؟ أرسل رمزًا جديدًا" : isEnglish ? "Didn't receive it? Send a new code" : "Fick du ingen kod? Skicka en ny"}
             </button>
           </form>
         </section>

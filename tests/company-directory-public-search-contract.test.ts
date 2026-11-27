@@ -101,7 +101,7 @@ describe("public company directory search contract", () => {
     expect(copySource).toContain("Confirmed service area");
   });
 
-  it("adds autocomplete, nearby search, popular services and customer-focused result cards", () => {
+  it("uses verified address, bounded radius, GPS and service suggestions without a city autocomplete", () => {
     expect(pageSource).toContain('PublicDirectorySearchPage locale="sv"');
     expect(shellSource).toContain("PublicDirectorySearchForm");
     expect(shellSource).toContain("popularDirectoryServices");
@@ -111,7 +111,17 @@ describe("public company directory search contract", () => {
     expect(resultsSource).toContain("result.distanceKm");
     expect(copySource).toContain("toFixed(1)");
     expect(formSource).toContain("directory-service-suggestions");
-    expect(formSource).toContain("directory-location-suggestions");
+    expect(formSource).not.toContain("directory-location-suggestions");
+    expect(formSource).toContain('name="address"');
+    expect(formSource).toContain("searchPublicDirectoryAddressAction");
+    expect(formSource).toContain("searchPublicDirectoryNearbyAction");
+    expect(formSource).toContain("refinePublicDirectoryNearbyAction");
+    expect(formSource).toContain("nearbyOriginActive");
+    expect(shellSource).toContain("nearbyOriginActive={Boolean(nearbyCoordinates)}");
+    // URL-driven service/radius navigation must reset the form slider and service defaults.
+    expect(shellSource).toContain('const searchFormKey = `${locale}:${nearbyActive ? "nearby" : "manual"}:${radius}:${service}`;');
+    expect(formSource).toContain('type="range" min={1} max={50}');
+    expect(formSource).toContain('name="radius"');
     expect(formSource).toContain("navigator.geolocation.getCurrentPosition");
     expect(copySource).toContain("Nära mig");
   });

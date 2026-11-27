@@ -56,6 +56,27 @@ describe("resolveCustomerPortalLanguage", () => {
     expect(resolveCustomerPortalLanguage(undefined, null)).toBe("sv");
   });
 
+  it("keeps Maria Swedish, English and Arabic available only on an approved Production origin",()=>{
+    const maria={...base,publicBookingSlug:"makeup-by-maria",workspaceSlug:"makeup-by-maria",defaultLanguage:"sv" as const,
+      swedishEnabled:true,englishEnabled:false};
+    vi.stubEnv("VERCEL_ENV","production");
+    expect(resolveCustomerPortalLanguage("ar",maria)).toBe("sv");
+    for(const [key,value] of Object.entries({
+      PROFFERA_MARIA_PUBLIC_SITE_ENABLED:"true",
+      PROFFERA_MARIA_PRODUCTION_BOOKING_ENABLED:"true",
+      PROFFERA_MARIA_PRODUCTION_MANAGER_ENABLED:"true",
+      PROFFERA_MARIA_PRODUCTION_CUSTOMER_EMAIL_ENABLED:"true",
+      PROFFERA_MARIA_PRODUCTION_YEAR_EDITOR_ENABLED:"true",
+      PROFFERA_MARIA_PRODUCTION_ORIGIN:"https://makeupbymaria.se",
+    }))vi.stubEnv(key,value);
+    expect(resolveCustomerPortalLanguage("ar",maria)).toBe("ar");
+    expect(resolveCustomerPortalLanguage("en",maria)).toBe("en");
+    expect(resolveCustomerPortalLanguage("sv",maria)).toBe("sv");
+    expect(resolveCustomerPortalLanguage("ar",{...maria,publicBookingSlug:"other-business"})).toBe("sv");
+    expect(resolveCustomerPortalLanguage("ar",{...maria,workspaceSlug:"other-business"})).toBe("sv");
+    vi.unstubAllEnvs();
+  });
+
   it("uses the canonical booking color when experience settings are absent", async () => {
     mocks.sql.mockResolvedValue([{
       public_booking_slug: "legacy",

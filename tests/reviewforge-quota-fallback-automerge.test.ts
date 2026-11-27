@@ -242,6 +242,11 @@ describe.each(['reviewforge_approval_count', 'final_bot_approvals'] as const)(
         botReview(1, 'APPROVED'), botReview(2, 'CHANGES_REQUESTED'),
       ])).toBe(0);
     });
+    it('revokes an older approval when GitHub later dismisses it', () => {
+      expect(actualReviewForgeApprovalCount(selector, [
+        botReview(1, 'APPROVED'), botReview(2, 'DISMISSED'),
+      ])).toBe(0);
+    });
     it('only restores eligibility after a newer valid clean approval', () => {
       expect(actualReviewForgeApprovalCount(selector, [
         botReview(1, 'APPROVED'), botReview(2, 'CHANGES_REQUESTED'), botReview(3, 'APPROVED'),

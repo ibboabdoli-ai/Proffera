@@ -1,4 +1,5 @@
 import { SlidersHorizontal } from "lucide-react";
+import Link from "next/link";
 import { redirect } from "next/navigation";
 
 import { isCheckoutPlanKey } from "@/lib/billing-plans";
@@ -14,6 +15,7 @@ import { canManageWorkspaceMembers, canManageWorkspaceSettings, getUserWorkspace
 import { getWorkspaceBillingSummary } from "@/lib/workspace-billing";
 import { getStripeCheckoutPlanOptions, isStripeAdaptivePricingEnabled, isStripeCheckoutConfigured, isStripeTestMode } from "@/lib/stripe";
 import { getWorkspaceMarketLabel } from "@/lib/workspace-market";
+import { isMariaGenericBookingHoursReadOnly } from "@/lib/maria-manager-ui-policy";
 
 import { updateWorkspaceSettingsAction } from "./actions";
 import { updateWorkspaceBookingHoursAction } from "./booking-hours-actions";
@@ -133,6 +135,7 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
   const activeServices = workspaceServices.filter((service) => service.isActive).length;
   const billingIsActive = billing.status === "active" || billing.status === "trialing";
   const bookingIsActive = moduleAccess.some((module) => module.id === "online_booking" && module.isEnabled);
+  const mariaGenericHoursReadOnly = isMariaGenericBookingHoursReadOnly(access.workspaceSlug, process.env.VERCEL_ENV);
   const bookingUrl = workspaceSettings.publicBookingSlug && billingIsActive && bookingIsActive
     ? `https://www.proffera.se/boka/${workspaceSettings.publicBookingSlug}`
     : null;
@@ -196,6 +199,19 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
         locale={isEnglish ? "en" : "sv"}
         adaptivePricingEnabled={isStripeAdaptivePricingEnabled()}
       />
+
+      {canManageWorkspaceSettings(access) ? (
+        <section className="rounded-card border border-line bg-surface p-5">
+          <h3 className="text-base font-bold">{isEnglish ? "SMS usage" : "SMS-förbrukning"}</h3>
+          <p className="mt-1 text-sm text-ink-muted">{isEnglish
+            ? "View your monthly SMS allowance and remaining units."
+            : "Se månadens SMS-kvot och antal enheter kvar."}</p>
+          <Link href={isEnglish ? "/dashboard/installningar/sms?lang=en" : "/dashboard/installningar/sms"}
+            className="mt-3 inline-flex rounded-control border border-line px-4 py-2 text-sm font-bold text-brand-deep">
+            {isEnglish ? "View SMS allowance" : "Visa SMS-kvot"}
+          </Link>
+        </section>
+      ) : null}
 
       {memberUpdatedValue ? <section className="rounded-2xl bg-[#eef8f0] p-5 text-sm font-semibold text-[#087754] ring-1 ring-[#c9e6d0]" role="status">Teamets åtkomst uppdaterades.</section> : null}
       {memberErrorMessage ? <section className="rounded-2xl bg-[#fff5f2] p-5 text-sm font-semibold text-[#8f2f1b] ring-1 ring-[#f4c7ba]" role="alert">{memberErrorMessage}</section> : null}
@@ -372,14 +388,39 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
           <div>
             <h3 className="text-xl font-bold text-[#11213b]">Bokningstider</h3>
             <p className="mt-2 text-sm leading-6 text-[#617085]">
-              Kunder kan bara skicka bokningsförfrågningar inom dessa tider. {bookingHours.isConfigured ? "Tiderna är publicerade." : "Spara tiderna för att publicera bokning."}
+              {mariaGenericHoursReadOnly
+                ? "Marias tider visas här för kontroll. Använd hennes särskilda panel i Preview för att ändra arbetstider; publicering är ännu inte aktiverad."
+                : <>Kunder kan bara skicka bokningsförfrågningar inom dessa tider. {bookingHours.isConfigured ? "Tiderna är publicerade." : "Spara tiderna för att publicera bokning."}</>}
             </p>
           </div>
           <span className="w-fit rounded-full bg-[#eef5ff] px-3 py-1 text-xs font-semibold text-[#1469d8]">
-            {bookingHours.isConfigured ? "Publicerad" : "Ej publicerad"}
+            {mariaGenericHoursReadOnly ? "Visa endast" : bookingHours.isConfigured ? "Publicerad" : "Ej publicerad"}
           </span>
         </div>
 
+        {mariaGenericHoursReadOnly ? (
+          <div className="mt-5 space-y-4">
+            <p className="rounded-xl border border-[#dce4ee] bg-[#f8fafc] p-4 text-sm text-[#40536c]">
+              {process.env.VERCEL_ENV === "preview"
+                ? "Marias arbetstider ändras i Maria-panelen. Den här vyn är skrivskyddad."
+                : "Marias bokningstider är skrivskyddade tills separat publicering har godkänts."}
+            </p>
+            <div className="grid gap-2">
+              {bookingWeekdays.map((day) => {
+                const hour = bookingHours.hours.find((item) => item.weekday === day.value)!;
+                return <div key={day.value} className="flex items-center justify-between rounded-xl border border-[#dce4ee] p-3 text-sm">
+                  <span className="font-semibold text-[#11213b]">{day.label}</span>
+                  <span className="text-[#40536c]">{hour.isClosed ? "Stängt" : `${hour.opensAt}–${hour.closesAt}`}</span>
+                </div>;
+              })}
+            </div>
+            {process.env.VERCEL_ENV === "preview" ? (
+              <Link href="/dashboard/maria#tider" className="inline-flex min-h-11 items-center rounded-xl bg-[#0a2e63] px-5 py-3 text-sm font-semibold !text-white">
+                Ändra arbetstider i Maria-panelen
+              </Link>
+            ) : null}
+          </div>
+        ) : (
         <form action={updateWorkspaceBookingHoursAction} className="mt-5 grid gap-3">
           <div className="grid gap-3">
             {bookingWeekdays.map((day) => {
@@ -400,6 +441,7 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
           </div>
           <button type="submit" className="inline-flex w-full items-center justify-center rounded-xl bg-[#0a2e63] px-6 py-3 text-sm font-semibold !text-white transition hover:bg-[#082654] hover:!text-white focus:outline-none focus:ring-2 focus:ring-[#1469d8] focus:ring-offset-2">Spara bokningstider</button>
         </form>
+        )}
       </section>
 
       {bookingUrl ? <BookingLinkCard url={bookingUrl} /> : null}

@@ -37,6 +37,16 @@ export function providerUnavailable(body) {
   return null;
 }
 
+// Accept exactly the two verified clean-result wire formats. Identity, HEAD,
+// request ordering, inline findings and CodeRabbit priority are checked by
+// the caller; this helper authenticates no actor or review on its own.
+export function cleanCodexComment(body) {
+  return typeof body === "string" && (
+    body.startsWith("Codex Review: Didn't find any major issues.")
+    || body.startsWith("<!-- codex-review-receipt:v1 -->\n\nCodex Review: Didn't find any major issues.")
+  );
+}
+
 export function cleanCodeRabbitComment(body, head) {
   if (!/^[0-9a-f]{40}$/.test(head) || /Review limit reached|Review rate[ -]?limited|rate[ -]?limit|Action not completed|Review skipped|temporarily unavailable|service unavailable|incomplete|did not complete/i.test(body)) return false;
   const lines = String(body).split(/\r?\n/).map((line) => line.trim());
@@ -66,7 +76,7 @@ export function normalizeFinalGateEvidence(source, targetHead = source?.review_c
       code = "coderabbit_review_completed";
     }
   } else if (kind === "issue_comment" && actor === "chatgpt-codex-connector[bot]") {
-    if (body.startsWith("Codex Review: Didn't find any major issues.")) {
+    if (cleanCodexComment(body)) {
       code = "codex_review_completed";
     }
   } else if (kind === "issue_comment" && actor === OWNER) {

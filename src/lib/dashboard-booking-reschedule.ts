@@ -3,6 +3,7 @@ import "server-only";
 import { neon } from "@neondatabase/serverless";
 
 import { resolveDatabaseUrl } from "@/lib/db/database-url";
+import { rescheduleMariaDashboardBooking } from "@/lib/maria-dashboard-reschedule";
 
 import { isValidLocalTime, localDateTimeToUtc, parseLocalDateTime, resolveBookingTimeZone } from "@/lib/public-booking-policy";
 import { canManageWorkspaceSettings, getUserWorkspaceAccess } from "@/lib/workspace-access";
@@ -28,6 +29,7 @@ export type BookingRescheduleResult = {
     previousStartsAt: string;
     startsAt: string;
     endsAt: string;
+    language?: "sv" | "en" | "ar";
   } | null;
 };
 
@@ -51,9 +53,20 @@ export async function rescheduleDashboardBooking(
     where workspace_id = ${access.workspaceId}
     limit 1
   `;
-  const timeZone = resolveBookingTimeZone(marketRows[0]?.time_zone);
+  const timeZone = access.workspaceSlug === "makeup-by-maria"
+    ? "Europe/Stockholm" as const
+    : resolveBookingTimeZone(marketRows[0]?.time_zone);
   const localStart = parseLocalDateTime(localStartsAt);
   if (!localStart) throw new BookingRescheduleValidationError("time");
+  // Both Maria environments use the same workspace transaction lock.
+  // The dedicated writer independently checks Preview or Production readiness.
+  if (access.workspaceSlug === "makeup-by-maria") {
+    const maria = await rescheduleMariaDashboardBooking({
+      bookingId, workspaceId: access.workspaceId, localStartsAt,
+    });
+    if (!maria.ok) throw new BookingRescheduleValidationError(maria.error);
+    return maria.result;
+  }
 
   const newStart = localDateTimeToUtc(localStart, timeZone);
   if (!isValidLocalTime(localStart, newStart, timeZone) || Number.isNaN(newStart.getTime())) {

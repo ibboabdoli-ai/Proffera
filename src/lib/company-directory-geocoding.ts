@@ -22,7 +22,12 @@ const GEOCODING_ACTION_BUDGET_MS = 240_000;
 const GEOCODING_FINAL_COUNTS_RESERVE_MS = 10_000;
 const UPSTREAM_REQUEST_TIMEOUT_MS = 12_000;
 const FETCH_DEADLINE_GUARD_MS = 1_000;
-export const DIRECTORY_PROVIDER_GEOCODING_MAX_BATCH = 3;
+const SCHEDULED_GEOCODING_BATCH_SIZE = 5;
+const SCHEDULED_GEOCODING_MIN_BUDGET_MS = 20_000;
+const SCHEDULED_GEOCODING_HISTORY_RESERVE_MS = 3_000;
+const SCHEDULED_GEOCODING_FINAL_COUNTS_RESERVE_MS = 5_000;
+const SCHEDULED_GEOCODING_PROVIDER = "automatic_geocoding";
+export const DIRECTORY_PROVIDER_GEOCODING_MAX_BATCH = 100;
 
 export const DIRECTORY_GEOCODING_PILOT_ORGS = [
   "5563115707",
@@ -847,8 +852,14 @@ async function resolveOfficialAddress(
   return { status: "no_match", reason: "no_exact_detail_match" };
 }
 
-async function postgisReady() {
-  const sql = getSql();
+function getGeocodingSql(deadline?: number) {
+  if (deadline === undefined) return getSql();
+  assertBeforeDeadline(deadline);
+  return getSql({ signal: AbortSignal.timeout(Math.max(1, deadline - Date.now())) });
+}
+
+async function postgisReady(deadline?: number) {
+  const sql = getGeocodingSql(deadline);
   if (!sql) return false;
   const rows = await sql`
     select exists(
@@ -936,8 +947,7 @@ function providerCountsFromRows(rows: Record<string, unknown>[]) {
 
 /** Returns scalar provider geocoding status without materializing provider/SCB payloads in Node. */
 async function providerCounts(deadline?: number) {
-  if (deadline) assertBeforeDeadline(deadline);
-  const sql = getSql();
+  const sql = getGeocodingSql(deadline);
   if (!sql) {
     return { total: 0, geocoded: 0, remaining: 0, needsReview: 0, unavailable: 0 };
   }
@@ -1076,8 +1086,7 @@ async function markNoMatch(
   workplaceBoundaryToken: string,
   deadline?: number,
 ) {
-  if (deadline) assertBeforeDeadline(deadline);
-  const sql = getSql();
+  const sql = getGeocodingSql(deadline);
   if (!sql) return;
   const source = buildDirectoryGeocodingNoMatchSource(reason, addressSource);
   await sql`
@@ -1118,8 +1127,7 @@ async function markTransientError(
   workplaceBoundaryToken: string,
   deadline?: number,
 ) {
-  if (deadline) assertBeforeDeadline(deadline);
-  const sql = getSql();
+  const sql = getGeocodingSql(deadline);
   if (!sql) return;
   await sql`
     insert into company_directory_business_locations (
@@ -1154,16 +1162,76 @@ export async function geocodeDirectoryProviderPointsFromAdmin(
   limit = DIRECTORY_PROVIDER_GEOCODING_MAX_BATCH,
 ): Promise<DirectoryGeocodingBatchResult> {
   const actionDeadline = Date.now() + GEOCODING_ACTION_BUDGET_MS;
-  const processingDeadline = actionDeadline - GEOCODING_FINAL_COUNTS_RESERVE_MS;
-
   await requireSuperAdmin();
-  assertBeforeDeadline(actionDeadline);
-  const sql = getSql();
+  return geocodeDirectoryProviderPoints(limit, actionDeadline, false);
+}
+
+/** The authenticated Directory sync route calls this after its existing work has finished. */
+export async function geocodeDirectoryProviderPointsFromScheduler(deadlineAt: number) {
+  if (process.env.COMPANY_DIRECTORY_AUTOMATIC_GEOCODING_ENABLED !== "true") {
+    return { skipped: true, reason: "disabled" } as const;
+  }
+  if (!getGeocodingConfig().configured) return { skipped: true, reason: "not_configured" } as const;
+  if (deadlineAt - Date.now() < SCHEDULED_GEOCODING_MIN_BUDGET_MS) {
+    return { skipped: true, reason: "insufficient_time" } as const;
+  }
+  const sql = getGeocodingSql(deadlineAt);
+  if (!sql) throw new Error("Database is not configured");
+
+  // The existing partial unique index permits only one running batch per provider.
+  await sql`
+    update company_directory_sync_runs
+    set status = 'failed', completed_at = now(), error_count = 1,
+        error_summary = 'Scheduled geocoding run expired'
+    where provider = ${SCHEDULED_GEOCODING_PROVIDER}
+      and status = 'running' and started_at < now() - interval '10 minutes'
+  `;
+  const [run] = await sql`
+    insert into company_directory_sync_runs (provider, status)
+    values (${SCHEDULED_GEOCODING_PROVIDER}, 'running')
+    on conflict do nothing
+    returning id::text
+  `;
+  if (!run) return { skipped: true, reason: "already_running" } as const;
+
+  let result: DirectoryGeocodingBatchResult;
+  try {
+    result = await geocodeDirectoryProviderPoints(
+      SCHEDULED_GEOCODING_BATCH_SIZE,
+      deadlineAt - SCHEDULED_GEOCODING_HISTORY_RESERVE_MS,
+      true,
+    );
+  } catch (error) {
+    await sql`
+      update company_directory_sync_runs
+      set status = 'failed', completed_at = now(), error_count = 1,
+          error_summary = 'Scheduled geocoding failed'
+      where id = ${run.id}::uuid and status = 'running'
+    `;
+    throw error;
+  }
+  await sql`
+    update company_directory_sync_runs
+    set status = 'completed', completed_at = now(), scanned_count = ${result.attempted},
+        upserted_count = ${result.geocoded}, blocked_count = ${result.noMatch},
+        error_count = ${result.errors}
+    where id = ${run.id}::uuid and status = 'running'
+  `;
+  return { skipped: false, ...result } as const;
+}
+
+async function geocodeDirectoryProviderPoints(
+  limit: number,
+  actionDeadline: number,
+  scheduled: boolean,
+): Promise<DirectoryGeocodingBatchResult> {
+  const processingDeadline = actionDeadline - GEOCODING_FINAL_COUNTS_RESERVE_MS;
+  const sql = getGeocodingSql(processingDeadline);
   if (!sql) throw new Error("Database is not configured");
   const config = getGeocodingConfig();
   if (!config.configured) throw new Error("Lantmäteriet geocoding is not configured");
   assertBeforeDeadline(actionDeadline);
-  if (!(await postgisReady())) throw new Error("PostGIS is not installed");
+  if (!(await postgisReady(processingDeadline))) throw new Error("PostGIS is not installed");
 
   assertBeforeDeadline(processingDeadline);
   const boundedLimit = Math.max(
@@ -1267,6 +1335,11 @@ export async function geocodeDirectoryProviderPointsFromAdmin(
       and scb_last_synced_at is not null
       and not has_current_coordinates
       and coalesce(geocode_source, '') not like ${terminalNoMatchPattern}
+      and (
+        not ${scheduled}::boolean
+        or geocode_source is distinct from ${TRANSIENT_ERROR_SOURCE}
+        or location_updated_at < now() - interval '1 day'
+      )
     order by
       case when geocode_source = ${TRANSIENT_ERROR_SOURCE} then 1 else 0 end,
       case when geocode_source = ${TRANSIENT_ERROR_SOURCE} then location_updated_at end asc nulls first,
@@ -1343,7 +1416,18 @@ export async function geocodeDirectoryProviderPointsFromAdmin(
         where exists (
           select 1
           from company_directory_scb_enrichment current_scb
+          join company_directory_profiles current_profile on current_profile.id = current_scb.profile_id
           where current_scb.profile_id = ${profile.id}::uuid
+            and current_profile.publication_status = 'published'
+            and current_profile.is_active = true
+            and current_profile.privacy_blocked = false
+            and current_profile.organization_kind = 'juridical_person'
+            and exists (
+              select 1 from company_directory_profile_services current_service
+              where current_service.profile_id = current_profile.id
+                and current_service.is_active = true
+                and current_service.public_visible = true
+            )
             and coalesce(
               nullif(current_scb.provenance #>> '{workplaceChangedAt}', ''),
               current_scb.last_synced_at::text
@@ -1366,13 +1450,21 @@ export async function geocodeDirectoryProviderPointsFromAdmin(
       `;
       if (saved[0]) geocoded += 1;
     } catch (error) {
-      if (classifyDirectoryGeocodingBatchError(error) === "deadline") break;
+      const deadlineExceeded = classifyDirectoryGeocodingBatchError(error) === "deadline"
+        || Date.now() >= processingDeadline;
+      if (deadlineExceeded && !scheduled) break;
       errors += 1;
       try {
-        await markTransientError(profile.id, scbWorkplaceBoundaryToken, processingDeadline);
+        // A slow address should cool down before the next scheduled batch selects candidates.
+        const markerDeadline = deadlineExceeded
+          ? actionDeadline - SCHEDULED_GEOCODING_FINAL_COUNTS_RESERVE_MS
+          : processingDeadline;
+        await markTransientError(profile.id, scbWorkplaceBoundaryToken, markerDeadline);
       } catch (markerError) {
+        if (deadlineExceeded) throw markerError;
         if (classifyDirectoryGeocodingBatchError(markerError) === "deadline") break;
       }
+      if (deadlineExceeded) break;
     }
   }
 

@@ -490,7 +490,7 @@ jobs:
                 .[]
                 | select(.user.login == "reviewforge-ibbo-dev[bot]")
                 | select(.commit_id == $sha)
-                | select(.state == "APPROVED" or .state == "CHANGES_REQUESTED")
+                | select(.state == "APPROVED" or .state == "CHANGES_REQUESTED" or .state == "DISMISSED")
                 | select((.submitted_at // "") >= $request_time)
               ]
               | sort_by(.submitted_at // "", .id // 0)
@@ -662,7 +662,7 @@ jobs:
                 .[]
                 | select(.user.login == "reviewforge-ibbo-dev[bot]")
                 | select(.commit_id == $sha)
-                | select(.state == "APPROVED" or .state == "CHANGES_REQUESTED")
+                | select(.state == "APPROVED" or .state == "CHANGES_REQUESTED" or .state == "DISMISSED")
                 | select((.submitted_at // "") >= $requested)
               ]
               | sort_by(.submitted_at // "", .id // 0)

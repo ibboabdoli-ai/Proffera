@@ -7,6 +7,7 @@ import {
   processNewCompanyDirectoryDiscoveryQueueBatch,
 } from "@/lib/company-directory-discovery-queue";
 import { syncCompanyDirectory } from "@/lib/company-directory-engine";
+import { geocodeDirectoryProviderPointsFromScheduler } from "@/lib/company-directory-geocoding";
 import { revalidatePublishedCompanyDirectoryBatch } from "@/lib/company-directory-published-revalidation";
 import { autoPublishReadyHighConfidenceCompanyDirectoryBatch } from "@/lib/company-directory-ready-auto-publish";
 import { getSql } from "@/lib/db/server";
@@ -112,6 +113,15 @@ async function revalidatePublishedCompanyDirectorySafely(deadlineAt: number) {
   }
 }
 
+async function geocodePublishedProvidersSafely(deadlineAt: number) {
+  try {
+    return await geocodeDirectoryProviderPointsFromScheduler(deadlineAt);
+  } catch {
+    console.error("Scheduled Directory geocoding failed");
+    return { skipped: false, reason: "worker_error" } as const;
+  }
+}
+
 export async function GET(request: Request) {
   if (!authorizedSchedulerRequest(request)) {
     return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
@@ -173,6 +183,7 @@ export async function GET(request: Request) {
         startedAt: automaticQueueStartedAt,
         ...history,
       });
+      const geocoding = await geocodePublishedProvidersSafely(revalidationDeadlineAt);
 
       return NextResponse.json({
         ok: true,
@@ -182,6 +193,7 @@ export async function GET(request: Request) {
         readyAutoPublish,
         publishedRevalidation,
         historyRecorded,
+        geocoding,
       });
     }
 

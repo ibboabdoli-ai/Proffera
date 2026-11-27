@@ -127,9 +127,10 @@ describe("public read cache contract", () => {
     const publishedRevalidation = source("src/lib/company-directory-published-revalidation.ts");
     const revalidationRoute = source("src/app/api/cron/company-directory-revalidation/route.ts");
 
-    expect(homepage).toContain("getCachedPublishedDirectoryLocationSuggestions(24)");
-    expect(homepage).toContain("getCachedMarketplaceHomeCompanies(4)");
-    expect(directorySearchPage).toContain("getCachedPublishedDirectoryLocationSuggestions(60)");
+    expect(homepage).not.toContain("getCachedPublishedDirectoryLocationSuggestions(24)");
+    expect(homepage).not.toContain("getCachedMarketplaceHomeCompanies(4)");
+    expect(directorySearchPage).not.toContain("getCachedPublishedDirectoryLocationSuggestions(60)");
+    expect(directorySearchPage).toContain("service.trim() && nearbyRequested && nearbyCoordinates");
     expect(directorySearchPage).toContain("searchPublishedBusinessProfiles({");
     expect(sitemap).toContain("getCachedPublicBusinessSitemapEntries()");
     expect(sitemap).not.toContain("listPublishedDirectorySitemapEntries()");

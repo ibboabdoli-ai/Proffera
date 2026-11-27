@@ -8,7 +8,12 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("next/headers", () => ({
   cookies: mocks.cookies,
+  headers: vi.fn(),
 }));
+vi.mock("server-only", () => ({}));
+vi.mock("@/lib/db/server", () => ({ getSql: vi.fn() }));
+vi.mock("@/lib/public-form-protection", () => ({ allowPublicSubmission: vi.fn() }));
+vi.mock("@/lib/lantmateriet-address-verification", () => ({ verifyCustomerAddress: vi.fn() }));
 vi.mock("next/navigation", () => ({
   redirect: mocks.redirect,
 }));

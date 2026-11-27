@@ -58,7 +58,9 @@ export default async function ServiceJobDetailPage({ params, searchParams }: {
   if (!access.ok) redirect(access.reason === "no_session" ? "/logga-in" : "/dashboard");
   const detail = await getDashboardWorkspaceServiceJobDetail(id);
   if (!detail) notFound();
-  const canManage = canManageWorkspaceSettings(access);
+  // Service-job mutations are unavailable for Maria in Production until launch.
+  const mariaProductionReadOnly = access.workspaceSlug === "makeup-by-maria" && process.env.VERCEL_ENV === "production";
+  const canManage = canManageWorkspaceSettings(access) && !mariaProductionReadOnly;
   const { job } = detail;
   const transitions = getWorkspaceServiceJobTransitions(job.status);
   const state = value(query?.state);

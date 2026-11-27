@@ -17,6 +17,19 @@ const statusLabels: Record<string, string> = {
   break: "Rast", other: "Ej tillgänglig",
 };
 
+type MoveDisabledReason = "maria_preview_details" | "maria_production_readonly";
+
+const mariaMoveDisabledMessage: Record<MoveDisabledReason, { sv: string; en: string }> = {
+  maria_preview_details: {
+    sv: "Marias bokningar flyttas via bokningsdetaljerna. Öppna bokningen och välj en ny tid.",
+    en: "To reschedule a Maria booking, open its booking details and choose a new time.",
+  },
+  maria_production_readonly: {
+    sv: "Marias bokningar är skrivskyddade. Tider kan inte flyttas innan bokningen aktiveras.",
+    en: "Maria bookings are read-only. Rescheduling is unavailable until booking is activated.",
+  },
+};
+
 const moveErrorLabels: Record<string, string> = {
   time: "Tiden kunde inte tolkas.",
   past: "Bokningen kan inte flyttas till en tid som redan passerat.",
@@ -90,7 +103,7 @@ function EventCard({ event, timeZone, compact = false, draggable = false, onDrag
   );
 }
 
-export function BusinessCalendar({ events, timeZone }: { events: DashboardCalendarEvent[]; timeZone: WorkspaceTimeZone }) {
+export function BusinessCalendar({ events, timeZone, isEnglish = false, allowDragAndDrop = true, moveDisabledReason }: { events: DashboardCalendarEvent[]; timeZone: WorkspaceTimeZone; isEnglish?: boolean; allowDragAndDrop?: boolean; moveDisabledReason?: MoveDisabledReason }) {
   const router = useRouter();
   const todayKey = localParts(new Date(), timeZone).date;
   const [view, setView] = useState<ViewMode>("month");
@@ -99,6 +112,7 @@ export function BusinessCalendar({ events, timeZone }: { events: DashboardCalend
   const [staffId, setStaffId] = useState("all");
   const [draggedBooking, setDraggedBooking] = useState<DashboardCalendarEvent | null>(null);
   const [moveState, setMoveState] = useState<{ pending: boolean; message: string; error: boolean }>({ pending: false, message: "", error: false });
+  const disabledMoveMessage = mariaMoveDisabledMessage[moveDisabledReason ?? "maria_preview_details"][isEnglish ? "en" : "sv"];
 
   const staffOptions = useMemo(() => {
     const map = new Map<string, string>();
@@ -130,7 +144,7 @@ export function BusinessCalendar({ events, timeZone }: { events: DashboardCalend
   const move = (direction: number) => setCursor((current) => view === "month" ? new Date(Date.UTC(current.getUTCFullYear(), current.getUTCMonth() + direction, 1)) : addDays(current, direction * 7));
 
   async function moveBooking(targetDate: string, targetStaffId: string) {
-    if (!draggedBooking || moveState.pending) return;
+    if (!allowDragAndDrop || !draggedBooking || moveState.pending) return;
     const localStartsAt = `${targetDate}T${localParts(draggedBooking.startsAt, timeZone).time}`;
     setMoveState({ pending: true, message: "Flyttar bokningen…", error: false });
     try {
@@ -146,7 +160,10 @@ export function BusinessCalendar({ events, timeZone }: { events: DashboardCalend
       router.refresh();
     } catch (error) {
       const code = error instanceof Error ? error.message : "save";
-      setMoveState({ pending: false, message: moveErrorLabels[code] ?? moveErrorLabels.save, error: true });
+      const message = code === "maria_preview"
+        ? disabledMoveMessage
+        : moveErrorLabels[code] ?? moveErrorLabels.save;
+      setMoveState({ pending: false, message, error: true });
       setDraggedBooking(null);
     }
   }
@@ -169,7 +186,7 @@ export function BusinessCalendar({ events, timeZone }: { events: DashboardCalend
         </div>
       </div>
 
-      {view === "staff" ? <p className="rounded-xl border border-[#dfe5dc] bg-[#f7f9f6] px-4 py-3 text-sm text-[#536158]">Dra en aktiv bokning till rätt dag och medarbetare. Starttiden och bokningens längd behålls.</p> : null}
+      {view === "staff" ? <p className="rounded-xl border border-[#dfe5dc] bg-[#f7f9f6] px-4 py-3 text-sm text-[#536158]">{allowDragAndDrop ? "Dra en aktiv bokning till rätt dag och medarbetare. Starttiden och bokningens längd behålls." : disabledMoveMessage}</p> : null}
       {moveState.message ? <p role={moveState.error ? "alert" : "status"} className={`rounded-xl px-4 py-3 text-sm font-semibold ${moveState.error ? "bg-[#fff5f2] text-[#8f2f1b] ring-1 ring-[#f4c7ba]" : "bg-[#eef8f1] text-[#17452f] ring-1 ring-[#cfe8d6]"}`}>{moveState.message}</p> : null}
 
       {view === "staff" ? (
@@ -182,12 +199,12 @@ export function BusinessCalendar({ events, timeZone }: { events: DashboardCalend
                 const dayEvents = (eventsByDate.get(key) ?? []).filter((event) => column.id === "unassigned" ? event.type === "booking" && !event.staffId : event.staffId === column.id);
                 return <div
                   key={`${column.id}-${key}`}
-                  onDragOver={(event) => { if (draggedBooking) { event.preventDefault(); event.dataTransfer.dropEffect = "move"; } }}
-                  onDrop={(event) => { event.preventDefault(); void moveBooking(key, column.id); }}
+                  onDragOver={(event) => { if (allowDragAndDrop && draggedBooking) { event.preventDefault(); event.dataTransfer.dropEffect = "move"; } }}
+                  onDrop={(event) => { if (!allowDragAndDrop) return; event.preventDefault(); void moveBooking(key, column.id); }}
                   className={`min-h-32 border-b border-[#edf0eb] p-3 transition ${draggedBooking ? "bg-[#fbfdfb] hover:bg-[#eef8f1]" : ""}`}
                 >
                 <div className="mb-2 flex items-center justify-between gap-2"><p className="text-xs font-bold uppercase tracking-wide text-[#667168]">{new Intl.DateTimeFormat("sv-SE", { weekday: "short", day: "numeric", month: "short", timeZone: "UTC" }).format(day)}</p>{key === todayKey ? <span className="rounded-full bg-[#173e2b] px-2 py-0.5 text-[10px] font-bold text-white">Idag</span> : null}</div>
-                  <div className="grid gap-1.5">{dayEvents.length ? dayEvents.map((calendarEvent) => <EventCard key={calendarEvent.id} event={calendarEvent} timeZone={timeZone} draggable={calendarEvent.type === "booking" && !["completed", "cancelled", "no_show"].includes(calendarEvent.status)} onDragStart={() => setDraggedBooking(calendarEvent)} />) : <p className="rounded-lg border border-dashed border-[#dce3da] p-3 text-xs text-[#8a948d]">Inga händelser</p>}</div>
+                  <div className="grid gap-1.5">{dayEvents.length ? dayEvents.map((calendarEvent) => <EventCard key={calendarEvent.id} event={calendarEvent} timeZone={timeZone} draggable={allowDragAndDrop && calendarEvent.type === "booking" && !["completed", "cancelled", "no_show"].includes(calendarEvent.status)} onDragStart={() => setDraggedBooking(calendarEvent)} />) : <p className="rounded-lg border border-dashed border-[#dce3da] p-3 text-xs text-[#8a948d]">Inga händelser</p>}</div>
                 </div>;
               })}</div>
             </section>)}

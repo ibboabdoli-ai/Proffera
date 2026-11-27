@@ -71,7 +71,7 @@ export async function POST(request: Request) {
       return jsonError("Den nuvarande planen kan inte uppgraderas automatiskt.", 409);
     }
 
-    let subscription = await stripe.subscriptions.retrieve(subscriptionId, { expand: ["latest_invoice"] });
+    let subscription = await stripe.subscriptions.retrieve(subscriptionId, { expand: ["latest_invoice", "discounts"] });
     const subscriptionItem = subscription.items.data[0];
 
     if (subscription.metadata.workspace_id !== access.workspaceId || !subscriptionItem) {
@@ -80,6 +80,10 @@ export async function POST(request: Request) {
 
     if (subscriptionItem.price.id !== starterPriceId && subscriptionItem.price.id !== professionalPriceId) {
       return jsonError("Stripe-abonnemanget använder ett okänt pris.", 409);
+    }
+
+    if (subscription.cancel_at_period_end) {
+      return jsonError("Abonnemanget håller på att avslutas.", 409);
     }
 
     if (subscription.pending_update) {

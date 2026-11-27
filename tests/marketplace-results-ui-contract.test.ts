@@ -231,8 +231,8 @@ describe("marketplace results UI contract", () => {
     const invalid = render("en", [], { serviceResolved: false });
 
     expect(empty).toContain("Kom vidare med ditt ärende");
-    expect(empty).toContain("Sök i hela Sverige");
-    expect(empty).toContain("/foretag/listad?service=vvs");
+    expect(empty).not.toContain("Sök i hela Sverige");
+    expect(empty).not.toContain('href="/foretag/listad?service=vvs"');
     expect(empty).toContain("Få offerter");
     expect(invalid).toContain("Try a popular service");
     expect(invalid).toContain("View all services");
@@ -252,17 +252,13 @@ describe("marketplace results UI contract", () => {
     );
   });
 
-  it("does not offer a nationwide link that would reset a location-only search", () => {
+  it("never widens an empty search to all Sweden when location is absent", () => {
     const locationOnly = render(
       "sv",
       [],
       {},
       "/foretag/listad?location=Stockholm",
     );
-
-    expect(locationOnly).not.toContain("Sök i hela Sverige");
-    expect(locationOnly).toContain("Få offerter");
-
     const serviceAndLocation = render(
       "sv",
       [],
@@ -270,34 +266,48 @@ describe("marketplace results UI contract", () => {
       "/foretag/listad?service=stadning&location=Stockholm",
     );
 
-    expect(serviceAndLocation).toContain("Sök i hela Sverige");
-    expect(serviceAndLocation).toContain('href="/foretag/listad?service=stadning"');
+    for (const html of [locationOnly, serviceAndLocation]) {
+      expect(html).not.toContain("Sök i hela Sverige");
+      expect(html).not.toContain('href="/foretag/listad?service=stadning"');
+      expect(html).toContain("Få offerter");
+    }
   });
 
-  it("keeps manual location and Nearby result navigation as separate URL modes", () => {
-    const manual = render(
-      "sv",
-      [],
-      { serviceQuery: "elektriker", locationQuery: "Stockholm", nearbyRequested: false, nearbyEnabled: false },
-      "/foretag/listad?service=elektriker&location=Stockholm&page=2",
-    );
+  it("preserves bounded Nearby pagination without leaking the private location", () => {
     const nearby = render(
       "sv",
-      [],
-      { serviceQuery: "elektriker", locationQuery: "", nearbyRequested: true, nearbyEnabled: true, radiusKm: 25 },
-      "/foretag/listad?service=elektriker&nearby=1&radius=25&page=2",
+      [baseResult],
+      {
+        totalCount: 65,
+        page: 2,
+        pageSize: 30,
+        totalPages: 3,
+        serviceQuery: "elektriker",
+        locationQuery: "",
+        nearbyRequested: true,
+        nearbyEnabled: true,
+        radiusKm: 25,
+      },
+      "/foretag/listad?service=elektriker&nearby=1&radius=25",
     );
 
-    expect(manual).toContain("Sök i hela Sverige");
-    expect(manual).toContain('href="/foretag/listad?service=elektriker"');
-    expect(manual).not.toContain("nearby=1");
-    expect(manual).not.toContain("latitude=");
-    expect(manual).not.toContain("longitude=");
-
-    expect(nearby).toContain("Sök i hela Sverige");
-    expect(nearby).toContain('href="/foretag/listad?service=elektriker"');
+    expect(nearby).toContain("nearby=1");
+    expect(nearby).toContain("radius=25");
+    expect(nearby).toContain("page=3");
+    expect(nearby).not.toContain("Sök i hela Sverige");
     expect(nearby).not.toContain("latitude=");
     expect(nearby).not.toContain("longitude=");
+    expect(nearby).not.toContain("address=");
+    expect(nearby).not.toContain("location=Stockholm");
+
+    const noMatches = render("sv", [], {
+      serviceQuery: "elektriker",
+      nearbyRequested: true,
+      nearbyEnabled: true,
+      radiusKm: 25,
+    });
+    expect(noMatches).toContain("Få offerter");
+    expect(noMatches).not.toContain("Sök i hela Sverige");
   });
 
   it("uses the approved marketplace search/results design system with real media fallbacks", () => {
@@ -314,7 +324,7 @@ describe("marketplace results UI contract", () => {
     expect(results).toContain("styles.resultCard");
     expect(results).toContain('data-marketplace-action="directory-profile"');
     expect(styles).toContain("--marketplace-navy: #0a2e63");
-    expect(styles).toContain("grid-template-columns: 168px minmax(0, 1fr) 164px");
+    expect(styles).toContain("grid-template-columns: repeat(3, minmax(0, 1fr))");
     expect(styles).toContain("prefers-reduced-motion");
   });
 });
