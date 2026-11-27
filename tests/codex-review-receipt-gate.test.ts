@@ -36,11 +36,6 @@ const wakeFilter = extractJq(
   'reviewed_prefix="$(jq -rn --arg body "${EVENT_COMMENT_BODY:-}" \'',
   "\n            ')",
 );
-const mergeFilter = extractJq(
-  automerge,
-  'codex_clean_comment_count="$(jq -r --arg sha "$head_sha" --arg request_time "$codex_request_time" \'',
-  "\n              ' <<< \"$comments_json\")\"",
-);
 
 type Comment = { user: { login: string }; created_at: string; updated_at: string; body: string };
 function codexComment(body: string, overrides: Partial<Comment> = {}): Comment {
@@ -59,13 +54,6 @@ function runCi(comments: Comment[], requested = requestTime) {
   expect(result.status, result.stderr).toBe(0);
   return Number(result.stdout.trim());
 }
-function runAutomerge(comments: Comment[]) {
-  const result = spawnSync("jq", [
-    "-r", "--arg", "sha", head, "--arg", "request_time", requestTime, mergeFilter,
-  ], { input: JSON.stringify(comments), encoding: "utf8" });
-  expect(result.status, result.stderr).toBe(0);
-  return Number(result.stdout.trim());
-}
 function runWake(body: string) {
   const result = spawnSync("jq", [
     "-rn", "--arg", "body", body, wakeFilter,
@@ -75,10 +63,9 @@ function runWake(body: string) {
 }
 
 describe("exact-head Codex review receipt recognition (#961)", () => {
-  it("accepts the official receipt-prefixed comment and previous legacy form in both workflows", () => {
+  it("accepts the official receipt-prefixed comment and previous legacy form in CI and wakeup", () => {
     for (const body of [official(), legacy()]) {
       expect(runCi([codexComment(body)])).toBe(1);
-      expect(runAutomerge([codexComment(body)])).toBe(1);
       expect(runWake(body)).toBe(head.slice(0, 10));
     }
   });
@@ -104,7 +91,6 @@ describe("exact-head Codex review receipt recognition (#961)", () => {
     ];
     for (const comment of negatives) {
       expect(runCi([comment])).toBe(0);
-      expect(runAutomerge([comment])).toBe(0);
     }
     expect(runWake(official(otherHead))).toBe(otherHead.slice(0, 10));
     expect(runWake(official().replace(head.slice(0, 10), head + "c"))).toBe("");
@@ -123,9 +109,9 @@ describe("exact-head Codex review receipt recognition (#961)", () => {
     expect(ci).toContain("codex_request_time");
     expect(ci).toContain("select(.updated_at == .created_at)");
     expect(wakeup).toContain("Codex clean comment was edited after creation");
-    expect(automerge).toContain("select(.updated_at == .created_at)");
-    expect(automerge).toContain("codex_inline_count");
-    expect(automerge).toContain("CodeRabbit changes remain requested");
+    expect(automerge).not.toContain("codex_clean_comment_count=");
+    expect(automerge).toContain("reviewforge_quota_count");
+    expect(automerge).toContain("timeout, skip, outage or clean Codex are not merge permission");
     expect(ci).toContain("if [ \"$codex_inline_count\" -gt 0 ]; then");
     expect(ci).toContain("CodeRabbit changes were recorded while Codex fallback was running");
     expect(wakeup).toContain('EVENT_ACTOR:-}" = "chatgpt-codex-connector[bot]"');

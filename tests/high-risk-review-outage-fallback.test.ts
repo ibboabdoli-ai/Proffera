@@ -49,21 +49,17 @@ describe("high-risk AI review outage fallback", () => {
     );
   });
 
-  it("keeps automerge fallback outage-bounded and supervisor-triggered", () => {
-    expect(automerge).toContain("CodeRabbit availability failure after exact-head request");
-    expect(automerge).toContain("bounded 300-second CodeRabbit timeout");
+  it("requires exact-head quota and ReviewForge proof for automerge fallback", () => {
+    expect(automerge).toContain("reviewforge_quota_count");
+    expect(automerge).toContain("CodeRabbit quota exact-head:");
+    expect(automerge).toContain("Review rate limited");
+    expect(automerge).toContain('reviewforge_fallback_used" != "yes"');
     expect(automerge).toContain("HUMAN_APPROVER: ibboabdoli-ai");
-    expect(automerge).toContain('select(.user.login == $requester');
-    expect(automerge).toContain('contains("@codex review")');
-    expect(automerge).toContain("no trusted exact-current-head Codex fallback request");
-    expect(automerge).toContain("codex_clean_comment_count=");
-    expect(automerge).toContain('select(.user.login == "chatgpt-codex-connector[bot]")');
-    expect(automerge).toContain('select(.created_at >= $request_time)');
-    expect(automerge).toContain('startswith("Codex Review: Didn\\u0027t find any major issues.")');
-    expect(automerge).not.toContain('startswith("Codex Review: Didn\\u0027t find any major issues. Breezy!")');
-    expect(automerge).toContain('select($sha | startswith($reviewed))');
-    expect(automerge).toContain('"$codex_clean_comment_count" -eq 0');
-    expect(automerge).toContain("Refused: Codex fallback posted current-head review findings.");
+    expect(automerge).toContain('select(.user.login == "reviewforge-ibbo-dev[bot]")');
+    expect(automerge).toContain('select(.state == "APPROVED" or .state == "CHANGES_REQUESTED" or .state == "DISMISSED")');
+    expect(automerge).not.toContain("bounded 300-second CodeRabbit timeout");
+    expect(automerge).not.toContain("codex_clean_comment_count=");
+    expect(automerge).toContain("timeout, skip, outage or clean Codex are not merge permission");
   });
 
   it("keeps current-head CodeRabbit change requests non-bypassable", () => {
