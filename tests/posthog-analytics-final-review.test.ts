@@ -181,13 +181,11 @@ describe("PostHog final review regressions", () => {
   });
 
   it("localizes the neutral consent control for English and Swedish client navigation plus query-localized flows", () => {
-    const layout = source("src/app/layout.tsx");
     const control = source("src/components/analytics/analytics-consent-control.tsx");
     const guestQuote = source("src/app/offert/svara/[token]/page.tsx");
     const booking = source("src/app/boka/[slug]/page.tsx");
     const offer = source("src/app/offert/[token]/page.tsx");
 
-    expect(layout).toContain("{!mariaPaymentStandalone && isPlatformSite && <AnalyticsConsentControl />}");
     expect(control).toContain('import { usePathname, useSearchParams } from "next/navigation"');
     expect(control).toContain("const pathname = usePathname()");
     expect(control).toContain("const searchParams = useSearchParams()");
@@ -245,15 +243,13 @@ describe("PostHog final review regressions", () => {
     expect(analyticsSourceFromReferrer("https://google.example.com/search?q=proffera")).toBe("external");
   });
 
-  it("documents optional consented PostHog analytics in both cookie policies", () => {
+  it("documents that optional PostHog analytics is disabled in both cookie policies", () => {
     const swedish = source("src/app/cookies/page.tsx");
     const english = source("src/app/en/cookies/page.tsx");
 
-    expect(swedish).toContain("PostHog");
-    expect(swedish).toContain("uttryckligt");
-    expect(swedish).not.toContain("införs i framtiden");
-    expect(english).toContain("PostHog");
-    expect(english).toContain("explicitly choose");
-    expect(english).not.toContain("introduced in the future");
+    expect(swedish).toContain("Valfri produktanalys via PostHog är avstängd på Proffera.");
+    expect(swedish).not.toContain("Analysinställningar");
+    expect(english).toContain("Optional product analytics via PostHog is disabled on Proffera.");
+    expect(english).not.toContain("Analytics settings");
   });
 });
