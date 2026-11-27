@@ -470,4 +470,8 @@ if (RUN_POSTGRES_INTEGRATION) {
       expect(claims.rows.some(row => row.booking_id === firstBookingId)).toBe(false);
     }, 30_000);
   });
+} else {
+  describe.skip("booking reminder PostgreSQL delivery claim", () => {
+    it("requires explicit PROFFERA_POSTGRES_INTEGRATION=1 opt-in", () => undefined);
+  });
 }

@@ -22,6 +22,13 @@ const writers = [
   ["proffera-ci-autofix.yml", "admit", ciGroup],
   ["proffera-ci-autofix.yml", "record", ciGroup],
 ] as const;
+// Model jobs join the same non-cancelling PR mutex to serialize the immediate
+// ledger gate and external model execution with admission/recording writers.
+const modelJobs = [
+  ["supervisor-review-repair.yml", "repair", inputGroup],
+  ["proffera-ci-autofix.yml", "autofix", ciGroup],
+] as const;
+const mutexParticipants = [...writers, ...modelJobs] as const;
 function settings(index: number): Concurrency {
   const [file, job] = writers[index];
   const value = workflows[file].jobs[job].concurrency;
@@ -101,16 +108,21 @@ describe("Shared Failure Memory writer queue", () => {
         found.push(`${file}/${job}`);
       }
     }
-    expect(found.sort()).toEqual(writers.map(([file, job]) => `${file}/${job}`).sort());
+    expect(found.sort()).toEqual(mutexParticipants.map(([file, job]) => `${file}/${job}`).sort());
   });
 
-  it("keeps the per-PR mutex off model, validation, publication and workflow-wide execution", () => {
+  it("locks both model jobs but not validation, publication or workflow-wide execution", () => {
     for (const file of [...new Set(writers.map(([name]) => name))]) {
       const config = workflows[file].concurrency;
       const name = typeof config === "string" ? config : config?.group;
       expect(name ?? "").not.toContain("proffera-final-gate-memory-");
     }
-    for (const job of ["repair", "validate", "publish"]) {
+    for (const [file, job, group] of modelJobs) {
+      expect(workflows[file].jobs[job].concurrency).toEqual({
+        group, queue: "max", "cancel-in-progress": false,
+      });
+    }
+    for (const job of ["validate", "publish"]) {
       expect(workflows["supervisor-review-repair.yml"].jobs[job].concurrency).toBeUndefined();
     }
     const key = (input: string) =>

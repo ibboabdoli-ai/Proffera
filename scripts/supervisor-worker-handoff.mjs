@@ -6,6 +6,7 @@ import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
+import { workerStrategyDescriptor } from "./supervisor-worker-strategy-memory.mjs";
 
 export const TASK_PACKET_MARKER = "<!-- proffera-worker-task-packet:v1 -->";
 export const TASK_STATE_MARKER_PREFIX = "<!-- proffera-worker-task-state:";
@@ -35,6 +36,12 @@ export const HARD_BLOCKED_SCOPES = Object.freeze([
   "scripts/supervisor-review-repair-strategy-memory.mjs",
   "scripts/supervisor-ci-autofix-strategy-memory.mjs",
   "scripts/supervisor-ci-autofix-candidate.mjs",
+  "scripts/supervisor-authorization-policy.mjs",
+  "scripts/supervisor-preflight.mjs",
+  "scripts/supervisor-owner-push-pending.mjs",
+  "scripts/supervisor-b4-exclusive-reservation.mjs",
+  "scripts/supervisor-final-gate-memory.mjs",
+  "scripts/supervisor-final-gate-live.mjs",
   "scripts/supervisor-failure-memory.mjs",
   ".env",
   ".env.",
@@ -43,6 +50,7 @@ export const HARD_BLOCKED_SCOPES = Object.freeze([
   "migrations/",
   "supabase/",
   "prisma/",
+  ".npmrc",
   "package.json",
   "package-lock.json",
   "pnpm-lock.yaml",
@@ -558,8 +566,11 @@ export function evaluateDispatchContext(context) {
     }
   }
 
-  if (context?.secrets?.openai !== true || context?.secrets?.push !== true) {
-    return blocked("existing authenticated Codex/push dispatch capability is unavailable", packet, "dispatch_auth_unavailable");
+  // The Worker may prepare an owner-push artifact, never publish it. Keep
+  // model authentication mandatory; a push credential is intentionally not
+  // needed or admitted as part of the Worker dispatch boundary.
+  if (context?.secrets?.openai !== true) {
+    return blocked("existing authenticated Codex dispatch capability is unavailable", packet, "dispatch_auth_unavailable");
   }
 
   const liveMainSha = String(context.live_main_sha ?? "").toLowerCase();
@@ -1002,6 +1013,62 @@ function replacementLineCount(content) {
   return content.split("\n").length - (content.endsWith("\n") ? 1 : 0);
 }
 
+function replacementBytes(entry) {
+  if (!Object.hasOwn(entry, "content_base64")) return Buffer.from(replacementContent(entry), "utf8");
+  if (entry.deleted === true || Object.hasOwn(entry, "content") || Object.hasOwn(entry, "chunks")
+    || typeof entry.content_base64 !== "string") {
+    publicationFailure("replacement_incomplete", "binary replacement must provide only canonical base64 content");
+  }
+  const bytes = Buffer.from(entry.content_base64, "base64");
+  if (bytes.toString("base64") !== entry.content_base64) {
+    publicationFailure("replacement_incomplete", "binary replacement is not canonical base64");
+  }
+  return bytes;
+}
+
+function validateBinaryPublication(artifact, paths, sourceHead, expectedTree) {
+  if (!expectedTree) publicationFailure("target_tree_mismatch", "a binary publication requires a finalized tree");
+  const root = mkdtempSync(join(tmpdir(), "proffera-publication-binary-"));
+  const env = {...process.env, GIT_INDEX_FILE: join(root, "index")};
+  try {
+    gitOutput(["read-tree", sourceHead], {env});
+    gitOutput(["apply", "--cached", "--binary", "--whitespace=nowarn", "-"], {env, input: artifact.unified_diff});
+    const diff = gitOutput(["diff", "--cached", "--no-renames", "--no-abbrev", "--ignore-submodules=none",
+      "--raw", "-z", sourceHead], {env}).split("\0");
+    if (diff.pop() !== "" || diff.length !== paths.length * 2) {
+      publicationFailure("path_set_mismatch", "binary patch path inventory is incomplete");
+    }
+    const entries = new Map();
+    for (let i = 0; i < diff.length; i += 2) {
+      const match = diff[i].match(/^:(000000|100644) (000000|100644) ([a-f0-9]{40}) ([a-f0-9]{40}) [AMD]$/);
+      if (!match) publicationFailure("unsupported_mode", "binary patch changes an unsupported file mode");
+      entries.set(diff[i + 1], {deleted: match[2] === "000000", blob: match[4]});
+    }
+    if (!samePathSet([...entries.keys()], paths) || gitOutput(["write-tree"], {env}).trim() !== expectedTree) {
+      publicationFailure("target_tree_mismatch", "binary patch does not reconstruct the finalized scope and tree");
+    }
+    const manifests = new Map(artifact.manifest.map((entry) => [entry.path, entry]));
+    let total = 0;
+    for (const replacement of artifact.replacements) {
+      const entry = entries.get(replacement.path);
+      const manifest = manifests.get(replacement.path);
+      const bytes = replacementBytes(replacement);
+      total += bytes.length;
+      const digest = createHash("sha256").update(bytes).digest("hex");
+      const blob = entry.deleted ? "0".repeat(40)
+        : createHash("sha1").update(`blob ${bytes.length}\0`).update(bytes).digest("hex");
+      const lines = Object.hasOwn(replacement, "content_base64") ? null : replacementLineCount(bytes.toString("utf8"));
+      if (total > MAX_PUBLICATION_BYTES || entry.deleted !== (replacement.deleted === true)
+        || entry.deleted !== (manifest.deleted === true) || bytes.length !== manifest.bytes
+        || lines !== manifest.lines || digest !== manifest.sha256 || blob !== entry.blob || blob !== manifest.git_blob_sha) {
+        publicationFailure("digest_mismatch", "binary patch and replacement manifest do not agree");
+      }
+    }
+  } finally {
+    rmSync(root, {recursive: true, force: true});
+  }
+}
+
 function reconstructPublicationTargetTree(sourceHead, replacements) {
   const root = mkdtempSync(join(tmpdir(), "proffera-publication-tree-"));
   const index = join(root, "index");
@@ -1069,13 +1136,20 @@ export function validatePublicationArtifact(input) {
     const paths = normalizePublicationPaths(artifact.paths, "artifact.paths");
     const scope = validateChangedFiles(packet, paths);
     if (!scope.ok) publicationFailure(scope.code, scope.reason);
-    const diffEntries = parseUnifiedDiffPaths(artifact.unified_diff);
-    if (!samePathSet(paths, diffEntries.map((entry) => entry.path))) publicationFailure("path_set_mismatch", "unified diff path set does not exactly match artifact.paths");
     if (!Array.isArray(artifact.replacements) || !Array.isArray(artifact.manifest)) publicationFailure("artifact_malformed", "artifact replacements and manifest must be arrays");
     const replacementPaths = artifact.replacements.map((entry) => String(entry?.path ?? ""));
     const manifestPaths = artifact.manifest.map((entry) => String(entry?.path ?? ""));
     if (!samePathSet(paths, replacementPaths) || !samePathSet(paths, manifestPaths) || new Set(replacementPaths).size !== replacementPaths.length || new Set(manifestPaths).size !== manifestPaths.length) publicationFailure("path_set_mismatch", "replacement and manifest path sets must exactly match artifact.paths without duplicates");
 
+    if (/^GIT binary patch$/m.test(artifact.unified_diff)) {
+      validateBinaryPublication(artifact, paths, sourceHead, expectedTargetTreeSha);
+      return {ok: true, status: "VALID", code: "publication_artifact_valid",
+        reason: "binary patch, replacement digests and finalized tree verified",
+        source_head: sourceHead, target_head: targetHead, target_tree_sha: expectedTargetTreeSha,
+        run_id: artifactRunId, paths};
+    }
+    const diffEntries = parseUnifiedDiffPaths(artifact.unified_diff);
+    if (!samePathSet(paths, diffEntries.map((entry) => entry.path))) publicationFailure("path_set_mismatch", "unified diff path set does not exactly match artifact.paths");
     const manifests = new Map(artifact.manifest.map((entry) => [entry.path, entry]));
     const diffs = new Map(diffEntries.map((entry) => [entry.path, entry]));
     let aggregateBytes = 0;
@@ -1131,17 +1205,22 @@ export function buildPublicationArtifact({ packet: packetInput, source_head, tar
   if (!/^[1-9][0-9]*$/.test(runId)) throw new Error("publication run_id must be a positive workflow run ID");
   const targetTreeSha = gitOutput(["rev-parse", `${targetHead}^{tree}`]).trim().toLowerCase();
   if (!SHA_RE.test(targetTreeSha)) throw new Error("publication target tree is malformed");
-  const unifiedDiff = gitOutput(["diff", "--full-index", "--no-renames", "--no-ext-diff", `${sourceHead}..${targetHead}`]);
+  const unifiedDiff = gitOutput(["diff", "--binary", "--full-index", "--no-renames", "--no-ext-diff", `${sourceHead}..${targetHead}`]);
   const paths = gitOutput(["diff", "--name-only", "--no-renames", `${sourceHead}..${targetHead}`]).trim().split("\n").filter(Boolean);
   const bounded = validateChangedFiles(packet, paths);
   if (!bounded.ok) throw new Error(bounded.reason);
-  const replacements = paths.map((path) => gitObjectExists(`${targetHead}:${path}`)
-    ? { path, content: gitOutput(["show", `${targetHead}:${path}`]) }
-    : { path, deleted: true });
+  const replacements = paths.map((path) => {
+    if (!gitObjectExists(`${targetHead}:${path}`)) return {path, deleted: true};
+    const bytes = gitOutput(["show", `${targetHead}:${path}`], {encoding: null});
+    const content = bytes.toString("utf8");
+    return bytes.includes(0) || !Buffer.from(content, "utf8").equals(bytes)
+      ? {path, content_base64: bytes.toString("base64")}
+      : {path, content};
+  });
   const manifest = replacements.map((replacement) => {
-    const content = replacement.deleted ? "" : replacement.content;
-    const bytes = Buffer.from(content);
-    return { path: replacement.path, ...(replacement.deleted ? { deleted: true } : {}), bytes: bytes.length, lines: replacementLineCount(content), sha256: createHash("sha256").update(bytes).digest("hex"), git_blob_sha: replacement.deleted ? "0".repeat(40) : createHash("sha1").update(`blob ${bytes.length}\0`).update(bytes).digest("hex") };
+    const bytes = replacementBytes(replacement);
+    const lines = Object.hasOwn(replacement, "content_base64") ? null : replacementLineCount(bytes.toString("utf8"));
+    return { path: replacement.path, ...(replacement.deleted ? { deleted: true } : {}), bytes: bytes.length, lines, sha256: createHash("sha256").update(bytes).digest("hex"), git_blob_sha: replacement.deleted ? "0".repeat(40) : createHash("sha1").update(`blob ${bytes.length}\0`).update(bytes).digest("hex") };
   });
   const artifact = {
     task_id: packet.task_id,
@@ -2081,7 +2160,9 @@ function reservationRecords(comments) {
     const scopes = normalizeScopeArray(payload.allowed_paths, "reservation.allowed_paths");
     if (JSON.stringify(scopes) !== JSON.stringify(payload.allowed_paths)) throw new Error("reservation scope is not canonical");
     reservationFileList(payload.changed_files, "reservation.changed_files");
-    if (payload.planner_packet_evidence != null) plannerPacketFromReservationEvidence(payload);
+    if (payload.state !== "RELEASED" && payload.planner_packet_evidence != null) {
+      plannerPacketFromReservationEvidence(payload);
+    }
     if ((payload.state === "RESERVED" && (payload.pr_number != null || payload.recovery != null))
       || (payload.state === "PUBLISHED" && (payload.pr_number == null || payload.recovery != null))
       || (payload.state === "RECOVERABLE" && (!["branch", "artifact"].includes(payload.recovery?.kind)
@@ -2705,6 +2786,33 @@ export function createWorkerReservationAuthority(io) {
       const taskState = assertWorkerTask(task, packet, payload, prNumber);
       const dispatchMarker = `<!-- proffera-worker-dispatch-start:${packet.task_id}:${payload.run_id} -->`;
       const dispatch = trustedRecord(observed.comments, dispatchMarker);
+      // This authority is callable directly: never rely on CLI wrappers or
+      // caller-supplied callbacks to authenticate original Worker provenance.
+      const starts = parseWorkerStrategyDispatchStarts(observed.comments)
+        .filter((start) => start.task_id === packet.task_id);
+      const exactStarts = starts.filter((start) => String(start.run_id) === String(payload.run_id));
+      if (exactStarts.length !== 1) {
+        throw new Error("Worker strategy dispatch-start identity is missing or ambiguous; owner reconciliation required");
+      }
+      const descriptor = workerStrategyDescriptor(packet);
+      const start = exactStarts[0];
+      if (start.head !== packet.base_sha
+        || start.evidence_fingerprint !== descriptor.evidence_fingerprint
+        || start.strategy_fingerprint !== descriptor.strategy_fingerprint
+        || (input.original_run_attempt != null
+          && Number(input.original_run_attempt) !== start.run_attempt)) {
+        throw new Error("Worker strategy dispatch-start provenance conflicts with admitted packet");
+      }
+      // Both acceptance and denied released-PR reopen can write durable state.
+      // Authenticate original strategy evidence before either path; the
+      // post-plan freshness checks still guard writes after planning.
+      if (typeof input.beforeAdmissionPersist === "function") {
+        input.beforeAdmissionPersist({ packet, payload, comments: observed.comments });
+      }
+      io.assertOwner();
+      if (!equal(snapshot(), observed)) {
+        throw new Error("Worker strategy admission evidence changed before any durable write");
+      }
       if (payload.pr_number != null && payload.pr_number !== prNumber) throw new Error("reservation belongs to another PR");
       const released = payload.state === "RELEASED";
       const closedRelease = released && payload.pr_number === prNumber && payload.head_sha === pr.head.sha
@@ -2803,7 +2911,8 @@ export function createWorkerReservationAuthority(io) {
         verifyActivation();
       }
       return { ok: true, reservation_comment_id: id, task_id: packet.task_id, task_run_id: payload.run_id,
-        head_sha: pr.head.sha, reactivated: released || taskState === "CLOSED_UNMERGED", reservation_changed: expectedReservation.body !== own.body };
+        head_sha: pr.head.sha, strategy_start: start,
+        reactivated: released || taskState === "CLOSED_UNMERGED", reservation_changed: expectedReservation.body !== own.body };
     },
   };
 }
@@ -3189,12 +3298,87 @@ export async function recordWorkerStrategyOutcome(input) {
     packet,
     repository: input.repository,
     outcome,
-    run_id: input.run_id,
+    run_id: input.strategy_run_id ?? input.run_id,
     run_attempt: input.run_attempt,
     observed_at: input.observed_at,
     pr_number: input.pr_number ?? null,
   });
   const descriptor = strategy.workerStrategyDescriptor(packet);
+  if (outcome === "succeeded") {
+    // Read authenticated durable memory under the existing reservation mutex.
+    // A lifecycle/check replay is not a new execution; never refresh last_seen.
+    const runId = Number(input.strategy_run_id ?? input.run_id);
+    const attempt = Number(input.run_attempt);
+    const matches = current.memory.records.filter((record) =>
+      record.action_id === "worker_codex_attempt"
+      && Array.isArray(record.observations)
+      && record.observations.some((entry) => entry.source?.kind === "actions"
+        && Number(entry.source.run_id) === runId && Number(entry.source.attempt) === attempt));
+    if (matches.length > 0) {
+      const prior = matches[0];
+      if (matches.length !== 1 || prior.outcome !== "succeeded"
+        || prior.evidence_fingerprint !== descriptor.evidence_fingerprint
+        || prior.strategy_fingerprint !== descriptor.strategy_fingerprint
+        || !prior.observations.some((entry) => entry.source?.kind === "actions"
+          && Number(entry.source.run_id) === runId && Number(entry.source.attempt) === attempt
+          && entry.head === packet.base_sha)) {
+        throw new Error("Worker strategy success conflicts with a durable outcome for this attempt");
+      }
+      if (prior.pr_number !== Number(input.pr_number)) {
+        // Historical RECOVERABLE model successes had no PR number. Reuse their
+        // exact outcome only after independently authenticating the now-published
+        // Worker PR, original dispatch, and durable reservation under the mutex.
+        const prNumber = Number(input.pr_number);
+        if (prior.pr_number !== null || !Number.isSafeInteger(prNumber) || prNumber <= 0) {
+          throw new Error("Worker strategy success conflicts with a durable outcome for this attempt");
+        }
+        const pr = retryGitHubRead(() => githubApiJson([`repos/${input.repository}/pulls/${prNumber}`]));
+        const owned = reservationRecords(comments).filter((entry) => entry.payload.task_id === packet.task_id);
+        const starts = parseWorkerStrategyDispatchStarts(comments)
+          .filter((entry) => entry.task_id === packet.task_id && Number(entry.run_id) === runId);
+        if (pr?.number !== prNumber || pr.state !== "open" || pr.merged !== false
+          || pr.base?.ref !== "main" || pr.user?.login !== TRUSTED_SUPERVISOR_ACTOR
+          || pr.head?.repo?.full_name !== EXPECTED_REPOSITORY
+          || pr.head?.ref !== packet.branch || !SHA_RE.test(pr.head?.sha ?? "")
+          || !sameReservationPacket(owned[0]?.payload ?? {}, packet)
+          || owned.length !== 1 || owned[0].payload.state !== "PUBLISHED"
+          || owned[0].payload.pr_number !== prNumber
+          || owned[0].payload.head_sha !== pr.head.sha
+          || Number(owned[0].payload.run_id) !== runId
+          || starts.length !== 1 || starts[0].run_attempt !== attempt
+          || starts[0].head !== packet.base_sha
+          || starts[0].evidence_fingerprint !== descriptor.evidence_fingerprint
+          || starts[0].strategy_fingerprint !== descriptor.strategy_fingerprint
+          || JSON.stringify(parseTaskPacketComment(pr.body)) !== JSON.stringify(packet)) {
+          throw new Error("Worker strategy historical PR publication provenance is missing or inconsistent");
+        }
+        // Bind the authenticated publication to the existing success record.
+        // Replaying the lifecycle must not add an observation or change its
+        // outcome and timestamps, but merge-history detection needs this PR ID.
+        if (!Number.isSafeInteger(current.comment_id) || current.comment_id <= 0) {
+          throw new Error("Worker strategy historical success has no durable memory comment");
+        }
+        const bound = failure.bindWorkerSuccessPr(current, expected, prior.id, prNumber);
+        assertReservationMutex(input);
+        patchControlRecord(input, bound.comment_id, failure.serializeMemory(bound.memory));
+        const confirmed = failure.readTrustedMemory(githubAllIssueComments(input.repository), {
+          repository: input.repository,
+          scope: { kind: "task", task_id: packet.task_id },
+          complete: true,
+        });
+        if (JSON.stringify(failure.memoryIdentity(confirmed))
+          !== JSON.stringify(failure.memoryIdentity(bound))) {
+          throw new Error("Worker strategy historical PR association did not persist");
+        }
+      }
+      assertReservationMutex(input);
+      return {
+        decision: "ALREADY_RECORDED",
+        evidence_fingerprint: descriptor.evidence_fingerprint,
+        strategy_fingerprint: descriptor.strategy_fingerprint,
+      };
+    }
+  }
   const replacement = failure.mergeObservation(current, expected, observation);
   const unchanged = JSON.stringify(failure.memoryIdentity(replacement)) === JSON.stringify(expected);
   let expectedSnapshot = replacement;
@@ -3821,19 +4005,71 @@ async function main() {
     process.stdout.write(`${JSON.stringify(reconcileUnboundTasks(parsed))}\n`);
     return;
   }
-  if (mode === "reservation-acquire" || mode === "worker-pr-admit" || mode === "retarget-pr-reconcile"
+  if (mode === "worker-pr-admit") {
+    assertControlIdentity(parsed);
+    const authority = createWorkerReservationAuthority(workerReservationIO(parsed));
+    // admitPr authenticates the original strategy before it writes anything.
+    const result = authority.admitPr(parsed);
+    if (result.ok === true) {
+      // The original Worker run (not this lifecycle workflow run) owns the
+      // strategy start. Record its outcome only after authenticated admission.
+      const prNumber = Number(parsed.pr_number);
+      const pr = retryGitHubRead(() => githubApiJson([`repos/${parsed.repository}/pulls/${prNumber}`]));
+      if (pr?.state !== "open" || pr?.head?.sha !== result.head_sha
+        || pr?.head?.repo?.full_name !== parsed.repository
+        || pr?.user?.login !== TRUSTED_SUPERVISOR_ACTOR) {
+        throw new Error("Worker strategy outcome refused: admitted PR identity changed");
+      }
+      const packet = parseTaskPacketComment(pr.body);
+      if (packet.task_id !== result.task_id) throw new Error("Worker strategy admitted task identity changed");
+      const comments = githubAllIssueComments(parsed.repository);
+      const own = reservationRecords(comments).find((record) => record.payload.task_id === result.task_id);
+      if (!own || own.payload.state !== "PUBLISHED" || own.payload.pr_number !== prNumber
+        || own.payload.head_sha !== result.head_sha || String(own.payload.run_id) !== String(result.task_run_id)
+        || !sameReservationPacket(own.payload, packet)) {
+        throw new Error("Worker strategy success requires exact PUBLISHED reservation provenance");
+      }
+      // Re-read the trusted marker after admission and compare with the start
+      // validated by admitPr. A changed/removed marker must never be recorded
+      // as a successful Worker outcome.
+      const admittedStart = result.strategy_start;
+      if (!admittedStart || admittedStart.task_id !== result.task_id
+        || String(admittedStart.run_id) !== String(result.task_run_id)) {
+        throw new Error("Worker strategy admitted dispatch-start provenance is missing");
+      }
+      const starts = parseWorkerStrategyDispatchStarts(comments)
+        .filter((start) => start.task_id === result.task_id);
+      const exactStarts = starts.filter((start) => String(start.run_id) === String(result.task_run_id));
+      if (exactStarts.length !== 1) {
+        throw new Error("Worker strategy dispatch-start identity is missing or ambiguous; owner reconciliation required");
+      }
+      if (JSON.stringify(exactStarts[0]) !== JSON.stringify(admittedStart)) {
+        throw new Error("Worker strategy dispatch-start changed after authenticated admission");
+      }
+      const persisted = await recordWorkerStrategyOutcome({
+        ...parsed, packet, outcome: "succeeded", strategy_run_id: admittedStart.run_id,
+        run_attempt: admittedStart.run_attempt, pr_number: prNumber, observed_at: new Date().toISOString(),
+      });
+      if (persisted.decision !== "RECORDED" && persisted.decision !== "ALREADY_RECORDED") {
+        throw new Error("Worker strategy success did not persist");
+      }
+      result.strategy_outcome = persisted.decision;
+      assertReservationMutex(parsed);
+    }
+    process.stdout.write(`${JSON.stringify(result)}\n`);
+    return;
+  }
+  if (mode === "reservation-acquire" || mode === "retarget-pr-reconcile"
     || mode === "released-retarget-return-enforce" || mode === "published-retarget-return-enforce") {
     assertControlIdentity(parsed);
     const authority = createWorkerReservationAuthority(workerReservationIO(parsed));
     const result = mode === "reservation-acquire"
       ? authority.acquire(parsed)
-      : mode === "worker-pr-admit"
-        ? authority.admitPr(parsed)
-        : mode === "retarget-pr-reconcile"
-          ? authority.retargetPr(parsed)
-          : mode === "released-retarget-return-enforce"
-            ? authority.closeChangedReleasedRetargetPr(parsed)
-            : authority.closeRapidPublishedRetargetReturnPr(parsed);
+      : mode === "retarget-pr-reconcile"
+        ? authority.retargetPr(parsed)
+        : mode === "released-retarget-return-enforce"
+          ? authority.closeChangedReleasedRetargetPr(parsed)
+          : authority.closeRapidPublishedRetargetReturnPr(parsed);
     process.stdout.write(`${JSON.stringify(result)}\n`);
     return;
   }
