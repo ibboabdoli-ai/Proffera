@@ -903,7 +903,7 @@ ${reviewHead}
     expect(reviewRace.stdout).toContain("CodeRabbit changes were recorded before clean-comment automerge acceptance");
   }, 120000);
 
-  it("rejects a real current-head Codex inline finding in the executed automerge path", () => {
+  it("refuses both clean Codex and Codex findings when quota-only ReviewForge proof is absent", () => {
     const codexRequest = {
       id: 50, user: { login: "ibboabdoli-ai" },
       body: `<!-- proffera-codex-fallback-review-request:${reviewHead} -->\n@codex review`,
@@ -920,7 +920,8 @@ ${reviewHead}
     ];
     const clean = runAutomergeFixture({ comments });
     expect(clean.status, clean.stdout + clean.stderr).toBe(0);
-    expect(clean.stdout).toContain("AI_REVIEW_OK");
+    expect(clean.stdout).not.toContain("AI_REVIEW_OK");
+    expect(clean.stdout).toContain("no authenticated exact-current-head CodeRabbit quota");
 
     const withFinding = runAutomergeFixture({
       comments,
@@ -932,7 +933,7 @@ ${reviewHead}
     });
     expect(withFinding.status, withFinding.stdout + withFinding.stderr).toBe(0);
     expect(withFinding.stdout).not.toContain("AI_REVIEW_OK");
-    expect(withFinding.stdout).toContain("Refused: Codex fallback posted current-head review findings.");
+    expect(withFinding.stdout).toContain("no authenticated exact-current-head CodeRabbit quota");
   }, 30000);
 
   it("accepts only fresh exact-head official Codex clean comments with a prior trusted request", () => {
