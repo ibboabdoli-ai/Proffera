@@ -136,7 +136,8 @@ export function PublicDirectorySearchForm({
     }, FAST_GEOLOCATION_OPTIONS);
   }
 
-  const inputStyle = "min-h-12 w-full min-w-0 rounded-xl border border-line bg-white px-4 text-base text-ink outline-none focus:border-brand focus:ring-2 focus:ring-brand/15";
+  // Override the global font reset so iOS doesn't zoom into an inherited 14px field.
+  const inputStyle = "min-h-12 w-full min-w-0 rounded-xl border border-line bg-white px-4 text-[length:max(16px,1rem)]! text-ink outline-none focus:border-brand focus:ring-2 focus:ring-brand/15";
   const buttonStyle = "flex min-h-12 items-center justify-center gap-2 rounded-xl px-5 text-sm font-bold disabled:cursor-wait disabled:opacity-60";
 
   return (
