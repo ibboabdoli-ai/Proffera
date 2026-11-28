@@ -1,6 +1,23 @@
 import { expect, test } from "@playwright/test";
 
 test.describe("public marketplace smoke", () => {
+  for (const route of ["/", "/en", "/foretag/listad", "/en/companies"]) {
+    test(`mobile search text remains at least 16px while typing on ${route}`, async ({ page }) => {
+      await page.setViewportSize({ width: 390, height: 844 });
+      await page.goto(route);
+
+      for (const [name, value] of [["service", "Elektriker"], ["address", "Testgatan 5"]]) {
+        const input = page.locator(`form input[name="${name}"]`);
+        await input.fill(value);
+        await expect(input).toBeFocused();
+        await expect(input).toHaveValue(value);
+        // The rendered size matters even when a larger Tailwind utility is present.
+        expect(await input.evaluate((element) => parseFloat(getComputedStyle(element).fontSize)))
+          .toBeGreaterThanOrEqual(16);
+      }
+    });
+  }
+
   test("homepage service and address labels and inputs align on desktop", async ({ page }) => {
     await page.goto("/");
 
