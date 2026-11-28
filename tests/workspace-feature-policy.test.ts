@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import { isWorkspacePlanFeatureIncluded } from "../src/lib/workspace-feature-policy";
+import {
+  isWorkspacePlanFeatureIncluded,
+  resolveWorkspaceFeatureMinimumPlan,
+} from "../src/lib/workspace-feature-policy";
 
 const now = new Date("2026-08-06T09:00:00.000Z");
 
@@ -95,5 +98,38 @@ describe("workspace feature plan policy", () => {
       minimumPlan: "starter",
       now,
     })).toBe(false);
+  });
+
+  it("allows Starter SMS only for Makeup by Maria while preserving the shared catalog minimum", () => {
+    expect(resolveWorkspaceFeatureMinimumPlan({
+      workspaceSlug: "makeup-by-maria",
+      featureKey: "sms",
+      catalogMinimumPlan: "professional",
+    })).toBe("starter");
+
+    const mariaMinimumPlan = resolveWorkspaceFeatureMinimumPlan({
+      workspaceSlug: "makeup-by-maria",
+      featureKey: "sms",
+      catalogMinimumPlan: "professional",
+    });
+    expect(isWorkspacePlanFeatureIncluded({
+      planKey: "starter",
+      planStatus: "active",
+      planPeriodEnd: "2026-08-20T09:00:00.000Z",
+      minimumPlan: mariaMinimumPlan,
+      now,
+    })).toBe(true);
+
+    expect(resolveWorkspaceFeatureMinimumPlan({
+      workspaceSlug: "iboren",
+      featureKey: "sms",
+      catalogMinimumPlan: "professional",
+    })).toBe("professional");
+
+    expect(resolveWorkspaceFeatureMinimumPlan({
+      workspaceSlug: "makeup-by-maria",
+      featureKey: "online_booking",
+      catalogMinimumPlan: "professional",
+    })).toBe("professional");
   });
 });
