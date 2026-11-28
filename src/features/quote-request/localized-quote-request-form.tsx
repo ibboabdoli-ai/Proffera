@@ -1,6 +1,7 @@
 "use client";
 
 import { CheckCircle2 } from "lucide-react";
+import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState, useTransition } from "react";
 
 import { emitMarketplaceFunnelEvent } from "@/components/analytics/marketplace-funnel-signal";
@@ -36,6 +37,9 @@ type QuoteLanguageDraft = {
   smartAnswers: SmartQuoteAnswers;
   step: number;
 };
+
+// Private quote fields must remain in memory during same-tab locale navigation.
+let pendingLanguageDraft: QuoteLanguageDraft | null = null;
 
 function restoreDraftData(current: QuoteRequestInput, value: unknown): QuoteRequestInput {
   if (!value || typeof value !== "object" || Array.isArray(value)) return current;
@@ -83,7 +87,9 @@ export function LocalizedQuoteRequestForm({
   alternateLocaleLabel?: string;
 }) {
   const t = quoteFormCopy[locale];
+  const router = useRouter();
   const [step, setStep] = useState(0);
+  const [restoredLanguageDraft, setRestoredLanguageDraft] = useState<QuoteLanguageDraft | null>(null);
   const [data, setData] = useState<QuoteRequestInput>(() => ({
     ...initialQuoteRequest,
     ...sanitizeQuoteRequestPrefill(initialValues),
@@ -101,53 +107,43 @@ export function LocalizedQuoteRequestForm({
   const smartQuestions = getSmartQuoteQuestions(data.category, data.serviceType, locale);
 
   useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    if (params.get("resume") !== "1") return;
-
-    let frameId: number | null = null;
-    try {
-      const raw = window.sessionStorage.getItem(DRAFT_STORAGE_KEY);
-      if (!raw) return;
-
-      let parsedDraft: unknown;
-      try {
-        parsedDraft = JSON.parse(raw) as unknown;
-      } catch {
-        discardLanguageDraft();
-        return;
-      }
-      if (!parsedDraft || typeof parsedDraft !== "object" || Array.isArray(parsedDraft)) {
-        discardLanguageDraft();
-        return;
-      }
-      const draft = parsedDraft as Partial<QuoteLanguageDraft>;
-
-      const savedAt = Number(draft.savedAt);
-      const draftAge = Date.now() - savedAt;
-      if (!Number.isFinite(savedAt) || draftAge < 0 || draftAge > DRAFT_MAX_AGE_MS) {
-        discardLanguageDraft();
-        return;
-      }
-
-      const restoredSmartAnswers = restoreSmartAnswers(draft.smartAnswers);
-      const restoredStep = typeof draft.step === "number" && Number.isInteger(draft.step)
-        ? Math.max(0, Math.min(t.steps.length - 1, draft.step))
-        : null;
-
-      frameId = window.requestAnimationFrame(() => {
-        setData((current) => restoreDraftData(current, draft.data));
-        setSmartAnswers(restoredSmartAnswers);
-        if (restoredStep !== null) setStep(restoredStep);
-        discardLanguageDraft();
-      });
-    } catch {
-      // A blocked sessionStorage draft must never block the quote form.
+    // Clear sensitive drafts left by older versions; never read private values
+    // back from browser storage. Locale handoff is current-runtime only.
+    discardLanguageDraft();
+    if (new URLSearchParams(window.location.search).get("resume") !== "1") {
+      pendingLanguageDraft = null;
+      return;
     }
 
-    return () => {
-      if (frameId !== null) window.cancelAnimationFrame(frameId);
-    };
-  }, [t.steps.length]);
+    const draft = pendingLanguageDraft;
+    if (!draft) return;
+    const draftAge = Date.now() - draft.savedAt;
+    if (!Number.isFinite(draft.savedAt) || draftAge < 0 || draftAge > DRAFT_MAX_AGE_MS) {
+      pendingLanguageDraft = null;
+      return;
+    }
+
+    const restoredSmartAnswers = restoreSmartAnswers(draft.smartAnswers);
+    const restoredStep = typeof draft.step === "number" && Number.isInteger(draft.step)
+      ? Math.max(0, Math.min(t.steps.length - 1, draft.step))
+      : null;
+
+    // React Strict Mode cleanup may cancel this frame; the handoff stays
+    // available until the restored state has committed.
+    const frameId = window.requestAnimationFrame(() => {
+      setData((current) => restoreDraftData(current, draft.data));
+      setSmartAnswers(restoredSmartAnswers);
+      if (restoredStep !== null) setStep(restoredStep);
+      setRestoredLanguageDraft(draft);
+    });
+    return () => window.cancelAnimationFrame(frameId);
+  }, [locale, t.steps.length]);
+
+  useEffect(() => {
+    if (restoredLanguageDraft && pendingLanguageDraft === restoredLanguageDraft) {
+      pendingLanguageDraft = null;
+    }
+  }, [restoredLanguageDraft]);
 
   function update<Field extends QuoteRequestField>(field: Field, value: QuoteRequestInput[Field]) {
     setData((current) => ({ ...current, [field]: value, ...(field === "category" ? { serviceType: "" } : {}) }));
@@ -194,13 +190,8 @@ export function LocalizedQuoteRequestForm({
   function switchLanguage() {
     if (!alternateLocaleHref || submissionInFlight.current) return;
 
-    try {
-      const draft: QuoteLanguageDraft = { savedAt: Date.now(), data, smartAnswers, step };
-      window.sessionStorage.setItem(DRAFT_STORAGE_KEY, JSON.stringify(draft));
-    } catch {
-      // Continue to the other locale even when storage is unavailable.
-    }
-    window.location.assign(alternateLocaleHref);
+    pendingLanguageDraft = { savedAt: Date.now(), data: { ...data }, smartAnswers: { ...smartAnswers }, step };
+    router.push(alternateLocaleHref);
   }
 
   function handleSubmit() {
